@@ -380,6 +380,7 @@ pub fn run() {
             claude::artifacts_refresh,
             claude::artifacts_cancel,
             claude::artifacts_auto,
+            claude::artifacts_confirm,
             claude::artifacts_delete,
             claude::artifacts_edit,
             agents::agent_start,

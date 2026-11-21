@@ -18,6 +18,7 @@
   import ShortcutEditor from "$lib/ShortcutEditor.svelte";
   import SyncView from "$lib/SyncView.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import SectionNav from "$lib/ui/SectionNav.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ci, type CiNotify } from "$lib/ci.svelte";
   import { claudeView, loadArtifacts, type Artifacts } from "$lib/claude.svelte";
@@ -50,7 +51,7 @@
       words: ["settingsKeysHelp", ...actions.flatMap((a) => (a.help ? [a.label, a.help] : [a.label]))],
     },
     { id: "ci", label: "viewCi", icon: Workflow, words: ["ciNotify", "ciNotifyHelp", "ciNotifyMine", "ciNotifyAll"] },
-    { id: "claude", label: "claudeViewTitle", icon: Bot, words: ["claudeViewTabArtifacts", "claudeViewAuto"] },
+    { id: "claude", label: "claudeViewTitle", icon: Bot, words: ["claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"] },
     {
       id: "config",
       label: "settingsConfig",
@@ -103,9 +104,9 @@
     );
   }
 
-  function setArtifactsAuto(e: Event) {
+  function setArtifacts(e: Event, command: "artifacts_auto" | "artifacts_confirm", arg: "on" | "skip") {
     const input = e.currentTarget as HTMLInputElement;
-    invoke<Artifacts>("artifacts_auto", { on: input.checked }).then(
+    invoke<Artifacts>(command, { [arg]: input.checked }).then(
       (a) => (claudeView.artifacts = a),
       (e) => {
         input.checked = !input.checked;
@@ -118,7 +119,7 @@
 <div class="settings-view">
   <ViewHeader title={t("settings")} context={t("settingsContext")} />
   <div class="body">
-    <nav class="sections" aria-label={t("settings")}>
+    {#snippet search()}
       <div class="search">
         <Search size={14} aria-hidden="true" />
         <input
@@ -129,26 +130,21 @@
           bind:value={query}
         />
       </div>
-      <ul>
-        {#each found as section (section.id)}
-          <li>
-            <button
-              class="item"
-              aria-current={settings.section === section.id ? "page" : undefined}
-              onclick={() => (settings.section = section.id)}
-            >
-              <section.icon size={16} aria-hidden="true" />
-              <span class="label">{t(section.label)}</span>
-              {#if section.id === "sync" && (tone === "attention" || tone === "error")}
-                <span class="dot {tone}" role="img" aria-label={t("syncNeedsYou")} title={t("syncNeedsYou")}></span>
-              {/if}
-            </button>
-          </li>
-        {:else}
-          <li class="none">{t("filesNoResults")}</li>
-        {/each}
-      </ul>
-    </nav>
+    {/snippet}
+    <SectionNav
+      items={found.map((s) => ({
+        id: s.id,
+        label: t(s.label),
+        icon: s.icon,
+        dot: s.id !== "sync" ? null : tone === "error" ? "error" : tone === "attention" ? "warn" : null,
+        dotLabel: t("syncNeedsYou"),
+      }))}
+      current={settings.section}
+      label={t("settings")}
+      onselect={(id) => (settings.section = id)}
+      top={search}
+      empty={t("filesNoResults")}
+    />
 
     <div class="content">
       {#if error || (settings.section === "config" && settings.error)}
@@ -193,10 +189,22 @@
                 class="switch"
                 checked={(claudeView.artifacts?.refreshHours ?? 0) > 0}
                 disabled={!claudeView.artifacts}
-                onchange={setArtifactsAuto}
+                onchange={(e) => setArtifacts(e, "artifacts_auto", "on")}
               />
               {t("claudeViewAuto", { hours: claudeView.artifacts?.refreshHours || 6 })}
             </label>
+            <label class="check">
+              <input
+                type="checkbox"
+                role="switch"
+                class="switch"
+                checked={claudeView.artifacts?.deleteWithoutConfirmation ?? false}
+                disabled={!claudeView.artifacts}
+                onchange={(e) => setArtifacts(e, "artifacts_confirm", "skip")}
+              />
+              {t("claudeRedesignSkipConfirm")}
+            </label>
+            <p class="help">{t("claudeRedesignSkipConfirmHelp")}</p>
           {:else if settings.section === "config"}
             <h2>{t("settingsConfig")}</h2>
             {#if app.workspace}
@@ -235,17 +243,6 @@
     min-height: 0;
   }
 
-  .sections {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 0;
-    padding: 12px 8px;
-    overflow-y: auto;
-    border-right: 1px solid var(--border);
-    background: var(--chrome);
-  }
-
   .search {
     position: relative;
     color: var(--muted);
@@ -260,70 +257,6 @@
 
   .search .field {
     padding-left: 30px;
-  }
-
-  ul {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 30px;
-    padding: 5px 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: none;
-    color: var(--text);
-    font-weight: 500;
-    text-align: left;
-  }
-
-  .item:hover {
-    background: var(--hover);
-  }
-
-  .item[aria-current] {
-    background: var(--selected);
-  }
-
-  .item > :global(svg) {
-    flex-shrink: 0;
-    color: var(--muted);
-  }
-
-  .item[aria-current] > :global(svg) {
-    color: var(--accent-ink);
-  }
-
-  .label {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .dot {
-    flex-shrink: 0;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--waiting);
-  }
-
-  .dot.error {
-    background: var(--danger);
-  }
-
-  .none {
-    padding: 6px 8px;
-    color: var(--muted);
-    font-size: var(--text-sm);
   }
 
   .content {
@@ -373,6 +306,10 @@
     align-items: center;
     gap: 8px;
     cursor: pointer;
+  }
+
+  .check + .check {
+    margin-top: 12px;
   }
 
   code {

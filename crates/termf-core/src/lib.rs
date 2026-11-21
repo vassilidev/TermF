@@ -159,11 +159,15 @@ pub struct ArtifactSettings {
     /// A hidden Claude session lists the account's claude.ai artifacts at startup and every so many hours;
     /// 0: only when asked.
     pub refresh_hours: u32,
+    pub delete_without_confirmation: bool,
 }
 
 impl Default for ArtifactSettings {
     fn default() -> Self {
-        Self { refresh_hours: 6 }
+        Self {
+            refresh_hours: 6,
+            delete_without_confirmation: false,
+        }
     }
 }
 
@@ -377,6 +381,13 @@ pub fn save_artifacts_refresh(config_dir: &Path, hours: u32) -> Result<()> {
     edit_settings(config_dir, |doc| {
         doc.entry("artifacts").or_insert(toml_edit::table())["refresh_hours"] =
             value(i64::from(hours));
+    })
+}
+
+pub fn save_artifacts_delete_without_confirmation(config_dir: &Path, on: bool) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        doc.entry("artifacts").or_insert(toml_edit::table())["delete_without_confirmation"] =
+            value(on);
     })
 }
 
@@ -869,6 +880,15 @@ mod tests {
         let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
         assert!(text.starts_with("# mine\n"), "comments kept: {text}");
         assert_eq!(load_settings(&dir).unwrap().artifacts.refresh_hours, 0);
+        assert!(
+            !load_settings(&dir)
+                .unwrap()
+                .artifacts
+                .delete_without_confirmation
+        );
+        save_artifacts_delete_without_confirmation(&dir, true).unwrap();
+        let artifacts = load_settings(&dir).unwrap().artifacts;
+        assert!(artifacts.delete_without_confirmation && artifacts.refresh_hours == 0);
     }
 
     #[test]
