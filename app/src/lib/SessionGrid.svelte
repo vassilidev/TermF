@@ -15,7 +15,8 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { keys } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { allRepos, currentProject, isMac } from "$lib/files.svelte";
+  import { allRepos, currentProject } from "$lib/files.svelte";
+  import { aria } from "$lib/keymap.svelte";
   import { shown, tallies } from "$lib/project.svelte";
   import { app, grid, load, openLayout, ticked, ui } from "$lib/state.svelte";
 
@@ -86,10 +87,10 @@
           class:primary={!grid.broadcast}
           aria-haspopup="dialog"
           aria-expanded={ui.launcher}
-          aria-keyshortcuts={isMac ? "Meta+T" : "Control+Shift+T"}
+          aria-keyshortcuts={aria("new_session")}
           onclick={() => (ui.launcher = !ui.launcher)}
         >
-          <Plus size={14} aria-hidden="true" />{t("navNewSession")}<kbd>{keys.launcher}</kbd>
+          <Plus size={14} aria-hidden="true" />{t("navNewSession")}{#if keys.launcher}<kbd>{keys.launcher}</kbd>{/if}
         </button>
       {/if}
     {/snippet}

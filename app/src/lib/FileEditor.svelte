@@ -9,6 +9,7 @@
   import { MergeView } from "@codemirror/merge";
   import { tags } from "@lezer/highlight";
   import { lang, t } from "$lib/i18n";
+  import { display } from "$lib/keymap.svelte";
   import {
     ask,
     files,
@@ -214,7 +215,7 @@
   {/if}
 
   {#if !tab}
-    <p class="message muted">{t("filesEmpty", { key: isMac ? "⌘P" : "Ctrl+P" })}</p>
+    <p class="message muted">{t("filesEmpty", { key: display("find_file") })}</p>
   {:else}
     {@const issue = tab.content.kind === "text" ? (tab.diff ? headIssue : null) : tab.content}
     {#if issue?.kind === "binary"}

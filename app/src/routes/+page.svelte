@@ -8,6 +8,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
+  import { showSettings } from "$lib/settings.svelte";
   import { app, init, ui } from "$lib/state.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
@@ -40,7 +41,12 @@
           <Banner><span title={app.workspace.apiError}>{t("apiOff")}</span></Banner>
         {/if}
         {#if app.workspace?.quickTerminalError}
-          <Banner>{t("shortcutError", { error: app.workspace.quickTerminalError })}</Banner>
+          <Banner>
+            {t("shortcutError", { error: app.workspace.quickTerminalError })}
+            {#snippet action()}
+              <button class="btn sm" onclick={() => showSettings("keys")}>{t("shortcuts")}</button>
+            {/snippet}
+          </Banner>
         {/if}
         {#if app.workspace?.scanTruncated}
           <Banner>{t("truncated")}</Banner>

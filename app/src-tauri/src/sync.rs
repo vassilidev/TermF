@@ -28,6 +28,7 @@ pub const WRITES: &[&str] = &[
     "layout_delete",
     "keep_awake_set",
     "context_settings_set",
+    "keys_set",
     "library_toggle",
     "library_import_claude",
     "config_import_apply",

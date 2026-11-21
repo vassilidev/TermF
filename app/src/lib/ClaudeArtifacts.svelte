@@ -9,12 +9,14 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pencil from "@lucide/svelte/icons/pencil";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
   import Share2 from "@lucide/svelte/icons/share-2";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { focusSession } from "$lib/commands";
   import { ago, lang, t } from "$lib/i18n";
+  import { showSettings } from "$lib/settings.svelte";
   import { app, repoName, type Session } from "$lib/state.svelte";
   import { GALLERY, claudeView, copyText, openUrl, type Artifact, type Artifacts, type Failure } from "$lib/claude.svelte";
 
@@ -86,16 +88,13 @@
       <button class="btn sm" onclick={() => openUrl(GALLERY)}>
         <Images size={14} aria-hidden="true" />{t("claudeViewGallery")}
       </button>
-      <label class="auto">
-        <input
-          type="checkbox"
-          role="switch"
-          class="switch"
-          checked={(data?.refreshHours ?? 0) > 0}
-          onchange={(e) => call("artifacts_auto", { on: e.currentTarget.checked })}
-        />
-        {t("claudeViewAuto", { hours: data?.refreshHours || 6 })}
-      </label>
+      <button
+        class="btn sm quiet to-settings"
+        onclick={() => showSettings("claude")}
+        title={t("claudeViewAuto", { hours: data?.refreshHours || 6 })}
+      >
+        <SettingsIcon size={14} aria-hidden="true" />{t("settings")}
+      </button>
     </div>
 
     {#if refresh?.running && refresh.revealed}
@@ -200,12 +199,8 @@
     gap: 8px;
   }
 
-  .auto {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .to-settings {
     margin-left: auto;
-    font-size: var(--text-sm);
   }
 
   .notice {

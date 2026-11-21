@@ -9,6 +9,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t } from "$lib/i18n";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { display, pressed } from "$lib/keymap.svelte";
   import { app, ui } from "$lib/state.svelte";
   import {
     activate,
@@ -16,7 +17,6 @@
     closeTab,
     currentProject,
     files,
-    isMac,
     refreshStatus,
     scopeRepo,
     sync,
@@ -65,14 +65,13 @@
     files.tabs.forEach(sync);
   }
 
-  // Only while this view is shown: Ctrl+P belongs to the shell in a terminal.
+  // Only while this view is shown (their scope): Ctrl+P belongs to the shell in a terminal.
   function onkeydown(e: KeyboardEvent) {
-    if (ui.view !== "files" || !(isMac ? e.metaKey : e.ctrlKey) || !files.repo) return;
-    const key = e.key.toLowerCase();
-    if (key === "p" && !e.shiftKey) {
+    const asked = files.repo ? pressed(e)?.id : null;
+    if (asked === "find_file") {
       e.preventDefault();
       files.finder = true;
-    } else if (key === "f" && e.shiftKey) {
+    } else if (asked === "search_project") {
       e.preventDefault();
       files.panel = "search";
       requestAnimationFrame(() => searchInput?.focus());
@@ -122,7 +121,7 @@
         <button
           aria-pressed={files.panel === "search"}
           onclick={() => (files.panel = "search")}
-          title={isMac ? "⌘⇧F" : "Ctrl+Shift+F"}
+          title={display("search_project")}
         >
           {t("filesSearchTab")}
         </button>

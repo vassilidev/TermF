@@ -4,6 +4,7 @@ import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
 import Images from "@lucide/svelte/icons/images";
+import Keyboard from "@lucide/svelte/icons/keyboard";
 import Coffee from "@lucide/svelte/icons/coffee";
 import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
@@ -20,7 +21,6 @@ import Play from "@lucide/svelte/icons/play";
 import Plus from "@lucide/svelte/icons/plus";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
-import SettingsIcon from "@lucide/svelte/icons/settings";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Telescope from "@lucide/svelte/icons/telescope";
@@ -31,9 +31,10 @@ import { showClaude } from "$lib/claude.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
-import { allRepos, files, isMac, scopeRepos, showFiles } from "$lib/files.svelte";
-import { exportConfig, importConfig, library, showLibrary } from "$lib/library.svelte";
-import { shortcut, type Command } from "$lib/nav-logic";
+import { allRepos, files, scopeRepos, showFiles } from "$lib/files.svelte";
+import { keys, pressed } from "$lib/keymap.svelte";
+import { library, showLibrary } from "$lib/library.svelte";
+import { type Command } from "$lib/nav-logic";
 import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { openSetup } from "$lib/onboarding.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
@@ -53,27 +54,14 @@ import {
   type KeepAwakeMode,
 } from "$lib/state.svelte";
 import { showScout } from "$lib/scout.svelte";
+import { exportConfig, importConfig, showSettings } from "$lib/settings.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
 import { launchTicket } from "$lib/tickets.svelte";
 import { dispatchWorkflow } from "$lib/ci.svelte";
 import { views } from "$lib/views";
 
 export { rank, type Command } from "$lib/nav-logic";
-
-const mod = isMac ? "⌘" : "Ctrl+";
-
-export const keys = {
-  palette: `${mod}K`,
-  quick: isMac ? "⌃`" : "Ctrl+`",
-  next: `${mod}J`,
-  maximize: isMac ? "⌘↵" : "Ctrl+Enter",
-  file: `${mod}P`,
-  ticket: isMac ? "⌘⇧L" : "Ctrl+Shift+L",
-  switcher: `${mod}O`,
-  launcher: isMac ? "⌘T" : "Ctrl+Shift+T",
-  tile: (n: number) => `${mod}${n}`,
-  project: (n: number) => (isMac ? `⌃${n}` : `Alt+${n}`),
-};
+export { keys } from "$lib/keymap.svelte";
 
 /** The session whose tile holds the keyboard focus, else the maximized one. */
 function activeSession(): number | null {
@@ -119,24 +107,23 @@ export async function openLauncher() {
 
 /** App-wide shortcuts, in the capture phase so a focused terminal does not also get them. */
 export function onShortcut(e: KeyboardEvent) {
-  const inTerminal = !!(e.target as Element | null)?.closest?.(".xterm");
   const tiles = app.sessions.filter(shown);
   const projects = app.workspace?.projects ?? [];
-  const asked = shortcut(e, isMac, inTerminal, { tiles: tiles.length, projects: projects.length });
-  if (!asked) return;
-  if (asked.action !== "palette" && ui.palette) return;
-  const n = "n" in asked ? asked.n : 0;
-  const actions = {
+  const asked = pressed(e, { tile: tiles.length, project: projects.length });
+  if (!asked || (ui.palette && asked.id !== "palette" && asked.id !== "quick_terminal")) return;
+  const n = asked.n ?? 0;
+  const actions: Record<string, () => void> = {
     palette: () => (ui.palette = !ui.palette),
-    next: nextWaiting,
-    ticket: launchTicket,
-    switcher: () => (ui.switcher = !ui.switcher),
-    launcher: openLauncher,
-    maximize: ui.view === "terminals" ? () => toggleMaximize() : null,
+    quick_terminal: toggleQuickTerminal,
+    next_waiting: nextWaiting,
+    launch_ticket: launchTicket,
+    switch_project: () => (ui.switcher = !ui.switcher),
+    new_session: openLauncher,
+    maximize: () => toggleMaximize(),
     tile: () => focusSession(tiles[n - 1].id),
     project: () => setProject(projects[n - 1].id),
   };
-  const action = actions[asked.action];
+  const action = actions[asked.id];
   if (!action) return;
   e.preventDefault();
   e.stopPropagation();
@@ -321,7 +308,7 @@ export function commands(): Command[] {
   const action = (command: Omit<Command, "group">) => list.push({ ...command, group: "actions" });
   action({ id: "switcher", label: t("navSwitchProject"), keys: keys.switcher, icon: ArrowLeftRight, run: () => (ui.switcher = true) });
   action({ id: "launcher", label: t("navNewSession"), keys: keys.launcher, icon: Plus, run: openLauncher });
-  action({ id: "settings", label: t("settings"), icon: SettingsIcon, run: () => (ui.settings = true) });
+  action({ id: "shortcuts", label: t("shortcuts"), icon: Keyboard, run: () => showSettings("keys") });
   action({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
   action({ id: "ticket-launch", label: t("ticketLaunchLong"), keys: keys.ticket, icon: Ticket, run: launchTicket });
   action({ id: "ci-dispatch", label: t("ciDispatchLong"), icon: Workflow, run: dispatchWorkflow });
