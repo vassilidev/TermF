@@ -1,8 +1,11 @@
 <script lang="ts">
+  import FileDown from "@lucide/svelte/icons/file-down";
+  import FileUp from "@lucide/svelte/icons/file-up";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import KeepAwake from "$lib/KeepAwake.svelte";
   import { t } from "$lib/i18n";
+  import { exportConfig, importConfig } from "$lib/library.svelte";
   import { app, load, ui } from "$lib/state.svelte";
 
   let trigger: HTMLButtonElement;
@@ -59,6 +62,14 @@
         <button class="btn sm" onclick={load}>
           <RefreshCw size={14} aria-hidden="true" />{t("reload")}
         </button>
+        <div class="transfer">
+          <button class="btn sm" onclick={() => (close(false), exportConfig())}>
+            <FileDown size={14} aria-hidden="true" />{t("configExportLong")}
+          </button>
+          <button class="btn sm" onclick={() => (close(false), importConfig())}>
+            <FileUp size={14} aria-hidden="true" />{t("configImportLong")}
+          </button>
+        </div>
       </section>
     {/if}
   </div>
@@ -105,6 +116,15 @@
 
   .config {
     padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .transfer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+    padding-top: 12px;
     border-top: 1px solid var(--border);
   }
 

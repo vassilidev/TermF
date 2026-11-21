@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::State;
 use termf_library::archive::{self, Exported, Preview};
+use termf_library::conventions::{self, Answer, Convention, Conventions, Impact, Level, Review};
 use termf_library::{Imported, Item, Kind, Scope};
 
 use crate::{AppState, CmdResult, err};
@@ -84,4 +85,143 @@ pub async fn config_import_apply(
     replace: Vec<String>,
 ) -> CmdResult<Preview> {
     archive::apply(Path::new(&path), &state.config_dir, &replace).map_err(err)
+}
+
+/// The program of the first Claude Code agent in the settings, else `claude`. It runs directly, with the login
+/// shell's PATH (see `conventions::propose`).
+fn claude(config_dir: &Path) -> Vec<String> {
+    let settings = termf_core::load_settings(config_dir).unwrap_or_default();
+    let program = settings
+        .agents
+        .values()
+        .find(|c| termf_core::claude::is_claude(c))
+        .and_then(|c| c.split_whitespace().next())
+        .unwrap_or("claude");
+    // shortcut: on Windows an npm `claude.cmd` is not found this way; go through `cmd /c` when that matters.
+    vec![program.into()]
+}
+
+/// Runs a slow call (Claude Code, check scripts) off the async runtime.
+async fn blocking<T: Send + 'static>(
+    state: &AppState,
+    call: impl FnOnce(&Path) -> anyhow::Result<T> + Send + 'static,
+) -> CmdResult<T> {
+    let config_dir = state.config_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || call(&config_dir))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_list(
+    state: State<'_, AppState>,
+    project: String,
+) -> CmdResult<Conventions> {
+    conventions::list(&state.config_dir, &project).map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_save(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+    source: String,
+) -> CmdResult<Convention> {
+    conventions::save_source(&state.config_dir, &project, &slug, &source).map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_delete(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+) -> CmdResult<()> {
+    conventions::delete(&state.config_dir, &project, &slug).map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_propose(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+    answers: Vec<Answer>,
+) -> CmdResult<Convention> {
+    blocking(&state, move |dir| {
+        conventions::propose(dir, &project, &slug, answers, &claude(dir))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn conventions_revise(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+    name: String,
+    comment: String,
+) -> CmdResult<Convention> {
+    blocking(&state, move |dir| {
+        conventions::revise(dir, &project, &slug, &name, &comment, &claude(dir))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn conventions_review(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+    name: String,
+    review: Option<Review>,
+    level: Option<Level>,
+) -> CmdResult<Convention> {
+    conventions::review(&state.config_dir, &project, &slug, &name, review, level).map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_discard(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+) -> CmdResult<Convention> {
+    conventions::discard(&state.config_dir, &project, &slug).map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_apply(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+) -> CmdResult<Convention> {
+    conventions::apply(&state.config_dir, &project, &slug).map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_switch(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+    sentence: String,
+    enabled: Option<bool>,
+    level: Option<Level>,
+) -> CmdResult<Convention> {
+    conventions::switch(
+        &state.config_dir,
+        &project,
+        &slug,
+        &sentence,
+        enabled,
+        level,
+    )
+    .map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_impact(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+) -> CmdResult<Vec<Impact>> {
+    blocking(&state, move |dir| conventions::impact(dir, &project, &slug)).await
 }
