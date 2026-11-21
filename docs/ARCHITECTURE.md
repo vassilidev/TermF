@@ -741,9 +741,10 @@ Tu décris tes conventions en langage naturel. L'IA les traduit en éléments co
 
 ### 11.2 Agent de veille : améliorer la bibliothèque à partir du web (obligatoire)
 
-Un agent parcourt Internet (documentation officielle d'Anthropic et de Claude Code, guides de bonnes pratiques, collections reconnues de skills et de commandes) et propose d'améliorer la qualité de la bibliothèque : prompts des rôles, préférences, règles, skills, commandes, ainsi que de nouveaux éléments utiles.
+Un agent parcourt Internet (documentation officielle d'Anthropic et de Claude Code, guides de bonnes pratiques, collections reconnues de skills et de commandes) et critique puis propose d'améliorer la qualité de la bibliothèque : prompts des rôles, préférences, règles, skills, commandes, ainsi que de nouveaux éléments utiles.
 
-- **Lancement** : à la demande (vue Bibliothèque, palette `⌘K`, CLI) et automatiquement en tâche de fond, à une fréquence réglable (hebdomadaire par défaut, désactivable).
+- **Lancement** : à la demande, quand on veut (vue Bibliothèque, palette `⌘K`, CLI), sur toute la bibliothèque ou sur les éléments choisis. Pas de lancement automatique.
+- **Critique** : pour chaque élément examiné, ses défauts (flou, contradictions, redondances, consignes dépassées, manques) avec la bonne pratique et la source qui les fondent, même quand aucune réécriture n'est proposée.
 - **Exécution** : headless (`claude -p --json-schema`), avec seulement la recherche et la lecture web et une lecture seule de la bibliothèque ; aucun outil d'écriture, aucun accès aux dépôts ni aux secrets.
 - **Propositions** : élément par élément, avec le diff par rapport à la version actuelle, ce que ça améliore et les **sources citées** (URL). Même revue que les conventions (§11.1) : valider, refuser ou demander une modification ; application journalisée ; une proposition refusée n'est pas reproposée.
 - **Couches respectées** : une amélioration d'un élément livré s'écrit comme surcharge dans la couche globale, jamais dans les fichiers livrés ; un élément de projet reste dans sa couche.
