@@ -132,7 +132,7 @@ export function init(): () => void {
   const unlistenOpened = listen<Session>("session-opened", ({ payload }) => {
     if (!app.sessions.some((s) => s.id === payload.id)) app.sessions.push(payload);
   });
-  invoke<ContextSettings>("context_settings").then((s) => (app.contextSettings = s), () => {});
+  invoke<ContextSettings>("context_settings").then((s) => { app.contextSettings = s; }, () => {});
   const unlistenContext = listen<{ id: number; context: Gauge }>("session-context", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.context = payload.context;

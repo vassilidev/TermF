@@ -182,10 +182,10 @@
       <button class="btn sm" onclick={refresh}>
         <RefreshCw size={14} aria-hidden="true" />{t("sshRefresh")}
       </button>
-      <button class="btn sm" onclick={() => (ssh.panel = { kind: "host", host: null })}>
+      <button class="btn sm" onclick={() => { ssh.panel = { kind: "host", host: null }; }}>
         <Server size={14} aria-hidden="true" />{t("sshHostNew")}
       </button>
-      <button class="btn sm" onclick={() => (ssh.panel = { kind: "generate" })}>
+      <button class="btn sm" onclick={() => { ssh.panel = { kind: "generate" }; }}>
         <Plus size={14} aria-hidden="true" />{t("sshGenerate")}
       </button>
     </div>
@@ -262,7 +262,7 @@
         <KeyRound size={20} aria-hidden="true" />
         <h2>{t("sshNoKeys")}</h2>
         <p>{t("sshNoKeysHelp")}</p>
-        <button class="btn primary" onclick={() => (ssh.panel = { kind: "generate" })}>
+        <button class="btn primary" onclick={() => { ssh.panel = { kind: "generate" }; }}>
           <Plus size={14} aria-hidden="true" />{t("sshGenerate")}
         </button>
       </div>
@@ -335,7 +335,7 @@
                   <CloudUpload size={14} aria-hidden="true" />{t("sshUpload")}
                 </button>
               {/if}
-              <button class="btn sm" onclick={() => (ssh.panel = { kind: "rotate", key })}>
+              <button class="btn sm" onclick={() => { ssh.panel = { kind: "rotate", key }; }}>
                 <RotateCw size={14} aria-hidden="true" />{t("sshRotate")}
               </button>
             </div>
@@ -490,7 +490,7 @@
         <div class="empty">
           <Server size={20} aria-hidden="true" />
           <p>{t("sshHostsEmpty")}</p>
-          <button class="btn" onclick={() => (ssh.panel = { kind: "host", host: null })}>
+          <button class="btn" onclick={() => { ssh.panel = { kind: "host", host: null }; }}>
             <Plus size={14} aria-hidden="true" />{t("sshHostNew")}
           </button>
         </div>
@@ -531,7 +531,7 @@
                     <div class="row-actions">
                       {@render testButton(host.patterns[0])}
                       {#if editable && !reason}
-                        <button class="btn sm" onclick={() => (ssh.panel = { kind: "host", host })}>{t("sshEdit")}</button>
+                        <button class="btn sm" onclick={() => { ssh.panel = { kind: "host", host }; }}>{t("sshEdit")}</button>
                       {/if}
                     </div>
                   {/if}

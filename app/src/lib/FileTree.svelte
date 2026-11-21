@@ -21,7 +21,7 @@
   $effect(() => {
     void files.version;
     invoke<Entry[]>("files_list", { repo, dir })
-      .then((list) => (entries = list))
+      .then((list) => { entries = list; })
       .catch((e) => (files.error = String(e)));
   });
 

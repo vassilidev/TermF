@@ -283,7 +283,7 @@
     <div class="buttons">
       <button class="btn sm" onclick={() => (step = null)}>{t("cancel")}</button>
       {#if open}<button class="btn sm" onclick={preview} disabled={!!busy}>{t("runDeliver")}</button>{/if}
-      <button class="btn sm" onclick={() => (step = { kind: "force" })}>{t("closeForce")}</button>
+      <button class="btn sm" onclick={() => { step = { kind: "force" }; }}>{t("closeForce")}</button>
     </div>
   </section>
 {:else if step?.kind === "force"}
