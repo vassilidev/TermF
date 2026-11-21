@@ -1,6 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
-import { app, load, ui } from "$lib/state.svelte";
+import { app, ui } from "$lib/state.svelte";
 
 export type Kind = "skill" | "command" | "role" | "preference" | "rule" | "workflow";
 export type Layer = "shipped" | "global" | "project" | "repo" | "run";
@@ -39,13 +37,7 @@ export type Preview = {
 
 export const kinds: Kind[] = ["skill", "command", "role", "preference", "rule", "workflow"];
 
-type Panel =
-  | null
-  | { kind: "claude" }
-  | { kind: "exported"; files: number; skippedLinks: string[] }
-  | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean }
-  | { kind: "sync" }
-  | { kind: "scout" };
+type Panel = null | { kind: "claude" } | { kind: "scout" };
 
 export const library = $state({
   /** Loaded once first shown, then kept mounted, like the Files view. */
@@ -67,38 +59,6 @@ export const library = $state({
 export function showLibrary() {
   ui.view = "library";
   library.loaded = true;
-}
-
-const archiveFilter = [{ name: "TermF", extensions: ["gz", "tgz"] }];
-
-export async function exportConfig() {
-  showLibrary();
-  const path = await save({ defaultPath: "termf-config.tar.gz", filters: archiveFilter });
-  if (!path) return;
-  await busy(async () => {
-    const result = await invoke<{ files: number; skippedLinks: string[] }>("config_export", { path });
-    library.panel = { kind: "exported", ...result };
-  });
-}
-
-export async function importConfig() {
-  showLibrary();
-  const path = await open({ multiple: false, directory: false, filters: archiveFilter });
-  if (!path) return;
-  await busy(async () => {
-    const preview = await invoke<Preview>("config_import_preview", { path });
-    library.panel = { kind: "import", path, preview, replace: [], done: false };
-  });
-}
-
-export async function applyImport() {
-  const panel = library.panel;
-  if (panel?.kind !== "import") return;
-  await busy(async () => {
-    panel.preview = await invoke<Preview>("config_import_apply", { path: panel.path, replace: panel.replace });
-    panel.done = true;
-    await load();
-  });
 }
 
 /** What importing does with a change, as `Change::action` decides it. */

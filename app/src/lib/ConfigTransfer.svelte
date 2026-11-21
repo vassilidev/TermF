@@ -7,7 +7,11 @@
   import X from "@lucide/svelte/icons/x";
   import { t } from "$lib/i18n";
   import { app, shortPath } from "$lib/state.svelte";
-  import { action, applyImport, busy, library, type Change, type Imported } from "$lib/library.svelte";
+  import { action, busy, library, type Change, type Imported } from "$lib/library.svelte";
+  import { applyImport, settings, type Transfer } from "$lib/settings.svelte";
+
+  /** Claude Code's import in the Library, or a configuration's export or import in Settings. */
+  let { panel }: { panel: { kind: "claude" } | Transfer } = $props();
 
   const project = $derived(app.workspace?.projects.find((p) => p.id === library.scope));
   let source = $state("");
@@ -54,8 +58,7 @@
   }
 
   function choose(change: Change, replace: boolean) {
-    const panel = library.panel;
-    if (panel?.kind !== "import") return;
+    if (panel.kind !== "import") return;
     panel.replace = replace
       ? [...panel.replace, change.item]
       : panel.replace.filter((i) => i !== change.item);
@@ -68,177 +71,175 @@
   }
 
   function close() {
-    library.panel = null;
+    if (panel.kind === "claude") library.panel = null;
+    else settings.transfer = null;
     library.version++;
   }
 </script>
 
-{#if library.panel && library.panel.kind !== "sync" && library.panel.kind !== "scout"}
-  {@const panel = library.panel}
-  <section class="transfer">
-    <header>
-      <h2>
-        {#if panel.kind === "claude"}{t("claudeImport")}
-        {:else if panel.kind === "exported"}{t("exportDone")}
-        {:else}{panel.done ? t("importDone") : t("importTitle")}{/if}
-      </h2>
-      <button class="icon-btn" onclick={close} aria-label={t("close")} title={t("close")}>
-        <X size={16} aria-hidden="true" />
-      </button>
-    </header>
+<section class="transfer">
+  <header>
+    <h2>
+      {#if panel.kind === "claude"}{t("claudeImport")}
+      {:else if panel.kind === "exported"}{t("exportDone")}
+      {:else}{panel.done ? t("importDone") : t("importTitle")}{/if}
+    </h2>
+    <button class="icon-btn" onclick={close} aria-label={t("close")} title={t("close")}>
+      <X size={16} aria-hidden="true" />
+    </button>
+  </header>
 
-    {#if panel.kind === "claude"}
-      <p class="lead">
-        {project ? t("claudeImportHelpProject", { project: project.name }) : t("claudeImportHelpGlobal")}
-      </p>
-      <div class="form">
-        <label class="labelled">
-          <span>{t("claudeImportFrom")}</span>
-          <select class="field" bind:value={source}>
-            <option value="">~/.claude</option>
-            {#each project?.repos ?? [] as repo (repo.path)}
-              <option value={repo.path}>{repo.name}/.claude</option>
-            {/each}
-          </select>
-        </label>
-        <label class="check">
-          <input type="checkbox" bind:checked={overwrite} />
-          {t("claudeImportOverwrite")}
-        </label>
-        <div>
-          <button class="btn primary" onclick={importClaude} disabled={library.busy}>{t("claudeImportRun")}</button>
-        </div>
+  {#if panel.kind === "claude"}
+    <p class="lead">
+      {project ? t("claudeImportHelpProject", { project: project.name }) : t("claudeImportHelpGlobal")}
+    </p>
+    <div class="form">
+      <label class="labelled">
+        <span>{t("claudeImportFrom")}</span>
+        <select class="field" bind:value={source}>
+          <option value="">~/.claude</option>
+          {#each project?.repos ?? [] as repo (repo.path)}
+            <option value={repo.path}>{repo.name}/.claude</option>
+          {/each}
+        </select>
+      </label>
+      <label class="check">
+        <input type="checkbox" bind:checked={overwrite} />
+        {t("claudeImportOverwrite")}
+      </label>
+      <div>
+        <button class="btn primary" onclick={importClaude} disabled={library.busy}>{t("claudeImportRun")}</button>
       </div>
-      {#if report}
-        {#if report.length}
-          <table>
-            <thead>
-              <tr><th>{t("columnItem")}</th><th>{t("columnKind")}</th><th>{t("columnResult")}</th></tr>
-            </thead>
-            <tbody>
-              {#each report as row (row.kind + row.name)}
-                <tr>
-                  <td class="mono">{row.name}</td>
-                  <td>{t(kindLabel[row.kind])}</td>
-                  <td class="outcome {row.outcome}">{t(outcomeLabel[row.outcome])}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <p class="notice"><Info size={14} aria-hidden="true" />{t("claudeImportNothing")}</p>
-        {/if}
-      {/if}
-    {:else if panel.kind === "exported"}
-      <p class="lead">
-        <Check size={16} aria-hidden="true" class="ok" />{t("exportSummary", { count: panel.files })}
-      </p>
-      {#if panel.skippedLinks.length}
-        <div class="notice">
-          <Link size={14} aria-hidden="true" />
-          <div>
-            {t("exportLinks")}
-            <ul class="paths">
-              {#each panel.skippedLinks as path (path)}<li class="mono">{path}</li>{/each}
-            </ul>
-          </div>
-        </div>
-      {/if}
-    {:else}
-      {@const changes = panel.preview.changes}
-      {@const pending = changes.filter((c) => c.status !== "unchanged")}
-      {@const same = changes.length - pending.length}
-      <p class="lead mono">{shortPath(panel.path)}</p>
-      {#if !panel.done}
-        <p class="muted help">{t("importHelp")}</p>
-      {/if}
-      {#if pending.length}
+    </div>
+    {#if report}
+      {#if report.length}
         <table>
           <thead>
-            <tr>
-              <th>{t("columnItem")}</th>
-              <th>{t("columnState")}</th>
-              <th>{panel.done ? t("columnResult") : t("columnChoice")}</th>
-            </tr>
+            <tr><th>{t("columnItem")}</th><th>{t("columnKind")}</th><th>{t("columnResult")}</th></tr>
           </thead>
           <tbody>
-            {#each showUnchanged ? changes : pending as change (change.item)}
-              {@const replaced = panel.replace.includes(change.item)}
+            {#each report as row (row.kind + row.name)}
               <tr>
-                <td class="mono">{change.item}</td>
-                <td>
-                  {#if change.linked}
-                    <span class="state linked"><Link size={12} aria-hidden="true" />{t("statusLinked")}</span>
-                  {:else}
-                    <span class="state {change.status}">{t(statusLabel[change.status])}</span>
-                  {/if}
-                  {#if change.conflicts.length}
-                    <span class="keys">{t("conflictKeys", { keys: change.conflicts.join(", ") })}</span>
-                  {/if}
-                  {#if change.addedKeys.length && !change.linked}
-                    <span class="keys">{t("addedKeys", { keys: change.addedKeys.join(", ") })}</span>
-                  {/if}
-                </td>
-                <td>
-                  {#if panel.done}
-                    {t(actionLabel[action(change, panel.replace)])}
-                  {:else if change.linked}
-                    <span class="muted">{t("linkedKept")}</span>
-                  {:else if change.status === "added"}
-                    <span class="muted">{t("willAdd")}</span>
-                  {:else if change.status !== "unchanged"}
-                    <div class="segmented" role="radiogroup" aria-label={change.item}>
-                      <button role="radio" aria-checked={!replaced} onclick={() => choose(change, false)}>
-                        {t("merge")}
-                      </button>
-                      <button role="radio" aria-checked={replaced} onclick={() => choose(change, true)}>
-                        {t("replace")}
-                      </button>
-                    </div>
-                    <span class="keys">{replaced ? t("replaceHint") : mergeHint(change)}</span>
-                  {/if}
-                </td>
+                <td class="mono">{row.name}</td>
+                <td>{t(kindLabel[row.kind])}</td>
+                <td class="outcome {row.outcome}">{t(outcomeLabel[row.outcome])}</td>
               </tr>
             {/each}
           </tbody>
         </table>
       {:else}
-        <p class="notice"><Info size={14} aria-hidden="true" />{t("importNothing")}</p>
-      {/if}
-      {#if same && pending.length}
-        <button class="btn sm quiet more" onclick={() => (showUnchanged = !showUnchanged)}>
-          {showUnchanged ? t("hideUnchanged") : t("showUnchanged", { count: same })}
-        </button>
-      {/if}
-
-      {#if panel.preview.missingRepos.length}
-        <div class="notice missing">
-          <FolderGit2 size={14} aria-hidden="true" />
-          <div>
-            {t("missingRepos")}
-            <ul class="paths">
-              {#each panel.preview.missingRepos as repo (repo.project + repo.path)}
-                <li>
-                  <span class="mono">{repo.path}</span>
-                  {#if repo.remote}<span class="mono muted"> · {repo.remote}</span>{/if}
-                </li>
-              {/each}
-            </ul>
-          </div>
-        </div>
-      {/if}
-
-      {#if !panel.done}
-        <footer>
-          <button class="btn" onclick={close}>{t("cancel")}</button>
-          <button class="btn primary" onclick={applyImport} disabled={library.busy || !pending.length}>
-            {t("importRun")}
-          </button>
-        </footer>
+        <p class="notice"><Info size={14} aria-hidden="true" />{t("claudeImportNothing")}</p>
       {/if}
     {/if}
-  </section>
-{/if}
+  {:else if panel.kind === "exported"}
+    <p class="lead">
+      <Check size={16} aria-hidden="true" class="ok" />{t("exportSummary", { count: panel.files })}
+    </p>
+    {#if panel.skippedLinks.length}
+      <div class="notice">
+        <Link size={14} aria-hidden="true" />
+        <div>
+          {t("exportLinks")}
+          <ul class="paths">
+            {#each panel.skippedLinks as path (path)}<li class="mono">{path}</li>{/each}
+          </ul>
+        </div>
+      </div>
+    {/if}
+  {:else}
+    {@const changes = panel.preview.changes}
+    {@const pending = changes.filter((c) => c.status !== "unchanged")}
+    {@const same = changes.length - pending.length}
+    <p class="lead mono">{shortPath(panel.path)}</p>
+    {#if !panel.done}
+      <p class="muted help">{t("importHelp")}</p>
+    {/if}
+    {#if pending.length}
+      <table>
+        <thead>
+          <tr>
+            <th>{t("columnItem")}</th>
+            <th>{t("columnState")}</th>
+            <th>{panel.done ? t("columnResult") : t("columnChoice")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each showUnchanged ? changes : pending as change (change.item)}
+            {@const replaced = panel.replace.includes(change.item)}
+            <tr>
+              <td class="mono">{change.item}</td>
+              <td>
+                {#if change.linked}
+                  <span class="state linked"><Link size={12} aria-hidden="true" />{t("statusLinked")}</span>
+                {:else}
+                  <span class="state {change.status}">{t(statusLabel[change.status])}</span>
+                {/if}
+                {#if change.conflicts.length}
+                  <span class="keys">{t("conflictKeys", { keys: change.conflicts.join(", ") })}</span>
+                {/if}
+                {#if change.addedKeys.length && !change.linked}
+                  <span class="keys">{t("addedKeys", { keys: change.addedKeys.join(", ") })}</span>
+                {/if}
+              </td>
+              <td>
+                {#if panel.done}
+                  {t(actionLabel[action(change, panel.replace)])}
+                {:else if change.linked}
+                  <span class="muted">{t("linkedKept")}</span>
+                {:else if change.status === "added"}
+                  <span class="muted">{t("willAdd")}</span>
+                {:else if change.status !== "unchanged"}
+                  <div class="segmented" role="radiogroup" aria-label={change.item}>
+                    <button role="radio" aria-checked={!replaced} onclick={() => choose(change, false)}>
+                      {t("merge")}
+                    </button>
+                    <button role="radio" aria-checked={replaced} onclick={() => choose(change, true)}>
+                      {t("replace")}
+                    </button>
+                  </div>
+                  <span class="keys">{replaced ? t("replaceHint") : mergeHint(change)}</span>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {:else}
+      <p class="notice"><Info size={14} aria-hidden="true" />{t("importNothing")}</p>
+    {/if}
+    {#if same && pending.length}
+      <button class="btn sm quiet more" onclick={() => (showUnchanged = !showUnchanged)}>
+        {showUnchanged ? t("hideUnchanged") : t("showUnchanged", { count: same })}
+      </button>
+    {/if}
+
+    {#if panel.preview.missingRepos.length}
+      <div class="notice missing">
+        <FolderGit2 size={14} aria-hidden="true" />
+        <div>
+          {t("missingRepos")}
+          <ul class="paths">
+            {#each panel.preview.missingRepos as repo (repo.project + repo.path)}
+              <li>
+                <span class="mono">{repo.path}</span>
+                {#if repo.remote}<span class="mono muted"> · {repo.remote}</span>{/if}
+              </li>
+            {/each}
+          </ul>
+        </div>
+      </div>
+    {/if}
+
+    {#if !panel.done}
+      <footer>
+        <button class="btn" onclick={close}>{t("cancel")}</button>
+        <button class="btn primary" onclick={applyImport} disabled={settings.busy || !pending.length}>
+          {t("importRun")}
+        </button>
+      </footer>
+    {/if}
+  {/if}
+</section>
 
 <style>
   .transfer {

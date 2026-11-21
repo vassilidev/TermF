@@ -19,10 +19,8 @@
   import Lock from "@lucide/svelte/icons/lock";
   import Power from "@lucide/svelte/icons/power";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
-  import X from "@lucide/svelte/icons/x";
   import SyncConflict from "$lib/SyncConflict.svelte";
   import { ago, t } from "$lib/i18n";
-  import { library } from "$lib/library.svelte";
   import { app } from "$lib/state.svelte";
   import {
     currentReport,
@@ -179,7 +177,7 @@
   const focus = (el: HTMLElement) => el.focus();
 </script>
 
-{#snippet spinner(command: string, Icon: typeof X)}
+{#snippet spinner(command: string, Icon: typeof Lock)}
   {#if sync.busy === command}
     <LoaderCircle size={14} aria-hidden="true" class="spin" />
   {:else}
@@ -279,9 +277,6 @@
           {@render spinner("sync_push", ArrowDownUp)}{t("syncNow")}
         </button>
       {/if}
-      <button class="icon-btn" onclick={() => (library.panel = null)} aria-label={t("close")} title={t("close")}>
-        <X size={16} aria-hidden="true" />
-      </button>
     </div>
   </header>
 
@@ -406,7 +401,7 @@
           />
         </section>
         <footer class="buttons">
-          <button type="button" class="btn" onclick={() => (library.panel = null)}>{t("cancel")}</button>
+          <button type="button" class="btn" onclick={() => (setMode(""), (joining = null))}>{t("cancel")}</button>
           <button class="btn primary" disabled={(joining ? !password : !newPasswordOk) || !!sync.busy}>
             {@render spinner("sync_setup", FolderSync)}{joining ? t("syncJoin") : t("syncCreate")}
           </button>

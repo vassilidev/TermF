@@ -261,6 +261,8 @@ pub fn run() {
             config::layouts,
             config::layout_save,
             config::layout_delete,
+            config::keys,
+            config::keys_set,
             quick_terminal::quick_terminal,
             keep_awake::keep_awake_state,
             keep_awake::keep_awake_set,

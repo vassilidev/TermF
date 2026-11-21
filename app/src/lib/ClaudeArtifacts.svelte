@@ -11,6 +11,7 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Search from "@lucide/svelte/icons/search";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
   import Share2 from "@lucide/svelte/icons/share-2";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -20,6 +21,7 @@
   import { focusSession } from "$lib/commands";
   import { ago, lang, t } from "$lib/i18n";
   import { projectsOf } from "$lib/nav-logic";
+  import { showSettings } from "$lib/settings.svelte";
   import { app, repoName, type Session } from "$lib/state.svelte";
   import { tickets } from "$lib/tickets.svelte";
   import { GALLERY, claudeView, copyText, openUrl, type Artifact, type Artifacts, type Failure } from "$lib/claude.svelte";
@@ -183,6 +185,9 @@
           <RefreshCw size={14} aria-hidden="true" />{t("claudeViewArtifactsRefresh")}
         </button>
       {/if}
+      <button class="btn sm quiet" onclick={() => showSettings("claude")} title={t("claudeViewAuto", { hours: data?.refreshHours || 6 })}>
+        <SettingsIcon size={14} aria-hidden="true" />{t("settings")}
+      </button>
     </div>
   </header>
 
@@ -376,35 +381,6 @@
       </table>
     </div>
   {/if}
-
-  <section class="options" aria-labelledby="artifacts-options">
-    <h3 id="artifacts-options">{t("claudeRedesignOptions")}</h3>
-    <label class="option">
-      <input
-        type="checkbox"
-        role="switch"
-        class="switch"
-        checked={(data?.refreshHours ?? 0) > 0}
-        disabled={!data}
-        onchange={(e) => call("artifacts_auto", { on: e.currentTarget.checked })}
-      />
-      <span>{t("claudeViewAuto", { hours: data?.refreshHours || 6 })}</span>
-    </label>
-    <label class="option">
-      <input
-        type="checkbox"
-        role="switch"
-        class="switch"
-        checked={data?.deleteWithoutConfirmation ?? false}
-        disabled={!data}
-        onchange={(e) => call("artifacts_confirm", { skip: e.currentTarget.checked })}
-      />
-      <span>
-        {t("claudeRedesignSkipConfirm")}
-        <span class="help">{t("claudeRedesignSkipConfirmHelp")}</span>
-      </span>
-    </label>
-  </section>
 </div>
 
 <dialog bind:this={dialog} class="confirm" aria-labelledby="artifacts-delete-title" onclose={() => (confirming = null)}>
@@ -752,37 +728,6 @@
 
   .no-match .btn {
     margin-left: 6px;
-  }
-
-  .options {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 8px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
-  }
-
-  h3 {
-    margin: 0;
-    font-size: var(--text-md);
-    font-weight: 600;
-  }
-
-  .option {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-  }
-
-  .option :global(.switch) {
-    margin-top: 2px;
-  }
-
-  .help {
-    display: block;
-    color: var(--muted);
-    font-size: var(--text-sm);
   }
 
   .confirm {

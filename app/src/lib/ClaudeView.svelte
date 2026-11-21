@@ -24,6 +24,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
+  import SectionNav from "$lib/ui/SectionNav.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { allRepos } from "$lib/files.svelte";
@@ -792,23 +793,19 @@
   </Popover>
 
   <div class="body">
-    <nav class="sections" aria-label={t("claudeViewSections")}>
-      <ul>
-        {#each sections as s (s.id)}
-          {@const n = count(s.id)}
-          {@const dot = tone(s.id)}
-          <li>
-            {#if s.id === "artifacts"}<hr />{/if}
-            <button class="item" aria-current={section === s.id ? "page" : undefined} onclick={() => go(s.id)}>
-              <s.icon size={16} aria-hidden="true" />
-              <span class="label">{t(s.label)}</span>
-              {#if dot}<span class="dot {dot === 'error' ? 'error' : 'warn'}" aria-hidden="true"></span>{/if}
-              {#if n !== null}<span class="n">{n}</span>{/if}
-            </button>
-          </li>
-        {/each}
-      </ul>
-    </nav>
+    <SectionNav
+      items={sections.map((s) => ({
+        id: s.id,
+        label: t(s.label),
+        icon: s.icon,
+        dot: tone(s.id),
+        count: count(s.id),
+        apart: s.id === "artifacts",
+      }))}
+      current={section}
+      label={t("claudeViewSections")}
+      onselect={go}
+    />
 
     <div class="content" bind:this={content}>
       {#if claudeView.error || claudeView.done}
@@ -909,72 +906,6 @@
     flex: 1;
     grid-template: minmax(0, 1fr) / 224px minmax(0, 1fr);
     min-height: 0;
-  }
-
-  .sections {
-    min-height: 0;
-    padding: 12px 8px;
-    overflow-y: auto;
-    border-right: 1px solid var(--border);
-    background: var(--chrome);
-  }
-
-  .sections ul {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .sections hr {
-    margin: 8px 8px;
-    border: 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 30px;
-    padding: 5px 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: none;
-    color: var(--text);
-    font-weight: 500;
-    text-align: left;
-  }
-
-  .item:hover {
-    background: var(--hover);
-  }
-
-  .item[aria-current] {
-    background: var(--selected);
-  }
-
-  .item > :global(svg) {
-    flex-shrink: 0;
-    color: var(--muted);
-  }
-
-  .item[aria-current] > :global(svg) {
-    color: var(--accent-ink);
-  }
-
-  .label {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .n {
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-variant-numeric: tabular-nums;
   }
 
   .dot {
