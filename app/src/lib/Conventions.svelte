@@ -398,7 +398,7 @@
 
           {#each groups(draft.items) as [sentence, items] (sentence)}
             <div class="group">
-              <p class="sentence">« {sentence} »</p>
+              <p class="sentence">{t("quoted", { text: sentence })}</p>
               {#each items as item (item.name)}
                 {@const change = current.diff.find((d) => d.name === item.name)}
                 <article class="card {item.review}">
@@ -602,14 +602,18 @@
                     checked={on}
                     disabled={!!running}
                     aria-label={sentence}
-                    onchange={(e) =>
-                      update("conventions_switch", { sentence, enabled: e.currentTarget.checked, level: null })}
+                    onchange={async (e) => {
+                      const input = e.currentTarget;
+                      const done = await update("conventions_switch", { sentence, enabled: input.checked, level: null });
+                      // A refused switch goes back to the state on disk.
+                      if (!done) input.checked = on;
+                    }}
                   />
                 {:else}
                   <span class="switch-gap"></span>
                 {/if}
                 <div class="convention-main">
-                  <p class="sentence">« {sentence} »</p>
+                  <p class="sentence">{t("quoted", { text: sentence })}</p>
                   <div class="chips">
                     {#each items as item (item.name)}
                       {@const Icon = kindInfo[item.kind].icon}

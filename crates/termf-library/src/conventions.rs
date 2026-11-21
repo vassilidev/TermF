@@ -1,9 +1,10 @@
 //! Project conventions written in plain language, turned by Claude Code into library items (§11.1).
 //!
 //! `<config>/projects/<id>/conventions/<slug>/` holds `source.md` (the owner's text), `draft.toml` (a proposal
-//! under review) and `pack.toml` (what was applied, and which sentence each item implements). Applied items live
-//! in the project's library, so the usual activation switches them on and off. The model's answer is untrusted:
-//! it is validated, its paths are checked, and nothing it proposes runs while proposing.
+//! under review) and `pack.toml` (what was applied, and which sentence each item implements); `journal.toml`
+//! exists only while an apply is unfinished. Applied items live in the project's library, so the usual
+//! activation switches them on and off. The model's answer is untrusted: it is validated, its paths are checked,
+//! and nothing it proposes runs while proposing.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -16,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::{
-    Item, Kind, Layer, Scope, library_dir, resolve, set_toggle, with_frontmatter, write_file,
+    Item, Kind, Layer, Scope, library_dir, read_toggles, resolve, set_toggle, toggle,
+    with_frontmatter, write_file,
 };
 
 const DEFAULT_MODEL: &str = "opus";
@@ -40,7 +42,8 @@ pub enum ItemKind {
     Preference,
     Skill,
     Command,
-    /// Text added to an existing role, or a new role.
+    /// Instructions given to existing roles. Stored as a preference for those roles, so the roles themselves,
+    /// and whether they are on, never change.
     Role,
     /// A change to a tool's config in a repository, as the file's full new content.
     Repo,
@@ -50,13 +53,20 @@ impl ItemKind {
     fn library(self) -> Option<Kind> {
         match self {
             ItemKind::Rule | ItemKind::Hook => Some(Kind::Rule),
-            ItemKind::Preference => Some(Kind::Preference),
+            ItemKind::Preference | ItemKind::Role => Some(Kind::Preference),
             ItemKind::Skill => Some(Kind::Skill),
             ItemKind::Command => Some(Kind::Command),
-            ItemKind::Role => Some(Kind::Role),
             ItemKind::Repo => None,
         }
     }
+}
+
+/// The library items a convention owns: kind and name.
+fn owned_keys(items: &[Proposal]) -> Vec<(Kind, String)> {
+    items
+        .iter()
+        .filter_map(|i| Some((i.kind.library()?, i.name.clone())))
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -229,20 +239,6 @@ pub fn settings(config_dir: &Path) -> (String, String) {
     (get("model", DEFAULT_MODEL), get("effort", DEFAULT_EFFORT))
 }
 
-/// How to start Claude Code from a GUI app: through the login shell, like sessions, so the PATH of the shell
-/// profile applies; `program` stays a separate word.
-pub fn launcher(program: &str) -> Vec<String> {
-    if cfg!(windows) {
-        // shortcut: run directly, so an npm `claude.cmd` is not found; go through `cmd /c` when that matters.
-        vec![program.into()]
-    } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-        [&shell, "-l", "-i", "-c", r#"exec "$0" "$@""#, program]
-            .map(String::from)
-            .to_vec()
-    }
-}
-
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
@@ -376,14 +372,63 @@ pub fn save_source(config_dir: &Path, project: &str, slug: &str, text: &str) -> 
     load(config_dir, project, slug)
 }
 
+/// The hook rules the project's applied conventions generated, the only rules whose hook a session runs: a hook
+/// from anywhere else (the global library, an imported config) would run a script on every tool call unseen.
+pub(crate) fn owned_hooks(config_dir: &Path, project: &str) -> Vec<String> {
+    let root = config_dir
+        .join("projects")
+        .join(project)
+        .join("conventions");
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| read_pack(&e.path().join("pack.toml")).ok().flatten())
+        .flat_map(|p| p.items)
+        .filter(|i| i.kind == ItemKind::Hook)
+        .map(|i| i.name)
+        .collect()
+}
+
+/// What the convention owns: the applied pack and, after an unfinished apply, what that apply was writing.
+fn owned_items(dir: &Path) -> Result<Vec<Proposal>> {
+    let mut items = read_pack(&dir.join("pack.toml"))?
+        .map(|p| p.items)
+        .unwrap_or_default();
+    for item in read_pack(&dir.join("journal.toml"))?
+        .map(|p| p.items)
+        .unwrap_or_default()
+    {
+        if !items
+            .iter()
+            .any(|i| i.kind == item.kind && i.name == item.name)
+        {
+            items.push(item);
+        }
+    }
+    Ok(items)
+}
+
+/// Removes a library item the convention owns, and the project's toggle of it, so nothing of it lingers for a
+/// later item of the same name.
+fn remove_owned(config_dir: &Path, project: &str, item: &Proposal) -> Result<()> {
+    let Some(kind) = item.kind.library() else {
+        return Ok(());
+    };
+    remove_item(&library_dir(config_dir, Some(project))?, item)?;
+    let file = termf_core::project_file(config_dir, project)?;
+    if toggle(&read_toggles(&file)?, kind, &item.name).is_some() {
+        set_toggle(config_dir, Some(project), kind, &item.name, None)?;
+    }
+    Ok(())
+}
+
 /// Removes the convention and the library items it generated; repository files it changed stay as they are.
 pub fn delete(config_dir: &Path, project: &str, slug: &str) -> Result<()> {
     let dir = dir(config_dir, project, slug)?;
-    if let Some(pack) = read_pack(&dir.join("pack.toml"))? {
-        let library = library_dir(config_dir, Some(project))?;
-        for item in &pack.items {
-            remove_item(&library, item)?;
-        }
+    for item in owned_items(&dir)? {
+        remove_owned(config_dir, project, &item)?;
     }
     match fs::remove_dir_all(&dir) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
@@ -415,7 +460,7 @@ pub fn propose(
             .into_iter()
             .filter(|a| !a.answer.trim().is_empty() && a.answer.len() <= MAX_TEXT),
     );
-    let context = Grounding::new(config_dir, project, pack.as_ref())?;
+    let context = Grounding::new(config_dir, project, owned_items(&dir)?)?;
     let (model, effort) = settings(config_dir);
     let prompt = context.prompt(&source, &given, None);
     let (answer, cost) = ask(claude, &context.repos, &model, &effort, &prompt)?;
@@ -480,8 +525,7 @@ pub fn revise(
         .iter()
         .position(|i| i.name == name)
         .with_context(|| format!("no proposed item {name}"))?;
-    let pack = read_pack(&dir.join("pack.toml"))?;
-    let context = Grounding::new(config_dir, project, pack.as_ref())?;
+    let context = Grounding::new(config_dir, project, owned_items(&dir)?)?;
     let prompt = context.prompt(
         &source,
         &draft.answers,
@@ -502,7 +546,7 @@ pub fn revise(
         .items
         .iter()
         .filter(|i| i.name != name)
-        .map(|i| i.name.clone())
+        .flat_map(|i| context.claims(i))
         .collect();
     draft.items[index] = context
         .validate(raw, &mut seen)
@@ -556,7 +600,8 @@ pub fn discard(config_dir: &Path, project: &str, slug: &str) -> Result<Conventio
 
 /// Writes the accepted items into the project's library, and the accepted repository changes into the
 /// repositories' working trees (never committed), then makes the draft the pack. Every item is checked before
-/// anything is written: a repository file changed since the proposal stops the whole apply.
+/// anything is written: a repository file changed since the proposal stops the whole apply. The items about to
+/// be written are recorded in `journal.toml` first, so an apply that fails half-way can simply be run again.
 pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention> {
     let dir = dir(config_dir, project, slug)?;
     let draft = read_pack(&dir.join("draft.toml"))?.context("no proposal to apply")?;
@@ -565,8 +610,8 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
         draft.items.iter().all(|i| i.review != Review::Pending),
         "accept or reject every item first"
     );
-    let pack = read_pack(&dir.join("pack.toml"))?;
-    let context = Grounding::new(config_dir, project, pack.as_ref())?;
+    let owned = owned_items(&dir)?;
+    let context = Grounding::new(config_dir, project, owned.clone())?;
     let library = library_dir(config_dir, Some(project))?;
     let accepted: Vec<Proposal> = draft
         .items
@@ -574,32 +619,47 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
         .filter(|i| i.review == Review::Accepted)
         .cloned()
         .collect();
+    let same = |a: &Proposal, b: &Proposal| a.kind == b.kind && a.name == b.name;
 
     let mut writes = Vec::new();
+    let mut repo_writes = Vec::new();
     for item in &accepted {
         if item.kind == ItemKind::Repo {
             let path = context.repo_file(item)?;
             let now = read_text(&path)?;
+            // Already written by an earlier, interrupted apply, or by the version this one replaces.
+            if now.as_deref() == Some(item.content.as_str()) {
+                continue;
+            }
             ensure!(
                 now == item.before,
                 "{} changed since the proposal: propose again",
                 item.path
             );
+            repo_writes.push((path, item));
             continue;
         }
         context.check_owner(item)?;
         writes.push((item, context.files(item)));
     }
 
-    if let Some(pack) = &pack {
-        for old in &pack.items {
-            if !accepted
-                .iter()
-                .any(|i| i.name == old.name && i.kind == old.kind)
-            {
-                remove_item(&library, old)?;
-            }
-        }
+    let mut claimed = owned.clone();
+    claimed.extend(
+        accepted
+            .iter()
+            .filter(|a| !owned.iter().any(|o| same(o, a)))
+            .cloned(),
+    );
+    let journal = Pack {
+        items: claimed,
+        ..Pack::default()
+    };
+    write_pack(&dir.join("journal.toml"), &journal)?;
+    for old in owned
+        .iter()
+        .filter(|o| !accepted.iter().any(|a| same(a, o)))
+    {
+        remove_owned(config_dir, project, old)?;
     }
     for (item, files) in writes {
         remove_item(&library, item)?;
@@ -611,8 +671,8 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
             }
         }
     }
-    for item in accepted.iter().filter(|i| i.kind == ItemKind::Repo) {
-        write_file(&context.repo_file(item)?, item.content.as_bytes())?;
+    for (path, item) in repo_writes {
+        write_file(&path, item.content.as_bytes())?;
     }
     let applied = Pack {
         items: accepted,
@@ -621,6 +681,7 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
         ..draft
     };
     write_pack(&dir.join("pack.toml"), &applied)?;
+    fs::remove_file(dir.join("journal.toml"))?;
     fs::remove_file(dir.join("draft.toml"))?;
     load(config_dir, project, slug)
 }
@@ -648,7 +709,7 @@ pub fn switch(
         }
     }
     if let Some(level) = level {
-        let context = Grounding::new(config_dir, project, Some(&pack))?;
+        let context = Grounding::new(config_dir, project, pack.items.clone())?;
         let library = library_dir(config_dir, Some(project))?;
         for item in pack
             .items
@@ -711,14 +772,14 @@ struct Grounding {
     repos: Vec<(String, PathBuf)>,
     /// The library as the project sees it.
     items: Vec<Item>,
-    /// The library without the project's layer, which a role adjustment adds to.
-    base: Vec<Item>,
-    /// Names of the items the applied pack generated, which it may rewrite.
-    owned: Vec<String>,
+    /// What the convention generated so far (see [`owned_items`]).
+    applied: Vec<Proposal>,
+    /// The library items among them, which it may rewrite.
+    owned: Vec<(Kind, String)>,
 }
 
 impl Grounding {
-    fn new(config_dir: &Path, project: &str, pack: Option<&Pack>) -> Result<Grounding> {
+    fn new(config_dir: &Path, project: &str, applied: Vec<Proposal>) -> Result<Grounding> {
         let repos = project_repos(config_dir, project)?;
         ensure!(!repos.is_empty(), "this project has no repository");
         let scope = Scope {
@@ -729,11 +790,25 @@ impl Grounding {
             project: project.into(),
             repos,
             items: resolve(config_dir, &scope)?,
-            base: resolve(config_dir, &Scope::default())?,
-            owned: pack
-                .map(|p| p.items.iter().map(|i| i.name.clone()).collect())
-                .unwrap_or_default(),
+            owned: owned_keys(&applied),
+            applied,
         })
+    }
+
+    fn owns(&self, kind: Kind, name: &str) -> bool {
+        self.owned.iter().any(|(k, n)| *k == kind && n == name)
+    }
+
+    /// What an item takes in a proposal: its name, and for a repository change, the file.
+    fn claims(&self, item: &Proposal) -> Vec<String> {
+        let mut claims = vec![item.name.clone()];
+        if item.kind == ItemKind::Repo
+            && let Ok(path) = self.repo_file(item)
+        {
+            // `\0` keeps a file apart from any name.
+            claims.push(format!("\0{}", path.display()));
+        }
+        claims
     }
 
     fn prompt(
@@ -779,9 +854,11 @@ impl Grounding {
               - `preference`: `body` = coding-style instructions; `roles` as for a rule.\n\
               - `skill`: `body` = a Claude Code skill (how to do a task the conventional way).\n\
               - `command`: `body` = a Claude Code slash command prompt (may use $ARGUMENTS).\n\
-              - `role`: `name` = an existing role to adjust, `body` = the text added to it.\n\
+              - `role`: instructions for existing roles only; `roles` = the roles from the list below that receive them, \
+              `body` = the instructions.\n\
               - `repo`: `repo` = a repository name from the list, `path` = a file relative to it, `content` = the file's \
-              complete new content (read the current file first and keep everything else).\n\
+              complete new content (read the current file first and keep everything else). All the changes to one file \
+              go in a single `repo` item.\n\
               4. A check script is POSIX sh, run at the repository root, reading the paths to check on stdin, one per line \
               (every tracked file when measuring the current state). It must not modify anything nor use the network. It \
               prints one finding per line as `path:line: message` and exits 0 when clean, 1 when it found violations.\n\
@@ -800,14 +877,25 @@ impl Grounding {
         let taken: Vec<String> = self
             .items
             .iter()
-            .filter(|i| i.kind != Kind::Role && !self.owned.contains(&i.name))
-            .map(|i| i.name.clone())
+            .filter(|i| i.kind != Kind::Role && !self.owns(i.kind, &i.name))
+            .map(|i| format!("{} {}", i.kind, i.name))
             .collect();
-        p += &format!("Names already taken, not to reuse: {}\n", taken.join(", "));
-        if !self.owned.is_empty() {
+        p += &format!(
+            "Library items already taken, whose names are not to reuse: {}\n",
+            taken.join(", ")
+        );
+        if !self.applied.is_empty() {
+            let current: Vec<String> = self
+                .applied
+                .iter()
+                .map(|i| {
+                    let kind = serde_json::to_value(i.kind).unwrap_or_default();
+                    format!("{} {}", kind.as_str().unwrap_or(""), i.name)
+                })
+                .collect();
             p += &format!(
-                "Names of the current version's items, to keep when an item still applies: {}\n",
-                self.owned.join(", ")
+                "Items of the current version, to keep with the same kind and name when they still apply: {}\n",
+                current.join(", ")
             );
         }
         if let Some((item, comment)) = revise {
@@ -890,7 +978,10 @@ impl Grounding {
             item.path.clear();
             item.content.clear();
         }
-        if !matches!(item.kind, ItemKind::Rule | ItemKind::Preference) {
+        if !matches!(
+            item.kind,
+            ItemKind::Rule | ItemKind::Preference | ItemKind::Role
+        ) {
             item.roles.clear();
         }
         if !item.checked() && item.kind != ItemKind::Hook {
@@ -914,10 +1005,34 @@ impl Grounding {
                 let path = self
                     .repo_file(&item)
                     .map_err(|e| format!("{label}: {e:#}"))?;
+                // Two whole-file contents built from the same file would overwrite each other.
+                if !seen.insert(format!("\0{}", path.display())) {
+                    return fail("another item already changes this file");
+                }
                 item.before = read_text(&path).map_err(|e| format!("{label}: {e:#}"))?;
                 if item.before.as_deref() == Some(item.content.as_str()) {
-                    return fail("changes nothing");
+                    // Proposed again as it was applied: kept, with the file as it was before it.
+                    let applied = self.applied.iter().find(|p| {
+                        p.kind == ItemKind::Repo
+                            && p.repo == item.repo
+                            && p.path == item.path
+                            && p.content == item.content
+                    });
+                    match applied {
+                        Some(applied) => item.before = applied.before.clone(),
+                        None => return fail("changes nothing"),
+                    }
                 }
+            }
+            ItemKind::Role
+                if item.roles.is_empty()
+                    || !item.roles.iter().all(|r| {
+                        self.items
+                            .iter()
+                            .any(|i| i.kind == Kind::Role && i.name == *r)
+                    }) =>
+            {
+                return fail("not for existing roles");
             }
             _ if item.body.trim().is_empty() => return fail("no instructions"),
             _ => {}
@@ -927,7 +1042,7 @@ impl Grounding {
         Ok(item)
     }
 
-    /// A generated item may only replace one this convention generated, or add to an existing role.
+    /// A generated item may only replace an item of the same kind and name that this convention generated.
     fn check_owner(&self, item: &Proposal) -> Result<()> {
         let Some(kind) = item.kind.library() else {
             return Ok(());
@@ -939,10 +1054,8 @@ impl Grounding {
         else {
             return Ok(());
         };
-        let owned = existing.layer == Layer::Project && self.owned.contains(&item.name);
-        let adjusts = kind == Kind::Role && existing.layer < Layer::Project;
         ensure!(
-            owned || adjusts,
+            existing.layer == Layer::Project && self.owns(kind, &item.name),
             "{kind} {} already exists in the {} library",
             item.name,
             existing.layer
@@ -1002,7 +1115,7 @@ impl Grounding {
                     (format!("rules/{name}/hook.sh"), script, true),
                 ]
             }
-            ItemKind::Preference => vec![(
+            ItemKind::Preference | ItemKind::Role => vec![(
                 format!("preferences/{name}.md"),
                 with_frontmatter(&meta, &body),
                 false,
@@ -1019,20 +1132,6 @@ impl Grounding {
                     with_frontmatter(&meta, &body),
                     false,
                 )]
-            }
-            ItemKind::Role => {
-                let base = self
-                    .base
-                    .iter()
-                    .find(|i| i.kind == Kind::Role && i.name == *name);
-                let text = match base {
-                    Some(base) => with_frontmatter(
-                        &base.meta,
-                        &format!("{}\n\n{}", base.body.trim_end(), body),
-                    ),
-                    None => with_frontmatter(&meta, &body),
-                };
-                vec![(format!("roles/{name}.md"), text, false)]
             }
             ItemKind::Repo => Vec::new(),
         }
@@ -1164,13 +1263,17 @@ fn ask(
         .args(["--restricted", "--safe-mode", "--strict-mcp-config"])
         .arg("--no-session-persistence")
         .current_dir(&repos[0].1);
+    // An app started from the Finder lacks the PATH that finds `claude` (and the `node` it may need).
+    if let Some(path) = termf_core::shell::login_path() {
+        cmd.env("PATH", path);
+    }
     for (_, path) in &repos[1..] {
         cmd.arg("--add-dir").arg(path);
     }
     let (status, stdout, stderr) =
         run(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT).context("cannot run Claude Code")?;
     let text = String::from_utf8_lossy(&stdout);
-    // A shell profile may print before Claude Code: its answer is the last JSON line.
+    // Its answer is the last JSON line, whatever a wrapper printed before.
     let Some(result) = text.lines().rev().find_map(|l| {
         serde_json::from_str::<Value>(l.trim())
             .ok()
@@ -1256,9 +1359,17 @@ fn scratch_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Writes are denied everywhere but a private temporary folder, and so is the network.
+/// Everything is denied but what a check needs: reading files, running programs, writing to a private temporary
+/// folder. No network, no system services (so no `open`, AppleScript or pasteboard), nothing written elsewhere.
 #[cfg(target_os = "macos")]
-const SANDBOX: &str = r#"(version 1)(allow default)(deny file-write*)(deny network*)
+const SANDBOX: &str = r#"(version 1)
+(deny default)
+(allow process-fork)
+(allow process-exec)
+(allow signal (target same-sandbox))
+(allow sysctl-read)
+(allow file-read*)
+(allow file-ioctl)
 (allow file-write* (literal "/dev/null") (regex #"^/dev/(fd/|tty)") (subpath (param "TMP")))"#;
 
 /// Runs a check script on a repository's tracked files without letting it change anything.
@@ -1461,8 +1572,14 @@ mod tests {
         hook["event"] = "PostToolUse".into();
         hook["matcher"] = "Edit|Write".into();
         hook["script"] = "#!/bin/sh\nexit 0\n".into();
-        let mut role = item("role", "front", "Composants en PascalCase.");
+        let mut role = item("role", "front-components", "Composants en PascalCase.");
         role["body"] = "Name components in PascalCase.".into();
+        role["roles"] = json!(["front"]);
+        let mut ghost_role = item("role", "ghost", "x");
+        ghost_role["roles"] = json!(["nobody"]);
+        let mut same_file = eslint.clone();
+        same_file["name"] = "eslint-again".into();
+        same_file["content"] = "{ \"rules\": { \"x\": 1 } }\n".into();
         let mut prompt_only = item("rule", "pascal-case", "Composants en PascalCase.");
         prompt_only["level"] = "block".into();
         let mut injected = item("preference", "sneaky", "x");
@@ -1484,7 +1601,7 @@ mod tests {
             item("preference", "canary", "x"),
             item("skill", "Bad Name", "x"),
             item("command", "no-inline-css", "x"),
-            bad_path, git_hook, other_repo,
+            bad_path, git_hook, other_repo, ghost_role, same_file,
             json!({ "kind": "virus" }),
         ]});
         let claude = fake_claude(&dir, &answer);
@@ -1515,12 +1632,12 @@ mod tests {
                 "no-inline-css",
                 "eslint-no-style",
                 "format",
-                "front",
+                "front-components",
                 "pascal-case",
                 "sneaky"
             ]
         );
-        assert_eq!(draft.dropped.len(), 7, "{:?}", draft.dropped);
+        assert_eq!(draft.dropped.len(), 9, "{:?}", draft.dropped);
         for why in [
             "canary: preference canary already exists in the shipped library",
             "Bad Name: invalid name",
@@ -1528,6 +1645,8 @@ mod tests {
             "escape: invalid path",
             "git-hook: invalid path",
             "elsewhere: web is not a repository of acme",
+            "ghost: not for existing roles",
+            "eslint-again: another item already changes this file",
             "?: not a valid item",
         ] {
             assert!(
@@ -1608,7 +1727,12 @@ mod tests {
         assert_eq!(pack.items.len(), 5);
         assert_eq!(
             applied.active,
-            ["no-inline-css", "format", "front", "pascal-case"]
+            ["no-inline-css", "format", "front-components", "pascal-case"]
+        );
+        assert!(
+            !config
+                .join("projects/acme/conventions/front/journal.toml")
+                .exists()
         );
         assert_eq!(
             fs::read_to_string(repo.join(".eslintrc.json")).unwrap(),
@@ -1644,17 +1768,14 @@ mod tests {
                 .mode();
             assert_eq!(mode & 0o777, 0o755);
         }
-        let front = explain(&config, &scope, Kind::Role, "front").unwrap();
-        assert_eq!(front.shadows, [Layer::Shipped]);
-        assert!(
-            front
-                .body
-                .trim_end()
-                .ends_with("Name components in PascalCase.")
-        );
+        let adjustment = explain(&config, &scope, Kind::Preference, "front-components").unwrap();
+        assert_eq!(adjustment.layer, Layer::Project);
+        assert_eq!(adjustment.applies_to, ["front"]);
+        let role = || explain(&config, &scope, Kind::Role, "front").unwrap();
         assert_eq!(
-            front.meta["name"], "front",
-            "the shipped role is kept and added to"
+            (role().layer, role().active),
+            (Layer::Shipped, false),
+            "the role itself and its activation are untouched"
         );
         assert!(!library.join("preferences/sneaky.md").exists(), "rejected");
 
@@ -1699,7 +1820,7 @@ mod tests {
         assert!(!rule.active);
         assert_eq!(rule.meta["level"], "block");
         let after = load(&config, "acme", "front").unwrap();
-        assert_eq!(after.active, ["format", "front", "pascal-case"]);
+        assert_eq!(after.active, ["format", "front-components", "pascal-case"]);
         assert!(
             after
                 .pack
@@ -1708,12 +1829,33 @@ mod tests {
                 .iter()
                 .any(|i| i.name == "no-inline-css" && i.level == Level::Block)
         );
+        switch(
+            &config,
+            "acme",
+            "front",
+            "Composants en PascalCase.",
+            Some(false),
+            None,
+        )
+        .unwrap();
+        assert!(load(&config, "acme", "front").unwrap().active.is_empty());
+        assert!(
+            role().toggles.is_empty(),
+            "switching a role adjustment off leaves the role alone"
+        );
 
         delete(&config, "acme", "front").unwrap();
         assert!(
             !library.join("rules/no-inline-css").exists()
-                && !library.join("roles/front.md").exists()
+                && !library.join("preferences/front-components.md").exists()
         );
+        let project = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
+        for name in ["no-inline-css", "format", "front-components", "pascal-case"] {
+            assert!(
+                !project.contains(name),
+                "toggle of {name} left in:\n{project}"
+            );
+        }
         assert!(
             repo.join(".eslintrc.json").exists(),
             "repository files stay"
@@ -1829,7 +1971,7 @@ mod tests {
         .unwrap();
         let prompt = fs::read_to_string(dir.join("prompt.txt")).unwrap();
         assert!(
-            prompt.contains("keep, edit, gone"),
+            prompt.contains("preference keep, preference edit, command gone"),
             "the current names are offered to keep"
         );
         let changes: Vec<_> = convention
@@ -1896,6 +2038,140 @@ mod tests {
             fs::read_to_string(repo.join("package.json")).unwrap(),
             "{ \"name\": \"renamed\" }\n"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owns_items_by_kind_and_name() {
+        let (config, _) = setup("conventions-kinds");
+        let dir = config.parent().unwrap().to_path_buf();
+        save_source(&config, "acme", "front", TEXT).unwrap();
+        let first = json!({ "questions": [], "items": [item("preference", "foo", "x")] });
+        propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &first),
+        )
+        .unwrap();
+        accept_all(&config);
+        apply(&config, "acme", "front").unwrap();
+        let mine = config.join("projects/acme/library/skills/foo/SKILL.md");
+        put(&mine, "Mine.\n");
+
+        let second = json!({ "questions": [], "items": [item("skill", "foo", "x")] });
+        let draft = propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &second),
+        )
+        .unwrap()
+        .draft
+        .unwrap();
+        assert!(draft.items.is_empty());
+        assert!(
+            draft.dropped[0].starts_with("foo: skill foo already exists in the project library"),
+            "{:?}",
+            draft.dropped
+        );
+        let prompt = fs::read_to_string(dir.join("prompt.txt")).unwrap();
+        assert!(prompt.contains("skill foo") && prompt.contains("current version, to keep with the same kind and name when they still apply: preference foo"));
+        assert_eq!(fs::read_to_string(mine).unwrap(), "Mine.\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_apply_can_be_run_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let (config, repo) = setup("conventions-retry");
+        let dir = config.parent().unwrap().to_path_buf();
+        save_source(&config, "acme", "front", TEXT).unwrap();
+        let mut change = item("repo", "pkg", "x");
+        change["repo"] = "api".into();
+        change["path"] = "package.json".into();
+        change["content"] = "{ \"name\": \"api\", \"private\": true }\n".into();
+        let answer = json!({ "questions": [], "items": [item("skill", "new-one", "x"), change] });
+        propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &answer),
+        )
+        .unwrap();
+        accept_all(&config);
+
+        let file = repo.join("package.json");
+        let read_only = |on: bool| {
+            let mode = if on { 0o444 } else { 0o644 };
+            fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+        };
+        read_only(true);
+        assert!(
+            apply(&config, "acme", "front").is_err(),
+            "the repository file cannot be written"
+        );
+        read_only(false);
+        let library = config.join("projects/acme/library");
+        assert!(
+            library.join("skills/new-one/SKILL.md").is_file(),
+            "written before the failure"
+        );
+
+        let applied = apply(&config, "acme", "front").unwrap();
+        assert_eq!(applied.pack.unwrap().items.len(), 2);
+        assert_eq!(applied.active, ["new-one"]);
+        assert!(fs::read_to_string(&file).unwrap().contains("private"));
+        assert!(
+            !config
+                .join("projects/acme/conventions/front/journal.toml")
+                .exists()
+        );
+
+        // Proposed again as applied: unchanged, not dropped nor removed.
+        let again = propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &answer),
+        )
+        .unwrap();
+        let changes: Vec<_> = again
+            .diff
+            .iter()
+            .map(|d| (d.name.as_str(), d.change))
+            .collect();
+        assert_eq!(
+            changes,
+            [("new-one", Change::Unchanged), ("pkg", Change::Unchanged)]
+        );
+        accept_all(&config);
+        apply(&config, "acme", "front").unwrap();
+        assert!(fs::read_to_string(&file).unwrap().contains("private"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn checks_cannot_reach_out_of_the_sandbox() {
+        let (_, repo) = setup("conventions-sandbox");
+        let script = "echo x > leak.txt 2>/dev/null && echo 'wrote:1: repository'\n\
+                      open 'https://example.invalid/' 2>/dev/null && echo 'opened:1: url'\n\
+                      defaults read -g >/dev/null 2>&1 && echo 'mach:1: system service'\n\
+                      curl -s -m 5 https://example.com >/dev/null 2>&1 && echo 'net:1: network'\n\
+                      t=$(mktemp) && echo ok > \"$t\" || echo 'tmp:1: no private temp'\n\
+                      exit 0\n";
+        assert_eq!(
+            check(script, &repo),
+            Measure::Done {
+                count: 0,
+                findings: vec![]
+            }
+        );
+        assert!(!repo.join("leak.txt").exists());
     }
 
     #[cfg(unix)]

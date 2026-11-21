@@ -300,6 +300,7 @@ const fr = {
   convRole: "Rôle",
   convRepo: "Config d'outil",
   projectConventions: "Conventions de {project}",
+  quoted: "« {text} »",
 };
 
 type Key = keyof typeof fr;
@@ -602,6 +603,7 @@ const en: Record<Key, string> = {
   convRole: "Role",
   convRepo: "Tool config",
   projectConventions: "{project} conventions",
+  quoted: "“{text}”",
 };
 
 const messages = { fr, en };

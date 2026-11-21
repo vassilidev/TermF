@@ -91,15 +91,22 @@
     return list;
   }
 
-  function toggle(item: Item, enabled: boolean | null) {
+  /** `input` is the switch that asked: a refused toggle puts it back. */
+  function toggle(item: Item, enabled: boolean | null, input?: HTMLInputElement) {
     return busy(async () => {
-      await invoke("library_toggle", {
-        kind: item.kind,
-        name: item.name,
-        project: library.scope || null,
-        enabled,
-      });
-      await refresh();
+      try {
+        await invoke("library_toggle", {
+          kind: item.kind,
+          name: item.name,
+          project: library.scope || null,
+          enabled,
+        });
+      } catch (e) {
+        if (input) input.checked = item.active;
+        throw e;
+      } finally {
+        await refresh();
+      }
     });
   }
 
@@ -217,7 +224,7 @@
                 checked={item.active}
                 disabled={library.busy}
                 aria-label={t("itemActive", { name: item.name })}
-                onchange={(e) => toggle(item, e.currentTarget.checked)}
+                onchange={(e) => toggle(item, e.currentTarget.checked, e.currentTarget)}
               />
             </li>
           {:else}
@@ -245,7 +252,7 @@
                 role="switch"
                 checked={item.active}
                 disabled={library.busy}
-                onchange={(e) => toggle(item, e.currentTarget.checked)}
+                onchange={(e) => toggle(item, e.currentTarget.checked, e.currentTarget)}
               />
               <span>{item.active ? t("itemOn") : t("itemOff")}</span>
             </label>
