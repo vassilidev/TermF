@@ -93,7 +93,7 @@
           checked={(data?.refreshHours ?? 0) > 0}
           onchange={(e) => call("artifacts_auto", { on: e.currentTarget.checked })}
         />
-        {t("claudeViewAuto")}
+        {t("claudeViewAuto", { hours: data?.refreshHours || 6 })}
       </label>
     </div>
 

@@ -75,6 +75,8 @@ export type Refresh = {
   revealed: boolean;
   cost: number | null;
   last: { at: number; count: number | null; failure: Failure | null; detail: string | null; cost: number | null } | null;
+  /** Automatic refreshes wait for one started by hand that succeeds. */
+  paused: boolean;
 };
 export type Artifacts = { artifacts: Artifact[]; listed: number | null; refresh: Refresh; refreshHours: number };
 

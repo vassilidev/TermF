@@ -50,6 +50,12 @@ pub struct Index {
     pub artifacts: Vec<Artifact>,
     /// When the whole account was last listed.
     pub listed: Option<u64>,
+    /// The last listing run and whether automatic ones wait for a manual one: kept across restarts, so a
+    /// launch of TermF does not start a paid session the last one could not finish.
+    #[serde(default)]
+    pub last: Option<LastRun>,
+    #[serde(default)]
+    pub paused: bool,
 }
 
 /// An index that cannot be read starts over: it only caches what claude.ai holds.
@@ -114,8 +120,8 @@ fn html_title(file: &Path) -> Option<String> {
 }
 
 /// What a session's `PostToolUse` hook tells: an artifact published, opened or deleted. Returns whether the
-/// index changed.
-pub fn record(file: &Path, payload: &Value, now: u64) -> Result<bool> {
+/// index changed. Sessions running in `own_dir` (TermF's hidden ones) never become an artifact's folder.
+pub fn record(file: &Path, payload: &Value, now: u64, own_dir: &Path) -> Result<bool> {
     if payload["tool_name"] != "Artifact" {
         return Ok(false);
     }
@@ -136,7 +142,8 @@ pub fn record(file: &Path, payload: &Value, now: u64) -> Result<bool> {
     let cwd = payload["cwd"].as_str();
     let mut index = load(file);
     match action {
-        "delete" => {
+        // With `path`, the call removes one of the artifact's assets, not the artifact.
+        "delete" if input["path"].is_null() && input["paths"].is_null() => {
             let before = index.artifacts.len();
             index.artifacts.retain(|a| a.id != id);
             if index.artifacts.len() == before {
@@ -166,7 +173,11 @@ pub fn record(file: &Path, payload: &Value, now: u64) -> Result<bool> {
                 seen: now,
             });
             artifact.title = title.or(artifact.title);
-            artifact.cwd = cwd.map(str::to_owned).or(artifact.cwd);
+            // Where it was published stays: opening it from elsewhere does not move it.
+            let cwd = cwd.filter(|c| !Path::new(c).starts_with(own_dir));
+            if action == "publish" || artifact.cwd.is_none() {
+                artifact.cwd = cwd.map(str::to_owned).or(artifact.cwd);
+            }
             artifact.seen = now;
             index.artifacts.insert(0, artifact);
         }
@@ -259,9 +270,19 @@ pub fn apply_listing(file: &Path, listed: Vec<Listed>, started: u64, now: u64) -
     let index = Index {
         artifacts,
         listed: Some(now),
+        last: old.last,
+        paused: old.paused,
     };
     save(file, &index)?;
     Ok(index)
+}
+
+/// Keeps how the last listing ended in the index, for the next launch.
+pub fn save_run(file: &Path, refresh: &Refresh) -> Result<()> {
+    let mut index = load(file);
+    index.last = refresh.last.clone();
+    index.paused = refresh.paused;
+    save(file, &index)
 }
 
 pub fn list_prompt() -> String {
@@ -335,7 +356,7 @@ pub fn decide(policy: &Policy, payload: &Value) -> Value {
     })
 }
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Failure {
     /// The account has no artifacts: not logged in to claude.ai, or the feature is off.
@@ -354,7 +375,17 @@ pub enum Failure {
     Cancelled,
 }
 
-#[derive(Serialize, Clone, Debug)]
+impl Failure {
+    /// Only you can fix it: no artifacts on this account, a folder to trust, a question to answer.
+    fn needs_you(self) -> bool {
+        matches!(
+            self,
+            Failure::ToolMissing | Failure::NotStarted | Failure::NeedsYou
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LastRun {
     pub at: u64,
@@ -377,13 +408,13 @@ pub struct Refresh {
     pub revealed: bool,
     pub cost: Option<f64>,
     pub last: Option<LastRun>,
+    /// Automatic refreshes wait for one you start that succeeds.
+    pub paused: bool,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Step {
     Nothing,
-    /// The hook's answer.
-    Reply(Value),
     Done(Vec<Listed>),
     /// Show its tile: it waits for you.
     Reveal,
@@ -398,6 +429,15 @@ const WAITING: &[&str] = &[
 ];
 
 impl Refresh {
+    /// Where the last launch of TermF left it.
+    pub fn restore(index: &Index) -> Refresh {
+        Refresh {
+            last: index.last.clone(),
+            paused: index.paused,
+            ..Default::default()
+        }
+    }
+
     pub fn begin(&mut self, manual: bool, now: u64) -> Result<()> {
         ensure!(!self.running, "the artifacts are already being listed");
         *self = Refresh {
@@ -405,19 +445,25 @@ impl Refresh {
             manual,
             started: now,
             last: self.last.take(),
+            paused: self.paused,
             ..Default::default()
         };
         Ok(())
     }
 
+    /// Whether `session` is the run under way: a late step of an earlier run must not end a newer one.
+    pub fn owns(&self, session: u32) -> bool {
+        self.running && self.session == Some(session)
+    }
+
+    /// What a hook of `session` means for the run (its `PreToolUse` is answered by `decide`).
     pub fn hook(&mut self, session: u32, event: &str, payload: &Value) -> Step {
-        if !self.running || self.session != Some(session) {
+        if !self.owns(session) {
             return Step::Nothing;
         }
         // Any hook says it started, even when `SessionStart` came before TermF knew the session.
         self.ready = true;
         match event {
-            "PreToolUse" => Step::Reply(decide(&Policy::List, payload)),
             "StatusLine" => {
                 let cost = payload["cost"]["total_cost_usd"].as_f64();
                 self.cost = cost.or(self.cost);
@@ -475,15 +521,31 @@ impl Refresh {
         }
     }
 
+    /// Ends the run of `session`; false, and nothing changes, when that run is already over.
     pub fn finish(
         &mut self,
+        session: u32,
         now: u64,
         result: std::result::Result<usize, (Failure, Option<String>)>,
-    ) {
+    ) -> bool {
+        if !self.owns(session) {
+            return false;
+        }
+        self.end(now, result);
+        true
+    }
+
+    /// Ends the run under way, whether or not its session started.
+    pub fn end(&mut self, now: u64, result: std::result::Result<usize, (Failure, Option<String>)>) {
         let (count, failure, detail) = match result {
             Ok(count) => (Some(count), None, None),
             Err((failure, detail)) => (None, Some(failure), detail),
         };
+        if failure.is_none() {
+            self.paused = false;
+        } else if failure.is_some_and(Failure::needs_you) {
+            self.paused = true;
+        }
         self.last = Some(LastRun {
             at: now,
             count,
@@ -496,20 +558,13 @@ impl Refresh {
         self.revealed = false;
     }
 
-    /// An automatic refresh is due every `hours` (0: never). After a failure only you can fix (no artifacts on
-    /// this account, a folder to trust, a question to answer), only a refresh you start tries again.
-    pub fn due(&self, now: u64, hours: u32) -> bool {
-        if hours == 0 || self.running {
+    /// An automatic refresh is due `hours` (0: never) after the last listing of the account, or after the last
+    /// attempt, so a failure is not retried at once. Paused, only a refresh you start tries again.
+    pub fn due(&self, now: u64, hours: u32, listed: Option<u64>) -> bool {
+        if hours == 0 || self.running || self.paused {
             return false;
         }
-        match &self.last {
-            None => true,
-            Some(last) => {
-                !matches!(
-                    last.failure,
-                    Some(Failure::ToolMissing | Failure::NotStarted | Failure::NeedsYou)
-                ) && now >= last.at + u64::from(hours) * 3600
-            }
-        }
+        let since = listed.max(self.last.as_ref().map(|l| l.at));
+        since.is_none_or(|at| now >= at + u64::from(hours) * 3600)
     }
 }

@@ -520,6 +520,11 @@ fn recognizes_artifact_links() {
     }
 }
 
+/// Where TermF's hidden sessions run.
+fn own() -> &'static Path {
+    Path::new("/data/claude-agent")
+}
+
 /// The `PostToolUse` hook of TermF's sessions feeds the index.
 #[test]
 fn indexes_what_sessions_publish_open_and_delete() {
@@ -535,7 +540,7 @@ fn indexes_what_sessions_publish_open_and_delete() {
         json!({"action": "publish", "file_path": "report.html"}),
         json!(format!("Published {URL} (private). Watching it.")),
     );
-    assert!(artifacts::record(&index, &published, 100).unwrap());
+    assert!(artifacts::record(&index, &published, 100, own()).unwrap());
     let list = artifacts::load(&index).artifacts;
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, ID);
@@ -550,7 +555,7 @@ fn indexes_what_sessions_publish_open_and_delete() {
         json!({"action": "read", "url": "https://claude.ai/artifact/other1"}),
         json!({"content": "…"}),
     );
-    assert!(artifacts::record(&index, &read, 200).unwrap());
+    assert!(artifacts::record(&index, &read, 200, own()).unwrap());
     assert_eq!(
         artifacts::load(&index).artifacts[0].id,
         "other1",
@@ -561,18 +566,56 @@ fn indexes_what_sessions_publish_open_and_delete() {
         !artifacts::record(
             &index,
             &json!({"tool_name": "Bash", "tool_input": {"command": "ls"}}),
-            300
+            300,
+            own()
         )
         .unwrap()
     );
-    assert!(!artifacts::record(&index, &hook(json!({"action": "list"}), json!(URL)), 300).unwrap());
+    assert!(
+        !artifacts::record(
+            &index,
+            &hook(json!({"action": "list"}), json!(URL)),
+            300,
+            own()
+        )
+        .unwrap()
+    );
+
+    // Opened again from TermF's hidden sessions, or from another folder: it stays where it was published.
+    let elsewhere = |cwd: &str| json!({"tool_name": "Artifact", "cwd": cwd, "tool_input": {"action": "read", "url": URL}});
+    assert!(artifacts::record(&index, &elsewhere("/data/claude-agent"), 310, own()).unwrap());
+    assert!(artifacts::record(&index, &elsewhere("/other/repo"), 320, own()).unwrap());
+    let roadmap = artifacts::load(&index)
+        .artifacts
+        .into_iter()
+        .find(|a| a.id == ID)
+        .unwrap();
+    assert_eq!(
+        roadmap.cwd.as_deref(),
+        Some(root.join("repo").to_string_lossy().as_ref())
+    );
+    let fresh = json!({"tool_name": "Artifact", "cwd": "/data/claude-agent", "tool_input": {"action": "read", "url": "https://claude.ai/artifact/fresh"}});
+    assert!(artifacts::record(&index, &fresh, 330, own()).unwrap());
+    assert_eq!(
+        artifacts::load(&index).artifacts[0].cwd,
+        None,
+        "never TermF's own folder"
+    );
+
+    // With `path`, a deletion removes one of its assets: the artifact stays.
+    let asset = hook(
+        json!({"action": "delete", "url": URL, "path": "0123456789abcdef0123456789abcdef"}),
+        json!("Removed."),
+    );
+    assert!(!artifacts::record(&index, &asset, 350, own()).unwrap());
+    assert_eq!(artifacts::load(&index).artifacts.len(), 3);
 
     let deleted = hook(json!({"action": "delete", "url": URL}), json!("Deleted."));
-    assert!(artifacts::record(&index, &deleted, 400).unwrap());
+    assert!(artifacts::record(&index, &deleted, 400, own()).unwrap());
     let list = artifacts::load(&index).artifacts;
     assert_eq!(
         list.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
-        ["other1"]
+        ["fresh", "other1"]
     );
 
     write(&index, "{ broken");
@@ -626,7 +669,7 @@ fn a_listing_replaces_the_index_but_keeps_recent_hooks() {
     let index = root.join("artifacts.json");
     let published = |url: &str, at| {
         let payload = json!({"tool_name": "Artifact", "cwd": "/repo", "tool_input": {"action": "read", "url": url}});
-        artifacts::record(&index, &payload, at).unwrap();
+        artifacts::record(&index, &payload, at, own()).unwrap();
     };
     published(URL, 10);
     published("https://claude.ai/artifact/gone", 20);
@@ -727,14 +770,6 @@ fn runs_one_listing_at_a_time_through_its_hooks() {
         Step::Nothing
     );
     assert!(refresh.ready);
-    let Step::Reply(reply) = refresh.hook(
-        7,
-        "PreToolUse",
-        &json!({"tool_name": "Artifact", "tool_input": {"action": "list"}}),
-    ) else {
-        panic!("a decision");
-    };
-    assert_eq!(reply["hookSpecificOutput"]["permissionDecision"], "allow");
     refresh.hook(7, "StatusLine", &json!({"cost": {"total_cost_usd": 0.012}}));
     assert_eq!(refresh.cost, Some(0.012));
     let stop = json!({"last_assistant_message": format!("{{\"artifacts\": [{{\"url\": \"{URL}\", \"title\": \"Roadmap\"}}]}}")});
@@ -742,11 +777,31 @@ fn runs_one_listing_at_a_time_through_its_hooks() {
         panic!("the list");
     };
     assert_eq!(listed.len(), 1);
-    refresh.finish(1100, Ok(1));
+    assert!(refresh.finish(7, 1100, Ok(1)));
     assert!(!refresh.running);
     let last = refresh.last.clone().unwrap();
     assert_eq!((last.count, last.cost), (Some(1), Some(0.012)));
     assert!(refresh.begin(false, 1200).is_ok(), "free again");
+}
+
+/// A step computed for a run that ended meanwhile (its timeout, its exit) must not end the next one.
+#[test]
+fn a_late_step_never_ends_a_newer_listing() {
+    let mut refresh = Refresh::default();
+    refresh.begin(false, 0).unwrap();
+    refresh.session = Some(5);
+    let stale = refresh.tick(artifacts::READY_WITHIN + 1);
+    assert_eq!(stale, Step::Fail(Failure::NotStarted, None));
+    // Cancelled from the view before the watcher applied its step, then a new run starts.
+    assert!(refresh.finish(5, 100, Err((Failure::Cancelled, None))));
+    refresh.begin(true, 200).unwrap();
+    refresh.session = Some(6);
+    assert!(!refresh.finish(5, 210, Err((Failure::NotStarted, None))));
+    assert!(refresh.owns(6) && !refresh.paused, "the new run goes on");
+    assert_eq!(
+        refresh.hook(5, "Stop", &json!({"last_assistant_message": "{}"})),
+        Step::Nothing
+    );
 }
 
 #[test]
@@ -809,18 +864,54 @@ fn a_listing_fails_clearly() {
 
 #[test]
 fn automatic_refreshes_come_back_unless_you_must_act() {
-    let mut r = Refresh::default();
-    assert!(r.due(0, 6), "at startup");
-    assert!(!r.due(0, 0), "turned off");
+    const H: u64 = 6 * 3600;
+    let root = temp("auto");
+    let index = root.join("artifacts.json");
+    let run = |r: &mut Refresh, manual, at, result| {
+        r.begin(manual, at).unwrap();
+        r.session = Some(1);
+        assert!(r.finish(1, at + 10, result));
+        artifacts::save_run(&index, r).unwrap();
+    };
+    // A new launch of TermF reads where the last one left off.
+    let restart = || Refresh::restore(&artifacts::load(&index));
+
+    let mut r = restart();
+    assert!(r.due(0, 6, None), "never listed: at startup");
+    assert!(!r.due(0, 0, None), "turned off");
     r.begin(false, 0).unwrap();
-    assert!(!r.due(0, 6), "running");
-    r.finish(10, Ok(3));
-    assert!(!r.due(10 + 6 * 3600 - 1, 6));
-    assert!(r.due(10 + 6 * 3600, 6));
-    r.begin(false, 0).unwrap();
-    r.finish(20, Err((Failure::ToolMissing, None)));
-    assert!(!r.due(1_000_000, 6), "only a refresh you start tries again");
-    r.begin(false, 0).unwrap();
-    r.finish(30, Err((Failure::Timeout, None)));
-    assert!(r.due(30 + 6 * 3600, 6));
+    assert!(!r.due(0, 6, None), "running");
+    r.end(5, Err((Failure::Spawn, None)));
+    assert!(
+        !r.due(5 + H - 1, 6, None),
+        "a failure is not retried at once"
+    );
+    assert!(r.due(5 + H, 6, None));
+
+    run(&mut r, false, 1000, Ok(3));
+    artifacts::apply_listing(&index, Vec::new(), 1000, 1010).unwrap();
+    let listed = artifacts::load(&index).listed;
+    let r = restart();
+    assert!(
+        !r.due(1010 + H - 1, 6, listed),
+        "listed recently: no paid session at startup"
+    );
+    assert!(r.due(1010 + H, 6, listed));
+
+    // Only you can fix it: nothing automatic until a refresh you start succeeds, across restarts.
+    let mut r = restart();
+    run(&mut r, false, 2000, Err((Failure::ToolMissing, None)));
+    let mut r = restart();
+    assert!(!r.due(10_000_000, 6, listed));
+    run(&mut r, true, 3000, Err((Failure::Timeout, None)));
+    let mut r = restart();
+    assert!(
+        !r.due(10_000_000, 6, listed),
+        "a manual run that fails does not resume"
+    );
+    run(&mut r, true, 4000, Ok(0));
+    let r = restart();
+    assert!(!r.paused);
+    assert!(r.due(4010 + H, 6, listed));
+    fs::remove_dir_all(&root).unwrap();
 }

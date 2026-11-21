@@ -1169,7 +1169,7 @@ const fr = {
   claudeViewMissing: "absent",
   claudeViewArtifactsRefresh: "Actualiser depuis ton compte",
   claudeViewGallery: "Tout voir sur claude.ai",
-  claudeViewAuto: "Actualiser au démarrage puis toutes les 6 h",
+  claudeViewAuto: "Actualiser au démarrage puis toutes les {hours} h",
   claudeViewStop: "Arrêter",
   claudeViewListing: "Claude liste les artifacts de ton compte dans une session cachée…",
   claudeViewNeedsYou:
@@ -2373,7 +2373,7 @@ const en: Record<Key, string> = {
   claudeViewMissing: "missing",
   claudeViewArtifactsRefresh: "Refresh from your account",
   claudeViewGallery: "See all on claude.ai",
-  claudeViewAuto: "Refresh at startup, then every 6 h",
+  claudeViewAuto: "Refresh at startup, then every {hours} h",
   claudeViewStop: "Stop",
   claudeViewListing: "Claude is listing your account's artifacts in a hidden session…",
   claudeViewNeedsYou:

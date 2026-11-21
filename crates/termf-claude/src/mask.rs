@@ -138,6 +138,7 @@ pub fn mask_text(text: &str) -> String {
         };
         if !core.is_empty() {
             mask_next = scheme
+                || secret_flag(core)
                 || (core.ends_with([':', '='])
                     && secret_key(core.trim_end_matches([':', '=', '"'])));
         }
@@ -147,6 +148,11 @@ pub fn mask_text(text: &str) -> String {
         out.push_str(space);
     }
     out
+}
+
+/// `--api-key`, `--password`: an option whose value, the next word, is a secret.
+fn secret_flag(word: &str) -> bool {
+    word.starts_with('-') && !word.contains('=') && secret_key(word.trim_start_matches('-'))
 }
 
 fn mask_word(word: &str) -> String {
@@ -170,15 +176,23 @@ fn mask_word(word: &str) -> String {
     }
 }
 
-/// Hides the password of `scheme://user:password@host` and the secret query parameters.
+/// Hides the password of `scheme://user:password@host`, a token given as the user (`https://ghp_…@github.com`)
+/// and the secret query parameters.
 fn mask_url(url: &str) -> String {
     let (scheme, rest) = url.split_once("://").unwrap_or(("", url));
     let host_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let (authority, tail) = rest.split_at(host_end);
+    let user = |name: &str| {
+        if secret_value(name) {
+            MASK.to_owned()
+        } else {
+            name.to_owned()
+        }
+    };
     let authority = match authority.rsplit_once('@') {
-        Some((user, host)) => match user.split_once(':') {
-            Some((name, _)) => format!("{name}:{MASK}@{host}"),
-            None => format!("{user}@{host}"),
+        Some((info, host)) => match info.split_once(':') {
+            Some((name, _)) => format!("{}:{MASK}@{host}", user(name)),
+            None => format!("{}@{host}", user(info)),
         },
         None => authority.to_owned(),
     };
@@ -210,7 +224,18 @@ pub fn mask(value: &mut Value) {
                 }
             }
         }
-        Value::Array(items) => items.iter_mut().for_each(mask),
+        // `["--api-key", "…"]`: the item after a secret option is its value.
+        Value::Array(items) => {
+            let mut after_flag = false;
+            for item in items {
+                let flag = item.as_str().is_some_and(secret_flag);
+                match item {
+                    Value::String(s) if after_flag => *s = MASK.into(),
+                    _ => mask(item),
+                }
+                after_flag = flag;
+            }
+        }
         Value::String(s) => *s = mask_text(s),
         _ => {}
     }
@@ -274,6 +299,20 @@ mod tests {
             mask_text("  \"GITHUB_TOKEN\": \"abc\",\n  \"MAX_THINKING_TOKENS\": \"8000\""),
             format!("  \"GITHUB_TOKEN\": \"{MASK}\",\n  \"MAX_THINKING_TOKENS\": \"8000\"")
         );
+        assert_eq!(
+            mask_text("srv --api-key xyz --password 'hunter2' --verbose"),
+            format!("srv --api-key {MASK} --password '{MASK}' --verbose")
+        );
+        assert_eq!(
+            mask_text(
+                "git clone https://ghp_0123456789abcdefghij0123456789abcd@github.com/acme/api"
+            ),
+            format!("git clone https://{MASK}@github.com/acme/api")
+        );
+        assert_eq!(
+            mask_text("ssh://git@github.com/acme/api https://x-access-token:abc@github.com"),
+            format!("ssh://git@github.com/acme/api https://x-access-token:{MASK}@github.com")
+        );
         let plain = "/Users/me/.claude/statusline.sh --short";
         assert_eq!(mask_text(plain), plain);
         assert_eq!(mask_text("claude-opus-4-8"), "claude-opus-4-8");
@@ -286,6 +325,7 @@ mod tests {
             "headers": {"Authorization": "Bearer xyz"},
             "apiKeyHelper": "~/bin/key.sh",
             "args": ["--token", "ghp_0123456789abcdefghij0123456789abcd"],
+            "argv": ["--api-key", "short", "--port", "8080"],
         });
         mask(&mut v);
         assert_eq!(v["env"]["OPENAI_API_KEY"], MASK);
@@ -294,5 +334,6 @@ mod tests {
         assert_eq!(v["headers"]["Authorization"], MASK);
         assert_eq!(v["apiKeyHelper"], "~/bin/key.sh");
         assert_eq!(v["args"][1], MASK);
+        assert_eq!(v["argv"], json!(["--api-key", MASK, "--port", "8080"]));
     }
 }
