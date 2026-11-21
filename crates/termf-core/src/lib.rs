@@ -92,6 +92,20 @@ pub struct TicketSettings {
     pub agent: Option<String>,
     #[serde(default)]
     pub cleanup: TicketCleanup,
+    #[serde(default)]
+    pub worktrees: TicketWorktrees,
+}
+
+/// Where a new run's worktree goes. A run keeps the path it was created with.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TicketWorktrees {
+    /// `<repo>/.claude/worktrees/`, as Claude Code's own: a session there inherits the trust given to the
+    /// repository instead of asking for a folder nobody approved.
+    #[default]
+    Repo,
+    /// `<data>/worktrees/<project>/<run>/<repo>`.
+    Data,
 }
 
 /// What TermF does once the pull request of a delivered run is merged or closed.
@@ -690,6 +704,9 @@ mod tests {
         assert_eq!(settings("").tickets.cleanup, TicketCleanup::Ask);
         let auto = settings("[tickets]\ncleanup = \"auto\"\n");
         assert_eq!(auto.tickets.cleanup, TicketCleanup::Auto);
+        assert_eq!(settings("").tickets.worktrees, TicketWorktrees::Repo);
+        let data = settings("[tickets]\nworktrees = \"data\"\n");
+        assert_eq!(data.tickets.worktrees, TicketWorktrees::Data);
         for (text, error) in [
             (
                 "[agents]\nsonnet = \"claude --model sonnet\"\n",

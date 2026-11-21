@@ -17,6 +17,9 @@ pub(crate) const DEPENDENCY_DIRS: [&str; 6] = [
     "vendor/bundle",
 ];
 
+/// The repository's worktrees, TermF's and Claude Code's: never copied into another one.
+const WORKTREES: &str = ".claude/worktrees";
+
 /// `rel` as a path inside a repository: relative, without `..` or `.git`.
 pub(crate) fn relative(rel: &str) -> Option<PathBuf> {
     let path = Path::new(rel.trim());
@@ -56,8 +59,12 @@ pub(crate) fn include(
     for entry in listing.split('\0').filter(|e| !e.is_empty()) {
         let path = entry.trim_end_matches('/');
         let is_dir = entry.ends_with('/');
-        // A folder ignored as a whole is listed once: walk into it when a pattern names a file inside.
-        if is_dir && !included(patterns, path, true) && names_inside(patterns, path) {
+        // A folder ignored as a whole is listed once: walk into it when a pattern names a file inside, or when it
+        // holds the worktrees.
+        let holds_worktrees = WORKTREES.starts_with(&format!("{path}/"));
+        if is_dir
+            && (holds_worktrees || !included(patterns, path, true) && names_inside(patterns, path))
+        {
             entries.extend(files_under(source, path).into_iter().map(|f| (f, false)));
         } else {
             entries.push((path.to_owned(), is_dir));
@@ -68,13 +75,17 @@ pub(crate) fn include(
     let (mut copied, mut present) = (Vec::new(), 0);
     for (path, is_dir) in &entries {
         let path = path.as_str();
-        let dependency = DEPENDENCY_DIRS.iter().chain(skip).any(|d| {
-            !d.is_empty()
-                && (path == *d
-                    || path.starts_with(&format!("{d}/"))
-                    || path.ends_with(&format!("/{d}"))
-                    || path.contains(&format!("/{d}/")))
-        });
+        let dependency = [WORKTREES]
+            .iter()
+            .chain(&DEPENDENCY_DIRS)
+            .chain(skip)
+            .any(|d| {
+                !d.is_empty()
+                    && (path == *d
+                        || path.starts_with(&format!("{d}/"))
+                        || path.ends_with(&format!("/{d}"))
+                        || path.contains(&format!("/{d}/")))
+            });
         if dependency || !included(patterns, path, *is_dir) {
             continue;
         }
@@ -118,6 +129,7 @@ fn files_under(root: &Path, rel: &str) -> Vec<String> {
     for entry in entries.flatten() {
         let name = format!("{rel}/{}", entry.file_name().to_string_lossy());
         match entry.file_type() {
+            Ok(kind) if kind.is_dir() && name == WORKTREES => {}
             Ok(kind) if kind.is_dir() => found.extend(files_under(root, &name)),
             Ok(_) => found.push(name),
             Err(_) => {}
