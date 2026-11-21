@@ -67,7 +67,7 @@ export type Gauge = {
   failure: ResetFailure | null;
 };
 export type ContextSettings = { on: boolean; resetAt: number; warningAt: number };
-export type ViewId = "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude" | "team" | "project";
+export type ViewId = "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude" | "team" | "project" | "onboarding";
 
 const projectKey = "termf.project";
 

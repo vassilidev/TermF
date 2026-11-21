@@ -248,7 +248,11 @@ fn opens_by_itself_once_for_a_new_project_and_records_decisions() {
     )
     .unwrap();
     assert_eq!(state.decisions["ci"], Decision::Accepted);
-    assert_eq!(state.log.last().unwrap().what, "ci accepted");
+    let logged = state.log.last().unwrap();
+    assert_eq!(
+        (logged.what.as_str(), logged.decision),
+        ("ci", Some(Decision::Accepted))
+    );
     assert!(decide(&config, &data, "acme", "deploy", Decision::Accepted, "").is_err());
     assert!(load(&config, &data, "../acme").is_err());
 }

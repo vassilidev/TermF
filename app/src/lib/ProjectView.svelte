@@ -5,7 +5,9 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import X from "@lucide/svelte/icons/x";
+  import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
+  import { openSetup } from "$lib/onboarding.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
@@ -194,6 +196,16 @@
         </section>
 
         {#if project}
+          <section>
+            <h2>{t("obConfigure")}</h2>
+            <div class="line">
+              <span class="muted grow">{t("obConfigureHint")}</span>
+              <button type="button" class="btn sm" disabled={dirty} onclick={() => openSetup(project.id)}>
+                {t("obConfigure")}
+              </button>
+            </div>
+          </section>
+
           <TicketSources project={project.id} bind:this={sources} />
 
           <section>
@@ -202,6 +214,11 @@
               {#if recipe}<span class="muted">{recipe.saved ? t("wtSaved") : t("wtDetected")}</span>{/if}
               <button type="button" class="btn sm" onclick={openRecipe}>{t("t5RecipeEdit")}</button>
             </div>
+          </section>
+
+          <section>
+            <h2>{t("obTrustTitle")}</h2>
+            <ClaudeTrust project={project.id} />
           </section>
 
           <div class="danger-zone">
@@ -372,6 +389,11 @@
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .grow {
+    flex: 1;
+    min-width: 0;
   }
 
   .danger-zone {

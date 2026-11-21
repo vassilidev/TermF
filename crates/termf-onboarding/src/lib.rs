@@ -132,7 +132,10 @@ pub enum Decision {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Logged {
     pub at: u64,
+    /// `answers`, or the proposal decided on.
     pub what: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<Decision>,
     pub detail: String,
 }
 
@@ -233,13 +236,10 @@ pub fn decide(
     );
     change(config_dir, data_dir, project, |s| {
         s.decisions.insert(proposal.into(), decision);
-        let verb = match decision {
-            Decision::Accepted => "accepted",
-            Decision::Rejected => "rejected",
-        };
         s.log.push(Logged {
             at: now(),
-            what: format!("{proposal} {verb}"),
+            what: proposal.into(),
+            decision: Some(decision),
             detail: detail.chars().take(MAX_ANSWER).collect(),
         });
         Ok(())
@@ -613,8 +613,9 @@ pub fn answer(
         s.step = Step::Proposals;
         s.log.push(Logged {
             at: now(),
-            what: "answers saved".into(),
-            detail: format!("{} question(s)", analysis.questions.len()),
+            what: "answers".into(),
+            decision: None,
+            detail: analysis.questions.len().to_string(),
         });
         Ok(())
     })
