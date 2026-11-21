@@ -86,6 +86,14 @@ const fr = {
   notifyWaiting: "Attend ta réponse",
   notifyFinished: "A terminé",
   apiOff: "API locale indisponible : la CLI termf et les statuts des agents sont désactivés.",
+  keepAwake: "Empêcher la veille",
+  keepAwakeAuto: "Pendant que les agents travaillent",
+  keepAwakeAlways: "Toujours",
+  keepAwakeOff: "Jamais",
+  keepDisplayOn: "Garder l'écran allumé (empêche aussi le verrouillage)",
+  keepAwakeActive: "Veille bloquée",
+  keepAwakeHelp:
+    "La mise en veille suspend les agents ; le verrouillage de l'écran, non. Écran rabattu : le portable se met en veille quand même.",
 };
 
 type Key = keyof typeof fr;
@@ -177,6 +185,14 @@ const en: Record<Key, string> = {
   notifyWaiting: "Waiting for you",
   notifyFinished: "Finished",
   apiOff: "Local API unavailable: the termf CLI and agent status are off.",
+  keepAwake: "Prevent sleep",
+  keepAwakeAuto: "While agents are working",
+  keepAwakeAlways: "Always",
+  keepAwakeOff: "Never",
+  keepDisplayOn: "Keep the screen on (also prevents locking)",
+  keepAwakeActive: "Sleep blocked",
+  keepAwakeHelp:
+    "Sleep suspends agents; a locked screen does not. With the lid closed, a laptop sleeps anyway.",
 };
 
 const messages = { fr, en };

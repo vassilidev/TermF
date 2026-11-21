@@ -137,6 +137,7 @@ impl Api {
             .lock()
             .unwrap()
             .retain(|w| w.send(event.clone()).is_ok());
+        app.state::<AppState>().keep_awake.update(app);
     }
 
     fn hook(&self, app: &AppHandle, id: u32, event: &str, payload: &Value) {
@@ -173,6 +174,9 @@ impl Api {
             .is_some_and(|m| m.status.is_some());
         if tracked {
             self.set_status(app, id, Status::Done);
+        } else {
+            // Agents without a status keep the computer awake while they run.
+            app.state::<AppState>().keep_awake.update(app);
         }
     }
 
@@ -411,6 +415,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             let name = cwd.file_name().unwrap_or(cwd.as_os_str()).to_string_lossy();
             let title = format!("{name} · {}", agent.as_deref().unwrap_or("shell"));
             let session = spawn(state, agent.as_deref(), cwd, title, 120, 32, false)?;
+            state.keep_awake.update(app);
             app.emit("session-opened", &session)?;
             serde_json::to_value(session)?
         }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import KeepAwake from "$lib/KeepAwake.svelte";
   import Layouts from "$lib/Layouts.svelte";
   import ProjectEditor from "$lib/ProjectEditor.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
@@ -160,6 +161,7 @@
       <button class="secondary" disabled={!selected.size} onclick={() => openSelected(null)}>
         {t("openShell", { count: selected.size })}
       </button>
+      <KeepAwake />
       <div class="meta">
         <button class="link" onclick={load}>{t("reload")}</button>
         <span class="muted" title={app.workspace.configDir}>{app.workspace.configDir}</span>

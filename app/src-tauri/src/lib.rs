@@ -1,6 +1,7 @@
 mod api;
 mod config;
 mod files;
+mod keep_awake;
 mod quick_terminal;
 
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ struct AppState {
     sessions: Sessions,
     quick_terminal: quick_terminal::QuickTerminal,
     api: api::Api,
+    keep_awake: keep_awake::KeepAwake,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -76,7 +78,9 @@ async fn workspace(
 
 /// `agent: None` opens a plain login shell.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn pty_spawn(
+    app: AppHandle,
     state: State<AppState>,
     agent: Option<String>,
     cwd: String,
@@ -86,7 +90,7 @@ fn pty_spawn(
     remote_control: Option<bool>,
 ) -> CmdResult<SessionSummary> {
     let remote_control = remote_control.unwrap_or(false);
-    api::spawn(
+    let session = api::spawn(
         &state,
         agent.as_deref(),
         cwd.into(),
@@ -95,7 +99,9 @@ fn pty_spawn(
         rows,
         remote_control,
     )
-    .map_err(err)
+    .map_err(err)?;
+    state.keep_awake.update(&app);
+    Ok(session)
 }
 
 #[tauri::command]
@@ -136,9 +142,11 @@ fn pty_resize(state: State<AppState>, id: u32, cols: u16, rows: u16) -> CmdResul
 }
 
 #[tauri::command]
-fn pty_kill(state: State<AppState>, id: u32) -> CmdResult<()> {
+fn pty_kill(app: AppHandle, state: State<AppState>, id: u32) -> CmdResult<()> {
     state.api.forget(id);
-    state.sessions.kill(id).map_err(err)
+    state.sessions.kill(id).map_err(err)?;
+    state.keep_awake.update(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -169,6 +177,7 @@ pub fn run() {
         .plugin(quick_terminal::plugin())
         // One setup: a second call to `setup` would replace this one.
         .setup(move |app| {
+            let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new();
             app.manage(AppState {
@@ -176,7 +185,13 @@ pub fn run() {
                 sessions: api.sessions(app.handle().clone()),
                 quick_terminal: Default::default(),
                 api,
+                keep_awake: Default::default(),
             });
+            app.state::<AppState>().keep_awake.configure(
+                app.handle(),
+                settings.keep_awake,
+                settings.keep_display_on,
+            );
             if let Some(listener) = listener
                 && let Err(e) = api::serve(app.handle().clone(), listener)
             {
@@ -208,6 +223,8 @@ pub fn run() {
             config::layout_save,
             config::layout_delete,
             quick_terminal::quick_terminal,
+            keep_awake::keep_awake_state,
+            keep_awake::keep_awake_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

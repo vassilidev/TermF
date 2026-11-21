@@ -220,6 +220,15 @@ pub fn access(token: &str, user: &str, sessions: &HashMap<u32, String>) -> Optio
         .map(|(id, _)| Access::Session(*id))
 }
 
+/// Whether a session needs the computer awake: its agent is working, or it is an agent that reports
+/// no status and is still running. Plain shells never do.
+pub fn keeps_awake(session: &SessionSummary) -> bool {
+    match session.status {
+        Some(status) => matches!(status, Status::Starting | Status::Working),
+        None => session.running && session.agent.is_some(),
+    }
+}
+
 /// Whether terminal input can answer a prompt: escape sequences (arrows, focus and mouse reports) cannot.
 pub fn answers_prompt(input: &[u8]) -> bool {
     input.first().is_some_and(|&b| b != 0x1b)
@@ -279,6 +288,38 @@ pub fn find_session(sessions: &[SessionSummary], query: &str) -> Result<u32> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn only_working_or_untracked_agents_keep_awake() {
+        let with = |status, agent: Option<&str>, running| SessionSummary {
+            status,
+            agent: agent.map(Into::into),
+            running,
+            ..session(1, "x")
+        };
+        assert!(keeps_awake(&with(
+            Some(Status::Working),
+            Some("claude"),
+            true
+        )));
+        assert!(keeps_awake(&with(
+            Some(Status::Starting),
+            Some("claude"),
+            true
+        )));
+        for idle in [Status::Waiting, Status::Idle, Status::Done] {
+            assert!(!keeps_awake(&with(Some(idle), Some("claude"), true)));
+        }
+        assert!(
+            keeps_awake(&with(None, Some("codex"), true)),
+            "no status: running counts"
+        );
+        assert!(!keeps_awake(&with(None, Some("codex"), false)));
+        assert!(
+            !keeps_awake(&with(None, None, true)),
+            "plain shells never keep awake"
+        );
+    }
 
     fn session(id: u32, title: &str) -> SessionSummary {
         SessionSummary {
