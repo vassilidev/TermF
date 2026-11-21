@@ -4,17 +4,22 @@ import { app, type Repo } from "$lib/state.svelte";
 
 export type Entry = { name: string; path: string; dir: boolean };
 export type Content =
-  | { kind: "text"; text: string }
+  /** `eol` is the file's line separator, `null` when it mixes several (read-only then). */
+  | { kind: "text"; text: string; eol: string | null }
   | { kind: "binary" }
   | { kind: "tooLarge"; size: number };
+export type Stamp = { mtime: number; size: number };
 export type Tab = {
   repo: string;
   /** Relative to `repo`, `/`-separated. */
   path: string;
   name: string;
   content: Content;
-  mtime: number;
+  /** The file on disk when `content` was read or last saved. */
+  stamp: Stamp;
   dirty: boolean;
+  /** Changed on disk while it had unsaved edits. */
+  stale: boolean;
   diff: boolean;
   /** Line to reveal once the tab is shown. */
   line: number | null;
@@ -64,6 +69,7 @@ export function showFiles() {
   files.view = "files";
   files.loaded = true;
   refreshStatus();
+  if (files.active) sync(files.active);
 }
 
 export async function refreshStatus() {
@@ -73,20 +79,47 @@ export async function refreshStatus() {
   if (repo === files.repo) files.status = status;
 }
 
+function read(repo: string, path: string) {
+  return invoke<Content & { stamp: Stamp }>("files_read", { repo, path });
+}
+
+/** Reloads a tab whose file changed on disk; one with unsaved edits only gets a notice. */
+export async function sync(tab: Tab) {
+  try {
+    const stamp = await invoke<Stamp>("files_stat", { repo: tab.repo, path: tab.path });
+    if (stamp.mtime === tab.stamp.mtime && stamp.size === tab.stamp.size) return;
+    if (!tab.dirty) {
+      const { stamp, ...content } = await read(tab.repo, tab.path);
+      // Typing during the read wins over the reload.
+      if (!tab.dirty) {
+        Object.assign(tab, { content, stamp, stale: false });
+        return;
+      }
+    }
+    tab.stale = true;
+  } catch (e) {
+    files.error = String(e);
+  }
+}
+
+export function activate(tab: Tab) {
+  files.active = tab;
+  sync(tab);
+}
+
 export async function openFile(path: string, line: number | null = null) {
   const repo = files.repo;
   const open = files.tabs.find((tab) => tab.repo === repo && tab.path === path);
   if (open) {
+    // Before revealing the line: a reload would lose it.
+    await sync(open);
     open.line = line;
     if (line !== null) open.diff = false;
     files.active = open;
     return;
   }
   try {
-    const { mtime, ...content } = await invoke<Content & { mtime: number }>("files_read", {
-      repo,
-      path,
-    });
+    const { stamp, ...content } = await read(repo, path);
     // A double click opens the file once.
     const opened = files.tabs.find((tab) => tab.repo === repo && tab.path === path);
     if (opened) {
@@ -98,8 +131,9 @@ export async function openFile(path: string, line: number | null = null) {
       path,
       name: path.slice(path.lastIndexOf("/") + 1),
       content,
-      mtime,
+      stamp,
       dirty: false,
+      stale: false,
       diff: false,
       line,
     });
@@ -114,7 +148,10 @@ export async function closeTab(tab: Tab) {
   if (tab.dirty && !(await ask(t("fileUnsaved", { name: tab.name })))) return;
   const index = files.tabs.indexOf(tab);
   files.tabs.splice(index, 1);
-  if (files.active === tab) files.active = files.tabs[Math.min(index, files.tabs.length - 1)] ?? null;
+  if (files.active !== tab) return;
+  const next = files.tabs[Math.min(index, files.tabs.length - 1)];
+  if (next) activate(next);
+  else files.active = null;
 }
 
 export async function openExternal(tab: Tab) {
@@ -125,8 +162,9 @@ export async function openExternal(tab: Tab) {
   }
 }
 
-/** In-app confirmation: WKWebView ignores `window.confirm`. */
+/** In-app confirmation: WKWebView ignores `window.confirm`. A newer question cancels a pending one. */
 export function ask(message: string): Promise<boolean> {
+  files.question?.answer(false);
   return new Promise((answer) => {
     files.question = { message, answer };
   });

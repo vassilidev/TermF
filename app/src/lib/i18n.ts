@@ -44,6 +44,12 @@ const fr = {
   fileUnsavedLabel: "Non enregistré",
   fileUnsaved: "« {name} » a des modifications non enregistrées. Fermer quand même ?",
   fileChanged: "« {name} » a été modifié sur le disque depuis son ouverture. L'écraser ?",
+  fileStale:
+    "Modifié sur le disque pendant que tu l'éditais. Tes modifications sont gardées ; l'enregistrement demandera avant d'écraser.",
+  fileMixedEol:
+    "Fins de ligne mixtes (LF, CRLF ou CR) : le fichier est en lecture seule pour ne pas les réécrire.",
+  fileHead: "HEAD (dernier commit)",
+  filesUnsavedClose: "Des fichiers ont des modifications non enregistrées. Fermer quand même ?",
   cancel: "Annuler",
   confirm: "Confirmer",
 };
@@ -96,6 +102,11 @@ const en: Record<Key, string> = {
   fileUnsavedLabel: "Unsaved",
   fileUnsaved: "“{name}” has unsaved changes. Close anyway?",
   fileChanged: "“{name}” changed on disk since it was opened. Overwrite it?",
+  fileStale:
+    "Changed on disk while you were editing. Your changes are kept; saving will ask before overwriting.",
+  fileMixedEol: "Mixed line endings (LF, CRLF or CR): the file is read-only so they aren't rewritten.",
+  fileHead: "HEAD (last commit)",
+  filesUnsavedClose: "Some files have unsaved changes. Close anyway?",
   cancel: "Cancel",
   confirm: "Confirm",
 };

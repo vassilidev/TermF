@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tauri::State;
-use termf_files::{Content, Entry, Files, Opened, Saved, SearchResult};
+use termf_files::{Content, Entry, Files, Opened, Saved, SearchResult, Stamp};
 
 use crate::{AppState, CmdResult, err};
 
@@ -65,14 +65,23 @@ pub async fn files_read(
 }
 
 #[tauri::command]
+pub async fn files_stat(
+    files: State<'_, Arc<Files>>,
+    repo: String,
+    path: String,
+) -> CmdResult<Stamp> {
+    blocking(&files, move |f| f.stat(&repo, &path)).await
+}
+
+#[tauri::command]
 pub async fn files_write(
     files: State<'_, Arc<Files>>,
     repo: String,
     path: String,
     text: String,
-    mtime: Option<u64>,
+    stamp: Option<Stamp>,
 ) -> CmdResult<Saved> {
-    blocking(&files, move |f| f.write(&repo, &path, &text, mtime)).await
+    blocking(&files, move |f| f.write(&repo, &path, &text, stamp)).await
 }
 
 #[tauri::command]

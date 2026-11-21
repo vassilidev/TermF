@@ -3,12 +3,34 @@
   import FileFinder from "$lib/FileFinder.svelte";
   import FileSearch from "$lib/FileSearch.svelte";
   import FileTree from "$lib/FileTree.svelte";
+  import { onMount } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import { closeTab, files, isMac, refreshStatus, tabKey } from "$lib/files.svelte";
+  import {
+    activate,
+    ask,
+    closeTab,
+    files,
+    isMac,
+    refreshStatus,
+    sync,
+    tabKey,
+  } from "$lib/files.svelte";
 
   let searchInput = $state<HTMLInputElement>();
   let question: HTMLDialogElement;
+
+  const unsaved = () => files.tabs.some((tab) => tab.dirty);
+
+  onMount(() => {
+    const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+      if (!unsaved()) return;
+      files.view = "files";
+      if (!(await ask(t("filesUnsavedClose")))) event.preventDefault();
+    });
+    return () => void unlisten.then((stop) => stop());
+  });
 
   $effect(() => {
     void files.repo;
@@ -16,7 +38,7 @@
   });
 
   $effect(() => {
-    if (files.question) question.showModal();
+    if (files.question && !question.open) question.showModal();
   });
 
   function answer(yes: boolean) {
@@ -28,6 +50,7 @@
   function refresh() {
     files.version++;
     refreshStatus();
+    files.tabs.forEach(sync);
   }
 
   // Only while this view is shown: Ctrl+P belongs to the shell in a terminal.
@@ -45,7 +68,8 @@
   }
 </script>
 
-<svelte:window {onkeydown} />
+<!-- Reload: browsers prompt on preventDefault; the native close goes through onCloseRequested above. -->
+<svelte:window {onkeydown} onbeforeunload={(e) => unsaved() && e.preventDefault()} />
 
 <div class="files">
   <aside class="side">
@@ -101,7 +125,7 @@
       <div class="tabs">
         {#each files.tabs as tab (tabKey(tab))}
           <div class="tab" class:active={tab === files.active} title={tab.path}>
-            <button aria-current={tab === files.active} onclick={() => (files.active = tab)}>
+            <button aria-current={tab === files.active} onclick={() => activate(tab)}>
               {tab.name}
             </button>
             {#if tab.dirty}

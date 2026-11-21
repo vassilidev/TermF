@@ -174,6 +174,7 @@ pub fn run() {
             files::files_find,
             files::files_search,
             files::files_read,
+            files::files_stat,
             files::files_write,
             files::files_head,
             files::files_open_external,

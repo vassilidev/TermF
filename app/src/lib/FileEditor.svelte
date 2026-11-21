@@ -17,6 +17,7 @@
     refreshStatus,
     tabKey,
     type Content,
+    type Stamp,
     type Tab,
   } from "$lib/files.svelte";
 
@@ -56,15 +57,15 @@
   ]);
   const readOnly = [EditorState.readOnly.of(true), EditorView.editable.of(false)];
 
-  // Per tab: editor state (undo history, selection) and the text last saved.
-  const states = new Map<string, EditorState>();
-  const saved = new Map<string, Text>();
+  // Per tab: the content its editor state was built from (a reload replaces it), the state (undo history,
+  // selection) and the text last saved.
+  type Doc = { content: Content; state: EditorState; saved: Text };
+  const docs = new Map<string, Doc>();
 
   let host: HTMLDivElement;
   let diffHost: HTMLDivElement;
   let view: EditorView;
   let merge: MergeView | undefined;
-  let shown = "";
   let headIssue = $state<Content | null>(null);
   let seq = 0;
 
@@ -81,47 +82,46 @@
     return description ? description.load().catch(() => []) : [];
   }
 
-  async function stateFor(tab: Tab, text: string): Promise<EditorState> {
+  async function docFor(tab: Tab, content: Content & { kind: "text" }): Promise<Doc> {
     const key = tabKey(tab);
-    const existing = states.get(key);
-    if (existing) return existing;
-    const state = EditorState.create({
-      doc: text,
+    const cached = docs.get(key);
+    if (cached?.content === content) return cached;
+    const lang = await language(tab.name);
+    // Two quick switches may build the same tab twice; keep the first.
+    const built = docs.get(key);
+    if (built?.content === content) return built;
+    const doc = { content } as Doc;
+    doc.state = EditorState.create({
+      doc: content.text,
       extensions: [
         basicSetup,
         theme,
         syntaxHighlighting(highlight),
-        await language(tab.name),
-        // Keep CRLF files CRLF on save.
-        text.includes("\r\n") ? EditorState.lineSeparator.of("\r\n") : [],
+        lang,
+        // Only the file's own separator splits lines (by default `\r` would too), so a save writes the
+        // same line endings back. Mixed endings can't round-trip: read-only.
+        content.eol ? EditorState.lineSeparator.of(content.eol) : readOnly,
         Prec.highest(keymap.of([{ key: "Mod-s", run: () => (save(), true) }])),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) tab.dirty = !u.state.doc.eq(saved.get(key)!);
+          doc.state = u.state;
+          if (u.docChanged) tab.dirty = !u.state.doc.eq(doc.saved);
         }),
       ],
     });
-    // Two quick switches may build the same tab twice; keep the first.
-    if (!states.has(key)) {
-      states.set(key, state);
-      saved.set(key, state.doc);
-    }
-    return states.get(key)!;
+    doc.saved = doc.state.doc;
+    docs.set(key, doc);
+    return doc;
   }
 
-  async function show(tab: Tab | null, diff: boolean, line: number | null) {
+  async function show(tab: Tab | null, content: Content | undefined, diff: boolean, line: number | null) {
     const n = ++seq;
     merge?.destroy();
     merge = undefined;
     headIssue = null;
-    if (!tab || tab.content.kind !== "text") return;
-    const key = tabKey(tab);
-    const state = await stateFor(tab, tab.content.text);
+    if (!tab || content?.kind !== "text") return;
+    const doc = await docFor(tab, content);
     if (n !== seq) return;
-    if (shown !== key) {
-      if (states.has(shown)) states.set(shown, view.state);
-      view.setState(state);
-      shown = key;
-    }
+    if (view.state !== doc.state) view.setState(doc.state);
     if (diff) return showDiff(tab, n);
     if (line !== null) {
       const pos = view.state.doc.line(Math.min(line, view.state.doc.lines)).from;
@@ -153,27 +153,27 @@
   }
 
   async function save() {
-    if (!tab || shown !== tabKey(tab)) return;
     const current = tab;
-    const key = shown;
-    const state = view.state;
+    const doc = current && docs.get(tabKey(current));
+    if (!current?.dirty || !doc || doc.content !== current.content) return;
+    const state = doc.state;
     try {
-      const write = (mtime: number | null) =>
-        invoke<{ kind: "saved"; mtime: number } | { kind: "conflict" }>("files_write", {
+      const write = (stamp: Stamp | null) =>
+        invoke<{ kind: "saved"; stamp: Stamp } | { kind: "conflict" }>("files_write", {
           repo: current.repo,
           path: current.path,
           text: state.sliceDoc(),
-          mtime,
+          stamp,
         });
-      let result = await write(current.mtime);
+      let result = await write(current.stamp);
       if (result.kind === "conflict") {
         if (!(await ask(t("fileChanged", { name: current.name })))) return;
         result = await write(null);
       }
-      if (result.kind === "saved") current.mtime = result.mtime;
-      saved.set(key, state.doc);
-      const latest = shown === key ? view.state : (states.get(key) ?? state);
-      current.dirty = !latest.doc.eq(state.doc);
+      if (result.kind === "saved") current.stamp = result.stamp;
+      current.stale = false;
+      doc.saved = state.doc;
+      current.dirty = !doc.state.doc.eq(state.doc);
       files.error = "";
       refreshStatus();
     } catch (e) {
@@ -182,18 +182,12 @@
   }
 
   $effect(() => {
-    show(tab, tab?.diff ?? false, tab?.line ?? null);
+    show(tab, tab?.content, tab?.diff ?? false, tab?.line ?? null);
   });
 
   $effect(() => {
     const open = new Set(files.tabs.map(tabKey));
-    for (const key of states.keys()) {
-      if (!open.has(key)) {
-        states.delete(key);
-        saved.delete(key);
-        if (key === shown) shown = "";
-      }
-    }
+    for (const key of docs.keys()) if (!open.has(key)) docs.delete(key);
   });
 </script>
 
@@ -211,6 +205,12 @@
       {/if}
       <button onclick={() => tab && openExternal(tab)}>{t("fileOpenExternal")}</button>
     </header>
+    {#if tab.stale}
+      <p class="notice" role="status">{t("fileStale")}</p>
+    {/if}
+    {#if tab.content.kind === "text" && !tab.content.eol}
+      <p class="notice">{t("fileMixedEol")}</p>
+    {/if}
   {/if}
 
   {#if !tab}
@@ -228,7 +228,7 @@
   <div class="host" bind:this={host} hidden={tab?.content.kind !== "text" || tab.diff}></div>
   {#if tab?.content.kind === "text" && tab.diff && !headIssue}
     <div class="sides muted">
-      <span>HEAD</span><span>{t("fileWorkingCopy")}</span>
+      <span>{t("fileHead")}</span><span>{t("fileWorkingCopy")}</span>
     </div>
   {/if}
   <div class="host" bind:this={diffHost} hidden={!tab?.diff || !!headIssue}></div>
@@ -291,6 +291,14 @@
   .toolbar button[aria-pressed="true"] {
     border-color: var(--accent);
     color: var(--accent);
+  }
+
+  .notice {
+    margin: 0;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--hover);
+    font-size: 12px;
   }
 
   .message {

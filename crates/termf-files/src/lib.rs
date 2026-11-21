@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::UNIX_EPOCH;
 
@@ -12,7 +13,7 @@ use grep_searcher::{BinaryDetection, SearcherBuilder};
 use ignore::WalkBuilder;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Larger files are neither opened in the editor nor searched.
 pub const MAX_EDIT_BYTES: u64 = 5 * 1024 * 1024;
@@ -32,23 +33,50 @@ pub struct Entry {
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Content {
-    Text { text: String },
+    Text {
+        text: String,
+        /// The file's line separator; `None` when it mixes several, so the editor keeps it read-only.
+        eol: Option<&'static str>,
+    },
     Binary,
-    TooLarge { size: u64 },
+    TooLarge {
+        size: u64,
+    },
+}
+
+/// What a file looked like on disk, handed back on save to detect changes made meanwhile.
+/// Size as well as mtime: some filesystems only keep whole seconds.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+pub struct Stamp {
+    /// Milliseconds since the Unix epoch.
+    pub mtime: u64,
+    pub size: u64,
+}
+
+impl Stamp {
+    fn of(meta: &fs::Metadata) -> Self {
+        Stamp {
+            mtime: meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis() as u64),
+            size: meta.len(),
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
 pub struct Opened {
     #[serde(flatten)]
     pub content: Content,
-    /// Milliseconds since the Unix epoch, handed back on save to detect changes made on disk meanwhile.
-    pub mtime: u64,
+    pub stamp: Stamp,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Saved {
-    Saved { mtime: u64 },
+    Saved { stamp: Stamp },
     Conflict,
 }
 
@@ -70,6 +98,8 @@ pub struct SearchResult {
 pub struct Files {
     roots: RwLock<Vec<PathBuf>>,
     index: Mutex<HashMap<PathBuf, Arc<Vec<String>>>>,
+    /// Bumped by each search, so a superseded one stops instead of stacking full-repository walks.
+    search_generation: AtomicU64,
 }
 
 impl Files {
@@ -104,8 +134,11 @@ impl Files {
         let inside = path
             .strip_prefix(&root)
             .map_err(|_| anyhow!("{rel} is outside the repository"))?;
+        // Case-insensitive: macOS and Windows reach `.git` as `.GIT` too, and canonicalizing keeps the typed case.
         ensure!(
-            !inside.components().any(|c| c.as_os_str() == ".git"),
+            !inside
+                .components()
+                .any(|c| c.as_os_str().eq_ignore_ascii_case(".git")),
             "{rel} is inside .git"
         );
         Ok((root, path))
@@ -165,7 +198,21 @@ impl Files {
     }
 
     /// Lines matching `query` (literal unless `regex`, smart case), at most `MAX_HITS`.
+    /// Fails once a newer search starts.
     pub fn search(&self, repo: &str, query: &str, regex: bool) -> Result<SearchResult> {
+        let generation = self.search_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.search_while(repo, query, regex, || {
+            self.search_generation.load(Ordering::Relaxed) == generation
+        })
+    }
+
+    fn search_while(
+        &self,
+        repo: &str,
+        query: &str,
+        regex: bool,
+        current: impl Fn() -> bool,
+    ) -> Result<SearchResult> {
         let root = self.root(repo)?;
         let mut hits = Vec::new();
         if !query.is_empty() {
@@ -178,6 +225,7 @@ impl Files {
                 .build();
             let files = walker(&root).max_filesize(Some(MAX_EDIT_BYTES)).build();
             for entry in files.filter_map(Result::ok) {
+                ensure!(current(), "search superseded");
                 if hits.len() > MAX_HITS {
                     break;
                 }
@@ -218,27 +266,35 @@ impl Files {
         };
         Ok(Opened {
             content,
-            mtime: mtime(&meta),
+            stamp: Stamp::of(&meta),
         })
     }
 
-    /// Overwrites an existing file, unless it changed on disk since `expected_mtime` (an agent edited it, typically).
+    /// Cheap check of whether a file changed on disk since it was read.
+    pub fn stat(&self, repo: &str, rel: &str) -> Result<Stamp> {
+        let (_, path) = self.resolve(repo, rel)?;
+        let meta = fs::metadata(&path)?;
+        ensure!(meta.is_file(), "{rel} is not a file");
+        Ok(Stamp::of(&meta))
+    }
+
+    /// Overwrites an existing file, unless it changed on disk since `expected` (an agent edited it, typically).
     pub fn write(
         &self,
         repo: &str,
         rel: &str,
         text: &str,
-        expected_mtime: Option<u64>,
+        expected: Option<Stamp>,
     ) -> Result<Saved> {
         let (_, path) = self.resolve(repo, rel)?;
         let meta = fs::metadata(&path)?;
         ensure!(meta.is_file(), "{rel} is not a file");
-        if expected_mtime.is_some_and(|m| m != mtime(&meta)) {
+        if expected.is_some_and(|s| s != Stamp::of(&meta)) {
             return Ok(Saved::Conflict);
         }
         fs::write(&path, text)?;
         Ok(Saved::Saved {
-            mtime: mtime(&fs::metadata(&path)?),
+            stamp: Stamp::of(&fs::metadata(&path)?),
         })
     }
 
@@ -246,9 +302,20 @@ impl Files {
     pub fn head(&self, repo: &str, rel: &str) -> Result<Option<Content>> {
         let (root, path) = self.resolve(repo, rel)?;
         let rel = rel_path(&root, &path).context("invalid path")?;
-        Ok(git(Path::new(repo), &["show", &format!("HEAD:./{rel}")])
-            .ok()
-            .map(decode))
+        let out = git_output(
+            Path::new(repo),
+            &["rev-parse", "--verify", "--quiet", &format!("HEAD:./{rel}")],
+        )?;
+        // `--quiet` exits with 1 and prints nothing when there is no HEAD or the file isn't in it.
+        if out.status.code() == Some(1) && out.stderr.is_empty() {
+            return Ok(None);
+        }
+        let oid = checked(out)?;
+        let oid = String::from_utf8_lossy(&oid);
+        Ok(Some(decode(git(
+            Path::new(repo),
+            &["cat-file", "blob", oid.trim()],
+        )?)))
     }
 
     /// Opens the file with `editor` (a command from the settings) or the system's default app.
@@ -266,21 +333,22 @@ impl Files {
             // A login shell so GUI launches find the editor on the user's PATH; the path is `$1`, never interpolated.
             Some(editor) => {
                 let mut cmd = command(&std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()));
-                cmd.args(["-l", "-i", "-c", &format!("{editor} \"$1\""), "termf"]);
+                cmd.args(["-l", "-c", &format!("{editor} \"$1\""), "termf"]);
                 cmd
             }
             None if cfg!(target_os = "macos") => command("open"),
             None if cfg!(windows) => command("explorer"),
             None => command("xdg-open"),
         };
-        let out = cmd.arg(&path).stdin(Stdio::null()).output()?;
-        // explorer.exe exits with 1 even when it opened the file.
-        ensure!(
-            out.status.success() || (cfg!(windows) && editor.is_none()),
-            "cannot open {}: {}",
-            path.display(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+        let mut child = cmd
+            .arg(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("cannot open {}", path.display()))?;
+        // Not waited on: an editor run with `--wait` would hold the command until the file is closed.
+        std::thread::spawn(move || child.wait());
         Ok(())
     }
 }
@@ -336,14 +404,23 @@ fn decode(bytes: Vec<u8>) -> Content {
     if bytes[..bytes.len().min(8000)].contains(&0) {
         return Content::Binary;
     }
-    String::from_utf8(bytes).map_or(Content::Binary, |text| Content::Text { text })
+    String::from_utf8(bytes).map_or(Content::Binary, |text| Content::Text {
+        eol: eol(&text),
+        text,
+    })
 }
 
-fn mtime(meta: &fs::Metadata) -> u64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_millis() as u64)
+/// The one line separator `text` uses (`\n` when it has none); `None` when it mixes `\r\n`, `\n` and `\r`.
+fn eol(text: &str) -> Option<&'static str> {
+    let crlf = text.matches("\r\n").count();
+    let lf = text.matches('\n').count() - crlf;
+    let cr = text.matches('\r').count() - crlf;
+    match (crlf, lf, cr) {
+        (0, _, 0) => Some("\n"),
+        (_, 0, 0) => Some("\r\n"),
+        (0, 0, _) => Some("\r"),
+        _ => None,
+    }
 }
 
 fn parse_status(out: &str) -> HashMap<String, char> {
@@ -369,15 +446,22 @@ fn parse_status(out: &str) -> HashMap<String, char> {
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    checked(git_output(root, args)?)
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Result<Output> {
     // No optional locks: a status refresh must never make an agent's concurrent git command fail on index.lock.
-    let out = command("git")
+    command("git")
         .arg("--no-optional-locks")
         .arg("-C")
         .arg(root)
         .args(args)
         .stdin(Stdio::null())
         .output()
-        .context("cannot run git")?;
+        .context("cannot run git")
+}
+
+fn checked(out: Output) -> Result<Vec<u8>> {
     ensure!(
         out.status.success(),
         "{}",
@@ -437,6 +521,11 @@ mod tests {
 
         fs::write(repo.join(".git/config"), "").unwrap();
         assert!(files.resolve(repo_s, ".git/config").is_err());
+        // The same folder on case-insensitive filesystems, a look-alike elsewhere: refused either way.
+        fs::create_dir_all(repo.join(".GIT")).unwrap();
+        fs::write(repo.join(".GIT/config"), "").unwrap();
+        assert!(files.resolve(repo_s, ".GIT/config").is_err());
+        assert!(files.write(repo_s, ".GIT/config", "x", None).is_err());
         assert!(files.resolve(repo_s, "src/missing.rs").is_err());
 
         let parent = repo.parent().unwrap();
@@ -559,13 +648,54 @@ mod tests {
     }
 
     #[test]
+    fn superseded_search_stops() {
+        let (repo, files) = temp_repo("superseded");
+        assert!(
+            files
+                .search_while(s(&repo), "main", false, || false)
+                .is_err()
+        );
+        assert_eq!(
+            files
+                .search_while(s(&repo), "main", false, || true)
+                .unwrap()
+                .hits
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn detects_line_endings() {
+        assert_eq!(eol(""), Some("\n"));
+        assert_eq!(eol("one line"), Some("\n"));
+        assert_eq!(eol("a\nb\n"), Some("\n"));
+        assert_eq!(eol("a\r\nb\r\n"), Some("\r\n"));
+        assert_eq!(eol("a\rb\r"), Some("\r"));
+        assert_eq!(eol("a\r\nb\n"), None, "CRLF and LF");
+        assert_eq!(eol("a\nprogress\rdone\n"), None, "lone CR in an LF file");
+        assert_eq!(eol("a\r\r\n"), None, "lone CR in a CRLF file");
+
+        let (repo, files) = temp_repo("eol");
+        fs::write(repo.join("win.txt"), "a\r\nb\r\n").unwrap();
+        assert_eq!(
+            files.read(s(&repo), "win.txt").unwrap().content,
+            Content::Text {
+                text: "a\r\nb\r\n".into(),
+                eol: Some("\r\n")
+            }
+        );
+    }
+
+    #[test]
     fn reads_only_reasonable_text_files() {
         let (repo, files) = temp_repo("read");
         let opened = files.read(s(&repo), "src/main.rs").unwrap();
         assert_eq!(
             opened.content,
             Content::Text {
-                text: "fn main() {}\n".into()
+                text: "fn main() {}\n".into(),
+                eol: Some("\n")
             }
         );
         fs::write(repo.join("nul.bin"), b"abc\0def").unwrap();
@@ -592,42 +722,74 @@ mod tests {
     #[test]
     fn write_refuses_to_clobber_changes_made_on_disk() {
         let (repo, files) = temp_repo("write");
-        let mtime = files.read(s(&repo), "src/main.rs").unwrap().mtime;
+        let file = repo.join("src/main.rs");
+        let stamp = files.read(s(&repo), "src/main.rs").unwrap().stamp;
+        assert_eq!(files.stat(s(&repo), "src/main.rs").unwrap(), stamp);
+
+        // An agent's edit within the same timestamp tick: only the size tells.
+        let modified = fs::metadata(&file).unwrap().modified().unwrap();
+        fs::write(&file, "fn main() { agent() }\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
         assert_eq!(
             files
-                .write(s(&repo), "src/main.rs", "a", Some(mtime + 1))
+                .write(s(&repo), "src/main.rs", "a", Some(stamp))
                 .unwrap(),
             Saved::Conflict
         );
         assert_eq!(
-            fs::read_to_string(repo.join("src/main.rs")).unwrap(),
-            "fn main() {}\n"
+            fs::read_to_string(&file).unwrap(),
+            "fn main() { agent() }\n"
         );
-        assert!(matches!(
-            files
-                .write(s(&repo), "src/main.rs", "b", Some(mtime))
-                .unwrap(),
-            Saved::Saved { .. }
-        ));
-        assert_eq!(fs::read_to_string(repo.join("src/main.rs")).unwrap(), "b");
+
+        let stamp = files.stat(s(&repo), "src/main.rs").unwrap();
+        let Saved::Saved { stamp } = files
+            .write(s(&repo), "src/main.rs", "b", Some(stamp))
+            .unwrap()
+        else {
+            panic!("expected a save");
+        };
+        assert_eq!(fs::read_to_string(&file).unwrap(), "b");
+        assert_eq!(stamp, files.stat(s(&repo), "src/main.rs").unwrap());
     }
 
     #[test]
     fn reads_status_and_head_from_git() {
         let (repo, files) = temp_repo("git");
         fs::remove_dir_all(repo.join(".git")).unwrap();
-        let run = |args: &[&str]| git(&repo, args).unwrap();
+        // Isolated from the developer's git config: no signing, no hooks, no templates.
+        let config = repo.parent().unwrap().join("gitconfig");
+        fs::write(&config, "").unwrap();
+        let run = |args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(["-c", "commit.gpgsign=false"])
+                .args(args)
+                .env("GIT_CONFIG_GLOBAL", &config)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8(out.stdout).unwrap()
+        };
         run(&["init", "-q"]);
+        assert_eq!(
+            files.head(s(&repo), "src/main.rs").unwrap(),
+            None,
+            "no commit yet"
+        );
         run(&["add", "."]);
-        run(&[
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "commit",
-            "-qm",
-            "init",
-        ]);
+        run(&["commit", "-q", "--no-verify", "-m", "init"]);
         fs::write(repo.join("src/main.rs"), "changed\n").unwrap();
         fs::write(repo.join("new.txt"), "").unwrap();
 
@@ -637,10 +799,17 @@ mod tests {
         assert_eq!(
             files.head(s(&repo), "src/main.rs").unwrap(),
             Some(Content::Text {
-                text: "fn main() {}\n".into()
+                text: "fn main() {}\n".into(),
+                eol: Some("\n")
             })
         );
         assert_eq!(files.head(s(&repo), "new.txt").unwrap(), None);
+
+        // Any other git failure reaches the UI instead of passing for "not in HEAD".
+        let oid = run(&["rev-parse", "HEAD:src/main.rs"]);
+        let oid = oid.trim();
+        fs::remove_file(repo.join(".git/objects").join(&oid[..2]).join(&oid[2..])).unwrap();
+        assert!(files.head(s(&repo), "src/main.rs").is_err());
     }
 
     #[test]
