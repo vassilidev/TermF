@@ -10,13 +10,12 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
-  import ProjectEditor from "$lib/ProjectEditor.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import { keys } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { isMac } from "$lib/files.svelte";
-  import { tallies } from "$lib/project.svelte";
+  import { editProject, tallies } from "$lib/project.svelte";
   import { app, setProject, ui } from "$lib/state.svelte";
 
   let trigger = $state<HTMLButtonElement>();
@@ -26,7 +25,6 @@
 
   const projects = $derived(app.workspace?.projects ?? []);
   const current = $derived(projects.find((p) => p.id === app.project));
-  const editing = $derived(projects.find((p) => p.id === ui.editing));
   const counts = $derived(tallies());
   const options = $derived.by(() => {
     const q = query.trim().toLowerCase();
@@ -50,11 +48,6 @@
     setProject(id);
     ui.switcher = false;
     trigger?.focus();
-  }
-
-  function edit(id: string) {
-    ui.switcher = false;
-    ui.editing = id;
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -139,26 +132,13 @@
     {/each}
   </ul>
   <footer>
-    <button class="btn sm" onclick={() => edit("")}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
+    <button class="btn sm" onclick={() => editProject("")}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
     {#if current}
-      <button class="btn sm quiet" onclick={() => edit(current.id)}>
+      <button class="btn sm quiet" onclick={() => editProject(current.id)}>
         <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
       </button>
     {/if}
   </footer>
-</Popover>
-
-<!-- shortcut: the sidebar's project editor in a popover, until the Project page (T5). -->
-<Popover
-  bind:open={() => ui.editing !== null, (open) => !open && (ui.editing = null)}
-  {trigger}
-  label={editing ? t("editProject", { name: editing.name }) : t("newProject")}
-  width={360}
-  closeOutside={false}
->
-  {#key ui.editing}
-    <ProjectEditor project={editing} onclose={() => ((ui.editing = null), trigger?.focus())} />
-  {/key}
 </Popover>
 
 <style>
@@ -310,11 +290,5 @@
     flex-shrink: 0;
     padding: 8px;
     border-top: 1px solid var(--border);
-  }
-
-  :global(.popover > form.editor) {
-    margin: 0;
-    border: 0;
-    box-shadow: none;
   }
 </style>
