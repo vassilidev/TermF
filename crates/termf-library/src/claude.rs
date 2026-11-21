@@ -77,9 +77,7 @@ fn first_name(config_dir: &Path) -> String {
 #[serde(rename_all = "camelCase")]
 pub enum Outcome {
     Imported,
-    /// It was in the library already, and got overwritten.
     Replaced,
-    /// It is in the library already, and stays as it is.
     Skipped,
     /// A subfolder of commands or agents, which the library does not have.
     Unsupported,

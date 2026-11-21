@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use tauri::State;
-use termf_library::archive::{self, Preview};
+use termf_library::archive::{self, Exported, Preview};
 use termf_library::{Imported, Item, Kind, Scope};
 
 use crate::{AppState, CmdResult, err};
@@ -11,7 +11,6 @@ fn scope(state: &AppState, repo: Option<&str>, project: Option<String>) -> CmdRe
     Scope::new(&state.config_dir, repo.map(Path::new), project).map_err(err)
 }
 
-/// Every item in the layers of `repo` / `project`, each with the layer that provides it and its state.
 #[tauri::command]
 pub async fn library_list(
     state: State<'_, AppState>,
@@ -27,7 +26,7 @@ pub async fn library_list(
         .collect())
 }
 
-/// Switches an item on (`enabled: true`), off, or back to inheriting (`null`), globally or for `project`.
+/// `enabled: null` removes the toggle, so the item inherits.
 #[tauri::command]
 pub fn library_toggle(
     state: State<AppState>,
@@ -52,7 +51,6 @@ pub async fn library_explain(
     termf_library::explain(&state.config_dir, &scope, kind, &name).map_err(err)
 }
 
-/// Imports `~/.claude` (or `<repo>/.claude`) into the global library (or `project`'s).
 #[tauri::command]
 pub async fn library_import_claude(
     state: State<'_, AppState>,
@@ -68,9 +66,8 @@ pub async fn library_import_claude(
     termf_library::import_claude(&from, &library, overwrite).map_err(err)
 }
 
-/// Writes the config and the library to `path`; returns the number of files.
 #[tauri::command]
-pub async fn config_export(state: State<'_, AppState>, path: String) -> CmdResult<usize> {
+pub async fn config_export(state: State<'_, AppState>, path: String) -> CmdResult<Exported> {
     archive::export(&state.config_dir, Path::new(&path)).map_err(err)
 }
 

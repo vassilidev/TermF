@@ -268,8 +268,13 @@ pub fn save_project(
     Ok(id)
 }
 
+/// Also removes `projects/<id>/` (its library), which a new project with the same id would otherwise inherit.
 pub fn delete_project(config_dir: &Path, id: &str) -> Result<()> {
-    Ok(fs::remove_file(project_file(config_dir, id)?)?)
+    fs::remove_file(project_file(config_dir, id)?)?;
+    match fs::remove_dir_all(config_dir.join("projects").join(id)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
+    }
 }
 
 pub fn project_file(config_dir: &Path, id: &str) -> Result<PathBuf> {
@@ -702,7 +707,9 @@ mod tests {
         let names: Vec<_> = acme.repos.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["backend", "legacy", "docs"]);
 
+        fs::create_dir_all(dir.join("projects/acme-corp/library/skills")).unwrap();
         delete_project(&dir, "acme-corp").unwrap();
+        assert!(!dir.join("projects/acme-corp").exists());
         let ids: Vec<_> = load_projects(&dir)
             .unwrap()
             .into_iter()

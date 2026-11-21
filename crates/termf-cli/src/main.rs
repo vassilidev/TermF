@@ -161,19 +161,16 @@ fn library(mut args: Vec<&str>) -> Result<()> {
             }
         }
         [action @ ("enable" | "disable"), name] => {
-            let kind = match kind {
-                Some(kind) => kind,
-                None => named(name)?.kind,
-            };
+            // Looked up first, so that a typo writes no toggle.
+            let kind = named(name)?.kind;
+            // With --repo, the toggle goes where `ls --repo` reads it: the project that lists the repository.
+            let target = scope()?.project;
             let on = *action == "enable";
-            termf_library::set_toggle(&config_dir, project.as_deref(), kind, name, Some(on))?;
+            termf_library::set_toggle(&config_dir, target.as_deref(), kind, name, Some(on))?;
             let item = named(name)?;
-            println!(
-                "{} {}: {}",
-                item.kind,
-                item.name,
-                if item.active { "on" } else { "off" }
-            );
+            let file = target.map_or("termf.toml".into(), |id| format!("projects/{id}.toml"));
+            let state = if item.active { "on" } else { "off" };
+            println!("{} {}: {state} (written in {file})", item.kind, item.name);
         }
         ["import-claude"] => {
             let from = match &repo {
@@ -207,6 +204,7 @@ fn why(item: &Item) -> String {
             format!("{}{} in {place}", if *on { '+' } else { '-' }, item.name)
         }
         None if item.layer == Layer::Shipped => "shipped with TermF, off until enabled".into(),
+        None if item.layer == Layer::Repo => "from the repository, off until you enable it".into(),
         None => format!("in the {} library", item.layer),
     }
 }
@@ -223,8 +221,11 @@ fn config(mut args: Vec<&str>) -> Result<()> {
     match args.as_slice() {
         ["export"] => {
             let out = out.unwrap_or_else(|| "termf-config.tar.gz".into());
-            let count = archive::export(&config_dir, Path::new(&out))?;
-            println!("{count} files written to {out}");
+            let exported = archive::export(&config_dir, Path::new(&out))?;
+            for link in &exported.skipped_links {
+                println!("skipped {link}: links are not exported");
+            }
+            println!("{} files written to {out}", exported.files);
         }
         ["import", file] => {
             let file = Path::new(file);
@@ -252,6 +253,9 @@ fn config(mut args: Vec<&str>) -> Result<()> {
                     (false, Action::Keep) => ", kept yours",
                 };
                 let mut keys = Vec::new();
+                if change.linked {
+                    keys.push("a link, never written through".into());
+                }
                 if !change.added_keys.is_empty() {
                     keys.push(format!("new: {}", change.added_keys.join(", ")));
                 }
@@ -283,7 +287,6 @@ fn config(mut args: Vec<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Takes `name value` out of `args`.
 fn take_opt(args: &mut Vec<&str>, name: &str) -> Result<Option<String>> {
     match args.iter().position(|a| *a == name) {
         Some(i) if i + 1 < args.len() => {
