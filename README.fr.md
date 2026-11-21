@@ -4,7 +4,7 @@ Un poste de pilotage léger et local pour agents IA de code (Claude Code d'abord
 
 [English version](README.md)
 
-> **En tout début de développement.** La phase 0 de la [feuille de route](docs/ARCHITECTURE.md#17-feuille-de-route) est terminée : TermF trouve tous les dépôts git de ta machine et ouvre des agents ou des shells dans autant de dépôts que tu veux, côte à côte dans une grille de terminaux.
+> **En tout début de développement.** Les phases 0 et 1 de la [feuille de route](docs/ARCHITECTURE.md#17-feuille-de-route) sont terminées. TermF trouve tous les dépôts git de ta machine et ouvre des agents ou des shells dans autant de dépôts que tu veux, côte à côte dans une grille de terminaux. Il montre quel agent t'attend et te prévient. Il propose aussi un explorateur et un éditeur de fichiers, des projets, la diffusion vers plusieurs sessions, des dispositions sauvegardées, un terminal rapide, une CLI `termf` et un mode qui empêche la veille pendant que les agents travaillent.
 
 ## Où va le projet
 
@@ -16,7 +16,15 @@ Un poste de pilotage léger et local pour agents IA de code (Claude Code d'abord
 
 La conception complète est dans [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Lancer
+## Installer une version compilée
+
+Les installeurs macOS (Apple Silicon et Intel), Windows et Linux sont joints à chaque [release](https://github.com/vassilidev/TermF/releases). Les builds ne sont pas encore signés, donc le premier lancement demande une étape de plus :
+
+- **macOS** : après avoir déplacé TermF dans Applications, lance une fois `xattr -dr com.apple.quarantine /Applications/TermF.app` (ou clic droit sur l'app, Ouvrir, puis Ouvrir à nouveau).
+- **Windows** : sur l'avertissement SmartScreen, clique sur « Informations complémentaires », puis « Exécuter quand même ».
+- **Linux** : `chmod +x` sur l'AppImage, ou installe le `.deb` / `.rpm`.
+
+## Lancer depuis les sources
 
 Prérequis : Rust (stable), Node 22+, pnpm et les [prérequis Tauri](https://tauri.app/start/prerequisites/) de ton OS.
 

@@ -4,7 +4,7 @@ A lightweight, local-first cockpit for AI coding agents (Claude Code first) acro
 
 [Version française](README.fr.md)
 
-> **Early development.** Phase 0 of the [roadmap](docs/ARCHITECTURE.md#17-feuille-de-route) is done: TermF finds every git repository on your machine and opens agents or shells in as many of them as you like, side by side in a terminal grid.
+> **Early development.** Phases 0 and 1 of the [roadmap](docs/ARCHITECTURE.md#17-feuille-de-route) are done. TermF finds every git repository on your machine and opens agents or shells in as many of them as you like, side by side in a terminal grid. It shows which agent is waiting for you and notifies you. It also has a file explorer and editor, projects, broadcast to several sessions, saved layouts, a quick terminal, a `termf` CLI and a mode that keeps the computer awake while agents work.
 
 ## Where it is heading
 
@@ -16,7 +16,15 @@ A lightweight, local-first cockpit for AI coding agents (Claude Code first) acro
 
 The full design, in French, is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Run it
+## Install a build
+
+Installers for macOS (Apple Silicon and Intel), Windows and Linux are attached to each [release](https://github.com/vassilidev/TermF/releases). Builds are not signed yet, so the first launch needs one extra step:
+
+- **macOS**: after moving TermF to Applications, run `xattr -dr com.apple.quarantine /Applications/TermF.app` once (or right-click the app, Open, then Open again).
+- **Windows**: on the SmartScreen warning, click "More info", then "Run anyway".
+- **Linux**: `chmod +x` the AppImage, or install the `.deb` / `.rpm`.
+
+## Run from source
 
 Prerequisites: Rust (stable), Node 22+, pnpm, and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS.
 
