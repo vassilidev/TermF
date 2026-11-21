@@ -8,6 +8,7 @@
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { files, isMac, showFiles } from "$lib/files.svelte";
+  import { showLibrary } from "$lib/library.svelte";
   import { app, ui, waitingSessions } from "$lib/state.svelte";
 
   const waiting = $derived(waitingSessions().length);
@@ -20,6 +21,7 @@
       {t("viewTerminals")}
     </button>
     <button aria-pressed={files.view === "files"} onclick={showFiles}>{t("viewFiles")}</button>
+    <button aria-pressed={files.view === "library"} onclick={showLibrary}>{t("viewLibrary")}</button>
   </nav>
 
   <button

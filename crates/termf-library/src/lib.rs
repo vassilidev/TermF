@@ -15,6 +15,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 pub mod archive;
 mod claude;
+pub mod conventions;
 
 pub use claude::{Imported, Outcome, import_claude, materialize};
 
@@ -440,6 +441,15 @@ fn parse(
         active: false,
         rel,
     }
+}
+
+/// The reverse of [`frontmatter`]: each value is written as JSON, which YAML reads as it is.
+fn with_frontmatter(meta: &Map<String, Value>, body: &str) -> String {
+    let mut text = String::from("---\n");
+    for (key, value) in meta {
+        text.push_str(&format!("{key}: {value}\n"));
+    }
+    text + "---\n" + body
 }
 
 fn frontmatter(text: &str) -> (Option<&str>, &str) {
