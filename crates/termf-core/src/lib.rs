@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS: &str = r#"# TermF — global settings
 roots = ["~"]
 # How many folder levels below each root are searched.
 scan_depth = 5
+# Command for "Open in external editor" (e.g. "code", "zed"). Unset: the system's default app.
+# editor = "code"
 
 # Agents available in the UI: name = command run in the repository.
 [agents]
@@ -47,6 +49,7 @@ pub struct Settings {
     pub roots: Vec<String>,
     pub scan_depth: usize,
     pub agents: BTreeMap<String, String>,
+    pub editor: Option<String>,
 }
 
 // Must stay in sync with DEFAULT_SETTINGS (checked by a test); parsing it here would recurse through serde(default).
@@ -56,6 +59,7 @@ impl Default for Settings {
             roots: vec!["~".into()],
             scan_depth: 5,
             agents: BTreeMap::from([("claude".into(), "claude".into())]),
+            editor: None,
         }
     }
 }

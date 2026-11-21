@@ -32,6 +32,7 @@ pub struct SpawnSpec {
 pub struct SessionInfo {
     pub id: u32,
     pub title: String,
+    pub cwd: String,
     pub running: bool,
     pub exit_code: Option<u32>,
 }
@@ -63,6 +64,7 @@ impl Shared {
 
 struct Session {
     title: String,
+    cwd: PathBuf,
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
@@ -118,6 +120,7 @@ impl Sessions {
             id,
             Session {
                 title: spec.title,
+                cwd: spec.cwd,
                 master: pair.master,
                 writer: Arc::new(Mutex::new(writer)),
                 killer,
@@ -174,6 +177,7 @@ impl Sessions {
                 SessionInfo {
                     id: *id,
                     title: s.title.clone(),
+                    cwd: s.cwd.to_string_lossy().into_owned(),
                     running: exit.is_none(),
                     exit_code: exit.flatten(),
                 }

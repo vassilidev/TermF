@@ -12,7 +12,13 @@ export type Workspace = {
   repos: Repo[];
   scanTruncated: boolean;
 };
-export type Session = { id: number; title: string; running: boolean; exitCode: number | null };
+export type Session = {
+  id: number;
+  title: string;
+  cwd: string;
+  running: boolean;
+  exitCode: number | null;
+};
 
 export const app = $state({
   workspace: null as Workspace | null,

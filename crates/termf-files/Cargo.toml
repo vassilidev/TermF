@@ -1,0 +1,13 @@
+[package]
+name = "termf-files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
+ignore = "0.4.34"
+nucleo-matcher = "0.3.1"
+serde = { version = "1.0.229", features = ["derive"] }

@@ -1,9 +1,13 @@
+mod files;
+
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody, Response};
 use tauri::{AppHandle, Emitter, State};
 use termf_core::{Project, Repo};
+use termf_files::Files;
 use termf_term::{Output, SessionInfo, Sessions, SpawnSpec, shell_command};
 
 struct AppState {
@@ -37,14 +41,23 @@ struct ExitEvent {
 
 // async so the disk scan runs off the main thread and never freezes the window.
 #[tauri::command]
-async fn workspace(state: State<'_, AppState>) -> CmdResult<Workspace> {
+async fn workspace(
+    state: State<'_, AppState>,
+    files: State<'_, Arc<Files>>,
+) -> CmdResult<Workspace> {
     let settings = termf_core::load_settings(&state.config_dir).map_err(err)?;
     let discovery = termf_core::discover_repos(&settings.roots, settings.scan_depth);
+    let projects = termf_core::load_projects(&state.config_dir).map_err(err)?;
+    let repos = discovery
+        .repos
+        .iter()
+        .chain(projects.iter().flat_map(|p| &p.repos));
+    files.set_roots(repos.map(|r| &r.path));
     Ok(Workspace {
         config_dir: state.config_dir.to_string_lossy().into_owned(),
         home: termf_core::expand_tilde("~").to_string_lossy().into_owned(),
         agents: settings.agents.keys().cloned().collect(),
-        projects: termf_core::load_projects(&state.config_dir).map_err(err)?,
+        projects,
         repos: discovery.repos,
         scan_truncated: discovery.truncated,
     })
@@ -80,7 +93,7 @@ fn pty_spawn(
             title: title.clone(),
             program,
             args,
-            cwd: cwd.into(),
+            cwd: cwd.clone().into(),
             cols,
             rows,
         })
@@ -88,6 +101,7 @@ fn pty_spawn(
     Ok(SessionInfo {
         id,
         title,
+        cwd,
         running: true,
         exit_code: None,
     })
@@ -146,8 +160,23 @@ pub fn run() {
             config_dir,
             sessions: Sessions::default(),
         })
+        .manage(Arc::new(Files::default()))
         .invoke_handler(tauri::generate_handler![
-            workspace, pty_spawn, pty_attach, pty_write, pty_resize, pty_kill, pty_list
+            workspace,
+            pty_spawn,
+            pty_attach,
+            pty_write,
+            pty_resize,
+            pty_kill,
+            pty_list,
+            files::files_list,
+            files::files_status,
+            files::files_find,
+            files::files_search,
+            files::files_read,
+            files::files_write,
+            files::files_head,
+            files::files_open_external,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
