@@ -300,7 +300,7 @@
                     {@render diffView(e.before ?? "", e.content)}
                   </details>
                 {:else}
-                  <p class="file">{e.layer ? t("scoutWholeContent") : t("scoutNewContent")}</p>
+                  <p class="muted small">{e.layer ? t("scoutWholeContent") : t("scoutNewContent")}</p>
                   <pre class="code">{e.content}</pre>
                   {#if e.layer}
                     <details>
@@ -793,6 +793,9 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .critique + .proposal {
     padding-top: 8px;
     border-top: 1px dashed var(--border);
   }
