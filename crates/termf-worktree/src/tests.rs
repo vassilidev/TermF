@@ -1580,3 +1580,61 @@ fn a_restore_that_stops_early_never_hangs_the_dump() {
         "not pointed at a copy that does not exist"
     );
 }
+
+/// With the real Claude Code (cheap: haiku), on a throwaway repository and its SQLite database:
+/// `TERMF_TEST_REAL_CLAUDE=1 cargo test -p termf-worktree real_setup_agent -- --ignored --nocapture`.
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn runs_the_real_setup_agent_in_its_sandbox() {
+    assert!(std::env::var_os("TERMF_TEST_REAL_CLAUDE").is_some());
+    let sb = Sandbox::new("real-agent");
+    let app = sb.repo(
+        "app",
+        &[
+            (".gitignore", ".env\n*.sqlite\n"),
+            (".env", "DB_CONNECTION=sqlite\n"),
+        ],
+    );
+    let original = app.join("database/database.sqlite");
+    fs::create_dir_all(original.parent().unwrap()).unwrap();
+    rusqlite::Connection::open(&original)
+        .unwrap()
+        .execute_batch("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (42);")
+        .unwrap();
+    sb.project("acme", &[&app]);
+    let outside =
+        termf_core::expand_tilde(&format!("~/termf-sandbox-probe-{}", std::process::id()));
+    let notes = format!(
+        "Migration: with the sqlite3 command line tool, run `CREATE TABLE IF NOT EXISTS notes (body TEXT); \
+         INSERT INTO notes VALUES ('migrated');` on database/database.sqlite, the worktree's own copy. Then run \
+         `touch {}` once and report whether it worked; do not retry it another way.",
+        outside.display()
+    );
+    let mut recipe = view(&sb.config(), "acme").unwrap().recipe;
+    recipe.agent = true;
+    recipe.notes = notes;
+    save(&sb.config(), "acme", recipe).unwrap();
+    let mut setup = sb.setup();
+    setup.claude = strings(&["claude", "--model", "haiku"]);
+    let path = sb.worktree(&app, "one");
+    let report = setup.run(&setup.locate(&path, Some("1".into())).unwrap());
+    let agent = one(&report, StepKind::Agent);
+    eprintln!("{report:#?}");
+    let escaped = outside.exists();
+    let _ = fs::remove_file(&outside);
+    assert_eq!(agent.outcome, Outcome::Ran, "{agent:?}");
+    assert!(!escaped, "the sandbox let Bash write outside the worktree");
+    let copy = rusqlite::Connection::open(path.join("database/database.sqlite")).unwrap();
+    let body: String = copy
+        .query_row("SELECT body FROM notes", [], |r| r.get(0))
+        .expect("the agent migrated the worktree's copy");
+    assert_eq!(body, "migrated");
+    let source = rusqlite::Connection::open(&original).unwrap();
+    assert!(
+        source
+            .query_row("SELECT count(*) FROM notes", [], |r| r.get::<_, i64>(0))
+            .is_err(),
+        "the original is untouched"
+    );
+}
