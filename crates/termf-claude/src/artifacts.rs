@@ -295,11 +295,15 @@ Artifact tool, reply with {\"error\": \"tool_missing\"} and nothing else."
         .into()
 }
 
-pub fn delete_prompt(url: &str) -> String {
+/// The deletion you confirmed in TermF, carried out by a hidden session whose hook allows nothing else.
+pub fn delete_prompt(urls: &[String]) -> String {
     format!(
-        "Delete the claude.ai artifact {url} with the Artifact tool (action \"delete\"). First read it with the \
-Artifact tool and tell me its title, then ask me to confirm, and delete it only once I confirm here myself. Do \
-nothing else."
+        "Delete these claude.ai artifacts with the Artifact tool, action \"delete\", one call per link: {}. \
+The user confirmed exactly these deletions in TermF; do not read, list or ask anything first, and use no other \
+tool or action. Then reply with one JSON object and nothing else, no code fence: {{\"deleted\": [\"<link>\"], \
+\"failed\": [{{\"url\": \"<link>\", \"error\": \"<the tool's error, in a few words>\"}}]}}. If you have no \
+Artifact tool, reply with {{\"error\": \"tool_missing\"}} and nothing else.",
+        urls.join(" ")
     )
 }
 
@@ -310,12 +314,19 @@ for what I want to change before republishing it to the same link."
     )
 }
 
-/// What a hidden session may do without asking: list for a refresh; for a deletion, read and list, and the
-/// deletion of that one artifact always asks you, even if your settings allow the tool.
+/// What a hidden session may do: list for a refresh; delete the artifacts (ids) you confirmed in TermF.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Policy {
     List,
-    Delete(String),
+    Delete(Vec<String>),
+}
+
+/// The artifact an `Artifact` delete call removes; `None` when it removes one of its files (`path`).
+fn deleted_id(input: &Value) -> Option<String> {
+    let whole = input["path"].is_null() && input["paths"].is_null();
+    (input["action"] == "delete" && whole)
+        .then(|| artifact_url(input["url"].as_str()?).map(|(id, _)| id))
+        .flatten()
 }
 
 /// The `PreToolUse` hook's answer for a session under `policy`.
@@ -328,23 +339,14 @@ pub fn decide(policy: &Policy, payload: &Value) -> Value {
             ("allow", "TermF lists the account's artifacts")
         }
         Policy::List => ("deny", "this TermF session only lists artifacts"),
-        Policy::Delete(_) if artifact && matches!(action, "list" | "read") => {
-            ("allow", "reading before the deletion")
-        }
-        Policy::Delete(url)
-            if artifact
-                && action == "delete"
-                && input["url"]
-                    .as_str()
-                    .and_then(artifact_url)
-                    .map(|(id, _)| id)
-                    == artifact_url(url).map(|(id, _)| id) =>
+        Policy::Delete(ids)
+            if artifact && deleted_id(input).is_some_and(|id| ids.contains(&id)) =>
         {
-            ("ask", "you confirm every deletion yourself")
+            ("allow", "you confirmed this deletion in TermF")
         }
         Policy::Delete(_) => (
             "deny",
-            "this TermF session only deletes the artifact it was opened for",
+            "this TermF session only deletes the artifacts you confirmed",
         ),
     };
     json!({
@@ -419,6 +421,8 @@ pub enum Step {
     /// Show its tile: it waits for you.
     Reveal,
     Fail(Failure, Option<String>),
+    /// The deletion session answered: each of its artifacts says what became of it.
+    Answered,
 }
 
 const WAITING: &[&str] = &[
@@ -566,5 +570,189 @@ impl Refresh {
         }
         let since = listed.max(self.last.as_ref().map(|l| l.at));
         since.is_none_or(|at| now >= at + u64::from(hours) * 3600)
+    }
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Outcome {
+    Pending,
+    Deleted,
+    Failed,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Doomed {
+    pub id: String,
+    pub url: String,
+    pub outcome: Outcome,
+    /// What Claude said went wrong.
+    pub error: Option<String>,
+}
+
+/// The one deletion at a time: the artifacts you confirmed in TermF, deleted by a hidden session. You always
+/// started it, so when it waits for you its tile shows.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Deletion {
+    pub running: bool,
+    pub session: Option<u32>,
+    pub started: u64,
+    pub ready: bool,
+    pub revealed: bool,
+    pub cost: Option<f64>,
+    pub items: Vec<Doomed>,
+    pub failure: Option<Failure>,
+    pub detail: Option<String>,
+}
+
+impl Deletion {
+    /// Links that are not artifacts are dropped; the same artifact twice counts once.
+    pub fn begin(&mut self, urls: &[String], now: u64) -> Result<()> {
+        ensure!(!self.running, "artifacts are already being deleted");
+        let mut items: Vec<Doomed> = Vec::new();
+        for (id, url) in urls.iter().filter_map(|u| artifact_url(u)) {
+            if !items.iter().any(|d| d.id == id) {
+                items.push(Doomed {
+                    id,
+                    url,
+                    outcome: Outcome::Pending,
+                    error: None,
+                });
+            }
+        }
+        ensure!(!items.is_empty(), "no claude.ai artifact to delete");
+        *self = Deletion {
+            running: true,
+            started: now,
+            items,
+            ..Default::default()
+        };
+        Ok(())
+    }
+
+    pub fn owns(&self, session: u32) -> bool {
+        self.running && self.session == Some(session)
+    }
+
+    /// What a hook of `session` means for the deletion. Only a call that went through (`PostToolUse`) counts as
+    /// a deletion, whatever Claude says afterwards.
+    pub fn hook(&mut self, session: u32, event: &str, payload: &Value) -> Step {
+        if !self.owns(session) {
+            return Step::Nothing;
+        }
+        self.ready = true;
+        match event {
+            "StatusLine" => {
+                let cost = payload["cost"]["total_cost_usd"].as_f64();
+                self.cost = cost.or(self.cost);
+                if cost.is_some_and(|c| c > MAX_COST_USD) {
+                    Step::Fail(Failure::Budget, None)
+                } else {
+                    Step::Nothing
+                }
+            }
+            "PostToolUse" if payload["tool_name"] == "Artifact" => {
+                let id = deleted_id(&payload["tool_input"]);
+                for d in self.items.iter_mut().filter(|d| Some(&d.id) == id.as_ref()) {
+                    d.outcome = Outcome::Deleted;
+                }
+                Step::Nothing
+            }
+            "Stop" => self.settle(payload["last_assistant_message"].as_str().unwrap_or("")),
+            "PermissionRequest" => self.reveal(),
+            "Notification"
+                if WAITING.contains(&payload["notification_type"].as_str().unwrap_or("")) =>
+            {
+                self.reveal()
+            }
+            _ => Step::Nothing,
+        }
+    }
+
+    fn reveal(&mut self) -> Step {
+        if self.revealed {
+            return Step::Nothing;
+        }
+        self.revealed = true;
+        Step::Reveal
+    }
+
+    /// Reads Claude's answer: why each artifact still there was not deleted.
+    fn settle(&mut self, message: &str) -> Step {
+        let answer: Option<Value> = message
+            .find('{')
+            .zip(message.rfind('}'))
+            .and_then(|(start, end)| serde_json::from_str(message.get(start..=end)?).ok());
+        if answer
+            .as_ref()
+            .is_some_and(|a| a["error"] == "tool_missing")
+        {
+            return Step::Fail(Failure::ToolMissing, None);
+        }
+        let failed = answer
+            .as_ref()
+            .and_then(|a| a["failed"].as_array().cloned())
+            .unwrap_or_default();
+        for d in &mut self.items {
+            let said = failed.iter().find(|f| {
+                f["url"]
+                    .as_str()
+                    .and_then(artifact_url)
+                    .is_some_and(|(id, _)| id == d.id)
+            });
+            if let Some(said) = said {
+                d.outcome = Outcome::Failed;
+                d.error = said["error"].as_str().and_then(|e| clean(e, 300));
+            } else if d.outcome == Outcome::Pending {
+                d.outcome = Outcome::Failed;
+            }
+        }
+        if answer.is_none() && self.items.iter().any(|d| d.outcome == Outcome::Failed) {
+            self.failure = Some(Failure::Invalid);
+            self.detail = clean(message, 300);
+        }
+        Step::Answered
+    }
+
+    /// A shown session waits for you as long as it takes; one that does not start shows its tile.
+    pub fn tick(&mut self, now: u64) -> Step {
+        if !self.running || self.revealed {
+            return Step::Nothing;
+        }
+        let age = now.saturating_sub(self.started);
+        if !self.ready && age > READY_WITHIN {
+            self.reveal()
+        } else if age > HIDDEN_FOR {
+            Step::Fail(Failure::Timeout, None)
+        } else {
+            Step::Nothing
+        }
+    }
+
+    /// Ends the deletion of `session`; false, and nothing changes, when it is already over.
+    pub fn finish(&mut self, session: u32, failure: Option<(Failure, Option<String>)>) -> bool {
+        if !self.owns(session) {
+            return false;
+        }
+        self.end(failure);
+        true
+    }
+
+    /// Ends the deletion under way: what is not deleted by now failed.
+    pub fn end(&mut self, failure: Option<(Failure, Option<String>)>) {
+        if let Some((failure, detail)) = failure {
+            self.failure = Some(failure);
+            self.detail = detail;
+        }
+        for d in &mut self.items {
+            if d.outcome == Outcome::Pending {
+                d.outcome = Outcome::Failed;
+            }
+        }
+        self.running = false;
+        self.session = None;
+        self.revealed = false;
     }
 }

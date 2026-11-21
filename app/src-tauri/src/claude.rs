@@ -9,7 +9,7 @@ use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, State};
-use termf_claude::artifacts::{self, Artifact, Failure, Policy, Refresh, Step};
+use termf_claude::artifacts::{self, Artifact, Deletion, Failure, Policy, Refresh, Step};
 use termf_claude::settings::{self, Preview, Scope, Settings};
 use termf_claude::{Env, Overview};
 use termf_core::ipc::SessionSummary;
@@ -23,6 +23,7 @@ pub struct ClaudeState {
     agent_dir: PathBuf,
     index_lock: Mutex<()>,
     refresh: Mutex<Refresh>,
+    deletion: Mutex<Deletion>,
 }
 
 impl ClaudeState {
@@ -34,12 +35,14 @@ impl ClaudeState {
             agent_dir: data_dir.join("claude-agent"),
             index_lock: Mutex::default(),
             refresh: Mutex::new(refresh),
+            deletion: Mutex::default(),
         }
     }
 }
 
 /// Tools a task's session never needs, denied in its own settings: unlike its hook, which TermF must answer
-/// within two seconds, a deny rule holds whatever happens, and over your own `allow` rules.
+/// within two seconds, a deny rule holds whatever happens, and over your own `allow` rules. Nothing is allowed
+/// there: without the hook's answer, Claude Code asks, and the session shows its tile.
 const DENIED: &[&str] = &[
     "Bash",
     "PowerShell",
@@ -51,10 +54,9 @@ const DENIED: &[&str] = &[
     "Agent",
 ];
 
-/// The settings a hidden listing or deletion session adds; `ask` rules are evaluated whatever a hook answers.
-fn task_settings(ask_artifact: bool) -> Value {
-    let ask: &[&str] = if ask_artifact { &["Artifact"] } else { &[] };
-    json!({ "permissions": { "deny": DENIED, "ask": ask } })
+/// The settings a hidden listing or deletion session adds.
+fn task_settings() -> Value {
+    json!({ "permissions": { "deny": DENIED } })
 }
 
 fn now() -> u64 {
@@ -146,6 +148,8 @@ pub struct Artifacts {
     listed: Option<u64>,
     refresh: Refresh,
     refresh_hours: u32,
+    deletion: Deletion,
+    delete_without_confirmation: bool,
 }
 
 fn artifacts_state(app: &AppHandle) -> Artifacts {
@@ -155,12 +159,15 @@ fn artifacts_state(app: &AppHandle) -> Artifacts {
         artifacts::load(&claude.index)
     };
     let config_dir = &app.state::<AppState>().config_dir;
+    let settings = termf_core::load_settings(config_dir).ok();
     Artifacts {
         artifacts: index.artifacts,
         listed: index.listed,
         refresh: claude.refresh.lock().unwrap().clone(),
-        refresh_hours: termf_core::load_settings(config_dir)
-            .map_or(0, |s| s.artifacts.refresh_hours),
+        refresh_hours: settings.as_ref().map_or(0, |s| s.artifacts.refresh_hours),
+        deletion: claude.deletion.lock().unwrap().clone(),
+        delete_without_confirmation: settings
+            .is_some_and(|s| s.artifacts.delete_without_confirmation),
     }
 }
 
@@ -210,28 +217,74 @@ fn check_url(url: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("{url} is not a claude.ai artifact"))
 }
 
-/// Opens a session where Claude reads the artifact, asks you, and deletes it once you confirm in its tile.
-/// TermF never answers for you, and the confirmation does not rest on its hook alone: the session's own
-/// settings ask before any `Artifact` call and deny the tools it does not need, over your `allow` rules, and
-/// it runs in the mode that asks.
+/// Whether you chose to delete artifacts without TermF asking first (`[artifacts] delete_without_confirmation`).
 #[tauri::command]
-pub fn artifacts_delete(app: AppHandle, url: String) -> CmdResult<SessionSummary> {
-    let url = check_url(&url).map_err(err)?;
+pub fn artifacts_confirm(app: AppHandle, skip: bool) -> CmdResult<Artifacts> {
+    let config_dir = &app.state::<AppState>().config_dir;
+    termf_core::save_artifacts_delete_without_confirmation(config_dir, skip).map_err(err)?;
+    Ok(artifacts_state(&app))
+}
+
+/// The deletion goes ahead only once you confirmed it in TermF, or chose yourself to skip that confirmation.
+fn may_delete(confirmed: bool, without_confirmation: bool) -> Result<()> {
+    anyhow::ensure!(
+        confirmed || without_confirmation,
+        "confirm the deletion in TermF first"
+    );
+    Ok(())
+}
+
+/// Deletes the artifacts you confirmed in TermF through a hidden session: its hook allows `Artifact` delete on
+/// these links only and refuses anything else, its settings deny the tools it does not need, and it runs in
+/// the mode that asks, so whatever the hook does not answer shows its tile instead of going ahead.
+#[tauri::command]
+pub fn artifacts_delete(
+    app: AppHandle,
+    urls: Vec<String>,
+    confirmed: bool,
+) -> CmdResult<Artifacts> {
     let state = app.state::<AppState>();
+    let settings = termf_core::load_settings(&state.config_dir).map_err(err)?;
+    may_delete(confirmed, settings.artifacts.delete_without_confirmation).map_err(err)?;
+    let urls = urls
+        .iter()
+        .map(|u| check_url(u))
+        .collect::<Result<Vec<_>>>()
+        .map_err(err)?;
     let claude = app.state::<ClaudeState>();
-    let (agent, command) = claude_agent(&state.config_dir).map_err(err)?;
-    std::fs::create_dir_all(&claude.agent_dir).map_err(|e| e.to_string())?;
-    let task = Task {
-        agent,
-        command: program(&command),
-        args: delete_args(),
-        prompt: artifacts::delete_prompt(&url),
-        hidden: false,
-        policy: Some(Policy::Delete(url)),
-        settings: Some(task_settings(true)),
+    let (ids, urls) = {
+        let mut deletion = claude.deletion.lock().unwrap();
+        deletion.begin(&urls, now()).map_err(err)?;
+        let items = &deletion.items;
+        (
+            items.iter().map(|d| d.id.clone()).collect::<Vec<_>>(),
+            items.iter().map(|d| d.url.clone()).collect::<Vec<_>>(),
+        )
     };
-    let title = "claude.ai artifact".to_owned();
-    api::spawn_task(&state, claude.agent_dir.clone(), title, task).map_err(err)
+    let spawned = (|| {
+        let (agent, command) = claude_agent(&state.config_dir)?;
+        std::fs::create_dir_all(&claude.agent_dir)?;
+        let task = Task {
+            agent,
+            command: program(&command),
+            args: delete_args(),
+            prompt: artifacts::delete_prompt(&urls),
+            hidden: true,
+            policy: Some(Policy::Delete(ids)),
+            settings: Some(task_settings()),
+        };
+        let title = "claude.ai artifacts".to_owned();
+        api::spawn_task(&state, claude.agent_dir.clone(), title, task)
+    })();
+    {
+        let mut deletion = claude.deletion.lock().unwrap();
+        match &spawned {
+            Ok(session) => deletion.session = Some(session.id),
+            Err(e) => deletion.end(Some((Failure::Spawn, Some(format!("{e:#}"))))),
+        }
+    }
+    changed(&app);
+    Ok(artifacts_state(&app))
 }
 
 fn delete_args() -> Vec<String> {
@@ -286,7 +339,7 @@ fn start(app: &AppHandle, manual: bool) -> Result<()> {
             prompt: artifacts::list_prompt(),
             hidden: true,
             policy: Some(Policy::List),
-            settings: Some(task_settings(false)),
+            settings: Some(task_settings()),
         };
         let title = "claude.ai artifacts".to_owned();
         api::spawn_task(&state, claude.agent_dir.clone(), title, task)
@@ -341,7 +394,28 @@ pub fn hook(app: &AppHandle, id: u32, event: &str, payload: &Value) -> Option<Va
     }
     let step = claude.refresh.lock().unwrap().hook(id, event, payload);
     apply(app, id, step);
+    let step = claude.deletion.lock().unwrap().hook(id, event, payload);
+    apply_deletion(app, id, step);
     None
+}
+
+/// Carries out a step of the deletion of session `id`; a step of a deletion already over does nothing.
+fn apply_deletion(app: &AppHandle, id: u32, step: Step) {
+    let failure = match step {
+        Step::Nothing | Step::Done(_) => return,
+        Step::Reveal => {
+            let state = app.state::<AppState>();
+            state.api.reveal(app, &state.sessions, id);
+            changed(app);
+            return;
+        }
+        Step::Answered => None,
+        Step::Fail(failure, detail) => Some((failure, detail)),
+    };
+    let claude = app.state::<ClaudeState>();
+    if claude.deletion.lock().unwrap().finish(id, failure) {
+        dispose(app, id);
+    }
 }
 
 /// Carries out a step of the listing run of session `id`; a step of a run already over does nothing.
@@ -349,7 +423,7 @@ fn apply(app: &AppHandle, id: u32, step: Step) {
     let claude = app.state::<ClaudeState>();
     let state = app.state::<AppState>();
     let result = match step {
-        Step::Nothing => return,
+        Step::Nothing | Step::Answered => return,
         Step::Reveal => {
             state.api.reveal(app, &state.sessions, id);
             changed(app);
@@ -403,7 +477,12 @@ pub fn exited(app: &AppHandle, id: u32) {
         }
         ours
     };
-    if ours {
+    let deleting = claude
+        .deletion
+        .lock()
+        .unwrap()
+        .finish(id, Some((Failure::Closed, None)));
+    if ours || deleting {
         dispose(app, id);
     }
 }
@@ -423,6 +502,13 @@ pub fn watch(app: &AppHandle) {
             };
             if let Some(id) = session {
                 apply(&app, id, step);
+            }
+            let (session, step) = {
+                let mut deletion = claude.deletion.lock().unwrap();
+                (deletion.session, deletion.tick(now()))
+            };
+            if let Some(id) = session {
+                apply_deletion(&app, id, step);
             }
             let hours = termf_core::load_settings(&app.state::<AppState>().config_dir)
                 .map_or(0, |s| s.artifacts.refresh_hours);
@@ -459,14 +545,20 @@ mod tests {
         );
     }
 
-    /// Without TermF's hook (too slow, or gone), a deletion still asks you, over your own `allow` rules.
+    /// Without TermF's hook (too slow, or gone), nothing is allowed: Claude Code asks, and the tile shows.
     #[test]
-    fn a_deletion_asks_you_even_without_the_hook() {
-        let settings = task_settings(true);
-        assert_eq!(settings["permissions"]["ask"], json!(["Artifact"]));
+    fn hidden_sessions_allow_nothing_by_their_settings() {
+        let settings = task_settings();
         let deny = settings["permissions"]["deny"].as_array().unwrap();
         assert!(deny.contains(&json!("Bash")) && !deny.contains(&json!("Artifact")));
-        assert_eq!(task_settings(false)["permissions"]["ask"], json!([]));
+        assert!(settings["permissions"]["allow"].is_null());
+    }
+
+    #[test]
+    fn deletes_only_once_you_confirmed_or_chose_not_to_be_asked() {
+        assert!(may_delete(false, false).is_err());
+        assert!(may_delete(true, false).is_ok());
+        assert!(may_delete(false, true).is_ok());
     }
 
     #[test]
