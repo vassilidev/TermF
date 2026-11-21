@@ -1355,6 +1355,88 @@ fn copies_a_real_mysql_database() {
 }
 
 #[test]
+fn never_copies_the_repository_worktrees_into_a_new_one() {
+    let sb = Sandbox::new("nested");
+    // `.claude/` ignored whole, or only its worktrees, by the local exclude file as TermF does.
+    for (name, ignore) in [("whole", ".claude/\n"), ("excluded", "")] {
+        let app = sb.repo(
+            name,
+            &[(".gitignore", ignore), (".claude/notes.md", "{}\n")],
+        );
+        fs::create_dir_all(app.join(".git/info")).unwrap();
+        fs::write(app.join(".git/info/exclude"), "/.claude/worktrees/\n").unwrap();
+        let nested = |branch: &str| {
+            let path = app.join(".claude/worktrees").join(branch);
+            let at = path.to_string_lossy();
+            sb.git(&app, &["worktree", "add", "-q", "-b", branch, &at]);
+            path
+        };
+        let older = nested("older");
+        fs::write(older.join(".env"), "A=1\n").unwrap();
+        let wt = nested("new");
+        for pattern in [".claude/", ".claude/notes.md"] {
+            let (copied, _) =
+                files::include(&sb.env, &app, &wt, &strings(&[pattern]), &[]).unwrap();
+            let wanted = match ignore {
+                "" => vec![],
+                _ => strings(&[pattern.trim_end_matches('/')]),
+            };
+            assert_eq!(copied, wanted, "{name} {pattern}");
+            assert!(wt.join(".claude/notes.md").exists(), "{name} {pattern}");
+            assert!(!wt.join(".claude/worktrees").exists(), "{name} {pattern}");
+            if !ignore.is_empty() {
+                fs::remove_dir_all(wt.join(".claude")).unwrap();
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn says_when_the_repository_may_hide_a_failed_install() {
+    let sb = Sandbox::new("hidden");
+    let app = sb.repo(
+        "app",
+        &[
+            (".gitignore", "node_modules/\n"),
+            ("node_modules/left-pad/index.js", "source\n"),
+        ],
+    );
+    fs::create_dir_all(app.join(".git/info")).unwrap();
+    fs::write(app.join(".git/info/exclude"), "/.claude/worktrees/\n").unwrap();
+    sb.project("acme", &[&app]);
+    let deps = vec![Dep {
+        dir: "node_modules".into(),
+        clone: false,
+        install: strings(&["exit 3"]),
+    }];
+    let repo = RepoRecipe {
+        deps,
+        ..RepoRecipe::default()
+    };
+    let recipe = Recipe {
+        repos: BTreeMap::from([("app".to_owned(), repo)]),
+        ..Recipe::default()
+    };
+    save(&sb.config(), "acme", recipe).unwrap();
+    let setup = sb.setup();
+    let inside = app.join(".claude/worktrees/termf-1");
+    let at = inside.to_string_lossy();
+    sb.git(&app, &["worktree", "add", "-q", "-b", "inside", &at]);
+    for (path, id, said) in [
+        (inside, "1", true),
+        (sb.worktree(&app, "apart"), "2", false),
+    ] {
+        let wt = setup.locate(&path, Some(id.into())).unwrap();
+        let report = setup.run(&wt);
+        let node = find(&report, StepKind::Deps, "node_modules");
+        assert_eq!(node.outcome, Outcome::Failed);
+        let note = "the worktree is inside the repository";
+        assert_eq!(node.detail.contains(note), said, "{node:?}");
+    }
+}
+
+#[test]
 fn includes_files_inside_a_folder_git_ignores_whole() {
     let sb = Sandbox::new("inside");
     let app = sb.repo(

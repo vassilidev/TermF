@@ -613,13 +613,24 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         "no run before the repository is known"
     );
 
+    // In the repository, as Claude Code's own worktrees, so its sessions inherit the trust given to it; hidden
+    // from git by the repository's local exclude file, whose last line had no newline.
+    let exclude = front.join(".git/info/exclude");
+    fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    fs::write(&exclude, "*.log").unwrap();
     let launch = t
         .start("https://github.com/acme/front/issues/42", None, None)
         .unwrap();
     let branch = "termf/42-fix-the-login-button";
-    let worktree = sb.root.join("data/worktrees/acme/1/front");
+    let worktree = front.join(".claude/worktrees/termf-1-42-fix-the-login-button");
     let run = &launch.run;
     assert_eq!(run.worktree.as_deref(), Some(path(&worktree).as_str()));
+    assert_eq!(
+        fs::read_to_string(&exclude).unwrap(),
+        "*.log\n/.claude/worktrees/\n"
+    );
+    assert_eq!(sb.git(&front, &["status", "--porcelain"]), "");
+    assert!(!sb.root.join("data/worktrees").exists());
     assert_eq!(
         (run.branch.as_deref(), run.base.as_deref()),
         (Some(branch), Some("origin/main"))
@@ -753,7 +764,7 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         "the session is stopped before its folder goes"
     );
     assert!(!worktree.exists());
-    assert!(!sb.root.join("data/worktrees/acme/1").exists());
+    assert_eq!(sb.git(&front, &["worktree", "list"]).lines().count(), 1);
     assert_eq!(
         sb.git(&front, &["branch", "--list", "termf/*"]),
         "",
@@ -817,6 +828,12 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         third.branch.as_deref(),
         Some("termf/42-fix-the-login-button-3")
     );
+    assert_eq!(
+        fs::read_to_string(&exclude).unwrap(),
+        "*.log\n/.claude/worktrees/\n",
+        "excluded once"
+    );
+    assert_eq!(sb.git(&front, &["status", "--porcelain"]), "");
     let empty = t.deliver_preview(3).unwrap();
     assert!(empty.files.is_empty() && empty.commits.is_empty());
     let nothing = format!("{:#}", t.deliver(3, &empty.fingerprint).unwrap_err());
@@ -1064,6 +1081,84 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
         (1, true),
         "the late work went with the delivery"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn keeps_worktrees_in_the_data_folder_when_asked_and_closes_both_kinds() {
+    let sb = Sandbox::new("places");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let place = |mode: &str| {
+        let text = format!("[tickets]\nworktrees = \"{mode}\"\n");
+        fs::write(sb.root.join("config/termf.toml"), text).unwrap();
+    };
+    let t = sb.tickets();
+    let start = || {
+        let run = t.start("front#42", None, None).unwrap().run;
+        (run.id, PathBuf::from(run.worktree.unwrap()))
+    };
+    let deliver = |id| {
+        let worktree = PathBuf::from(t.run(id).unwrap().worktree.unwrap());
+        fs::write(worktree.join(format!("fix-{id}.txt")), "fixed\n").unwrap();
+        let preview = t.deliver_preview(id).unwrap();
+        t.deliver(id, &preview.fingerprint).unwrap();
+    };
+    let exclude = || fs::read_to_string(front.join(".git/info/exclude")).unwrap_or_default();
+
+    place("data");
+    let (closed, closed_tree) = start();
+    assert_eq!(closed_tree, sb.root.join("data/worktrees/acme/1/front"));
+    assert!(
+        !exclude().contains(".claude"),
+        "the repository is left alone"
+    );
+    t.close(closed, false, || {}).unwrap();
+    assert!(!sb.root.join("data/worktrees/acme/1").exists());
+    let (old, old_tree) = start();
+    assert_eq!(old_tree, sb.root.join("data/worktrees/acme/2/front"));
+    deliver(old);
+
+    // Back to the default: new runs go to the repository, the old one keeps its folder and still closes.
+    place("repo");
+    let (new, new_tree) = start();
+    assert!(new_tree.starts_with(front.join(".claude/worktrees")));
+    assert!(old_tree.exists());
+    deliver(new);
+    let (gone, gone_tree) = start();
+    fs::remove_dir_all(&gone_tree).unwrap();
+    t.close(gone, false, || {}).unwrap();
+    fs::write(sb.root.join("pr-state"), "merged").unwrap();
+    let found = t.after_merge(true, |_| {}).unwrap().cleanups;
+    let cleaned: Vec<(i64, bool)> = found.iter().map(|c| (c.run.id, c.cleaned)).collect();
+    assert_eq!(cleaned, [(new, true), (old, true)]);
+    assert!(!old_tree.exists() && !sb.root.join("data/worktrees/acme/2").exists());
+    assert!(!new_tree.exists());
+    assert_eq!(
+        sb.git(&front, &["worktree", "list"]).lines().count(),
+        1,
+        "a folder removed by hand is pruned"
+    );
+    assert_eq!(sb.git(&front, &["status", "--porcelain"]), "");
+    assert!(!front.join(".claude").exists(), "emptied, then removed");
+
+    // A project may name a folder of the repository: the pattern is anchored at the repository's root.
+    let web = front.join("web");
+    fs::create_dir_all(&web).unwrap();
+    let project = format!("name = \"Acme\"\n[[repos]]\npath = {web:?}\n");
+    sb.project("acme", &project);
+    let url = "https://github.com/acme/front/issues/42";
+    let run = t.start(url, None, None).unwrap().run;
+    let tree = PathBuf::from(run.worktree.unwrap());
+    assert!(tree.starts_with(web.join(".claude/worktrees")), "{tree:?}");
+    assert!(exclude().ends_with("\n/web/.claude/worktrees/\n"));
+    assert_eq!(sb.git(&front, &["status", "--porcelain"]), "");
+    t.close(run.id, false, || {}).unwrap();
+    assert!(!tree.exists() && !web.join(".claude").exists());
 }
 
 #[test]
