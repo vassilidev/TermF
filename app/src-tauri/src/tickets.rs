@@ -35,7 +35,7 @@ pub(crate) fn tickets(app: &AppHandle) -> Arc<Tickets> {
 }
 
 /// git and gh reach the network: never on the UI thread.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&AppHandle) -> Result<T> + Send + 'static,
 ) -> CmdResult<T> {

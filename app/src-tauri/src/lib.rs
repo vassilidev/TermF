@@ -1,5 +1,6 @@
 mod api;
 mod browser;
+mod ci;
 mod config;
 mod context;
 mod files;
@@ -190,6 +191,7 @@ pub fn run() {
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new();
+            app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(tickets::TicketsState::new(config_dir.clone(), data_dir));
             app.manage(AppState {
                 config_dir,
@@ -310,6 +312,20 @@ pub fn run() {
             tickets::tickets_mcp_servers,
             tickets::tickets_configured,
             browser::open_url,
+            ci::ci_runs,
+            ci::ci_run,
+            ci::ci_log,
+            ci::ci_rerun,
+            ci::ci_cancel,
+            ci::ci_workflows,
+            ci::ci_inputs,
+            ci::ci_dispatch,
+            ci::ci_checks,
+            ci::ci_failure,
+            ci::ci_send,
+            ci::ci_poll,
+            ci::ci_notify,
+            ci::ci_notify_set,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

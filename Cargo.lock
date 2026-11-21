@@ -5428,6 +5428,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
+ "termf-ci",
  "termf-core",
  "termf-files",
  "termf-library",
@@ -5439,6 +5440,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-ci"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "termf-core",
+ "termf-tickets",
+ "yaml-rust2",
+]
+
+[[package]]
 name = "termf-cli"
 version = "0.1.0"
 dependencies = [
@@ -5446,6 +5459,7 @@ dependencies = [
  "interprocess",
  "rpassword",
  "serde_json",
+ "termf-ci",
  "termf-core",
  "termf-library",
  "termf-ssh",

@@ -422,6 +422,18 @@ impl Tickets {
         Store::open(&self.data_dir)?.fail(id, error)
     }
 
+    /// The `owner/name` of each GitHub remote of a repository, lowercased.
+    pub fn github_slugs(&self, repo: &str) -> Vec<String> {
+        remote_slugs(repo, &self.env, &Ssh::new(self.home.clone()))
+    }
+
+    /// The folder a run's session may read: its task, and what is sent to it later.
+    pub fn brief_dir(&self, id: i64) -> Result<PathBuf> {
+        let store = Store::open(&self.data_dir)?;
+        store.run(id)?;
+        Ok(store.run_dir(id).join("brief"))
+    }
+
     /// What `deliver` would commit and push, and the fingerprint that confirms it.
     pub fn deliver_preview(&self, id: i64) -> Result<DeliveryPreview> {
         let store = Store::open(&self.data_dir)?;

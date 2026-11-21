@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
+termf-ci = { path = "../../crates/termf-ci" }
 termf-core = { path = "../../crates/termf-core" }
 termf-term = { path = "../../crates/termf-term" }
 termf-files = { path = "../../crates/termf-files" }
