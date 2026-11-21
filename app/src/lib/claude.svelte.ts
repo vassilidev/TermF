@@ -78,9 +78,31 @@ export type Refresh = {
   /** Automatic refreshes wait for one started by hand that succeeds. */
   paused: boolean;
 };
-export type Artifacts = { artifacts: Artifact[]; listed: number | null; refresh: Refresh; refreshHours: number };
+export type Outcome = "pending" | "deleted" | "failed";
+export type Deletion = {
+  running: boolean;
+  session: number | null;
+  started: number;
+  ready: boolean;
+  revealed: boolean;
+  cost: number | null;
+  items: { id: string; url: string; outcome: Outcome; error: string | null }[];
+  failure: Failure | null;
+  detail: string | null;
+};
+export type Artifacts = {
+  artifacts: Artifact[];
+  listed: number | null;
+  refresh: Refresh;
+  refreshHours: number;
+  deletion: Deletion;
+  deleteWithoutConfirmation: boolean;
+};
 
 export const GALLERY = "https://claude.ai/code/artifacts";
+
+export const SECTIONS = ["overview", "settings", "mcp", "extensions", "hooks", "memory", "account", "tools", "artifacts"] as const;
+export type Section = (typeof SECTIONS)[number];
 
 /** The keys the view edits, with the values Claude Code's settings schema accepts. */
 export const EDITABLE: Record<string, { kind: "text" | "number" | "bool" | "enum"; values?: string[] }> = {
@@ -98,7 +120,7 @@ export const EDITABLE: Record<string, { kind: "text" | "number" | "bool" | "enum
 export const claudeView = $state({
   /** Loaded once first shown, then kept mounted, like the other views. */
   loaded: false,
-  tab: "config" as "config" | "artifacts",
+  section: "overview" as Section,
   /** The repository whose project and local scopes are read; "" for none. */
   repo: "",
   overview: null as Overview | null,
@@ -108,10 +130,10 @@ export const claudeView = $state({
   artifacts: null as Artifacts | null,
 });
 
-export function showClaude(tab?: "config" | "artifacts") {
+export function showClaude(section?: Section) {
   ui.view = "claude";
   claudeView.loaded = true;
-  if (tab) claudeView.tab = tab;
+  if (section) claudeView.section = section;
   if (!claudeView.overview && !claudeView.loading) loadOverview();
   loadArtifacts();
 }

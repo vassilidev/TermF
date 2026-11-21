@@ -15,12 +15,27 @@ use crate::{AppState, CmdResult, api};
 
 pub struct AgentsState(Agents);
 
-pub fn state(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf) -> AgentsState {
+impl AgentsState {
+    pub fn agents(&self) -> Agents {
+        self.0.clone()
+    }
+}
+
+/// `team` hears of every change of a session, its steps being sessions.
+pub fn state(
+    app: &AppHandle,
+    config_dir: PathBuf,
+    data_dir: PathBuf,
+    team: termf_team::Notifier,
+) -> AgentsState {
     let app = app.clone();
     AgentsState(Agents::new(config_dir, data_dir, move |update| {
         let _ = match update {
             Update::Event(event) => app.emit("agent-event", event),
-            Update::Session(session) => app.emit("agent-updated", session),
+            Update::Session(session) => {
+                team.session(session.id);
+                app.emit("agent-updated", session)
+            }
         };
     }))
 }

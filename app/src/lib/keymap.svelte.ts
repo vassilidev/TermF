@@ -26,7 +26,7 @@ export const placeLabel = (key: string) => keymap.layout?.[`Key${key}`]?.toUpper
 export async function loadKeys() {
   const keyboard = (navigator as Navigator & { keyboard?: Keyboard }).keyboard;
   if (!keymap.layout && keyboard?.getLayoutMap) {
-    keyboard.getLayoutMap().then((map) => (keymap.layout = Object.fromEntries(map)), () => {});
+    keyboard.getLayoutMap().then((map) => { keymap.layout = Object.fromEntries(map); }, () => {});
   }
   try {
     const loaded = await invoke<Keys>("keys");

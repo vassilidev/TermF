@@ -1,0 +1,46 @@
+description = "Frame → plan → implement → checks → rules → security review → visual review → delivery"
+max_parallel_agents = 4
+budget_usd = 15
+
+[steps.frame]
+type = "agent"
+role = "po"
+prompt = "Turn the ticket into explicit acceptance criteria and an out-of-scope list. Read the code if it helps; change nothing. Put the criteria, the out-of-scope list and any doubt in your report's summary; with a doubt that blocks the work, report status \"blocked\" with your questions."
+
+[steps.plan]
+type = "agent"
+role = "orchestrator"
+needs = ["frame"]
+
+[steps.approve-plan]
+type = "gate"
+needs = ["plan"]
+
+[steps.implement]
+type = "foreach"
+over = "plan.tasks"
+needs = ["approve-plan"]
+
+[steps.checks]
+type = "shell"
+needs = ["implement"]
+run = "{{ repo.checks }}"
+
+[steps.rules]
+type = "rules"
+needs = ["checks"]
+
+[steps.security]
+type = "agent"
+role = "secops"
+needs = ["rules"]
+prompt = "Review the run's changes (git diff of this branch against its base) for vulnerabilities, abuse cases and vulnerable dependencies. Change nothing: put what you find in your report."
+
+[steps.visual]
+type = "visual"
+needs = ["rules"]
+
+[steps.deliver]
+type = "connector"
+needs = ["security", "visual"]
+actions = ["commit", "pull_request"]

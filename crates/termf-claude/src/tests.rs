@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::artifacts::{self, Failure, Listed, ListingError, Owner, Policy, Refresh, Step};
+use crate::artifacts::{
+    self, Deletion, Failure, Listed, ListingError, Outcome, Owner, Policy, Refresh, Step,
+};
 use crate::cli::{self, Health};
 use crate::settings::{self, Scope};
 use crate::{Env, State, mask};
@@ -696,6 +698,27 @@ fn a_listing_replaces_the_index_but_keeps_recent_hooks() {
     );
     assert_eq!(roadmap.title.as_deref(), Some("Roadmap"));
     assert_eq!(artifacts::load(&index).listed, Some(110));
+
+    // Deleted while a listing ran: the listing, begun before, still holds it, and must not bring it back.
+    let deleted = json!({"tool_name": "Artifact", "tool_input": {"action": "delete", "url": URL}});
+    assert!(artifacts::record(&index, &deleted, 205, own()).unwrap());
+    let listed = || {
+        vec![Listed {
+            id: ID.into(),
+            url: URL.into(),
+            title: None,
+            owner: None,
+            updated: None,
+        }]
+    };
+    let result = artifacts::apply_listing(&index, listed(), 200, 210).unwrap();
+    assert!(result.artifacts.iter().all(|a| a.id != ID));
+    assert!(artifacts::load(&index).deleted.is_empty());
+    let result = artifacts::apply_listing(&index, listed(), 300, 310).unwrap();
+    assert!(
+        result.artifacts.iter().any(|a| a.id == ID),
+        "a later listing is the truth again"
+    );
     fs::remove_dir_all(&root).unwrap();
 }
 
@@ -727,30 +750,226 @@ fn a_hidden_session_may_only_do_its_task() {
         decision(&list, call("Bash", json!({"command": "rm -rf ~"}))),
         "deny"
     );
-    let delete = Policy::Delete(URL.into());
-    assert_eq!(
-        decision(
-            &delete,
-            call("Artifact", json!({"action": "read", "url": URL}))
+    // You confirmed these two in TermF: their deletion goes ahead, nothing else does.
+    let delete = Policy::Delete(vec![ID.into(), "abc".into()]);
+    for url in [URL, "https://claude.ai/artifact/abc?x=1"] {
+        assert_eq!(
+            decision(
+                &delete,
+                call("Artifact", json!({"action": "delete", "url": url}))
+            ),
+            "allow",
+            "{url}"
+        );
+    }
+    for refused in [
+        call(
+            "Artifact",
+            json!({"action": "delete", "url": "https://claude.ai/artifact/other"}),
         ),
-        "allow"
-    );
-    assert_eq!(
-        decision(
-            &delete,
-            call("Artifact", json!({"action": "delete", "url": URL}))
+        call(
+            "Artifact",
+            json!({"action": "delete", "url": format!("{URL}x")}),
         ),
-        "ask"
-    );
-    let other = call(
-        "Artifact",
-        json!({"action": "delete", "url": "https://claude.ai/artifact/other"}),
-    );
-    assert_eq!(decision(&delete, other), "deny");
+        call("Artifact", json!({"action": "delete"})),
+        call(
+            "Artifact",
+            json!({"action": "delete", "url": URL, "path": "0123456789abcdef0123456789abcdef"}),
+        ),
+        call("Artifact", json!({"action": "read", "url": URL})),
+        call("Artifact", json!({"action": "publish", "url": URL})),
+        call("Artifact", json!({"action": "list"})),
+        call("Bash", json!({"command": "rm -rf ~"})),
+        call("Write", json!({"file_path": "x"})),
+        call("mcp__x__Artifact", json!({"action": "delete", "url": URL})),
+    ] {
+        assert_eq!(decision(&delete, refused.clone()), "deny", "{refused}");
+    }
+}
+
+fn deleting(urls: &[&str]) -> Deletion {
+    let mut d = Deletion::default();
+    let urls: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+    d.begin(&urls, 1000).unwrap();
+    d.session = Some(4);
+    d
+}
+
+const OTHER: &str = "https://claude.ai/code/artifact/other-1";
+
+#[test]
+fn deletes_several_artifacts_in_one_hidden_session() {
+    let mut d = deleting(&[URL, OTHER, URL, "https://evil.test/artifact/x"]);
     assert_eq!(
-        decision(&delete, call("Write", json!({"file_path": "x"}))),
-        "deny"
+        d.items.len(),
+        2,
+        "the same one twice, and a foreign link, dropped"
     );
+    assert!(Deletion::default().begin(&[], 0).is_err());
+    assert!(
+        d.begin(&[URL.into()], 1001).is_err(),
+        "one deletion at a time"
+    );
+
+    let done = |url: &str| json!({"tool_name": "Artifact", "tool_input": {"action": "delete", "url": url}, "tool_response": "deleted"});
+    assert_eq!(d.hook(9, "PostToolUse", &done(URL)), Step::Nothing);
+    assert_eq!(d.items[0].outcome, Outcome::Pending, "another session");
+    assert_eq!(d.hook(4, "PostToolUse", &done(URL)), Step::Nothing);
+    assert_eq!(d.items[0].outcome, Outcome::Deleted);
+
+    let answer = json!({"last_assistant_message": format!(
+        "{{\"deleted\": [\"{URL}\", \"{OTHER}\"], \"failed\": []}}"
+    )});
+    assert_eq!(d.hook(4, "Stop", &answer), Step::Answered);
+    assert_eq!(
+        d.items[1].outcome,
+        Outcome::Failed,
+        "said deleted, but no call went through"
+    );
+    assert!(d.finish(4, None));
+    assert!(!d.running && d.failure.is_none());
+    assert!(!d.finish(4, Some((Failure::Closed, None))), "already over");
+}
+
+#[test]
+fn a_deletion_says_why_it_failed() {
+    let mut d = deleting(&[URL, OTHER]);
+    let answer = json!({"last_assistant_message": format!(
+        "{{\"deleted\": [], \"failed\": [{{\"url\": \"{OTHER}\", \"error\": \"not the owner\"}}]}}"
+    )});
+    d.hook(4, "Stop", &answer);
+    assert_eq!(d.items[1].error.as_deref(), Some("not the owner"));
+    assert_eq!(d.items[0].outcome, Outcome::Failed);
+    assert!(d.failure.is_none());
+
+    let mut d = deleting(&[URL]);
+    let stop = |text: &str| json!({"last_assistant_message": text});
+    assert_eq!(
+        d.hook(4, "Stop", &stop(r#"{"error": "tool_missing"}"#)),
+        Step::Fail(Failure::ToolMissing, None)
+    );
+    // Claude asks instead of deleting: its tile shows and waits for your answer, then for its JSON.
+    let mut d = deleting(&[URL]);
+    assert_eq!(
+        d.hook(4, "Stop", &stop("Are you sure? {maybe}")),
+        Step::Reveal
+    );
+    assert_eq!(d.hook(4, "Stop", &stop("Which one?")), Step::Nothing);
+    assert!(d.running && d.items[0].outcome == Outcome::Pending);
+    assert_eq!(d.tick(1_000_000), Step::Nothing);
+    assert_eq!(
+        d.hook(4, "Stop", &stop(r#"{"deleted": [], "failed": []}"#)),
+        Step::Answered
+    );
+    let mut d = deleting(&[URL]);
+    d.hook(
+        4,
+        "PostToolUse",
+        &json!({"tool_name": "Artifact", "tool_input": {"action": "delete", "url": URL}}),
+    );
+    assert_eq!(
+        d.hook(4, "Stop", &stop("Done.")),
+        Step::Answered,
+        "nothing left to do"
+    );
+
+    // Waiting for you (its folder to trust, a permission): its tile shows, once, and waits as long as it takes.
+    let mut d = deleting(&[URL]);
+    assert_eq!(d.tick(1000 + artifacts::READY_WITHIN), Step::Nothing);
+    assert_eq!(d.tick(1001 + artifacts::READY_WITHIN), Step::Reveal);
+    assert_eq!(d.tick(1_000_000), Step::Nothing);
+    let mut d = deleting(&[URL]);
+    let prompt = json!({"notification_type": "permission_prompt"});
+    assert_eq!(d.hook(4, "Notification", &prompt), Step::Reveal);
+    assert_eq!(d.hook(4, "PermissionRequest", &json!({})), Step::Nothing);
+
+    let mut d = deleting(&[URL]);
+    d.hook(4, "SessionStart", &json!({}));
+    assert_eq!(
+        d.tick(1001 + d.limits().0),
+        Step::Fail(Failure::Timeout, None)
+    );
+    assert!(d.finish(4, Some((Failure::Timeout, None))));
+    assert_eq!(d.items[0].outcome, Outcome::Failed);
+    assert_eq!(d.failure, Some(Failure::Timeout));
+}
+
+#[test]
+fn a_bigger_deletion_gets_more_time_and_money_up_to_a_cap() {
+    let urls: Vec<String> = (0..150)
+        .map(|i| format!("https://claude.ai/code/artifact/a{i}"))
+        .collect();
+    let mut d = Deletion::default();
+    d.begin(&urls, 0).unwrap();
+    d.session = Some(4);
+    d.hook(4, "SessionStart", &json!({}));
+    let (secs, usd) = d.limits();
+    assert_eq!(secs, artifacts::HIDDEN_FOR + 150 * artifacts::DELETE_SECS);
+    assert_eq!(d.tick(artifacts::HIDDEN_FOR + 1), Step::Nothing);
+    assert_eq!(d.tick(secs + 1), Step::Fail(Failure::Timeout, None));
+    let status = |c: f64| json!({"cost": {"total_cost_usd": c}});
+    assert_eq!(
+        d.hook(4, "StatusLine", &status(artifacts::MAX_COST_USD + 1.0)),
+        Step::Nothing
+    );
+    assert_eq!(
+        d.hook(4, "StatusLine", &status(usd + 0.01)),
+        Step::Fail(Failure::Budget, None)
+    );
+
+    let many: Vec<String> = (0..1000)
+        .map(|i| format!("https://claude.ai/code/artifact/a{i}"))
+        .collect();
+    let mut huge = Deletion::default();
+    huge.begin(&many, 0).unwrap();
+    assert!(huge.limits().0 < 3600 && huge.limits().1 < 10.0, "capped");
+}
+
+/// A fake `claude` plays the hidden session: it deletes every link of its prompt, then tries one more. Each call
+/// goes through TermF's `PreToolUse` answer as in Claude Code; only allowed ones reach `PostToolUse`.
+#[cfg(unix)]
+#[test]
+fn a_fake_claude_deletes_only_what_you_confirmed() {
+    let root = temp("fake-delete");
+    let bin = root.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    fake(
+        &bin,
+        "claude",
+        r#"for url in $(printf '%s\n' "$1" | grep -o 'https://claude.ai/[A-Za-z0-9/_-]*'); do
+  printf '{"action":"delete","url":"%s"}\n' "$url"
+done
+printf '{"action":"delete","url":"https://claude.ai/code/artifact/not-confirmed"}\n'
+printf '{"answer":"{\\"deleted\\": [], \\"failed\\": []}"}\n'"#,
+    );
+    let mut d = deleting(&[URL, OTHER]);
+    let policy = Policy::Delete(d.items.iter().map(|i| i.id.clone()).collect());
+    let urls: Vec<String> = d.items.iter().map(|i| i.url.clone()).collect();
+    let out = std::process::Command::new(bin.join("claude"))
+        .arg(artifacts::delete_prompt(&urls))
+        .output()
+        .unwrap();
+    let (mut refused, mut answer) = (Vec::new(), None);
+    for line in String::from_utf8(out.stdout).unwrap().lines() {
+        let call: Value = serde_json::from_str(line).unwrap();
+        if let Some(text) = call["answer"].as_str() {
+            answer = Some(text.to_owned());
+            continue;
+        }
+        let payload = json!({"tool_name": "Artifact", "tool_input": call});
+        let decision = artifacts::decide(&policy, &payload);
+        if decision["hookSpecificOutput"]["permissionDecision"] == "allow" {
+            d.hook(4, "PostToolUse", &payload);
+        } else {
+            refused.push(call["url"].as_str().unwrap().to_owned());
+        }
+    }
+    assert_eq!(refused, ["https://claude.ai/code/artifact/not-confirmed"]);
+    let stop = json!({"last_assistant_message": answer.unwrap()});
+    assert_eq!(d.hook(4, "Stop", &stop), Step::Answered);
+    assert!(d.items.iter().all(|i| i.outcome == Outcome::Deleted));
+    assert!(d.finish(4, None) && d.failure.is_none());
+    fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]

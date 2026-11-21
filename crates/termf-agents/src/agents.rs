@@ -28,6 +28,8 @@ const KILL_WAIT: Duration = Duration::from_secs(5);
 const TILE_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 });
 const BUSY: &str = "the session is being stopped, taken over or handed back";
 
+/// Clones share the same sessions.
+#[derive(Clone)]
 pub struct Agents {
     inner: Arc<Inner>,
 }
@@ -88,7 +90,8 @@ impl Agents {
         Self::build(config_dir, data_dir, Vec::new(), sink)
     }
 
-    pub(crate) fn build(
+    /// `env` is added to every process's environment.
+    pub fn build(
         config_dir: PathBuf,
         data_dir: PathBuf,
         env: Vec<(String, String)>,
@@ -125,6 +128,9 @@ impl Agents {
         let mut spec = checked(spec)?;
         let settings = termf_core::load_settings(&inner.config_dir)?;
         spec.agent = Some(claude_agent(&settings, spec.agent.as_deref())?);
+        if let Some(role) = spec.role.clone() {
+            play(&inner.config_dir, &mut spec, &role)?;
+        }
         let store = inner.store()?;
         let id = store.create(inner.runtime.id(), &uuid()?, &spec)?.id;
         let mut live = inner.live.lock().unwrap();
@@ -358,6 +364,16 @@ impl Agents {
         inner.set_state(&store, id, entry, State::Stopped)?;
         inner.launch(&store, id, entry)?;
         inner.view(&store, id, entry)
+    }
+
+    pub fn session(&self, id: i64) -> Result<AgentSession> {
+        let inner = &self.inner;
+        let live = inner.live.lock().unwrap();
+        let session = inner.store()?.session(id)?;
+        Ok(AgentSession {
+            tile: live.get(&id).and_then(tile),
+            ..session
+        })
     }
 
     /// Newest first.
@@ -746,6 +762,7 @@ fn checked(mut spec: SessionSpec) -> Result<SessionSpec> {
         &mut spec.model,
         &mut spec.effort,
         &mut spec.permission_mode,
+        &mut spec.role,
     ] {
         *value = value
             .take()
@@ -753,6 +770,13 @@ fn checked(mut spec: SessionSpec) -> Result<SessionSpec> {
             .filter(|v| !v.is_empty());
         if let Some(v) = value {
             ensure!(!v.starts_with('-'), "{v} is not a valid value");
+        }
+    }
+    for tools in [&mut spec.allowed_tools, &mut spec.disallowed_tools] {
+        tools.retain(|t| !t.trim().is_empty());
+        for tool in tools.iter_mut() {
+            *tool = tool.trim().to_owned();
+            ensure!(!tool.starts_with('-'), "{tool} is not a valid tool");
         }
     }
     ensure!(
@@ -786,11 +810,65 @@ fn claude_agent(settings: &Settings, name: Option<&str>) -> Result<String> {
     Ok(name.clone())
 }
 
+/// What playing `role` sets that the spec does not: model, effort, permission mode, and the tools it allows or
+/// denies (`allowedTools`, `disallowedTools` and `deny`, as lists or comma-separated). Its prompt comes with the
+/// library, at each launch.
+fn play(config_dir: &Path, spec: &mut SessionSpec, role: &str) -> Result<()> {
+    let scope = termf_library::Scope::new(config_dir, Some(&spec.cwd), spec.project.clone())?;
+    let item = termf_library::role(config_dir, &scope, role)?;
+    let text = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|k| item.meta.get(*k)?.as_str().map(str::to_owned))
+    };
+    let list = |key: &str| -> Vec<String> {
+        match item.meta.get(key) {
+            Some(Value::String(s)) => s.split(',').map(|t| t.trim().to_owned()).collect(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    spec.model = spec.model.take().or_else(|| text(&["model"]));
+    spec.effort = spec.effort.take().or_else(|| text(&["effort"]));
+    spec.permission_mode = spec
+        .permission_mode
+        .take()
+        .or_else(|| text(&["permission_mode", "permissionMode"]));
+    spec.allowed_tools.extend(list("allowedTools"));
+    for key in ["disallowedTools", "deny"] {
+        spec.disallowed_tools.extend(list(key));
+    }
+    for tools in [&mut spec.allowed_tools, &mut spec.disallowed_tools] {
+        tools.retain(|t| !t.is_empty());
+        let mut seen = std::collections::HashSet::new();
+        tools.retain(|t| seen.insert(t.clone()));
+    }
+    let values = [&spec.model, &spec.effort, &spec.permission_mode];
+    let tools = spec.allowed_tools.iter().chain(&spec.disallowed_tools);
+    for value in values.into_iter().flatten().chain(tools) {
+        ensure!(
+            !value.starts_with('-'),
+            "the role {role} sets {value}, which is not a valid value"
+        );
+    }
+    Ok(())
+}
+
 /// Writes the library's plugin and system prompt into `dir`. A library that cannot be read never keeps the
 /// agent from starting.
 fn library(config_dir: &Path, spec: &SessionSpec, dir: &Path) -> Option<PathBuf> {
     termf_library::Scope::new(config_dir, Some(&spec.cwd), spec.project.clone())
-        .and_then(|scope| termf_library::materialize(config_dir, &scope, dir))
+        .and_then(|scope| {
+            let scope = termf_library::Scope {
+                role: spec.role.clone(),
+                rules: spec.rules.clone(),
+                ..scope
+            };
+            termf_library::materialize(config_dir, &scope, dir)
+        })
         .unwrap_or_else(|e| {
             eprintln!("termf: library not loaded: {e:#}");
             None

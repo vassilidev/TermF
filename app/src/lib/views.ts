@@ -140,7 +140,7 @@ export const views: View[] = [
     command: "claudeViewShow",
     icon: Bot,
     group: "machine",
-    show: () => showClaude("config"),
+    show: () => showClaude(claudeView.section === "artifacts" ? "overview" : undefined),
     loaded: () => claudeView.loaded,
     load: () => import("$lib/ClaudeView.svelte"),
   },
