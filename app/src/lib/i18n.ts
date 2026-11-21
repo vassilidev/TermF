@@ -67,7 +67,7 @@ const fr = {
   quickTerminal: "Terminal rapide",
   quickTerminalTitle: "Terminal rapide (Ctrl+`)",
   shortcutError:
-    "Raccourci du terminal rapide indisponible ({error}). Modifie « quick_terminal_shortcut » (termf.toml) puis relance TermF.",
+    "Raccourci global du terminal rapide indisponible ({error}). Change-le dans Réglages > Raccourcis.",
   statusStarting: "démarrage",
   statusWorking: "travaille",
   statusWaiting: "attend ta réponse",
@@ -1398,7 +1398,7 @@ const en: Record<Key, string> = {
   quickTerminal: "Quick terminal",
   quickTerminalTitle: "Quick terminal (Ctrl+`)",
   shortcutError:
-    "Quick terminal shortcut unavailable ({error}). Change “quick_terminal_shortcut” (termf.toml), then restart TermF.",
+    "Quick terminal global shortcut unavailable ({error}). Change it in Settings > Shortcuts.",
   statusStarting: "starting",
   statusWorking: "working",
   statusWaiting: "waiting for you",

@@ -11,6 +11,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Rocket from "@lucide/svelte/icons/rocket";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
   import Workflow from "@lucide/svelte/icons/workflow";
   import CiLog from "$lib/CiLog.svelte";
   import CiStatus from "$lib/CiStatus.svelte";
@@ -19,12 +20,12 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
+  import { showSettings } from "$lib/settings.svelte";
   import { ui } from "$lib/state.svelte";
   import {
     ci,
     duration,
     outcome,
-    type CiNotify,
     type Input,
     type RunDetail,
     type RunPage,
@@ -251,18 +252,6 @@
     }
   }
 
-  function setNotify(e: Event) {
-    const select = e.currentTarget as HTMLSelectElement;
-    invoke<CiNotify>("ci_notify_set", { notify: select.value as CiNotify }).then(
-      (n) => (ci.notify = n),
-      (e) => {
-        // Back to what is saved.
-        select.value = ci.notify ?? "mine";
-        error = String(e);
-      },
-    );
-  }
-
   const short = (sha: string) => sha.slice(0, 7);
   const missing = $derived(form?.inputs?.some((i) => i.required && !form?.values[i.name]?.trim()) ?? true);
 </script>
@@ -276,14 +265,9 @@
       </select>
     </label>
     {#snippet actions()}
-      <label class="labelled inline notify">
-        <span>{t("ciNotify")}</span>
-        <select class="field" value={ci.notify ?? "mine"} onchange={setNotify} title={t("ciNotifyHelp")}>
-          <option value="mine">{t("ciNotifyMine")}</option>
-          <option value="all">{t("ciNotifyAll")}</option>
-          <option value="off">{t("ciNotifyOff")}</option>
-        </select>
-      </label>
+      <button class="btn sm quiet" onclick={() => showSettings("ci")} title={t("ciNotify")}>
+        <SettingsIcon size={14} aria-hidden="true" />{t("settings")}
+      </button>
       <button class="btn sm" onclick={openForm} disabled={!ci.repo || !!form}>
         <Rocket size={14} aria-hidden="true" />{t("ciDispatch")}
       </button>
@@ -518,10 +502,6 @@
 
   .inline select {
     width: 200px;
-  }
-
-  .notify select {
-    width: 150px;
   }
 
   .filters .field {
