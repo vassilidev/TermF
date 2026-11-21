@@ -1,16 +1,16 @@
 <script lang="ts">
   import "../app.css";
   import { onMount } from "svelte";
-  import { listen } from "@tauri-apps/api/event";
   import AppNav from "$lib/AppNav.svelte";
   import CommandPalette from "$lib/CommandPalette.svelte";
+  import ProjectView from "$lib/ProjectView.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
   import { app, init, ui } from "$lib/state.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
-  import { loadRuns, upsert, type Run } from "$lib/tickets.svelte";
+  import { watchTickets } from "$lib/tickets.svelte";
   import { views } from "$lib/views";
 
   onMount(() => {
@@ -18,10 +18,8 @@
     const stop = init();
     const stopCi = watchCi();
     const stopSchedule = watchSchedule();
-    // The runs tell which project a ticket's session belongs to.
-    loadRuns();
-    const unlistenRuns = listen<Run>("run-updated", ({ payload }) => upsert(payload));
-    return () => (stop(), stopCi(), stopSchedule(), unlistenRuns.then((off) => off()));
+    const stopTickets = watchTickets();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets());
   });
 </script>
 
@@ -54,6 +52,11 @@
         {/await}
       {/if}
     {/each}
+    {#if ui.view === "project" && ui.editing !== null}
+      {#key ui.editing}
+        <div class="pane"><ProjectView /></div>
+      {/key}
+    {/if}
   </div>
 </div>
 

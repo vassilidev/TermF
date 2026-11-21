@@ -6,6 +6,7 @@ import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import Ticket from "@lucide/svelte/icons/ticket";
+import Users from "@lucide/svelte/icons/users";
 import Workflow from "@lucide/svelte/icons/workflow";
 import type { t } from "$lib/i18n";
 import { ci, showCi } from "$lib/ci.svelte";
@@ -15,6 +16,7 @@ import { library, showLibrary } from "$lib/library.svelte";
 import { schedule, showScheduler } from "$lib/schedule.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
 import { ui, waitingSessions, type ViewId } from "$lib/state.svelte";
+import { showTeam, team } from "$lib/team.svelte";
 import { showTickets, tickets } from "$lib/tickets.svelte";
 
 type Key = Parameters<typeof t>[0];
@@ -73,6 +75,17 @@ export const views: View[] = [
     show: showFiles,
     loaded: () => files.loaded,
     load: () => import("$lib/FilesView.svelte"),
+  },
+  {
+    id: "team",
+    label: "t5Team",
+    command: "t5ShowTeam",
+    icon: Users,
+    group: "project",
+    show: showTeam,
+    loaded: () => team.loaded,
+    load: () => import("$lib/TeamView.svelte"),
+    count: () => team.roles.filter((r) => r.active).length || undefined,
   },
   {
     id: "library",
