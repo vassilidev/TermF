@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use super::*;
