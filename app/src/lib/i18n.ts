@@ -835,6 +835,7 @@ const fr = {
     "Lancées par Anthropic sur claude.ai, même ton ordinateur éteint. Elles se créent, se modifient et se suppriment sur le web, ou avec /schedule dans une session Claude Code : TermF ne peut pas les lire.",
   schedulerCopyLink: "Copier le lien",
   schedulerCopied: "Lien copié",
+  schedulerOpenLink: "Ouvrir dans le navigateur",
   schedulerLoopsTitle: "Boucles d'une session (/loop)",
   schedulerLoopsHelp:
     "Elles n'existent que dans la session Claude Code qui les a créées et s'arrêtent avec elle : rien à gérer de l'extérieur.",
@@ -1669,6 +1670,7 @@ const en: Record<Key, string> = {
     "Run by Anthropic on claude.ai, even with your computer off. They are created, edited and deleted on the web, or with /schedule in a Claude Code session: TermF cannot read them.",
   schedulerCopyLink: "Copy the link",
   schedulerCopied: "Link copied",
+  schedulerOpenLink: "Open in the browser",
   schedulerLoopsTitle: "Session loops (/loop)",
   schedulerLoopsHelp:
     "They only exist in the Claude Code session that made them and stop with it: nothing to manage from outside.",

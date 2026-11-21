@@ -4,6 +4,7 @@
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Cloud from "@lucide/svelte/icons/cloud";
   import Copy from "@lucide/svelte/icons/copy";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Monitor from "@lucide/svelte/icons/monitor";
   import Pencil from "@lucide/svelte/icons/pencil";
@@ -203,6 +204,14 @@
             <span class="mono">{ROUTINES}</span>
             <button class="icon-btn sm" onclick={copyLink} aria-label={t("schedulerCopyLink")} title={t("schedulerCopyLink")}>
               <Copy size={13} aria-hidden="true" />
+            </button>
+            <button
+              class="icon-btn sm"
+              onclick={() => invoke("open_url", { url: ROUTINES }).catch((e) => (schedule.error = String(e)))}
+              aria-label={t("schedulerOpenLink")}
+              title={t("schedulerOpenLink")}
+            >
+              <ExternalLink size={13} aria-hidden="true" />
             </button>
             {#if copied}<span class="muted small" role="status">{t("schedulerCopied")}</span>{/if}
           </span>
