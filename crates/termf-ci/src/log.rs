@@ -9,8 +9,11 @@ use crate::Job;
 
 /// Lines of a log kept, from its end: errors are near the end, and a webview chokes on millions of lines.
 const MAX_LINES: usize = 20_000;
-/// Lines of a log quoted to the agent at most.
+/// Lines of a log without error lines quoted to the agent: its end.
 const EXCERPT: usize = 150;
+/// Lines quoted before and after an error line.
+const BEFORE: usize = 30;
+const AFTER: usize = 5;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +53,7 @@ fn is_stamp(word: &str) -> bool {
     b.len() >= 20 && b[4] == b'-' && b[10] == b'T' && word.ends_with('Z')
 }
 
-fn without_colors(line: &str) -> String {
+fn without_escapes(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {
@@ -58,13 +61,28 @@ fn without_colors(line: &str) -> String {
             out.push(c);
             continue;
         }
-        // CSI sequences (`ESC [ … letter`) carry colors; anything else after ESC is one character.
-        if chars.next() == Some('[') {
-            for c in chars.by_ref() {
-                if ('@'..='~').contains(&c) {
-                    break;
+        // CSI (`ESC [ … letter`) carries colors, OSC (`ESC ] … BEL` or `ESC ] … ESC \`) titles and links;
+        // anything else after ESC is one character.
+        match chars.next() {
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
                 }
             }
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == '\x07' {
+                        break;
+                    }
+                    if c == '\x1b' {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            _ => {}
         }
     }
     out
@@ -82,7 +100,7 @@ pub fn parse_log(text: &str) -> JobLog {
                 None if is_stamp(line) => "",
                 _ => line,
             };
-            without_colors(line)
+            without_escapes(line)
         })
         .collect();
     let errors = (0..lines.len()).filter(|&i| is_error(&lines[i])).collect();
@@ -93,15 +111,25 @@ pub fn parse_log(text: &str) -> JobLog {
     }
 }
 
-/// The lines that tell why a job failed: from a little before its first error line to just after its last,
-/// else its last lines; at most `EXCERPT`, the end kept.
-fn excerpt(log: &JobLog) -> std::ops::Range<usize> {
+/// The lines that tell why a job failed: around its first error line, which is usually the cause, and around its
+/// last, which says how the step ended; else its last lines.
+// A list of windows, not the lines of one.
+#[allow(clippy::single_range_in_vec_init)]
+fn excerpt(log: &JobLog) -> Vec<std::ops::Range<usize>> {
     let n = log.lines.len();
-    let range = match (log.errors.first(), log.errors.last()) {
-        (Some(&first), Some(&last)) => first.saturating_sub(30)..(last + 6).min(n),
-        _ => 0..n,
-    };
-    range.start.max(range.end.saturating_sub(EXCERPT))..range.end
+    let around = |i: usize| i.saturating_sub(BEFORE)..(i + AFTER + 1).min(n);
+    match (log.errors.first(), log.errors.last()) {
+        (Some(&first), Some(&last)) => {
+            let (first, last) = (around(first), around(last));
+            if first.end >= last.start {
+                vec![first.start..last.end]
+            } else {
+                vec![first, last]
+            }
+        }
+        _ if n == 0 => Vec::new(),
+        _ => vec![n.saturating_sub(EXCERPT)..n],
+    }
 }
 
 /// Escapes `<ci-failure` and `</ci-failure`, in any case, so the log cannot open or close a frame of its own.
@@ -133,16 +161,17 @@ pub(crate) fn failure_text(
         .steps
         .iter()
         .find(|s| s.conclusion.as_deref().is_some_and(crate::failed));
-    let range = excerpt(log);
+    let ranges = excerpt(log);
     let mut report = format!("Workflow: {workflow}\nJob: {}\n", job.name);
     if let Some(step) = step {
         let _ = writeln!(report, "Failed step: {}", step.name);
     }
-    if range.is_empty() {
+    if ranges.is_empty() {
         report.push_str("\nThe log is empty.\n");
-    } else {
+    }
+    let total = log.skipped + log.lines.len();
+    for range in ranges {
         let (from, to) = (log.skipped + range.start + 1, log.skipped + range.end);
-        let total = log.skipped + log.lines.len();
         let _ = writeln!(report, "\nLog, lines {from} to {to} of {total}:\n");
         for line in &log.lines[range] {
             let _ = writeln!(report, "{line}");

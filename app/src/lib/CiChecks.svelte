@@ -13,6 +13,7 @@
   import type { Session } from "$lib/state.svelte";
   import type { Run } from "$lib/tickets.svelte";
   import { duration, outcome, type AgentMessage, type Job, type RunDetail, type WorkflowRun } from "$lib/ci.svelte";
+  import { failedJobs } from "$lib/ci-logic";
 
   let { run, session }: { run: Run; session: Session | undefined } = $props();
 
@@ -33,12 +34,14 @@
     error = "";
     try {
       const found = await invoke<WorkflowRun[]>("ci_checks", { run: run.id });
+      // By the check's own repository: the pull request may not be in the folder's first remote.
+      const details = await Promise.all(
+        found
+          .filter((c) => outcome(c) === "failed")
+          .map((c) => invoke<RunDetail>("ci_run", { repo: c.repo, id: c.id })),
+      );
       if (r !== request) return;
-      checks = found;
-      for (const check of found.filter((c) => outcome(c) === "failed")) {
-        const detail = await invoke<RunDetail>("ci_run", { repo: run.repo, id: check.id });
-        if (r === request) failed[check.id] = detail.jobs.filter((j) => outcome(j) === "failed");
-      }
+      [checks, failed] = [found, failedJobs(details)];
     } catch (e) {
       if (r === request) error = String(e);
     }

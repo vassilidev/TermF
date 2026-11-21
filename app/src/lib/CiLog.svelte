@@ -10,6 +10,7 @@
   import Search from "@lucide/svelte/icons/search";
   import { t } from "$lib/i18n";
   import type { Job, JobLog } from "$lib/ci.svelte";
+  import { cycle } from "$lib/ci-logic";
 
   let { repo, job }: { repo: string; job: Job } = $props();
 
@@ -58,13 +59,13 @@
 
   function nextMatch(direction: 1 | -1) {
     if (!matches.length) return;
-    at = (at + direction + matches.length) % matches.length;
+    at = cycle(at, direction, matches.length);
     show(matches[at]);
   }
 
   function nextError() {
     if (!log?.errors.length) return;
-    errorAt = (errorAt + 1) % log.errors.length;
+    errorAt = cycle(errorAt, 1, log.errors.length);
     show(log.errors[errorAt]);
   }
 

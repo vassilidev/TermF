@@ -4,6 +4,8 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { files } from "$lib/files.svelte";
 import { t } from "$lib/i18n";
 
+export { outcome } from "$lib/ci-logic";
+
 export type WorkflowRun = {
   /** `owner/name`. */
   repo: string;
@@ -84,15 +86,6 @@ export function showCi() {
 export function dispatchWorkflow() {
   showCi();
   ci.dispatch = true;
-}
-
-/** `running`, `passed`, `failed` or `stopped` (cancelled, skipped…): how a run or a job is shown. */
-export function outcome(item: { status: string; conclusion: string | null }) {
-  if (item.status !== "completed") return item.status === "in_progress" ? "running" : "queued";
-  if (item.conclusion === "success") return "passed";
-  return ["failure", "timed_out", "startup_failure", "action_required"].includes(item.conclusion ?? "")
-    ? "failed"
-    : "stopped";
 }
 
 /** "3 min 12 s" between two ISO dates, or until now while it runs. */

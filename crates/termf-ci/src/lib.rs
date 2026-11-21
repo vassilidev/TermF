@@ -218,21 +218,27 @@ fn job_from(v: &Value) -> Job {
 
 /// The `owner/name` and number of a pull request's address.
 fn pull_request_of(url: &str) -> Result<(String, u64)> {
-    let part = |p: &str| {
-        !p.is_empty()
-            && p != ".."
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-    };
     let path = url.strip_prefix("https://github.com/").unwrap_or_default();
     match path.split('/').collect::<Vec<_>>().as_slice() {
-        [owner, name, "pull", n, ..] if part(owner) && part(name) => Ok((
+        [owner, name, "pull", n, ..] if valid_slug(&format!("{owner}/{name}")) => Ok((
             format!("{owner}/{name}").to_ascii_lowercase(),
             n.parse()
                 .with_context(|| format!("{url} is not a GitHub pull request"))?,
         )),
         _ => bail!("{url} is not a GitHub pull request"),
     }
+}
+
+/// `owner/name`, with what GitHub allows in each.
+fn valid_slug(slug: &str) -> bool {
+    let part = |p: &str| {
+        !p.is_empty()
+            && p != "."
+            && p != ".."
+            && p.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    matches!(slug.split('/').collect::<Vec<_>>().as_slice(), [owner, name] if part(owner) && part(name))
 }
 
 fn failure(what: &str, error: &str) -> anyhow::Error {
@@ -412,9 +418,13 @@ impl Ci {
         Ok(items)
     }
 
-    /// The repository's `owner/name` on GitHub: its first GitHub remote.
+    /// The repository's `owner/name` on GitHub: its first GitHub remote. `owner/name` itself is taken too, as a
+    /// check gives it: a pull request may live in another repository than the folder's first remote.
     pub fn slug(&self, repo: &str) -> Result<String> {
-        ensure!(Path::new(repo).is_dir(), "{repo} is not a folder");
+        if !Path::new(repo).is_dir() {
+            ensure!(valid_slug(repo), "{repo} is not a folder");
+            return Ok(repo.to_ascii_lowercase());
+        }
         self.tickets.github_slugs(repo).into_iter().next().with_context(|| {
             format!(
                 "{repo} has no GitHub remote: TermF follows GitHub Actions only for now (GitLab CI comes later)"

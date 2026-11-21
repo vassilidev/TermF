@@ -55,7 +55,11 @@
   let busy = $state<"" | "rerun" | "failed" | "cancel" | "dispatch">("");
   let error = $state("");
   let done = $state("");
+  /** Asked before cancelling the run shown, which cannot be undone. */
+  let confirmCancel = $state(false);
   let form = $state<{
+    /** The repository it was opened for. */
+    repo: string;
     workflows: Flow[] | null;
     workflow: string;
     ref: string;
@@ -76,7 +80,10 @@
 
   $effect(() => {
     void ci.repo;
-    untrack(load);
+    untrack(() => {
+      if (form && form.repo !== ci.repo) form = null;
+      load();
+    });
   });
 
   $effect(() => {
@@ -106,12 +113,15 @@
 
   let request = 0;
 
-  /** Pages 1 to `count`, newest first; only the latest request fills the list. */
-  async function fetchPages(count: number, quiet: boolean) {
+  /**
+   * Pages 1 to `count`, newest first; only the latest request fills the list. A failed `load` replaces the list
+   * with its error, a failed `more` shows it above, a failed `refresh` keeps quiet.
+   */
+  async function fetchPages(count: number, mode: "load" | "refresh" | "more") {
     if (!ci.repo) return;
     const r = ++request;
     loading = true;
-    if (!quiet) listError = "";
+    if (mode === "load") listError = "";
     try {
       const found: WorkflowRun[] = [];
       let page: RunPage | null = null;
@@ -122,7 +132,8 @@
       if (r !== request) return;
       [runs, total, pages, listError] = [found, page?.total ?? 0, count, ""];
     } catch (e) {
-      if (r === request && !quiet) listError = String(e);
+      if (r === request && mode === "load") listError = String(e);
+      if (r === request && mode === "more") error = String(e);
     } finally {
       if (r === request) loading = false;
     }
@@ -131,18 +142,18 @@
   function load() {
     runs = null;
     selected = null;
-    return fetchPages(1, false);
+    return fetchPages(1, "load");
   }
 
-  const refresh = () => fetchPages(pages, runs !== null);
-  const more = () => fetchPages(pages + 1, true);
+  const refresh = () => fetchPages(pages, runs === null ? "load" : "refresh");
+  const more = () => fetchPages(pages + 1, "more");
 
   let detailRequest = 0;
 
   async function loadDetail(run: WorkflowRun | undefined) {
     const r = ++detailRequest;
     if (detail?.run.id !== run?.id) {
-      [detail, detailError, expanded, logOf] = [null, "", [], null];
+      [detail, detailError, expanded, logOf, confirmCancel] = [null, "", [], null, false];
     }
     if (!run) return;
     try {
@@ -172,8 +183,10 @@
   const rerun = (run: WorkflowRun, failed: boolean) =>
     act(failed ? "failed" : "rerun", () => invoke("ci_rerun", { repo: ci.repo, id: run.id, failed }), t("ciRerunDone"));
 
-  const cancel = (run: WorkflowRun) =>
-    act("cancel", () => invoke("ci_cancel", { repo: ci.repo, id: run.id }), t("ciCancelDone"));
+  const cancel = (run: WorkflowRun) => {
+    confirmCancel = false;
+    return act("cancel", () => invoke("ci_cancel", { repo: ci.repo, id: run.id }), t("ciCancelDone"));
+  };
 
   async function copy(url: string) {
     try {
@@ -191,26 +204,34 @@
   async function openForm() {
     ci.dispatch = false;
     if (!ci.repo) return;
-    form = { workflows: null, workflow: "", ref: ci.branch.trim(), inputs: null, values: {}, error: "" };
+    form = { repo: ci.repo, workflows: null, workflow: "", ref: ci.branch.trim(), inputs: null, values: {}, error: "" };
+    const f = form;
     try {
-      const workflows = await invoke<Flow[]>("ci_workflows", { repo: ci.repo });
-      if (form) form.workflows = workflows.filter((w) => w.state === "active" && w.path.startsWith(".github/"));
+      const workflows = await invoke<Flow[]>("ci_workflows", { repo: f.repo });
+      if (form === f) f.workflows = workflows.filter((w) => w.state === "active" && w.path.startsWith(".github/"));
     } catch (e) {
-      if (form) form.error = String(e);
+      if (form === f) f.error = String(e);
     }
   }
 
+  const initial = (i: Input) =>
+    i.default ?? (i.kind === "boolean" ? "false" : i.kind === "choice" ? (i.options[0] ?? "") : "");
+
   async function readInputs() {
-    if (!form?.workflow) return;
     const f = form;
+    if (!f?.workflow) return;
+    const asked = { workflow: f.workflow, ref: f.ref.trim() };
+    // Only the answer for what the form still shows counts: an older one may come last.
+    const current = () => form === f && f.workflow === asked.workflow && f.ref.trim() === asked.ref;
     [f.inputs, f.error] = [null, ""];
     try {
-      const path = f.workflows?.find((w) => String(w.id) === f.workflow)?.path ?? "";
-      const inputs = await invoke<Input[]>("ci_inputs", { repo: ci.repo, path, gitRef: f.ref.trim() || null });
-      f.values = Object.fromEntries(inputs.map((i) => [i.name, i.default ?? (i.kind === "boolean" ? "false" : "")]));
+      const path = f.workflows?.find((w) => String(w.id) === asked.workflow)?.path ?? "";
+      const inputs = await invoke<Input[]>("ci_inputs", { repo: f.repo, path, gitRef: asked.ref || null });
+      if (!current()) return;
+      f.values = Object.fromEntries(inputs.map((i) => [i.name, initial(i)]));
       f.inputs = inputs;
     } catch (e) {
-      f.error = String(e);
+      if (current()) f.error = String(e);
     }
   }
 
@@ -219,7 +240,7 @@
     if (!f?.inputs) return;
     [busy, f.error] = ["dispatch", ""];
     try {
-      await invoke("ci_dispatch", { repo: ci.repo, workflow: f.workflow, gitRef: f.ref.trim() || null, inputs: f.values });
+      await invoke("ci_dispatch", { repo: f.repo, workflow: f.workflow, gitRef: f.ref.trim() || null, inputs: f.values });
       form = null;
       done = t("ciDispatched");
       // GitHub creates the run a few seconds later.
@@ -232,10 +253,14 @@
   }
 
   function setNotify(e: Event) {
-    const notify = (e.currentTarget as HTMLSelectElement).value as CiNotify;
-    invoke<CiNotify>("ci_notify_set", { notify }).then(
+    const select = e.currentTarget as HTMLSelectElement;
+    invoke<CiNotify>("ci_notify_set", { notify: select.value as CiNotify }).then(
       (n) => (ci.notify = n),
-      (e) => (error = String(e)),
+      (e) => {
+        // Back to what is saved.
+        select.value = ci.notify ?? "mine";
+        error = String(e);
+      },
     );
   }
 
@@ -332,7 +357,8 @@
                         {#each input.options as option (option)}<option value={option}>{option}</option>{/each}
                       </select>
                     {:else}
-                      <input class="field" type={input.kind === "number" ? "number" : "text"} bind:value={f.values[input.name]} required={input.required} />
+                      <!-- Text even for a number: the value stays a string, as workflow inputs are. -->
+                      <input class="field" inputmode={input.kind === "number" ? "decimal" : undefined} bind:value={f.values[input.name]} required={input.required} />
                     {/if}
                   {/if}
                   {#if input.description}<span class="hint">{input.description}</span>{/if}
@@ -411,12 +437,21 @@
                 </button>
               {/if}
             {:else}
-              <button class="btn sm" onclick={() => cancel(run)} disabled={!!busy}>
+              <button class="btn sm" aria-expanded={confirmCancel} onclick={() => (confirmCancel = true)} disabled={!!busy}>
                 {#if busy === "cancel"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Ban size={14} aria-hidden="true" />{/if}{t("ciCancel")}
               </button>
             {/if}
             <button class="btn sm" onclick={() => copy(run.url)}><Copy size={14} aria-hidden="true" />{t("runCopyLink")}</button>
           </div>
+          {#if confirmCancel && run.status !== "completed"}
+            <div class="confirm" role="alert">
+              <span>{t("ciCancelConfirm")}</span>
+              <div class="buttons">
+                <button class="btn sm" onclick={() => (confirmCancel = false)}>{t("ciCancelKeep")}</button>
+                <button class="btn sm danger" onclick={() => cancel(run)} disabled={!!busy}>{t("ciCancel")}</button>
+              </div>
+            </div>
+          {/if}
           <dl class="meta">
             <dt>{t("ciMetaBranch")}</dt>
             <dd><span class="mono">{run.branch ?? "—"}</span>{#if run.pullRequests.length}<span class="muted">{` · ${run.pullRequests.map((n) => `#${n}`).join(", ")}`}</span>{/if}</dd>
@@ -789,6 +824,22 @@
     flex-wrap: wrap;
     gap: 6px;
     margin: 16px 0 0;
+  }
+
+  .confirm {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    font-size: var(--text-sm);
+  }
+
+  .confirm .buttons {
+    margin-left: auto;
   }
 
   .meta {
