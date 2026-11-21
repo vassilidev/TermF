@@ -494,7 +494,11 @@ pub fn portable(path: &str) -> String {
         .and_then(|h| Path::new(path).strip_prefix(h).ok())
     {
         Some(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Some(rest) => Path::new("~").join(rest).to_string_lossy().into_owned(),
+        // Always `/`: the path is read back on other systems, and expand_tilde accepts it everywhere.
+        Some(rest) => {
+            let parts: Vec<_> = rest.iter().map(|p| p.to_string_lossy()).collect();
+            format!("~/{}", parts.join("/"))
+        }
         None => path.into(),
     }
 }

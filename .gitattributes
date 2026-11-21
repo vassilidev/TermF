@@ -1,0 +1,2 @@
+# One line ending everywhere: the shipped library is embedded byte for byte and compared in tests.
+* text=auto eol=lf
