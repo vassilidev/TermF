@@ -230,9 +230,7 @@ fn opens_by_itself_once_for_a_new_project_and_records_decisions() {
     assert!(!load(&config, &data, "acme").unwrap().auto_open);
     created(&config, &data, "acme").unwrap();
     assert!(load(&config, &data, "acme").unwrap().auto_open);
-    seen(&config, &data, "acme").unwrap();
-    created(&config, &data, "acme").unwrap();
-    assert!(!load(&config, &data, "acme").unwrap().auto_open);
+    assert!(!seen(&config, &data, "acme").unwrap().auto_open);
 
     assert_eq!(
         step(&config, &data, "acme", Step::Trust).unwrap().step,
@@ -255,4 +253,14 @@ fn opens_by_itself_once_for_a_new_project_and_records_decisions() {
     );
     assert!(decide(&config, &data, "acme", "deploy", Decision::Accepted, "").is_err());
     assert!(load(&config, &data, "../acme").is_err());
+
+    // A project deleted then created again with the same id starts over.
+    created(&config, &data, "acme").unwrap();
+    assert_eq!(
+        load(&config, &data, "acme").unwrap(),
+        State {
+            auto_open: true,
+            ..State::default()
+        }
+    );
 }

@@ -194,16 +194,13 @@ fn change(
     Ok(state)
 }
 
-/// A new project opens the assistant once; a project that already has a state keeps it.
+/// A new project opens the assistant once, from scratch: a deleted project of the same id leaves nothing behind.
 pub fn created(config_dir: &Path, data_dir: &Path, project: &str) -> Result<()> {
-    if !file(config_dir, data_dir, project)?.exists() {
-        let state = State {
-            auto_open: true,
-            ..State::default()
-        };
-        save(config_dir, data_dir, project, &state)?;
-    }
-    Ok(())
+    let state = State {
+        auto_open: true,
+        ..State::default()
+    };
+    save(config_dir, data_dir, project, &state)
 }
 
 /// The assistant opened: it no longer opens by itself.
