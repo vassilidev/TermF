@@ -158,11 +158,10 @@ impl Agents {
         let store = inner.store()?;
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
-        let input = entry
-            .pending
-            .get(request)
-            .cloned()
-            .with_context(|| format!("no permission request {request} waits in this session"))?;
+        let input =
+            entry.pending.get(request).cloned().with_context(|| {
+                format!("no permission request {request} waits in this session")
+            })?;
         let message = message.map(str::trim).filter(|m| !m.is_empty());
         let why = message.unwrap_or("The user refused.");
         inner.write(entry, &inner.runtime.answer(request, allow, &input, why))?;
@@ -198,10 +197,7 @@ impl Agents {
             if matches!(session.state, State::Working | State::Waiting) {
                 let _ = inner.write(entry, &inner.runtime.interrupt());
             }
-            if matches!(
-                session.state,
-                State::Working | State::Waiting | State::Idle
-            ) {
+            if matches!(session.state, State::Working | State::Waiting | State::Idle) {
                 inner.set_state(&store, id, entry, State::Stopped)?;
             }
             let Some(process) = entry.process.as_mut() else {
@@ -281,7 +277,9 @@ impl Agents {
                     running: true,
                 });
                 inner.record(&store, id, AgentEvent::TakenOver { tile })?;
-                inner.view(&store, id, entry).map(|s| (inner.sink)(Update::Session(s)))
+                inner
+                    .view(&store, id, entry)
+                    .map(|s| (inner.sink)(Update::Session(s)))
             }
             None => inner.set_state(&store, id, entry, State::Stopped).map(drop),
         }
@@ -405,7 +403,13 @@ impl Inner {
             .context("cannot write to the agent")
     }
 
-    fn deliver(self: &Arc<Self>, store: &Store, id: i64, entry: &mut Live, text: &str) -> Result<()> {
+    fn deliver(
+        self: &Arc<Self>,
+        store: &Store,
+        id: i64,
+        entry: &mut Live,
+        text: &str,
+    ) -> Result<()> {
         ensure!(!entry.busy, BUSY);
         match store.session(id)?.state {
             State::Working | State::Waiting => {

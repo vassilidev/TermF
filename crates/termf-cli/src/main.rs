@@ -12,6 +12,7 @@ use termf_core::ipc::{self, Call, Reply, Request, SessionSummary};
 use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
+mod agent;
 mod ci;
 mod schedule;
 mod scout;
@@ -101,6 +102,19 @@ usage:
   termf ci cancel <run> [--repo <path>]
   termf ci dispatch <workflow> [--ref <branch>] [--input key=value]... [--repo <path>]
                                         start a workflow by hand (workflow_dispatch)
+  termf agent ls                        headless agent sessions: state, cost, context
+  termf agent start [--prompt <text|->] [--dir <path>] [--title <t>] [--project <id>] [--agent <name>]
+                    [--model <m>] [--effort <e>] [--permission-mode <p>] [--budget <usd>]
+                                        a headless Claude Code session in a folder (default: here),
+                                        driven by TermF; --budget covers the whole session
+  termf agent send <id> <text>...       its next message, once its turn is over (resumes a stopped one)
+  termf agent events <id> [--after <n>] what it said and did
+  termf agent interrupt <id>            stop its turn
+  termf agent allow|deny <id> <request> [<message>...]
+                                        answer a permission request
+  termf agent stop <id>                 end its process
+  termf agent takeover <id>             go on with the conversation in a tile, between two turns
+  termf agent handback <id>             close that tile and go on headless
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -191,6 +205,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["schedule", rest @ ..] => schedule::run(rest.to_vec())?,
         ["worktree", rest @ ..] => worktree::run(rest)?,
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
+        ["agent", rest @ ..] => agent::run(rest.to_vec())?,
         [
             command @ ("run" | "runs" | "inbox" | "deliver" | "close"),
             rest @ ..,

@@ -178,7 +178,11 @@ impl Store {
             "SELECT id, at, data FROM agent_events WHERE session = ?1 AND id > ?2 ORDER BY id",
         )?;
         let rows = query.query_map([session, after], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         })?;
         rows.map(|row| {
             let (id, at, data) = row?;

@@ -165,7 +165,9 @@ pub struct Usage {
 )]
 pub enum AgentEvent {
     /// A process started; `resumed`: it continues the conversation.
-    Started { resumed: bool },
+    Started {
+        resumed: bool,
+    },
     /// What the agent says once it starts working.
     Init {
         session_id: String,
@@ -173,10 +175,16 @@ pub enum AgentEvent {
         permission_mode: String,
     },
     /// A message sent to the agent.
-    User { text: String },
+    User {
+        text: String,
+    },
     /// Text as it streams: sent to the UI, never stored; the `text` event that follows holds all of it.
-    Delta { text: String },
-    Text { text: String },
+    Delta {
+        text: String,
+    },
+    Text {
+        text: String,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -202,7 +210,10 @@ pub enum AgentEvent {
         message: Option<String>,
     },
     /// A tool the permission mode refused without asking.
-    Denied { tool: String, message: String },
+    Denied {
+        tool: String,
+        message: String,
+    },
     TurnEnd {
         outcome: Outcome,
         /// The agent's last answer.
@@ -214,11 +225,17 @@ pub enum AgentEvent {
         total: f64,
         context: Option<Gauge>,
     },
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// The process ended.
-    Exited { code: Option<i32> },
+    Exited {
+        code: Option<i32>,
+    },
     /// The conversation went on in this terminal session.
-    TakenOver { tile: u32 },
+    TakenOver {
+        tile: u32,
+    },
     HandedBack,
 }
 

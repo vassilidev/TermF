@@ -100,7 +100,10 @@ impl Env {
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(
             config.join("termf.toml"),
-            format!("[agents]\nshell = \"zsh\"\nclaude = \"{}\"\n", fake.display()),
+            format!(
+                "[agents]\nshell = \"zsh\"\nclaude = \"{}\"\n",
+                fake.display()
+            ),
         )
         .unwrap();
         let updates: Arc<Mutex<Vec<Update>>> = Arc::default();
@@ -142,7 +145,12 @@ impl Env {
     fn kinds(&self, id: i64) -> Vec<String> {
         self.events(id)
             .iter()
-            .map(|e| serde_json::to_value(e).unwrap()["kind"].as_str().unwrap().to_owned())
+            .map(|e| {
+                serde_json::to_value(e).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
             .collect()
     }
 
@@ -193,7 +201,11 @@ impl Drop for Env {
 }
 
 fn turn_end(events: &[AgentEvent]) -> (Outcome, f64, f64, Option<String>, Option<Gauge>) {
-    match events.iter().rev().find(|e| matches!(e, AgentEvent::TurnEnd { .. })) {
+    match events
+        .iter()
+        .rev()
+        .find(|e| matches!(e, AgentEvent::TurnEnd { .. }))
+    {
         Some(AgentEvent::TurnEnd {
             outcome,
             cost,
@@ -201,7 +213,13 @@ fn turn_end(events: &[AgentEvent]) -> (Outcome, f64, f64, Option<String>, Option
             error,
             context,
             ..
-        }) => (*outcome, round(*cost), round(*total), error.clone(), context.clone()),
+        }) => (
+            *outcome,
+            round(*cost),
+            round(*total),
+            error.clone(),
+            context.clone(),
+        ),
         _ => panic!("no turn ended: {events:#?}"),
     }
 }
@@ -216,7 +234,11 @@ fn runs_several_turns_on_one_process() {
     let session = env.agents.start(env.spec(), Some("say hello")).unwrap();
     let id = session.id;
     assert_eq!(session.spec.title, "repo");
-    assert_eq!(session.spec.agent.as_deref(), Some("claude"), "the first agent running Claude Code");
+    assert_eq!(
+        session.spec.agent.as_deref(),
+        Some("claude"),
+        "the first agent running Claude Code"
+    );
     assert_eq!(session.spec.effort.as_deref(), Some("low"), "trimmed");
     let session = env.settle(id, 1, State::Idle);
     assert_eq!(
@@ -268,7 +290,11 @@ fn runs_several_turns_on_one_process() {
     });
     assert_eq!(output.unwrap().len(), TOOL_OUTPUT);
     let (_, cost, total, _, _) = turn_end(&events);
-    assert_eq!((cost, total), (0.01, 0.02), "a turn costs what the process adds");
+    assert_eq!(
+        (cost, total),
+        (0.01, 0.02),
+        "a turn costs what the process adds"
+    );
     assert_eq!(round(session.cost), 0.02);
 
     let args = env.args();
@@ -291,14 +317,25 @@ fn runs_several_turns_on_one_process() {
     assert_eq!(args[0][10], session.session_id);
     assert_eq!(
         args[0][11..],
-        ["--model", "haiku", "--effort", "low", "--permission-mode", "manual"]
+        [
+            "--model",
+            "haiku",
+            "--effort",
+            "low",
+            "--permission-mode",
+            "manual"
+        ]
     );
     assert_eq!(
         fs::canonicalize(env.log("cwd").trim()).unwrap(),
         fs::canonicalize(&env.dir).unwrap()
     );
     let stdin = env.log("stdin");
-    assert!(stdin.lines().all(|l| serde_json::from_str::<serde_json::Value>(l).is_ok()));
+    assert!(
+        stdin
+            .lines()
+            .all(|l| serde_json::from_str::<serde_json::Value>(l).is_ok())
+    );
     assert_eq!(stdin.lines().count(), 2);
 
     let jsonl = env.root.join(format!("data/agents/{id}/events.jsonl"));
@@ -306,14 +343,23 @@ fn runs_several_turns_on_one_process() {
     assert_eq!(lines.lines().count(), env.events(id).len());
     let first: StoredEvent = serde_json::from_str(lines.lines().next().unwrap()).unwrap();
     assert_eq!(first.event, AgentEvent::Started { resumed: false });
-    assert_eq!(env.agents.events(id, first.id + 1).unwrap().len(), env.events(id).len() - 2);
+    assert_eq!(
+        env.agents.events(id, first.id + 1).unwrap().len(),
+        env.events(id).len() - 2
+    );
 }
 
 #[test]
 fn asks_permission_and_interrupts() {
     let env = Env::new("permission");
-    let id = env.agents.start(env.spec(), Some("please ask permission")).unwrap().id;
-    env.until("a permission request", || env.session(id).state == State::Waiting);
+    let id = env
+        .agents
+        .start(env.spec(), Some("please ask permission"))
+        .unwrap()
+        .id;
+    env.until("a permission request", || {
+        env.session(id).state == State::Waiting
+    });
     assert!(env.events(id).contains(&AgentEvent::Permission {
         request: "req-1".into(),
         tool: "Write".into(),
@@ -336,8 +382,12 @@ fn asks_permission_and_interrupts() {
     )));
 
     env.agents.send(id, "ask permission again").unwrap();
-    env.until("the second request", || env.session(id).state == State::Waiting);
-    env.agents.answer(id, "req-1", false, Some(" not now ")).unwrap();
+    env.until("the second request", || {
+        env.session(id).state == State::Waiting
+    });
+    env.agents
+        .answer(id, "req-1", false, Some(" not now "))
+        .unwrap();
     env.settle(id, 2, State::Idle);
     let reply: serde_json::Value =
         serde_json::from_str(env.log("stdin").lines().last().unwrap()).unwrap();
@@ -364,7 +414,13 @@ fn asks_permission_and_interrupts() {
     env.settle(id, 3, State::Idle);
     let (outcome, _, total, error, _) = turn_end(&env.events(id));
     assert_eq!((outcome, total, error), (Outcome::Interrupted, 0.03, None));
-    assert!(env.log("stdin").lines().last().unwrap().contains("\"interrupt\""));
+    assert!(
+        env.log("stdin")
+            .lines()
+            .last()
+            .unwrap()
+            .contains("\"interrupt\"")
+    );
 
     env.agents.send(id, "count slowly once more").unwrap();
     env.until("words again", || {
@@ -373,8 +429,18 @@ fn asks_permission_and_interrupts() {
         }).count() == 2
     });
     let stopped = env.agents.stop(id).unwrap();
-    assert_eq!(stopped.state, State::Stopped, "stopping interrupts the turn first");
-    assert_eq!(env.log("events").lines().filter(|l| l.starts_with("exit")).count(), 1);
+    assert_eq!(
+        stopped.state,
+        State::Stopped,
+        "stopping interrupts the turn first"
+    );
+    assert_eq!(
+        env.log("events")
+            .lines()
+            .filter(|l| l.starts_with("exit"))
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -385,12 +451,18 @@ fn recovers_from_a_broken_stream() {
     assert_eq!(env.session(id).state, State::Idle);
     env.agents.stop(id).unwrap();
     assert_eq!(env.session(id).state, State::Stopped);
-    assert!(env.agents.takeover(id).is_err(), "no conversation to take over yet");
+    assert!(
+        env.agents.takeover(id).is_err(),
+        "no conversation to take over yet"
+    );
 
     env.agents.send(id, "crash now").unwrap();
     env.until("the error", || env.session(id).state == State::Error);
     let events = env.events(id);
-    assert!(events.contains(&AgentEvent::Exited { code: Some(3) }), "{events:#?}");
+    assert!(
+        events.contains(&AgentEvent::Exited { code: Some(3) }),
+        "{events:#?}"
+    );
     assert!(events.iter().any(|e| matches!(
         e,
         AgentEvent::Error { message } if message.contains("boom: connection lost")
@@ -402,8 +474,16 @@ fn recovers_from_a_broken_stream() {
     assert_eq!(args.len(), 3);
     let flag = |run: &Vec<String>| run[9].clone();
     assert_eq!(flag(&args[0]), "--session-id");
-    assert_eq!(flag(&args[1]), "--session-id", "never resumed: it took no message");
-    assert_eq!(flag(&args[2]), "--resume", "the crashed turn's conversation exists");
+    assert_eq!(
+        flag(&args[1]),
+        "--session-id",
+        "never resumed: it took no message"
+    );
+    assert_eq!(
+        flag(&args[2]),
+        "--resume",
+        "the crashed turn's conversation exists"
+    );
     assert_eq!(args[2][10], session.session_id);
 
     // A new launch of the app: no process survived the last one.
@@ -442,7 +522,17 @@ fn keeps_to_the_budget() {
     let refused = env.agents.send(id, "hello").unwrap_err().to_string();
     assert!(refused.contains("budget"), "{refused}");
 
-    let id = env.agents.start(SessionSpec { budget: Some(1.0), ..spec }, Some("over budget")).unwrap().id;
+    let id = env
+        .agents
+        .start(
+            SessionSpec {
+                budget: Some(1.0),
+                ..spec
+            },
+            Some("over budget"),
+        )
+        .unwrap()
+        .id;
     env.settle(id, 1, State::Budget);
     let (outcome, _, _, error, _) = turn_end(&env.events(id));
     assert_eq!(outcome, Outcome::Budget);
@@ -475,9 +565,18 @@ fn takes_over_and_hands_back_without_two_processes() {
             .to_vec(),
         }
     );
-    assert!(env.log("events").contains("exit"), "the headless process ended first");
+    assert!(
+        env.log("events").contains("exit"),
+        "the headless process ended first"
+    );
     assert_eq!(env.session(id).state, State::Interactive);
-    assert!(env.agents.send(id, "hi").unwrap_err().to_string().contains("hand it back"));
+    assert!(
+        env.agents
+            .send(id, "hi")
+            .unwrap_err()
+            .to_string()
+            .contains("hand it back")
+    );
     assert!(env.agents.stop(id).is_err());
     assert!(env.agents.takeover(id).is_err());
 
@@ -505,7 +604,12 @@ fn takes_over_and_hands_back_without_two_processes() {
             .unwrap()
     });
     assert_eq!((session.state, session.tile), (State::Idle, None));
-    let starts = || env.log("events").lines().filter(|l| l.starts_with("start")).count();
+    let starts = || {
+        env.log("events")
+            .lines()
+            .filter(|l| l.starts_with("start"))
+            .count()
+    };
     env.until("the new process", || starts() == 2);
     let log: Vec<String> = env
         .log("events")
@@ -517,12 +621,25 @@ fn takes_over_and_hands_back_without_two_processes() {
         .collect();
     assert_eq!(
         log,
-        ["start", "exit", "tile 7 open", "tile 7 asked to close", "tile 7 closed", "start"],
+        [
+            "start",
+            "exit",
+            "tile 7 open",
+            "tile 7 asked to close",
+            "tile 7 closed",
+            "start"
+        ],
     );
     let args = env.args();
-    assert_eq!(args[1][9..11], ["--resume".to_owned(), session.session_id.clone()]);
+    assert_eq!(
+        args[1][9..11],
+        ["--resume".to_owned(), session.session_id.clone()]
+    );
     let kinds = env.kinds(id);
-    assert!(kinds.ends_with(&["exited", "taken_over", "handed_back", "started"].map(String::from)), "{kinds:?}");
+    assert!(
+        kinds.ends_with(&["exited", "taken_over", "handed_back", "started"].map(String::from)),
+        "{kinds:?}"
+    );
 
     // A terminal that does not close keeps the conversation there.
     env.agents.takeover(id).unwrap();
@@ -532,7 +649,9 @@ fn takes_over_and_hands_back_without_two_processes() {
     assert_eq!((env.session(id).state, starts()), (State::Interactive, 2));
     env.agents.tile_exited(8);
     assert_eq!(env.session(id).tile, None);
-    env.agents.handback(id, |_| panic!("already closed")).unwrap();
+    env.agents
+        .handback(id, |_| panic!("already closed"))
+        .unwrap();
     env.until("a third process", || starts() == 3);
 
     // A terminal that could not open.
@@ -553,7 +672,10 @@ fn refuses_what_cannot_start() {
     };
     assert!(refused(|s| s.cwd.push("missing")).contains("not a folder"));
     assert!(refused(|s| s.cwd = "repo".into()).contains("not a folder"));
-    assert!(refused(|s| s.model = Some("--dangerously-skip-permissions".into())).contains("not a valid"));
+    assert!(
+        refused(|s| s.model = Some("--dangerously-skip-permissions".into()))
+            .contains("not a valid")
+    );
     assert!(refused(|s| s.budget = Some(0.0)).contains("budget"));
     assert!(refused(|s| s.budget = Some(f64::NAN)).contains("budget"));
     assert!(refused(|s| s.agent = Some("shell".into())).contains("does not run Claude Code"));
@@ -583,42 +705,99 @@ fn real_claude() {
         budget: Some(0.20),
         ..SessionSpec::default()
     };
-    let session = agents.start(spec, Some("Reply with exactly: pineapple")).unwrap();
+    let session = agents
+        .start(spec, Some("Reply with exactly: pineapple"))
+        .unwrap();
     let id = session.id;
     let wait = |turns: usize| {
         let deadline = Instant::now() + Duration::from_secs(120);
         loop {
             let s = agents.sessions().unwrap().remove(0);
-            let ended = agents.events(id, 0).unwrap().iter().filter(|e| matches!(e.event, AgentEvent::TurnEnd { .. })).count();
+            let ended = agents
+                .events(id, 0)
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e.event, AgentEvent::TurnEnd { .. }))
+                .count();
             if ended == turns && s.state != State::Working {
                 return s;
             }
             if matches!(s.state, State::Waiting) {
-                let request = agents.events(id, 0).unwrap().iter().rev().find_map(|e| match &e.event {
-                    AgentEvent::Permission { request, .. } => Some(request.clone()),
-                    _ => None,
-                });
+                let request =
+                    agents
+                        .events(id, 0)
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find_map(|e| match &e.event {
+                            AgentEvent::Permission { request, .. } => Some(request.clone()),
+                            _ => None,
+                        });
                 let _ = agents.answer(id, &request.unwrap(), true, None);
             }
-            assert!(Instant::now() < deadline, "{:#?}", agents.events(id, 0).unwrap());
+            assert!(
+                Instant::now() < deadline,
+                "{:#?}",
+                agents.events(id, 0).unwrap()
+            );
             std::thread::sleep(Duration::from_millis(200));
         }
     };
     let first = wait(1);
-    agents.send(id, "Create the file f.txt containing hi, with the Bash tool: echo hi > f.txt").unwrap();
+    agents
+        .send(
+            id,
+            "Create the file f.txt containing hi, with the Bash tool: echo hi > f.txt",
+        )
+        .unwrap();
     let second = wait(2);
-    let events: Vec<AgentEvent> = agents.events(id, 0).unwrap().into_iter().map(|e| e.event).collect();
+    let events: Vec<AgentEvent> = agents
+        .events(id, 0)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.event)
+        .collect();
     let _ = agents.stop(id);
-    let _ = std::process::Command::new("claude").args(["purge", &dir.to_string_lossy(), "-y"]).output();
+    let _ = std::process::Command::new("claude")
+        .args(["purge", &dir.to_string_lossy(), "-y"])
+        .output();
     let _ = fs::remove_dir_all(&root);
 
     assert_eq!(first.state, State::Idle, "{events:#?}");
     assert!(events.iter().any(|e| matches!(e, AgentEvent::Init { session_id, model, .. } if *session_id == session.session_id && model.contains("haiku"))), "{events:#?}");
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::Text { text } if text.contains("pineapple"))), "{events:#?}");
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::Permission { tool, .. } if tool == "Bash")), "{events:#?}");
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolResult { is_error: false, .. })), "{events:#?}");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Text { text } if text.contains("pineapple"))),
+        "{events:#?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Permission { tool, .. } if tool == "Bash")),
+        "{events:#?}"
+    );
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::ToolResult {
+                is_error: false,
+                ..
+            }
+        )),
+        "{events:#?}"
+    );
     assert!(second.cost > first.cost && first.cost > 0.0);
     let context = second.context.unwrap();
-    assert!(context.window.is_some_and(|w| w >= 200_000) && context.tokens.is_some_and(|t| t > 1000), "{context:?}");
-    assert!(events.iter().filter(|e| matches!(e, AgentEvent::Started { .. })).count() == 1);
+    assert!(
+        context.window.is_some_and(|w| w >= 200_000) && context.tokens.is_some_and(|t| t > 1000),
+        "{context:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::Started { .. }))
+            .count()
+            == 1
+    );
 }

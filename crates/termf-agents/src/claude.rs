@@ -160,7 +160,12 @@ impl Parser for Stream {
                         "cache_creation_input_tokens",
                         "cache_read_input_tokens",
                     ];
-                    self.tokens = Some(in_context.iter().filter_map(|k| usage.get(*k)?.as_u64()).sum());
+                    self.tokens = Some(
+                        in_context
+                            .iter()
+                            .filter_map(|k| usage.get(*k)?.as_u64())
+                            .sum(),
+                    );
                     self.model = message["model"].as_str().map(str::to_owned);
                 }
                 blocks(message)
@@ -335,11 +340,24 @@ mod tests {
         ]);
         let kinds: Vec<String> = events
             .iter()
-            .map(|e| serde_json::to_value(e).unwrap()["kind"].as_str().unwrap().to_owned())
+            .map(|e| {
+                serde_json::to_value(e).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
             .collect();
         assert_eq!(
             kinds,
-            ["init", "delta", "tool_use", "permission", "tool_result", "text", "turn_end"],
+            [
+                "init",
+                "delta",
+                "tool_use",
+                "permission",
+                "tool_result",
+                "text",
+                "turn_end"
+            ],
             "{events:#?}"
         );
         assert_eq!(
@@ -366,7 +384,10 @@ mod tests {
         assert_eq!(usage.cache_read, 45157);
         let context = context.as_ref().unwrap();
         assert_eq!(context.tokens, Some(2 + 7546 + 31765), "the last answer's");
-        assert_eq!((context.window, context.percent), (Some(1_000_000), Some(4)));
+        assert_eq!(
+            (context.window, context.percent),
+            (Some(1_000_000), Some(4))
+        );
     }
 
     #[test]
@@ -431,12 +452,14 @@ mod tests {
             {"type": "tool_result", "tool_use_id": "t", "content": [{"type": "text", "text": long}, {"type": "image"}], "is_error": true},
         ]}});
         let events = ClaudeCode.parser().parse(line.to_string().as_bytes());
-        let [AgentEvent::ToolResult {
-            output,
-            is_error: true,
-            truncated: true,
-            ..
-        }] = &events[..]
+        let [
+            AgentEvent::ToolResult {
+                output,
+                is_error: true,
+                truncated: true,
+                ..
+            },
+        ] = &events[..]
         else {
             panic!("{events:?}")
         };
@@ -449,7 +472,10 @@ mod tests {
         assert_eq!(line["message"]["content"], "hi \"there\"\n");
         let interrupt: Value = serde_json::from_str(&ClaudeCode.interrupt()).unwrap();
         assert_eq!(interrupt["request"]["subtype"], "interrupt");
-        assert_ne!(interrupt["request_id"], serde_json::from_str::<Value>(&ClaudeCode.interrupt()).unwrap()["request_id"]);
+        assert_ne!(
+            interrupt["request_id"],
+            serde_json::from_str::<Value>(&ClaudeCode.interrupt()).unwrap()["request_id"]
+        );
         let allow: Value =
             serde_json::from_str(&ClaudeCode.answer("r1", true, &json!({"a": 1}), "")).unwrap();
         assert_eq!(
