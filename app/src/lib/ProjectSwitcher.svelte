@@ -104,7 +104,6 @@
       spellcheck="false"
       bind:value={query}
       {onkeydown}
-      {@attach (el) => el.focus()}
     />
     <kbd>{keys.switcher}</kbd>
   </div>
@@ -313,7 +312,7 @@
     border-top: 1px solid var(--border);
   }
 
-  :global(.popover) > :global(form.editor) {
+  :global(.popover > form.editor) {
     margin: 0;
     border: 0;
     box-shadow: none;
