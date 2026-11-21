@@ -734,14 +734,17 @@ const fr = {
   ticketsUiCleanHelp:
     "Nettoyer arrête la session, retire le worktree et la branche locale. Refusé s'il reste du travail non commité ou non poussé.",
   ticketsUiClean: "Nettoyer",
-  ticketsUiCleanRefused: "Nettoyage refusé : il reste du travail non poussé. Livre-le d'abord, ou ferme de force.",
+  ticketsUiCleanUncommitted:
+    "Nettoyage refusé : le worktree a des changements non commités. Livre-les d'abord, ou ferme de force.",
+  ticketsUiCleanUnpushed: "Nettoyage refusé : des commits ne sont pas poussés. Livre-les d'abord, ou ferme de force.",
   ticketsUiCleaned: "Run nettoyé : sa session est arrêtée, son worktree et sa branche locale retirés.",
   ticketsUiNotifyMerged: "PR mergée · {key}",
   ticketsUiNotifyClosed: "PR fermée · {key}",
   ticketsUiNotifyReady: "{title} : prêt à nettoyer dans Tickets.",
   ticketsUiNotifyCleaned: "{title} : run nettoyé, worktree retiré.",
   ticketsUiNotifyFailed: "{title} : nettoyage impossible. {error}",
-  ticketsUiTrust: "Claude Code demande s'il peut faire confiance à ce dossier : ouvre la tuile et choisis Yes.",
+  ticketsUiTrust:
+    "La session ne démarre pas : Claude Code demande sans doute s'il peut faire confiance à ce dossier. Ouvre la tuile et choisis Yes.",
   ticketsUiEventResumed: "Session Claude Code reprise",
   ticketsUiEventMerged: "PR mergée",
   ticketsUiEventPrClosed: "PR fermée sans merge",
@@ -2052,14 +2055,17 @@ const en: Record<Key, string> = {
   ticketsUiCleanHelp:
     "Cleaning up stops the session and removes the worktree and the local branch. Refused while some work is not committed or not pushed.",
   ticketsUiClean: "Clean up",
-  ticketsUiCleanRefused: "Clean-up refused: some work is not pushed. Deliver it first, or close by force.",
+  ticketsUiCleanUncommitted:
+    "Clean-up refused: the worktree has uncommitted changes. Deliver them first, or close by force.",
+  ticketsUiCleanUnpushed: "Clean-up refused: some commits are not pushed. Deliver them first, or close by force.",
   ticketsUiCleaned: "Run cleaned up: its session is stopped, its worktree and local branch removed.",
   ticketsUiNotifyMerged: "Pull request merged · {key}",
   ticketsUiNotifyClosed: "Pull request closed · {key}",
   ticketsUiNotifyReady: "{title}: ready to clean up in Tickets.",
   ticketsUiNotifyCleaned: "{title}: run cleaned up, worktree removed.",
   ticketsUiNotifyFailed: "{title}: could not clean up. {error}",
-  ticketsUiTrust: "Claude Code asks whether it may trust this folder: open the tile and choose Yes.",
+  ticketsUiTrust:
+    "The session is not starting: Claude Code is probably asking whether it may trust this folder. Open the tile and choose Yes.",
   ticketsUiEventResumed: "Claude Code session resumed",
   ticketsUiEventMerged: "Pull request merged",
   ticketsUiEventPrClosed: "Pull request closed without merging",

@@ -122,6 +122,7 @@ let inboxRequest = 0;
 export async function loadInbox() {
   const request = ++inboxRequest;
   tickets.inboxError = "";
+  tickets.configured = null;
   tickets.loading = true;
   try {
     const project = tickets.scope || null;

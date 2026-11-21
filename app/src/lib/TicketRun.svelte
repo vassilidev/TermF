@@ -59,7 +59,7 @@
     | { kind: "delivered"; warning: string | null; again: boolean }
     | { kind: "resumed"; warning: string }
     | { kind: "close" }
-    | { kind: "refused"; detail: string; cleanup: boolean }
+    | { kind: "refused"; detail: string; cleanup: boolean; uncommitted: boolean }
     | { kind: "force" };
 
   let step = $state<Step>(null);
@@ -180,7 +180,7 @@
       } catch (e) {
         const refused = refusal(e);
         if (force || refused.kind === "error") throw refused.message;
-        step = { kind: "refused", detail: refused.message, cleanup };
+        step = { kind: "refused", detail: refused.message, cleanup, uncommitted: refused.kind === "uncommitted" };
         return;
       }
       step = null;
@@ -294,7 +294,7 @@
 {/if}
 {#if untrusted}
   <div class="trust">
-    <Banner kind="warn" icon={ShieldQuestionMark}>
+    <Banner kind="warn" icon={ShieldQuestionMark} ondismiss={() => (untrusted = false)}>
       {t("ticketsUiTrust")}
       {#snippet action()}
         <button class="btn sm" onclick={() => openTile(run)}>
@@ -390,7 +390,9 @@
 {:else if step?.kind === "refused"}
   <section class="ask confirm warn" role="alert">
     <p class="refused">
-      <TriangleAlert size={14} aria-hidden="true" />{t(step.cleanup ? "ticketsUiCleanRefused" : "closeRefused")}
+      <TriangleAlert size={14} aria-hidden="true" />{t(
+        !step.cleanup ? "closeRefused" : step.uncommitted ? "ticketsUiCleanUncommitted" : "ticketsUiCleanUnpushed",
+      )}
     </p>
     <p class="mono muted">{step.detail}</p>
     <div class="buttons">

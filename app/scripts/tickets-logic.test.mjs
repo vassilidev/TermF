@@ -13,15 +13,21 @@ const run = (o = {}) => ({
   ...o,
 });
 
-test("a run's session is found by its id, while it runs", () => {
+test("a run's session is found by its id, else a Claude Code session running in its worktree", () => {
+  const wt = run().worktree;
   const sessions = [
-    { id: 3, running: true },
-    { id: 7, running: false },
+    { id: 3, running: true, cwd: "/elsewhere", status: "idle" },
+    { id: 7, running: false, cwd: wt, status: "idle" },
   ];
   assert.equal(liveSession(run({ sessionId: 3 }), sessions), sessions[0]);
   assert.equal(liveSession(run({ sessionId: 7 }), sessions), undefined);
   assert.equal(liveSession(run({ sessionId: 9 }), sessions), undefined);
   assert.equal(liveSession(run(), sessions), undefined);
+  const byHand = { id: 8, running: true, cwd: wt, status: "starting" };
+  const shell = { id: 9, running: true, cwd: wt, status: null };
+  assert.equal(liveSession(run(), [...sessions, shell]), undefined);
+  assert.equal(liveSession(run(), [...sessions, shell, byHand]), byHand);
+  assert.equal(liveSession(run({ sessionId: 3 }), [...sessions, byHand]), sessions[0]);
 });
 
 test("only a delivered run whose pull request was merged or closed is ready to clean up", () => {

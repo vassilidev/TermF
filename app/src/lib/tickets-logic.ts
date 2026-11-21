@@ -11,26 +11,28 @@ type Run = {
   ticket: { key: string };
   title: string;
 };
-type Session = { id: number; running: boolean };
+type Session = { id: number; running: boolean; cwd: string; status: string | null };
 type Cleanup = { run: Run; cleaned: boolean; error: string | null };
-type Refusal ={ kind: "uncommitted" | "unpushed" | "error"; message: string };
+type Refusal = { kind: "uncommitted" | "unpushed" | "error"; message: string };
 
-/** The run's terminal session, while it runs. */
-export function liveSession<S extends Session>(run: Pick<Run, "sessionId">, sessions: S[]): S | undefined {
-  return sessions.find((s) => s.id === run.sessionId && s.running);
+export function liveSession<S extends Session>(run: Pick<Run, "sessionId" | "worktree">, sessions: S[]): S | undefined {
+  return (
+    sessions.find((s) => s.id === run.sessionId && s.running) ??
+    // A Claude Code session opened by hand in the worktree may hold the run's conversation: resuming would be refused.
+    sessions.find((s) => s.running && s.status !== null && s.cwd === run.worktree)
+  );
 }
 
-/** A delivered run whose pull request was merged or closed: its worktree may go. */
 export function readyToClean(run: Pick<Run, "status" | "prState">): boolean {
   return run.status === "delivered" && !!run.prState;
 }
 
-/** Once its session is gone; a run started before conversations were kept cannot be resumed. */
+// A run started before conversations were kept has none to resume.
 export function resumable(run: Pick<Run, "status" | "worktree" | "claudeSession">): boolean {
   return (run.status === "running" || run.status === "delivered") && !!run.claudeSession && !!run.worktree;
 }
 
-/** `tickets_close` and `tickets_cleanup` reject with a `CloseError`; any other rejection is an error. */
+// Only a `CloseError` has a kind; an IPC failure rejects with a string.
 export function refusal(e: unknown): Refusal {
   const error = e as { kind?: unknown; message?: unknown } | null;
   if (error && typeof error === "object" && typeof error.message === "string") {
@@ -40,7 +42,6 @@ export function refusal(e: unknown): Refusal {
   return { kind: "error", message: String(e) };
 }
 
-/** The system notification of a pull request found merged or closed. */
 export function cleanupNotice(c: Cleanup): { title: Key; body: Key; vars: Record<string, string> } {
   return {
     title: c.run.prState === "closed" ? "ticketsUiNotifyClosed" : "ticketsUiNotifyMerged",
