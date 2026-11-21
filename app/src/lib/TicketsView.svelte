@@ -2,6 +2,7 @@
   import { tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
   import Inbox from "@lucide/svelte/icons/inbox";
   import Info from "@lucide/svelte/icons/info";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
@@ -17,14 +18,15 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
   import { app, repoName, ui } from "$lib/state.svelte";
+  import { readyToClean } from "$lib/tickets-logic";
   import {
     loadInbox,
+    openUrl,
     refresh,
     tickets,
     upsert,
     type Resolution,
     type Run,
-    type RunEvent,
     type TicketSummary,
   } from "$lib/tickets.svelte";
 
@@ -38,7 +40,6 @@
   const projects = $derived(app.workspace?.projects ?? []);
   const project = $derived(projects.find((p) => p.id === tickets.scope));
   const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
-  const providers: Record<string, Parameters<typeof t>[0]> = { github: "providerGithub" };
   const sourceNames: Record<string, Parameters<typeof t>[0]> = {
     github: "ticketsGithubIssues",
     githubProject: "ticketsGithubProject",
@@ -104,9 +105,6 @@
         rows: 32,
       });
       upsert(run);
-      // The run's log names the session it just opened: its id holds for this launch of the app.
-      const events = await invoke<RunEvent[]>("tickets_events", { id: run.id }).catch(() => []);
-      for (const e of events) if (e.kind === "session_opened") tickets.sessions[run.id] = e.session;
       if (pending?.from === "paste") input = "";
       pending = null;
       Object.assign(tickets, { tab: "runs", selected: run.id });
@@ -246,10 +244,15 @@
             <LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ticketsLoading")}
           </p>
         {:else if !tickets.inbox.length}
+          {@const unset = tickets.configured === false && project}
           <EmptyState
             icon={Inbox}
-            title={t("ticketsEmpty")}
-            text={project ? t("ticketsEmptyProject", { project: project.name }) : t("ticketsEmptyAll")}
+            title={unset ? t("ticketsUiNoSource", { project: unset.name }) : t("ticketsEmpty")}
+            text={unset
+              ? t("ticketsUiNoSourceHelp")
+              : project
+                ? t("ticketsEmptyProject", { project: project.name })
+                : t("ticketsEmptyAll")}
           >
             {#if project}
               <button class="btn" onclick={() => (ui.editing = project.id)}>
@@ -264,16 +267,25 @@
                 <div class="what">
                   <span class="name">{ticket.title}</span>
                   <span class="desc">
-                    <span class="mono">{ticket.key}</span> · {ticket.provider in providers
-                      ? t(providers[ticket.provider])
-                      : ticket.provider}
+                    <span class="mono">{ticket.key}</span> · {sourceName(ticket.source)}
                     · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
+                    {#if ticket.assignees.length}
+                      · {t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}
+                    {/if}
                     {#if !tickets.scope && ticket.project} · {projectName(ticket.project)}{/if}
                   </span>
                 </div>
                 <div class="labels">
                   {#each ticket.labels as label (label)}<span class="badge">{label}</span>{/each}
                 </div>
+                <button
+                  class="icon-btn sm"
+                  onclick={() => openUrl(ticket.url)}
+                  aria-label={t("ticketsUiOpenLink")}
+                  title={t("ticketsUiOpenLink")}
+                >
+                  <ExternalLink size={14} aria-hidden="true" />
+                </button>
                 {#if ticket.project}
                   <button
                     class="btn sm"
@@ -307,7 +319,7 @@
                 <span class="name"><span class="mono">{run.ticket.key}</span> {run.title}</span>
                 <span class="desc">{repoName(run.repo)}{run.branch ? ` · ${run.branch}` : ""} · {ago(run.updated)}</span>
               </button>
-              <StatusPill status={run.status} />
+              <StatusPill status={run.status} label={readyToClean(run) ? t("ticketsUiReady") : undefined} />
             </li>
           {/each}
         </ul>
