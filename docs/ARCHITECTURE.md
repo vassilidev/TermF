@@ -340,7 +340,7 @@ Une notification système n'est émise que pour `attend *`, `terminé` et `erreu
 
 ### 6.5 Contexte : mesure, canari, remise à zéro
 
-- **Mesure exacte** : l'usage en tokens du dernier tour (champ `usage` du stream-json, ou transcript JSONL en interactif) alimente une jauge en % de la fenêtre du modèle, pour chaque session.
+- **Mesure exacte** : l'usage en tokens du dernier tour (champ `usage` du stream-json en headless ; en interactif, `context_window.used_percentage` et `context_window_size` du JSON de la statusline, que TermF reçoit via `termf statusline` injecté par `--settings`, en enchaînant la statusline de l'utilisateur) alimente une jauge en % de la fenêtre du modèle, pour chaque session. Le transcript JSONL n'est pas lu (format interne).
 - **Canari (ton astuce)** : la préférence `canary` ajoute au prompt système « commence chaque réponse par {{ user.first_name }} ». Termf vérifie automatiquement chaque réponse. Si le prénom manque, la session reçoit le badge « contexte dégradé » et la passation est déclenchée. C'est un signal qualitatif qui complète la jauge quantitative.
 - **Politique par défaut** :
   - **Équipe éphémère par run** : les sessions sont créées au lancement du ticket et détruites à la fin. Elles ne sont jamais réutilisées d'un ticket à l'autre, ce qui équivaut à un `/clear` garanti.
@@ -689,6 +689,11 @@ trait TicketProvider {
 | Inbox | JQL configurable (`assignee = currentUser() AND status = "To Do"`) | Requête Projects v2 (colonne, assignation) |
 | Écriture | Commentaire, transition, lien PR | Commentaire, champ Status, lien PR |
 
+- **Plusieurs façons de récupérer les tickets, par projet** (un projet peut en combiner plusieurs) :
+  - **connecteur natif** : GitHub Issues et GitHub Projects v2 via `gh`, Jira Cloud via l'API REST (jeton au trousseau de l'OS) — rapide, sans coût de tokens ;
+  - **serveur MCP** : n'importe quel serveur déjà configuré dans Claude Code (Atlassian, GitHub, Linear, etc.), interrogé en headless (`claude -p --json-schema`, petit modèle) avec **seulement ses outils de lecture** autorisés ; la sortie est validée par le schéma des tickets puis normalisée. Ça réutilise l'authentification déjà faite dans Claude Code et couvre les trackers sans connecteur natif. Résultats mis en cache, rafraîchis à la demande ;
+  - plus tard, un client MCP direct dans TermF pour les serveurs à authentification statique.
+- **Cliquer pour lancer** : chaque ticket de l'inbox d'un projet a un bouton « Lancer » qui enchaîne résolution → worktree → session de l'agent (§7.4), sans autre saisie.
 - **Résolveur universel** : tout ce qui est collé (URL Jira, URL d'issue, `ACME-123`, `#42`) est rattaché au bon projet grâce aux trackers déclarés.
 - **Synchro** : polling avec ETag, seulement quand l'inbox est visible ou qu'un run attend une réponse sur le ticket. Intervalle de 2 à 5 minutes avec backoff. Pas de webhooks (l'app est locale).
 - **Le contenu d'un ticket n'est pas fiable** (injection de prompt) : il est encadré comme donnée dans les prompts, et l'écriture sur le tracker passe par une gate.
