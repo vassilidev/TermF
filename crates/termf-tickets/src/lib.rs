@@ -24,11 +24,15 @@ mod store;
 #[cfg(test)]
 mod tests;
 
+use github::Etags;
 pub use github::GitHub;
 pub use guard::guard;
 pub use jira::{DEFAULT_JQL, Jira};
 pub use mcp::{Mcp, McpServer};
-pub use run::{Change, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch, Unpushed};
+pub use run::{
+    Change, CheckError, Cleanup, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch,
+    PrCheck, Unpushed,
+};
 pub use secrets::{Keychain, Secrets};
 pub use sources::{Configured, GithubTracker, JiraTracker, McpTracker, Sources, Trackers};
 pub use store::{Event, Run, RunEvent, RunStatus, utc};
@@ -233,6 +237,10 @@ pub struct Tickets {
     pub claude: Option<Vec<String>>,
     /// Where the Jira API tokens are kept.
     pub secrets: Box<dyn Secrets>,
+    /// Claude Code's own folder, which holds the conversations runs resume.
+    pub claude_dir: PathBuf,
+    /// The last answers of GitHub's REST API, asked again with their ETag.
+    pub(crate) etags: Etags,
 }
 
 /// The inbox: the tickets the sources gave, and the sources that failed.
@@ -413,6 +421,10 @@ impl Tickets {
             curl: "curl".into(),
             claude: None,
             secrets: Box::new(Keychain),
+            claude_dir: std::env::var_os("CLAUDE_CONFIG_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| termf_core::expand_tilde("~/.claude")),
+            etags: Etags::default(),
         }
     }
 
@@ -421,6 +433,7 @@ impl Tickets {
             program: self.gh.clone(),
             env: self.env.clone(),
             board: None,
+            etags: self.etags.clone(),
         }
     }
 
@@ -683,8 +696,9 @@ impl Tickets {
 
     /// The open tickets for the user. Without a project, the GitHub issues assigned to them anywhere. With one,
     /// what its sources list, merged: a ticket two sources list (same URL) comes once, from the first source.
-    /// `refresh` asks the MCP sources again instead of reading their last answer. A source that fails is
-    /// named in `errors`, and the others still give their tickets.
+    /// `refresh` asks the MCP sources again instead of reading their last answer, and GitHub Issues without
+    /// the ETag of its last answer. A source that fails is named in `errors`, and the others still give their
+    /// tickets.
     pub fn inbox(&self, project: Option<&str>, refresh: bool) -> Result<Inbox> {
         let projects = self.projects(project)?;
         let mut inbox = Inbox::default();
@@ -696,7 +710,7 @@ impl Tickets {
         };
         let mut found = Vec::new();
         match project {
-            None => match self.github().search(GITHUB_INBOX) {
+            None => match self.github().issues(GITHUB_INBOX, refresh) {
                 Ok(listed) => {
                     found = listed;
                     for ticket in &mut found {
@@ -756,7 +770,7 @@ impl Tickets {
                 );
                 let mut found = Vec::new();
                 for query in search_queries(GITHUB_INBOX, &slugs) {
-                    found.extend(self.github().search(&query)?);
+                    found.extend(self.github().issues(&query, fetch != Fetch::Cached)?);
                 }
                 Ok(found)
             }

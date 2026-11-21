@@ -179,10 +179,12 @@ pub struct Worktree {
     pub id: String,
 }
 
-/// The last setup's steps, in `<worktree git dir>/termf-setup.json`.
+/// The last setup's steps and the environment it gave, in `<worktree git dir>/termf-setup.json`.
 #[derive(Serialize, Deserialize, Default)]
 struct State {
     steps: Vec<Step>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
 }
 
 pub struct Setup {
@@ -345,6 +347,7 @@ impl Setup {
 
         let state = State {
             steps: steps.clone(),
+            env: env.clone(),
         };
         if let Err(e) = self.save_state(&wt.path, &state) {
             let started = step(wt, StepKind::Recipe, STATE_FILE, Instant::now());
@@ -401,6 +404,11 @@ impl Setup {
     /// The steps of the last setup of the worktree.
     pub fn last(&self, path: &Path) -> Vec<Step> {
         self.state(path).map(|s| s.steps).unwrap_or_default()
+    }
+
+    /// What the last setup of the worktree gave its sessions, for a session that comes back to it.
+    pub fn env(&self, path: &Path) -> BTreeMap<String, String> {
+        self.state(path).map(|s| s.env).unwrap_or_default()
     }
 
     fn dep(&self, wt: &Worktree, dep: &Dep) -> Step {

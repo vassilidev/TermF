@@ -214,6 +214,9 @@ impl Api {
                 m.agent_session_id = Some(agent_session.into());
             }
         }
+        if event == "SessionStart" && !agent_session.is_empty() {
+            tickets::conversation(app, id, agent_session);
+        }
         let mut status = ipc::hook_status(event, payload);
         let limits = (event == "Stop").then(|| self.limits(&app.state::<AppState>().config_dir));
         let mut then = None;
@@ -459,11 +462,13 @@ fn random_token() -> Result<String> {
 }
 
 /// What a ticket run adds to its Claude Code session: the project whose library applies, the file that
-/// holds its task, and what its worktree's setup gives it (ports, Compose project name).
+/// holds its task, what its worktree's setup gives it (ports, Compose project name), and its conversation
+/// (a new one with its first message, or one resumed).
 pub struct RunSession<'a> {
     pub project: &'a str,
     pub brief: &'a Path,
     pub env: &'a BTreeMap<String, String>,
+    pub args: &'a [String],
 }
 
 /// Starts a session. A Claude Code agent gets an ephemeral plugin whose hooks report its status,
@@ -628,8 +633,8 @@ fn launch(
             extra.push(format!("--remote-control {}", shell_quote(&title)));
         }
         if let Some(run) = &run {
-            // Before the variadic options, which would take it as one of their values.
-            extra.push(shell_quote(&termf_tickets::kickoff(run.brief)));
+            // Before the variadic options, which would take the first message as one of their values.
+            extra.extend(run.args.iter().map(|a| shell_quote(a)));
             if let Some(folder) = run.brief.parent() {
                 extra.push(format!(
                     "--add-dir {}",
@@ -837,6 +842,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             serde_json::to_value(tickets::deliver(app, run, &confirm)?)?
         }
         Call::Close { run, force } => serde_json::to_value(tickets::close(app, run, force)?)?,
+        Call::Resume { run } => serde_json::to_value(tickets::resume(app, run, 120, 32)?)?,
         Call::Schedule { task, scheduled } => {
             serde_json::to_value(schedule::run(app, &task, scheduled)?)?
         }
