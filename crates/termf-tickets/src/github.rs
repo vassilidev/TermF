@@ -276,8 +276,13 @@ impl GitHub {
         let mut child = cmd
             .spawn()
             .context("the GitHub CLI (gh) is not installed")?;
-        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-            stdin.write_all(input.as_bytes())?;
+        // gh can exit before reading its input (signed out, HTTP error): its exit status and stderr say why,
+        // which a broken pipe would hide.
+        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take())
+            && let Err(e) = stdin.write_all(input.as_bytes())
+            && e.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            return Err(e.into());
         }
         Ok(child.wait_with_output()?)
     }

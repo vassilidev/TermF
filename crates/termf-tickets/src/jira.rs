@@ -185,8 +185,12 @@ impl Jira {
             .stderr(Stdio::piped())
             .spawn()
             .context("cannot run curl, which TermF needs to reach Jira")?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(config.as_bytes())?;
+        // Same as gh: a curl that exits early says why on stderr, which a broken pipe would hide.
+        if let Some(mut stdin) = child.stdin.take()
+            && let Err(e) = stdin.write_all(config.as_bytes())
+            && e.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            return Err(e.into());
         }
         let out = child.wait_with_output()?;
         let text = String::from_utf8_lossy(&out.stdout);
