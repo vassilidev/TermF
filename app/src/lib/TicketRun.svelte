@@ -135,10 +135,9 @@
       try {
         upsert(await invoke<Run>("tickets_close", { id: run.id, force }));
       } catch (e) {
-        const error = String(e);
-        // shortcut: the refusal is told apart by the backend's English message, until phase3/ticket-sources gives a structured one.
-        if (force || !error.includes("not pushed")) throw e;
-        step = { kind: "refused", detail: error };
+        const error = e as { kind?: string; message?: string };
+        if (force || (error.kind !== "uncommitted" && error.kind !== "unpushed")) throw error.message ?? e;
+        step = { kind: "refused", detail: error.message ?? String(e) };
         return;
       }
       step = null;
