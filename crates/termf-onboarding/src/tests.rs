@@ -67,6 +67,7 @@ fn fake_claude(dir: &Path, answer: &Value) -> Vec<String> {
     vec!["/bin/sh".into(), script.to_string_lossy().into_owned()]
 }
 
+#[cfg(unix)]
 fn question(id: &str, kind: &str, options: &[&str], default: &[&str]) -> Value {
     json!({ "id": id, "theme": "tests", "text": format!("{id} ?"), "kind": kind, "options": options, "default": default })
 }
@@ -220,6 +221,7 @@ fn answers_become_the_onboarding_convention() {
     );
 }
 
+#[cfg(unix)]
 fn answer_(config: &Path, data: &Path, answers: BTreeMap<String, Vec<String>>) -> Result<State> {
     answer(config, data, "acme", answers)
 }
