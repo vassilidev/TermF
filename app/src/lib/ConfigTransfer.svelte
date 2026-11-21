@@ -73,7 +73,7 @@
   }
 </script>
 
-{#if library.panel}
+{#if library.panel && library.panel.kind !== "sync"}
   {@const panel = library.panel}
   <section class="transfer">
     <header>

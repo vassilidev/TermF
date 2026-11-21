@@ -4,12 +4,18 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import KeepAwake from "$lib/KeepAwake.svelte";
+  import SyncSettings from "$lib/SyncSettings.svelte";
   import { t } from "$lib/i18n";
   import { exportConfig, importConfig } from "$lib/library.svelte";
   import { app, load, ui } from "$lib/state.svelte";
+  import { summary } from "$lib/sync.svelte";
 
   let trigger: HTMLButtonElement;
   let panel = $state<HTMLElement>();
+  /** Sync needs the owner (password, conflicts, recovery key, error): a dot on the button. */
+  const tone = $derived(summary(app.sync).tone);
+  const flagged = $derived(tone === "attention" || tone === "error");
+  const label = $derived(flagged ? `${t("settings")} · ${t("syncNeedsYou")}` : t("settings"));
 
   function close(refocus: boolean) {
     ui.settings = false;
@@ -33,14 +39,15 @@
 
 <button
   bind:this={trigger}
-  class="icon-btn"
-  aria-label={t("settings")}
-  title={t("settings")}
+  class="icon-btn trigger"
+  aria-label={label}
+  title={label}
   aria-expanded={ui.settings}
   aria-controls="settings-panel"
   onclick={() => (ui.settings = !ui.settings)}
 >
   <SettingsIcon size={16} aria-hidden="true" />
+  {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
 </button>
 
 {#if ui.settings}
@@ -72,10 +79,30 @@
         </div>
       </section>
     {/if}
+    <SyncSettings />
   </div>
 {/if}
 
 <style>
+  .trigger {
+    position: relative;
+  }
+
+  .dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--waiting);
+    box-shadow: 0 0 0 2px var(--chrome);
+  }
+
+  .dot.error {
+    background: var(--danger);
+  }
+
   .panel {
     position: fixed;
     top: 48px;

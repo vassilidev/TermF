@@ -9,6 +9,7 @@
   import X from "@lucide/svelte/icons/x";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import Conventions from "$lib/Conventions.svelte";
+  import SyncView from "$lib/SyncView.svelte";
   import { t } from "$lib/i18n";
   import { app, shortPath } from "$lib/state.svelte";
   import {
@@ -190,7 +191,9 @@
     </div>
   {/if}
 
-  {#if library.panel}
+  {#if library.panel?.kind === "sync"}
+    <SyncView />
+  {:else if library.panel}
     <ConfigTransfer />
   {:else if library.tab === "conventions" && project}
     {#key project.id}

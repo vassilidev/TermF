@@ -7,6 +7,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { t } from "$lib/i18n";
+import type { SyncStatus } from "$lib/sync.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
 export type Project = { id: string; name: string; repos: Repo[] };
@@ -49,6 +50,7 @@ export const app = $state({
   focused: null as number | null,
   layouts: [] as Layout[],
   keepAwake: null as KeepAwakeState | null,
+  sync: null as SyncStatus | null,
 });
 
 /** Overlays opened from the top bar, the shortcuts or the palette. */
@@ -81,6 +83,16 @@ export function init(): () => void {
   const unlistenKeepAwake = listen<KeepAwakeState>("keep-awake", ({ payload }) => {
     app.keepAwake = payload;
   });
+  invoke<SyncStatus>("sync_status")
+    .then((s) => {
+      app.sync ??= s;
+    })
+    .catch((e) => {
+      app.error = String(e);
+    });
+  const unlistenSync = listen<SyncStatus>("sync-status", ({ payload }) => {
+    app.sync = payload;
+  });
   const unlisten = listen<{ id: number; exitCode: number | null }>("pty-exit", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) {
@@ -99,6 +111,7 @@ export function init(): () => void {
     unlistenStatus.then((stop) => stop());
     unlistenOpened.then((stop) => stop());
     unlistenKeepAwake.then((stop) => stop());
+    unlistenSync.then((stop) => stop());
   };
 }
 
