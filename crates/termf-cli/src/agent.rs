@@ -58,8 +58,9 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                     .context
                     .and_then(|c| c.percent)
                     .map(|p| format!("  context {p}%"));
+                let role = s.spec.role.map(|r| format!("  {r}")).unwrap_or_default();
                 println!(
-                    "{:>4}  {:<11}  ${:<8.4}  {}{}",
+                    "{:>4}  {:<11}  ${:<8.4}  {}{role}{}",
                     s.id,
                     s.state.as_str(),
                     s.cost,
@@ -123,6 +124,7 @@ fn spec(args: &mut Vec<&str>) -> Result<(SessionSpec, Option<String>)> {
     for (flag, value) in [
         ("--project", &mut spec.project),
         ("--agent", &mut spec.agent),
+        ("--role", &mut spec.role),
         ("--model", &mut spec.model),
         ("--effort", &mut spec.effort),
         ("--permission-mode", &mut spec.permission_mode),

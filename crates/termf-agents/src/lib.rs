@@ -4,6 +4,7 @@
 //! conversation in a terminal; handing it back closes the terminal and resumes headless. A conversation never
 //! has two processes at once: Claude Code would lose messages.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -76,6 +77,20 @@ pub struct SessionSpec {
     pub permission_mode: Option<String>,
     /// In US dollars, for the whole session, every process included.
     pub budget: Option<f64>,
+    /// The library role it plays (ARCHITECTURE §7.3): its prompt, and its model, effort, permission mode and
+    /// tools unless set here; then only the preferences and rules that apply to it.
+    pub role: Option<String>,
+    /// `--allowedTools` and `--disallowedTools`, the role's included.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allowed_tools: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub disallowed_tools: Vec<String>,
+    /// Rule levels (`off`, `advise`, `warn`, `block`) over the library's.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub rules: BTreeMap<String, String>,
+    /// `--json-schema`: the agent's answer at the end of each turn follows it (`turn_end.structured`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_schema: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -225,6 +240,9 @@ pub enum AgentEvent {
         outcome: Outcome,
         /// The agent's last answer.
         result: Option<String>,
+        /// That answer, when the session has a JSON schema.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        structured: Option<Value>,
         error: Option<String>,
         usage: Usage,
         /// This turn's cost, and the session's so far, in US dollars.
@@ -317,6 +335,8 @@ pub struct StoredEvent {
 }
 
 /// What the UI hears about.
+// A few a second, each sent on at once: boxing would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum Update {
     Event(StoredEvent),

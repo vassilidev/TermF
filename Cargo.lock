@@ -5496,6 +5496,7 @@ dependencies = [
  "termf-schedule",
  "termf-ssh",
  "termf-sync",
+ "termf-team",
  "termf-term",
  "termf-tickets",
  "termf-worktree",
@@ -5542,6 +5543,7 @@ dependencies = [
  "termf-schedule",
  "termf-ssh",
  "termf-sync",
+ "termf-team",
  "termf-tickets",
  "termf-worktree",
 ]
@@ -5665,6 +5667,23 @@ dependencies = [
  "toml 1.2.2+spec-1.1.0",
  "toml_edit 0.25.20+spec-1.1.0",
  "zeroize",
+]
+
+[[package]]
+name = "termf-team"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "termf-agents",
+ "termf-core",
+ "termf-library",
+ "termf-term",
+ "termf-tickets",
+ "termf-worktree",
+ "toml 1.2.2+spec-1.1.0",
 ]
 
 [[package]]

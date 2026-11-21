@@ -65,6 +65,7 @@ while IFS= read -r line; do
       say '{"type":"control_response","response":{"subtype":"success","request_id":"x","response":{}}}'
       say '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]},"parent_tool_use_id":null}'
       result error_during_execution ',"is_error":true,"terminal_reason":"aborted_streaming","errors":["[ede_diagnostic] result_type=user"]' ;;
+    *structured*) answer '{"ok":true}'; result success ',"structured_output":{"ok":true}' ;;
     *budget*) result error_max_budget_usd ',"is_error":true,"terminal_reason":"budget_exhausted","errors":["Reached maximum budget ($0.05)"]' ;;
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
     *) answer 'OK.'; result success ;;
@@ -348,6 +349,57 @@ fn runs_several_turns_on_one_process() {
         env.agents.events(id, first.id + 1).unwrap().len(),
         env.events(id).len() - 2
     );
+}
+
+#[test]
+fn plays_a_role_and_answers_with_its_schema() {
+    let env = Env::new("role");
+    let spec = SessionSpec {
+        cwd: env.dir.clone(),
+        role: Some("orchestrator".into()),
+        model: Some("haiku".into()),
+        disallowed_tools: vec!["Bash(git push:*)".into()],
+        rules: [("scope-strict".to_owned(), "warn".to_owned())].into(),
+        json_schema: Some(json!({"type": "object"})),
+        ..SessionSpec::default()
+    };
+    let session = env.agents.start(spec, Some("structured please")).unwrap();
+    let spec = &session.spec;
+    assert_eq!(spec.role.as_deref(), Some("orchestrator"));
+    assert_eq!(
+        (spec.model.as_deref(), spec.effort.as_deref()),
+        (Some("haiku"), Some("high")),
+        "the spec's model, the role's effort"
+    );
+    assert_eq!(
+        spec.disallowed_tools,
+        ["Bash(git push:*)", "Edit", "Write", "NotebookEdit"]
+    );
+    env.settle(session.id, 1, State::Idle);
+    let structured = env.events(session.id).into_iter().find_map(|e| match e {
+        AgentEvent::TurnEnd { structured, .. } => structured,
+        _ => None,
+    });
+    assert_eq!(structured, Some(json!({"ok": true})));
+    let args = env.args().remove(0);
+    let after = |flag: &str| -> Vec<String> {
+        args.windows(2)
+            .filter(|w| w[0] == flag)
+            .map(|w| w[1].clone())
+            .collect()
+    };
+    assert_eq!(after("--disallowedTools").len(), 4);
+    assert_eq!(after("--json-schema"), [r#"{"type":"object"}"#]);
+    let prompt = fs::read_to_string(&after("--append-system-prompt-file")[0]).unwrap();
+    assert!(prompt.starts_with("## Role: orchestrator\n\nYou are the orchestrator"));
+    assert!(prompt.contains("## scope-strict"), "{prompt}");
+
+    let unknown = SessionSpec {
+        role: Some("nobody".into()),
+        ..env.spec()
+    };
+    let error = env.agents.start(unknown, None).unwrap_err().to_string();
+    assert!(error.contains("no role named nobody"), "{error}");
 }
 
 #[test]

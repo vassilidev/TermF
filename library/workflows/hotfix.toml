@@ -1,0 +1,5 @@
+extends = "default"
+description = "Urgent fix: no plan gate"
+
+[steps.approve-plan]
+enabled = false

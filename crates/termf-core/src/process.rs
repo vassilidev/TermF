@@ -4,6 +4,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
@@ -20,10 +21,30 @@ pub fn run(
 
 /// [`run`], handing each line the child prints to `line` as it comes.
 pub fn stream(
+    cmd: Command,
+    input: &[u8],
+    timeout: Duration,
+    line: &mut dyn FnMut(&str),
+) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    exec(cmd, input, timeout, line, &AtomicBool::new(false))
+}
+
+/// [`run`], killed like at the deadline as soon as `cancel` is set.
+pub fn run_until(
+    cmd: Command,
+    input: &[u8],
+    timeout: Duration,
+    cancel: &AtomicBool,
+) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    exec(cmd, input, timeout, &mut |_| {}, cancel)
+}
+
+fn exec(
     mut cmd: Command,
     input: &[u8],
     timeout: Duration,
     line: &mut dyn FnMut(&str),
+    cancel: &AtomicBool,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
     let scratch = scratch_dir()?;
     let result = (|| {
@@ -53,6 +74,10 @@ pub fn stream(
                 end(&mut child);
                 bail!("timed out after {} s", timeout.as_secs());
             }
+            if cancel.load(Ordering::SeqCst) {
+                end(&mut child);
+                bail!("stopped");
+            }
             std::thread::sleep(Duration::from_millis(50));
         };
         out.append(&mut partial);
@@ -81,7 +106,7 @@ pub fn kill_group(leader: u32) {
 
 /// A fresh private folder in the system's temporary folder.
 pub fn scratch_dir() -> Result<PathBuf> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
         "termf-run-{}-{}",
