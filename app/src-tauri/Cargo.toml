@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
+termf-ci = { path = "../../crates/termf-ci" }
 termf-core = { path = "../../crates/termf-core" }
 termf-term = { path = "../../crates/termf-term" }
 termf-files = { path = "../../crates/termf-files" }
@@ -24,6 +25,7 @@ termf-schedule = { path = "../../crates/termf-schedule" }
 termf-ssh = { path = "../../crates/termf-ssh" }
 termf-sync = { path = "../../crates/termf-sync" }
 termf-tickets = { path = "../../crates/termf-tickets" }
+termf-worktree = { path = "../../crates/termf-worktree" }
 anyhow = "1.0.104"
 tauri-plugin-global-shortcut = "2"
 getrandom = "0.3.4"

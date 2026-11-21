@@ -1,15 +1,24 @@
 //! What a run's session may not run: a Claude Code `PreToolUse` hook on Bash calls `termf guard`, which refuses
-//! pushes, pull requests, writes to the tracker and the TermF commands that deliver. Defense in depth, not a
+//! pushes, pull requests, writes to the tracker, the TermF commands that deliver and starting or cancelling CI
+//! runs. Defense in depth, not a
 //! guarantee: a script the agent writes then runs, a git alias or a tool other than Bash still gets through.
 
 const REASON: &str = "In a TermF run, pushing, pull requests and writes to the tracker wait until the user \
                       delivers the run. Commit your work if you like, then tell the user it is ready.";
+const CI_REASON: &str =
+    "In a TermF run, the user starts and cancels the CI: tell them what to run, and why.";
 
 /// Why the Bash command `line` is refused in a run's session, or `None` when it may run.
 pub fn guard(line: &str) -> Option<String> {
     for words in commands(line) {
         for (i, word) in words.iter().enumerate() {
             let rest = &words[i + 1..];
+            if drives_ci(program(word), rest) {
+                return Some(format!(
+                    "`{}` is refused. {CI_REASON}",
+                    words[i..].join(" ")
+                ));
+            }
             let refused = match program(word) {
                 "git" => git_subcommand(rest) == Some("push"),
                 "git-push" => true,
@@ -78,6 +87,20 @@ fn gh_writes(args: &[String]) -> bool {
             None | Some("list" | "view" | "status")
         ),
         Some("api") => api_method(&args[1..]) != "GET",
+        _ => false,
+    }
+}
+
+/// `gh run rerun|cancel|delete…`, `gh workflow run|enable|disable`, `termf ci rerun|cancel|dispatch`: reading
+/// the CI stays allowed.
+fn drives_ci(program: &str, args: &[String]) -> bool {
+    let arg = |i: usize| args.get(i).map(String::as_str);
+    match (program, arg(0)) {
+        ("gh", Some("run")) => {
+            !matches!(arg(1), None | Some("list" | "view" | "watch" | "download"))
+        }
+        ("gh", Some("workflow")) => !matches!(arg(1), None | Some("list" | "view")),
+        ("termf", Some("ci")) => matches!(arg(1), Some("rerun" | "cancel" | "dispatch")),
         _ => false,
     }
 }
@@ -246,10 +269,21 @@ mod tests {
             "termf close 3 --force",
             "termf run '#4'",
             "/Applications/TermF.app/Contents/MacOS/termf deliver 1",
+            "gh run rerun 5 --failed",
+            "gh run cancel 5 -R acme/api",
+            "gh run delete 5",
+            "gh workflow run deploy.yml -f level=high",
+            "gh workflow enable ci.yml",
+            "termf ci rerun 5",
+            "termf ci cancel 5 --repo .",
+            "cd api && termf ci dispatch deploy.yml --input level=high",
+            "bash -c 'gh run rerun 5'",
         ] {
             let reason = guard(refused).unwrap_or_else(|| panic!("{refused} let through"));
             assert!(reason.contains("is refused"), "{reason}");
         }
+        let ci = guard("gh workflow run ci.yml").unwrap();
+        assert!(ci.contains("the user starts and cancels the CI"), "{ci}");
     }
 
     #[test]
@@ -268,6 +302,12 @@ mod tests {
             "gh repo view",
             "termf ls",
             "termf runs 3",
+            "gh run list --branch main",
+            "gh run view 5 --log-failed",
+            "gh run watch 5",
+            "gh workflow list",
+            "termf ci runs --pr 7",
+            "termf ci logs 9 --errors",
             "cargo test --workspace",
             "echo push",
             "grep -rn 'git push' docs",

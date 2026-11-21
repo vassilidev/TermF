@@ -30,12 +30,12 @@ impl TicketsState {
     }
 }
 
-fn tickets(app: &AppHandle) -> Arc<Tickets> {
+pub(crate) fn tickets(app: &AppHandle) -> Arc<Tickets> {
     app.state::<TicketsState>().tickets.clone()
 }
 
 /// git and gh reach the network: never on the UI thread.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&AppHandle) -> Result<T> + Send + 'static,
 ) -> CmdResult<T> {
@@ -59,7 +59,7 @@ fn with_session(app: &AppHandle, mut run: Run) -> Run {
     run
 }
 
-fn updated(app: &AppHandle, run: &Run) {
+pub(crate) fn updated(app: &AppHandle, run: &Run) {
     let _ = app.emit("run-updated", with_session(app, run.clone()));
 }
 
@@ -90,6 +90,7 @@ pub fn start(
         Some(api::RunSession {
             project: &run.project,
             brief: &launch.brief,
+            env: &launch.env,
         }),
         &[],
     );

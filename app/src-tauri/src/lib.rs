@@ -1,5 +1,6 @@
 mod api;
 mod browser;
+mod ci;
 mod config;
 mod context;
 mod files;
@@ -10,6 +11,7 @@ mod schedule;
 mod ssh;
 mod sync;
 mod tickets;
+mod worktree;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -191,6 +193,7 @@ pub fn run() {
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new();
+            app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(tickets::TicketsState::new(
                 config_dir.clone(),
                 data_dir.clone(),
@@ -299,6 +302,12 @@ pub fn run() {
             tickets::tickets_deliver_preview,
             tickets::tickets_deliver,
             tickets::tickets_close,
+            worktree::worktree_recipe,
+            worktree::worktree_recipe_save,
+            worktree::worktree_recipe_propose,
+            worktree::worktree_recipe_discard,
+            worktree::worktree_runs,
+            worktree::worktree_setup,
             context::context_settings,
             context::context_settings_set,
             context::context_reset,
@@ -320,6 +329,20 @@ pub fn run() {
             schedule::schedule_install,
             schedule::schedule_desktop,
             schedule::schedule_machine,
+            ci::ci_runs,
+            ci::ci_run,
+            ci::ci_log,
+            ci::ci_rerun,
+            ci::ci_cancel,
+            ci::ci_workflows,
+            ci::ci_inputs,
+            ci::ci_dispatch,
+            ci::ci_checks,
+            ci::ci_failure,
+            ci::ci_send,
+            ci::ci_poll,
+            ci::ci_notify,
+            ci::ci_notify_set,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

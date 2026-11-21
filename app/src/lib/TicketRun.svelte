@@ -32,6 +32,7 @@
   import Send from "@lucide/svelte/icons/send";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import CiChecks from "$lib/CiChecks.svelte";
   import RunStatus from "$lib/RunStatus.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { repoName, shortPath } from "$lib/state.svelte";
@@ -99,6 +100,14 @@
         return e.dropped.length ? t("eventClosedForce", { dropped: e.dropped.join(", ") }) : t("eventClosed");
       case "failed":
         return t("eventFailed", { error: e.error });
+      case "setup": {
+        const failed = e.steps.filter((s) => s.outcome === "failed" || s.outcome === "refused").length;
+        const count = e.steps.length;
+        const text = failed ? t("wtEventSetupFailed", { count, failed }) : t("wtEventSetup", { count });
+        return e.saved ? text : `${text} · ${t("wtDetected")}`;
+      }
+      case "teardown":
+        return t("wtEventTeardown");
     }
   }
 
@@ -326,6 +335,8 @@
   <dt>{t("runMetaUpdated")}</dt>
   <dd>{ago(run.updated)}</dd>
 </dl>
+
+{#if run.prUrl}<CiChecks {run} {session} />{/if}
 
 <h3>{t("runJournal")}</h3>
 <ol class="journal">

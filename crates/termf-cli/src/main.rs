@@ -12,10 +12,12 @@ use termf_core::ipc::{self, Call, Reply, Request, SessionSummary};
 use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
+mod ci;
 mod schedule;
 mod ssh;
 mod sync;
 mod tickets;
+mod worktree;
 
 const USAGE: &str = "\
 usage:
@@ -82,6 +84,19 @@ usage:
                                         past runs, or one run and its output
   termf schedule install|uninstall <id> also run a headless task while TermF is closed, through the
                                         system's scheduler (launchd, systemd, Task Scheduler)
+  termf worktree setup [<path>]         prepare a worktree (default: here) with its project's recipe:
+                                        dependencies, local files, its database copy, ports
+  termf worktree teardown [<path>]      drop the worktree's database copy and give its ports back
+  termf ci runs [--repo <path>] [--branch <name>] [--status <status>] [--pr <n>] [--page <n>]
+                                        GitHub Actions runs of a repository (default: here), newest first
+  termf ci view <run> [--repo <path>]   a run, its jobs and their steps
+  termf ci logs <job> [--repo <path>] [--errors]
+                                        a job's log, or only its error lines
+  termf ci rerun <run> [--failed] [--repo <path>]
+                                        run it again, or only its failed jobs
+  termf ci cancel <run> [--repo <path>]
+  termf ci dispatch <workflow> [--ref <branch>] [--input key=value]... [--repo <path>]
+                                        start a workflow by hand (workflow_dispatch)
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -170,6 +185,8 @@ fn run(args: &[&str]) -> Result<()> {
         ["ssh", rest @ ..] => ssh::run(rest)?,
         ["sync", rest @ ..] => sync::run(rest)?,
         ["schedule", rest @ ..] => schedule::run(rest.to_vec())?,
+        ["worktree", rest @ ..] => worktree::run(rest)?,
+        ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         [
             command @ ("run" | "runs" | "inbox" | "deliver" | "close"),
             rest @ ..,

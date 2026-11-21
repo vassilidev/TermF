@@ -30,6 +30,8 @@ pub struct SpawnSpec {
     pub agent: Option<String>,
     pub cols: u16,
     pub rows: u16,
+    /// Added to the session's environment, after the registry's own.
+    pub env: Vec<(String, String)>,
 }
 
 #[derive(Serialize, Clone)]
@@ -119,6 +121,9 @@ impl Sessions {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         for (key, value) in self.env.as_ref().map(|env| env(id)).unwrap_or_default() {
+            cmd.env(key, value);
+        }
+        for (key, value) in &spec.env {
             cmd.env(key, value);
         }
         let mut child = pair
@@ -316,6 +321,7 @@ mod tests {
             agent: None,
             cols: 80,
             rows: 24,
+            env: Vec::new(),
         }
     }
 
@@ -349,20 +355,23 @@ mod tests {
     fn passes_env_and_quotes_args() {
         let sessions = Sessions::with_env(|id| vec![("TERMF_TEST_ID".into(), id.to_string())]);
         let tricky = "it's a \"test\" $HOME `x` · ok";
-        let id = sessions
-            .spawn(spec(
-                "/bin/sh",
-                &[
-                    "-c",
-                    &format!(
-                        "printf '[%s|%s]' \"$TERMF_TEST_ID\" {}",
-                        shell_quote(tricky)
-                    ),
-                ],
-            ))
-            .unwrap();
+        let mut with_env = spec(
+            "/bin/sh",
+            &[
+                "-c",
+                &format!(
+                    "printf '[%s|%s|%s]' \"$TERMF_TEST_ID\" \"$TERMF_TEST_RUN\" {}",
+                    shell_quote(tricky)
+                ),
+            ],
+        );
+        with_env.env.push(("TERMF_TEST_RUN".into(), "41000".into()));
+        let id = sessions.spawn(with_env).unwrap();
         let (text, _) = collect(&sessions, id);
-        assert!(text.contains(&format!("[{id}|{tricky}]")), "got {text:?}");
+        assert!(
+            text.contains(&format!("[{id}|41000|{tricky}]")),
+            "got {text:?}"
+        );
     }
 
     #[test]
