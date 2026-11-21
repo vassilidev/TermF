@@ -647,16 +647,13 @@ impl Tickets {
         stop_session();
         if let (Some(worktree), Some(branch), Some(_)) = &parts {
             let worktree = Path::new(worktree);
+            // Even once the folder is gone: the database copy lives elsewhere.
+            let report = self.setup().teardown(worktree, &id.to_string());
+            if !report.steps.is_empty() {
+                let steps = report.steps;
+                store.record(id, &Event::Teardown { steps })?;
+            }
             if worktree.exists() {
-                let report = self.setup().teardown(worktree);
-                if !report.steps.is_empty() {
-                    store.record(
-                        id,
-                        &Event::Teardown {
-                            steps: report.steps,
-                        },
-                    )?;
-                }
                 let path = worktree.to_string_lossy();
                 let mut args = vec!["worktree", "remove"];
                 if force {

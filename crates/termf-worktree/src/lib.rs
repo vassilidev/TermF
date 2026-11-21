@@ -5,8 +5,9 @@
 //! writes the `worktree-setup` skill, agent (role) and command of the project's library. Without a saved
 //! recipe, what detection finds applies.
 //!
-//! What a setup made (its database copy, its ports) is recorded in the worktree's own git folder, so tearing it
-//! down needs nothing else and goes away with the worktree.
+//! The database copy a setup made is recorded in `<data>/worktree-databases.json` by worktree id (the run's), and
+//! its ports in `<data>/ports.json`, so tearing it down works even once the worktree is gone. The last setup's
+//! steps are kept in the worktree's own git folder.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -34,6 +35,7 @@ pub use recipe::{Draft, RecipeView, RepoView, discard, propose, save, view};
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const AGENT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const STATE_FILE: &str = "termf-setup.json";
+const DATABASES_FILE: &str = "worktree-databases.json";
 
 /// `<project library>/recipes/worktree-setup.toml`.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -177,10 +179,9 @@ pub struct Worktree {
     pub id: String,
 }
 
-/// What a setup made, in `<worktree git dir>/termf-setup.json`.
+/// The last setup's steps, in `<worktree git dir>/termf-setup.json`.
 #[derive(Serialize, Deserialize, Default)]
 struct State {
-    database: Option<database::Made>,
     steps: Vec<Step>,
 }
 
@@ -254,8 +255,8 @@ impl Setup {
                 (Recipe::default(), RepoRecipe::default(), false)
             }
         };
-        let mut state = self.state(&wt.path).unwrap_or_default();
         let mut env = BTreeMap::new();
+        let mut agent_access = None;
 
         if !repo.include.is_empty() {
             let started = step(wt, StepKind::Include, ".worktreeinclude", Instant::now());
@@ -279,14 +280,18 @@ impl Setup {
             let compose = detect::compose(&wt.source)
                 .map(|c| c.services)
                 .unwrap_or_default();
-            let outcome = database::copy(&self.env, wt, from, &compose, state.database.as_ref());
+            let previous = self.made(&wt.id);
+            let outcome = database::copy(&self.env, wt, from, &compose, previous.as_ref());
+            agent_access = database::access(&wt.source, from);
             steps.push(match outcome {
                 Ok(done) => {
                     env.extend(done.env);
-                    if done.made.is_some() {
-                        state.database = done.made;
-                    }
-                    let mut step = started(done.outcome, done.detail);
+                    // Unrecorded, the copy could never be dropped: the step says so.
+                    let saved = done.made.map_or(Ok(()), |m| self.set_made(&wt.id, Some(m)));
+                    let mut step = match saved {
+                        Ok(()) => started(done.outcome, done.detail),
+                        Err(e) => started(Outcome::Failed, format!("{}; {e:#}", done.detail)),
+                    };
                     step.target = done.target;
                     step
                 }
@@ -323,18 +328,24 @@ impl Setup {
 
         for line in repo.commands.iter().filter(|c| !c.trim().is_empty()) {
             let started = step(wt, StepKind::Command, line, Instant::now());
+            let before = self.changes(&wt.path);
             let mut cmd = shell(line);
             cmd.current_dir(&wt.path).envs(&env);
             steps.push(match self.execute(cmd, COMMAND_TIMEOUT) {
-                Ok(_) => started(Outcome::Ran, String::new()),
+                Ok(_) => match self.left(&wt.path, &before) {
+                    Some(left) => started(Outcome::Failed, left),
+                    None => started(Outcome::Ran, String::new()),
+                },
                 Err(e) => started(Outcome::Failed, format!("{e:#}")),
             });
         }
         if recipe.agent {
-            steps.push(self.agent(wt, &steps, &env));
+            steps.push(self.agent(wt, &steps, &env, agent_access.as_ref()));
         }
 
-        state.steps = steps.clone();
+        let state = State {
+            steps: steps.clone(),
+        };
         if let Err(e) = self.save_state(&wt.path, &state) {
             let started = step(wt, StepKind::Recipe, STATE_FILE, Instant::now());
             steps.push(started(Outcome::Failed, format!("{e:#}")));
@@ -342,23 +353,22 @@ impl Setup {
         Report { steps, env, saved }
     }
 
-    /// Drops the worktree's database copy and gives its ports back. Its files go with the worktree.
-    pub fn teardown(&self, path: &Path) -> Report {
+    /// Drops the database copy of the worktree `id` names and gives its ports back, even once the worktree is
+    /// gone. Its files go with the worktree.
+    pub fn teardown(&self, path: &Path, id: &str) -> Report {
         let mut steps = Vec::new();
-        let mut state = self.state(path).unwrap_or_default();
-        let repo = state
-            .steps
-            .first()
-            .map(|s| s.repo.clone())
+        let repo = self
+            .state(path)
+            .and_then(|s| s.steps.first().map(|s| s.repo.clone()))
             .unwrap_or_default();
-        if let Some(made) = state.database.take() {
+        if let Some(made) = self.made(id) {
             let started = Instant::now();
             let (outcome, detail) = match database::drop(&self.env, &made) {
-                Ok(()) => (Outcome::Dropped, String::new()),
-                Err(e) => {
-                    state.database = Some(made.clone());
-                    (Outcome::Failed, format!("{e:#}"))
-                }
+                Ok(()) => match self.set_made(id, None) {
+                    Ok(()) => (Outcome::Dropped, String::new()),
+                    Err(e) => (Outcome::Failed, format!("{e:#}")),
+                },
+                Err(e) => (Outcome::Failed, format!("{e:#}")),
             };
             steps.push(Step {
                 repo: repo.clone(),
@@ -381,7 +391,6 @@ impl Setup {
                 ms: elapsed(started),
             });
         }
-        let _ = self.save_state(path, &state);
         Report {
             steps,
             env: BTreeMap::new(),
@@ -411,14 +420,26 @@ impl Setup {
                 format!("{} is not a folder of the repository", dep.dir),
             );
         }
+        // Installed files git does not ignore would end up in the run's pull request.
+        // The trailing slash lets a `dir/` pattern match a folder that does not exist yet.
+        let dir_ignored = |root: &Path| {
+            detect::ignored(root, &format!("{}/", dep.dir), &self.env)
+                || detect::ignored(root, &dep.dir, &self.env)
+        };
+        if !dep.dir.is_empty() && !dir_ignored(&wt.path) {
+            let why = format!(
+                "git does not ignore {}: its files would end up in the run's pull request; ignore it, or remove \
+                 this dependency from the recipe",
+                dep.dir
+            );
+            return started(Outcome::Skipped, why);
+        }
         let dest = wt.path.join(&dep.dir);
         let mut cloned = false;
         if !dep.dir.is_empty() && dep.clone && !dest.exists() {
             let src = wt.source.join(&dep.dir);
             // A folder git does not ignore would end up in the run's delivery.
-            cloned = src.is_dir()
-                && detect::ignored(&wt.source, &dep.dir, &self.env)
-                && cow::clone(&src, &dest).is_ok();
+            cloned = src.is_dir() && dir_ignored(&wt.source) && cow::clone(&src, &dest).is_ok();
         }
         if dep.install.is_empty() {
             return match (cloned, !dep.dir.is_empty() && dest.exists()) {
@@ -431,12 +452,20 @@ impl Setup {
             };
         }
         let mut errors = Vec::new();
+        let before = self.changes(&wt.path);
         for line in &dep.install {
             let mut cmd = shell(line);
             cmd.current_dir(&wt.path);
             match self.execute(cmd, COMMAND_TIMEOUT) {
-                Ok(_) if cloned => return started(Outcome::Cloned, format!("then {line}")),
-                Ok(_) => return started(Outcome::Installed, line.clone()),
+                Ok(_) => {
+                    if let Some(left) = self.left(&wt.path, &before) {
+                        return started(Outcome::Failed, format!("{line}: {left}"));
+                    }
+                    return match cloned {
+                        true => started(Outcome::Cloned, format!("then {line}")),
+                        false => started(Outcome::Installed, line.clone()),
+                    };
+                }
                 Err(e) => errors.push(format!("{line}: {e:#}")),
             }
         }
@@ -449,9 +478,15 @@ impl Setup {
 
     /// The setup agent: Claude Code headless in the worktree, with the project's `worktree-setup` skill and
     /// role, for what the steps could not do.
-    fn agent(&self, wt: &Worktree, steps: &[Step], env: &BTreeMap<String, String>) -> Step {
+    fn agent(
+        &self,
+        wt: &Worktree,
+        steps: &[Step],
+        env: &BTreeMap<String, String>,
+        access: Option<&database::Access>,
+    ) -> Step {
         let started = step(wt, StepKind::Agent, "worktree-setup", Instant::now());
-        match self.ask_agent(wt, steps, env) {
+        match self.ask_agent(wt, steps, env, access) {
             Ok(detail) => started(Outcome::Ran, detail),
             Err(e) => started(Outcome::Failed, format!("{e:#}")),
         }
@@ -462,6 +497,7 @@ impl Setup {
         wt: &Worktree,
         steps: &[Step],
         env: &BTreeMap<String, String>,
+        access: Option<&database::Access>,
     ) -> Result<String> {
         let library = termf_library::library_dir(&self.config_dir, Some(&wt.project))?;
         let skill = library.join("skills").join(recipe::NAME);
@@ -521,7 +557,7 @@ impl Setup {
             .args(["--disallowedTools", "Bash(git push:*)"])
             .args(["--permission-mode", "dontAsk"])
             .arg("--settings")
-            .arg(SANDBOX.trim())
+            .arg(sandbox(access).to_string())
             .current_dir(&wt.path)
             .envs(env);
         let result = self.execute_with(cmd, prompt.as_bytes(), AGENT_TIMEOUT);
@@ -561,6 +597,57 @@ impl Setup {
         bail!("{status}: {}", tail(&text, 800))
     }
 
+    /// What `git status` lists in the worktree: changes git would deliver.
+    fn changes(&self, worktree: &Path) -> Vec<String> {
+        git(
+            &self.env,
+            worktree,
+            &["status", "--porcelain", "--untracked-files=all"],
+        )
+        .map(|out| out.lines().map(str::to_owned).collect())
+        .unwrap_or_default()
+    }
+
+    /// What a command left in the worktree that git does not ignore, which the run's pull request would carry.
+    fn left(&self, worktree: &Path, before: &[String]) -> Option<String> {
+        let new: Vec<String> = self
+            .changes(worktree)
+            .into_iter()
+            .filter(|c| !before.contains(c))
+            .map(|c| c.get(3..).unwrap_or(&c).to_owned())
+            .collect();
+        (!new.is_empty()).then(|| {
+            format!(
+                "it left files git does not ignore, which the run's pull request would carry: {}",
+                new.join(", ")
+            )
+        })
+    }
+
+    fn made(&self, id: &str) -> Option<database::Made> {
+        self.databases().remove(id)
+    }
+
+    fn databases(&self) -> BTreeMap<String, database::Made> {
+        fs::read_to_string(self.data_dir.join(DATABASES_FILE))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    fn set_made(&self, id: &str, made: Option<database::Made>) -> Result<()> {
+        let mut all = self.databases();
+        match made {
+            Some(made) => all.insert(id.to_owned(), made),
+            None => all.remove(id),
+        };
+        fs::create_dir_all(&self.data_dir)?;
+        termf_core::write_atomic(
+            &self.data_dir.join(DATABASES_FILE),
+            &serde_json::to_string_pretty(&all)?,
+        )
+    }
+
     fn state(&self, worktree: &Path) -> Option<State> {
         let file = self.state_file(worktree).ok()?;
         serde_json::from_str(&fs::read_to_string(file).ok()?).ok()
@@ -578,13 +665,72 @@ impl Setup {
     }
 }
 
-/// Lets Bash write in the worktree only, and reach the package registries.
-const SANDBOX: &str = r#"
-{"sandbox":{"enabled":true,"autoAllowBashIfSandboxed":true,"network":{"allowedDomains":[
-"registry.npmjs.org","registry.yarnpkg.com","repo.yarnpkg.com","packagist.org","repo.packagist.org",
-"codeload.github.com","objects.githubusercontent.com","pypi.org","files.pythonhosted.org","rubygems.org",
-"index.rubygems.org","proxy.golang.org","sum.golang.org","index.crates.io","static.crates.io"]}}}
-"#;
+const REGISTRIES: [&str; 15] = [
+    "registry.npmjs.org",
+    "registry.yarnpkg.com",
+    "repo.yarnpkg.com",
+    "packagist.org",
+    "repo.packagist.org",
+    "codeload.github.com",
+    "objects.githubusercontent.com",
+    "pypi.org",
+    "files.pythonhosted.org",
+    "rubygems.org",
+    "index.rubygems.org",
+    "proxy.golang.org",
+    "sum.golang.org",
+    "index.crates.io",
+    "static.crates.io",
+];
+
+/// Package managers' caches under the home folder, which installs write to.
+const CACHES: [&str; 14] = [
+    ".npm",
+    ".cache",
+    ".composer",
+    ".config/composer",
+    ".pnpm-store",
+    ".local/share/pnpm",
+    ".yarn",
+    ".bun",
+    ".cargo",
+    "go/pkg/mod",
+    ".gem",
+    ".bundle",
+    "Library/Caches",
+    "Library/pnpm",
+];
+
+/// Claude Code's sandbox for the setup agent (code.claude.com/docs/en/sandboxing): Bash writes in the worktree,
+/// the temporary folder and the package managers' caches that exist, and reaches the package registries and the
+/// worktree's local database.
+// shortcut: on Linux a sandboxed command has a localhost of its own, so a database reached over TCP stays out of
+// reach there (only `allowLocalBinding` on macOS opens it); excluding the migration command would be next.
+fn sandbox(access: Option<&database::Access>) -> serde_json::Value {
+    let home = termf_core::expand_tilde("~");
+    let caches: Vec<String> = CACHES
+        .iter()
+        .filter(|c| home.join(c).is_dir())
+        .map(|c| format!("~/{c}"))
+        .collect();
+    let mut network = serde_json::json!({ "allowedDomains": REGISTRIES });
+    if let Some(access) = access {
+        if access.local_tcp {
+            network["allowLocalBinding"] = true.into();
+        }
+        if !access.sockets.is_empty() {
+            network["allowUnixSockets"] = access.sockets.clone().into();
+        }
+    }
+    serde_json::json!({
+        "sandbox": {
+            "enabled": true,
+            "autoAllowBashIfSandboxed": true,
+            "filesystem": { "allowWrite": caches },
+            "network": network,
+        }
+    })
+}
 
 /// A role file's body, without its frontmatter.
 fn role_body(text: &str) -> &str {

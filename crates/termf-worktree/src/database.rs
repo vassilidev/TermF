@@ -1,20 +1,34 @@
 //! A worktree's own copy of the project's local database: PostgreSQL through `CREATE DATABASE … TEMPLATE`
 //! (dump and restore when the template has open connections), MySQL and MariaDB through a dump, SQLite as a
-//! copy-on-write clone of its file. The connection comes from the repository's env file (`DATABASE_URL`,
-//! Laravel's `DB_*`) or `config/database.yml`; the worktree's env file is then pointed at the copy. Only a
-//! server on this machine (localhost, a local socket) or a service of the repository's Compose file is ever
-//! touched: anything else is refused.
+//! copy-on-write clone of its file. The connection comes from the repository's env files (`DATABASE_URL`,
+//! `DB_URL`, Laravel's `DB_*`, the local and per-mode files over `.env`) or `config/database.yml`; every env file
+//! of the worktree that names the original database is then pointed at the copy. Only a server on this machine
+//! (localhost, a local socket) or a service of the repository's Compose file is ever touched: anything else is
+//! refused.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use yaml_rust2::{Yaml, YamlLoader};
 
-use crate::{Outcome, Worktree, cow, files};
+use crate::{Outcome, Worktree, cow, detect, files};
+
+/// The env files read over one another, the one that wins first (dotenv-flow, Next.js, Vite).
+const ENV_FILES: [&str; 4] = [
+    ".env.development.local",
+    ".env.local",
+    ".env.development",
+    ".env",
+];
+/// `DB_URL` is Laravel 11's; either one overrides the separate settings.
+const URL_KEYS: [&str; 2] = ["DATABASE_URL", "DB_URL"];
+const SQL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const COPY_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -120,13 +134,14 @@ impl Done {
     }
 }
 
-/// The file of a repository that gives its local database, if any.
+/// The file of a repository that gives its local database, if any: the env file that wins first.
 pub(crate) fn find(repo: &Path) -> Option<String> {
-    for file in [".env", ".env.local"] {
+    for file in ENV_FILES {
         if let Ok(text) = fs::read_to_string(repo.join(file)) {
             let vars = parse_env(&text);
-            if ["DATABASE_URL", "DB_CONNECTION"]
+            if URL_KEYS
                 .iter()
+                .chain(&["DB_CONNECTION"])
                 .any(|k| get(&vars, k).is_some_and(|v| !v.is_empty()))
             {
                 return Some(file.into());
@@ -138,18 +153,47 @@ pub(crate) fn find(repo: &Path) -> Option<String> {
         .then(|| "config/database.yml".into())
 }
 
+fn is_yaml(from: &str) -> bool {
+    from.ends_with(".yml") || from.ends_with(".yaml")
+}
+
+/// The env files of `repo` read with `from`, the one that wins first.
+fn env_files(repo: &Path, from: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    if !ENV_FILES.contains(&from) {
+        found.push(from.to_owned());
+    }
+    found.extend(
+        ENV_FILES
+            .iter()
+            .filter(|f| repo.join(f).is_file())
+            .map(|f| f.to_string()),
+    );
+    found
+}
+
 pub(crate) fn read(repo: &Path, from: &str) -> Result<Conn> {
     let rel =
         files::relative(from).with_context(|| format!("{from} is not a file of the repository"))?;
-    let text = fs::read_to_string(repo.join(rel)).with_context(|| format!("cannot read {from}"))?;
-    if from.ends_with(".yml") || from.ends_with(".yaml") {
+    if is_yaml(from) {
+        let text =
+            fs::read_to_string(repo.join(rel)).with_context(|| format!("cannot read {from}"))?;
         return yaml(&text);
     }
-    let vars = parse_env(&text);
-    match get(&vars, "DATABASE_URL").filter(|u| !u.is_empty()) {
-        Some(url) => url_conn(url, "DATABASE_URL"),
-        None => laravel(&vars),
+    ensure!(repo.join(&rel).is_file(), "cannot read {from}");
+    // Read from the weakest file to the one that wins, so `get` sees the winning value last.
+    let mut vars = Vec::new();
+    for file in env_files(repo, from).iter().rev() {
+        vars.extend(parse_env(
+            &fs::read_to_string(repo.join(file)).unwrap_or_default(),
+        ));
     }
+    for key in URL_KEYS {
+        if let Some(url) = get(&vars, key).filter(|u| !u.is_empty()) {
+            return url_conn(url, key);
+        }
+    }
+    laravel(&vars)
 }
 
 pub(crate) fn view(repo: &Path, from: &str) -> DbView {
@@ -175,6 +219,52 @@ pub(crate) fn view(repo: &Path, from: &str) -> DbView {
             refused: Some(format!("{e:#}")),
         },
     }
+}
+
+/// What the setup agent's sandbox must open for it to reach the worktree's database: localhost ports, or sockets.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Access {
+    pub local_tcp: bool,
+    pub sockets: Vec<String>,
+}
+
+/// `None` for a SQLite file, a Compose service (the agent does not run Docker) or a database TermF refuses.
+pub(crate) fn access(repo: &Path, from: &str) -> Option<Access> {
+    let conn = read(repo, from).ok()?;
+    let compose = detect::compose(repo)
+        .map(|c| c.services)
+        .unwrap_or_default();
+    if conn.engine == Engine::Sqlite || reach(&conn, &compose) != Ok(None) {
+        return None;
+    }
+    let tcp = Access {
+        local_tcp: true,
+        sockets: Vec::new(),
+    };
+    let sockets = |paths: Vec<String>| Access {
+        local_tcp: false,
+        sockets: paths,
+    };
+    Some(match (conn.engine, conn.host.as_str()) {
+        (Engine::Postgres, host) => {
+            let file = format!(".s.PGSQL.{}", conn.port.unwrap_or(5432));
+            match host {
+                dir if dir.starts_with('/') => sockets(vec![format!("{dir}/{file}")]),
+                "" => sockets(vec![
+                    format!("/tmp/{file}"),
+                    format!("/var/run/postgresql/{file}"),
+                ]),
+                _ => tcp,
+            }
+        }
+        // For the MySQL tools, `localhost` is the default socket.
+        (_, socket) if socket.starts_with('/') => sockets(vec![socket.to_owned()]),
+        (_, "" | "localhost") => sockets(vec![
+            "/tmp/mysql.sock".into(),
+            "/var/run/mysqld/mysqld.sock".into(),
+        ]),
+        _ => tcp,
+    })
 }
 
 /// `KEY=value` lines; `export`, quotes and comments allowed.
@@ -258,7 +348,9 @@ pub(crate) fn set_env(text: &str, key: &str, value: &str) -> String {
 }
 
 fn url_conn(url: &str, key: &str) -> Result<Conn> {
-    let (scheme, rest) = url.split_once(':').context("DATABASE_URL is not a URL")?;
+    let (scheme, rest) = url
+        .split_once(':')
+        .with_context(|| format!("{key} is not a URL"))?;
     let engine = match scheme.to_ascii_lowercase().as_str() {
         "postgres" | "postgresql" | "pgsql" => Engine::Postgres,
         "mysql" | "mysql2" | "mariadb" | "trilogy" => Engine::Mysql,
@@ -275,13 +367,13 @@ fn url_conn(url: &str, key: &str) -> Result<Conn> {
         } else {
             path
         };
-        ensure!(!path.is_empty(), "DATABASE_URL names no file");
+        ensure!(!path.is_empty(), "{key} names no file");
         conn.name = path.into();
         return Ok(conn);
     }
     let rest = rest
         .strip_prefix("//")
-        .context("DATABASE_URL is not a URL")?;
+        .with_context(|| format!("{key} is not a URL"))?;
     let rest = rest.split('#').next().unwrap_or_default();
     let (rest, query) = rest.split_once('?').unwrap_or((rest, ""));
     let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
@@ -289,7 +381,9 @@ fn url_conn(url: &str, key: &str) -> Result<Conn> {
     let (user, password) = userinfo.split_once(':').unwrap_or((userinfo, ""));
     let (host, port) = match hostport.strip_prefix('[') {
         Some(v6) => {
-            let (host, port) = v6.split_once(']').context("DATABASE_URL has a bad host")?;
+            let (host, port) = v6
+                .split_once(']')
+                .with_context(|| format!("{key} has a bad host"))?;
             (host, port.strip_prefix(':'))
         }
         None => match hostport.rsplit_once(':') {
@@ -307,11 +401,11 @@ fn url_conn(url: &str, key: &str) -> Result<Conn> {
         .filter(|p| !p.is_empty())
         .map(str::parse)
         .transpose()
-        .context("DATABASE_URL has a bad port")?;
+        .with_context(|| format!("{key} has a bad port"))?;
     conn.user = decode(user);
     conn.password = decode(password);
     conn.name = decode(path);
-    ensure!(!conn.name.is_empty(), "DATABASE_URL names no database");
+    ensure!(!conn.name.is_empty(), "{key} names no database");
     Ok(conn)
 }
 
@@ -501,7 +595,10 @@ pub(crate) fn copy(
         conn.name
     );
     let name = copy_name(&conn.name, &wt.id);
-    let point = point_at(env, wt, from, &conn)?;
+    let point = match point_at(env, wt, from, &conn) {
+        Ok(point) => point,
+        Err(e) => return Ok(Done::new(Outcome::Refused, &conn.name, format!("{e:#}"))),
+    };
     let client = Client {
         conn: &conn,
         service: service.as_deref(),
@@ -527,21 +624,28 @@ pub(crate) fn copy(
             done
         }
     };
-    done.env = point.apply(&conn, &name)?;
+    done.env = point.apply(wt, &conn, &name, &mut done.detail)?;
     Ok(done)
 }
 
 /// Where the worktree learns its database's name.
 enum Point {
-    /// Its env file, which git does not track.
-    File(PathBuf),
+    /// Its env files that name the original, which git ignores.
+    Files(Vec<String>),
     /// The session's `DATABASE_URL`.
     Var,
 }
 
 impl Point {
-    fn apply(&self, conn: &Conn, value: &str) -> Result<BTreeMap<String, String>> {
-        let file = match self {
+    /// Points the worktree at `value` (the copy's name or file), and says in `detail` which files now name it.
+    fn apply(
+        &self,
+        wt: &Worktree,
+        conn: &Conn,
+        value: &str,
+        detail: &mut String,
+    ) -> Result<BTreeMap<String, String>> {
+        let files = match self {
             Point::Var => {
                 let scheme = match conn.engine {
                     Engine::Postgres => "postgresql",
@@ -556,40 +660,81 @@ impl Point {
                 let url = format!("{scheme}://{host}{port}/{}{query}", encode(value));
                 return Ok(BTreeMap::from([("DATABASE_URL".to_owned(), url)]));
             }
-            Point::File(file) => file,
+            Point::Files(files) => files,
         };
-        let text = fs::read_to_string(file)?;
-        let text = match &conn.key {
-            Key::Url(key) => {
-                let url = get(&parse_env(&text), key).unwrap_or_default().to_owned();
-                let url = match conn.engine {
-                    Engine::Sqlite => url.replacen(&conn.name, value, 1),
-                    _ => with_database(&url, value),
-                };
-                set_env(&text, key, &url)
+        for file in files {
+            let path = wt.path.join(file);
+            let text = fs::read_to_string(&path)?;
+            if let Some(text) = repoint(&text, conn, value) {
+                fs::write(&path, text).with_context(|| format!("cannot write {file}"))?;
             }
-            _ => set_env(&text, "DB_DATABASE", value),
-        };
-        fs::write(file, text).with_context(|| format!("cannot write {}", file.display()))?;
+        }
+        if !files.is_empty() {
+            let named = format!("{} → {value}", files.join(", "));
+            *detail = match detail.is_empty() {
+                true => named,
+                false => format!("{detail}; {named}"),
+            };
+        }
         Ok(BTreeMap::new())
     }
 }
 
-/// Makes sure the worktree has its own, untracked, env file to point at the copy, before anything is made.
+/// `text` with every setting that names the original database (`DATABASE_URL`, `DB_URL`, `DB_DATABASE`) naming
+/// `value` instead; `None` when none does.
+fn repoint(text: &str, conn: &Conn, value: &str) -> Option<String> {
+    let vars = parse_env(text);
+    let mut out = text.to_owned();
+    let mut changed = false;
+    for key in URL_KEYS {
+        let Some(url) = get(&vars, key) else {
+            continue;
+        };
+        let original =
+            url_conn(url, key).is_ok_and(|c| c.engine == conn.engine && c.name == conn.name);
+        if original {
+            let url = match conn.engine {
+                Engine::Sqlite => url.replacen(&conn.name, value, 1),
+                _ => with_database(url, value),
+            };
+            out = set_env(&out, key, &url);
+            changed = true;
+        }
+    }
+    if get(&vars, "DB_DATABASE") == Some(conn.name.as_str()) {
+        out = set_env(&out, "DB_DATABASE", value);
+        changed = true;
+    }
+    changed.then_some(out)
+}
+
+/// Finds every env file read with `from` that names the original database, and gives the worktree its own copy of
+/// each, before anything is made. Refused when git does not ignore one of them: it would keep naming the original,
+/// or end up in the run's pull request.
 fn point_at(env: &[(String, String)], wt: &Worktree, from: &str, conn: &Conn) -> Result<Point> {
     if conn.key == Key::Yaml {
         return Ok(Point::Var);
     }
-    let rel = files::relative(from).context("not a file of the repository")?;
-    let file = wt.path.join(&rel);
-    ensure!(
-        !files::tracked(env, &wt.path, from),
-        "{from} is tracked by git: TermF does not rewrite it, so this worktree would share the database"
-    );
-    if !file.exists() {
-        fs::copy(wt.source.join(&rel), &file).with_context(|| format!("cannot copy {from}"))?;
+    let mut files = Vec::new();
+    for file in env_files(&wt.source, from) {
+        let text = fs::read_to_string(wt.source.join(&file)).unwrap_or_default();
+        if repoint(&text, conn, "").is_none() {
+            continue;
+        }
+        ensure!(
+            detect::ignored(&wt.path, &file, env),
+            "{file} names the database but git does not ignore it: TermF does not rewrite it, so this worktree \
+             would share the database (or the file would end up in the run's pull request)"
+        );
+        files.push(file);
     }
-    Ok(Point::File(file))
+    for file in &files {
+        let dest = wt.path.join(file);
+        if !dest.exists() {
+            fs::copy(wt.source.join(file), &dest).with_context(|| format!("cannot copy {file}"))?;
+        }
+    }
+    Ok(Point::Files(files))
 }
 
 fn sqlite(env: &[(String, String)], wt: &Worktree, from: &str, conn: &Conn) -> Result<Done> {
@@ -613,6 +758,13 @@ fn sqlite(env: &[(String, String)], wt: &Worktree, from: &str, conn: &Conn) -> R
         .strip_prefix(&wt.source)
         .ok()
         .map(Path::to_path_buf);
+    if let Some(rel) = &inside {
+        let rel = rel.to_string_lossy();
+        if !detect::ignored(&wt.path, &rel, env) {
+            let why = "git does not ignore this database file: its copy would end up in the run's pull request";
+            return Ok(Done::new(Outcome::Refused, &rel, why));
+        }
+    }
     let dest = match &inside {
         Some(rel) => wt.path.join(rel),
         None => {
@@ -631,7 +783,10 @@ fn sqlite(env: &[(String, String)], wt: &Worktree, from: &str, conn: &Conn) -> R
     };
     // Pointing is only needed when the path leaves the repository or is absolute.
     let point = match inside.is_none() || written.is_absolute() {
-        true => Some(point_at(env, wt, from, conn)?),
+        true => match point_at(env, wt, from, conn) {
+            Ok(point) => Some(point),
+            Err(e) => return Ok(Done::new(Outcome::Refused, &target, format!("{e:#}"))),
+        },
         false => None,
     };
     let mut done = if dest.exists() {
@@ -658,7 +813,7 @@ fn sqlite(env: &[(String, String)], wt: &Worktree, from: &str, conn: &Conn) -> R
         });
     }
     if let Some(point) = point {
-        done.env = point.apply(conn, &file)?;
+        done.env = point.apply(wt, conn, &file, &mut done.detail)?;
     }
     Ok(done)
 }
@@ -714,6 +869,18 @@ struct Client<'a> {
     env: &'a [(String, String)],
 }
 
+/// What a client would otherwise take from its environment to pick a server: only the repository's config does.
+const SERVER_VARS: [&str; 8] = [
+    "PGHOST",
+    "PGHOSTADDR",
+    "PGPORT",
+    "PGSERVICE",
+    "PGSERVICEFILE",
+    "MYSQL_HOST",
+    "MYSQL_TCP_PORT",
+    "MYSQL_UNIX_PORT",
+];
+
 impl Client<'_> {
     /// The password goes through the environment, never the command line.
     fn command(&self, program: &str) -> Command {
@@ -722,6 +889,7 @@ impl Client<'_> {
         let mut args: Vec<String> = Vec::new();
         let direct = self.service.is_none();
         if c.engine == Engine::Postgres {
+            // Without a host, the server is libpq's default local socket.
             if direct && !c.host.is_empty() {
                 vars.push(("PGHOST", c.host.clone()));
             }
@@ -737,10 +905,15 @@ impl Client<'_> {
             // Never ask for a password: there is nobody to answer.
             args.push("-w".into());
         } else {
-            if direct && c.host.starts_with('/') {
-                args.push(format!("--socket={}", c.host));
-            } else if direct && !c.host.is_empty() {
-                args.push(format!("--host={}", c.host));
+            if direct {
+                // First, as the MySQL tools require: `~/.my.cnf` and the system's option files cannot pick
+                // another server.
+                args.push("--no-defaults".into());
+                match c.host.as_str() {
+                    socket if socket.starts_with('/') => args.push(format!("--socket={socket}")),
+                    "" => args.push("--host=localhost".into()),
+                    host => args.push(format!("--host={host}")),
+                }
             }
             if let Some(port) = c.port.filter(|_| direct) {
                 args.push(format!("--port={port}"));
@@ -766,6 +939,9 @@ impl Client<'_> {
             }
         };
         crate::prepare(&mut cmd, self.env);
+        for name in SERVER_VARS {
+            cmd.env_remove(name);
+        }
         cmd.args(args).envs(vars).stdin(Stdio::null());
         cmd
     }
@@ -788,7 +964,7 @@ impl Client<'_> {
             ]),
             _ => cmd.args(["-e", sql]),
         };
-        run(cmd)
+        run(cmd).map(|_| ())
     }
 
     fn pg_copy(&self, name: &str) -> Result<String> {
@@ -807,7 +983,7 @@ impl Client<'_> {
                 dump.args(["--no-owner", "--no-privileges", "-d", source]);
                 let mut restore = self.command("psql");
                 restore.args(["-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", name]);
-                if let Err(e) = pipe(dump, restore) {
+                if let Err(e) = pipe(dump, restore, COPY_TIMEOUT) {
                     let _ = self.drop_db(name);
                     return Err(e);
                 }
@@ -822,9 +998,8 @@ impl Client<'_> {
         self.sql(&format!("CREATE DATABASE {}", my_ident(name)))?;
         let mut version = self.command("mysqldump");
         version.arg("--version");
-        let mariadb = version
-            .output()
-            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("MariaDB"));
+        let mariadb =
+            run(version).is_ok_and(|out| String::from_utf8_lossy(&out).contains("MariaDB"));
         let mut dump = self.command("mysqldump");
         dump.args(["--single-transaction", "--routines", "--triggers"]);
         // A MySQL server with GTIDs refuses its own dump's GTID_PURGED; MariaDB's dump has no such option.
@@ -834,7 +1009,7 @@ impl Client<'_> {
         dump.arg(source);
         let mut restore = self.command("mysql");
         restore.arg(name);
-        if let Err(e) = pipe(dump, restore) {
+        if let Err(e) = pipe(dump, restore, COPY_TIMEOUT) {
             let _ = self.drop_db(name);
             return Err(e);
         }
@@ -862,46 +1037,77 @@ fn my_ident(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
 }
 
-fn run(mut cmd: Command) -> Result<()> {
+/// Runs a client program with a deadline; returns its output.
+fn run(cmd: Command) -> Result<Vec<u8>> {
     let program = cmd.get_program().to_string_lossy().into_owned();
-    let out = cmd
-        .output()
+    let (status, stdout, stderr) = termf_core::process::run(cmd, b"", SQL_TIMEOUT)
         .with_context(|| format!("cannot run {program}: is it installed?"))?;
     ensure!(
-        out.status.success(),
+        status.success(),
         "{program}: {}",
-        crate::tail(String::from_utf8_lossy(&out.stderr).trim(), 600)
+        crate::tail(String::from_utf8_lossy(&stderr).trim(), 600)
     );
-    Ok(())
+    Ok(stdout)
 }
 
-/// `dump | restore`. The dump's errors go to a file, so neither side can block on a full pipe.
-fn pipe(mut dump: Command, mut restore: Command) -> Result<()> {
-    let log = std::env::temp_dir().join(format!(
-        "termf-dump-{}-{}.log",
-        std::process::id(),
-        crate::hash(&format!("{dump:?}"))
-    ));
-    let program = dump.get_program().to_string_lossy().into_owned();
-    dump.stdout(Stdio::piped()).stderr(fs::File::create(&log)?);
-    let mut producer = dump
-        .spawn()
-        .with_context(|| format!("cannot run {program}: is it installed?"))?;
-    restore.stdin(producer.stdout.take().context("no pipe")?);
-    let restored = restore.output();
-    let dumped = producer.wait();
-    let errors = fs::read_to_string(&log).unwrap_or_default();
-    let _ = fs::remove_file(&log);
-    let restored = restored.context("cannot restore the dump")?;
-    ensure!(
-        dumped?.success(),
-        "{program}: {}",
-        crate::tail(errors.trim(), 600)
-    );
-    ensure!(
-        restored.status.success(),
-        "restore: {}",
-        crate::tail(String::from_utf8_lossy(&restored.stderr).trim(), 600)
-    );
-    Ok(())
+/// `dump | restore`, both stopped after `timeout`. Errors go to files, so no side blocks on a full pipe.
+fn pipe(mut dump: Command, mut restore: Command, timeout: Duration) -> Result<()> {
+    let scratch = termf_core::process::scratch_dir()?;
+    let (dump_err, restore_err) = (scratch.join("dump.err"), scratch.join("restore.err"));
+    let result = (|| {
+        let program = dump.get_program().to_string_lossy().into_owned();
+        dump.stdout(Stdio::piped())
+            .stderr(fs::File::create(&dump_err)?);
+        let mut producer = dump
+            .spawn()
+            .with_context(|| format!("cannot run {program}: is it installed?"))?;
+        restore
+            .stdin(producer.stdout.take().context("no pipe")?)
+            .stdout(Stdio::null())
+            .stderr(fs::File::create(&restore_err)?);
+        let consumer = restore.spawn();
+        // The command keeps its own handle on the pipe: dropped, the restore holds the only reader, so if it
+        // stops early the dump gets a broken pipe instead of blocking forever.
+        std::mem::drop(restore);
+        let mut consumer = match consumer {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = producer.kill();
+                let _ = producer.wait();
+                return Err(e).context("cannot restore the dump");
+            }
+        };
+        let deadline = Instant::now() + timeout;
+        let (mut dumped, mut restored) = (None, None);
+        while dumped.is_none() || restored.is_none() {
+            if dumped.is_none() {
+                dumped = producer.try_wait()?;
+            }
+            if restored.is_none() {
+                restored = consumer.try_wait()?;
+            }
+            if Instant::now() > deadline {
+                for child in [&mut producer, &mut consumer] {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                bail!("the copy took more than {} min", timeout.as_secs() / 60);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let read = |file: &Path| fs::read_to_string(file).unwrap_or_default();
+        ensure!(
+            restored.is_some_and(|s| s.success()),
+            "restore: {}",
+            crate::tail(read(&restore_err).trim(), 600)
+        );
+        ensure!(
+            dumped.is_some_and(|s| s.success()),
+            "{program}: {}",
+            crate::tail(read(&dump_err).trim(), 600)
+        );
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&scratch);
+    result
 }

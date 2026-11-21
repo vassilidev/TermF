@@ -578,12 +578,12 @@ fn gives_ports_and_a_compose_project_per_worktree() {
         );
     }
 
-    let down = setup.teardown(&w1);
+    let down = setup.teardown(&w1, "41");
     assert_eq!(one(&down, StepKind::Env).outcome, Outcome::Released);
     let given = fs::read_to_string(sb.root.join("data/ports.json")).unwrap();
     assert!(!given.contains(&mine[0].to_string()) || port(&second, "PORT") == mine[0]);
     assert!(
-        setup.teardown(&w1).steps.is_empty(),
+        setup.teardown(&w1, "41").steps.is_empty(),
         "nothing left to give back"
     );
     assert_eq!(compose_name("Run 7"), "termf_run_7");
@@ -784,7 +784,7 @@ fn copies_a_sqlite_database_per_worktree() {
         env.contains(&format!("DB_DATABASE=\"{}\"", beside.display())),
         "{env}"
     );
-    let down = setup.teardown(&path);
+    let down = setup.teardown(&path, "6");
     assert_eq!(one(&down, StepKind::Database).outcome, Outcome::Dropped);
     assert!(
         !beside.exists() && shared.exists(),
@@ -793,22 +793,35 @@ fn copies_a_sqlite_database_per_worktree() {
 }
 
 #[test]
-fn never_rewrites_a_tracked_env_file() {
+fn never_rewrites_an_env_file_git_does_not_ignore() {
     let sb = Sandbox::new("tracked");
     let app = sb.repo(
         "app",
         &[(".env", "DB_CONNECTION=mysql\nDB_DATABASE=shop\n")],
     );
-    sb.project("acme", &[&app]);
+    let api = sb.repo("api", &[("README.md", "x")]);
+    // Untracked, but not ignored either: it would end up in the run's pull request.
+    fs::write(
+        api.join(".env"),
+        "DATABASE_URL=mysql://root@127.0.0.1/shop\n",
+    )
+    .unwrap();
+    sb.project("acme", &[&app, &api]);
     let setup = sb.setup();
-    let path = sb.worktree(&app, "one");
-    let report = setup.run(&setup.locate(&path, None).unwrap());
-    let db = one(&report, StepKind::Database);
-    assert_eq!(db.outcome, Outcome::Failed);
-    assert!(db.detail.contains("tracked by git"), "{db:?}");
+    for (repo, name) in [(&app, "one"), (&api, "two")] {
+        let path = sb.worktree(repo, name);
+        let report = setup.run(&setup.locate(&path, None).unwrap());
+        let db = one(&report, StepKind::Database);
+        assert_eq!(db.outcome, Outcome::Refused, "{db:?}");
+        assert!(db.detail.contains("git does not ignore it"), "{db:?}");
+    }
     assert_eq!(
-        fs::read_to_string(path.join(".env")).unwrap(),
+        fs::read_to_string(sb.root.join("worktrees/one/.env")).unwrap(),
         "DB_CONNECTION=mysql\nDB_DATABASE=shop\n"
+    );
+    assert!(
+        !sb.root.join("worktrees/two/.env").exists(),
+        "nothing copied"
     );
 }
 
@@ -861,7 +874,7 @@ fn copies_a_postgres_database_through_its_template() {
     let again = setup.run(&wt);
     assert_eq!(one(&again, StepKind::Database).outcome, Outcome::Present);
     assert_eq!(sb.log().lines().count(), 1, "made once");
-    let down = setup.teardown(&path);
+    let down = setup.teardown(&path, "7");
     assert_eq!(one(&down, StepKind::Database).outcome, Outcome::Dropped);
     assert!(
         sb.log()
@@ -937,7 +950,7 @@ fn copies_a_mysql_database_with_a_dump() {
         (Outcome::Created, "shop_termf_3"),
         "{db:?}"
     );
-    let conn = "--host=127.0.0.1 --port=3306 --user=root";
+    let conn = "--no-defaults --host=127.0.0.1 --port=3306 --user=root";
     let logged = sb.log();
     let mut calls: Vec<&str> = logged.lines().collect();
     // The dump and the restore run side by side.
@@ -957,7 +970,7 @@ fn copies_a_mysql_database_with_a_dump() {
     assert!(
         written.contains("DB_DATABASE=shop_termf_3\n") && written.contains("DB_PASSWORD=secret\n")
     );
-    setup.teardown(&path);
+    setup.teardown(&path, "3");
     assert!(sb.log().ends_with(&format!(
         "mysql {conn} -e DROP DATABASE IF EXISTS `shop_termf_3` | secret\n"
     )));
@@ -1299,7 +1312,7 @@ fn copies_a_real_mysql_database() {
         "1",
         "the original is untouched"
     );
-    setup.teardown(&path);
+    setup.teardown(&path, "1");
     assert_eq!(mysql("SHOW DATABASES LIKE 'shop_termf_1'"), "");
     mysql("DROP DATABASE shop");
 }

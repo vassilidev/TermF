@@ -50,7 +50,7 @@ impl Tickets {
     pub fn unprepare(&self, path: &Path) -> Result<(Option<Run>, Report)> {
         let store = Store::open(&self.data_dir)?;
         let (wt, run) = self.locate(&store, path)?;
-        let report = self.setup().teardown(&wt.path);
+        let report = self.setup().teardown(&wt.path, &wt.id);
         if let Some(run) = &run
             && !report.steps.is_empty()
         {

@@ -29,10 +29,6 @@ pub(crate) fn relative(rel: &str) -> Option<PathBuf> {
     fine.then(|| path.to_path_buf())
 }
 
-pub(crate) fn tracked(env: &[(String, String)], repo: &Path, file: &str) -> bool {
-    crate::git(env, repo, &["ls-files", "--error-unmatch", "--", file]).is_ok()
-}
-
 /// Copies from `source` into `worktree` what git ignores and `patterns` name, unless the worktree already has
 /// it. Dependency folders (`skip`, and the usual ones) are left out. Returns what it copied, and how many it
 /// found already there.
