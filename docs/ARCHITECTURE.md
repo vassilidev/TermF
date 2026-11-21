@@ -772,6 +772,7 @@ TermF gère tout ce que Claude Code permet de configurer, de planifier ou de con
 - **Skills, agents, commandes, styles, règles natifs de Claude Code** et **mémoire** (`CLAUDE.md` par portée, mémoire automatique) : parcourir, éditer, activer ; passerelle avec la bibliothèque de TermF (import déjà fait, export vers les dossiers de Claude).
 - **Sessions** : lister par projet, reprendre, dupliquer (`--fork-session`), renommer, purger (`claude purge`) ; sessions de fond via `claude agents --json`.
 - **Usage, coûts et limites** : jauge de contexte et quotas 5 h / 7 j lus dans le JSON de la statusline des sessions lancées par TermF ; coût des runs headless.
+- **Artifacts du compte connecté (obligatoire)** : liste des artifacts claude.ai du compte (les miens et ceux partagés avec moi), ouverture, copie du lien, suppression avec confirmation, épinglage, visibilité et partage, republication ; ce qui n'est pas pilotable hors du web ouvre la bonne page de claude.ai (moyens exacts en cours de vérification dans la doc officielle).
 - **Compte et version** : `claude auth status|login|logout`, version, canal, `claude update`, `claude doctor`.
 
 ---
