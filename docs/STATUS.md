@@ -29,6 +29,7 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 
 1. Merger l'**interface des clés SSH** et l'**interface de la synchro** (ci-dessus) après validation visuelle.
 1. **Agent de veille** (obligation demandée par le propriétaire le 2026-11-21, ARCHITECTURE §11.2) : parcourt le web, critique et propose d'améliorer prompts des rôles, préférences, règles, skills et commandes, avec sources, revue élément par élément comme les conventions ; lancé à la demande seulement (bibliothèque entière ou éléments choisis). À lancer dès qu'un worktree Rust se libère (disque), branche `phase2/library-scout`, avec page de captures.
+1. **Gestion complète de Claude Code** (obligation demandée par le propriétaire le 2026-11-21, ARCHITECTURE §11.3), en commençant par les **tâches planifiées (cron, routines)** : inventaire vérifié dans la doc officielle en cours, puis découpage en tranches.
 2. Synchro, plus tard : remotes S3 / WebDAV / HTTPS, coffre et clés SSH synchronisés, oublier un appareil, cloner un dépôt manquant, recharger les réglages après un pull.
 3. **Phase 3 — tickets** : SQLite (runs, événements), connecteurs GitHub puis Jira, inbox, « je colle l'URL → un agent + worktree + PR ».
 4. **Phase 4 — l'équipe d'agents** : mode headless stream-json + vue conversation + prendre/rendre la main, rôles (déjà livrés dans `library/roles`), chef d'orchestre (plan JSON), moteur de workflows et de règles (contrôles `scope`, `text-changes`), MCP `termf`, jauge de contexte, canari, passation.

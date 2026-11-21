@@ -750,6 +750,10 @@ Un agent parcourt Internet (documentation officielle d'Anthropic et de Claude Co
 - **Couches respectées** : une amélioration d'un élément livré s'écrit comme surcharge dans la couche globale, jamais dans les fichiers livrés ; un élément de projet reste dans sa couche.
 - **Contenu du web non fiable** (injection de prompt) : il n'est jamais exécuté ; un hook ou un script proposé est montré en entier et doit être accepté explicitement.
 
+### 11.3 Gestion complète de Claude Code (obligatoire)
+
+TermF gère tout ce que Claude Code permet de configurer, de planifier ou de consulter, depuis l'app et la CLI, sans avoir à ouvrir une session ni à éditer des fichiers à la main : tâches planifiées (cron locaux, boucles, routines), réglages et permissions par portée, hooks, serveurs MCP, plugins et marketplaces, skills, agents, commandes, styles de sortie, mémoire (`CLAUDE.md`, mémoire automatique), sessions et transcripts, usage et coûts, Remote Control, comptes et mises à jour. L'inventaire détaillé (emplacements, commandes, ce qu'une app externe peut ou ne peut pas faire) et le découpage en tranches suivent.
+
 ---
 
 ## 12. Accès production sécurisé (« Coffre & Ops »)
