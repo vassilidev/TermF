@@ -1,0 +1,297 @@
+use std::collections::{HashMap, VecDeque};
+use std::io::{ErrorKind, Read, Write};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Context, Result, anyhow};
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use serde::Serialize;
+
+// shortcut: trimming by bytes may cut an escape sequence on replay, upgrade to line-aware trimming if it shows.
+const SCROLLBACK_BYTES: usize = 1 << 20;
+
+pub enum Output {
+    Data(Vec<u8>),
+    Exit(Option<u32>),
+}
+
+pub type Sink = Box<dyn FnMut(Output) + Send>;
+
+pub struct SpawnSpec {
+    pub title: String,
+    pub program: String,
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    pub id: u32,
+    pub title: String,
+    pub running: bool,
+    pub exit_code: Option<u32>,
+}
+
+#[derive(Default)]
+struct Shared {
+    scrollback: VecDeque<u8>,
+    sink: Option<Sink>,
+    exit: Option<Option<u32>>,
+}
+
+impl Shared {
+    fn push(&mut self, chunk: &[u8]) {
+        self.scrollback.extend(chunk);
+        let overflow = self.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
+        self.scrollback.drain(..overflow);
+        if let Some(sink) = self.sink.as_mut() {
+            sink(Output::Data(chunk.to_vec()));
+        }
+    }
+
+    fn finish(&mut self, code: Option<u32>) {
+        self.exit = Some(code);
+        if let Some(sink) = self.sink.as_mut() {
+            sink(Output::Exit(code));
+        }
+    }
+}
+
+struct Session {
+    title: String,
+    master: Box<dyn MasterPty + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
+    shared: Arc<Mutex<Shared>>,
+}
+
+#[derive(Default)]
+pub struct Sessions {
+    map: Mutex<HashMap<u32, Session>>,
+    next_id: AtomicU32,
+}
+
+impl Sessions {
+    pub fn spawn(&self, spec: SpawnSpec) -> Result<u32> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let pair = native_pty_system().openpty(size(spec.cols, spec.rows))?;
+
+        let mut cmd = CommandBuilder::new(&spec.program);
+        cmd.args(&spec.args);
+        cmd.cwd(&spec.cwd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
+            .with_context(|| format!("cannot start {}", spec.program))?;
+        // The master only sees EOF once every slave handle is closed.
+        drop(pair.slave);
+
+        let killer = child.clone_killer();
+        let mut reader = pair.master.try_clone_reader()?;
+        let writer = pair.master.take_writer()?;
+        let shared = Arc::new(Mutex::new(Shared::default()));
+
+        let thread_shared = shared.clone();
+        std::thread::Builder::new()
+            .name(format!("pty-{id}"))
+            .spawn(move || {
+                let mut buf = [0u8; 16 * 1024];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => thread_shared.lock().unwrap().push(&buf[..n]),
+                        Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                        Err(_) => break,
+                    }
+                }
+                let code = child.wait().ok().map(|s| s.exit_code());
+                thread_shared.lock().unwrap().finish(code);
+            })?;
+
+        self.map.lock().unwrap().insert(
+            id,
+            Session {
+                title: spec.title,
+                master: pair.master,
+                writer: Arc::new(Mutex::new(writer)),
+                killer,
+                shared,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Replaces the output sink and returns the scrollback, so a new view replays history then streams.
+    pub fn attach(&self, id: u32, mut sink: Sink) -> Result<Vec<u8>> {
+        let shared = self.with(id, |s| s.shared.clone())?;
+        let mut shared = shared.lock().unwrap();
+        let snapshot = shared.scrollback.iter().copied().collect();
+        if let Some(code) = shared.exit {
+            sink(Output::Exit(code));
+        }
+        shared.sink = Some(sink);
+        Ok(snapshot)
+    }
+
+    pub fn write(&self, id: u32, data: &[u8]) -> Result<()> {
+        let writer = self.with(id, |s| s.writer.clone())?;
+        let mut writer = writer.lock().unwrap();
+        writer.write_all(data)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    pub fn resize(&self, id: u32, cols: u16, rows: u16) -> Result<()> {
+        self.with(id, |s| s.master.resize(size(cols, rows)))?
+    }
+
+    pub fn kill(&self, id: u32) -> Result<()> {
+        let mut session = self
+            .map
+            .lock()
+            .unwrap()
+            .remove(&id)
+            .ok_or_else(|| anyhow!("unknown session {id}"))?;
+        // Already exited is fine: dropping the session closes the PTY anyway.
+        let _ = session.killer.kill();
+        Ok(())
+    }
+
+    pub fn list(&self) -> Vec<SessionInfo> {
+        let mut list: Vec<_> = self
+            .map
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, s)| {
+                let exit = s.shared.lock().unwrap().exit;
+                SessionInfo {
+                    id: *id,
+                    title: s.title.clone(),
+                    running: exit.is_none(),
+                    exit_code: exit.flatten(),
+                }
+            })
+            .collect();
+        list.sort_by_key(|s| s.id);
+        list
+    }
+
+    fn with<T>(&self, id: u32, f: impl FnOnce(&Session) -> T) -> Result<T> {
+        let map = self.map.lock().unwrap();
+        let session = map
+            .get(&id)
+            .ok_or_else(|| anyhow!("unknown session {id}"))?;
+        Ok(f(session))
+    }
+}
+
+fn size(cols: u16, rows: u16) -> PtySize {
+    PtySize {
+        cols,
+        rows,
+        pixel_width: 0,
+        pixel_height: 0,
+    }
+}
+
+/// Program and args that run `command` (or an interactive shell when `None`) through the user's login shell,
+/// so GUI launches still get the PATH from the shell profile.
+pub fn shell_command(command: Option<&str>) -> (String, Vec<String>) {
+    if cfg!(windows) {
+        match command {
+            Some(c) => ("cmd.exe".into(), vec!["/d".into(), "/c".into(), c.into()]),
+            None => ("powershell.exe".into(), vec!["-NoLogo".into()]),
+        }
+    } else {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        match command {
+            Some(c) => (shell, vec!["-l".into(), "-i".into(), "-c".into(), c.into()]),
+            None => (shell, vec!["-l".into()]),
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    fn collect(sessions: &Sessions, id: u32) -> (String, Option<u32>) {
+        let (tx, rx) = mpsc::channel();
+        let snapshot = sessions
+            .attach(
+                id,
+                Box::new(move |out| {
+                    let _ = tx.send(out);
+                }),
+            )
+            .unwrap();
+        let mut text = String::from_utf8_lossy(&snapshot).into_owned();
+        loop {
+            match rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("pty timed out")
+            {
+                Output::Data(d) => text.push_str(&String::from_utf8_lossy(&d)),
+                Output::Exit(code) => return (text, code),
+            }
+        }
+    }
+
+    fn spec(program: &str, args: &[&str]) -> SpawnSpec {
+        SpawnSpec {
+            title: "test".into(),
+            program: program.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            cwd: std::env::temp_dir(),
+            cols: 80,
+            rows: 24,
+        }
+    }
+
+    #[test]
+    fn replays_output_and_reports_exit() {
+        let sessions = Sessions::default();
+        let id = sessions
+            .spawn(spec("/bin/sh", &["-c", "printf hello; exit 3"]))
+            .unwrap();
+        let (text, code) = collect(&sessions, id);
+        assert!(text.contains("hello"), "got {text:?}");
+        assert_eq!(code, Some(3));
+        assert!(!sessions.list()[0].running);
+    }
+
+    #[test]
+    fn writes_input_and_kills() {
+        let sessions = Sessions::default();
+        let id = sessions.spawn(spec("/bin/cat", &[])).unwrap();
+        sessions.write(id, b"ping\n").unwrap();
+        sessions.resize(id, 100, 30).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let snapshot = sessions
+            .attach(
+                id,
+                Box::new(move |out| {
+                    if let Output::Data(d) = out {
+                        let _ = tx.send(d);
+                    }
+                }),
+            )
+            .unwrap();
+        let mut seen = String::from_utf8_lossy(&snapshot).into_owned();
+        while !seen.contains("ping") {
+            let d = rx.recv_timeout(Duration::from_secs(10)).expect("no echo");
+            seen.push_str(&String::from_utf8_lossy(&d));
+        }
+        sessions.kill(id).unwrap();
+        assert!(sessions.list().is_empty());
+    }
+}

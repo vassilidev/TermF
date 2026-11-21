@@ -1,0 +1,21 @@
+[package]
+name = "termf-app"
+description = "TermF desktop app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# Unique lib name avoids a bin/lib name clash on Windows (cargo#8519).
+name = "termf_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+termf-core = { path = "../../crates/termf-core" }
+termf-term = { path = "../../crates/termf-term" }
+anyhow = "1.0.104"
