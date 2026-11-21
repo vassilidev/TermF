@@ -231,7 +231,9 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str) -> Vec<String> {
         }
         for file in &task.files_hint {
             let path = std::path::Path::new(file);
-            if path.is_absolute() || path.components().any(|c| c.as_os_str() == "..") {
+            // `/x` is not absolute on Windows, yet never inside the repository.
+            let rooted = path.is_absolute() || file.starts_with(['/', '\\']);
+            if rooted || path.components().any(|c| c.as_os_str() == "..") {
                 problems.push(format!(
                     "task {id}: {file} is not a path inside the repository"
                 ));
