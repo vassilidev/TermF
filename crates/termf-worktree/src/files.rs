@@ -17,6 +17,9 @@ pub(crate) const DEPENDENCY_DIRS: [&str; 6] = [
     "vendor/bundle",
 ];
 
+/// The repository's worktrees, TermF's and Claude Code's: never copied into another one.
+const WORKTREES: &str = ".claude/worktrees";
+
 /// `rel` as a path inside a repository: relative, without `..` or `.git`.
 pub(crate) fn relative(rel: &str) -> Option<PathBuf> {
     let path = Path::new(rel.trim());
@@ -68,13 +71,17 @@ pub(crate) fn include(
     let (mut copied, mut present) = (Vec::new(), 0);
     for (path, is_dir) in &entries {
         let path = path.as_str();
-        let dependency = DEPENDENCY_DIRS.iter().chain(skip).any(|d| {
-            !d.is_empty()
-                && (path == *d
-                    || path.starts_with(&format!("{d}/"))
-                    || path.ends_with(&format!("/{d}"))
-                    || path.contains(&format!("/{d}/")))
-        });
+        let dependency = [WORKTREES]
+            .iter()
+            .chain(&DEPENDENCY_DIRS)
+            .chain(skip)
+            .any(|d| {
+                !d.is_empty()
+                    && (path == *d
+                        || path.starts_with(&format!("{d}/"))
+                        || path.ends_with(&format!("/{d}"))
+                        || path.contains(&format!("/{d}/")))
+            });
         if dependency || !included(patterns, path, *is_dir) {
             continue;
         }
@@ -86,7 +93,7 @@ pub(crate) fn include(
         }
         let from = source.join(&rel);
         if from.is_dir() {
-            copy_tree(&from, &dest)?;
+            copy_tree(&from, &dest, Some(&source.join(WORKTREES)))?;
         } else {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)?;
@@ -118,6 +125,7 @@ fn files_under(root: &Path, rel: &str) -> Vec<String> {
     for entry in entries.flatten() {
         let name = format!("{rel}/{}", entry.file_name().to_string_lossy());
         match entry.file_type() {
+            Ok(kind) if kind.is_dir() && name == WORKTREES => {}
             Ok(kind) if kind.is_dir() => found.extend(files_under(root, &name)),
             Ok(_) => found.push(name),
             Err(_) => {}
@@ -177,18 +185,21 @@ fn glob(pattern: &[u8], text: &[u8]) -> bool {
 }
 
 /// Copies a folder of data (local config, a SQLite file), cloning each file when the file system can. Links
-/// are copied as links.
-pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<()> {
-    if cow::clone(from, to).is_ok() {
+/// are copied as links. `except`, a folder inside, is left out.
+pub(crate) fn copy_tree(from: &Path, to: &Path, except: Option<&Path>) -> Result<()> {
+    if !except.is_some_and(|e| e.starts_with(from)) && cow::clone(from, to).is_ok() {
         return Ok(());
     }
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
         let (src, dest) = (entry.path(), to.join(entry.file_name()));
+        if except == Some(src.as_path()) {
+            continue;
+        }
         let kind = entry.file_type()?;
         if kind.is_dir() {
-            copy_tree(&src, &dest)?;
+            copy_tree(&src, &dest, except)?;
         } else if kind.is_symlink() {
             copy_link(&src, &dest)?;
         } else {
