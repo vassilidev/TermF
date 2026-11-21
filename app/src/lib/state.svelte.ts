@@ -308,9 +308,10 @@ export async function openSession(path: string, agent: string | null): Promise<n
   }
 }
 
+/** Gone from the list at once, so no tab adopts it again while it is being killed. */
 export async function closeSession(id: number) {
-  await invoke("pty_kill", { id }).catch(() => {});
   app.sessions = app.sessions.filter((s) => s.id !== id);
+  await invoke("pty_kill", { id }).catch(() => {});
 }
 
 /**

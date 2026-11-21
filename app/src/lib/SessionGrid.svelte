@@ -14,7 +14,7 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { keys } from "$lib/commands";
+  import { keys, openLauncher } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { allRepos, currentProject } from "$lib/files.svelte";
   import { aria, display } from "$lib/keymap.svelte";
@@ -125,7 +125,7 @@
           aria-haspopup="dialog"
           aria-expanded={ui.launcher}
           aria-keyshortcuts={aria("new_session")}
-          onclick={() => (ui.launcher = !ui.launcher)}
+          onclick={() => openLauncher()}
         >
           <Plus size={14} aria-hidden="true" />{t("navNewSession")}{#if keys.launcher}<kbd>{keys.launcher}</kbd>{/if}
         </button>

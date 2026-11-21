@@ -181,6 +181,7 @@ export function layoutOf(name: string): Layout {
 
 /** Brings `id`'s tab to the front with `id` as its active split. */
 export function showSession(id: number) {
+  if (!sessionOf(id)) return;
   const tab = adopt(id);
   tab.active = id;
   terminals.current = tab.id;
