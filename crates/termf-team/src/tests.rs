@@ -916,3 +916,165 @@ fn reads_the_target_of_a_ticket_run() {
     assert_eq!(bounded("medium", Some(&json!("low, high"))), "medium");
     assert_eq!(bounded("high", None), "high");
 }
+
+/// The team against the real Claude Code, its roles on Haiku, for a few cents: the orchestrator's plan, then a
+/// task that writes a file, each answer through `--json-schema` on a stream-json session. Permission requests
+/// are allowed. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
+/// `cargo test -p termf-team -- --ignored real_team`
+#[test]
+#[ignore]
+fn real_team() {
+    let root = std::env::temp_dir().join(format!("termf-team-real-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let (repo, config, data) = (root.join("repo"), root.join("config"), root.join("data"));
+    fs::create_dir_all(&repo).unwrap();
+    let env: Vec<(String, String)> = [
+        ("GIT_AUTHOR_NAME", "alex"),
+        ("GIT_AUTHOR_EMAIL", "alex@example.invalid"),
+        ("GIT_COMMITTER_NAME", "alex"),
+        ("GIT_COMMITTER_EMAIL", "alex@example.invalid"),
+    ]
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .to_vec();
+    git(&repo, &env, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("README.md"), "# Acme\n").unwrap();
+    git(&repo, &env, &["add", "-A"]);
+    git(&repo, &env, &["commit", "-q", "-m", "init"]);
+    let worktree = data.join("worktrees/run1");
+    git(
+        &repo,
+        &env,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "termf/1-hello",
+            &worktree.to_string_lossy(),
+        ],
+    );
+    let put = |path: PathBuf, text: String| {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    put(
+        config.join("termf.toml"),
+        "[agents]\nclaude = \"claude\"\n".into(),
+    );
+    put(
+        config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"api\"\npath = \"{}\"\n",
+            repo.display()
+        ),
+    );
+    for (role, extra) in [
+        (
+            "orchestrator",
+            "disallowedTools: Edit, Write, NotebookEdit\n",
+        ),
+        ("back", ""),
+    ] {
+        put(
+            config.join(format!("library/roles/{role}.md")),
+            format!(
+                "---\nname: {role}\ndescription: The {role} of the team\nmodel: haiku\neffort: low\n{extra}---\nYou are the {role} of the team. Be brief.\n"
+            ),
+        );
+    }
+    put(
+        config.join("library/workflows/real.toml"),
+        "budget_usd = 1\n[steps.plan]\ntype = \"agent\"\nrole = \"orchestrator\"\nbudget_usd = 0.3\n[steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\nstep = { budget_usd = 0.3 }\n".into(),
+    );
+    let target = Target {
+        run: 1,
+        project: "acme".into(),
+        repo: "api".into(),
+        repo_path: repo.clone(),
+        worktree: worktree.clone(),
+        ticket: "acme/api#1".into(),
+        title: "Add hello.txt".into(),
+        brief: "<ticket source=\"https://example.invalid/1\">\n# Add hello.txt\n\nCreate a file hello.txt at the root of the repository, containing the single word hi. One task, for the back role. No question.\n</ticket>".into(),
+    };
+    let (notifier, inbox) = channel();
+    let agents = Agents::build(config.clone(), data.clone(), Vec::new(), move |u| {
+        if let termf_agents::Update::Session(s) = u {
+            notifier.session(s.id);
+        }
+    });
+    let team = Team::build(config, data, agents.clone(), inbox, env, |_| {});
+    team.start(
+        target,
+        Options {
+            workflow: Some("real".into()),
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(600);
+    let run = loop {
+        let run = team.run(1).unwrap();
+        if !matches!(run.state, RunState::Running) || Instant::now() > deadline {
+            break run;
+        }
+        for session in agents.sessions().unwrap() {
+            if session.state == termf_agents::State::Waiting {
+                let request = agents
+                    .events(session.id, 0)
+                    .unwrap()
+                    .into_iter()
+                    .rev()
+                    .find_map(|e| match e.event {
+                        termf_agents::AgentEvent::Permission { request, .. } => Some(request),
+                        _ => None,
+                    });
+                let _ = agents.answer(session.id, &request.unwrap(), true, None);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let events: Vec<String> = team
+        .events(1, 0)
+        .unwrap()
+        .iter()
+        .map(|e| format!("{} {:?} {}", e.kind, e.step, e.message))
+        .collect();
+    let folders: Vec<PathBuf> = agents
+        .sessions()
+        .unwrap()
+        .into_iter()
+        .map(|s| s.spec.cwd)
+        .collect();
+    let structured = run.steps.iter().filter_map(|s| s.session).all(|id| {
+        agents.events(id, 0).unwrap().iter().any(|e| {
+            matches!(
+                &e.event,
+                termf_agents::AgentEvent::TurnEnd {
+                    structured: Some(_),
+                    ..
+                }
+            )
+        })
+    });
+    team.shutdown();
+    agents.shutdown();
+    for folder in folders {
+        let _ = Command::new("claude")
+            .args(["purge", &folder.to_string_lossy(), "-y"])
+            .output();
+    }
+    let hello = fs::read_to_string(worktree.join("hello.txt"));
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(run.state, RunState::Done, "{events:#?}");
+    assert!(structured, "each answer came through --json-schema");
+    assert!(hello.unwrap().contains("hi"));
+    let plan = run.plan.unwrap();
+    assert_eq!(plan.tasks.len(), 1, "{plan:#?}");
+    assert!(
+        run.steps
+            .iter()
+            .all(|s| s.report.is_some() || s.plan || s.kind == StepKind::Foreach)
+    );
+    assert!(run.cost > 0.0 && run.cost < 1.0, "{}", run.cost);
+}
