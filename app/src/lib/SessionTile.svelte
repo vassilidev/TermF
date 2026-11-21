@@ -3,26 +3,35 @@
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Smartphone from "@lucide/svelte/icons/smartphone";
+  import UserRound from "@lucide/svelte/icons/user-round";
   import X from "@lucide/svelte/icons/x";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Terminal from "$lib/Terminal.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
-  import { keys, toggleMaximize } from "$lib/commands";
+  import { focusSession, keys, toggleMaximize } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { app, closeSession, resetContext, ticked, type Session } from "$lib/state.svelte";
+  import { shown } from "$lib/project.svelte";
+  import { neighbour, tileTitle } from "$lib/tile-logic";
+  import { app, closeSession, grid, resetContext, ticked, type Session } from "$lib/state.svelte";
 
   /** `index`: among the tiles shown, -1 for a session of another project. */
   let { session, index }: { session: Session; index: number } = $props();
 
   const isFocused = $derived(app.focused === session.id);
+  const failed = $derived(!!session.exitCode);
+  const title = $derived(tileTitle(session.title, session.agent ?? t("shell")));
 
-  const failed = $derived(session.exitCode !== null && session.exitCode !== 0);
+  async function close() {
+    const next = neighbour(app.sessions.filter(shown).map((s) => s.id), session.id);
+    await closeSession(session.id);
+    if (next !== null) focusSession(next);
+  }
 </script>
 
 <section
   class="tile"
   class:waiting={session.running && session.status === "waiting"}
-  class:ticked={ticked.has(session.id)}
+  class:ticked={grid.broadcast && ticked.has(session.id)}
   class:maximized={isFocused}
   data-session={session.id}
   hidden={index < 0 || (app.focused !== null && !isFocused)}
@@ -30,33 +39,38 @@
 >
   <!-- svelte-ignore a11y_no_static_element_interactions (a shortcut for the maximize button) -->
   <header ondblclick={(e) => !(e.target as Element).closest("button, input") && toggleMaximize(session.id)}>
+    {#if grid.broadcast}
+      <input
+        type="checkbox"
+        class="tick"
+        checked={ticked.has(session.id)}
+        disabled={!session.running}
+        onchange={(e) => (e.currentTarget.checked ? ticked.add(session.id) : ticked.delete(session.id))}
+        aria-label={t("broadcastTo")}
+        title={t("broadcastTo")}
+      />
+    {/if}
     {#if !session.running}
       <StatusPill
         status={failed ? "failed" : "exited"}
-        label={t("exitedLabel") + (session.exitCode != null ? ` (${session.exitCode})` : "")}
+        label={failed ? `${t("exitedLabel")} (${session.exitCode})` : undefined}
       />
     {:else if session.status}
       <StatusPill status={session.status} />
     {/if}
+    {#if session.role}
+      <span class="role"><UserRound size={12} aria-hidden="true" />{session.role}</span>
+    {/if}
+    <span class="title" title={session.cwd}><b>{title.name}</b><span class="tool">{title.tool}</span></span>
     {#if session.context && session.running}<ContextGauge gauge={session.context} />{/if}
-    <span class="title" title={session.cwd}>{session.title}</span>
     {#if session.remoteControl}
       <span class="rc" role="img" aria-label={t("remoteControlOn")} title={t("remoteControlOn")}>
         <Smartphone size={14} aria-hidden="true" />
       </span>
     {/if}
-    <!-- Over the end of the title, so a narrow tile keeps its name readable until hovered. -->
+    <!-- Over the end of the header, so a narrow tile keeps its name and gauge readable until hovered. -->
     <div class="actions">
       {#if index >= 0 && index < 9}<kbd aria-hidden="true">{keys.tile(index + 1)}</kbd>{/if}
-      <input
-        type="checkbox"
-        class="tick"
-        checked={ticked.has(session.id)}
-        onchange={(e) =>
-          e.currentTarget.checked ? ticked.add(session.id) : ticked.delete(session.id)}
-        aria-label={t("broadcastTo")}
-        title={t("broadcastTo")}
-      />
       {#if session.context && session.running}
         <button
           class="icon-btn sm"
@@ -76,12 +90,7 @@
       >
         {#if isFocused}<Minimize2 size={14} aria-hidden="true" />{:else}<Maximize2 size={14} aria-hidden="true" />{/if}
       </button>
-      <button
-        class="icon-btn sm"
-        onclick={() => closeSession(session.id)}
-        aria-label={t("close")}
-        title={t("close")}
-      >
+      <button class="icon-btn sm" onclick={close} aria-label={t("close")} title={t("close")}>
         <X size={14} aria-hidden="true" />
       </button>
     </div>
@@ -111,6 +120,11 @@
     outline-offset: 2px;
   }
 
+  .tile.ticked {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
   .tile.waiting {
     border-color: var(--waiting-ring);
     box-shadow: 0 0 0 1px var(--waiting-ring);
@@ -134,12 +148,42 @@
   }
 
   .title {
+    display: flex;
     flex: 1;
+    align-items: baseline;
+    gap: 6px;
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
-    font-weight: 500;
+  }
+
+  .title b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+  }
+
+  .tool {
+    flex-shrink: 0;
+    color: var(--muted);
+    font: var(--text-sm) var(--font-mono);
+  }
+
+  .role {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 4px;
+    height: 20px;
+    padding: 0 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+
+  .role :global(svg) {
+    color: var(--accent-ink);
   }
 
   .rc {
@@ -161,18 +205,23 @@
     transition: opacity var(--dur-fast) ease-out;
   }
 
-  /* Shown on hover or keyboard focus; ticked or maximized tiles keep them, as they carry state. */
+  /* Shown on hover or keyboard focus; a maximized tile keeps them in line, as they carry its state. */
   .tile:hover .actions,
   .tile:focus-within .actions,
-  .tile.ticked .actions,
-  :global(.grid.broadcasting) .actions,
   .tile.maximized .actions {
     opacity: 1;
     pointer-events: auto;
   }
 
+  .tile.maximized .actions {
+    position: static;
+    padding-left: 0;
+    background: none;
+  }
+
   .tick {
-    margin: 0 6px;
+    flex-shrink: 0;
+    margin: 0 2px 0 0;
   }
 
   kbd {

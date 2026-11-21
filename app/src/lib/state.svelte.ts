@@ -46,6 +46,8 @@ export type Session = {
   remoteControl: boolean;
   /** Context gauge and reset, for Claude Code sessions that report to TermF. */
   context: Gauge | null;
+  /** The team role the session works for, once runs launch roles (phase 4). */
+  role?: string | null;
 };
 export type ResetPhase = "idle" | "queued" | "handoff" | "clearing" | "resuming";
 export type ResetFailure =
@@ -117,6 +119,9 @@ export const selected = new SvelteSet<string>();
 
 /** Ids of the sessions ticked for broadcast. */
 export const ticked = new SvelteSet<number>();
+
+/** Terminals: `all` shows every project's tiles under the current project; `broadcast` shows the ticks and the bar. */
+export const grid = $state({ all: false, broadcast: false });
 
 export async function load() {
   try {
@@ -259,9 +264,9 @@ export async function openSession(path: string, agent: string | null) {
         remoteControl: launch.remoteControl,
       }),
     );
-    // A session opened outside the current project would get a hidden tile: show every project instead.
+    // A session opened outside the current project would get a hidden tile: show every project's tiles instead.
     const projects = projectsOf(path, app.workspace?.projects ?? [], tickets.runs);
-    if (app.project !== null && !projects.includes(app.project)) setProject(null);
+    if (app.project !== null && !projects.includes(app.project)) grid.all = true;
   } catch (e) {
     app.error = String(e);
   }

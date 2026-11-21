@@ -14,6 +14,7 @@ import KeyRound from "@lucide/svelte/icons/key-round";
 import Layers from "@lucide/svelte/icons/layers";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
+import Megaphone from "@lucide/svelte/icons/megaphone";
 import Play from "@lucide/svelte/icons/play";
 import Plus from "@lucide/svelte/icons/plus";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -35,6 +36,7 @@ import { launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
 import {
   app,
+  grid,
   load,
   openLayout,
   openRepos,
@@ -225,6 +227,14 @@ export function commands(): Command[] {
       icon: Maximize2,
       group: "sessions",
       run: () => toggleMaximize(),
+    });
+    list.push({
+      id: "broadcast",
+      label: t("broadcast"),
+      icon: Megaphone,
+      group: "sessions",
+      checked: grid.broadcast,
+      run: () => ((ui.view = "terminals"), (grid.broadcast = !grid.broadcast)),
     });
   }
   for (const s of app.sessions) {

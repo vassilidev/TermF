@@ -5,7 +5,13 @@
   import { shown } from "$lib/project.svelte";
   import { app, ticked } from "$lib/state.svelte";
 
+  /** `onexit`: Escape in the message leaves the broadcast mode. */
+  let { onexit }: { onexit: () => void } = $props();
+
   let text = $state("");
+  let input = $state<HTMLInputElement>();
+  // Turning the mode on is asking to type the message.
+  $effect(() => input?.focus());
   // Never to a tile of another project, out of sight.
   const targets = $derived(app.sessions.filter((s) => s.running && ticked.has(s.id) && shown(s)));
   const keys = t(navigator.userAgent.includes("Mac") ? "broadcastKeysMac" : "broadcastKeys");
@@ -43,7 +49,11 @@
   }}
 >
   <div class="ticks">
-    <button type="button" class="btn sm quiet" onclick={() => app.sessions.filter(shown).forEach((s) => ticked.add(s.id))}>
+    <button
+      type="button"
+      class="btn sm quiet"
+      onclick={() => app.sessions.filter((s) => s.running && shown(s)).forEach((s) => ticked.add(s.id))}
+    >
       {t("tickAll")}
     </button>
     <button type="button" class="btn sm quiet" onclick={() => ticked.clear()}>{t("tickNone")}</button>
@@ -52,7 +62,9 @@
     <Megaphone size={14} aria-hidden="true" />
     <input
       class="field"
+      bind:this={input}
       bind:value={text}
+      onkeydown={(e) => e.key === "Escape" && (e.preventDefault(), onexit())}
       placeholder={t("broadcastPlaceholder")}
       aria-label={t("broadcastPlaceholder")}
     />
@@ -60,7 +72,8 @@
   <span class="count" aria-live="polite">{t("recipients", { count: targets.length })}</span>
   <button
     type="submit"
-    class="btn primary"
+    class="btn"
+    class:primary={!!text && targets.length > 0}
     disabled={!text || !targets.length}
     title={keys}
     aria-keyshortcuts="Meta+Shift+Enter Control+Shift+Enter"
