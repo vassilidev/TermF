@@ -512,6 +512,7 @@ esac
 
 /// A clone of `acme/front` whose GitHub address leads to a local bare repository, and git may reach nothing
 /// else (GIT_ALLOW_PROTOCOL). Returns the clone and the bare repository.
+#[cfg(unix)]
 fn github_clone(sb: &Sandbox) -> (PathBuf, PathBuf) {
     let remotes = sb.root.join("remotes");
     let rewrite = format!(
