@@ -20,3 +20,4 @@ termf-core = { path = "../../crates/termf-core" }
 termf-term = { path = "../../crates/termf-term" }
 termf-files = { path = "../../crates/termf-files" }
 anyhow = "1.0.104"
+tauri-plugin-global-shortcut = "2"

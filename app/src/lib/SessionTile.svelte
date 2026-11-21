@@ -1,7 +1,7 @@
 <script lang="ts">
   import Terminal from "$lib/Terminal.svelte";
   import { t } from "$lib/i18n";
-  import { app, closeSession, type Session } from "$lib/state.svelte";
+  import { app, closeSession, ticked, type Session } from "$lib/state.svelte";
 
   let { session }: { session: Session } = $props();
 
@@ -10,10 +10,20 @@
 
 <section
   class="tile"
+  data-session={session.id}
   hidden={app.focused !== null && !isFocused}
   aria-label={session.title}
 >
   <header>
+    <input
+      type="checkbox"
+      class="tick"
+      checked={ticked.has(session.id)}
+      onchange={(e) =>
+        e.currentTarget.checked ? ticked.add(session.id) : ticked.delete(session.id)}
+      aria-label={t("broadcastTo")}
+      title={t("broadcastTo")}
+    />
     <span
       class="dot"
       class:running={session.running}
@@ -75,6 +85,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 500;
+  }
+
+  .tick {
+    margin: 0;
   }
 
   .dot {

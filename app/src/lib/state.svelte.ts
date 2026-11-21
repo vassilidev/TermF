@@ -11,11 +11,13 @@ export type Workspace = {
   projects: Project[];
   repos: Repo[];
   scanTruncated: boolean;
+  quickTerminalError: string | null;
 };
 export type Session = {
   id: number;
   title: string;
   cwd: string;
+  agent: string | null;
   running: boolean;
   exitCode: number | null;
 };
@@ -30,6 +32,9 @@ export const app = $state({
 /** Paths of the repositories ticked in the sidebar. */
 export const selected = new SvelteSet<string>();
 
+/** Ids of the sessions ticked for broadcast. */
+export const ticked = new SvelteSet<number>();
+
 export async function load() {
   try {
     app.workspace = await invoke<Workspace>("workspace");
@@ -42,7 +47,9 @@ export async function load() {
 /** Loads the workspace and re-attaches to sessions that outlived a webview reload. Returns a cleanup. */
 export function init(): () => void {
   load();
-  invoke<Session[]>("pty_list").then((list) => (app.sessions = list));
+  invoke<Session[]>("pty_list").then((list) => {
+    app.sessions = list;
+  });
   const unlisten = listen<{ id: number; exitCode: number | null }>("pty-exit", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) {
@@ -73,20 +80,22 @@ export function toggleProject(project: Project) {
 
 /** Opens `agent` (or a login shell when null) in every ticked repository. */
 export async function openSelected(agent: string | null) {
-  for (const path of selected) {
-    try {
-      app.sessions.push(
-        await invoke<Session>("pty_spawn", {
-          agent,
-          cwd: path,
-          title: `${repoName(path)} · ${agent ?? "shell"}`,
-          cols: 120,
-          rows: 32,
-        }),
-      );
-    } catch (e) {
-      app.error = String(e);
-    }
+  for (const path of selected) await openSession(path, agent);
+}
+
+export async function openSession(path: string, agent: string | null) {
+  try {
+    app.sessions.push(
+      await invoke<Session>("pty_spawn", {
+        agent,
+        cwd: path,
+        title: `${repoName(path)} · ${agent ?? "shell"}`,
+        cols: 120,
+        rows: 32,
+      }),
+    );
+  } catch (e) {
+    app.error = String(e);
   }
 }
 
