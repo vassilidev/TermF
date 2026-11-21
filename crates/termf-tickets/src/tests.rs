@@ -501,7 +501,9 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     };
 
     let inbox = t.inbox(None, false).unwrap();
+    assert!(inbox.errors.is_empty());
     let found: Vec<(&str, Option<&str>)> = inbox
+        .tickets
         .iter()
         .map(|i| (i.reference.key.as_str(), i.project.as_deref()))
         .collect();
@@ -510,13 +512,25 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         [("acme/front#42", Some("acme")), ("other/x#1", None)],
         "every page, newest first, pull requests left out"
     );
+    let implicit = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(implicit.errors, []);
     assert!(
-        t.inbox(Some("acme"), false).unwrap().is_empty(),
-        "a project lists nothing until a source is connected"
+        log().contains("assignee:@me repo:acme/front -f per_page=100\n"),
+        "without [trackers], GitHub Issues on the repositories' remotes, as before sources"
     );
-    sb.project("acme", &format!("{project}[trackers.github]\n"));
-    t.inbox(Some("acme"), false).unwrap();
-    assert!(log().contains("assignee:@me repo:acme/front -f per_page=100\n"));
+    assert_eq!(t.configured(Some("acme")).unwrap()[0].sources, ["github"]);
+    let source = t.sources("acme").unwrap();
+    assert!(source.trackers.implicit && source.trackers.github.as_ref().unwrap().issues);
+    assert_eq!(source.github_repos, ["acme/front"]);
+    sb.project("acme", &format!("{project}[trackers]\n"));
+    let calls = log().lines().count();
+    assert!(t.inbox(Some("acme"), false).unwrap().tickets.is_empty());
+    assert_eq!(
+        log().lines().count(),
+        calls,
+        "an empty [trackers] reads nothing"
+    );
+    assert!(!t.configured(Some("acme")).unwrap()[0].configured);
     sb.project("acme", &project);
 
     assert!(t.start("front#42", None, Some("nope")).is_err());
@@ -1046,17 +1060,24 @@ fn reads_and_writes_jira() {
     sb.project("acme", &project);
     let t = sb.tickets();
 
-    let missing = format!("{:#}", t.inbox(Some("acme"), false).unwrap_err());
+    let missing = t.inbox(Some("acme"), false).unwrap();
+    assert!(missing.tickets.is_empty());
+    assert_eq!(missing.errors[0].source, "jira");
     assert!(
-        missing.contains("Jira: no API token for me@acme.test"),
-        "{missing}"
+        missing.errors[0]
+            .message
+            .contains("no API token for me@acme.test"),
+        "{missing:?}"
     );
     assert!(!t.sources("acme").unwrap().jira_token);
+    assert!(!t.has_jira_token(&url, "me@acme.test").unwrap());
     t.save_jira_token(&url, "me@acme.test", &format!(" {TOKEN}\n"))
         .unwrap();
     assert!(t.sources("acme").unwrap().jira_token);
+    assert!(t.has_jira_token(&url, "ME@acme.test").unwrap());
+    assert!(!t.has_jira_token(&url, "other@acme.test").unwrap());
 
-    let inbox = t.inbox(Some("acme"), false).unwrap();
+    let inbox = t.inbox(Some("acme"), false).unwrap().tickets;
     assert_eq!(
         keys(&inbox),
         ["ACME-2", "ACME-1"],
@@ -1098,7 +1119,10 @@ fn reads_and_writes_jira() {
         "ACME-1".to_owned(),
         "acme-1".to_owned(),
         format!("{url}/browse/ACME-1"),
+        format!("{url}/browse/ACME-1#comment-10042"),
+        format!("{url}/browse/ACME-1?focusedCommentId=10042#comment-10042"),
         format!("{url}/jira/software/projects/ACME/boards/1?selectedIssue=ACME-1"),
+        format!("{url}/jira/software/projects/ACME/boards/1?selectedIssue=ACME-1#top"),
     ] {
         let found = t.resolve(&input, None).unwrap();
         assert_eq!(
@@ -1120,7 +1144,7 @@ fn reads_and_writes_jira() {
     sb.project("acme", &format!("{project}project = \"OPS\"\n"));
     let other_key = format!("{:#}", t.resolve("ACME-1", None).unwrap_err());
     assert!(
-        other_key.contains("no project has a Jira source for it"),
+        other_key.contains("ACME-1 is in no project: their Jira sources take the keys OPS-…"),
         "{other_key}"
     );
     assert_eq!(t.resolve("ops-4", None).unwrap().ticket.key, "OPS-4");
@@ -1195,7 +1219,9 @@ fn reads_and_writes_jira() {
     // The token: in the keychain only, never in a file, an argument or an error.
     t.save_jira_token(&url, "me@acme.test", "wrong-token")
         .unwrap();
-    let refused = format!("{:#}", t.inbox(Some("acme"), false).unwrap_err());
+    let refused = t.inbox(Some("acme"), false).unwrap().errors[0]
+        .message
+        .clone();
     assert!(
         refused.contains("Jira refused the e-mail and API token (401)"),
         "{refused}"
@@ -1314,13 +1340,13 @@ fn lists_and_moves_github_project_items() {
     fake_gh_board(&sb);
     let front = sb.repo("front", "git@github.com:acme/front.git");
     let project = format!(
-        "name = \"Acme\"\n[[repos]]\npath = {front:?}\n\n[trackers.github]\nissues = false\nproject = \"https://github.com/orgs/acme/projects/4\"\ncolumns = [\"Todo\", \"In Progress\"]\n"
+        "name = \"Acme\"\n[[repos]]\npath = {front:?}\n\n[trackers.github]\nproject = \"https://github.com/orgs/acme/projects/4\"\ncolumns = [\"Todo\", \"In Progress\"]\n"
     );
     sb.project("acme", &project);
     let t = sb.tickets();
     let log = || fs::read_to_string(sb.root.join("gh.log")).unwrap_or_default();
 
-    let inbox = t.inbox(Some("acme"), false).unwrap();
+    let inbox = t.inbox(Some("acme"), false).unwrap().tickets;
     assert_eq!(
         keys(&inbox),
         ["acme/api#4", "acme/front#1"],
@@ -1331,7 +1357,10 @@ fn lists_and_moves_github_project_items() {
     assert_eq!(inbox[0].assignees, ["someone", "me"]);
     assert_eq!(inbox[0].source, "githubProject");
     let calls = log();
-    assert!(!calls.contains("search/issues"), "GitHub Issues is off");
+    assert!(
+        !calls.contains("search/issues"),
+        "GitHub Issues is off by default once a board is named"
+    );
     let graphql: Vec<&str> = calls
         .lines()
         .filter(|l| l.starts_with("api graphql"))
@@ -1442,7 +1471,7 @@ fn reads_an_mcp_source_with_read_tools_only() {
     );
     let t = sb.tickets();
 
-    let inbox = t.inbox(Some("acme"), false).unwrap();
+    let inbox = t.inbox(Some("acme"), false).unwrap().tickets;
     assert_eq!(keys(&inbox), ["ENG-8", "ENG-7"]);
     assert_eq!(inbox[0].reference.provider, "mcp:linear");
     assert_eq!(
@@ -1512,10 +1541,16 @@ fn reads_an_mcp_source_with_read_tools_only() {
     assert_eq!(found.ticket.provider, "mcp:linear");
     assert_eq!(found.ticket.url, "https://linear.app/acme/issue/ENG-7/fix");
     assert_eq!(found.repo.as_deref(), Some(path(&front).as_str()));
-    let by_url = t
-        .resolve("https://linear.app/acme/issue/ENG-8/", None)
-        .unwrap();
-    assert_eq!(by_url.ticket.key, "ENG-8");
+    for address in [
+        "https://linear.app/acme/issue/ENG-8/",
+        "https://linear.app/acme/issue/ENG-8#comment-3",
+    ] {
+        assert_eq!(
+            t.resolve(address, None).unwrap().ticket.key,
+            "ENG-8",
+            "{address}"
+        );
+    }
 
     answer_with(
         &sb,
@@ -1562,7 +1597,13 @@ fn reads_an_mcp_source_with_read_tools_only() {
     // Whatever does not follow the schema is refused, whole.
     let refused = |answer: Value| {
         answer_with(&sb, &answer);
-        format!("{:#}", t.inbox(Some("acme"), true).unwrap_err())
+        let inbox = t.inbox(Some("acme"), true).unwrap();
+        assert!(inbox.tickets.is_empty());
+        let [error] = &inbox.errors[..] else {
+            panic!("{inbox:?}")
+        };
+        assert_eq!(error.source, "mcp:linear");
+        error.message.clone()
     };
     let mut extra = listed(
         "ENG-9",
@@ -1598,7 +1639,6 @@ fn reads_an_mcp_source_with_read_tools_only() {
     ] {
         let error = refused(answer);
         assert!(error.contains(reason), "{error}");
-        assert!(error.starts_with("MCP linear: "), "{error}");
     }
     fs::write(
         sb.root.join("claude-answer.json"),
@@ -1607,11 +1647,12 @@ fn reads_an_mcp_source_with_read_tools_only() {
     )
     .unwrap();
     assert!(
-        format!("{:#}", t.inbox(Some("acme"), true).unwrap_err())
+        t.inbox(Some("acme"), true).unwrap().errors[0]
+            .message
             .contains("Credit balance is too low")
     );
     assert_eq!(
-        keys(&t.inbox(Some("acme"), false).unwrap()),
+        keys(&t.inbox(Some("acme"), false).unwrap().tickets),
         ["ENG-8", "ENG-7"],
         "a failed refresh keeps the last answer"
     );
@@ -1668,7 +1709,7 @@ fn merges_the_sources_of_a_project() {
     sb.project(
         "acme",
         &format!(
-            "name = \"Acme\"\n[[repos]]\npath = {front:?}\n\n[trackers.github]\nproject = \"acme/4\"\n\n\
+            "name = \"Acme\"\n[[repos]]\npath = {front:?}\n\n[trackers.github]\nproject = \"acme/4\"\nissues = true\n\n\
              [trackers.jira]\nsite = {url:?}\nemail = \"me@acme.test\"\n\n[trackers.mcp.atlassian]\nserver = \"atlassian\"\n"
         ),
     );
@@ -1682,13 +1723,33 @@ fn merges_the_sources_of_a_project() {
     );
     let t = sb.tickets();
 
-    let failing = format!("{:#}", t.inbox(Some("acme"), false).unwrap_err());
-    assert!(
-        failing.contains("Jira: no API token"),
-        "a failing source is named: {failing}"
+    let partial = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(
+        partial
+            .errors
+            .iter()
+            .map(|e| e.source.as_str())
+            .collect::<Vec<_>>(),
+        ["jira"],
+        "a failing source is named, the others still list"
+    );
+    assert!(partial.errors[0].message.contains("no API token"));
+    assert_eq!(
+        keys(&partial.tickets),
+        [
+            "ACME-1",
+            "acme/api#4",
+            "acme/front#2",
+            "acme/front#1",
+            "acme/front#7",
+            "ENG-3"
+        ],
+        "the MCP copy of a Jira ticket stays while Jira cannot answer"
     );
     t.save_jira_token(&url, "me@acme.test", TOKEN).unwrap();
     let inbox = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(inbox.errors, []);
+    let inbox = inbox.tickets;
     let found: Vec<(&str, &str)> = inbox
         .iter()
         .map(|t| (t.reference.key.as_str(), t.reference.provider.as_str()))
@@ -1707,14 +1768,14 @@ fn merges_the_sources_of_a_project() {
         "once each (same address), the native source first, newest first"
     );
     assert!(inbox.iter().all(|t| t.project.as_deref() == Some("acme")));
+    let both = inbox
+        .iter()
+        .find(|t| t.reference.key == "acme/front#1")
+        .unwrap();
     assert_eq!(
-        inbox
-            .iter()
-            .find(|t| t.reference.key == "acme/front#1")
-            .unwrap()
-            .state,
-        "open",
-        "GitHub Issues and the board list the same issue: Issues comes first and keeps it"
+        (both.state.as_str(), both.source.as_str()),
+        ("Todo", "githubProject"),
+        "GitHub Issues and the board list the same issue: it keeps its column"
     );
     assert_eq!(
         t.resolve("ACME-1", None).unwrap().ticket.provider,
@@ -1747,7 +1808,6 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
     );
 
     let store = crate::store::Store::open(&sb.root.join("data")).unwrap();
-    store.cache("acme", "linear", &[]).unwrap();
     let trackers = Trackers {
         github: Some(GithubTracker {
             repo: Some("acme/front".into()),
@@ -1775,6 +1835,7 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
             },
         )]
         .into(),
+        implicit: false,
     };
     let saved = t.save_sources("acme", &trackers).unwrap();
     assert!(!saved.jira_token);
@@ -1785,6 +1846,7 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
     for written in [
         "repo = \"acme/front\"",
         "project = \"acme/4\"",
+        "issues = true",
         "columns = [\"Todo\"]",
         "[trackers.jira]",
         "site = \"acme.atlassian.net\"",
@@ -1796,39 +1858,82 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
     ] {
         assert!(text.contains(written), "{written} in {text}");
     }
-    for default in [
-        "issues",
-        "mine",
-        "jql",
-        "tools",
-        "[trackers]\n",
-        "[trackers.mcp]\n",
-    ] {
+    for default in ["mine", "jql", "tools", "[trackers]\n", "[trackers.mcp]\n"] {
         assert!(!text.contains(default), "{default} in {text}");
     }
     let mut expected = trackers.clone();
     expected.github.as_mut().unwrap().columns = vec!["Todo".into()];
     expected.jira.as_mut().unwrap().jql = None;
     assert_eq!(saved.trackers, expected);
+
+    // An MCP source keeps its last answer while its settings stay the same.
+    store.cache("acme", "linear", &[]).unwrap();
+    t.save_sources("acme", &trackers).unwrap();
+    assert_eq!(store.cached("acme", "linear").unwrap(), Some(vec![]));
+    let mut reworded = trackers.clone();
+    reworded.mcp.get_mut("linear").unwrap().prompt = Some("The OPS team".into());
+    t.save_sources("acme", &reworded).unwrap();
     assert_eq!(
         store.cached("acme", "linear").unwrap(),
         None,
-        "an MCP source's answer may no longer fit"
+        "its answer may no longer fit"
     );
+
+    // A blank or padded issues repository is no error.
+    for (repo, written) in [("", None), ("  acme/front ", Some("repo = \"acme/front\""))] {
+        let mut padded = trackers.clone();
+        padded.github.as_mut().unwrap().repo = Some(repo.into());
+        t.save_sources("acme", &padded).unwrap();
+        let text = fs::read_to_string(&file).unwrap();
+        assert_eq!(text.contains("repo = "), written.is_some(), "{text}");
+        assert!(written.is_none_or(|w| text.contains(w)), "{text}");
+    }
 
     let configured = t.configured(Some("acme")).unwrap();
     assert_eq!(
         serde_json::to_value(&configured).unwrap(),
-        json!([{ "project": "acme", "configured": true, "sources": ["github", "githubProject", "jira", "mcp:linear"] }])
+        json!([{ "project": "acme", "configured": true, "sources": ["githubProject", "github", "jira", "mcp:linear"] }])
     );
     let off = Trackers::default();
     t.save_sources("acme", &off).unwrap();
     let text = fs::read_to_string(&file).unwrap();
-    assert!(!text.contains("trackers"), "{text}");
+    assert!(
+        text.contains("[trackers]\n") && !text.contains("[trackers."),
+        "no source is written down, so the implicit one stays off: {text}"
+    );
     assert!(text.contains("[workflows]"));
+    assert!(!t.sources("acme").unwrap().trackers.implicit);
     let configured = t.configured(None).unwrap();
     assert_eq!((configured.len(), configured[0].configured), (1, false));
     assert!(t.configured(Some("nope")).is_err());
+
+    // A board turns GitHub Issues off unless it is asked for.
+    sb.project(
+        "acme",
+        "name = \"Acme\"\n[trackers.github]\nrepo = \"acme/front\"\nproject = \"acme/4\"\n",
+    );
+    let board = t.trackers("acme").unwrap();
+    assert!(!board.github.as_ref().unwrap().issues);
+    assert_eq!(board.sources(), [Source::GithubProject]);
+    sb.project(
+        "acme",
+        "name = \"Acme\"\n[trackers.github]\nproject = \"acme/4\"\nissues = true\n",
+    );
+    assert_eq!(
+        t.trackers("acme").unwrap().sources(),
+        [Source::GithubProject, Source::GithubIssues]
+    );
+    assert_eq!(
+        t.configured(Some("acme")).unwrap()[0].sources,
+        ["githubProject"],
+        "GitHub Issues with no GitHub repository to search is skipped"
+    );
+    assert_eq!(
+        t.inbox(Some("acme"), false).unwrap().errors.len(),
+        1,
+        "only the board, which the test cannot reach"
+    );
+    let text = fs::read_to_string(&file).unwrap();
 
     let invalid = |change: fn(&mut Trackers)| {
         let mut bad = trackers.clone();
@@ -1860,6 +1965,9 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
         text,
         "nothing written when refused"
     );
+    assert_eq!(run::branch_stem("テスト-", "Fix it", 7), "termf/7-fix-it");
+    assert_eq!(run::branch_stem("acme/front#42", "", 7), "termf/42");
+    assert_eq!(run::branch_stem("LIN-3 ", "Été", 7), "termf/LIN-3-t");
     assert_eq!(
         github::Board::parse("https://github.com/users/me/projects/12/views/1").unwrap(),
         github::Board {

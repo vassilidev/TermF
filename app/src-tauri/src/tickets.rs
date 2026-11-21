@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_tickets::{
-    Configured, Delivery, DeliveryPreview, McpServer, Resolution, Run, RunEvent, Sources,
+    Configured, Delivery, DeliveryPreview, Inbox, McpServer, Resolution, Run, RunEvent, Sources,
     TicketSummary, Tickets, Trackers, Unpushed,
 };
 
@@ -142,11 +142,17 @@ pub async fn tickets_inbox(
     app: AppHandle,
     project: Option<String>,
     refresh: Option<bool>,
-) -> CmdResult<Vec<TicketSummary>> {
+) -> CmdResult<Inbox> {
     blocking(app, move |app| {
         tickets(app).inbox(project.as_deref(), refresh.unwrap_or(false))
     })
     .await
+}
+
+/// Whether the keychain holds an API token for this Jira site and e-mail.
+#[tauri::command]
+pub async fn tickets_jira_token(app: AppHandle, site: String, email: String) -> CmdResult<bool> {
+    blocking(app, move |app| tickets(app).has_jira_token(&site, &email)).await
 }
 
 #[tauri::command]

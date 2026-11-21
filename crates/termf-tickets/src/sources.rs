@@ -20,32 +20,74 @@ pub struct Trackers {
     /// By the source's name.
     #[serde(default)]
     pub mcp: BTreeMap<String, McpTracker>,
+    /// The project's file has no `[trackers]`: GitHub Issues on its repositories' GitHub remotes, as before
+    /// sources could be chosen. Saving the sources writes them down.
+    #[serde(default, skip_deserializing)]
+    pub implicit: bool,
 }
 
 /// `[trackers.github]`: GitHub Issues and, with `project`, a Projects v2 board.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(from = "GithubFile")]
 pub struct GithubTracker {
     /// `owner/name`, where the project's issues are: `#42` is read as `owner/name#42`.
-    #[serde(default)]
     pub repo: Option<String>,
     /// Comment on the ticket with the pull request's link once a run is delivered.
-    #[serde(default)]
     pub comment: bool,
-    /// The inbox lists the open issues assigned to the user in the project's repositories and `repo`.
-    #[serde(default = "yes")]
+    /// The inbox lists the open issues assigned to the user in the project's repositories and `repo`. On
+    /// unless a board is named.
     pub issues: bool,
     /// A Projects v2 board, `owner/number`: the inbox lists its open issues.
-    #[serde(default)]
     pub project: Option<String>,
     /// The board's Status values to list; none: all.
-    #[serde(default)]
     pub columns: Vec<String>,
     /// Only the board's issues assigned to the user.
-    #[serde(default = "yes")]
     pub mine: bool,
     /// The board's Status a delivered run moves its issue to; none: left alone.
-    #[serde(default)]
     pub transition: Option<String>,
+}
+
+/// [`GithubTracker`] as written, where `issues` defaults by `project`.
+#[derive(Deserialize)]
+struct GithubFile {
+    #[serde(default)]
+    repo: Option<String>,
+    #[serde(default)]
+    comment: bool,
+    #[serde(default)]
+    issues: Option<bool>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    columns: Vec<String>,
+    #[serde(default = "yes")]
+    mine: bool,
+    #[serde(default)]
+    transition: Option<String>,
+}
+
+impl From<GithubFile> for GithubTracker {
+    fn from(f: GithubFile) -> Self {
+        Self {
+            issues: f.issues.unwrap_or(f.project.is_none()),
+            repo: f.repo,
+            comment: f.comment,
+            project: f.project,
+            columns: f.columns,
+            mine: f.mine,
+            transition: f.transition,
+        }
+    }
+}
+
+impl GithubTracker {
+    /// `repo`, unless left blank.
+    pub(crate) fn repo(&self) -> Option<&str> {
+        self.repo
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+    }
 }
 
 /// `[trackers.jira]`: Jira Cloud. The API token is in the system's keychain, never in the file.
@@ -93,6 +135,8 @@ pub struct Sources {
     pub trackers: Trackers,
     /// Whether the keychain holds an API token for `[trackers.jira]`'s site and e-mail.
     pub jira_token: bool,
+    /// The `owner/name` of the project's GitHub repositories, which GitHub Issues reads.
+    pub github_repos: Vec<String>,
     /// The read-only tools TermF knows for each MCP source's server, used when the source lists none.
     pub mcp_tools: BTreeMap<String, Vec<String>>,
 }
@@ -149,15 +193,33 @@ impl Source {
 }
 
 impl Trackers {
-    /// The sources that feed the inbox, natives first so they win over an MCP copy of the same ticket.
+    /// What a project without `[trackers]` reads.
+    fn implicit() -> Self {
+        Self {
+            github: Some(GithubTracker::from(GithubFile {
+                repo: None,
+                comment: false,
+                issues: None,
+                project: None,
+                columns: Vec::new(),
+                mine: true,
+                transition: None,
+            })),
+            implicit: true,
+            ..Self::default()
+        }
+    }
+
+    /// The sources that feed the inbox, natives first so they win over an MCP copy of the same ticket, and
+    /// the board before Issues so an issue on both keeps its column.
     pub(crate) fn sources(&self) -> Vec<Source> {
         let mut sources = Vec::new();
         if let Some(github) = &self.github {
-            if github.issues {
-                sources.push(Source::GithubIssues);
-            }
             if github.project.is_some() {
                 sources.push(Source::GithubProject);
+            }
+            if github.issues {
+                sources.push(Source::GithubIssues);
             }
         }
         if self.jira.is_some() {
@@ -170,7 +232,7 @@ impl Trackers {
     /// Refuses what no source could use, before it reaches the file.
     fn check(&self) -> Result<()> {
         if let Some(github) = &self.github {
-            if let Some(repo) = &github.repo {
+            if let Some(repo) = github.repo() {
                 github::split(&format!("{repo}#1"))
                     .context("GitHub Issues: the repository is owner/name")?;
             }
@@ -241,13 +303,12 @@ impl Tickets {
     pub(crate) fn trackers(&self, project: &str) -> Result<Trackers> {
         #[derive(Deserialize)]
         struct ProjectFile {
-            #[serde(default)]
-            trackers: Trackers,
+            trackers: Option<Trackers>,
         }
         let file = termf_core::project_file(&self.config_dir, project)?;
         let parsed: ProjectFile = toml::from_str(&fs::read_to_string(&file)?)
             .with_context(|| format!("invalid {}", file.display()))?;
-        Ok(parsed.trackers)
+        Ok(parsed.trackers.unwrap_or_else(Trackers::implicit))
     }
 
     pub fn sources(&self, project: &str) -> Result<Sources> {
@@ -261,17 +322,25 @@ impl Tickets {
             .iter()
             .map(|(name, m)| (name.clone(), mcp::default_tools(&m.server)))
             .collect();
+        let info = self.projects(Some(project))?.remove(0);
+        let mut github_repos: Vec<String> =
+            info.repos.iter().flat_map(|r| r.slugs.clone()).collect();
+        github_repos.sort();
+        github_repos.dedup();
         Ok(Sources {
             trackers,
             jira_token,
+            github_repos,
             mcp_tools,
         })
     }
 
     /// Writes the project's `[trackers]`, keeping the file's comments and the keys TermF does not know. Values
-    /// left at their default are not written. The cached answers of its MCP sources go: they may no longer fit.
+    /// left at their default are not written; no source at all is an empty `[trackers]`, which the implicit
+    /// GitHub Issues source then no longer fills. An MCP source whose settings changed loses its last answer.
     pub fn save_sources(&self, project: &str, trackers: &Trackers) -> Result<Sources> {
         trackers.check()?;
+        let before = self.trackers(project)?;
         let file = termf_core::project_file(&self.config_dir, project)?;
         let mut doc: DocumentMut = fs::read_to_string(&file)?
             .parse()
@@ -284,9 +353,9 @@ impl Tickets {
             }
             Some(g) => {
                 let t = table(root, "github")?;
-                text(t, "repo", g.repo.as_deref());
+                text(t, "repo", g.repo());
                 flag(t, "comment", g.comment, false);
-                flag(t, "issues", g.issues, true);
+                flag(t, "issues", g.issues, g.project.is_none());
                 text(t, "project", g.project.as_deref());
                 list(t, "columns", &g.columns);
                 flag(t, "mine", g.mine, true);
@@ -321,36 +390,32 @@ impl Tickets {
                 text(t, "prompt", m.prompt.as_deref());
             }
         }
-        if root.is_empty() {
-            doc.remove("trackers");
-        }
+        root.set_implicit(!root.is_empty());
         termf_core::write_atomic(&file, &doc.to_string())?;
-        crate::store::Store::open(&self.data_dir)?.forget_cache(project)?;
+        let store = crate::store::Store::open(&self.data_dir)?;
+        for (name, old) in &before.mcp {
+            if trackers.mcp.get(name) != Some(old) {
+                store.forget_cache(project, name)?;
+            }
+        }
         self.sources(project)
     }
 
-    /// For each project (or only `project`), the sources its inbox reads. Reads the config only.
+    /// For each project (or only `project`), the sources its inbox reads. Reads the config and the
+    /// repositories' remotes, nothing over the network.
     pub fn configured(&self, project: Option<&str>) -> Result<Vec<Configured>> {
-        let mut found = Vec::new();
-        for p in termf_core::load_projects(&self.config_dir)? {
-            if project.is_some_and(|id| id != p.id) {
-                continue;
-            }
-            let sources: Vec<String> = self
-                .trackers(&p.id)?
-                .sources()
-                .iter()
-                .map(Source::id)
-                .collect();
-            found.push(Configured {
-                configured: !sources.is_empty(),
-                project: p.id,
-                sources,
-            });
-        }
-        if let Some(id) = project {
-            ensure!(!found.is_empty(), "unknown project {id}");
-        }
+        let found: Vec<Configured> = self
+            .projects(project)?
+            .iter()
+            .map(|p| {
+                let sources: Vec<String> = p.sources().iter().map(Source::id).collect();
+                Configured {
+                    configured: !sources.is_empty(),
+                    project: p.id.clone(),
+                    sources,
+                }
+            })
+            .collect();
         Ok(found)
     }
 

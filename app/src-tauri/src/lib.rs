@@ -298,6 +298,7 @@ pub fn run() {
             tickets::tickets_sources_save,
             tickets::tickets_source_test,
             tickets::tickets_jira_token_save,
+            tickets::tickets_jira_token,
             tickets::tickets_jira_token_forget,
             tickets::tickets_mcp_servers,
             tickets::tickets_configured,

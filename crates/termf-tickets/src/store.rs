@@ -334,9 +334,11 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn forget_cache(&self, project: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM listed WHERE project = ?1", [project])?;
+    pub(crate) fn forget_cache(&self, project: &str, source: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM listed WHERE project = ?1 AND source = ?2",
+            [project, source],
+        )?;
         Ok(())
     }
 

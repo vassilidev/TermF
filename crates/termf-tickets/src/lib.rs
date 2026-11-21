@@ -234,6 +234,20 @@ pub struct Tickets {
     pub secrets: Box<dyn Secrets>,
 }
 
+/// The inbox: the tickets the sources gave, and the sources that failed.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Inbox {
+    pub tickets: Vec<TicketSummary>,
+    pub errors: Vec<SourceError>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct SourceError {
+    /// `github`, `githubProject`, `jira` or `mcp:<name>`.
+    pub source: String,
+    pub message: String,
+}
+
 /// Where a pasted ticket goes.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -268,7 +282,16 @@ struct RepoInfo {
 impl ProjectInfo {
     /// `[trackers.github] repo`.
     fn issues_repo(&self) -> Option<&str> {
-        self.trackers.github.as_ref()?.repo.as_deref()
+        self.trackers.github.as_ref()?.repo()
+    }
+
+    /// The sources the inbox reads: GitHub Issues only when there is a GitHub repository to search.
+    fn sources(&self) -> Vec<Source> {
+        let mut sources = self.trackers.sources();
+        if self.slugs().next().is_none() {
+            sources.retain(|s| *s != Source::GithubIssues);
+        }
+        sources
     }
 
     fn slugs(&self) -> impl Iterator<Item = String> + '_ {
@@ -369,9 +392,11 @@ fn one<'a>(input: &str, found: Vec<&'a ProjectInfo>, none: String) -> Result<&'a
     }
 }
 
-/// A ticket's address as the inbox compares them: no scheme, no `www.`, no trailing slash, any case.
+/// A ticket's address as the inbox compares them: no scheme, no `www.`, no fragment, no trailing slash, any
+/// case.
 fn same_ticket(url: &str) -> String {
-    let url = url.trim().trim_end_matches('/');
+    let url = url.trim();
+    let url = url.split('#').next().unwrap_or(url).trim_end_matches('/');
     let url = url.split_once("://").map_or(url, |(_, rest)| rest);
     url.strip_prefix("www.").unwrap_or(url).to_lowercase()
 }
@@ -501,7 +526,13 @@ impl Tickets {
     pub fn resolve(&self, input: &str, project: Option<&str>) -> Result<Resolution> {
         let input = input.trim();
         let projects = self.projects(project)?;
-        if self.github().resolve(input).is_none() && !input.contains('#') {
+        // GitHub's own forms: an issue URL, or `…#42` that is no address (a `#` in a URL is its fragment).
+        let github = self.github().resolve(input).is_some()
+            || !input.contains("://")
+                && input
+                    .rsplit_once('#')
+                    .is_some_and(|(_, n)| github::number(n).is_some());
+        if !github {
             if let Some(listed) = self.resolve_listed(input, &projects)? {
                 // An MCP copy of a ticket a native source reads goes to that source.
                 let url = &listed.ticket.url;
@@ -596,6 +627,21 @@ impl Tickets {
             .collect();
         let Some(host) = host else {
             if fitting.is_empty() {
+                let mut prefixes: Vec<&str> = projects
+                    .iter()
+                    .filter_map(|p| p.trackers.jira.as_ref()?.project.as_deref())
+                    .collect();
+                prefixes.sort();
+                prefixes.dedup();
+                ensure!(
+                    prefixes.is_empty(),
+                    "{key} is in no project: their Jira sources take the keys {}",
+                    prefixes
+                        .iter()
+                        .map(|p| format!("{}-…", p.to_ascii_uppercase()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
                 return Ok(None);
             }
             let p = one(input, fitting, String::new())?;
@@ -635,23 +681,33 @@ impl Tickets {
     }
 
     /// The open tickets for the user. Without a project, the GitHub issues assigned to them anywhere. With one,
-    /// what its sources list, merged: a ticket two sources list (same URL) comes once, from the native source.
-    /// `refresh` asks the MCP sources again instead of reading their last answer. When a source fails, the
-    /// inbox fails and names it.
-    pub fn inbox(&self, project: Option<&str>, refresh: bool) -> Result<Vec<TicketSummary>> {
+    /// what its sources list, merged: a ticket two sources list (same URL) comes once, from the first source.
+    /// `refresh` asks the MCP sources again instead of reading their last answer. A source that fails is
+    /// named in `errors`, and the others still give their tickets.
+    pub fn inbox(&self, project: Option<&str>, refresh: bool) -> Result<Inbox> {
         let projects = self.projects(project)?;
+        let mut inbox = Inbox::default();
+        let mut failed = |source: &Source, e: anyhow::Error| {
+            inbox.errors.push(SourceError {
+                source: source.id(),
+                message: format!("{e:#}"),
+            })
+        };
         let mut found = Vec::new();
         match project {
-            None => {
-                found = self.github().search(GITHUB_INBOX)?;
-                for ticket in &mut found {
-                    let slug = github::split(&ticket.reference.key)?.0;
-                    ticket.project = projects
-                        .iter()
-                        .find(|p| p.holds(slug))
-                        .map(|p| p.id.clone());
+            None => match self.github().search(GITHUB_INBOX) {
+                Ok(listed) => {
+                    found = listed;
+                    for ticket in &mut found {
+                        let slug = github::split(&ticket.reference.key)?.0;
+                        ticket.project = projects
+                            .iter()
+                            .find(|p| p.holds(slug))
+                            .map(|p| p.id.clone());
+                    }
                 }
-            }
+                Err(e) => failed(&Source::GithubIssues, e),
+            },
             Some(_) => {
                 let p = &projects[0];
                 let fetch = if refresh {
@@ -659,14 +715,12 @@ impl Tickets {
                 } else {
                     Fetch::Cached
                 };
-                let mut errors = Vec::new();
-                for source in p.trackers.sources() {
+                for source in p.sources() {
                     match self.source_inbox(p, &source, fetch) {
                         Ok(tickets) => found.extend(tickets),
-                        Err(e) => errors.push(format!("{}: {e:#}", source.label())),
+                        Err(e) => failed(&source, e),
                     }
                 }
-                ensure!(errors.is_empty(), "{}", errors.join("\n"));
                 let mut seen = HashSet::new();
                 found.retain(|t| seen.insert(same_ticket(&t.reference.url)));
                 for ticket in &mut found {
@@ -676,7 +730,8 @@ impl Tickets {
         }
         // ISO 8601 dates in UTC sort as text.
         found.sort_by(|a, b| b.updated.cmp(&a.updated));
-        Ok(found)
+        inbox.tickets = found;
+        Ok(inbox)
     }
 
     /// What one source of `project` lists.
@@ -693,6 +748,7 @@ impl Tickets {
                 let mut slugs: Vec<String> = project.slugs().collect();
                 slugs.sort();
                 slugs.dedup();
+                // The inbox skips the source then (`ProjectInfo::sources`); a test says why it finds nothing.
                 ensure!(
                     !slugs.is_empty(),
                     "no GitHub repository: add one to the project, or name the repository of its issues"
@@ -753,6 +809,10 @@ impl Tickets {
         let token = token.trim();
         ensure!(!token.is_empty(), "the API token is empty");
         self.secrets.set(&jira::account(site, email)?, token)
+    }
+
+    pub fn has_jira_token(&self, site: &str, email: &str) -> Result<bool> {
+        Ok(self.jira_token(site, email)?.is_some())
     }
 
     pub fn forget_jira_token(&self, site: &str, email: &str) -> Result<()> {

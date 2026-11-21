@@ -80,12 +80,19 @@ pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
             }
         }
         ("inbox", []) => {
-            for ticket in tickets()?.inbox(project.as_deref(), refresh)? {
+            let inbox = tickets()?.inbox(project.as_deref(), refresh)?;
+            for ticket in &inbox.tickets {
                 let project = ticket.project.as_deref().unwrap_or("-");
                 println!(
                     "{:<28}  {project:<12}  {}",
                     ticket.reference.key, ticket.title
                 );
+            }
+            for error in &inbox.errors {
+                eprintln!("termf: {}: {}", error.source, error.message);
+            }
+            if !inbox.errors.is_empty() {
+                bail!("some sources could not be read");
             }
         }
         ("deliver", [id]) => {

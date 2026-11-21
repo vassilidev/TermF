@@ -148,6 +148,26 @@ pub(crate) fn slug(text: &str) -> String {
     slug.trim_end_matches('-').to_owned()
 }
 
+/// `termf/<ticket>-<title>`. An MCP source's key comes from any tracker: only what a branch name always takes
+/// stays of it, and the run's id stands in when nothing does.
+pub(crate) fn branch_stem(key: &str, title: &str, run: i64) -> String {
+    let id: String = key
+        .rsplit('#')
+        .next()
+        .unwrap_or(key)
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let id = match id.trim_matches(['-', '_']) {
+        "" => run.to_string(),
+        id => id.to_owned(),
+    };
+    match slug(title) {
+        s if s.is_empty() => format!("termf/{id}"),
+        s => format!("termf/{id}-{s}"),
+    }
+}
+
 /// The branch runs start from: the remote's default branch, else the usual names.
 fn base_ref(git: &Git, repo: &Path) -> Result<String> {
     if let Ok(head) = git.run(
@@ -315,19 +335,7 @@ impl Tickets {
         // Offline, the run starts from what was last fetched.
         let _ = git.output(repo, &["fetch", "-q", "origin"]);
         let base = base_ref(&git, repo)?;
-        let key = &ticket.reference.key;
-        // An MCP source's key comes from its tracker: only what a branch name always takes stays.
-        let id: String = key
-            .rsplit('#')
-            .next()
-            .unwrap_or(key)
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-            .collect();
-        let stem = match slug(&ticket.title) {
-            s if s.is_empty() => format!("termf/{id}"),
-            s => format!("termf/{id}-{s}"),
-        };
+        let stem = branch_stem(&ticket.reference.key, &ticket.title, run.id);
         let branch = (1..)
             .map(|n| match n {
                 1 => stem.clone(),

@@ -94,9 +94,9 @@ pub(crate) fn parse(input: &str) -> Option<(String, Option<String>)> {
     else {
         return key(input).map(|k| (k, None));
     };
+    let rest = rest.split('#').next().unwrap_or(rest);
     let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
     let (path, query) = path.split_once('?').unwrap_or((path, ""));
-    let query = query.split('#').next().unwrap_or_default();
     let browsed = path
         .strip_prefix("browse/")
         .map(|k| k.trim_end_matches('/'));
