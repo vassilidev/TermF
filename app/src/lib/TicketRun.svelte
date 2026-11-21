@@ -102,7 +102,8 @@
       case "setup": {
         const failed = e.steps.filter((s) => s.outcome === "failed" || s.outcome === "refused").length;
         const count = e.steps.length;
-        return failed ? t("wtEventSetupFailed", { count, failed }) : t("wtEventSetup", { count });
+        const text = failed ? t("wtEventSetupFailed", { count, failed }) : t("wtEventSetup", { count });
+        return e.saved ? text : `${text} · ${t("wtDetected")}`;
       }
       case "teardown":
         return t("wtEventTeardown");

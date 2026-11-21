@@ -113,10 +113,14 @@
     commands: [],
   });
 
-  /** A copy to edit, with a section for every repository of the project. */
+  /** A copy to edit, with a section for every repository of the project. A proposal may leave some out: they
+   * keep what applies now (the saved recipe, else what detection found). */
   function editable(recipe: Recipe): Recipe {
     const copy: Recipe = JSON.parse(JSON.stringify(recipe));
-    for (const r of view?.repos ?? []) copy.repos[r.name] ??= emptyRepo();
+    for (const r of view?.repos ?? []) {
+      const current = view?.recipe.repos[r.name] ?? view?.detected.repos[r.name];
+      copy.repos[r.name] ??= current ? JSON.parse(JSON.stringify(current)) : emptyRepo();
+    }
     for (const repo of Object.values(copy.repos)) repo.database ??= null;
     return copy;
   }
@@ -393,7 +397,7 @@
                 class="field mono"
                 value={repo.ports.join(",")}
                 oninput={(e) => (repo.ports = commas(e.currentTarget.value))}
-                placeholder="web,vite"
+                placeholder={t("wtPortsPlaceholder")}
                 disabled={!!running}
               />
             </label>
