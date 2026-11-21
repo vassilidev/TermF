@@ -21,6 +21,12 @@ scan_depth = 5
 # quick_terminal_shortcut = "Alt+Shift+Space"
 # Command for "Open in external editor" (e.g. "code", "zed"). Unset: the system's default app.
 # editor = "code"
+# Keep the computer from sleeping, which suspends agents (a locked screen does not):
+# "auto" while an agent works (plus 2 minutes), "always" or "off".
+keep_awake = "auto"
+# Also keep the screen on, which prevents the automatic lock. Off by default: it costs energy,
+# and an unattended unlocked computer is a risk.
+keep_display_on = false
 
 # Agents available in the UI: name = command run in the repository.
 # A command that starts with `claude` also reports its status (working, waiting…) to TermF.
@@ -60,6 +66,8 @@ pub struct Settings {
     pub quick_terminal_shortcut: String,
     pub agents: BTreeMap<String, String>,
     pub editor: Option<String>,
+    pub keep_awake: KeepAwake,
+    pub keep_display_on: bool,
 }
 
 // Must stay in sync with DEFAULT_SETTINGS (checked by a test); parsing it here would recurse through serde(default).
@@ -71,8 +79,21 @@ impl Default for Settings {
             quick_terminal_shortcut: String::new(),
             agents: BTreeMap::from([("claude".into(), "claude".into())]),
             editor: None,
+            keep_awake: KeepAwake::Auto,
+            keep_display_on: false,
         }
     }
+}
+
+/// When TermF keeps the computer from sleeping.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum KeepAwake {
+    /// While an agent works.
+    #[default]
+    Auto,
+    Always,
+    Off,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -136,6 +157,23 @@ pub fn load_settings(config_dir: &Path) -> Result<Settings> {
     }
     let text = fs::read_to_string(&file)?;
     toml::from_str(&text).with_context(|| format!("invalid {}", file.display()))
+}
+
+/// Saves the keep-awake choice made in the UI into `termf.toml`, keeping the rest of the file and its comments.
+pub fn save_keep_awake(config_dir: &Path, mode: KeepAwake, display_on: bool) -> Result<()> {
+    load_settings(config_dir)?;
+    let file = config_dir.join("termf.toml");
+    let mut doc: DocumentMut = fs::read_to_string(&file)?
+        .parse()
+        .with_context(|| format!("invalid {}", file.display()))?;
+    let mode = match mode {
+        KeepAwake::Auto => "auto",
+        KeepAwake::Always => "always",
+        KeepAwake::Off => "off",
+    };
+    doc["keep_awake"] = value(mode);
+    doc["keep_display_on"] = value(display_on);
+    write_atomic(&file, &doc.to_string())
 }
 
 /// Reads every `projects/*.toml`; the file stem is the project id.
@@ -468,6 +506,29 @@ mod tests {
     }
 
     #[test]
+    fn saves_keep_awake_and_keeps_comments() {
+        let dir = temp_dir("keep-awake");
+        fs::write(
+            dir.join("termf.toml"),
+            "# mine\nroots = [\"/src\"]\n\n[agents]\nclaude = \"claude\"\n",
+        )
+        .unwrap();
+        save_keep_awake(&dir, KeepAwake::Always, true).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\n"), "comments kept: {text}");
+        let settings = load_settings(&dir).unwrap();
+        assert_eq!(settings.keep_awake, KeepAwake::Always);
+        assert!(settings.keep_display_on);
+        assert_eq!(settings.roots, ["/src"]);
+        assert_eq!(settings.agents["claude"], "claude");
+
+        save_keep_awake(&dir, KeepAwake::Off, false).unwrap();
+        let settings = load_settings(&dir).unwrap();
+        assert_eq!(settings.keep_awake, KeepAwake::Off);
+        assert!(!settings.keep_display_on);
+    }
+
+    #[test]
     fn creates_and_reads_default_settings() {
         let dir = temp_dir("settings");
         let settings = load_settings(&dir).unwrap();
@@ -482,6 +543,8 @@ mod tests {
             settings.quick_terminal_shortcut.is_empty(),
             "no system-wide shortcut by default"
         );
+        assert_eq!(settings.keep_awake, defaults.keep_awake);
+        assert_eq!(settings.keep_display_on, defaults.keep_display_on);
         assert!(dir.join("termf.toml").exists());
 
         fs::write(
