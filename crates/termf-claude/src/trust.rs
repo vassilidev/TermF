@@ -405,10 +405,14 @@ mod tests {
             wt.to_str().unwrap(),
         ]);
         let main = root(&repo);
-        assert_eq!(main, fs::canonicalize(&repo).unwrap());
         assert_eq!(root(&repo.join("sub")), main);
         assert_eq!(root(&wt), main);
-        assert_eq!(root(&dir), fs::canonicalize(&dir).unwrap());
+        // Windows' canonical form (`\\?\C:\`) is not git's (`C:/`).
+        #[cfg(unix)]
+        {
+            assert_eq!(main, fs::canonicalize(&repo).unwrap());
+            assert_eq!(root(&dir), fs::canonicalize(&dir).unwrap());
+        }
 
         fs::create_dir_all(repo.join(".claude")).unwrap();
         fs::write(
