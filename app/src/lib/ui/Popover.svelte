@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { ui } from "$lib/state.svelte";
 
   let {
     open = $bindable(),
@@ -44,8 +45,19 @@
     }
   });
 
+  // A view change or the palette takes the screen.
+  let view = ui.view;
+  $effect(() => {
+    if (ui.palette || ui.view !== view) {
+      view = ui.view;
+      open = false;
+    }
+  });
+
+  /** Escape typed elsewhere, in a terminal for instance, is not for the popover. */
   function onkeydown(e: KeyboardEvent) {
-    if (!open || e.key !== "Escape") return;
+    const focus = document.activeElement;
+    if (!open || e.key !== "Escape" || (focus !== trigger && !panel?.contains(focus))) return;
     e.preventDefault();
     open = false;
     trigger?.focus();
@@ -60,7 +72,8 @@
 <svelte:window {onkeydown} {onpointerdown} />
 
 {#if open}
-  <div class="popover" role="dialog" aria-label={label} bind:this={panel} {style}>
+  <!-- Focusable, so that a click on its text keeps the focus, and Escape, inside. -->
+  <div class="popover" role="dialog" aria-label={label} tabindex="-1" bind:this={panel} {style}>
     {@render children()}
   </div>
 {/if}

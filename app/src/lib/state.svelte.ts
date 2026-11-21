@@ -9,6 +9,8 @@ import {
 import { t } from "$lib/i18n";
 import { projectsOf } from "$lib/nav-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
+// Each module reads the other only inside functions, so the import cycle is safe.
+import { tickets } from "$lib/tickets.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
 export type Project = { id: string; name: string; repos: Repo[] };
@@ -258,9 +260,8 @@ export async function openSession(path: string, agent: string | null) {
       }),
     );
     // A session opened outside the current project would get a hidden tile: show every project instead.
-    if (app.project !== null && !projectsOf(path, app.workspace?.projects ?? [], []).includes(app.project)) {
-      setProject(null);
-    }
+    const projects = projectsOf(path, app.workspace?.projects ?? [], tickets.runs);
+    if (app.project !== null && !projects.includes(app.project)) setProject(null);
   } catch (e) {
     app.error = String(e);
   }

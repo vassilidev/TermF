@@ -4,15 +4,17 @@
   import X from "@lucide/svelte/icons/x";
   import Popover from "$lib/ui/Popover.svelte";
   import { t } from "$lib/i18n";
+  import { shown } from "$lib/project.svelte";
   import { app, callLayouts, openLayout } from "$lib/state.svelte";
 
   let trigger = $state<HTMLButtonElement>();
   let open = $state(false);
   let name = $state("");
 
+  /** The layout on screen: the tiles of the current project. */
   async function save(e: SubmitEvent) {
     e.preventDefault();
-    const sessions = app.sessions.map((s) => ({ path: s.cwd, agent: s.agent }));
+    const sessions = app.sessions.filter(shown).map((s) => ({ path: s.cwd, agent: s.agent }));
     if (await callLayouts("layout_save", { layout: { name, sessions } })) name = "";
   }
 </script>
@@ -47,7 +49,7 @@
       <li class="none">{t("noLayouts")}</li>
     {/each}
   </ul>
-  {#if app.sessions.length}
+  {#if app.sessions.some(shown)}
     <form class="save" onsubmit={save}>
       <input class="field" bind:value={name} placeholder={t("layoutName")} aria-label={t("layoutName")} />
       <button type="submit" class="btn sm" disabled={!name.trim()} title={t("saveLayout")}>{t("save")}</button>

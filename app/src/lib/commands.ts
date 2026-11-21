@@ -112,19 +112,15 @@ export async function openLauncher() {
   else if (app.sessions.some(shown)) ui.launcher = !ui.launcher;
 }
 
-function switchToProject(n: number) {
-  const project = app.workspace?.projects[n - 1];
-  if (project) setProject(project.id);
-}
-
 /** App-wide shortcuts, in the capture phase so a focused terminal does not also get them. */
 export function onShortcut(e: KeyboardEvent) {
   const inTerminal = !!(e.target as Element | null)?.closest?.(".xterm");
-  const asked = shortcut(e, isMac, inTerminal);
+  const tiles = app.sessions.filter(shown);
+  const projects = app.workspace?.projects ?? [];
+  const asked = shortcut(e, isMac, inTerminal, { tiles: tiles.length, projects: projects.length });
   if (!asked) return;
   if (asked.action !== "palette" && ui.palette) return;
   const n = "n" in asked ? asked.n : 0;
-  const tile = app.sessions.filter(shown)[n - 1];
   const actions = {
     palette: () => (ui.palette = !ui.palette),
     next: nextWaiting,
@@ -132,8 +128,8 @@ export function onShortcut(e: KeyboardEvent) {
     switcher: () => (ui.switcher = !ui.switcher),
     launcher: openLauncher,
     maximize: ui.view === "terminals" ? () => toggleMaximize() : null,
-    tile: tile ? () => focusSession(tile.id) : null,
-    project: () => switchToProject(n),
+    tile: () => focusSession(tiles[n - 1].id),
+    project: () => setProject(projects[n - 1].id),
   };
   const action = actions[asked.action];
   if (!action) return;

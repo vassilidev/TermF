@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -21,9 +22,18 @@
   const cols = $derived(Math.max(1, Math.ceil(Math.sqrt(app.focused === null ? visible.length : 1))));
   const firstRun = $derived(app.workspace !== null && !allRepos().length);
 
-  // A maximized tile another project hides gives the grid back.
+  // Tiles another project hides: none stays maximized or ticked for broadcast, and no launcher stays without its button.
   $effect(() => {
-    if (app.focused !== null && !visible.some((s) => s.id === app.focused)) app.focused = null;
+    const ids = new Set(visible.map((s) => s.id));
+    if (app.focused !== null && !ids.has(app.focused)) app.focused = null;
+    untrack(() => ticked.forEach((id) => !ids.has(id) && ticked.delete(id)));
+    if (!ids.size) ui.launcher = false;
+  });
+
+  // The launcher was opened for the previous project.
+  $effect(() => {
+    void app.project;
+    ui.launcher = false;
   });
 
   const shortcuts = $derived([
@@ -61,7 +71,12 @@
   <div class="body">
     <QuickTerminal />
     <!-- Every tile stays mounted, those of other projects hidden: their terminals keep running and their scrollback. -->
-    <div class="grid" class:broadcasting={ticked.size > 0} style:--cols={cols} hidden={!visible.length}>
+    <div
+      class="grid"
+      class:broadcasting={visible.some((s) => ticked.has(s.id))}
+      style:--cols={cols}
+      hidden={!visible.length}
+    >
       {#each app.sessions as session (session.id)}
         <SessionTile {session} index={visible.indexOf(session)} />
       {/each}

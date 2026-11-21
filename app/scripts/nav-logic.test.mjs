@@ -56,34 +56,50 @@ test("the most recent repository", () => {
 
 const key = (key, code, mods = {}) => ({ key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
 
+const nine = { tiles: 9, projects: 9 };
+
 test("shortcuts on macOS", () => {
-  assert.deepEqual(shortcut(key("1", "Digit1", { metaKey: true }), true, false), { action: "tile", n: 1 });
-  assert.deepEqual(shortcut(key("3", "Digit3", { ctrlKey: true }), true, true), { action: "project", n: 3 });
+  const mac = (k, inTerminal = false, count = nine) => shortcut(k, true, inTerminal, count);
+  assert.deepEqual(mac(key("1", "Digit1", { metaKey: true })), { action: "tile", n: 1 });
+  assert.deepEqual(mac(key("3", "Digit3", { ctrlKey: true }), true), { action: "project", n: 3 });
   // AZERTY: the digit row types & é " without Shift; the code still says which digit.
-  assert.deepEqual(shortcut(key("&", "Digit1", { ctrlKey: true }), true, false), { action: "project", n: 1 });
-  assert.equal(shortcut(key("0", "Digit0", { ctrlKey: true }), true, false), null);
-  assert.deepEqual(shortcut(key("o", "KeyO", { metaKey: true }), true, true), { action: "switcher" });
-  assert.deepEqual(shortcut(key("t", "KeyT", { metaKey: true }), true, false), { action: "launcher" });
-  assert.equal(shortcut(key("t", "KeyT", { metaKey: true, shiftKey: true }), true, false), null);
-  assert.deepEqual(shortcut(key("k", "KeyK", { metaKey: true }), true, true), { action: "palette" });
-  assert.equal(shortcut(key("k", "KeyK", { ctrlKey: true }), true, false), null);
-  assert.equal(shortcut(key("1", "Digit1", { metaKey: true, altKey: true }), true, false), null);
+  assert.deepEqual(mac(key("&", "Digit1", { ctrlKey: true })), { action: "project", n: 1 });
+  assert.equal(mac(key("0", "Digit0", { ctrlKey: true })), null);
+  assert.deepEqual(mac(key("o", "KeyO", { metaKey: true }), true), { action: "switcher" });
+  assert.deepEqual(mac(key("t", "KeyT", { metaKey: true })), { action: "launcher" });
+  assert.equal(mac(key("t", "KeyT", { metaKey: true, shiftKey: true })), null);
+  assert.deepEqual(mac(key("k", "KeyK", { metaKey: true }), true), { action: "palette" });
+  assert.equal(mac(key("k", "KeyK", { ctrlKey: true })), null);
+  assert.equal(mac(key("1", "Digit1", { metaKey: true, altKey: true })), null);
+});
+
+test("a digit with no tile or project behind it is left to the terminal", () => {
+  const count = { tiles: 4, projects: 3 };
+  assert.deepEqual(shortcut(key("4", "Digit4", { metaKey: true }), true, true, count), { action: "tile", n: 4 });
+  assert.equal(shortcut(key("5", "Digit5", { metaKey: true }), true, true, count), null);
+  assert.deepEqual(shortcut(key("3", "Digit3", { ctrlKey: true }), true, true, count), { action: "project", n: 3 });
+  assert.equal(shortcut(key("4", "Digit4", { ctrlKey: true }), true, true, count), null);
+  assert.equal(shortcut(key("4", "Digit4", { altKey: true }), false, false, count), null);
+  assert.equal(shortcut(key("1", "Digit1", { ctrlKey: true }), false, false, { tiles: 0, projects: 0 }), null);
 });
 
 test("shortcuts on Linux and Windows", () => {
-  assert.deepEqual(shortcut(key("1", "Digit1", { ctrlKey: true }), false, false), { action: "tile", n: 1 });
-  assert.deepEqual(shortcut(key("2", "Digit2", { altKey: true }), false, true), { action: "project", n: 2 });
+  const other = (k, inTerminal = false, count = nine) => shortcut(k, false, inTerminal, count);
+  assert.deepEqual(other(key("1", "Digit1", { ctrlKey: true })), { action: "tile", n: 1 });
+  assert.deepEqual(other(key("2", "Digit2", { altKey: true })), { action: "project", n: 2 });
   // AltGr is Ctrl+Alt on Windows: it types characters, it is no shortcut.
-  assert.equal(shortcut(key("@", "Digit0", { ctrlKey: true, altKey: true }), false, false), null);
-  assert.equal(shortcut(key("2", "Digit2", { ctrlKey: true, altKey: true }), false, false), null);
-  assert.deepEqual(shortcut(key("T", "KeyT", { ctrlKey: true, shiftKey: true }), false, true), { action: "launcher" });
-  assert.equal(shortcut(key("t", "KeyT", { ctrlKey: true }), false, false), null);
-  // Ctrl+K, J and O belong to the shell in a terminal, unless Shift is held.
-  assert.equal(shortcut(key("o", "KeyO", { ctrlKey: true }), false, true), null);
-  assert.deepEqual(shortcut(key("O", "KeyO", { ctrlKey: true, shiftKey: true }), false, true), { action: "switcher" });
-  assert.deepEqual(shortcut(key("o", "KeyO", { ctrlKey: true }), false, false), { action: "switcher" });
-  assert.equal(shortcut(key("j", "KeyJ", { ctrlKey: true }), false, true), null);
-  assert.deepEqual(shortcut(key("l", "KeyL", { ctrlKey: true, shiftKey: true }), false, true), { action: "ticket" });
+  assert.equal(other(key("@", "Digit0", { ctrlKey: true, altKey: true })), null);
+  assert.equal(other(key("2", "Digit2", { ctrlKey: true, altKey: true })), null);
+  assert.deepEqual(other(key("T", "KeyT", { ctrlKey: true, shiftKey: true }), true), { action: "launcher" });
+  assert.equal(other(key("t", "KeyT", { ctrlKey: true })), null);
+  // Ctrl+K, J, O and Alt+digit (readline's digit argument) belong to the shell in a terminal, unless Shift is held.
+  assert.equal(other(key("o", "KeyO", { ctrlKey: true }), true), null);
+  assert.deepEqual(other(key("O", "KeyO", { ctrlKey: true, shiftKey: true }), true), { action: "switcher" });
+  assert.deepEqual(other(key("o", "KeyO", { ctrlKey: true })), { action: "switcher" });
+  assert.equal(other(key("j", "KeyJ", { ctrlKey: true }), true), null);
+  assert.equal(other(key("2", "Digit2", { altKey: true }), true), null);
+  assert.deepEqual(other(key("@", "Digit2", { altKey: true, shiftKey: true }), true), { action: "project", n: 2 });
+  assert.deepEqual(other(key("l", "KeyL", { ctrlKey: true, shiftKey: true }), true), { action: "ticket" });
 });
 
 const cmd = (id, label, group, extra = {}) => ({ id, label, group, icon: null, run() {}, ...extra });

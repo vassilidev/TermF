@@ -56,17 +56,23 @@ export type Shortcut =
   | { action: "tile" | "project"; n: number };
 
 /**
- * The app-wide shortcut a key press asks for. `inTerminal`: the focus is in a terminal, where Linux and Windows
- * leave Ctrl+K, Ctrl+J and Ctrl+O to the shell unless Shift is held too.
+ * The app-wide shortcut a key press asks for, null to leave the key alone. `inTerminal`: the focus is in a terminal,
+ * where Linux and Windows leave Ctrl+K, Ctrl+J, Ctrl+O and Alt+digit to the shell unless Shift is held too. `count`:
+ * the tiles shown and the projects, so that a digit with nothing behind it goes on to the terminal.
  */
-export function shortcut(e: Keys, mac: boolean, inTerminal: boolean): Shortcut | null {
+export function shortcut(
+  e: Keys,
+  mac: boolean,
+  inTerminal: boolean,
+  count: { tiles: number; projects: number },
+): Shortcut | null {
   // The code, not the key: AZERTY layouts type digits with Shift.
   const digit = /^Digit[1-9]$/.test(e.code) ? Number(e.code.slice(5)) : 0;
+  const free = e.shiftKey || !(inTerminal && !mac);
   // shortcut: projects on ⌃1…9 (macOS) and Alt+1…9 elsewhere, until the T4 shortcut registry makes them configurable.
   const projectMod = mac ? e.ctrlKey && !e.metaKey && !e.altKey : e.altKey && !e.ctrlKey && !e.metaKey;
-  if (digit && projectMod) return { action: "project", n: digit };
+  if (digit && projectMod) return free && digit <= count.projects ? { action: "project", n: digit } : null;
   if (e.altKey || !(mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return null;
-  const free = e.shiftKey || !(inTerminal && !mac);
   const letter = e.key.toLowerCase();
   if (letter === "k" && free) return { action: "palette" };
   if (letter === "j" && free) return { action: "next" };
@@ -74,7 +80,7 @@ export function shortcut(e: Keys, mac: boolean, inTerminal: boolean): Shortcut |
   if (letter === "l" && e.shiftKey) return { action: "ticket" };
   if (letter === "t" && (mac ? !e.shiftKey : e.shiftKey)) return { action: "launcher" };
   if (e.key === "Enter" && !e.shiftKey) return { action: "maximize" };
-  if (digit) return { action: "tile", n: digit };
+  if (digit && digit <= count.tiles) return { action: "tile", n: digit };
   return null;
 }
 
