@@ -460,7 +460,8 @@ fn spreads_long_searches() {
 
 /// A `gh` that answers from fixtures and writes each call (and what it reads on stdin) to `gh.log`. While a
 /// `fail-comments` file exists, commenting fails. A search asked with an ETag is not modified. Pull requests
-/// are in the state the `pr-state` file says: `open` (without it), `merged` or `closed`.
+/// are in the state the `pr-state` file says: `open` (without it), `merged` or `closed`; while `fail-pulls`
+/// exists, GitHub cannot tell.
 #[cfg(unix)]
 fn fake_gh(sb: &Sandbox) {
     use std::os::unix::fs::PermissionsExt;
@@ -488,6 +489,7 @@ case "$*" in
 "api --include --method GET search/issues -f q="*"-f page=2")
   printf 'HTTP/2.0 200 OK\r\nETag: "p2"\r\n\r\n%s\n' '{page2}' ;;
 "api --include --method GET repos/acme/front/pulls/7")
+  [ -e "$root/fail-pulls" ] && {{ echo 'HTTP 502: Bad Gateway' >&2; exit 1; }}
   case "$(cat "$root/pr-state" 2>/dev/null)" in
   merged) body='{{"state":"closed","merged":true}}' ;;
   closed) body='{{"state":"closed","merged":false}}' ;;
@@ -918,10 +920,17 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
         Some(conversation.as_str())
     );
 
-    let gone = format!("{:#}", t.resume(1).err().unwrap());
-    assert!(gone.contains("no longer has the conversation"), "{gone}");
+    // Claude Code's folder may not be TermF's: a missing conversation is a warning, not a refusal.
+    let unsure = t.resume(1).unwrap();
+    assert_eq!(unsure.args, ["--resume", conversation.as_str()]);
+    let warning = unsure.warning.unwrap_or_default();
+    assert!(
+        warning.contains("may no longer have the conversation"),
+        "{warning}"
+    );
     transcript(&conversation);
     let resumed = t.resume(1).unwrap();
+    assert_eq!(resumed.warning, None);
     assert_eq!(resumed.args, ["--resume", conversation.as_str()]);
     assert_eq!(resumed.brief, launch.brief);
     assert_eq!(resumed.env, launch.env, "the setup's ports, not new ones");
@@ -930,8 +939,6 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     // `/clear` starts a new conversation: the next resume takes that one.
     let cleared = "0b9c3c1e-5f0a-4d6b-9a57-3f1d2c4e8a10";
     t.conversation(1, cleared).unwrap();
-    assert!(t.resume(1).is_err(), "Claude Code has no such conversation");
-    transcript(cleared);
     assert_eq!(t.resume(1).unwrap().args, ["--resume", cleared]);
     assert!(
         t.conversation(1, "../../../etc/passwd-0000000000000000000")
@@ -955,15 +962,24 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
         delivered.pr_url.as_deref(),
         Some("https://github.com/acme/front/pull/7")
     );
-    assert!(
-        t.after_merge(false, |_| {}).unwrap().is_empty(),
+    assert_eq!(
+        t.after_merge(false, |_| {}).unwrap(),
+        PrCheck::default(),
         "still open"
     );
     let open = format!("{:#}", t.cleanup(1, || {}).unwrap_err());
-    assert!(open.contains("is still open"), "{open}");
+    assert!(open.contains("is open"), "{open}");
     fs::write(sb.root.join("pr-state"), "merged").unwrap();
+    // GitHub cannot tell: said, and asked again next time.
+    fs::write(sb.root.join("fail-pulls"), "").unwrap();
+    let failed = t.after_merge(false, |_| {}).unwrap();
+    assert!(failed.cleanups.is_empty());
+    assert_eq!(failed.errors.len(), 1);
+    assert_eq!(failed.errors[0].run, 1);
+    assert!(failed.errors[0].message.contains("HTTP 502"), "{failed:?}");
+    fs::remove_file(sb.root.join("fail-pulls")).unwrap();
     let stopped = Cell::new(0_i64);
-    let found = t.after_merge(false, |id| stopped.set(id)).unwrap();
+    let found = t.after_merge(false, |id| stopped.set(id)).unwrap().cleanups;
     assert_eq!(found.len(), 1);
     let ready = &found[0];
     assert!(!ready.cleaned && ready.error.is_none());
@@ -977,8 +993,9 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     assert!(worktree.exists() && stopped.get() == 0);
     assert_eq!(kinds(1).last().unwrap(), "pr_merged");
     let asked = pulls();
-    assert!(
-        t.after_merge(false, |_| {}).unwrap().is_empty(),
+    assert_eq!(
+        t.after_merge(false, |_| {}).unwrap(),
+        PrCheck::default(),
         "told once"
     );
     assert_eq!(
@@ -1008,7 +1025,7 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     let cleaned = t.start("front#42", None, None).unwrap().run.id;
     deliver(cleaned);
     fs::write(sb.root.join("pr-state"), "closed").unwrap();
-    let found = t.after_merge(true, |id| stopped.set(id)).unwrap();
+    let found = t.after_merge(true, |id| stopped.set(id)).unwrap().cleanups;
     let outcome: Vec<(i64, bool, Option<&str>)> = found
         .iter()
         .map(|c| (c.run.id, c.cleaned, c.run.pr_state.as_deref()))
@@ -1030,6 +1047,71 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     assert!(kinds(cleaned).contains(&"teardown".to_owned()));
     assert_eq!(t.run(kept).unwrap().status, RunStatus::Delivered);
     assert!(kept_tree.exists());
+
+    // Reopened: asked again when cleaning up, and forgotten.
+    fs::remove_file(sb.root.join("pr-state")).unwrap();
+    let reopened = format!("{:#}", t.cleanup(kept, || {}).unwrap_err());
+    assert!(reopened.contains("is open"), "{reopened}");
+    assert_eq!(t.run(kept).unwrap().pr_state, None);
+    // Closed again, then delivered again: its state is asked again.
+    fs::write(sb.root.join("pr-state"), "closed").unwrap();
+    assert_eq!(t.after_merge(false, |_| {}).unwrap().cleanups.len(), 1);
+    assert_eq!(deliver(kept).pr_state, None);
+    assert_eq!(t.run(kept).unwrap().pr_state, None);
+    let again = t.after_merge(true, |_| {}).unwrap().cleanups;
+    assert_eq!(
+        (again.len(), again[0].cleaned),
+        (1, true),
+        "the late work went with the delivery"
+    );
+}
+
+#[test]
+fn writers_keep_each_others_columns() {
+    let sb = Sandbox::new("writers");
+    let data = sb.root.join("data");
+    let (store, other) = (Store::open(&data).unwrap(), Store::open(&data).unwrap());
+    let url = "https://github.com/acme/front/pull/7";
+    let delivered = |id| {
+        let mut run = store.create("acme", &sample(), "/src/front").unwrap();
+        assert_eq!(run.id, id);
+        run.status = RunStatus::Delivered;
+        run.pr_url = Some(url.into());
+        store.update(&mut run).unwrap();
+        run
+    };
+    let mut stale = delivered(1);
+    let cleared = "0b9c3c1e-5f0a-4d6b-9a57-3f1d2c4e8a10";
+    other.set_conversation(1, cleared).unwrap();
+    assert!(other.pr_done(1, "merged", url).unwrap().is_some());
+    assert!(
+        store.pr_done(1, "merged", url).unwrap().is_none(),
+        "two checks at once record it once"
+    );
+    // A delivery or a close that read the run before writes its own columns only.
+    stale.branch = Some("termf/42".into());
+    store.update(&mut stale).unwrap();
+    let run = store.run(1).unwrap();
+    assert_eq!(
+        (
+            run.claude_session.as_deref(),
+            run.pr_state.as_deref(),
+            run.branch.as_deref()
+        ),
+        (Some(cleared), Some("merged"), Some("termf/42"))
+    );
+    let merged = store.events(1).unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].event, Event::PrMerged { url: url.into() });
+
+    // A run closed meanwhile stays closed.
+    let mut closing = delivered(2);
+    closing.status = RunStatus::Closed;
+    store.update(&mut closing).unwrap();
+    assert!(other.pr_done(2, "closed", url).unwrap().is_none());
+    let run = store.run(2).unwrap();
+    assert_eq!((run.status, run.pr_state), (RunStatus::Closed, None));
+    assert!(store.events(2).unwrap().is_empty());
 }
 
 // Sources: Jira, GitHub Projects, MCP, and their merge.

@@ -24,6 +24,23 @@ pub struct Launch {
     /// What Claude Code takes first: `--session-id <id>` and the first message for a new run, `--resume <id>`
     /// for one taken up again.
     pub args: Vec<String>,
+    /// A doubt to tell the user before the session starts.
+    pub warning: Option<String>,
+}
+
+/// What a check of the delivered runs' pull requests found.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct PrCheck {
+    /// The runs whose pull request was merged or closed since the last check.
+    pub cleanups: Vec<Cleanup>,
+    /// The runs whose pull request GitHub could not tell about: asked again at the next check.
+    pub errors: Vec<CheckError>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct CheckError {
+    pub run: i64,
+    pub message: String,
 }
 
 /// A run whose pull request was merged or closed.
@@ -342,8 +359,9 @@ impl Tickets {
         run.worktree = Some(path.clone());
         run.branch = Some(branch.clone());
         run.base = Some(base.clone());
-        run.claude_session = Some(conversation.clone());
         store.update(&mut run)?;
+        store.set_conversation(run.id, &conversation)?;
+        run.claude_session = Some(conversation.clone());
         // Its own folder: the session may read it, nothing else of the run.
         let brief = store.run_dir(run.id).join("brief").join("prompt.md");
         fs::create_dir_all(brief.parent().context("no parent folder")?)?;
@@ -370,12 +388,14 @@ impl Tickets {
             brief,
             env: report.env,
             args: vec!["--session-id".into(), conversation, kickoff],
+            warning: None,
         })
     }
 
     /// Takes a run's Claude Code conversation up again in a new session, once TermF restarted or the session
     /// ended: the worktree as its setup left it, the same brief, the conversation resumed. Refused when the run
-    /// is over, its worktree gone, or Claude Code no longer has the conversation.
+    /// is over or its worktree gone. Whether Claude Code still has the conversation is only a guess here (the
+    /// agent's shell may move Claude Code's folder): a warning, and the session itself says so.
     pub fn resume(&self, id: i64) -> Result<Launch> {
         let store = Store::open(&self.data_dir)?;
         let run = store.run(id)?;
@@ -392,20 +412,24 @@ impl Tickets {
         let conversation = run.claude_session.clone().with_context(|| {
             format!("run {id} started before TermF kept its Claude Code conversation: it cannot be resumed")
         })?;
-        ensure!(
-            self.transcript(&conversation).is_some(),
-            "Claude Code no longer has the conversation of run {id} ({conversation}): it may have been cleaned up \
-             (cleanupPeriodDays). Close the run, or open a session in its worktree"
-        );
+        let warning = self.transcript(&conversation).is_none().then(|| {
+            format!(
+                "Claude Code may no longer have the conversation of run {id} ({conversation}): it is not in {}. \
+                 If so, the new session says so; then close the run, or open a session in its worktree",
+                self.claude_dir.join("projects").display()
+            )
+        });
         Ok(Launch {
             env: self.setup().env(Path::new(&worktree)),
             brief: store.run_dir(id).join("brief").join("prompt.md"),
             args: vec!["--resume".into(), conversation],
+            warning,
             run,
         })
     }
 
-    /// Claude Code's file of a conversation: `<claude dir>/projects/<folder>/<id>.jsonl`.
+    /// Claude Code's file of a conversation: `<claude dir>/projects/<folder>/<id>.jsonl`, in any folder.
+    // shortcut: TermF's `$CLAUDE_CONFIG_DIR`, which the agent's shell may change; only a hint for that reason.
     fn transcript(&self, conversation: &str) -> Option<PathBuf> {
         if !conversation_id(conversation) {
             return None;
@@ -424,12 +448,8 @@ impl Tickets {
             "{conversation:?} is not a Claude Code conversation"
         );
         let store = Store::open(&self.data_dir)?;
-        let mut run = store.run(id)?;
-        if run.claude_session.as_deref() != Some(conversation) {
-            run.claude_session = Some(conversation.to_owned());
-            store.update(&mut run)?;
-        }
-        Ok(())
+        store.run(id)?;
+        store.set_conversation(id, conversation)
     }
 
     pub fn session_resumed(&self, id: i64, session: u32, conversation: &str) -> Result<Run> {
@@ -662,6 +682,9 @@ impl Tickets {
             },
         )?;
         run.status = RunStatus::Delivered;
+        // Sent again to a merged or closed pull request: its state is asked again.
+        store.forget_pr_state(id)?;
+        run.pr_state = None;
         if run.pr_url.is_none() {
             let origin = git.run(dir, &["config", "--get", "remote.origin.url"])?;
             let repo = github::remote_slug(&origin, &termf_ssh::Ssh::new(self.home.clone()))
@@ -731,13 +754,21 @@ impl Tickets {
     /// Asks GitHub about the pull request of each delivered run whose fate is not known yet, and records those
     /// merged or closed. With `auto`, closes them too, unless their worktree holds work that is not pushed;
     /// `stop_session` ends the session of the run it closes first. A pull request GitHub cannot tell about is
-    /// asked again next time.
-    pub fn after_merge(&self, auto: bool, stop_session: impl Fn(i64)) -> Result<Vec<Cleanup>> {
+    /// in `errors`, and asked again next time.
+    pub fn after_merge(&self, auto: bool, stop_session: impl Fn(i64)) -> Result<PrCheck> {
         let store = Store::open(&self.data_dir)?;
-        let mut found = Vec::new();
+        let mut check = PrCheck::default();
         for run in store.runs()? {
-            let Ok(Some(run)) = self.record_pr(&store, run) else {
-                continue;
+            let run = match self.record_pr(&store, &run) {
+                Ok(Some(run)) => run,
+                Ok(None) => continue,
+                Err(e) => {
+                    check.errors.push(CheckError {
+                        run: run.id,
+                        message: format!("{e:#}"),
+                    });
+                    continue;
+                }
             };
             let (run, cleaned, error) = match auto {
                 false => (run, false, None),
@@ -746,40 +777,31 @@ impl Tickets {
                     Err(e) => (run, false, Some(format!("{e:#}"))),
                 },
             };
-            found.push(Cleanup {
+            check.cleanups.push(Cleanup {
                 run,
                 cleaned,
                 error,
             });
         }
-        Ok(found)
+        Ok(check)
     }
 
-    /// The run, once GitHub says its pull request was merged or closed and the journal has it; `None` while it
+    /// The run, once GitHub says its pull request was merged or closed and that is recorded; `None` while it
     /// is open, or when that is already known.
-    fn record_pr(&self, store: &Store, mut run: Run) -> Result<Option<Run>> {
+    pub(crate) fn record_pr(&self, store: &Store, run: &Run) -> Result<Option<Run>> {
         let (RunStatus::Delivered, Some(url), None) = (run.status, &run.pr_url, &run.pr_state)
         else {
             return Ok(None);
         };
-        let url = url.clone();
-        let Some(state) = self.github().pr_state(&url)? else {
-            return Ok(None);
-        };
-        run.pr_state = Some(state.to_owned());
-        store.update(&mut run)?;
-        store.record(
-            run.id,
-            &match state {
-                "merged" => Event::PrMerged { url },
-                _ => Event::PrClosed { url },
-            },
-        )?;
-        Ok(Some(run))
+        match self.github().pr_state(url)? {
+            Some(state) => store.pr_done(run.id, state, url),
+            None => Ok(None),
+        }
     }
 
     /// Closes a run whose pull request was merged or closed, as `close` does without force: refused while its
-    /// worktree holds work that is not pushed, or while its pull request is open.
+    /// worktree holds work that is not pushed, or while its pull request is open. A pull request known as
+    /// closed is asked about again, as it may have been reopened.
     pub fn cleanup(&self, id: i64, stop_session: impl FnOnce()) -> Result<Run> {
         let store = Store::open(&self.data_dir)?;
         let run = store.run(id)?;
@@ -788,13 +810,18 @@ impl Tickets {
             "run {id} is {}: only a delivered run is cleaned up",
             run.status.as_str()
         );
-        if run.pr_state.is_none() {
-            let url = run.pr_url.clone();
-            let url = url.with_context(|| format!("run {id} has no pull request to wait for"))?;
-            ensure!(
-                self.record_pr(&store, run)?.is_some(),
-                "the pull request of run {id} is still open: {url}"
-            );
+        let url = run.pr_url.clone();
+        let url = url.with_context(|| format!("run {id} has no pull request to wait for"))?;
+        if run.pr_state.as_deref() != Some("merged") {
+            match self.github().pr_state(&url)? {
+                Some(state) => {
+                    store.pr_done(id, state, &url)?;
+                }
+                None => {
+                    store.forget_pr_state(id)?;
+                    bail!("the pull request of run {id} is open: {url}");
+                }
+            }
         }
         self.close(id, false, stop_session)
     }

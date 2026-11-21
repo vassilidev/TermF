@@ -314,11 +314,51 @@ impl Store {
         self.run(id)
     }
 
+    /// Writes the run's own columns from `run`. Its conversation and its pull request's state change while
+    /// others hold a copy of the run (a delivery, a close): only their setters below write them.
     pub(crate) fn update(&self, run: &mut Run) -> Result<()> {
         run.updated = now();
         self.conn.execute(
-            "UPDATE runs SET worktree = ?2, branch = ?3, base = ?4, status = ?5, pr_url = ?6, updated = ?7, claude_session = ?8, pr_state = ?9 WHERE id = ?1",
-            params![run.id, run.worktree, run.branch, run.base, run.status.as_str(), run.pr_url, run.updated, run.claude_session, run.pr_state],
+            "UPDATE runs SET worktree = ?2, branch = ?3, base = ?4, status = ?5, pr_url = ?6, updated = ?7 WHERE id = ?1",
+            params![run.id, run.worktree, run.branch, run.base, run.status.as_str(), run.pr_url, run.updated],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn set_conversation(&self, id: i64, conversation: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runs SET claude_session = ?2, updated = ?3 WHERE id = ?1",
+            params![id, conversation, now()],
+        )?;
+        Ok(())
+    }
+
+    /// Records, with its journal event, that the pull request `url` of the delivered run is now `state`
+    /// (`merged` or `closed`): once, so `None` when it was known already or the run is no longer delivered.
+    pub(crate) fn pr_done(&self, id: i64, state: &str, url: &str) -> Result<Option<Run>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let changed = tx.execute(
+            "UPDATE runs SET pr_state = ?2, updated = ?3 WHERE id = ?1 AND pr_state IS NULL AND status = ?4",
+            params![id, state, now(), RunStatus::Delivered.as_str()],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        let url = url.to_owned();
+        let event = match state {
+            "merged" => Event::PrMerged { url },
+            _ => Event::PrClosed { url },
+        };
+        self.record(id, &event)?;
+        tx.commit()?;
+        Ok(Some(self.run(id)?))
+    }
+
+    /// Forgets the state of the run's pull request: delivered again, or reopened.
+    pub(crate) fn forget_pr_state(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runs SET pr_state = NULL, updated = ?2 WHERE id = ?1",
+            params![id, now()],
         )?;
         Ok(())
     }

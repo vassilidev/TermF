@@ -1,19 +1,19 @@
 //! Tickets and their runs, for the UI and, through the local API, for the CLI. A run's session is an ordinary
 //! terminal session, opened in the run's worktree. Every change to a run emits `run-updated` with the run.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::TicketCleanup;
 use termf_core::ipc::SessionSummary;
 use termf_tickets::{
-    Cleanup, Configured, Delivery, DeliveryPreview, Inbox, McpServer, Resolution, Run, RunEvent,
+    Configured, Delivery, DeliveryPreview, Inbox, McpServer, PrCheck, Resolution, Run, RunEvent,
     Sources, TicketSummary, Tickets, Trackers, Unpushed,
 };
 
@@ -28,7 +28,9 @@ pub struct TicketsState {
     tickets: Arc<Tickets>,
     /// Run → its session, for this launch only: session ids start over with the app.
     sessions: Mutex<HashMap<i64, u32>>,
-    /// Held while pull requests are checked, so a merge is announced once.
+    /// The runs whose session is being resumed right now.
+    resuming: Mutex<HashSet<i64>>,
+    /// Held while pull requests are checked or a run cleaned up, so each happens once.
     checking: Mutex<()>,
 }
 
@@ -37,9 +39,26 @@ impl TicketsState {
         Self {
             tickets: Arc::new(Tickets::new(config_dir, data_dir)),
             sessions: Mutex::default(),
+            resuming: Mutex::default(),
             checking: Mutex::default(),
         }
     }
+}
+
+/// A run being resumed, given back when dropped, whatever stopped the resume.
+struct Resuming<'a>(&'a Mutex<HashSet<i64>>, i64);
+
+impl Drop for Resuming<'_> {
+    fn drop(&mut self) {
+        self.0.lock().unwrap().remove(&self.1);
+    }
+}
+
+/// A resumed run, and a doubt about its conversation to show the user.
+#[derive(Serialize)]
+pub struct Resumed {
+    run: Run,
+    warning: Option<String>,
 }
 
 pub(crate) fn tickets(app: &AppHandle) -> Arc<Tickets> {
@@ -138,19 +157,24 @@ pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
 /// Opens a new session in the run's worktree that resumes its Claude Code conversation, with what its first
 /// session had (setup, guard, library). Refused while a session of TermF is already in that conversation:
 /// two processes on one conversation may lose messages.
-pub fn resume(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<Run> {
+pub fn resume(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<Resumed> {
     let state = app.state::<AppState>();
     let agent = termf_core::load_settings(&state.config_dir)?.ticket_agent()?;
     api::run_guard(&state)?;
     let tickets = tickets(app);
-    // Held until the new session is known, so two resumes cannot both start one.
     let ticket_state = app.state::<TicketsState>();
-    let mut sessions = ticket_state.sessions.lock().unwrap();
+    // Kept until the new session is known, so two resumes of a run cannot both start one.
+    ensure!(
+        ticket_state.resuming.lock().unwrap().insert(id),
+        "run {id} is being resumed already"
+    );
+    let _resuming = Resuming(&ticket_state.resuming, id);
     let launch = tickets.resume(id)?;
     let run = &launch.run;
     let conversation = run.claude_session.clone().unwrap_or_default();
     let live = state.api.list(&state.sessions);
-    if let Some(open) = in_conversation(&live, sessions.get(&id).copied(), &conversation) {
+    let mine = ticket_state.sessions.lock().unwrap().get(&id).copied();
+    if let Some(open) = in_conversation(&live, mine, &conversation) {
         bail!(
             "run {id} already has a session in its conversation: {}",
             open.title
@@ -173,13 +197,15 @@ pub fn resume(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<Run> {
         }),
         &[],
     )?;
-    sessions.insert(id, session.id);
-    drop(sessions);
+    ticket_state.sessions.lock().unwrap().insert(id, session.id);
     state.keep_awake.update(app);
     let _ = app.emit("session-opened", &session);
     let run = with_session(app, tickets.session_resumed(id, session.id, &conversation)?);
     updated(app, &run);
-    Ok(run)
+    Ok(Resumed {
+        run,
+        warning: launch.warning,
+    })
 }
 
 /// A session still running in the run's conversation: the run's own (`mine`), or any whose hooks say they are
@@ -233,7 +259,10 @@ pub fn close(app: &AppHandle, id: i64, force: bool) -> Result<Run> {
 /// Closes a run whose pull request was merged or closed, if nothing would be lost.
 pub fn cleanup(app: &AppHandle, id: i64) -> Result<Run> {
     let tickets = tickets(app);
+    let ticket_state = app.state::<TicketsState>();
+    let checking = ticket_state.checking.lock().unwrap();
     let cleaned = tickets.cleanup(id, || stop_session(app, id));
+    drop(checking);
     // Even a refused cleanup may have learnt that the pull request was merged.
     if let Ok(run) = tickets.run(id) {
         updated(app, &run);
@@ -243,26 +272,24 @@ pub fn cleanup(app: &AppHandle, id: i64) -> Result<Run> {
 
 /// Asks GitHub about the pull requests of delivered runs, as `[tickets] cleanup` says (`off`: not at all),
 /// and emits `run-cleanup` for each one merged or closed since the last check.
-pub fn check(app: &AppHandle) -> Result<Vec<Cleanup>> {
+pub fn check(app: &AppHandle) -> Result<PrCheck> {
     let mode = termf_core::load_settings(&app.state::<AppState>().config_dir)?
         .tickets
         .cleanup;
     if mode == TicketCleanup::Off {
-        return Ok(Vec::new());
+        return Ok(PrCheck::default());
     }
     let ticket_state = app.state::<TicketsState>();
-    let _checking = ticket_state.checking.lock().unwrap();
+    let checking = ticket_state.checking.lock().unwrap();
     let auto = mode == TicketCleanup::Auto;
-    let found = tickets(app).after_merge(auto, |id| stop_session(app, id))?;
-    Ok(found
-        .into_iter()
-        .map(|mut cleanup| {
-            cleanup.run = with_session(app, cleanup.run);
-            updated(app, &cleanup.run);
-            let _ = app.emit("run-cleanup", &cleanup);
-            cleanup
-        })
-        .collect())
+    let mut check = tickets(app).after_merge(auto, |id| stop_session(app, id))?;
+    drop(checking);
+    for cleanup in &mut check.cleanups {
+        cleanup.run = with_session(app, cleanup.run.clone());
+        updated(app, &cleanup.run);
+        let _ = app.emit("run-cleanup", &*cleanup);
+    }
+    Ok(check)
 }
 
 /// Checks the pull requests of delivered runs soon after startup, then every 15 minutes. Without a delivered
@@ -274,8 +301,16 @@ pub fn watch(app: &AppHandle) {
         .spawn(move || {
             thread::sleep(FIRST_CHECK);
             loop {
-                if let Err(e) = check(&app) {
-                    eprintln!("termf: pull requests not checked: {e:#}");
+                match check(&app) {
+                    Ok(check) => {
+                        for e in check.errors {
+                            eprintln!(
+                                "termf: pull request of run {} not checked: {}",
+                                e.run, e.message
+                            );
+                        }
+                    }
+                    Err(e) => eprintln!("termf: pull requests not checked: {e:#}"),
                 }
                 thread::sleep(CHECK_EVERY);
             }
@@ -478,7 +513,7 @@ pub async fn tickets_cleanup(app: AppHandle, id: i64) -> Result<Run, CloseError>
 
 /// The runs whose pull request was merged or closed since the last check (also `run-cleanup` events).
 #[tauri::command]
-pub async fn tickets_check(app: AppHandle) -> CmdResult<Vec<Cleanup>> {
+pub async fn tickets_check(app: AppHandle) -> CmdResult<PrCheck> {
     blocking(app, check).await
 }
 
@@ -488,7 +523,7 @@ pub async fn tickets_resume(
     id: i64,
     cols: Option<u16>,
     rows: Option<u16>,
-) -> CmdResult<Run> {
+) -> CmdResult<Resumed> {
     blocking(app, move |app| {
         resume(app, id, cols.unwrap_or(120), rows.unwrap_or(32))
     })

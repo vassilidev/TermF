@@ -39,14 +39,19 @@ pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
     };
     let call = |call: Call| Client::connect(None)?.call(call);
     match (command, args.as_slice()) {
-        ("run", ["resume", id]) => {
-            let run: Run = serde_json::from_value(call(Call::Resume { run: id.parse()? })?)?;
+        ("run", ["resume", id]) if project.is_none() && repo.is_none() => {
+            let resumed = call(Call::Resume { run: id.parse()? })?;
+            if let Some(warning) = resumed["warning"].as_str() {
+                eprintln!("termf: warning: {warning}");
+            }
+            let run: Run = serde_json::from_value(resumed["run"].clone())?;
             println!(
                 "run {}: resumed in {}",
                 run.id,
                 run.worktree.unwrap_or_default()
             );
         }
+        ("run", ["resume", ..]) => bail!("usage: termf run resume <run> (no other option)"),
         ("run", [ticket]) => {
             let run: Run = serde_json::from_value(call(Call::Run {
                 ticket: ticket.to_string(),

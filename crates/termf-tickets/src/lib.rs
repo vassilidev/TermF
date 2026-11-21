@@ -30,7 +30,8 @@ pub use guard::guard;
 pub use jira::{DEFAULT_JQL, Jira};
 pub use mcp::{Mcp, McpServer};
 pub use run::{
-    Change, Cleanup, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch, Unpushed,
+    Change, CheckError, Cleanup, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch,
+    PrCheck, Unpushed,
 };
 pub use secrets::{Keychain, Secrets};
 pub use sources::{Configured, GithubTracker, JiraTracker, McpTracker, Sources, Trackers};
