@@ -29,7 +29,7 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 
 ## 3. Reste à faire, dans l'ordre
 
-1. **Passe UX/UI n° 2** (demande du propriétaire le 2026-11-21 après avoir parcouru l'app) : « propre mais pas assez propre niveau UI et UX », en particulier la sélection des projets, l'équipe, la cohérence entre vues (portée projet, navigation). Audit puis refonte, avec captures.
+1. **Passe UX/UI n° 2** (demande du propriétaire le 2026-11-21 après avoir parcouru l'app) : « propre mais pas assez propre niveau UI et UX », en particulier la sélection des projets, l'équipe, la cohérence entre vues (portée projet, navigation). Audit puis refonte, avec captures. Retours du propriétaire, à traiter tous : sélection des projets ; l'équipe ; **Réglages pas assez propres** (modifier les raccourcis clavier, etc.) ; « l'interface n'est pas assez propre » en général.
 1. **Assistant de mise en route d'un projet** (obligation, ARCHITECTURE §13.7) : analyse, formulaire de questions, propositions de skills / commandes / workflow / règles / conventions / sources de tickets / recette de worktree, application.
 1. **CI/CD natif** (obligation, ARCHITECTURE §13.8) : exécutions GitHub Actions par dépôt / branche / PR, jobs, journaux, relancer / annuler, notifications, checks dans les runs de tickets.
 1. **Agent de veille** (obligation demandée par le propriétaire le 2026-11-21, ARCHITECTURE §11.2) : parcourt le web, critique et propose d'améliorer prompts des rôles, préférences, règles, skills et commandes, avec sources, revue élément par élément comme les conventions ; lancé à la demande seulement (bibliothèque entière ou éléments choisis). À lancer dès qu'un worktree Rust se libère (disque), branche `phase2/library-scout`, avec page de captures.
