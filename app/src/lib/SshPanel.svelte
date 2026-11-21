@@ -49,19 +49,6 @@
     return { name, kind, comment: comment.trim(), passphrase: passphrase || null };
   }
 
-  async function generate() {
-    let path = "";
-    const done = await act(async () => {
-      path = await invoke<string>("ssh_generate", keyArgs());
-      return t("sshGenerated", { path: shortPath(path) });
-    });
-    if (done) {
-      ssh.selected = path;
-      ssh.tab = "keys";
-      ssh.panel = null;
-    }
-  }
-
   async function rotate() {
     if (!old) return;
     const done = await act(async () => {
@@ -188,8 +175,7 @@
 <section class="panel">
   <header>
     <h2>
-      {#if panel.kind === "generate"}{t("sshGenerate")}
-      {:else if panel.kind === "rotate"}{t("sshRotateTitle", { name: old?.name ?? "" })}
+      {#if panel.kind === "rotate"}{t("sshRotateTitle", { name: old?.name ?? "" })}
       {:else if host}{t("sshHostEdit", { alias: host.patterns[0] })}
       {:else}{t("sshHostNew")}{/if}
     </h2>
@@ -198,24 +184,7 @@
     </button>
   </header>
 
-  {#if panel.kind === "generate"}
-    <p class="lead">{t("sshGenerateHelp", { dir })}</p>
-    <form
-      onsubmit={(e) => {
-        e.preventDefault();
-        generate();
-      }}
-    >
-      {@render keyForm()}
-      <footer>
-        <button type="button" class="btn" onclick={() => close()}>{t("cancel")}</button>
-        <button type="submit" class="btn primary" disabled={!keyReady || ssh.busy}>
-          {#if ssh.busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("sshGenerating")}
-          {:else}{t("sshGenerateRun")}{/if}
-        </button>
-      </footer>
-    </form>
-  {:else if panel.kind === "rotate" && old}
+  {#if panel.kind === "rotate" && old}
     {#if !rotation}
       <p class="lead">{t("sshRotateHelp")}</p>
       <p class="uses">

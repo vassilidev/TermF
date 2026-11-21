@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { files } from "$lib/files.svelte";
+import { t } from "$lib/i18n";
 
 export type KeyType = "ed25519" | "ecdsa" | "rsa";
 export type SshKey = {
@@ -63,9 +64,23 @@ export type Rotation = {
   errors: string[];
 };
 
+export type Usage = "ssh" | "sign" | "encrypt" | "tls";
+export type Algo = "ed25519" | "p256" | "p384" | "p521" | "rsa2048" | "rsa3072" | "rsa4096" | "x25519";
+export type Format = "openssh" | "ppk" | "jwk" | "jwks" | "pkcs8" | "sec1" | "pkcs1" | "spki";
+export type KeyFile = { name: string; path: string | null; secret: boolean; text: string | null };
+export type Generated = { algorithm: string; fingerprint: string | null; kid: string; files: KeyFile[] };
+export type Check = {
+  kind: "read" | "passphrase" | "pair" | "signature" | "agreement";
+  ok: boolean;
+  detail: string | null;
+  error: string | null;
+};
+
 type Panel =
   | null
-  | { kind: "generate" }
+  /** No usage: the user picks it first. */
+  | { kind: "generate"; usage?: Usage }
+  | { kind: "convert"; path?: string }
   | { kind: "host"; host: Host | null }
   | { kind: "rotate"; key: SshKey };
 
@@ -91,7 +106,43 @@ export function showSsh() {
 
 export function generateKey() {
   showSsh();
+  ssh.panel = { kind: "generate", usage: "ssh" };
+}
+
+/** The generator, any usage. */
+export function newKey() {
+  showSsh();
   ssh.panel = { kind: "generate" };
+}
+
+const CLEAR_AFTER = 30;
+
+/** SHA-256 of the text as the backend compares it: without CR, trailing blanks trimmed. */
+async function digest(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text.replace(/\r/g, "").trimEnd());
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Copies a private key, then empties the clipboard after a while if it still holds it. */
+export async function copySecret(text: string) {
+  ssh.error = "";
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    ssh.error = String(e);
+    return;
+  }
+  ssh.done = t("keysCopied", { seconds: CLEAR_AFTER });
+  const sum = await digest(text);
+  setTimeout(async () => {
+    try {
+      if (await invoke<boolean>("keys_clipboard_clear", { digest: sum })) ssh.done = t("keysClipboardCleared");
+    } catch (e) {
+      ssh.done = "";
+      ssh.error = t("keysClipboardKept", { error: String(e) });
+    }
+  }, CLEAR_AFTER * 1000);
 }
 
 export async function refresh() {

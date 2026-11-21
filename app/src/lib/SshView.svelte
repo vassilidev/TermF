@@ -3,7 +3,10 @@
   import Check from "@lucide/svelte/icons/check";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CloudUpload from "@lucide/svelte/icons/cloud-upload";
+  import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
   import Copy from "@lucide/svelte/icons/copy";
+  import Eye from "@lucide/svelte/icons/eye";
+  import FlaskConical from "@lucide/svelte/icons/flask-conical";
   import Info from "@lucide/svelte/icons/info";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
@@ -18,6 +21,9 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Unplug from "@lucide/svelte/icons/unplug";
   import X from "@lucide/svelte/icons/x";
+  import KeyTest from "$lib/KeyTest.svelte";
+  import KeyTools from "$lib/KeyTools.svelte";
+  import SecretView from "$lib/SecretView.svelte";
   import SshPanel from "$lib/SshPanel.svelte";
   import { ago, t } from "$lib/i18n";
   import { shortPath } from "$lib/state.svelte";
@@ -30,7 +36,7 @@
   const trash = $derived(inventory ? `${shortPath(inventory.dir)}/.termf-trash` : "");
 
   /** The inline step open under the current key's actions. */
-  let asking = $state<"" | "agent" | "upload" | "trash">("");
+  let asking = $state<"" | "agent" | "upload" | "trash" | "reveal" | "test">("");
   let passphrase = $state("");
   let title = $state("");
   /** By host: the last test, or null while it runs. */
@@ -185,7 +191,7 @@
       <button class="btn sm" onclick={() => { ssh.panel = { kind: "host", host: null }; }}>
         <Server size={14} aria-hidden="true" />{t("sshHostNew")}
       </button>
-      <button class="btn sm" onclick={() => { ssh.panel = { kind: "generate" }; }}>
+      <button class="btn sm primary" onclick={() => { ssh.panel = { kind: "generate" }; }}>
         <Plus size={14} aria-hidden="true" />{t("sshGenerate")}
       </button>
     </div>
@@ -248,7 +254,7 @@
 
   {#if ssh.panel}
     {#key ssh.panel}
-      <SshPanel />
+      {#if ssh.panel.kind === "generate" || ssh.panel.kind === "convert"}<KeyTools />{:else}<SshPanel />{/if}
     {/key}
   {:else if !inventory}
     {#if !ssh.error}
@@ -262,7 +268,7 @@
         <KeyRound size={20} aria-hidden="true" />
         <h2>{t("sshNoKeys")}</h2>
         <p>{t("sshNoKeysHelp")}</p>
-        <button class="btn primary" onclick={() => { ssh.panel = { kind: "generate" }; }}>
+        <button class="btn primary" onclick={() => { ssh.panel = { kind: "generate", usage: "ssh" }; }}>
           <Plus size={14} aria-hidden="true" />{t("sshGenerate")}
         </button>
       </div>
@@ -338,6 +344,17 @@
               <button class="btn sm" onclick={() => { ssh.panel = { kind: "rotate", key }; }}>
                 <RotateCw size={14} aria-hidden="true" />{t("sshRotate")}
               </button>
+              {#if !key.orphan}
+                <button class="btn sm" aria-expanded={asking === "reveal"} onclick={() => (asking = asking === "reveal" ? "" : "reveal")}>
+                  <Eye size={14} aria-hidden="true" />{t("keysReveal")}
+                </button>
+                <button class="btn sm" aria-expanded={asking === "test"} onclick={() => (asking = asking === "test" ? "" : "test")}>
+                  <FlaskConical size={14} aria-hidden="true" />{t("keysTest")}
+                </button>
+                <button class="btn sm" onclick={() => { ssh.panel = { kind: "convert", path: key.path }; }}>
+                  <ArrowRightLeft size={14} aria-hidden="true" />{t("keysConvert")}
+                </button>
+              {/if}
             </div>
 
             {#if asking === "agent"}
@@ -374,6 +391,18 @@
                   {t("sshUploadRun")}
                 </button>
               </form>
+            {:else if asking === "reveal"}
+              <div class="inline">
+                <SecretView
+                  name={key.name}
+                  encrypted={!!key.encrypted}
+                  load={(passphrase) => invoke<string>("keys_reveal", { path: key.path, passphrase })}
+                />
+              </div>
+            {:else if asking === "test"}
+              <div class="inline">
+                <KeyTest path={key.path} name={key.name} encrypted={!!key.encrypted} {key} />
+              </div>
             {:else if asking === "trash"}
               <div class="ask confirm" role="alert">
                 <span>{t("sshTrashConfirm", { name: key.name, dir: trash })}</span>
@@ -918,6 +947,10 @@
     padding: 12px 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
+  }
+
+  .inline {
+    margin-top: 10px;
   }
 
   .ask.confirm {
