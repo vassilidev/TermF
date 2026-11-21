@@ -411,8 +411,9 @@ fn reads_and_rewrites_env_files() {
 fn refuses_remote_databases() {
     let sb = Sandbox::new("remote");
     let refused = |host: &str| {
+        // `[::1]` is no file name on Windows.
         let dir = sb.dir(
-            host,
+            &host.replace(['[', ']', ':'], "_"),
             &[(
                 ".env",
                 &format!("DATABASE_URL=postgres://u:p@{host}:5432/app\n"),
