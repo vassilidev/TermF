@@ -2,8 +2,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 
 /// The events `ipc::hook_status` understands.
@@ -34,6 +35,36 @@ pub fn after_program(command: &str, args: &str) -> String {
     let command = command.trim_start();
     let end = command.find(char::is_whitespace).unwrap_or(command.len());
     format!("{} {args}{}", &command[..end], &command[end..])
+}
+
+/// Reads a `claude -p --output-format json --json-schema …` run: the structured answer and what it cost.
+pub fn structured_output(
+    status: ExitStatus,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<(Value, Option<f64>)> {
+    let text = String::from_utf8_lossy(stdout);
+    // Its answer is the last JSON line, whatever a wrapper printed before.
+    let Some(result) = text.lines().rev().find_map(|l| {
+        serde_json::from_str::<Value>(l.trim())
+            .ok()
+            .filter(Value::is_object)
+    }) else {
+        bail!(
+            "Claude Code gave no answer ({status}): {}",
+            crate::process::tail(&String::from_utf8_lossy(stderr))
+        );
+    };
+    let cost = result["total_cost_usd"].as_f64();
+    match result.get("structured_output") {
+        Some(answer) if result["is_error"] != true && answer.is_object() => {
+            Ok((answer.clone(), cost))
+        }
+        _ => bail!(
+            "Claude Code: {}",
+            result["result"].as_str().unwrap_or("no structured answer")
+        ),
+    }
 }
 
 /// Writes a plugin (`.claude-plugin/plugin.json` + `hooks/hooks.json`) whose hooks run `<termf> hook <Event>`.

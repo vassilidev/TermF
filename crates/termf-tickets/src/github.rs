@@ -1,4 +1,5 @@
-//! GitHub Issues through the GitHub CLI: `gh` brings its own sign-in (`gh auth login`), so TermF keeps no token.
+//! GitHub Issues and Projects v2 boards through the GitHub CLI: `gh` brings its own sign-in (`gh auth login`),
+//! so TermF keeps no token.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,7 +14,93 @@ use crate::{Comment, Ticket, TicketProvider, TicketRef, TicketSummary};
 pub struct GitHub {
     pub program: PathBuf,
     pub env: Vec<(String, String)>,
+    /// The project's board, whose Status `transition` changes.
+    pub board: Option<Board>,
 }
+
+/// A Projects v2 board: `acme/4`, or its address.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Board {
+    pub owner: String,
+    pub number: u64,
+}
+
+impl Board {
+    /// `owner/number`, or `https://github.com/orgs/<owner>/projects/<number>` (`users/` too).
+    pub fn parse(text: &str) -> Result<Self> {
+        let text = text.trim().trim_end_matches('/');
+        let path = text
+            .strip_prefix("https://github.com/")
+            .map(|p| p.split(['?', '#']).next().unwrap_or(p));
+        let parts: Vec<&str> = match path {
+            Some(path) => path.split('/').collect(),
+            None => text.split('/').collect(),
+        };
+        let (owner, number) = match parts.as_slice() {
+            ["orgs" | "users", owner, "projects", n, ..] => (*owner, *n),
+            [owner, n] if path.is_none() => (*owner, *n),
+            _ => bail!("{text:?} is not a GitHub project: write it owner/number, such as acme/4"),
+        };
+        let valid = !owner.is_empty()
+            && owner
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b));
+        match number.parse() {
+            Ok(number) if valid => Ok(Self {
+                owner: owner.to_owned(),
+                number,
+            }),
+            _ => bail!("{text:?} is not a GitHub project: write it owner/number, such as acme/4"),
+        }
+    }
+}
+
+const BOARD_ITEMS: &str = "query($owner: String!, $number: Int!, $cursor: String) {
+  viewer { login }
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        items(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            isArchived
+            status: fieldValueByName(name: \"Status\") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            content {
+              ... on Issue {
+                url title state updatedAt
+                labels(first: 20) { nodes { name } }
+                assignees(first: 20) { nodes { login } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}";
+
+const BOARD_ITEM: &str = "query($owner: String!, $number: Int!, $url: URI!) {
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        id
+        field(name: \"Status\") { ... on ProjectV2SingleSelectField { id options { id name } } }
+      }
+    }
+  }
+  resource(url: $url) {
+    ... on Issue { projectItems(first: 50) { nodes { id project { id } } } }
+  }
+}";
+
+const MOVE_ITEM: &str = "mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+  updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field, value: {singleSelectOptionId: $option}}) {
+    projectV2Item { id }
+  }
+}";
+
+/// Pages of 100 items a board is read for at most.
+const MAX_PAGES: usize = 30;
 
 pub(crate) fn reference(slug: &str, number: u64) -> TicketRef {
     TicketRef {
@@ -92,6 +179,14 @@ pub(crate) fn remote_slug(url: &str, ssh: &Ssh) -> Result<String> {
     let path = path.strip_suffix(".git").unwrap_or(path);
     ensure!(valid_slug(path), "{url} names no GitHub repository");
     Ok(path.to_ascii_lowercase())
+}
+
+/// The `login` of each user in a list.
+fn logins(users: &Value) -> Vec<String> {
+    let users = users.as_array().into_iter().flatten();
+    users
+        .filter_map(|u| u["login"].as_str().map(str::to_owned))
+        .collect()
 }
 
 /// Builds a ticket from the REST API's issue and comments.
@@ -178,6 +273,104 @@ impl GitHub {
     fn json(&self, args: &[&str]) -> Result<Value> {
         let out = self.run(None, args, None)?;
         serde_json::from_str(&out).with_context(|| format!("gh {} gave no JSON", args.join(" ")))
+    }
+
+    /// A GraphQL call; `fields` are `-f name=value` (strings) and `ints` `-F name=value` (numbers).
+    fn graphql(&self, query: &str, fields: &[(&str, &str)], ints: &[(&str, u64)]) -> Result<Value> {
+        let mut args = vec!["api".to_owned(), "graphql".to_owned()];
+        args.extend(["-f".to_owned(), format!("query={query}")]);
+        for (name, value) in fields {
+            args.extend(["-f".to_owned(), format!("{name}={value}")]);
+        }
+        for (name, value) in ints {
+            args.extend(["-F".to_owned(), format!("{name}={value}")]);
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let answer = self.json(&args)?;
+        if let Some(errors) = answer["errors"].as_array().filter(|e| !e.is_empty()) {
+            let messages: Vec<&str> = errors
+                .iter()
+                .filter_map(|e| e["message"].as_str())
+                .collect();
+            bail!("GitHub: {}", messages.join("; "));
+        }
+        Ok(answer)
+    }
+
+    /// The open issues on a board, every page, at most `limit`: in `columns` (its Status values, any case)
+    /// when some are given, and assigned to the user when `mine`. Their state is their column.
+    pub(crate) fn board_items(
+        &self,
+        board: &Board,
+        columns: &[String],
+        mine: bool,
+        limit: Option<usize>,
+    ) -> Result<Vec<TicketSummary>> {
+        let columns: Vec<&str> = columns
+            .iter()
+            .map(|c| c.trim())
+            .filter(|c| !c.is_empty())
+            .collect();
+        let mut found = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..MAX_PAGES {
+            let mut fields = vec![("owner", board.owner.as_str())];
+            if let Some(cursor) = &cursor {
+                fields.push(("cursor", cursor));
+            }
+            let answer = self.graphql(BOARD_ITEMS, &fields, &[("number", board.number)])?;
+            let data = &answer["data"];
+            let project = &data["repositoryOwner"]["projectV2"];
+            ensure!(
+                project.is_object(),
+                "no GitHub project {}/{} (or gh may not read it: `gh auth refresh -s read:project`)",
+                board.owner,
+                board.number
+            );
+            let me = data["viewer"]["login"].as_str().unwrap_or_default();
+            let items = &project["items"];
+            for item in items["nodes"].as_array().into_iter().flatten() {
+                let issue = &item["content"];
+                let column = item["status"]["name"].as_str().unwrap_or_default();
+                let assigned = issue["assignees"]["nodes"].as_array().into_iter().flatten();
+                let wanted = item["isArchived"] != true
+                    && issue["state"] == "OPEN"
+                    && (columns.is_empty()
+                        || columns.iter().any(|c| c.eq_ignore_ascii_case(column)))
+                    && (!mine || assigned.clone().any(|a| a["login"] == me));
+                let Some(reference) = issue["url"].as_str().and_then(|u| self.resolve(u)) else {
+                    continue;
+                };
+                if !wanted {
+                    continue;
+                }
+                let labels = issue["labels"]["nodes"].as_array().into_iter().flatten();
+                found.push(TicketSummary {
+                    reference,
+                    title: issue["title"].as_str().unwrap_or_default().into(),
+                    state: column.into(),
+                    labels: labels
+                        .filter_map(|l| l["name"].as_str().map(str::to_owned))
+                        .collect(),
+                    assignees: logins(&issue["assignees"]["nodes"]),
+                    updated: issue["updatedAt"].as_str().unwrap_or_default().into(),
+                    project: None,
+                    source: "githubProject".into(),
+                });
+            }
+            if let Some(limit) = limit
+                && found.len() >= limit
+            {
+                found.truncate(limit);
+                break;
+            }
+            let page = &items["pageInfo"];
+            match page["endCursor"].as_str() {
+                Some(next) if page["hasNextPage"] == true => cursor = Some(next.to_owned()),
+                _ => break,
+            }
+        }
+        Ok(found)
     }
 
     /// Opens a pull request from `head` into `base` of `repo` (`owner/name`) and returns its URL.
@@ -278,8 +471,10 @@ impl TicketProvider for GitHub {
                     labels: labels
                         .filter_map(|l| l["name"].as_str().map(str::to_owned))
                         .collect(),
+                    assignees: logins(&item["assignees"]),
                     updated: item["updated_at"].as_str().unwrap_or_default().into(),
                     project: None,
+                    source: "github".into(),
                 })
             })
             .collect())
@@ -297,8 +492,64 @@ impl TicketProvider for GitHub {
         Ok(())
     }
 
-    fn transition(&self, _: &TicketRef, _: &str) -> Result<()> {
-        bail!("GitHub Issues have no workflow states to move to (Projects v2 is not supported yet)")
+    /// Sets the issue's Status on the project's board to `to` (any case).
+    fn transition(&self, ticket: &TicketRef, to: &str) -> Result<()> {
+        let board = self.board.as_ref().context(
+            "GitHub Issues have no states to move to: name the project's board in [trackers.github] project",
+        )?;
+        let answer = self.graphql(
+            BOARD_ITEM,
+            &[("owner", &board.owner), ("url", &ticket.url)],
+            &[("number", board.number)],
+        )?;
+        let data = &answer["data"];
+        let project = &data["repositoryOwner"]["projectV2"];
+        let project_id = project["id"]
+            .as_str()
+            .with_context(|| format!("no GitHub project {}/{}", board.owner, board.number))?;
+        let field = &project["field"];
+        let options = field["options"].as_array().cloned().unwrap_or_default();
+        let option = options
+            .iter()
+            .find(|o| {
+                o["name"]
+                    .as_str()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(to.trim()))
+            })
+            .and_then(|o| o["id"].as_str())
+            .with_context(|| {
+                let names: Vec<&str> = options.iter().filter_map(|o| o["name"].as_str()).collect();
+                format!(
+                    "the board has no Status {to:?}: it has {}",
+                    names.join(", ")
+                )
+            })?;
+        let items = data["resource"]["projectItems"]["nodes"].as_array();
+        let item = items
+            .into_iter()
+            .flatten()
+            .find(|i| i["project"]["id"] == project_id)
+            .and_then(|i| i["id"].as_str())
+            .with_context(|| {
+                format!(
+                    "{} is not on the board {}/{}",
+                    ticket.key, board.owner, board.number
+                )
+            })?;
+        let field = field["id"]
+            .as_str()
+            .context("the board has no Status field")?;
+        self.graphql(
+            MOVE_ITEM,
+            &[
+                ("project", project_id),
+                ("item", item),
+                ("field", field),
+                ("option", option),
+            ],
+            &[],
+        )?;
+        Ok(())
     }
 
     /// A pull request that says `Closes #42` is already linked: this tells the ticket's readers too.

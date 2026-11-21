@@ -91,14 +91,8 @@ pub async fn config_import_apply(
 /// shell's PATH (see `conventions::propose`).
 fn claude(config_dir: &Path) -> Vec<String> {
     let settings = termf_core::load_settings(config_dir).unwrap_or_default();
-    let program = settings
-        .agents
-        .values()
-        .find(|c| termf_core::claude::is_claude(c))
-        .and_then(|c| c.split_whitespace().next())
-        .unwrap_or("claude");
     // shortcut: on Windows an npm `claude.cmd` is not found this way; go through `cmd /c` when that matters.
-    vec![program.into()]
+    vec![settings.claude_program()]
 }
 
 /// Runs a slow call (Claude Code, check scripts) off the async runtime.

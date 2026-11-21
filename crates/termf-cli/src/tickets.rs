@@ -15,7 +15,7 @@ use crate::{Client, take_flag, take_opt};
 pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
     let allowed: &[&str] = match command {
         "run" => &["--project", "--repo"],
-        "inbox" => &["--project"],
+        "inbox" => &["--project", "--refresh"],
         "deliver" => &["--yes"],
         "close" => &["--force"],
         _ => &[],
@@ -30,6 +30,7 @@ pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
     let repo = take_opt(&mut args, "--repo")?;
     let force = take_flag(&mut args, "--force");
     let yes = take_flag(&mut args, "--yes");
+    let refresh = take_flag(&mut args, "--refresh");
     let tickets = || -> Result<Tickets> {
         Ok(Tickets::new(
             termf_core::default_config_dir()?,
@@ -79,7 +80,7 @@ pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
             }
         }
         ("inbox", []) => {
-            for ticket in tickets()?.inbox(project.as_deref())? {
+            for ticket in tickets()?.inbox(project.as_deref(), refresh)? {
                 let project = ticket.project.as_deref().unwrap_or("-");
                 println!(
                     "{:<28}  {project:<12}  {}",

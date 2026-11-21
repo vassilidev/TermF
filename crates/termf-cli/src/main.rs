@@ -56,10 +56,12 @@ usage:
   termf sync scopes <list>              choose what syncs: config, projects, conventions
   termf sync disable                    stop syncing on this machine
   termf run <ticket> [--project <id>] [--repo <name>]
-                                        work on a ticket (URL, owner/repo#42, repo#42, #42) in a new
-                                        worktree, with a Claude Code session
+                                        work on a ticket (URL, owner/repo#42, repo#42, #42, ACME-123)
+                                        in a new worktree, with a Claude Code session
   termf runs [<run>]                    list runs, or show one run and its events
-  termf inbox [--project <id>]          open GitHub issues assigned to you
+  termf inbox [--project <id> [--refresh]]
+                                        open GitHub issues assigned to you, or what the project's
+                                        sources list (--refresh asks its MCP sources again)
   termf deliver <run> [--yes]           show what the run would send, then (once you agree, or with
                                         --yes) commit it, push and open the pull request
   termf close <run> [--force]           remove the run's worktree (--force drops work not pushed)

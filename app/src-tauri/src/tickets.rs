@@ -6,8 +6,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
-use termf_tickets::{Delivery, DeliveryPreview, Resolution, Run, RunEvent, TicketSummary, Tickets};
+use termf_tickets::{
+    Configured, Delivery, DeliveryPreview, McpServer, Resolution, Run, RunEvent, Sources,
+    TicketSummary, Tickets, Trackers, Unpushed,
+};
 
 use crate::{AppState, CmdResult, api, err};
 
@@ -41,8 +45,22 @@ async fn blocking<T: Send + 'static>(
         .map_err(err)
 }
 
+/// The run with its session, while that session still exists.
+fn with_session(app: &AppHandle, mut run: Run) -> Run {
+    let session = app
+        .state::<TicketsState>()
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&run.id)
+        .copied();
+    let live = app.state::<AppState>().sessions.list();
+    run.session_id = session.filter(|id| live.iter().any(|s| s.id == *id));
+    run
+}
+
 fn updated(app: &AppHandle, run: &Run) {
-    let _ = app.emit("run-updated", run);
+    let _ = app.emit("run-updated", with_session(app, run.clone()));
 }
 
 /// Resolves and prepares the run, then opens its Claude Code session, pointed at the file with its task.
@@ -85,7 +103,7 @@ pub fn start(
     sessions.lock().unwrap().insert(run.id, session.id);
     state.keep_awake.update(app);
     let _ = app.emit("session-opened", &session);
-    let run = tickets.session_opened(run.id, session.id)?;
+    let run = with_session(app, tickets.session_opened(run.id, session.id)?);
     updated(app, &run);
     Ok(run)
 }
@@ -97,7 +115,9 @@ pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
     if let Ok(run) = tickets.run(id) {
         updated(app, &run);
     }
-    delivered
+    let mut delivered = delivered?;
+    delivered.run = with_session(app, delivered.run);
+    Ok(delivered)
 }
 
 /// Closes the run; its session ends first, so no agent is left working in a deleted folder.
@@ -113,15 +133,86 @@ pub fn close(app: &AppHandle, id: i64, force: bool) -> Result<Run> {
         }
     })?;
     updated(app, &run);
-    Ok(run)
+    Ok(with_session(app, run))
 }
 
+/// `refresh` asks the project's MCP sources again instead of reading their last answer.
 #[tauri::command]
 pub async fn tickets_inbox(
     app: AppHandle,
     project: Option<String>,
+    refresh: Option<bool>,
 ) -> CmdResult<Vec<TicketSummary>> {
-    blocking(app, move |app| tickets(app).inbox(project.as_deref())).await
+    blocking(app, move |app| {
+        tickets(app).inbox(project.as_deref(), refresh.unwrap_or(false))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tickets_sources(app: AppHandle, project: String) -> CmdResult<Sources> {
+    blocking(app, move |app| tickets(app).sources(&project)).await
+}
+
+#[tauri::command]
+pub async fn tickets_sources_save(
+    app: AppHandle,
+    project: String,
+    trackers: Trackers,
+) -> CmdResult<Sources> {
+    blocking(app, move |app| {
+        tickets(app).save_sources(&project, &trackers)
+    })
+    .await
+}
+
+/// A few tickets of one source (`github`, `githubProject`, `jira` or `mcp:<name>`), with the sources as the
+/// editor holds them, saved or not.
+#[tauri::command]
+pub async fn tickets_source_test(
+    app: AppHandle,
+    project: String,
+    trackers: Trackers,
+    source: String,
+) -> CmdResult<Vec<TicketSummary>> {
+    blocking(app, move |app| {
+        tickets(app).test_source(&project, trackers, &source)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tickets_jira_token_save(
+    app: AppHandle,
+    site: String,
+    email: String,
+    token: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        tickets(app).save_jira_token(&site, &email, &token)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tickets_jira_token_forget(
+    app: AppHandle,
+    site: String,
+    email: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        tickets(app).forget_jira_token(&site, &email)
+    })
+    .await
+}
+
+/// The MCP servers of the user's Claude Code (`claude mcp list`, which checks each one: slow).
+#[tauri::command]
+pub async fn tickets_mcp_servers(
+    app: AppHandle,
+    project: Option<String>,
+) -> CmdResult<Vec<McpServer>> {
+    blocking(app, move |app| tickets(app).mcp_servers(project.as_deref())).await
 }
 
 #[tauri::command]
@@ -154,7 +245,11 @@ pub async fn tickets_run(
 
 #[tauri::command]
 pub async fn tickets_runs(app: AppHandle) -> CmdResult<Vec<Run>> {
-    blocking(app, |app| tickets(app).runs()).await
+    blocking(app, |app| {
+        let runs = tickets(app).runs()?;
+        Ok(runs.into_iter().map(|r| with_session(app, r)).collect())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -172,7 +267,52 @@ pub async fn tickets_deliver(app: AppHandle, id: i64, confirm: String) -> CmdRes
     blocking(app, move |app| deliver(app, id, &confirm)).await
 }
 
+/// Why a run was not closed. `uncommitted` or `unpushed`: closing would lose work (`uncommitted`: changes not
+/// committed; `commits`: commits not pushed), which `force` drops. `error`: anything else.
+#[derive(Serialize)]
+pub struct CloseError {
+    kind: &'static str,
+    message: String,
+    uncommitted: bool,
+    commits: u32,
+}
+
 #[tauri::command]
-pub async fn tickets_close(app: AppHandle, id: i64, force: Option<bool>) -> CmdResult<Run> {
-    blocking(app, move |app| close(app, id, force.unwrap_or(false))).await
+pub async fn tickets_close(
+    app: AppHandle,
+    id: i64,
+    force: Option<bool>,
+) -> Result<Run, CloseError> {
+    let closed =
+        tauri::async_runtime::spawn_blocking(move || close(&app, id, force.unwrap_or(false)))
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(|closed| closed);
+    closed.map_err(|e| match e.downcast_ref::<Unpushed>() {
+        Some(left) => CloseError {
+            kind: if left.uncommitted {
+                "uncommitted"
+            } else {
+                "unpushed"
+            },
+            message: left.to_string(),
+            uncommitted: left.uncommitted,
+            commits: left.commits,
+        },
+        None => CloseError {
+            kind: "error",
+            message: err(e),
+            uncommitted: false,
+            commits: 0,
+        },
+    })
+}
+
+/// For each project (or only `project`), whether its inbox has a source, and which.
+#[tauri::command]
+pub async fn tickets_configured(
+    app: AppHandle,
+    project: Option<String>,
+) -> CmdResult<Vec<Configured>> {
+    blocking(app, move |app| tickets(app).configured(project.as_deref())).await
 }
