@@ -12,18 +12,21 @@
 | 2 (backend) | Bibliothèque en couches (livré → global → projet → dépôt, le dépôt ne peut ni s'activer seul ni masquer un autre niveau), matérialisation pour Claude (`--plugin-dir`, `--append-system-prompt-file`), import `~/.claude`, export/import de config sûr (liens, fichiers privés, modes, atomicité) | `crates/termf-library`, `library/` (contenu livré), `app/src-tauri/src/library.rs` |
 | 2 (UI) | Vue Bibliothèque (portée, onglets, « pourquoi », interrupteurs, import Claude Code), export/import avec aperçu et choix par élément, **conventions assistées par IA** (§11.1 : `claude -p` en lecture seule, revue élément par élément, mesure d'impact en bac à sable macOS, application journalisée, interrupteur + niveau par phrase) — validé visuellement par le propriétaire (PR #8) | `crates/termf-library/src/conventions.rs`, `app/src/lib/{LibraryView,Conventions,ConfigTransfer}.svelte` |
 | 2b (backend) | Clés SSH : inventaire, génération en process, agent (askpass), `~/.ssh/config` (aperçu + écriture atomique), clé par dépôt, test, rotation, corbeille | `crates/termf-ssh`, `app/src-tauri/src/ssh.rs`, `termf ssh …` |
+| 2b (backend) | Synchro chiffrée (§5.4) : remotes git et dossier synchronisé, Argon2id + clé de données enveloppée (mot de passe + clé de récupération), XChaCha20-Poly1305, noms masqués, trousseau de l'OS, fusion 3 voies (TOML clé par clé), `local.toml` non synchronisé, fichiers illisibles ignorés et signalés, synchro de fond dans l'app, `termf sync …` (PR #9) | `crates/termf-sync`, `app/src-tauri/src/sync.rs`, `crates/termf-cli/src/sync.rs` |
 | Distribution | CI 3 OS sur chaque push/PR ; workflow `release.yml` (tag `v*` ou lancement manuel) → installeurs macOS arm64/x64, Windows, Linux, CLI embarquée, release en **brouillon** | `.github/workflows/` |
 
 La release brouillon `v0.1.0` a été construite **avant** la passe design : la supprimer (`gh release delete v0.1.0`) puis relancer `gh workflow run release.yml` sur `main` avant de la publier (pré-version).
 
 ## 2. En cours au moment de la passation
 
-- **Synchro chiffrée, moteur + CLI + commandes Tauri, sans UI** (§5.4) : un agent travaille sur la branche `phase2b/sync` (worktree `.claude/worktrees/agent-ae69676ba15a674bf`) et ouvrira une PR. v1 : remotes git et dossier synchronisé, Argon2id + clé de données enveloppée (mot de passe + clé de récupération), noms masqués, trousseau de l'OS, fusion 3 voies, `local.toml` non synchronisé, `termf sync …`. Si aucune PR n'existe (`gh pr list`), reprendre le travail du worktree. Ensuite : `/code-review high`, corrections, CI 3 OS, merge (pas d'UI, donc pas de page de captures).
+- **Interface des clés SSH** : PR #10 (branche `phase2b/ssh-ui`). Page de captures envoyée au propriétaire, **validation attendue** ; corrections de la revue (`/code-review medium`) en cours, avec nouvelles captures pour les écrans touchés. Laissé de côté faute de commande Rust : retirer de l'agent une clé sans fichier, tester un dépôt avec son `core.sshCommand`, GitLab, clés `-sk` ; textes renvoyés par le backend en anglais.
+- **Interface de la synchro chiffrée** : un agent travaille sur la branche `phase2b/sync-ui` (front seul, page de captures `scratchpad/sync-ui-review/`), PR à venir. Si aucune PR n'existe, reprendre le worktree. Ensuite : revue, corrections, CI 3 OS, page envoyée au propriétaire, merge après sa validation.
+- Choix de la synchro à confirmer par le propriétaire (signalés, non bloquants) : XChaCha20-Poly1305 direct plutôt que `age` ; changer le mot de passe émet une nouvelle clé de récupération ; premier raccordement avec des fichiers locaux = fusion sans base commune ; branche `main` fixe ; auteur des commits `TermF <sync@termf.invalid>` ; mot de passe ≥ 8 caractères ; fichier absent du remote = pas d'information, pas une suppression.
 
 ## 3. Reste à faire, dans l'ordre
 
-1. **Interface des clés SSH** sur le nouveau design, dans le style de la vue Bibliothèque (contrats des commandes ci-dessous), avec page de captures à valider.
-2. Synchro chiffrée : merger le moteur (ci-dessus), puis son **interface** (réglages, mot de passe, clé de récupération, conflits, appareils), avec page de captures.
+1. Merger l'**interface des clés SSH** et l'**interface de la synchro** (ci-dessus) après validation visuelle.
+2. Synchro, plus tard : remotes S3 / WebDAV / HTTPS, coffre et clés SSH synchronisés, oublier un appareil, cloner un dépôt manquant, recharger les réglages après un pull.
 3. **Phase 3 — tickets** : SQLite (runs, événements), connecteurs GitHub puis Jira, inbox, « je colle l'URL → un agent + worktree + PR ».
 4. **Phase 4 — l'équipe d'agents** : mode headless stream-json + vue conversation + prendre/rendre la main, rôles (déjà livrés dans `library/roles`), chef d'orchestre (plan JSON), moteur de workflows et de règles (contrôles `scope`, `text-changes`), MCP `termf`, jauge de contexte, canari, passation.
 5. **Phase 5 — revue visuelle avant/après** dans l'app.
