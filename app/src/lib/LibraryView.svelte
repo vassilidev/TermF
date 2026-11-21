@@ -10,6 +10,7 @@
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import Conventions from "$lib/Conventions.svelte";
   import SyncView from "$lib/SyncView.svelte";
+  import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import { t } from "$lib/i18n";
   import { app, shortPath } from "$lib/state.svelte";
   import {
@@ -30,10 +31,10 @@
 
   const project = $derived(app.workspace?.projects.find((p) => p.id === library.scope));
 
-  // A deleted project falls back to the global library, and only a project has conventions.
+  // A deleted project falls back to the global library, and only a project has conventions and a worktree recipe.
   $effect(() => {
     if (library.scope && app.workspace && !project) library.scope = "";
-    if (!library.scope && library.tab === "conventions") library.tab = "skill";
+    if (!library.scope && (library.tab === "conventions" || library.tab === "worktrees")) library.tab = "skill";
   });
 
   async function refresh() {
@@ -76,7 +77,7 @@
   } as const;
 
   const visible = $derived(items.filter((i) => matches(i, query)));
-  const shown = $derived(library.tab === "conventions" ? [] : visible.filter((i) => i.kind === library.tab));
+  const shown = $derived(visible.filter((i) => i.kind === library.tab));
   const current = $derived(shown.find((i) => i.name === selected) ?? shown[0]);
   const here = $derived<Layer>(library.scope ? "project" : "global");
 
@@ -178,6 +179,13 @@
       >
         {t("conventions")}
       </button>
+      <button
+        role="tab"
+        aria-selected={!library.panel && library.tab === "worktrees"}
+        onclick={() => ((library.tab = "worktrees"), (library.panel = null))}
+      >
+        {t("wtTab")}
+      </button>
     {/if}
   </div>
 
@@ -198,6 +206,10 @@
   {:else if library.tab === "conventions" && project}
     {#key project.id}
       <Conventions {project} />
+    {/key}
+  {:else if library.tab === "worktrees" && project}
+    {#key project.id}
+      <WorktreeSetup {project} />
     {/key}
   {:else}
     <div class="split">
