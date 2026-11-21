@@ -56,6 +56,8 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 - Conventions : mesure d'impact seulement sur macOS (`sandbox-exec`), « non mesuré » ailleurs ; hooks en `/bin/sh` (pas sous Windows) ; une archive importée qui contient à la fois le `pack.toml` d'un projet et la règle-hook l'enregistrerait (il faudrait un registre de confiance hors config) ; dialogues natifs jamais ouverts à la main ; jamais lancé avec opus sur un gros projet ni avec une réponse « questions » réelle.
 - SSH : `key()` lit la `.pub` d'une clé privée à travers un lien qui sort de `~/.ssh`, alors que `scan()` écarte ce même fichier ; clés matérielles `-sk`, GitLab, ACL Windows, askpass sous Windows non faits ou non vérifiés ; avis RUSTSEC-2023-0071 sur `rsa` (déchiffrement RSA non utilisé).
 - Windows : named pipe avec l'ACL par défaut (protégé par le jeton) ; `shell_quote` retire les `"`.
+- API locale : un agent lancé par TermF peut lire le jeton complet de l'utilisateur dans le dossier de données et appeler les actions qui lui sont réservées (`run`, `deliver`, `close`…) ; à isoler (jeton hors de portée des sessions, ou confirmation dans l'app).
+- Disque : au plus deux worktrees Rust en parallèle (≈ 2,5 Go chacun) ; un `CARGO_TARGET_DIR` partagé écraserait `target/debug/termf` entre branches, donc à éviter.
 
 ## 5. Méthode de travail (à reprendre telle quelle)
 
