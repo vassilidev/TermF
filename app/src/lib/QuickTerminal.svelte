@@ -10,6 +10,7 @@
   import { listen } from "@tauri-apps/api/event";
   import Terminal from "$lib/Terminal.svelte";
   import { t } from "$lib/i18n";
+  import { files } from "$lib/files.svelte";
   import { app } from "$lib/state.svelte";
 
   let open = $state(false);
@@ -28,6 +29,8 @@
     if (!panel.contains(document.activeElement)) {
       previousFocus = document.activeElement as HTMLElement | null;
     }
+    // The panel lives in the terminals pane.
+    files.view = "terminals";
     try {
       id = await invoke<number>("quick_terminal", { cwd: contextCwd(), cols: 120, rows: 16 });
     } catch (e) {
@@ -44,7 +47,8 @@
     previousFocus?.focus();
   }
 
-  toggle = () => (open ? hide() : show());
+  const visible = () => open && files.view === "terminals";
+  toggle = () => (visible() ? hide() : show());
 
   // In-app only, so Ctrl+` stays free for other apps (VS Code…) while TermF is in the background.
   // Not Cmd+` on macOS: the system uses it to cycle windows. Capture phase, so a focused terminal does not see it.
@@ -58,10 +62,12 @@
 
   onMount(() => {
     const toggled = listen<boolean>("quick-terminal", ({ payload: wasFocused }) =>
-      open && wasFocused ? hide() : show(),
+      wasFocused && visible() ? hide() : show(),
     );
     const exited = listen<{ id: number }>("pty-exit", ({ payload }) => {
-      if (payload.id === id && open) hide();
+      if (payload.id !== id) return;
+      if (visible()) hide();
+      else open = false;
     });
     return () => {
       toggled.then((stop) => stop());
