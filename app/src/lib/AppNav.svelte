@@ -3,22 +3,28 @@
   import Coffee from "@lucide/svelte/icons/coffee";
   import Layers from "@lucide/svelte/icons/layers";
   import Search from "@lucide/svelte/icons/search";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
-  import Settings from "$lib/Settings.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { isMac } from "$lib/files.svelte";
+  import { aria } from "$lib/keymap.svelte";
   import { validProject } from "$lib/nav-logic";
   import { tallies } from "$lib/project.svelte";
+  import { showSettings } from "$lib/settings.svelte";
   import { app, setProject, ui, waitingSessions } from "$lib/state.svelte";
+  import { summary } from "$lib/sync.svelte";
   import { groups, views } from "$lib/views";
 
   const waiting = $derived(waitingSessions().length);
   const projects = $derived(app.workspace?.projects ?? []);
   const counts = $derived(tallies());
+  /** Sync needs the owner (password, conflicts, recovery key, error): a dot on Settings. */
+  const tone = $derived(summary(app.sync).tone);
+  const flagged = $derived(tone === "attention" || tone === "error");
+  const settingsLabel = $derived(flagged ? `${t("settings")} · ${t("syncNeedsYou")}` : t("settings"));
 
   // A remembered or current project that no longer exists falls back to every project.
   $effect(() => {
@@ -31,19 +37,21 @@
   <button
     class="find"
     aria-haspopup="dialog"
-    aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
+    aria-keyshortcuts={aria("palette")}
     onclick={() => (ui.palette = true)}
   >
-    <Search size={14} aria-hidden="true" /><span>{t("navSearch")}</span><kbd>{keys.palette}</kbd>
+    <Search size={14} aria-hidden="true" /><span>{t("navSearch")}</span>
+    {#if keys.palette}<kbd>{keys.palette}</kbd>{/if}
   </button>
   {#if waiting}
     <button
       class="wait"
       onclick={nextWaiting}
       title={t("nextWaiting")}
-      aria-keyshortcuts={isMac ? "Meta+J" : "Control+J"}
+      aria-keyshortcuts={aria("next_waiting")}
     >
-      <BellRing size={14} aria-hidden="true" /><span>{t("waitingCount", { count: waiting })}</span><kbd>{keys.next}</kbd>
+      <BellRing size={14} aria-hidden="true" /><span>{t("waitingCount", { count: waiting })}</span>
+      {#if keys.next}<kbd>{keys.next}</kbd>{/if}
     </button>
   {/if}
 
@@ -61,8 +69,8 @@
           <button
             class="nav-item"
             aria-current={app.project === project.id ? "true" : undefined}
-            aria-keyshortcuts={i < 9 ? (isMac ? `Control+${i + 1}` : `Alt+${i + 1}`) : undefined}
-            title={i < 9 ? `${t("navSwitchTo", { name: project.name })} (${keys.project(i + 1)})` : undefined}
+            aria-keyshortcuts={i < 9 ? aria("project", i + 1) : undefined}
+            title={i < 9 && keys.project(i + 1) ? `${t("navSwitchTo", { name: project.name })} (${keys.project(i + 1)})` : undefined}
             onclick={() => setProject(project.id)}
           >
             <span class="mark" aria-hidden="true">{initial(project.name)}</span>
@@ -91,11 +99,20 @@
   </div>
 
   <div class="foot">
-    <Settings />
+    <button
+      class="nav-item"
+      aria-current={ui.view === "settings" ? "page" : undefined}
+      aria-label={settingsLabel}
+      title={settingsLabel}
+      onclick={() => showSettings()}
+    >
+      <SettingsIcon size={16} aria-hidden="true" />{t("settings")}
+      {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
+    </button>
     {#if app.keepAwake?.active}
       <button
         class="icon-btn awake"
-        onclick={() => (ui.settings = true)}
+        onclick={() => showSettings("awake")}
         aria-label={t("keepAwakeActive")}
         title={t("keepAwakeActive")}
       >
@@ -106,8 +123,8 @@
       class="icon-btn"
       onclick={toggleQuickTerminal}
       aria-label={t("quickTerminal")}
-      aria-keyshortcuts="Control+`"
-      title={t("quickTerminalTitle")}
+      aria-keyshortcuts={aria("quick_terminal")}
+      title={keys.quick ? `${t("quickTerminal")} (${keys.quick})` : t("quickTerminal")}
     >
       <SquareTerminal size={16} aria-hidden="true" />
     </button>
@@ -298,5 +315,17 @@
 
   .awake {
     color: var(--warning);
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    margin-left: auto;
+    border-radius: 50%;
+    background: var(--waiting);
+  }
+
+  .dot.error {
+    background: var(--danger);
   }
 </style>

@@ -58,10 +58,13 @@
     border: 0;
   }
 
+  /* The page's title in Settings. */
   legend {
-    margin-bottom: 6px;
+    margin-bottom: 12px;
     padding: 0;
+    font-size: var(--text-xl);
     font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   .option {

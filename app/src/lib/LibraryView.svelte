@@ -1,7 +1,5 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import FileDown from "@lucide/svelte/icons/file-down";
-  import FileUp from "@lucide/svelte/icons/file-up";
   import Import from "@lucide/svelte/icons/import";
   import Info from "@lucide/svelte/icons/info";
   import Search from "@lucide/svelte/icons/search";
@@ -9,7 +7,6 @@
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import Conventions from "$lib/Conventions.svelte";
   import LibraryScout from "$lib/LibraryScout.svelte";
-  import SyncView from "$lib/SyncView.svelte";
   import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
@@ -19,8 +16,6 @@
   import { app, shortPath } from "$lib/state.svelte";
   import {
     busy,
-    exportConfig,
-    importConfig,
     kinds,
     library,
     matches,
@@ -166,12 +161,6 @@
       <button class="btn sm" onclick={() => { library.panel = { kind: "claude" }; }}>
         <Import size={14} aria-hidden="true" />{t("claudeImport")}
       </button>
-      <button class="btn sm" onclick={exportConfig} disabled={library.busy}>
-        <FileDown size={14} aria-hidden="true" />{t("configExport")}
-      </button>
-      <button class="btn sm" onclick={importConfig} disabled={library.busy}>
-        <FileUp size={14} aria-hidden="true" />{t("configImport")}
-      </button>
     {/snippet}
   </ViewHeader>
 
@@ -188,12 +177,10 @@
       </div>
     {/if}
 
-    {#if library.panel?.kind === "sync"}
-      <SyncView />
-    {:else if library.panel?.kind === "scout"}
+    {#if library.panel?.kind === "scout"}
       <LibraryScout />
     {:else if library.panel}
-      <ConfigTransfer />
+      <ConfigTransfer panel={library.panel} />
     {:else if library.tab === "conventions" && project}
       {#key project.id}
         <Conventions {project} />

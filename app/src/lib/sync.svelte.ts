@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ago, t } from "$lib/i18n";
-import { library, showLibrary } from "$lib/library.svelte";
+import { loadKeys } from "$lib/keymap.svelte";
+import { showSettings } from "$lib/settings.svelte";
 import { app } from "$lib/state.svelte";
 
 export type Scope = "config" | "projects" | "conventions";
@@ -47,8 +48,7 @@ export const sync = $state({
 });
 
 export function showSync() {
-  showLibrary();
-  library.panel = { kind: "sync" };
+  showSettings("sync");
   sync.error = "";
 }
 
@@ -78,6 +78,7 @@ export async function syncNow(publish = true) {
 }
 
 export function keepReport(report: Report) {
+  if (report.pulled.length) loadKeys();
   sync.report = { ...report, at: app.sync?.lastSync ?? null, error: app.sync?.lastError ?? null };
 }
 
@@ -86,7 +87,7 @@ export function currentReport(): Report | null {
   return r && r.at === app.sync?.lastSync && r.error === app.sync?.lastError ? r : null;
 }
 
-/** One line for the status, worst first; `tone` other than "ok" puts a dot on the settings button. */
+/** One line for the status, worst first; `tone` other than "ok" puts a dot on the Settings entry of the navigation. */
 export function summary(status: SyncStatus | null): { tone: "ok" | "off" | "attention" | "error"; text: string } {
   if (sync.recoveryKey) return { tone: "attention", text: t("syncKeyPending") };
   if (!status?.enabled) return { tone: "off", text: t("syncOff") };
