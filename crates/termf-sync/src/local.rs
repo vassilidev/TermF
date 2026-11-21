@@ -1,5 +1,6 @@
 //! The synced files as this machine has them. Projects travel with each repository's `remote` and the path it
-//! had where it was added; `local.toml`, never synced, maps a remote to this machine's own path when it differs.
+//! had where it was added; `local.toml`, never synced, maps a project's remote to this machine's own path when it
+//! differs.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -9,13 +10,13 @@ use anyhow::{Context, Result};
 use termf_library::archive::{self, MissingRepo};
 use toml_edit::{DocumentMut, Item, Table, value};
 
-use crate::Scope;
 use crate::record::{Entry, Record};
+use crate::{Scope, Skipped};
 
 const LOCAL: &str = "local.toml";
 
-/// Git remote → this machine's path for it.
-pub type Mapping = BTreeMap<String, String>;
+/// (project id, git remote) → this machine's path for that repository.
+pub type Mapping = BTreeMap<(String, String), String>;
 
 pub fn scope_of(path: &str) -> Scope {
     match path.split('/').collect::<Vec<_>>().as_slice() {
@@ -30,9 +31,10 @@ pub fn valid(path: &str) -> bool {
     archive::allowed(path) && !path.contains(['\\', ':'])
 }
 
-fn is_project(path: &str) -> bool {
-    path.strip_prefix("projects/")
-        .is_some_and(|f| f.ends_with(".toml") && !f.contains('/'))
+fn project_id(path: &str) -> Option<&str> {
+    path.strip_prefix("projects/")?
+        .strip_suffix(".toml")
+        .filter(|id| !id.contains('/'))
 }
 
 pub fn load_mapping(config_dir: &Path) -> Result<Mapping> {
@@ -46,7 +48,12 @@ pub fn load_mapping(config_dir: &Path) -> Result<Mapping> {
     Ok(repos
         .into_iter()
         .flatten()
-        .filter_map(|(remote, path)| Some((remote.clone(), path.as_str()?.to_owned())))
+        .filter_map(|(project, remotes)| Some((project, remotes.as_table()?)))
+        .flat_map(|(project, remotes)| {
+            remotes.iter().filter_map(move |(remote, path)| {
+                Some(((project.clone(), remote.clone()), path.as_str()?.to_owned()))
+            })
+        })
         .collect())
 }
 
@@ -57,11 +64,14 @@ pub fn save_mapping(config_dir: &Path, mapping: &Mapping) -> Result<()> {
         Ok(text) => text
             .parse()
             .with_context(|| format!("invalid {}", file.display()))?,
-        Err(_) => "# This machine's repository paths, by git remote. Never synced.\n".parse()?,
+        Err(_) => "# This machine's repository paths, by project and git remote. Never synced.\n"
+            .parse()?,
     };
     let mut repos = Table::new();
-    for (remote, path) in mapping {
-        repos[remote.as_str()] = value(path.as_str());
+    repos.set_implicit(true);
+    for ((project, remote), path) in mapping {
+        let project = repos.entry(project).or_insert(Item::Table(Table::new()));
+        project[remote.as_str()] = value(path.as_str());
     }
     doc["repos"] = Item::Table(repos);
     termf_core::write_atomic(&file, &doc.to_string())
@@ -73,7 +83,12 @@ fn same_place(a: &str, b: &str) -> bool {
 
 /// Each repository the last synced version knows (by remote) keeps that version's path; this machine's own
 /// path goes to `mapping`.
-fn to_synced(bytes: Vec<u8>, base: Option<&Record>, mapping: &mut Mapping) -> Result<Vec<u8>> {
+fn to_synced(
+    project: &str,
+    bytes: Vec<u8>,
+    base: Option<&Record>,
+    mapping: &mut Mapping,
+) -> Result<Vec<u8>> {
     let hints: BTreeMap<String, String> = base
         .and_then(|r| r.entry.as_ref())
         .and_then(|e| toml::from_str::<toml::Table>(std::str::from_utf8(&e.bytes).ok()?).ok())
@@ -92,18 +107,22 @@ fn to_synced(bytes: Vec<u8>, base: Option<&Record>, mapping: &mut Mapping) -> Re
             let (Some(remote), Some(path)) = (field("remote"), field("path")) else {
                 continue;
             };
-            if let Some(hint) = hints.get(&remote)
-                && !same_place(hint, &path)
-            {
-                mapping.insert(remote, path);
-                repo["path"] = value(hint.as_str());
+            let key = (project.to_owned(), remote);
+            match hints.get(&key.1) {
+                Some(hint) if !same_place(hint, &path) => {
+                    repo["path"] = value(hint.as_str());
+                    mapping.insert(key, path);
+                }
+                _ => {
+                    mapping.remove(&key);
+                }
             }
         }
     }
     Ok(doc.to_string().into_bytes())
 }
 
-fn to_local(bytes: &[u8], mapping: &Mapping) -> Vec<u8> {
+fn to_local(project: &str, bytes: &[u8], mapping: &Mapping) -> Vec<u8> {
     let Some(mut doc) = std::str::from_utf8(bytes)
         .ok()
         .and_then(|t| t.parse::<DocumentMut>().ok())
@@ -114,7 +133,7 @@ fn to_local(bytes: &[u8], mapping: &Mapping) -> Vec<u8> {
         for repo in repos.iter_mut() {
             let field = |k| repo.get(k).and_then(Item::as_str).map(str::to_owned);
             if let (Some(remote), Some(path)) = (field("remote"), field("path"))
-                && let Some(mine) = mapping.get(&remote)
+                && let Some(mine) = mapping.get(&(project.to_owned(), remote))
                 && !same_place(mine, &path)
             {
                 repo["path"] = value(mine.as_str());
@@ -125,23 +144,36 @@ fn to_local(bytes: &[u8], mapping: &Mapping) -> Vec<u8> {
 }
 
 /// The files of the enabled scopes, as they are synced: paths made portable (as an export does) and project
-/// repositories put back at their synced path.
+/// repositories put back at their synced path. A file that cannot be read that way (invalid TOML) is skipped,
+/// so it neither blocks the others nor reads as deleted.
 pub fn read(
     config_dir: &Path,
     scopes: &BTreeSet<Scope>,
     base: &BTreeMap<String, Record>,
     mapping: &mut Mapping,
-) -> Result<BTreeMap<String, Entry>> {
-    let (files, _links) = archive::local_files(config_dir, None)?;
-    let mut entries = BTreeMap::new();
+) -> Result<(BTreeMap<String, Entry>, Vec<Skipped>)> {
+    let (files, _links) = archive::raw_files(config_dir, None)?;
+    let (mut entries, mut skipped) = (BTreeMap::new(), Vec::new());
     for (path, bytes) in files {
         if !scopes.contains(&scope_of(&path)) || !valid(&path) {
             continue;
         }
-        let bytes = if is_project(&path) {
-            to_synced(bytes, base.get(&path), mapping)?
-        } else {
-            bytes
+        let synced = archive::portable(&path, &bytes).and_then(|text| {
+            let bytes = text.map_or(bytes, String::into_bytes);
+            match project_id(&path) {
+                Some(project) => to_synced(project, bytes, base.get(&path), mapping),
+                None => Ok(bytes),
+            }
+        });
+        let bytes = match synced {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                skipped.push(Skipped {
+                    error: format!("{e:#}"),
+                    path,
+                });
+                continue;
+            }
         };
         let exec = executable(&config_dir.join(&path)).unwrap_or_else(|| {
             base.get(&path)
@@ -150,7 +182,7 @@ pub fn read(
         });
         entries.insert(path, Entry { bytes, exec });
     }
-    Ok(entries)
+    Ok((entries, skipped))
 }
 
 #[cfg(unix)]
@@ -192,10 +224,9 @@ pub fn write(
         }
         return Ok(());
     };
-    let bytes = if is_project(path) {
-        to_local(&entry.bytes, mapping)
-    } else {
-        entry.bytes.clone()
+    let bytes = match project_id(path) {
+        Some(project) => to_local(project, &entry.bytes, mapping),
+        None => entry.bytes.clone(),
     };
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
@@ -212,9 +243,10 @@ pub fn write(
     fs::rename(&tmp, &target).with_context(|| format!("cannot write {}", target.display()))
 }
 
-/// This machine's project repositories that are not where the project says.
+/// This machine's project repositories that are not where the project says. An invalid project is left to
+/// `read`, which reports it.
 pub fn missing_repos(config_dir: &Path) -> Result<Vec<MissingRepo>> {
-    let mut projects = BTreeMap::new();
+    let mut missing = Vec::new();
     for entry in fs::read_dir(config_dir.join("projects"))
         .into_iter()
         .flatten()
@@ -222,9 +254,10 @@ pub fn missing_repos(config_dir: &Path) -> Result<Vec<MissingRepo>> {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = format!("projects/{name}");
-        if is_project(&path) && entry.file_type()?.is_file() {
-            projects.insert(path, fs::read(entry.path())?);
+        if project_id(&path).is_some() && entry.file_type()?.is_file() {
+            let project = archive::Files::from([(path, fs::read(entry.path())?)]);
+            missing.extend(archive::missing_repos(&project).unwrap_or_default());
         }
     }
-    archive::missing_repos(&projects)
+    Ok(missing)
 }

@@ -372,17 +372,23 @@ pub fn missing_repos(incoming: &Files) -> Result<Vec<MissingRepo>> {
 /// The files an export takes from the config folder (or only under `item`), made portable, and the links
 /// it skipped.
 pub fn local_files(config_dir: &Path, item: Option<&str>) -> Result<(Files, Vec<String>)> {
+    let (mut files, links) = raw_files(config_dir, item)?;
+    for (path, bytes) in files.iter_mut() {
+        if let Some(text) = portable(path, bytes)? {
+            *bytes = text.into_bytes();
+        }
+    }
+    Ok((files, links))
+}
+
+/// The same files, not made portable.
+pub fn raw_files(config_dir: &Path, item: Option<&str>) -> Result<(Files, Vec<String>)> {
     let mut files = Files::new();
     let mut links = Vec::new();
     for top in item.map_or(INCLUDED.to_vec(), |item| vec![item]) {
         walk(config_dir, &config_dir.join(top), &mut files, &mut links)?;
     }
     links.sort();
-    for (path, bytes) in files.iter_mut() {
-        if let Some(text) = portable(path, bytes)? {
-            *bytes = text.into_bytes();
-        }
-    }
     Ok((files, links))
 }
 
@@ -434,7 +440,7 @@ fn private(name: &str) -> bool {
 
 /// Paths of `termf.toml` and of the projects as `~/…`, and each repository's git `remote`, so they work on
 /// another machine.
-fn portable(path: &str, bytes: &[u8]) -> Result<Option<String>> {
+pub fn portable(path: &str, bytes: &[u8]) -> Result<Option<String>> {
     let project = path
         .strip_prefix("projects/")
         .is_some_and(|f| f.ends_with(".toml") && !f.contains('/'));

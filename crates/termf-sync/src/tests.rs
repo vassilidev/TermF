@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::Arc;
 
 use super::*;
 
-/// Never the system keychain.
-#[derive(Default)]
-struct MemoryStore(Mutex<HashMap<String, Vec<u8>>>);
+/// Never the system keychain. Clones share it, as the app and the CLI share the machine's keychain.
+#[derive(Default, Clone)]
+struct MemoryStore(Arc<Mutex<HashMap<String, Vec<u8>>>>);
 
 impl KeyStore for MemoryStore {
     fn get(&self, account: &str) -> Result<Option<Vec<u8>>> {
@@ -705,4 +706,134 @@ fn a_git_push_that_lost_the_race_asks_to_begin_again() {
     assert!(second.root().join("y").exists() && !second.root().join("z").exists());
     put(second.root(), "z", b"1").unwrap();
     assert!(second.commit().unwrap());
+}
+
+#[test]
+fn a_password_changed_by_the_cli_does_not_lock_the_app() {
+    let sandbox = Sandbox::new("stale-key");
+    let remote = sandbox.folder();
+    let keychain = MemoryStore::default();
+    let app = sandbox.machine_with("a", Box::new(keychain.clone()));
+    app.setup(&remote);
+    let cli = Engine::new(app.dir.clone(), Box::new(keychain));
+    cli.change_password(PASSWORD, "another password").unwrap();
+    app.put("termf.toml", "scan_depth = 3\n");
+    assert_eq!(app.push().pushed, ["termf.toml"]);
+    assert!(app.engine.status().unwrap().unlocked);
+}
+
+#[test]
+fn setup_refuses_a_repository_with_other_branches_only() {
+    let sandbox = Sandbox::new("master");
+    let remote = sandbox.bare();
+    let RemoteSpec::Git { url } = &remote else {
+        unreachable!()
+    };
+    let work = sandbox.root.join("work");
+    fs::create_dir_all(&work).unwrap();
+    sandbox.git(&work, &["init", "-q", "-b", "master"]);
+    fs::write(work.join("README.md"), "a real project\n").unwrap();
+    sandbox.git(&work, &["add", "-A"]);
+    sandbox.git(&work, &["commit", "-q", "-m", "init"]);
+    sandbox.git(&work, &["push", "-q", url, "master"]);
+
+    let a = sandbox.machine("a");
+    let error = a
+        .engine
+        .setup(remote.clone(), PASSWORD, &Scope::AVAILABLE, None)
+        .unwrap_err();
+    assert!(error.to_string().contains("master"), "{error:#}");
+    assert!(!a.engine.enabled());
+    let branches = sandbox.git(
+        &sandbox.root.join("remote.git"),
+        &["branch", "--format=%(refname:short)"],
+    );
+    assert_eq!(branches.trim(), "master", "no main pushed");
+}
+
+#[test]
+fn local_paths_are_kept_per_project_and_dropped_once_they_match() {
+    let sandbox = Sandbox::new("mapping");
+    let remote = sandbox.folder();
+    let (a, b) = (sandbox.machine("a"), sandbox.machine("b"));
+    let project = |name: &str, path: &str| {
+        format!("name = {name:?}\n[[repos]]\npath = {path:?}\nremote = \"git@h:x/shared.git\"\n")
+    };
+    let path = |m: &Machine, p: &str| m.toml(p)["repos"][0]["path"].as_str().unwrap().to_owned();
+    a.put("projects/one.toml", &project("One", "~/termf-test-a/one"));
+    a.put("projects/two.toml", &project("Two", "~/termf-test-a/two"));
+    a.setup(&remote);
+    b.setup(&remote);
+
+    // One remote, cloned twice on b: once per project.
+    b.put("projects/one.toml", &project("One", "~/termf-test-b/one"));
+    b.put("projects/two.toml", &project("Two", "~/termf-test-b/two"));
+    assert!(b.push().pushed.is_empty());
+    a.put(
+        "projects/one.toml",
+        &project("One Inc", "~/termf-test-a/one"),
+    );
+    a.put(
+        "projects/two.toml",
+        &project("Two Inc", "~/termf-test-a/two"),
+    );
+    a.push();
+    b.push();
+    assert_eq!(
+        b.toml("projects/one.toml")["name"].as_str(),
+        Some("One Inc")
+    );
+    assert_eq!(path(&b, "projects/one.toml"), "~/termf-test-b/one");
+    assert_eq!(path(&b, "projects/two.toml"), "~/termf-test-b/two");
+
+    // Back at the synced path: the local entry goes, so the next pull leaves the path alone.
+    b.put(
+        "projects/one.toml",
+        &project("One Inc", "~/termf-test-a/one"),
+    );
+    assert!(b.push().pushed.is_empty());
+    let local = b.read("local.toml");
+    assert!(
+        !local.contains("termf-test-b/one") && local.contains("termf-test-b/two"),
+        "{local}"
+    );
+    a.put("projects/one.toml", &project("One", "~/termf-test-a/one"));
+    a.push();
+    b.push();
+    assert_eq!(b.toml("projects/one.toml")["name"].as_str(), Some("One"));
+    assert_eq!(path(&b, "projects/one.toml"), "~/termf-test-a/one");
+    assert_eq!(path(&b, "projects/two.toml"), "~/termf-test-b/two");
+}
+
+#[test]
+fn an_unreadable_file_is_skipped_and_reported_never_deleted() {
+    let sandbox = Sandbox::new("invalid");
+    let remote = sandbox.folder();
+    let (a, b) = (sandbox.machine("a"), sandbox.machine("b"));
+    a.put("termf.toml", "scan_depth = 3\n");
+    a.put("projects/acme.toml", "name = \"Acme\"\n");
+    a.setup(&remote);
+    b.setup(&remote);
+
+    a.put("termf.toml", "scan_depth =\n");
+    fs::write(a.dir.join("projects/acme.toml"), b"name = \"\xff\"\n").unwrap();
+    a.put("library/commands/c.md", "still synced\n");
+    let report = a.push();
+    assert_eq!(report.pushed, ["library/commands/c.md"]);
+    let skipped: Vec<_> = report.skipped.iter().map(|s| s.path.as_str()).collect();
+    assert_eq!(skipped, ["projects/acme.toml", "termf.toml"]);
+    let error = a.engine.status().unwrap().last_error.unwrap();
+    assert!(error.contains("termf.toml is not synced"), "{error}");
+
+    b.push();
+    assert_eq!(b.read("termf.toml"), "scan_depth = 3\n");
+    assert_eq!(b.read("projects/acme.toml"), "name = \"Acme\"\n");
+    assert_eq!(b.read("library/commands/c.md"), "still synced\n");
+
+    a.put("termf.toml", "scan_depth = 4\n");
+    a.put("projects/acme.toml", "name = \"Acme\"\n");
+    let report = a.push();
+    assert!(report.skipped.is_empty(), "{report:?}");
+    assert_eq!(report.pushed, ["termf.toml"]);
+    assert_eq!(a.engine.status().unwrap().last_error, None);
 }

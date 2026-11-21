@@ -24,7 +24,6 @@ pub fn random<const N: usize>() -> [u8; N] {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Kdf {
-    /// Memory in KiB.
     pub m: u32,
     pub t: u32,
     pub p: u32,
@@ -44,7 +43,7 @@ impl Default for Kdf {
 pub fn derive(secret: &[u8], salt: &[u8], kdf: Kdf) -> Result<Key> {
     // The parameters come from the remote: bounded so a tampered file cannot exhaust memory or time.
     ensure!(
-        kdf.m <= 1 << 20 && kdf.t <= 16 && kdf.p <= 8,
+        kdf.m <= 256 << 10 && kdf.t <= 8 && kdf.p <= 4,
         "unexpected key derivation parameters"
     );
     let params = Params::new(kdf.m, kdf.t, kdf.p, Some(32)).map_err(|e| anyhow!("{e}"))?;
@@ -79,7 +78,6 @@ fn mac(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
     mac.finalize().into_bytes().into()
 }
 
-/// The keys of one data key generation.
 pub struct DataKeys {
     pub id: [u8; KEY_ID],
     content: Key,
@@ -191,6 +189,18 @@ mod tests {
         assert_eq!(unhex("0g"), None);
         assert_eq!(unhex("abc"), None);
         assert_eq!(unhex("é1"), None);
+    }
+
+    #[test]
+    fn kdf_parameters_from_the_remote_are_bounded() {
+        let refused = |kdf: Kdf| derive(b"x", &[0; 16], kdf).is_err();
+        let d = Kdf::default();
+        assert!(refused(Kdf {
+            m: (256 << 10) + 1,
+            ..d
+        }));
+        assert!(refused(Kdf { t: 9, ..d }));
+        assert!(refused(Kdf { p: 5, ..d }));
     }
 
     #[test]

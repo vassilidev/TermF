@@ -30,6 +30,14 @@ pub const WRITES: &[&str] = &[
     "library_toggle",
     "library_import_claude",
     "config_import_apply",
+    "conventions_save",
+    "conventions_delete",
+    "conventions_propose",
+    "conventions_revise",
+    "conventions_review",
+    "conventions_discard",
+    "conventions_apply",
+    "conventions_switch",
 ];
 
 enum Wake {
@@ -53,7 +61,6 @@ pub fn start(app: &AppHandle, config_dir: PathBuf) -> SyncState {
     }
 }
 
-/// Wraps the command handler: a push follows the commands that write the config.
 pub fn hook(
     handler: impl Fn(Invoke) -> bool + Send + Sync + 'static,
 ) -> impl Fn(Invoke) -> bool + Send + Sync + 'static {
@@ -119,7 +126,6 @@ pub async fn sync_status(state: State<'_, SyncState>) -> CmdResult<Status> {
     blocking(&state, |e| e.status()).await
 }
 
-/// Whether the remote already holds a TermF sync: setting up then joins it with its password.
 #[tauri::command]
 pub async fn sync_probe(state: State<'_, SyncState>, remote: RemoteSpec) -> CmdResult<bool> {
     blocking(&state, move |e| e.probe(&remote)).await
@@ -144,7 +150,6 @@ pub async fn sync_unlock(state: State<'_, SyncState>, password: String) -> CmdRe
     blocking(&state, move |e| e.unlock(&password)).await
 }
 
-/// Returns the new recovery key.
 #[tauri::command]
 pub async fn sync_recover(
     state: State<'_, SyncState>,
@@ -178,7 +183,6 @@ pub async fn sync_devices(state: State<'_, SyncState>) -> CmdResult<Vec<Device>>
     blocking(&state, |e| e.devices()).await
 }
 
-/// Returns the new recovery key.
 #[tauri::command]
 pub async fn sync_change_password(
     state: State<'_, SyncState>,

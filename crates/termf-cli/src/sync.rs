@@ -194,6 +194,9 @@ fn print(report: &Report) {
             clone.unwrap_or_default()
         );
     }
+    for s in &report.skipped {
+        println!("not synced  {}: {}", s.path, s.error);
+    }
 }
 
 fn ago(secs: u64) -> String {

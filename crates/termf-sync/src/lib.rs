@@ -52,9 +52,8 @@ pub enum Scope {
     Projects,
     /// `projects/<id>/conventions/`.
     Conventions,
-    /// Not available yet.
     Vault,
-    /// Not available yet, and only ever on explicit request.
+    /// Only ever on explicit request.
     SshKeys,
 }
 
@@ -76,12 +75,20 @@ pub struct Conflict {
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
-    /// Files changed here from the remote.
     pub pulled: Vec<String>,
     pub pushed: Vec<String>,
     /// Kept as they are here until resolved; the remote keeps its version.
     pub conflicts: Vec<Conflict>,
     pub missing_repos: Vec<MissingRepo>,
+    /// Not synced, either way, until fixed here; `Status.last_error` says it too.
+    pub skipped: Vec<Skipped>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Skipped {
+    pub path: String,
+    pub error: String,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -96,7 +103,6 @@ pub struct Status {
     pub unlocked: bool,
     /// The key is in the system keychain; false: only in memory, until TermF quits.
     pub remembered: bool,
-    /// Seconds since the Unix epoch.
     pub last_sync: Option<u64>,
     pub last_error: Option<String>,
     pub conflicts: Vec<Conflict>,
@@ -472,15 +478,23 @@ impl Engine {
         Some(key)
     }
 
-    /// Returns whether the keychain kept it.
     fn remember(&self, sync_id: &str, kek: &Key) -> bool {
         *self.memory.lock().unwrap() = Some((sync_id.into(), kek.clone()));
         self.store.set(sync_id, kek.as_ref()).is_ok()
     }
 
     fn data_keys(&self, keys: &KeyFile) -> Result<DataKeys> {
-        let kek = self.kek(&keys.sync_id).ok_or(Locked)?;
-        let data_key = keys.unwrap(&keys.password, &kek).ok_or(Locked)?;
+        let open = || {
+            let kek = self.kek(&keys.sync_id)?;
+            keys.unwrap(&keys.password, &kek)
+        };
+        let data_key = open()
+            .or_else(|| {
+                // The cached key is stale when another process (the CLI) changed the password or unlocked.
+                *self.memory.lock().unwrap() = None;
+                open()
+            })
+            .ok_or(Locked)?;
         keys.data_keys(&data_key)
     }
 
@@ -652,7 +666,8 @@ impl Engine {
             let keys = self.data_keys(&keys_file)?;
             let theirs = read_files(&root, &keys)?;
             let before = mapping.clone();
-            let mine = local::read(&self.config_dir, &state.scopes, &base, &mut mapping)?;
+            let (mine, skipped) =
+                local::read(&self.config_dir, &state.scopes, &base, &mut mapping)?;
             if mapping != before {
                 local::save_mapping(&self.config_dir, &mapping)?;
             }
@@ -667,6 +682,7 @@ impl Engine {
                     local::valid(p)
                         && state.scopes.contains(&local::scope_of(p))
                         && !termf_library::archive::through_link(&self.config_dir, p)
+                        && !skipped.iter().any(|s| s.path == **p)
                 })
                 .cloned()
                 .collect();
@@ -762,7 +778,13 @@ impl Engine {
                 Vec::new()
             };
             state.last_sync = Some(now());
-            state.last_error = None;
+            state.last_error = (!skipped.is_empty()).then(|| {
+                skipped
+                    .iter()
+                    .map(|s| format!("{} is not synced: {}", s.path, s.error))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
             state.needs_password = false;
             state.conflicts = conflicts.clone();
             state.missing_repos = missing_repos.clone();
@@ -772,6 +794,7 @@ impl Engine {
                 pushed,
                 conflicts,
                 missing_repos,
+                skipped,
             });
         }
         bail!("the remote kept changing during the sync: try again")
@@ -823,7 +846,7 @@ impl Engine {
     }
 
     /// A new data key re-encrypts everything: machines that only know the old password can no longer read
-    /// anything (this is how a machine is revoked). Returns the new recovery key; the old one stops working.
+    /// anything (this is how a machine is revoked), and the old recovery key stops working.
     pub fn change_password(&self, current: &str, password: &str) -> Result<String> {
         self.rekey(password, |keys| {
             let kek = keys.derive(&keys.password, current)?;
@@ -832,7 +855,7 @@ impl Engine {
         })
     }
 
-    /// Sets a new password with the recovery key. Returns the new recovery key; the old one stops working.
+    /// Sets a new password with the recovery key, which then stops working.
     pub fn recover(&self, recovery_key: &str, password: &str) -> Result<String> {
         self.rekey(password, |keys| {
             let secret = crypto::normalize_recovery_key(recovery_key);

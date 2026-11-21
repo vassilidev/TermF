@@ -122,7 +122,7 @@ impl Remote for Git {
         let same_url = self.dir.join(".git").is_dir()
             && self.git(&["config", "--get", "remote.origin.url"]).ok() == Some(self.url.clone());
         if same_url {
-            self.git(&["fetch", "-q", "origin"])?;
+            self.git(&["fetch", "-q", "--prune", "origin"])?;
         } else {
             self.clone()?;
         }
@@ -132,6 +132,18 @@ impl Remote for Git {
             self.git(&["checkout", "-q", "-f", "-B", BRANCH, &tip])?;
             self.git(&["clean", "-fdxq"])?;
         } else {
+            let branches = self.git(&[
+                "for-each-ref",
+                "--format=%(refname:lstrip=3)",
+                "refs/remotes/origin/",
+            ])?;
+            let branches: Vec<&str> = branches.lines().filter(|b| *b != "HEAD").collect();
+            ensure!(
+                branches.is_empty(),
+                "{} has no {BRANCH} branch but holds others ({}): choose an empty repository",
+                self.url,
+                branches.join(", ")
+            );
             // An empty remote: start `main` from nothing, dropping a commit whose push failed.
             self.git(&["symbolic-ref", "HEAD", &format!("refs/heads/{BRANCH}")])?;
             let _ = self.git(&["update-ref", "-d", &format!("refs/heads/{BRANCH}")]);
