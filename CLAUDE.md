@@ -6,6 +6,7 @@ Poste de pilotage d'agents CLI (Claude Code…) sur plusieurs dépôts. La conce
 
 - `crates/termf-core` : config (`termf.toml`, `projects/*.toml`), découverte des dépôts
 - `crates/termf-term` : sessions PTY (portable-pty), ring buffer, attach / replay
+- `crates/termf-library` : bibliothèque en couches (skills, commandes, rôles, préférences, règles), ce qu'en reçoit une session Claude Code, export / import de la config
 - `app/src-tauri` : hôte Tauri 2, commandes IPC
 - `app/src` : UI SvelteKit en SPA, Svelte 5, xterm.js
 

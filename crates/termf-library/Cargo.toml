@@ -1,0 +1,18 @@
+[package]
+name = "termf-library"
+description = "TermF library (skills, commands, roles, preferences, rules, workflows), its layers, and config export / import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+flate2 = "1.1.11"
+include_dir = "0.7.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tar = "0.4.46"
+termf-core = { path = "../termf-core" }
+toml = "1.2.2"
+toml_edit = "0.25"
+yaml-rust2 = "0.13.2"

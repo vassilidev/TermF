@@ -268,11 +268,16 @@ pub fn save_project(
     Ok(id)
 }
 
+/// Also removes `projects/<id>/` (its library), which a new project with the same id would otherwise inherit.
 pub fn delete_project(config_dir: &Path, id: &str) -> Result<()> {
-    Ok(fs::remove_file(project_file(config_dir, id)?)?)
+    fs::remove_file(project_file(config_dir, id)?)?;
+    match fs::remove_dir_all(config_dir.join("projects").join(id)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
+    }
 }
 
-fn project_file(config_dir: &Path, id: &str) -> Result<PathBuf> {
+pub fn project_file(config_dir: &Path, id: &str) -> Result<PathBuf> {
     // The id comes from the UI and becomes a file name.
     ensure!(
         !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\', ':']),
@@ -373,7 +378,7 @@ fn write_layouts(config_dir: &Path, mut layouts: Vec<Layout>) -> Result<()> {
 }
 
 /// Writes through a temporary file so a crash never leaves a half-written config.
-fn write_atomic(file: &Path, text: &str) -> Result<()> {
+pub fn write_atomic(file: &Path, text: &str) -> Result<()> {
     let tmp = file.with_extension("toml.tmp");
     fs::write(&tmp, text)
         .and_then(|()| fs::rename(&tmp, file))
@@ -482,14 +487,18 @@ pub fn expand_tilde(path: &str) -> PathBuf {
 }
 
 /// Inverse of `expand_tilde`, so config files stay valid on another machine.
-fn portable(path: &str) -> String {
+pub fn portable(path: &str) -> String {
     let home = dirs::home_dir();
     match home
         .as_deref()
         .and_then(|h| Path::new(path).strip_prefix(h).ok())
     {
         Some(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Some(rest) => Path::new("~").join(rest).to_string_lossy().into_owned(),
+        // Always `/`: the path is read back on other systems, and expand_tilde accepts it everywhere.
+        Some(rest) => {
+            let parts: Vec<_> = rest.iter().map(|p| p.to_string_lossy()).collect();
+            format!("~/{}", parts.join("/"))
+        }
         None => path.into(),
     }
 }
@@ -702,7 +711,9 @@ mod tests {
         let names: Vec<_> = acme.repos.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["backend", "legacy", "docs"]);
 
+        fs::create_dir_all(dir.join("projects/acme-corp/library/skills")).unwrap();
         delete_project(&dir, "acme-corp").unwrap();
+        assert!(!dir.join("projects/acme-corp").exists());
         let ids: Vec<_> = load_projects(&dir)
             .unwrap()
             .into_iter()

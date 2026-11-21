@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 termf-core = { path = "../../crates/termf-core" }
 termf-term = { path = "../../crates/termf-term" }
 termf-files = { path = "../../crates/termf-files" }
+termf-library = { path = "../../crates/termf-library" }
 anyhow = "1.0.104"
 tauri-plugin-global-shortcut = "2"
 getrandom = "0.3.4"

@@ -2,6 +2,7 @@ mod api;
 mod config;
 mod files;
 mod keep_awake;
+mod library;
 mod quick_terminal;
 
 use std::path::PathBuf;
@@ -225,6 +226,13 @@ pub fn run() {
             quick_terminal::quick_terminal,
             keep_awake::keep_awake_state,
             keep_awake::keep_awake_set,
+            library::library_list,
+            library::library_toggle,
+            library::library_explain,
+            library::library_import_claude,
+            library::config_export,
+            library::config_import_preview,
+            library::config_import_apply,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
