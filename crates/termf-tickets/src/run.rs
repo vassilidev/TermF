@@ -3,11 +3,13 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
+use termf_core::TicketWorktrees;
 use termf_ssh::Ssh;
 
 use crate::github;
@@ -200,6 +202,41 @@ pub(crate) fn branch_stem(key: &str, title: &str, run: i64) -> String {
         s if s.is_empty() => format!("termf/{id}"),
         s => format!("termf/{id}-{s}"),
     }
+}
+
+/// Hides the repository's worktrees from git, and from the tools that read its ignores, in its local
+/// `info/exclude`: never committed, unlike `.gitignore`. Only ever appended to. `repo` may be a folder of the
+/// git repository: the pattern is anchored at its root.
+fn exclude_worktrees(git: &Git, repo: &Path) -> Result<()> {
+    let prefix = git.run(repo, &["rev-parse", "--show-prefix"])?;
+    // Taken literally: a folder's name may hold what gitignore reads as a pattern.
+    let prefix: String = prefix
+        .chars()
+        .flat_map(|c| ["\\*?[".contains(c).then_some('\\'), Some(c)])
+        .flatten()
+        .collect();
+    let line = format!("/{prefix}.claude/worktrees/");
+    let file = repo.join(git.run(repo, &["rev-parse", "--git-path", "info/exclude"])?);
+    let text = match fs::read(&file) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("cannot read {}", file.display())),
+    };
+    if text.lines().any(|l| l.trim() == line) {
+        return Ok(());
+    }
+    fs::create_dir_all(file.parent().context("no parent folder")?)?;
+    let newline = if text.is_empty() || text.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file)
+        .and_then(|mut f| writeln!(f, "{newline}{line}"))
+        .with_context(|| format!("cannot write {}", file.display()))
 }
 
 /// The branch runs start from: the remote's default branch, else the usual names.
@@ -465,8 +502,11 @@ impl Tickets {
         store.run(id)
     }
 
-    /// Creates `<data>/worktrees/<project>/<run>/<repo>` and returns its path, its branch and its base.
+    /// Creates `<repo>/.claude/worktrees/termf-<run>-<branch>`, or `<data>/worktrees/<project>/<run>/<repo>` as
+    /// `[tickets] worktrees` says, and returns its path, its branch and its base.
     fn worktree(&self, run: &Run, name: &str, ticket: &Ticket) -> Result<(String, String, String)> {
+        let settings = termf_core::load_settings(&self.config_dir).unwrap_or_default();
+        let place = settings.tickets.worktrees;
         let git = Git(&self.env);
         let repo = Path::new(&run.repo);
         // Offline, the run starts from what was last fetched.
@@ -484,16 +524,18 @@ impl Tickets {
                     && !git.has(repo, &format!("refs/remotes/origin/{b}"))
             })
             .unwrap();
-        let folder = match slug(name) {
-            s if s.is_empty() => "repo".to_owned(),
-            s => s,
+        let path = match place {
+            TicketWorktrees::Repo => {
+                exclude_worktrees(&git, repo)?;
+                let name = branch.strip_prefix("termf/").unwrap_or(&branch);
+                let folder = repo.join(".claude").join("worktrees");
+                folder.join(format!("termf-{}-{name}", run.id))
+            }
+            TicketWorktrees::Data => self.data_worktrees(run).join(match slug(name) {
+                s if s.is_empty() => "repo".to_owned(),
+                s => s,
+            }),
         };
-        let path = self
-            .data_dir
-            .join("worktrees")
-            .join(&run.project)
-            .join(run.id.to_string())
-            .join(folder);
         fs::create_dir_all(path.parent().context("no parent folder")?)?;
         let path = path.to_string_lossy().into_owned();
         git.run(
@@ -510,6 +552,11 @@ impl Tickets {
             ],
         )?;
         Ok((path, branch, base))
+    }
+
+    fn data_worktrees(&self, run: &Run) -> PathBuf {
+        let projects = self.data_dir.join("worktrees");
+        projects.join(&run.project).join(run.id.to_string())
     }
 
     pub fn run(&self, id: i64) -> Result<Run> {
@@ -872,10 +919,10 @@ impl Tickets {
             if dropped.is_empty() && git.has(repo, &format!("refs/heads/{branch}")) {
                 git.run(repo, &["branch", "-D", branch])?;
             }
-            // The run's folder under worktrees/, now empty unless something else was put there.
-            if let Some(folder) = worktree.parent() {
-                let _ = fs::remove_dir(folder);
-            }
+            // The folders that held it, if nothing else is there: `remove_dir` leaves a folder that is not empty.
+            let _ = fs::remove_dir(self.data_worktrees(&run));
+            let claude = repo.join(".claude");
+            let _ = fs::remove_dir(claude.join("worktrees")).and_then(|_| fs::remove_dir(claude));
         }
         run.status = RunStatus::Closed;
         store.update(&mut run)?;
