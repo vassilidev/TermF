@@ -1,14 +1,13 @@
 <script lang="ts">
   import "../app.css";
   import { onMount } from "svelte";
-  import CircleAlert from "@lucide/svelte/icons/circle-alert";
-  import X from "@lucide/svelte/icons/x";
   import CommandPalette from "$lib/CommandPalette.svelte";
   import SessionGrid from "$lib/SessionGrid.svelte";
   import Sidebar from "$lib/Sidebar.svelte";
   import TopBar from "$lib/TopBar.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
   import { onShortcut } from "$lib/commands";
-  import { lang, t } from "$lib/i18n";
+  import { lang } from "$lib/i18n";
   import { app, init, ui } from "$lib/state.svelte";
   import { files } from "$lib/files.svelte";
   import { library } from "$lib/library.svelte";
@@ -34,12 +33,8 @@
   <Sidebar />
   <div class="main">
     {#if app.error}
-      <div class="notice error banner" role="alert">
-        <CircleAlert size={14} aria-hidden="true" />
-        <span>{app.error}</span>
-        <button class="icon-btn sm" onclick={() => (app.error = "")} aria-label={t("dismiss")} title={t("dismiss")}>
-          <X size={14} aria-hidden="true" />
-        </button>
+      <div class="banners">
+        <Banner kind="error" ondismiss={() => (app.error = "")}>{app.error}</Banner>
       </div>
     {/if}
     <!-- Hidden, not unmounted: terminals keep running and keep their scrollback. -->
@@ -102,19 +97,6 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-  }
-
-  .banner {
-    align-items: center;
-    margin: 8px 8px 0;
-  }
-
-  .banner span {
-    flex: 1;
-  }
-
-  .banner .icon-btn {
-    color: inherit;
   }
 
   .pane {

@@ -2,7 +2,6 @@
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import Check from "@lucide/svelte/icons/check";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Inbox from "@lucide/svelte/icons/inbox";
   import Info from "@lucide/svelte/icons/info";
@@ -11,9 +10,12 @@
   import Play from "@lucide/svelte/icons/play";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Ticket from "@lucide/svelte/icons/ticket";
-  import X from "@lucide/svelte/icons/x";
-  import RunStatus from "$lib/RunStatus.svelte";
   import TicketRun, { openTile } from "$lib/TicketRun.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
+  import StatusPill from "$lib/ui/StatusPill.svelte";
+  import Tabs from "$lib/ui/Tabs.svelte";
+  import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
   import { app, repoName, ui } from "$lib/state.svelte";
   import {
@@ -179,7 +181,7 @@
 {/snippet}
 
 <div class="tickets">
-  <div class="toolbar">
+  <ViewHeader title={t("viewTickets")}>
     <label class="scope">
       <span>{t("libraryScope")}</span>
       <select class="field" bind:value={tickets.scope} onchange={scoped}>
@@ -193,161 +195,150 @@
         {/if}
       </select>
     </label>
-    <form class="paste" onsubmit={preview}>
-      <Ticket size={14} aria-hidden="true" />
-      <input
-        class="field"
-        placeholder={t("ticketPastePlaceholder")}
-        aria-label={t("ticketPaste")}
-        autocomplete="off"
-        spellcheck="false"
-        bind:value={input}
-        {@attach focusPaste}
-      />
-      <button class="btn sm" type="submit" disabled={!input.trim() || resolving}>
-        {#if resolving}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
-        {t("ticketPreview")}
+    {#snippet actions()}
+      <form class="paste" onsubmit={preview}>
+        <Ticket size={14} aria-hidden="true" />
+        <input
+          class="field"
+          placeholder={t("ticketPastePlaceholder")}
+          aria-label={t("ticketPaste")}
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={input}
+          {@attach focusPaste}
+        />
+        <button class="btn sm" type="submit" disabled={!input.trim() || resolving}>
+          {#if resolving}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
+          {t("ticketPreview")}
+        </button>
+      </form>
+      <button class="btn sm" onclick={refresh} disabled={tickets.loading}>
+        <RefreshCw size={14} aria-hidden="true" class={tickets.loading ? "spin" : ""} />{t("ticketsRefresh")}
       </button>
-    </form>
-    <button class="btn sm" onclick={refresh} disabled={tickets.loading}>
-      <RefreshCw size={14} aria-hidden="true" class={tickets.loading ? "spin" : ""} />{t("ticketsRefresh")}
-    </button>
-  </div>
+    {/snippet}
+  </ViewHeader>
 
-  <div class="tabs" role="tablist" aria-label={t("viewTickets")}>
-    <button role="tab" aria-selected={tickets.tab === "inbox"} onclick={() => (tickets.tab = "inbox")}>
-      {t("ticketsTabInbox")}{#if tickets.inbox}<span class="count">{tickets.inbox.length}</span>{/if}
-    </button>
-    <button role="tab" aria-selected={tickets.tab === "runs"} onclick={() => (tickets.tab = "runs")}>
-      {t("ticketsTabRuns")}<span class="count">{runs.length}</span>
-    </button>
-  </div>
+  <Tabs
+    id="tickets"
+    label={t("viewTickets")}
+    tabs={[
+      { id: "inbox", label: t("ticketsTabInbox"), count: tickets.inbox?.length },
+      { id: "runs", label: t("ticketsTabRuns"), count: runs.length },
+    ]}
+    selected={tickets.tab}
+    onselect={(tab) => (tickets.tab = tab as typeof tickets.tab)}
+  >
+    {#if tickets.error || tickets.done || pending?.from === "paste"}
+      <div class="banners">
+        {#if tickets.error}
+          <Banner kind="error" ondismiss={() => (tickets.error = "")}>{tickets.error}</Banner>
+        {/if}
+        {#if tickets.done}
+          <Banner kind="ok" ondismiss={() => (tickets.done = "")}>{tickets.done}</Banner>
+        {/if}
+        {#if pending?.from === "paste"}{@render launchBox()}{/if}
+      </div>
+    {/if}
 
-  {#if tickets.error || tickets.done || pending?.from === "paste"}
-    <div class="notices">
-      {#if tickets.error}
-        <div class="notice error banner" role="alert">
-          <CircleAlert size={14} aria-hidden="true" />
-          <span>{tickets.error}</span>
-          <button class="icon-btn sm" onclick={() => (tickets.error = "")} aria-label={t("dismiss")} title={t("dismiss")}>
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
-      {/if}
-      {#if tickets.done}
-        <div class="notice ok banner" role="status">
-          <Check size={14} aria-hidden="true" />
-          <span>{tickets.done}</span>
-          <button class="icon-btn sm" onclick={() => (tickets.done = "")} aria-label={t("dismiss")} title={t("dismiss")}>
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
-      {/if}
-      {#if pending?.from === "paste"}{@render launchBox()}{/if}
-    </div>
-  {/if}
-
-  {#if tickets.tab === "inbox"}
-    <div class="pane">
-      {#if tickets.inbox && tickets.inboxErrors.length}
-        <div class="source-errors">
-          {#each tickets.inboxErrors as failed (failed.source)}
-            <p class="notice error" role="alert">
-              <CircleAlert size={14} aria-hidden="true" />{t("ticketsSourceFailed", {
-                source: sourceName(failed.source),
-                error: failed.message,
-              })}
-            </p>
-          {/each}
-        </div>
-      {/if}
-      {#if tickets.inboxError}
-        <div class="empty">
-          <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{t("ticketsError", { error: tickets.inboxError })}</p>
-          <button class="btn" onclick={loadInbox}><RefreshCw size={14} aria-hidden="true" />{t("ticketsRetry")}</button>
-        </div>
-      {:else if !tickets.inbox}
-        <p class="loading muted" role="status">
-          <LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ticketsLoading")}
-        </p>
-      {:else if !tickets.inbox.length}
-        <div class="empty">
-          <Inbox size={20} aria-hidden="true" />
-          <h2>{t("ticketsEmpty")}</h2>
-          <p>{project ? t("ticketsEmptyProject", { project: project.name }) : t("ticketsEmptyAll")}</p>
-          {#if project}
-            <button class="btn" onclick={() => (ui.editing = project.id)}>
-              <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
-            </button>
-          {/if}
-        </div>
-      {:else}
-        <ul class="inbox">
-          {#each tickets.inbox as ticket (ticket.url)}
-            <li class="ticket">
-              <div class="what">
-                <span class="name">{ticket.title}</span>
-                <span class="desc">
-                  <span class="mono">{ticket.key}</span> · {ticket.provider in providers
-                    ? t(providers[ticket.provider])
-                    : ticket.provider}
-                  · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
-                  {#if !tickets.scope && ticket.project} · {projectName(ticket.project)}{/if}
-                </span>
-              </div>
-              <div class="labels">
-                {#each ticket.labels as label (label)}<span class="badge">{label}</span>{/each}
-              </div>
-              {#if ticket.project}
-                <button
-                  class="btn sm"
-                  title={t("ticketLaunchTitle", { key: ticket.key })}
-                  disabled={!!starting}
-                  onclick={() => launch(ticket)}
-                >
-                  {@render launching(starting === ticket.url)}
-                </button>
-              {:else}
-                <span class="badge" title={t("ticketNoProjectTitle")}>{t("ticketNoProject")}</span>
-              {/if}
-            </li>
-            {#if pending?.from === ticket.url}
-              <li class="choice">{@render launchBox()}</li>
+    {#if tickets.tab === "inbox"}
+      <div class="pane">
+        {#if tickets.inbox && tickets.inboxErrors.length}
+          <div class="source-errors">
+            {#each tickets.inboxErrors as failed (failed.source)}
+              <p class="notice error" role="alert">
+                <CircleAlert size={14} aria-hidden="true" />{t("ticketsSourceFailed", {
+                  source: sourceName(failed.source),
+                  error: failed.message,
+                })}
+              </p>
+            {/each}
+          </div>
+        {/if}
+        {#if tickets.inboxError}
+          <EmptyState>
+            <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{t("ticketsError", { error: tickets.inboxError })}</p>
+            <button class="btn" onclick={loadInbox}><RefreshCw size={14} aria-hidden="true" />{t("ticketsRetry")}</button>
+          </EmptyState>
+        {:else if !tickets.inbox}
+          <p class="loading muted" role="status">
+            <LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ticketsLoading")}
+          </p>
+        {:else if !tickets.inbox.length}
+          <EmptyState
+            icon={Inbox}
+            title={t("ticketsEmpty")}
+            text={project ? t("ticketsEmptyProject", { project: project.name }) : t("ticketsEmptyAll")}
+          >
+            {#if project}
+              <button class="btn" onclick={() => (ui.editing = project.id)}>
+                <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
+              </button>
             {/if}
+          </EmptyState>
+        {:else}
+          <ul class="inbox">
+            {#each tickets.inbox as ticket (ticket.url)}
+              <li class="ticket">
+                <div class="what">
+                  <span class="name">{ticket.title}</span>
+                  <span class="desc">
+                    <span class="mono">{ticket.key}</span> · {ticket.provider in providers
+                      ? t(providers[ticket.provider])
+                      : ticket.provider}
+                    · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
+                    {#if !tickets.scope && ticket.project} · {projectName(ticket.project)}{/if}
+                  </span>
+                </div>
+                <div class="labels">
+                  {#each ticket.labels as label (label)}<span class="badge">{label}</span>{/each}
+                </div>
+                {#if ticket.project}
+                  <button
+                    class="btn sm"
+                    title={t("ticketLaunchTitle", { key: ticket.key })}
+                    disabled={!!starting}
+                    onclick={() => launch(ticket)}
+                  >
+                    {@render launching(starting === ticket.url)}
+                  </button>
+                {:else}
+                  <span class="badge" title={t("ticketNoProjectTitle")}>{t("ticketNoProject")}</span>
+                {/if}
+              </li>
+              {#if pending?.from === ticket.url}
+                <li class="choice">{@render launchBox()}</li>
+              {/if}
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {:else if !runs.length}
+      <div class="pane">
+        <EmptyState icon={Ticket} title={t("runsEmpty")} text={t("runsEmptyHelp")} />
+      </div>
+    {:else}
+      <div class="split">
+        <ul class="list" aria-label={t("ticketsTabRuns")}>
+          {#each runs as run (run.id)}
+            <li class="row" class:current={run === current}>
+              <button class="pick" aria-current={run === current} onclick={() => (tickets.selected = run.id)}>
+                <span class="name"><span class="mono">{run.ticket.key}</span> {run.title}</span>
+                <span class="desc">{repoName(run.repo)}{run.branch ? ` · ${run.branch}` : ""} · {ago(run.updated)}</span>
+              </button>
+              <StatusPill status={run.status} />
+            </li>
           {/each}
         </ul>
-      {/if}
-    </div>
-  {:else if !runs.length}
-    <div class="pane">
-      <div class="empty">
-        <Ticket size={20} aria-hidden="true" />
-        <h2>{t("runsEmpty")}</h2>
-        <p>{t("runsEmptyHelp")}</p>
+        <section class="detail" aria-live="polite">
+          {#if current}
+            {#key current.id}
+              <TicketRun run={current} />
+            {/key}
+          {/if}
+        </section>
       </div>
-    </div>
-  {:else}
-    <div class="split">
-      <ul class="list" aria-label={t("ticketsTabRuns")}>
-        {#each runs as run (run.id)}
-          <li class="row" class:current={run === current}>
-            <button class="pick" aria-current={run === current} onclick={() => (tickets.selected = run.id)}>
-              <span class="name"><span class="mono">{run.ticket.key}</span> {run.title}</span>
-              <span class="desc">{repoName(run.repo)}{run.branch ? ` · ${run.branch}` : ""} · {ago(run.updated)}</span>
-            </button>
-            <RunStatus status={run.status} />
-          </li>
-        {/each}
-      </ul>
-      <section class="detail" aria-live="polite">
-        {#if current}
-          {#key current.id}
-            <TicketRun run={current} />
-          {/key}
-        {/if}
-      </section>
-    </div>
-  {/if}
+    {/if}
+  </Tabs>
 </div>
 
 <style>
@@ -356,14 +347,6 @@
     flex-direction: column;
     min-height: 0;
     background: var(--panel);
-  }
-
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    background: var(--chrome);
   }
 
   .scope {
@@ -401,77 +384,6 @@
     padding-left: 28px;
   }
 
-  .tabs {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 0 8px;
-    border-bottom: 1px solid var(--border);
-    background: var(--chrome);
-  }
-
-  .tabs button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 34px;
-    padding: 0 10px;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    font-weight: 500;
-    box-shadow: inset 0 -2px 0 transparent;
-    transition:
-      color var(--dur-fast) ease-out,
-      box-shadow var(--dur-fast) ease-out;
-  }
-
-  .tabs button:hover {
-    color: var(--text);
-  }
-
-  .tabs button[aria-selected="true"] {
-    color: var(--text);
-    box-shadow: inset 0 -2px 0 var(--accent);
-  }
-
-  .count {
-    min-width: 18px;
-    padding: 0 5px;
-    border-radius: var(--radius-pill);
-    background: var(--hover);
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-variant-numeric: tabular-nums;
-    line-height: 16px;
-    text-align: center;
-  }
-
-  .notices {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .banner {
-    align-items: center;
-  }
-
-  .banner > span {
-    flex: 1;
-  }
-
-  .banner .icon-btn {
-    color: inherit;
-  }
-
-  .notice.ok {
-    background: var(--done-soft);
-    color: var(--done);
-  }
-
   .pane {
     flex: 1;
     min-height: 0;
@@ -492,50 +404,6 @@
     justify-content: center;
     gap: 8px;
     margin: 40px auto;
-  }
-
-  :global(.spin) {
-    animation: spin 0.9s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    :global(.spin) {
-      animation: none;
-    }
-  }
-
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    max-width: 480px;
-    margin: 48px auto 0;
-    color: var(--muted);
-    text-align: center;
-  }
-
-  .empty > :global(svg) {
-    color: var(--accent-ink);
-  }
-
-  .empty h2 {
-    margin: 8px 0 6px;
-    color: var(--text);
-    font-size: var(--text-md);
-  }
-
-  .empty p {
-    margin: 0;
-  }
-
-  .empty .btn {
-    margin-top: 14px;
   }
 
   .inbox {
@@ -574,15 +442,10 @@
   .desc {
     overflow: hidden;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.5;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
   }
 
   .labels {
@@ -610,73 +473,12 @@
   }
 
   .labelled {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     width: 340px;
-    font-size: var(--text-sm);
-    font-weight: 500;
   }
 
   .buttons {
     display: flex;
     gap: 8px;
     margin-left: auto;
-  }
-
-  .split {
-    display: grid;
-    flex: 1;
-    grid-template-columns: 380px minmax(0, 1fr);
-    min-height: 0;
-  }
-
-  .list {
-    min-height: 0;
-    margin: 0;
-    padding: 8px 6px;
-    overflow-y: auto;
-    border-right: 1px solid var(--border);
-    background: var(--chrome);
-    list-style: none;
-  }
-
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding-right: 8px;
-    border-radius: var(--radius);
-  }
-
-  .row:hover {
-    background: var(--hover);
-  }
-
-  .row.current {
-    background: var(--selected);
-  }
-
-  .pick {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-width: 0;
-    padding: 6px 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: none;
-    text-align: left;
-  }
-
-  .detail {
-    min-width: 0;
-    min-height: 0;
-    padding: 20px 28px 32px;
-    overflow-y: auto;
-  }
-
-  .detail > :global(*) {
-    max-width: 820px;
   }
 </style>

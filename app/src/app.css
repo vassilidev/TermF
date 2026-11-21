@@ -47,6 +47,8 @@
   --text-sm: 12px;
   --text-base: 13px;
   --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -59,6 +61,8 @@
   --radius: 6px;
   --radius-lg: 10px;
   --radius-pill: 999px;
+
+  --nav-width: 232px;
 
   --shadow-1: 0 1px 2px rgb(15 18 30 / 0.06);
   --shadow-2: 0 4px 12px rgb(15 18 30 / 0.08), 0 1px 3px rgb(15 18 30 / 0.06);
@@ -363,6 +367,128 @@ kbd {
 .notice svg {
   flex-shrink: 0;
   margin-top: 1px;
+}
+
+.notice.ok {
+  background: var(--done-soft);
+  color: var(--done);
+}
+
+.notice.warn {
+  background: var(--waiting-soft);
+  color: var(--warning);
+}
+
+/* The stack of banners under a view's header and tabs. */
+.banners {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.labelled {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+/* A list on the left, the selected item on the right. :where() keeps these below any view's own rules. */
+.split {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 360px minmax(0, 1fr);
+  min-height: 0;
+}
+
+:where(.split) > .list {
+  min-height: 0;
+  margin: 0;
+  padding: 8px 6px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--chrome);
+  list-style: none;
+}
+
+:where(.split) .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-radius: var(--radius);
+}
+
+:where(.split) .row:hover {
+  background: var(--hover);
+}
+
+:where(.split) .row.current {
+  background: var(--selected);
+}
+
+:where(.split) .pick {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+}
+
+:where(.pick) .name,
+:where(.pick) .desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:where(.pick) .name {
+  font-weight: 500;
+}
+
+:where(.pick) .desc {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+:where(.split) > .detail {
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 28px 32px;
+  overflow-y: auto;
+}
+
+:where(.split > .detail) > * {
+  max-width: 820px;
 }
 
 /* An on/off switch: <input type="checkbox" role="switch" class="switch">. */

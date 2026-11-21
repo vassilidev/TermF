@@ -2,7 +2,6 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Ban from "@lucide/svelte/icons/ban";
-  import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
@@ -13,9 +12,11 @@
   import Rocket from "@lucide/svelte/icons/rocket";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import Workflow from "@lucide/svelte/icons/workflow";
-  import X from "@lucide/svelte/icons/x";
   import CiLog from "$lib/CiLog.svelte";
   import CiStatus from "$lib/CiStatus.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
+  import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
   import { allRepos, files } from "$lib/files.svelte";
   import { app } from "$lib/state.svelte";
@@ -269,8 +270,8 @@
 </script>
 
 <div class="ci">
-  <div class="toolbar">
-    <label class="labelled">
+  <ViewHeader title={t("ux2CiTitle")}>
+    <label class="labelled inline">
       <span>{t("libraryScope")}</span>
       <select class="field" bind:value={ci.scope}>
         <option value="">{t("ciAllRepos")}</option>
@@ -281,27 +282,29 @@
         {/if}
       </select>
     </label>
-    <label class="labelled">
+    <label class="labelled inline">
       <span>{t("ciRepo")}</span>
       <select class="field" bind:value={ci.repo} disabled={!repos.length}>
         {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
       </select>
     </label>
-    <label class="labelled notify">
-      <span>{t("ciNotify")}</span>
-      <select class="field" value={ci.notify ?? "mine"} onchange={setNotify} title={t("ciNotifyHelp")}>
-        <option value="mine">{t("ciNotifyMine")}</option>
-        <option value="all">{t("ciNotifyAll")}</option>
-        <option value="off">{t("ciNotifyOff")}</option>
-      </select>
-    </label>
-    <button class="btn sm" onclick={openForm} disabled={!ci.repo || !!form}>
-      <Rocket size={14} aria-hidden="true" />{t("ciDispatch")}
-    </button>
-    <button class="btn sm" onclick={refresh} disabled={!ci.repo || loading}>
-      <RefreshCw size={14} aria-hidden="true" class={loading ? "spin" : ""} />{t("ciRefresh")}
-    </button>
-  </div>
+    {#snippet actions()}
+      <label class="labelled inline notify">
+        <span>{t("ciNotify")}</span>
+        <select class="field" value={ci.notify ?? "mine"} onchange={setNotify} title={t("ciNotifyHelp")}>
+          <option value="mine">{t("ciNotifyMine")}</option>
+          <option value="all">{t("ciNotifyAll")}</option>
+          <option value="off">{t("ciNotifyOff")}</option>
+        </select>
+      </label>
+      <button class="btn sm" onclick={openForm} disabled={!ci.repo || !!form}>
+        <Rocket size={14} aria-hidden="true" />{t("ciDispatch")}
+      </button>
+      <button class="btn sm" onclick={refresh} disabled={!ci.repo || loading}>
+        <RefreshCw size={14} aria-hidden="true" class={loading ? "spin" : ""} />{t("ciRefresh")}
+      </button>
+    {/snippet}
+  </ViewHeader>
 
   <form class="filters" onsubmit={(e) => (e.preventDefault(), load())}>
     <input class="field" placeholder={t("ciBranch")} aria-label={t("ciBranch")} spellcheck="false" bind:value={ci.branch} onchange={load} disabled={!!ci.pr.trim()} />
@@ -313,18 +316,12 @@
   </form>
 
   {#if error || done || form}
-    <div class="notices">
+    <div class="banners">
       {#if error}
-        <div class="notice error banner" role="alert">
-          <CircleAlert size={14} aria-hidden="true" /><span>{error}</span>
-          <button class="icon-btn sm" onclick={() => (error = "")} aria-label={t("dismiss")} title={t("dismiss")}><X size={14} aria-hidden="true" /></button>
-        </div>
+        <Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>
       {/if}
       {#if done}
-        <div class="notice ok banner" role="status">
-          <Check size={14} aria-hidden="true" /><span>{done}</span>
-          <button class="icon-btn sm" onclick={() => (done = "")} aria-label={t("dismiss")} title={t("dismiss")}><X size={14} aria-hidden="true" /></button>
-        </div>
+        <Banner kind="ok" ondismiss={() => (done = "")}>{done}</Banner>
       {/if}
       {#if form}
         {@const f = form}
@@ -381,30 +378,22 @@
   {/if}
 
   {#if !repos.length}
-    <div class="empty">
-      <Workflow size={20} aria-hidden="true" />
-      <h2>{t("ciNoRepo")}</h2>
-      <p>{t("ciNoRepoHelp")}</p>
-    </div>
+    <EmptyState icon={Workflow} title={t("ciNoRepo")} text={t("ciNoRepoHelp")} />
   {:else if listError}
-    <div class="empty">
+    <EmptyState>
       <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{listError}</p>
       <button class="btn" onclick={load}><RefreshCw size={14} aria-hidden="true" />{t("ciRetry")}</button>
-    </div>
+    </EmptyState>
   {:else if !runs}
     <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ciLoading")}</p>
   {:else if !runs.length}
-    <div class="empty">
-      <Workflow size={20} aria-hidden="true" />
-      <h2>{t("ciEmpty")}</h2>
-      <p>{t("ciEmptyHelp")}</p>
-    </div>
+    <EmptyState icon={Workflow} title={t("ciEmpty")} text={t("ciEmptyHelp")} />
   {:else}
     <div class="split">
       <div class="list">
         <ul aria-label={t("ciRuns")}>
           {#each runs as run (run.id)}
-            <li class:current={run === current}>
+            <li class="row" class:current={run === current}>
               <button class="pick" aria-current={run === current} onclick={() => (selected = run.id)}>
                 <CiStatus item={run} compact />
                 <span class="what">
@@ -523,34 +512,25 @@
     background: var(--panel);
   }
 
-  .toolbar,
   .filters {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 12px;
     padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
     background: var(--chrome);
   }
 
-  .filters {
-    padding-top: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .toolbar .labelled {
+  .inline {
     flex-direction: row;
     align-items: center;
     gap: 8px;
     color: var(--muted);
   }
 
-  .toolbar select {
+  .inline select {
     width: 200px;
-  }
-
-  .notify {
-    margin-left: auto;
   }
 
   .notify select {
@@ -575,14 +555,6 @@
     font-size: var(--text-sm);
   }
 
-  .labelled {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: var(--text-sm);
-    font-weight: 500;
-  }
-
   .labelled.check {
     flex-direction: row;
     flex-wrap: wrap;
@@ -597,31 +569,6 @@
     color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 400;
-  }
-
-  .notices {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .banner {
-    align-items: center;
-  }
-
-  .banner > span {
-    flex: 1;
-  }
-
-  .banner .icon-btn {
-    color: inherit;
-  }
-
-  .notice.ok {
-    background: var(--done-soft);
-    color: var(--done);
   }
 
   .dispatch {
@@ -682,77 +629,16 @@
     margin: 40px auto;
   }
 
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    max-width: 480px;
-    margin: 48px auto 0;
-    color: var(--muted);
-    text-align: center;
-  }
-
-  .empty > :global(svg) {
-    color: var(--accent-ink);
-  }
-
-  .empty h2 {
-    margin: 8px 0 6px;
-    color: var(--text);
-    font-size: var(--text-md);
-  }
-
-  .empty p {
-    margin: 0;
-  }
-
-  .empty .btn {
-    margin-top: 14px;
-  }
-
-  .split {
-    display: grid;
-    flex: 1;
-    grid-template-columns: 380px minmax(0, 1fr);
-    min-height: 0;
-  }
-
-  .list {
-    min-height: 0;
-    padding: 8px 6px;
-    overflow-y: auto;
-    border-right: 1px solid var(--border);
-    background: var(--chrome);
-  }
-
   .list ul {
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .list li {
-    border-radius: var(--radius);
-  }
-
-  .list li:hover {
-    background: var(--hover);
-  }
-
-  .list li.current {
-    background: var(--selected);
-  }
-
   .pick {
-    display: flex;
+    flex-direction: row;
     align-items: flex-start;
     gap: 8px;
-    width: 100%;
-    padding: 6px 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: none;
-    text-align: left;
   }
 
   .pick > :global(.icon) {
@@ -766,33 +652,9 @@
     min-width: 0;
   }
 
-  .name,
-  .desc {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .name {
-    font-weight: 500;
-  }
-
-  .desc {
-    color: var(--muted);
-    font-size: var(--text-xs);
-    line-height: 1.5;
-  }
-
   .more {
     display: flex;
     margin: 8px auto;
-  }
-
-  .detail {
-    min-width: 0;
-    min-height: 0;
-    padding: 20px 28px 32px;
-    overflow-y: auto;
   }
 
   .detail > :global(*) {
@@ -807,7 +669,7 @@
 
   h2 {
     margin: 6px 0 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
     overflow-wrap: anywhere;
@@ -858,11 +720,6 @@
   dd {
     margin: 0;
     overflow-wrap: anywhere;
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
   }
 
   .jobs,
