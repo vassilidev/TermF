@@ -167,6 +167,14 @@
       <h2 id="team-roles">{t("metaRoles")}</h2>
       {#if team.roles.length}
         <table class="roster">
+          <colgroup>
+            <col />
+            <col class="model" />
+            <col class="effort" />
+            <col class="access" />
+            <col class="layer" />
+            <col class="on" />
+          </colgroup>
           <thead>
             <tr>
               <th scope="col">{t("kindRole")}</th>
@@ -319,12 +327,34 @@
     white-space: nowrap;
   }
 
+  /* Fixed columns: the description, not the switches, gives way in a narrow window. */
   .roster {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     border-spacing: 0;
     background: var(--panel);
+    table-layout: fixed;
+  }
+
+  .model {
+    width: 96px;
+  }
+
+  .effort {
+    width: 88px;
+  }
+
+  .access {
+    width: 200px;
+  }
+
+  .layer {
+    width: 96px;
+  }
+
+  .on {
+    width: 132px;
   }
 
   th {
@@ -343,6 +373,7 @@
     padding: 0 12px;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
+    overflow-wrap: anywhere;
   }
 
   td.muted {
@@ -361,6 +392,7 @@
 
   .who div {
     display: flex;
+    flex: 1;
     flex-direction: column;
     min-width: 0;
     line-height: 1.35;
@@ -371,7 +403,6 @@
   }
 
   .who small {
-    max-width: 420px;
     overflow: hidden;
     color: var(--muted);
     font-size: var(--text-sm);

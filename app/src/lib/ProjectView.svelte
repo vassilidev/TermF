@@ -118,9 +118,7 @@
           bind:value={name}
           autocomplete="off"
           spellcheck="false"
-          {@attach (el) => {
-            if (!project) el.focus();
-          }}
+          {@attach (el) => el.focus()}
         />
       </section>
 

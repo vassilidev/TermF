@@ -500,7 +500,7 @@
   .help {
     margin: 0;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.4;
   }
 
@@ -598,7 +598,7 @@
     padding: 4px 8px;
     border-radius: var(--radius);
     background: var(--hover);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.4;
   }
 
