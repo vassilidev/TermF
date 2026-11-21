@@ -7,6 +7,9 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 
+pub mod claude;
+pub mod ipc;
+
 const DEFAULT_SETTINGS: &str = r#"# TermF — global settings
 # Folders scanned for git repositories. Hidden, system, media and dependency folders are skipped.
 # On macOS, Desktop, Documents and Downloads are only scanned when listed here (macOS asks permission for them).
@@ -20,6 +23,7 @@ scan_depth = 5
 # editor = "code"
 
 # Agents available in the UI: name = command run in the repository.
+# A command that starts with `claude` also reports its status (working, waiting…) to TermF.
 [agents]
 claude = "claude"
 "#;
@@ -113,6 +117,14 @@ pub fn default_config_dir() -> Result<PathBuf> {
     Ok(dirs::config_dir()
         .context("no config directory on this system")?
         .join("termf"))
+}
+
+/// Runtime data (socket, token, session plugins), kept out of the config folder.
+/// Same folder as Tauri's `app_data_dir` for the `dev.termf.app` identifier, so the CLI finds it without Tauri.
+pub fn default_data_dir() -> Result<PathBuf> {
+    Ok(dirs::data_dir()
+        .context("no data directory on this system")?
+        .join("dev.termf.app"))
 }
 
 /// Reads `termf.toml`, creating it with defaults on first launch so the user can find and edit it.

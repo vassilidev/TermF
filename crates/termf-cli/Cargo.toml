@@ -1,0 +1,16 @@
+[package]
+name = "termf-cli"
+description = "termf: drive TermF from any terminal, and the hook Claude Code sessions report through"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "termf"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+interprocess = "2.4.9"
+serde_json = "1.0.154"
+termf-core = { path = "../termf-core" }

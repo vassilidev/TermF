@@ -75,6 +75,17 @@ const fr = {
   quickTerminalTitle: "Terminal rapide (Ctrl+`)",
   shortcutError:
     "Raccourci du terminal rapide indisponible ({error}). Modifie « quick_terminal_shortcut » (termf.toml) puis relance TermF.",
+  statusStarting: "démarrage",
+  statusWorking: "travaille",
+  statusWaiting: "attend ta réponse",
+  statusIdle: "inactif",
+  statusDone: "terminé",
+  waitingCount: "{count} en attente",
+  remoteControl: "Remote Control",
+  remoteControlOn: "Contrôlable à distance (Remote Control)",
+  notifyWaiting: "Attend ta réponse",
+  notifyFinished: "A terminé",
+  apiOff: "API locale indisponible : la CLI termf et les statuts des agents sont désactivés.",
 };
 
 type Key = keyof typeof fr;
@@ -155,6 +166,17 @@ const en: Record<Key, string> = {
   quickTerminalTitle: "Quick terminal (Ctrl+`)",
   shortcutError:
     "Quick terminal shortcut unavailable ({error}). Change “quick_terminal_shortcut” (termf.toml), then restart TermF.",
+  statusStarting: "starting",
+  statusWorking: "working",
+  statusWaiting: "waiting for you",
+  statusIdle: "idle",
+  statusDone: "done",
+  waitingCount: "{count} waiting",
+  remoteControl: "Remote Control",
+  remoteControlOn: "Remote Control on",
+  notifyWaiting: "Waiting for you",
+  notifyFinished: "Finished",
+  apiOff: "Local API unavailable: the termf CLI and agent status are off.",
 };
 
 const messages = { fr, en };

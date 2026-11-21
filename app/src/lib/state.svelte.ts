@@ -1,6 +1,12 @@
 import { SvelteSet } from "svelte/reactivity";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+import { t } from "$lib/i18n";
 
 export type Repo = { name: string; path: string; modified: number | null };
 export type Project = { id: string; name: string; repos: Repo[] };
@@ -12,7 +18,10 @@ export type Workspace = {
   repos: Repo[];
   scanTruncated: boolean;
   quickTerminalError: string | null;
+  /** Why the local API (termf CLI, agent status) is off. */
+  apiError: string | null;
 };
+export type Status = "starting" | "working" | "waiting" | "idle" | "done";
 export type Session = {
   id: number;
   title: string;
@@ -20,6 +29,9 @@ export type Session = {
   agent: string | null;
   running: boolean;
   exitCode: number | null;
+  /** Only agents that report their state (Claude Code) have one. */
+  status: Status | null;
+  remoteControl: boolean;
 };
 
 export const app = $state({
@@ -57,8 +69,16 @@ export function init(): () => void {
       session.exitCode = payload.exitCode;
     }
   });
+  const unlistenStatus = listen<{ id: number; status: Status }>("session-status", ({ payload }) =>
+    updateStatus(payload.id, payload.status),
+  );
+  const unlistenOpened = listen<Session>("session-opened", ({ payload }) => {
+    if (!app.sessions.some((s) => s.id === payload.id)) app.sessions.push(payload);
+  });
   return () => {
     unlisten.then((stop) => stop());
+    unlistenStatus.then((stop) => stop());
+    unlistenOpened.then((stop) => stop());
   };
 }
 
@@ -92,6 +112,7 @@ export async function openSession(path: string, agent: string | null) {
         title: `${repoName(path)} · ${agent ?? "shell"}`,
         cols: 120,
         rows: 32,
+        remoteControl: launch.remoteControl,
       }),
     );
   } catch (e) {
@@ -103,4 +124,24 @@ export async function closeSession(id: number) {
   await invoke("pty_kill", { id }).catch(() => {});
   app.sessions = app.sessions.filter((s) => s.id !== id);
   if (app.focused === id) app.focused = null;
+}
+
+/** Options of the Open buttons. Remote Control only applies to Claude Code agents. */
+export const launch = $state({ remoteControl: false });
+
+/** Notifies, while the window is in the background, when a session needs the user or has finished. */
+async function updateStatus(id: number, status: Status) {
+  const session = app.sessions.find((s) => s.id === id);
+  if (!session) return;
+  const before = session.status;
+  session.status = status;
+  const message =
+    status === "waiting"
+      ? t("notifyWaiting")
+      : status === "done" || (status === "idle" && before === "working")
+        ? t("notifyFinished")
+        : null;
+  if (!message || document.hasFocus()) return;
+  const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
+  if (granted) sendNotification({ title: session.title, body: message });
 }

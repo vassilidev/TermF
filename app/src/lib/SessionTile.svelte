@@ -6,6 +6,14 @@
   let { session }: { session: Session } = $props();
 
   const isFocused = $derived(app.focused === session.id);
+
+  const statusLabel = {
+    starting: "statusStarting",
+    working: "statusWorking",
+    waiting: "statusWaiting",
+    idle: "statusIdle",
+    done: "statusDone",
+  } as const;
 </script>
 
 <section
@@ -30,6 +38,12 @@
       title={session.running ? t("running") : t("exited")}
     ></span>
     <span class="title">{session.title}</span>
+    {#if session.remoteControl}
+      <span role="img" aria-label={t("remoteControlOn")} title={t("remoteControlOn")}>📱</span>
+    {/if}
+    {#if session.status}
+      <span class="status {session.status}">{t(statusLabel[session.status])}</span>
+    {/if}
     {#if !session.running}
       <span class="muted"
         >{t("exitedLabel")}{session.exitCode != null ? ` (${session.exitCode})` : ""}</span
@@ -100,6 +114,33 @@
 
   .dot.running {
     background: var(--running);
+  }
+
+  .status {
+    flex-shrink: 0;
+    padding: 1px 7px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Colour sits on the border so the label keeps the contrast of body text. */
+  .status.working {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+
+  .status.waiting {
+    border-color: var(--waiting);
+    background: var(--waiting);
+    color: var(--waiting-text);
+    font-weight: 600;
+  }
+
+  .status.idle {
+    border-color: var(--running);
+    color: var(--text);
   }
 
   .icon {

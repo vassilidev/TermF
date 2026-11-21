@@ -3,12 +3,13 @@
   import ProjectEditor from "$lib/ProjectEditor.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
   import { ago, lang, t } from "$lib/i18n";
-  import { app, load, openSelected, selected, toggleProject } from "$lib/state.svelte";
+  import { app, launch, load, openSelected, selected, toggleProject } from "$lib/state.svelte";
 
   let filter = $state("");
   let sort = $state<"recent" | "name">("recent");
   let creating = $state(false);
   let editing = $state<string | null>(null);
+  const waiting = $derived(app.sessions.filter((s) => s.status === "waiting").length);
 
   const visibleRepos = $derived.by(() => {
     const query = filter.toLowerCase();
@@ -28,6 +29,9 @@
 <aside class="sidebar">
   <header class="brand">
     TermF
+    {#if waiting}
+      <span class="waiting">{t("waitingCount", { count: waiting })}</span>
+    {/if}
     <button
       class="icon quick"
       onclick={toggleQuickTerminal}
@@ -41,6 +45,10 @@
 
   {#if app.error}
     <p class="error" role="alert">{app.error}</p>
+  {/if}
+
+  {#if app.workspace?.apiError}
+    <p class="notice api-off" title={app.workspace.apiError}>{t("apiOff")}</p>
   {/if}
 
   {#if app.workspace}
@@ -140,6 +148,10 @@
     </div>
 
     <footer class="actions">
+      <label class="toggle">
+        <input type="checkbox" bind:checked={launch.remoteControl} />
+        {t("remoteControl")}
+      </label>
       {#each app.workspace.agents as agent (agent)}
         <button class="primary" disabled={!selected.size} onclick={() => openSelected(agent)}>
           {t("open", { agent, count: selected.size })}
@@ -172,6 +184,29 @@
     padding: 12px 12px 8px 16px;
     font-weight: 650;
     letter-spacing: 0.02em;
+  }
+
+  /* Next to the title; the quick terminal button stays at the right. */
+  .waiting {
+    margin: 0 auto 0 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--waiting);
+    color: var(--waiting-text);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .notice.api-off {
+    margin: 0 12px 8px;
+  }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
   }
 
   .lists {

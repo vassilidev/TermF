@@ -1,3 +1,4 @@
+mod api;
 mod config;
 mod files;
 mod quick_terminal;
@@ -7,15 +8,17 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody, Response};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use termf_core::ipc::SessionSummary;
 use termf_core::{Project, Repo};
 use termf_files::Files;
-use termf_term::{Output, SessionInfo, Sessions, SpawnSpec, shell_command};
+use termf_term::{Output, Sessions};
 
 struct AppState {
     config_dir: PathBuf,
     sessions: Sessions,
     quick_terminal: quick_terminal::QuickTerminal,
+    api: api::Api,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -34,6 +37,8 @@ struct Workspace {
     repos: Vec<Repo>,
     scan_truncated: bool,
     quick_terminal_error: Option<String>,
+    /// Why the local API (CLI, agent status) is off.
+    api_error: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -65,6 +70,7 @@ async fn workspace(
         repos: discovery.repos,
         scan_truncated: discovery.truncated,
         quick_terminal_error: state.quick_terminal.error.lock().unwrap().clone(),
+        api_error: state.api.error.clone(),
     })
 }
 
@@ -77,41 +83,19 @@ fn pty_spawn(
     title: String,
     cols: u16,
     rows: u16,
-) -> CmdResult<SessionInfo> {
-    let command = match &agent {
-        Some(name) => {
-            let settings = termf_core::load_settings(&state.config_dir).map_err(err)?;
-            Some(
-                settings
-                    .agents
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| format!("unknown agent {name}"))?,
-            )
-        }
-        None => None,
-    };
-    let (program, args) = shell_command(command.as_deref());
-    let id = state
-        .sessions
-        .spawn(SpawnSpec {
-            title: title.clone(),
-            program,
-            args,
-            cwd: cwd.clone().into(),
-            agent: agent.clone(),
-            cols,
-            rows,
-        })
-        .map_err(err)?;
-    Ok(SessionInfo {
-        id,
+    remote_control: Option<bool>,
+) -> CmdResult<SessionSummary> {
+    let remote_control = remote_control.unwrap_or(false);
+    api::spawn(
+        &state,
+        agent.as_deref(),
+        cwd.into(),
         title,
-        cwd,
-        agent,
-        running: true,
-        exit_code: None,
-    })
+        cols,
+        rows,
+        remote_control,
+    )
+    .map_err(err)
 }
 
 #[tauri::command]
@@ -140,8 +124,10 @@ fn pty_attach(
 }
 
 #[tauri::command]
-fn pty_write(state: State<AppState>, id: u32, data: String) -> CmdResult<()> {
-    state.sessions.write(id, data.as_bytes()).map_err(err)
+fn pty_write(app: AppHandle, state: State<AppState>, id: u32, data: String) -> CmdResult<()> {
+    state.sessions.write(id, data.as_bytes()).map_err(err)?;
+    state.api.input(&app, id, data.as_bytes());
+    Ok(())
 }
 
 #[tauri::command]
@@ -151,16 +137,17 @@ fn pty_resize(state: State<AppState>, id: u32, cols: u16, rows: u16) -> CmdResul
 
 #[tauri::command]
 fn pty_kill(state: State<AppState>, id: u32) -> CmdResult<()> {
+    state.api.forget(id);
     state.sessions.kill(id).map_err(err)
 }
 
 #[tauri::command]
-fn pty_list(state: State<AppState>) -> Vec<SessionInfo> {
+fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
     // The quick terminal has its own panel, never a tile.
     let quick = *state.quick_terminal.session.lock().unwrap();
     state
-        .sessions
-        .list()
+        .api
+        .list(&state.sessions)
         .into_iter()
         .filter(|s| Some(s.id) != quick)
         .collect()
@@ -170,14 +157,31 @@ fn pty_list(state: State<AppState>) -> Vec<SessionInfo> {
 pub fn run() {
     let config_dir = termf_core::default_config_dir().expect("cannot locate the config directory");
     tauri::Builder::default()
-        .manage(AppState {
-            config_dir,
-            sessions: Sessions::default(),
-            quick_terminal: Default::default(),
-        })
+        // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_notification::init())
         .manage(Arc::new(Files::default()))
         .plugin(quick_terminal::plugin())
-        .setup(|app| {
+        // One setup: a second call to `setup` would replace this one.
+        .setup(move |app| {
+            // The UI and the terminals work without the local API.
+            let (api, listener) = api::Api::new();
+            app.manage(AppState {
+                config_dir,
+                sessions: api.sessions(app.handle().clone()),
+                quick_terminal: Default::default(),
+                api,
+            });
+            if let Some(listener) = listener
+                && let Err(e) = api::serve(app.handle().clone(), listener)
+            {
+                eprintln!("termf: local API disabled: {e:#}");
+            }
             quick_terminal::register(app.handle());
             Ok(())
         })

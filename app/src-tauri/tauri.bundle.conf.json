@@ -1,0 +1,8 @@
+{
+  "build": {
+    "beforeBuildCommand": "node scripts/sidecar.mjs && pnpm build"
+  },
+  "bundle": {
+    "externalBin": ["binaries/termf"]
+  }
+}

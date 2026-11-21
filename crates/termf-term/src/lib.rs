@@ -18,6 +18,9 @@ pub enum Output {
 
 pub type Sink = Box<dyn FnMut(Output) + Send>;
 
+type EnvFn = Box<dyn Fn(u32) -> Vec<(String, String)> + Send + Sync>;
+type ExitFn = Arc<dyn Fn(u32) + Send + Sync>;
+
 pub struct SpawnSpec {
     pub title: String,
     pub program: String,
@@ -79,11 +82,35 @@ struct Session {
 pub struct Sessions {
     map: Mutex<HashMap<u32, Session>>,
     next_id: AtomicU32,
+    env: Option<EnvFn>,
+    on_exit: Option<ExitFn>,
 }
 
 impl Sessions {
+    /// `env` gives the extra environment variables of each session from its id.
+    pub fn with_env(env: impl Fn(u32) -> Vec<(String, String)> + Send + Sync + 'static) -> Self {
+        Self {
+            env: Some(Box::new(env)),
+            ..Self::default()
+        }
+    }
+
+    /// `on_exit` runs with the session id once its process has ended, whether or not a view is attached.
+    pub fn on_exit(self, on_exit: impl Fn(u32) + Send + Sync + 'static) -> Self {
+        Self {
+            on_exit: Some(Arc::new(on_exit)),
+            ..self
+        }
+    }
+
     pub fn spawn(&self, spec: SpawnSpec) -> Result<u32> {
+        self.spawn_with(|_| Ok(spec))
+    }
+
+    /// `build` receives the new session id, so the command can refer to it.
+    pub fn spawn_with(&self, build: impl FnOnce(u32) -> Result<SpawnSpec>) -> Result<u32> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let spec = build(id)?;
         let pair = native_pty_system().openpty(size(spec.cols, spec.rows))?;
 
         let mut cmd = CommandBuilder::new(&spec.program);
@@ -91,6 +118,9 @@ impl Sessions {
         cmd.cwd(&spec.cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        for (key, value) in self.env.as_ref().map(|env| env(id)).unwrap_or_default() {
+            cmd.env(key, value);
+        }
         let mut child = pair
             .slave
             .spawn_command(cmd)
@@ -104,6 +134,7 @@ impl Sessions {
         let shared = Arc::new(Mutex::new(Shared::default()));
 
         let thread_shared = shared.clone();
+        let on_exit = self.on_exit.clone();
         std::thread::Builder::new()
             .name(format!("pty-{id}"))
             .spawn(move || {
@@ -118,6 +149,9 @@ impl Sessions {
                 }
                 let code = child.wait().ok().map(|s| s.exit_code());
                 thread_shared.lock().unwrap().finish(code);
+                if let Some(on_exit) = on_exit {
+                    on_exit(id);
+                }
             })?;
 
         self.map.lock().unwrap().insert(
@@ -228,6 +262,16 @@ pub fn shell_command(command: Option<&str>) -> (String, Vec<String>) {
     }
 }
 
+/// Quotes `arg` as one word for the shell `shell_command` runs.
+pub fn shell_quote(arg: &str) -> String {
+    if cfg!(windows) {
+        // shortcut: cmd.exe has no escape for a double quote inside quotes, so they are dropped.
+        format!("\"{}\"", arg.replace('"', ""))
+    } else {
+        format!("'{}'", arg.replace('\'', r"'\''"))
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -282,6 +326,36 @@ mod tests {
             sessions.list()[0].cwd,
             std::env::temp_dir().to_string_lossy()
         );
+    }
+
+    #[test]
+    fn reports_exit_without_a_view() {
+        let (tx, rx) = mpsc::channel();
+        let sessions = Sessions::default().on_exit(move |id| {
+            let _ = tx.send(id);
+        });
+        let id = sessions.spawn(spec("/bin/sh", &["-c", "exit 0"])).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(id));
+    }
+
+    #[test]
+    fn passes_env_and_quotes_args() {
+        let sessions = Sessions::with_env(|id| vec![("TERMF_TEST_ID".into(), id.to_string())]);
+        let tricky = "it's a \"test\" $HOME `x` · ok";
+        let id = sessions
+            .spawn(spec(
+                "/bin/sh",
+                &[
+                    "-c",
+                    &format!(
+                        "printf '[%s|%s]' \"$TERMF_TEST_ID\" {}",
+                        shell_quote(tricky)
+                    ),
+                ],
+            ))
+            .unwrap();
+        let (text, _) = collect(&sessions, id);
+        assert!(text.contains(&format!("[{id}|{tricky}]")), "got {text:?}");
     }
 
     #[test]
