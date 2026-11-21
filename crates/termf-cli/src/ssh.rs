@@ -11,7 +11,7 @@ pub fn run(args: &[&str]) -> Result<()> {
         ["ls"] => ls(&ssh)?,
         ["gen", name, options @ ..] => generate(&ssh, name, options)?,
         ["test", host] => {
-            let test = termf_ssh::test_host(host)?;
+            let test = termf_ssh::test_host(host, None)?;
             println!("{}", test.message);
             ensure!(test.ok, "{host} did not accept the connection");
         }
