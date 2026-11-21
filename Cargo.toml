@@ -14,6 +14,19 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# Unoptimized, generating an RSA key or deriving a key passphrase takes about a minute.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+
+[profile.dev.package.bcrypt-pbkdf]
+opt-level = 3
+
+[profile.dev.package.blowfish]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = true

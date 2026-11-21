@@ -12,6 +12,8 @@ use termf_core::ipc::{self, Call, Reply, Request, SessionSummary};
 use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
+mod ssh;
+
 const USAGE: &str = "\
 usage:
   termf ls                              list sessions
@@ -29,9 +31,25 @@ usage:
   termf config export [-o <file>]       write the config and the library to one archive
   termf config import <file> [--dry-run] [--replace <item>]... [--replace-all]
                                         import an archive: merge, or replace the items named
+  termf ssh ls                          list keys, agent keys and config hosts
+  termf ssh gen <name> [--type ed25519|ecdsa|rsa] [--comment <text>]
+                                        create a key in ~/.ssh (asks for a passphrase)
+  termf ssh test <host>                 check that a host accepts your key
+  termf ssh agent-add <key>             add a key to the SSH agent
+  termf ssh agent-rm <key>              remove a key from the SSH agent
+  termf ssh assign <key> [<repo>]       make a repository (default: here) use only this key
+  termf ssh assign --none [<repo>]      back to the default keys
+  termf ssh trash <key>                 move a key to ~/.ssh/.termf-trash
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
+    // ssh-add runs this binary as its askpass helper when TermF adds a key with a passphrase.
+    if env::var_os(termf_ssh::ASKPASS_ENV).is_some() {
+        return match termf_ssh::askpass() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(_) => ExitCode::FAILURE,
+        };
+    }
     let args: Vec<String> = env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     if let ["hook", event] = args.as_slice() {
@@ -98,6 +116,7 @@ fn run(args: &[&str]) -> Result<()> {
         }
         ["library", rest @ ..] => library(rest.to_vec())?,
         ["config", rest @ ..] => config(rest.to_vec())?,
+        ["ssh", rest @ ..] => ssh::run(rest)?,
         ["-h" | "--help" | "help"] => println!("{USAGE}"),
         _ => bail!(USAGE),
     }
