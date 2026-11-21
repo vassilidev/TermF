@@ -1,3 +1,6 @@
+// The fake gh is a shell script: its helpers only serve the Unix tests.
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
