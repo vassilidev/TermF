@@ -157,14 +157,21 @@
     white-space: nowrap;
   }
 
-  .title b {
+  .title b,
+  .tool {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* A narrow tile gives up the tool before the folder's name. */
+  .title b {
+    flex-shrink: 0;
+    max-width: 100%;
     font-weight: 600;
   }
 
   .tool {
-    flex-shrink: 0;
     color: var(--muted);
     font: var(--text-sm) var(--font-mono);
   }
