@@ -255,16 +255,24 @@ pub fn answers_prompt(input: &[u8]) -> bool {
     input.first().is_some_and(|&b| b != 0x1b)
 }
 
-/// Whether terminal input is someone typing in the prompt (keys, Enter, Esc, a paste, history arrows),
-/// rather than a focus, mouse or terminal report.
+/// Whether terminal input is someone typing: any key, Esc and Alt sequences included, but not the reports
+/// a terminal sends on its own (focus, mouse, replies to queries).
 pub fn is_typing(input: &[u8]) -> bool {
-    match input {
-        [0x1b] => true,
-        [0x1b, rest @ ..] => {
-            rest.starts_with(b"[200~") || matches!(rest, b"[A" | b"[B" | b"OA" | b"OB")
-        }
-        other => !other.is_empty(),
-    }
+    let Some(rest) = input.strip_prefix(b"\x1b") else {
+        return !input.is_empty();
+    };
+    let csi_params = |end: u8| {
+        rest.strip_prefix(b"[")
+            .and_then(|r| r.strip_suffix(&[end]))
+            .is_some_and(|p| !p.is_empty() && p.iter().all(|b| b.is_ascii_digit() || *b == b';'))
+    };
+    let report = matches!(rest, b"[I" | b"[O") // focus
+        || rest.starts_with(b"[M") || rest.starts_with(b"[<") // mouse
+        || rest.starts_with(b"[?") || rest.starts_with(b"[>") // device attributes and modes
+        || csi_params(b'R') // cursor position
+        // OSC (colours…) and DCS replies; Alt+] and Alt+P alone are two bytes.
+        || (rest.starts_with(b"]") || rest.starts_with(b"P")) && rest.len() > 1;
+    !report
 }
 
 /// Status a Claude Code hook event means, or `None` when it says nothing about the state.
@@ -550,6 +558,13 @@ mod tests {
             b"\x1b[A",
             b"\x1bOB",
             b"\x1b[200~hi\x1b[201~",
+            b"\x1b\x7f",   // Alt+Backspace
+            b"\x1b[3~",    // Delete
+            b"\x1bb",      // Alt+b
+            b"\x1b[97;5u", // CSI u
+            b"\x1b]",      // Alt+]
+            b"\x1bP",      // Alt+Shift+p
+            b"\x1b[1;5D",  // Ctrl+Left
         ] {
             assert!(is_typing(typed), "{typed:?}");
         }
@@ -558,8 +573,14 @@ mod tests {
             b"\x1b[I",
             b"\x1b[O",
             b"\x1b[<0;3;4M",
+            b"\x1b[M #!",
             b"\x1b]11;rgb:0/0/0\x07",
+            b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\",
+            b"\x1bP1$r0m\x1b\\",
             b"\x1b[?1;2c",
+            b"\x1b[>0;276;0c",
+            b"\x1b[?2004;1$y",
+            b"\x1b[12;40R",
         ] {
             assert!(!is_typing(report), "{report:?}");
         }

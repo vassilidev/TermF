@@ -14,7 +14,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::claude;
-use termf_core::context::{self, Failure, Gauge, Limits, Next, Phase, Reset};
+use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
@@ -66,6 +66,8 @@ pub struct Api {
     pub error: Option<String>,
     meta: Mutex<HashMap<u32, Meta>>,
     watchers: Mutex<Vec<mpsc::Sender<StatusEvent>>>,
+    /// The context reset settings last read from a valid `termf.toml`.
+    limits: Mutex<Option<Limits>>,
 }
 
 impl Api {
@@ -83,6 +85,7 @@ impl Api {
             error,
             meta: Mutex::default(),
             watchers: Mutex::default(),
+            limits: Mutex::default(),
         };
         (api, listener)
     }
@@ -178,9 +181,9 @@ impl Api {
             }
         }
         let mut status = ipc::hook_status(event, payload);
-        let limits = (event == "Stop").then(|| limits(&app.state::<AppState>().config_dir));
+        let limits = (event == "Stop").then(|| self.limits(&app.state::<AppState>().config_dir));
         let mut then = None;
-        let output = self.reset(app, id, |reset| {
+        let output = self.update(app, id, true, |reset| {
             let mut output = Value::Null;
             match event {
                 "StatusLine" if current => reset.measure(&payload["context_window"]),
@@ -200,9 +203,11 @@ impl Api {
                     let busy = payload["background_tasks"]
                         .as_array()
                         .is_some_and(|tasks| !tasks.is_empty());
+                    let continuing = payload["stop_hook_active"] == true;
                     let save = |text: &str| Ok(fs::write(&handoff, text)?);
                     let limits = limits.expect("read for Stop");
-                    match reset.stop(limits, busy, text("last_assistant_message"), save) {
+                    let reply = text("last_assistant_message");
+                    match reset.stop(limits, busy, continuing, reply, save) {
                         Next::AskHandoff => {
                             let request = context::handoff_request(reset.gauge.percent);
                             output = context::stop_output(&request);
@@ -240,9 +245,37 @@ impl Api {
         dir.join("handoff.md")
     }
 
-    /// Runs `f` on a Claude Code session's reset, then shows the change: the gauge in the UI, a timer
-    /// for a new step, and the agent idle again when a sequence stops while it sat at its prompt.
+    /// The context reset settings, or the last valid ones while `termf.toml` cannot be read; none read
+    /// yet, no automatic reset.
+    fn limits(&self, config_dir: &Path) -> Limits {
+        let mut last = self.limits.lock().unwrap();
+        if let Ok(settings) = termf_core::load_settings(config_dir) {
+            *last = Some(Limits {
+                on: settings.context_reset,
+                reset_at: settings.context_reset_at.clamp(1, 100),
+            });
+        }
+        last.unwrap_or(Limits {
+            on: false,
+            reset_at: 100,
+        })
+    }
+
+    /// `update` for what does not come from a hook.
     fn reset<T>(&self, app: &AppHandle, id: u32, f: impl FnOnce(&mut Reset) -> T) -> Option<T> {
+        self.update(app, id, false, f)
+    }
+
+    /// Runs `f` on a Claude Code session's reset, then shows the change: the gauge in the UI, a timer
+    /// for a new step, and the agent idle again when a sequence stops while it sat at its prompt (hooks
+    /// bring their own status).
+    fn update<T>(
+        &self,
+        app: &AppHandle,
+        id: u32,
+        from_hook: bool,
+        f: impl FnOnce(&mut Reset) -> T,
+    ) -> Option<T> {
         let (value, gauge, timer, idle) = {
             let mut meta = self.meta.lock().unwrap();
             let reset = meta.get_mut(&id)?.reset.as_mut()?;
@@ -253,9 +286,8 @@ impl Api {
                 _ => STEP_TIME,
             };
             let timer = (reset.step() != step && reset.active()).then(|| (reset.step(), time));
-            // Hooks bring their own status; typing and timeouts leave the agent at its prompt.
-            let idle = matches!(before.phase, Phase::Clearing | Phase::Resuming)
-                && matches!(reset.gauge.failure, Some(Failure::Typed | Failure::Timeout))
+            let idle = !from_hook
+                && matches!(before.phase, Phase::Clearing | Phase::Resuming)
                 && !reset.active();
             let gauge = (reset.gauge != before).then(|| reset.gauge.clone());
             (value, gauge, timer, idle)
@@ -289,7 +321,7 @@ impl Api {
         if let Some((step, line)) = request
             && let Err(e) = app.state::<AppState>().sessions.type_line(id, &line)
         {
-            self.reset(app, id, |r| r.timeout(step));
+            self.reset(app, id, |r| r.write_failed(step));
             return Err(e);
         }
         Ok(())
@@ -675,15 +707,7 @@ fn claude_dir() -> PathBuf {
         .unwrap_or_else(|| termf_core::expand_tilde("~/.claude"))
 }
 
-fn limits(config_dir: &Path) -> Limits {
-    let settings = termf_core::load_settings(config_dir).unwrap_or_default();
-    Limits {
-        on: settings.context_reset,
-        reset_at: settings.context_reset_at.clamp(1, 100),
-    }
-}
-
-/// Ends a reset whose step is still `step` after `after`. Not generic, unlike `Api::reset` which calls it.
+/// Ends a reset whose step is still `step` after `after`. Not generic, unlike `Api::update` which calls it.
 fn time_out(app: AppHandle, id: u32, step: u64, after: Duration) {
     thread::spawn(move || {
         thread::sleep(after);
@@ -701,9 +725,8 @@ fn type_later(app: AppHandle, id: u32, step: u64, line: String) {
         let due = state
             .api
             .reset(&app, id, |r| r.clear_due(step) || r.resume_due(step));
-        if due == Some(true) {
-            // A session that is gone leaves the step to its timer.
-            let _ = state.sessions.type_line(id, &line);
+        if due == Some(true) && state.sessions.type_line(id, &line).is_err() {
+            state.api.reset(&app, id, |r| r.write_failed(step));
         }
     });
 }

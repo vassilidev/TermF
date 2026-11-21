@@ -582,12 +582,14 @@ const fr = {
   contextFailInterrupted: "le tour s'est terminé sur une erreur de l'API.",
   contextFailEmpty: "la passation de l'agent était vide.",
   contextFailSave: "la passation n'a pas pu être enregistrée.",
+  contextFailWrite: "TermF n'a pas pu écrire dans la session.",
   contextFailTimeout: "une étape a pris trop de temps.",
   contextSettings: "Contexte des sessions Claude Code",
   contextAuto: "Remise à zéro automatique",
   contextResetAt: "Remettre à zéro à",
   contextWarningAt: "Avertir à",
   contextThresholds: "Un seuil va de 1 à 100 %.",
+  contextPercentUnit: " %",
   contextSettingsHelp:
     "Au-delà du seuil, à la fin d'un tour, l'agent écrit sa passation, TermF vide le contexte (/clear) et le relance sur sa passation, sans action de ta part.",
 };
@@ -1170,12 +1172,14 @@ const en: Record<Key, string> = {
   contextFailInterrupted: "the turn ended on an API error.",
   contextFailEmpty: "the agent's handoff was empty.",
   contextFailSave: "the handoff could not be saved.",
+  contextFailWrite: "TermF could not type in the session.",
   contextFailTimeout: "a step took too long.",
   contextSettings: "Context of Claude Code sessions",
   contextAuto: "Automatic reset",
   contextResetAt: "Reset at",
   contextWarningAt: "Warn at",
   contextThresholds: "A threshold goes from 1 to 100%.",
+  contextPercentUnit: "%",
   contextSettingsHelp:
     "Past the threshold, at the end of a turn, the agent writes its handoff, TermF clears the context (/clear) and restarts the agent from it, with no action from you.",
 };

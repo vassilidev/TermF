@@ -45,7 +45,14 @@ export type Session = {
   context: Gauge | null;
 };
 export type ResetPhase = "idle" | "queued" | "handoff" | "clearing" | "resuming";
-export type ResetFailure = "typed" | "busy" | "interrupted" | "empty_handoff" | "save_failed" | "timeout";
+export type ResetFailure =
+  | "typed"
+  | "busy"
+  | "interrupted"
+  | "empty_handoff"
+  | "save_failed"
+  | "write_failed"
+  | "timeout";
 export type Gauge = {
   /** Null until the conversation's first answer. */
   percent: number | null;

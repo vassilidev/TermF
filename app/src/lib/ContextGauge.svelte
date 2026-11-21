@@ -19,6 +19,7 @@
     interrupted: "contextFailInterrupted",
     empty_handoff: "contextFailEmpty",
     save_failed: "contextFailSave",
+    write_failed: "contextFailWrite",
     timeout: "contextFailTimeout",
   } as const;
 

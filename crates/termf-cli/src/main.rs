@@ -415,7 +415,9 @@ fn statusline(chained: Option<&str>) -> ExitCode {
 }
 
 fn run_chained(command: &str, input: &str) -> ExitCode {
-    let shell = if cfg!(windows) { "bash" } else { "sh" };
+    let Some(shell) = shell() else {
+        return ExitCode::FAILURE;
+    };
     let child = std::process::Command::new(shell)
         .args(["-c", command])
         .stdin(std::process::Stdio::piped())
@@ -430,6 +432,19 @@ fn run_chained(command: &str, input: &str) -> ExitCode {
         Ok(status) if status.success() => ExitCode::SUCCESS,
         _ => ExitCode::FAILURE,
     }
+}
+
+/// The shell Claude Code runs status lines with: Git Bash on Windows, where a bare `bash` can be WSL's.
+// shortcut: without Git Bash, Claude Code uses PowerShell and your status line is not shown; upgrade if
+// TermF ever runs on such machines.
+fn shell() -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return Some("sh".into());
+    }
+    env::var_os("CLAUDE_CODE_GIT_BASH_PATH")
+        .map(Into::into)
+        .or_else(|| env::var_os("ProgramFiles").map(|p| Path::new(&p).join(r"Git\bin\bash.exe")))
+        .filter(|bash: &std::path::PathBuf| bash.is_file())
 }
 
 struct Client {

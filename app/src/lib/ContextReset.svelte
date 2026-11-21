@@ -26,20 +26,28 @@
       <div class="thresholds">
         <label>
           <span>{t("contextResetAt")}</span>
-          <input
-            type="number"
-            min="1"
-            max="100"
-            value={resetAt}
-            disabled={!on}
-            onchange={(e) => save({ resetAt: value(e) })}
-          />
-          <span>%</span>
+          <span class="field">
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={resetAt}
+              disabled={!on}
+              onchange={(e) => save({ resetAt: value(e) })}
+            />{t("contextPercentUnit")}
+          </span>
         </label>
         <label>
           <span>{t("contextWarningAt")}</span>
-          <input type="number" min="1" max="100" value={warningAt} onchange={(e) => save({ warningAt: value(e) })} />
-          <span>%</span>
+          <span class="field">
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={warningAt}
+              onchange={(e) => save({ warningAt: value(e) })}
+            />{t("contextPercentUnit")}
+          </span>
         </label>
       </div>
       <p class="help">{t("contextSettingsHelp")}</p>
@@ -85,15 +93,21 @@
 
   .thresholds {
     display: grid;
-    grid-template-columns: max-content max-content max-content;
+    grid-template-columns: max-content max-content;
     align-items: center;
     gap: 6px 8px;
     margin-top: 4px;
   }
 
-  /* Text, field and unit line up in columns across both thresholds. */
+  /* Text and field line up in columns across both thresholds. */
   .thresholds label {
     display: contents;
+  }
+
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .thresholds input {

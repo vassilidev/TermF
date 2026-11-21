@@ -53,6 +53,8 @@ pub enum Failure {
     Interrupted,
     EmptyHandoff,
     SaveFailed,
+    /// TermF could not type in the session.
+    WriteFailed,
     /// A step did not happen in time.
     Timeout,
 }
@@ -91,6 +93,8 @@ pub struct Reset {
     /// You typed since your last prompt: a draft may sit in the prompt, and `/clear` would join it.
     typed: bool,
     handoff: String,
+    /// `/clear` was typed: the conversation it starts gets the handoff, whatever happens meanwhile.
+    cleared: bool,
     /// The resume prompt was typed.
     sent: bool,
     /// Bumped by every step, so a timer set for an earlier step does nothing.
@@ -111,14 +115,25 @@ impl Reset {
     }
 
     /// Reads the status line's `context_window`; its fields are null until the first answer.
+    /// `total_input_tokens` adds up the whole session, so the tokens in context come from `current_usage`.
     pub fn measure(&mut self, context_window: &Value) {
         let percent = context_window["used_percentage"].as_f64();
         self.gauge.percent = percent.map(|p| p.round().clamp(0.0, 100.0) as u8);
-        self.gauge.tokens = context_window["total_input_tokens"].as_u64();
         self.gauge.window = context_window["context_window_size"].as_u64();
+        let usage = &context_window["current_usage"];
+        let in_context = [
+            "input_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+        ];
+        self.gauge.tokens = usage
+            .is_object()
+            .then(|| in_context.iter().filter_map(|k| usage[k].as_u64()).sum())
+            .or_else(|| Some((percent? * self.gauge.window? as f64 / 100.0) as u64));
     }
 
-    /// A conversation starts. Returns the handoff to give it when it is the one the reset cleared for.
+    /// A conversation starts. Returns the handoff to give it when `/clear` started it for the reset,
+    /// even if the sequence stopped meanwhile: once the context is cleared, the handoff must not be lost.
     pub fn session_start(&mut self, source: &str) -> Option<String> {
         if source != "clear" {
             return None;
@@ -128,19 +143,23 @@ impl Reset {
             failure: self.gauge.failure,
             ..Gauge::default()
         };
-        if self.gauge.phase != Phase::Clearing {
+        if !self.cleared {
             return None;
         }
+        self.cleared = false;
+        self.gauge.failure = None;
         self.go(Phase::Resuming);
         Some(self.handoff.clone())
     }
 
-    /// The turn ended. `busy`: background tasks still run. `reply`: the agent's last message, saved
-    /// with `save` when it is the handoff.
+    /// The turn ended. `busy`: background tasks still run. `continuing`: a Stop hook already keeps this
+    /// turn going (`stop_hook_active`), so the real end of the turn is still to come. `reply`: the
+    /// agent's last message, saved with `save` when it is the handoff.
     pub fn stop(
         &mut self,
         limits: Limits,
         busy: bool,
+        continuing: bool,
         reply: &str,
         save: impl FnOnce(&str) -> Result<()>,
     ) -> Next {
@@ -168,13 +187,14 @@ impl Reset {
                 self.fail(Failure::Typed);
                 Next::Nothing
             }
-            Phase::Queued if !busy => self.start(),
+            Phase::Queued if !busy && !continuing => self.start(),
             Phase::Idle
                 if limits.on
                     && over == Some(true)
                     && self.arm == Arm::Armed
                     && !self.typed
-                    && !busy =>
+                    && !busy
+                    && !continuing =>
             {
                 self.start()
             }
@@ -186,31 +206,42 @@ impl Reset {
         self.typed = false;
         match self.gauge.phase {
             Phase::Resuming if self.sent => self.go(Phase::Idle),
-            Phase::Clearing | Phase::Resuming => self.fail(Failure::Busy),
-            Phase::Idle if self.arm == Arm::NextPrompt => self.arm = Arm::Armed,
+            // Someone else prompted the cleared conversation: it has the handoff, TermF types nothing.
+            Phase::Resuming => self.go(Phase::Idle),
+            // Possibly /clear itself: the handoff waits for the conversation it starts.
+            Phase::Clearing if self.cleared => {}
+            Phase::Clearing => self.fail(Failure::Busy),
+            Phase::Idle => {
+                if self.arm == Arm::NextPrompt {
+                    self.arm = Arm::Armed;
+                }
+                // The conversation went on without the cleared one ever starting.
+                self.cleared = false;
+            }
             _ => {}
         }
     }
 
     /// The agent's state changed: a question, or work once the handoff is written, stops the sequence.
     pub fn activity(&mut self, status: Status) {
-        let stops = match self.gauge.phase {
-            Phase::Handoff => status == Status::Waiting,
-            Phase::Clearing | Phase::Resuming => {
-                matches!(status, Status::Working | Status::Waiting)
-            }
-            _ => false,
-        };
-        if stops {
-            self.fail(Failure::Busy);
+        let working = matches!(status, Status::Working | Status::Waiting);
+        match self.gauge.phase {
+            Phase::Handoff if status == Status::Waiting => self.fail(Failure::Busy),
+            Phase::Clearing if working && !self.cleared => self.fail(Failure::Busy),
+            Phase::Resuming if working && !self.sent => self.go(Phase::Idle),
+            _ => {}
         }
     }
 
-    /// You typed in the session, other than to answer a question.
+    /// You typed in the session, other than to answer a question. Once `/clear` is typed the handoff
+    /// still goes to the new conversation, but TermF types nothing more over what you write.
     pub fn typed(&mut self) {
         self.typed = true;
-        if self.active() {
-            self.fail(Failure::Typed);
+        match self.gauge.phase {
+            Phase::Clearing if self.cleared => {}
+            Phase::Resuming => self.go(Phase::Idle),
+            _ if self.active() => self.fail(Failure::Typed),
+            _ => {}
         }
     }
 
@@ -221,13 +252,13 @@ impl Reset {
         }
     }
 
-    /// Asked by hand. `idle`: the agent waits at its prompt, so TermF types the request at once (true);
-    /// otherwise it waits for the end of the turn.
+    /// Asked by hand. `idle`: the agent waits at its prompt, so TermF types the request at once (true),
+    /// unless you have typed a draft there; otherwise it waits for the end of the next turn.
     pub fn request(&mut self, idle: bool) -> bool {
         if self.active() || self.gauge.phase == Phase::Queued {
             return false;
         }
-        if idle {
+        if idle && !self.typed {
             self.start();
             return true;
         }
@@ -236,7 +267,8 @@ impl Reset {
         false
     }
 
-    /// A step's time ran out; true when it was still on.
+    /// A step's time ran out; true when it was still on. A `/clear` already typed keeps its handoff
+    /// for the conversation it may still start.
     pub fn timeout(&mut self, step: u64) -> bool {
         let late = step == self.step && self.active();
         if late {
@@ -245,21 +277,43 @@ impl Reset {
         late
     }
 
-    /// Whether `/clear` is still to be typed for the step that scheduled it.
-    pub fn clear_due(&self, step: u64) -> bool {
-        step == self.step && self.gauge.phase == Phase::Clearing
+    /// TermF could not type what the step `step` needed.
+    pub fn write_failed(&mut self, step: u64) {
+        if step == self.step && self.active() {
+            self.cleared = false;
+            self.fail(Failure::WriteFailed);
+        }
+    }
+
+    /// Whether `/clear` is still to be typed for the step that scheduled it; from then on, the handoff
+    /// belongs to the conversation it starts.
+    pub fn clear_due(&mut self, step: u64) -> bool {
+        let due = step == self.step && self.gauge.phase == Phase::Clearing && !self.cleared;
+        if due {
+            self.cleared = true;
+            self.typed = false;
+        }
+        due
     }
 
     /// Whether the resume prompt is still to be typed for the step that scheduled it; it counts as sent.
+    /// Not over something you typed since `/clear`: the conversation already has the handoff.
     pub fn resume_due(&mut self, step: u64) -> bool {
-        let due = step == self.step && self.gauge.phase == Phase::Resuming && !self.sent;
-        self.sent |= due;
-        due
+        if step != self.step || self.gauge.phase != Phase::Resuming || self.sent {
+            return false;
+        }
+        if self.typed {
+            self.go(Phase::Idle);
+            return false;
+        }
+        self.sent = true;
+        true
     }
 
     fn start(&mut self) -> Next {
         self.arm = Arm::BelowThreshold;
         self.gauge.failure = None;
+        self.cleared = false;
         self.go(Phase::Handoff);
         Next::AskHandoff
     }
@@ -290,7 +344,9 @@ pub fn handoff_request(percent: Option<u8>) -> String {
     )
 }
 
-/// Output of the Stop hook that keeps the turn going for the handoff.
+/// Output of the Stop hook that keeps the turn going for the handoff. Claude Code's hooks reference,
+/// "Stop decision control": `additionalContext` continues the conversation like `decision: "block"`,
+/// under the same `stop_hook_active` flag and 8-continuation cap, shown as hook feedback, not an error.
 pub fn stop_output(request: &str) -> Value {
     json!({
         "hookSpecificOutput": {
@@ -331,16 +387,36 @@ mod tests {
     fn reads_the_status_line_context() {
         let mut reset = Reset::default();
         reset.measure(&json!({
-            "total_input_tokens": 150_000,
+            "total_input_tokens": 9_000_000,
             "context_window_size": 200_000,
             "used_percentage": 74.6,
+            "current_usage": {
+                "input_tokens": 1_000,
+                "cache_creation_input_tokens": 9_000,
+                "cache_read_input_tokens": 139_000,
+                "output_tokens": 800,
+            },
         }));
         assert_eq!(reset.gauge.percent, Some(75));
-        assert_eq!(reset.gauge.tokens, Some(150_000));
+        assert_eq!(
+            reset.gauge.tokens,
+            Some(149_000),
+            "what is in context, not the session total"
+        );
         assert_eq!(reset.gauge.window, Some(200_000));
 
+        reset.measure(&json!({"used_percentage": 40, "context_window_size": 1_000_000, "current_usage": null}));
+        assert_eq!(
+            reset.gauge.tokens,
+            Some(400_000),
+            "from the share when usage is missing"
+        );
         reset.measure(&json!({"used_percentage": null, "context_window_size": 1_000_000}));
-        assert_eq!(reset.gauge.percent, None, "before the first answer");
+        assert_eq!(
+            (reset.gauge.percent, reset.gauge.tokens),
+            (None, None),
+            "before the first answer"
+        );
         reset.measure(&Value::Null);
         assert_eq!(reset.gauge, Gauge::default(), "older Claude Code");
 
@@ -364,27 +440,44 @@ mod tests {
         Ok(())
     }
 
+    /// A turn that really ends: no background task, no other Stop hook continuing it.
+    fn end(reset: &mut Reset, reply: &str) -> Next {
+        reset.stop(ON, false, false, reply, ok)
+    }
+
+    /// Up to `/clear` typed.
+    fn cleared(percent: u64) -> Reset {
+        let mut reset = Reset::default();
+        at(&mut reset, percent);
+        assert_eq!(end(&mut reset, "done"), Next::AskHandoff);
+        assert_eq!(end(&mut reset, "Goal: X"), Next::Clear);
+        assert!(reset.clear_due(reset.step()));
+        reset
+    }
+
     #[test]
     fn runs_the_whole_sequence_then_waits_below_the_threshold() {
         let mut reset = Reset::default();
         at(&mut reset, 40);
-        assert_eq!(reset.stop(ON, false, "done", ok), Next::Nothing);
+        assert_eq!(end(&mut reset, "done"), Next::Nothing);
 
         at(&mut reset, 72);
-        assert_eq!(reset.stop(ON, false, "done", ok), Next::AskHandoff);
+        assert_eq!(end(&mut reset, "done"), Next::AskHandoff);
         assert_eq!(reset.gauge.phase, Phase::Handoff);
         reset.activity(Status::Working);
         assert_eq!(reset.gauge.phase, Phase::Handoff, "it may read files");
 
         let mut saved = String::new();
-        let next = reset.stop(ON, false, "  Goal: X. Next: Y.  ", |text| {
+        // The handoff turn is a continuation of our own Stop hook: stop_hook_active is true.
+        let next = reset.stop(ON, false, true, "  Goal: X. Next: Y.  ", |text| {
             saved = text.to_owned();
             Ok(())
         });
         assert_eq!(next, Next::Clear);
         assert_eq!(saved, "Goal: X. Next: Y.");
-        assert!(reset.clear_due(reset.step()));
         assert!(!reset.clear_due(reset.step() - 1), "an earlier timer");
+        assert!(reset.clear_due(reset.step()));
+        assert!(!reset.clear_due(reset.step()), "typed once");
 
         assert_eq!(
             reset.session_start("clear").as_deref(),
@@ -403,81 +496,136 @@ mod tests {
 
         // Still over the threshold after the reset: no second sequence.
         at(&mut reset, 75);
-        assert_eq!(reset.stop(ON, false, "done", ok), Next::Nothing);
+        assert_eq!(end(&mut reset, "done"), Next::Nothing);
         at(&mut reset, 10);
-        assert_eq!(reset.stop(ON, false, "done", ok), Next::Nothing);
+        assert_eq!(end(&mut reset, "done"), Next::Nothing);
         at(&mut reset, 71);
-        assert_eq!(
-            reset.stop(ON, false, "done", ok),
-            Next::AskHandoff,
-            "re-armed"
-        );
+        assert_eq!(end(&mut reset, "done"), Next::AskHandoff, "re-armed");
     }
 
     #[test]
-    fn typing_stops_or_postpones_it() {
+    fn waits_for_the_real_end_of_a_turn_another_stop_hook_continues() {
         let mut reset = Reset::default();
         at(&mut reset, 80);
-        reset.stop(ON, false, "done", ok);
+        assert_eq!(reset.stop(ON, false, true, "done", ok), Next::Nothing);
+        assert_eq!(reset.stop(ON, false, false, "done", ok), Next::AskHandoff);
+
+        let mut reset = Reset::default();
+        reset.request(false);
+        assert_eq!(reset.stop(ON, false, true, "done", ok), Next::Nothing);
+        assert_eq!(reset.gauge.phase, Phase::Queued);
+    }
+
+    #[test]
+    fn typing_before_clear_stops_it() {
+        let mut reset = Reset::default();
+        at(&mut reset, 80);
+        end(&mut reset, "done");
         reset.typed();
         assert_eq!(reset.gauge.phase, Phase::Idle);
         assert_eq!(reset.gauge.failure, Some(Failure::Typed));
         // The end of the handoff turn: nothing saved, nothing started while a draft may sit in the prompt.
-        let next = reset.stop(ON, false, "handoff", |_| panic!("not saved"));
+        let next = reset.stop(ON, false, true, "handoff", |_| panic!("not saved"));
         assert_eq!(next, Next::Nothing);
         reset.prompt_submitted();
-        assert_eq!(
-            reset.stop(ON, false, "done", ok),
-            Next::AskHandoff,
-            "next turn"
-        );
+        assert_eq!(end(&mut reset, "done"), Next::AskHandoff, "next turn");
 
         let mut reset = Reset::default();
         at(&mut reset, 80);
         reset.typed();
-        assert_eq!(reset.stop(ON, false, "done", ok), Next::Nothing, "a draft");
+        assert_eq!(end(&mut reset, "done"), Next::Nothing, "a draft");
         assert_eq!(reset.gauge.failure, None);
 
-        for typed_in in [Phase::Clearing, Phase::Resuming] {
-            let mut reset = Reset::default();
-            at(&mut reset, 80);
-            reset.stop(ON, false, "done", ok);
-            reset.stop(ON, false, "handoff", ok);
-            if typed_in == Phase::Resuming {
-                reset.session_start("clear");
-            }
-            let step = reset.step();
-            reset.typed();
-            assert_eq!(reset.gauge.failure, Some(Failure::Typed));
-            assert!(!reset.clear_due(step) && !reset.resume_due(step));
-        }
+        let mut reset = Reset::default();
+        at(&mut reset, 80);
+        end(&mut reset, "done");
+        end(&mut reset, "handoff");
+        let step = reset.step();
+        reset.typed();
+        assert_eq!(reset.gauge.failure, Some(Failure::Typed));
+        assert!(!reset.clear_due(step), "no /clear over your typing");
+        assert_eq!(reset.session_start("clear"), None, "your own /clear");
+    }
+
+    #[test]
+    fn once_clear_is_typed_the_handoff_is_never_lost() {
+        // A key, /clear's own prompt event, work reported: the cleared conversation still gets it.
+        let mut reset = cleared(80);
+        reset.prompt_submitted();
+        reset.activity(Status::Working);
+        reset.typed();
+        assert_eq!(reset.gauge.phase, Phase::Clearing);
+        assert_eq!(reset.gauge.failure, None);
+        assert_eq!(reset.session_start("clear").as_deref(), Some("Goal: X"));
+        assert!(
+            !reset.resume_due(reset.step()),
+            "nothing typed over your keys"
+        );
+        assert_eq!(reset.gauge.phase, Phase::Idle);
+        assert_eq!(reset.gauge.failure, None);
+
+        // The new conversation starts after the step's timer.
+        let mut reset = cleared(80);
+        assert!(reset.timeout(reset.step()));
+        assert_eq!(reset.gauge.failure, Some(Failure::Timeout));
+        assert_eq!(reset.session_start("clear").as_deref(), Some("Goal: X"));
+        assert_eq!(reset.gauge.failure, None);
+        assert!(reset.resume_due(reset.step()), "resumed after all");
+
+        // It never starts and the conversation goes on: a later /clear of yours gets nothing.
+        let mut reset = cleared(80);
+        reset.timeout(reset.step());
+        reset.prompt_submitted();
+        assert_eq!(reset.session_start("clear"), None);
+
+        // Typing /clear failed: nothing to hand over.
+        let mut reset = cleared(80);
+        reset.write_failed(reset.step());
+        assert_eq!(reset.gauge.failure, Some(Failure::WriteFailed));
+        assert_eq!(reset.session_start("clear"), None);
+    }
+
+    #[test]
+    fn hands_over_to_whoever_prompts_the_cleared_conversation_first() {
+        let mut reset = cleared(80);
+        reset.session_start("clear");
+        reset.typed();
+        assert_eq!(reset.gauge.phase, Phase::Idle);
+        assert_eq!(reset.gauge.failure, None);
+
+        let mut reset = cleared(80);
+        reset.session_start("clear");
+        let step = reset.step();
+        reset.prompt_submitted();
+        assert_eq!(reset.gauge.phase, Phase::Idle);
+        assert!(!reset.resume_due(step));
     }
 
     #[test]
     fn a_failed_handoff_never_clears_nor_loops() {
         let mut reset = Reset::default();
         at(&mut reset, 80);
-        reset.stop(ON, false, "done", ok);
-        let next = reset.stop(ON, false, "handoff", |_| bail!("disk full"));
+        end(&mut reset, "done");
+        let next = reset.stop(ON, false, true, "handoff", |_| bail!("disk full"));
         assert_eq!(next, Next::Nothing);
         assert_eq!(reset.gauge.failure, Some(Failure::SaveFailed));
         assert!(!reset.clear_due(reset.step()));
         assert_eq!(
-            reset.stop(ON, false, "done", ok),
+            end(&mut reset, "done"),
             Next::Nothing,
             "not again on its own"
         );
         reset.prompt_submitted();
         assert_eq!(
-            reset.stop(ON, false, "done", ok),
+            end(&mut reset, "done"),
             Next::AskHandoff,
             "after your next prompt"
         );
 
         let mut reset = Reset::default();
         at(&mut reset, 80);
-        reset.stop(ON, false, "done", ok);
-        assert_eq!(reset.stop(ON, false, " \n", ok), Next::Nothing);
+        end(&mut reset, "done");
+        assert_eq!(end(&mut reset, " \n"), Next::Nothing);
         assert_eq!(reset.gauge.failure, Some(Failure::EmptyHandoff));
     }
 
@@ -486,18 +634,18 @@ mod tests {
         let mut reset = Reset::default();
         at(&mut reset, 80);
         assert_eq!(
-            reset.stop(ON, true, "done", ok),
+            reset.stop(ON, true, false, "done", ok),
             Next::Nothing,
             "background tasks"
         );
-        assert_eq!(reset.stop(ON, false, "done", ok), Next::AskHandoff);
+        assert_eq!(end(&mut reset, "done"), Next::AskHandoff);
         reset.activity(Status::Waiting);
         assert_eq!(reset.gauge.failure, Some(Failure::Busy), "an approval");
 
         let mut reset = Reset::default();
         at(&mut reset, 80);
-        reset.stop(ON, false, "done", ok);
-        reset.stop(ON, false, "handoff", ok);
+        end(&mut reset, "done");
+        end(&mut reset, "handoff");
         let step = reset.step();
         reset.activity(Status::Working);
         assert_eq!(reset.gauge.failure, Some(Failure::Busy));
@@ -505,19 +653,18 @@ mod tests {
 
         let mut reset = Reset::default();
         at(&mut reset, 80);
-        reset.stop(ON, false, "done", ok);
-        reset.stop(ON, false, "handoff", ok);
-        reset.session_start("clear");
+        end(&mut reset, "done");
+        end(&mut reset, "handoff");
         reset.prompt_submitted();
         assert_eq!(
             reset.gauge.failure,
             Some(Failure::Busy),
-            "a prompt before ours"
+            "a prompt before /clear"
         );
 
         let mut reset = Reset::default();
         at(&mut reset, 80);
-        reset.stop(ON, false, "done", ok);
+        end(&mut reset, "done");
         reset.interrupted();
         assert_eq!(reset.gauge.failure, Some(Failure::Interrupted));
     }
@@ -526,14 +673,14 @@ mod tests {
     fn times_out_only_the_current_step() {
         let mut reset = Reset::default();
         at(&mut reset, 80);
-        reset.stop(ON, false, "done", ok);
+        end(&mut reset, "done");
         let asked = reset.step();
-        reset.stop(ON, false, "handoff", ok);
+        end(&mut reset, "handoff");
         assert!(!reset.timeout(asked));
         assert_eq!(reset.gauge.phase, Phase::Clearing);
         assert!(reset.timeout(reset.step()));
         assert_eq!(reset.gauge.failure, Some(Failure::Timeout));
-        assert_eq!(reset.session_start("clear"), None, "too late");
+        assert_eq!(reset.session_start("clear"), None, "/clear never typed");
     }
 
     #[test]
@@ -544,28 +691,40 @@ mod tests {
         };
         let mut reset = Reset::default();
         at(&mut reset, 99);
-        assert_eq!(reset.stop(off, false, "done", ok), Next::Nothing);
+        assert_eq!(reset.stop(off, false, false, "done", ok), Next::Nothing);
         assert_eq!(reset.gauge.phase, Phase::Idle);
 
         assert!(reset.request(true), "idle: typed at once");
         assert_eq!(reset.gauge.phase, Phase::Handoff);
         assert!(!reset.request(true), "already running");
+        reset.write_failed(reset.step());
+        assert_eq!(reset.gauge.failure, Some(Failure::WriteFailed));
 
         let mut reset = Reset::default();
         assert!(!reset.request(false));
         assert_eq!(reset.gauge.phase, Phase::Queued);
         assert_eq!(
-            reset.stop(off, true, "done", ok),
+            reset.stop(off, true, false, "done", ok),
             Next::Nothing,
             "background work"
         );
-        assert_eq!(reset.stop(off, false, "done", ok), Next::AskHandoff);
+        assert_eq!(reset.stop(off, false, false, "done", ok), Next::AskHandoff);
 
         let mut reset = Reset::default();
         reset.request(false);
         reset.typed();
-        assert_eq!(reset.stop(off, false, "done", ok), Next::Nothing);
+        assert_eq!(reset.stop(off, false, false, "done", ok), Next::Nothing);
         assert_eq!(reset.gauge.failure, Some(Failure::Typed));
+    }
+
+    #[test]
+    fn the_button_never_types_over_a_draft() {
+        let mut reset = Reset::default();
+        reset.typed();
+        assert!(!reset.request(true), "a draft in the prompt");
+        assert_eq!(reset.gauge.phase, Phase::Queued);
+        reset.prompt_submitted();
+        assert_eq!(end(&mut reset, "done"), Next::AskHandoff, "after your turn");
     }
 
     #[test]
