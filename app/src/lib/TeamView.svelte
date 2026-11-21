@@ -12,7 +12,7 @@
   import { currentProject } from "$lib/files.svelte";
   import { library, showLibrary, type Item, type Layer } from "$lib/library.svelte";
   import { projectsOf } from "$lib/nav-logic";
-  import { shown } from "$lib/project.svelte";
+  import { sessionProjects } from "$lib/project.svelte";
   import { app, shortPath, ui, type Gauge } from "$lib/state.svelte";
   import { access, initials } from "$lib/team-logic";
   import { team } from "$lib/team.svelte";
@@ -38,7 +38,12 @@
   const visible = $derived(ui.view === "team");
 
   // A session in a tile is listed once, as its tile; a headless one only while its process lives.
-  const sessions = $derived(app.sessions.filter((s) => s.running && s.agent !== null && shown(s)));
+  // The current project's own, whatever the Terminals view shows (its "every project" toggle).
+  const sessions = $derived(
+    app.sessions.filter(
+      (s) => s.running && s.agent !== null && (app.project === null || sessionProjects(s).includes(app.project)),
+    ),
+  );
   const headless = $derived(
     agents.filter(
       (a) =>

@@ -649,7 +649,6 @@ const fr = {
   deliverAgain: "Nouvel aperçu",
   delivered: "Livré : la PR est ouverte.",
   deliveredAgain: "Livré : la PR est mise à jour.",
-  providerGithub: "GitHub",
   statusRenamed: "Renommé",
   closeConfirm: "Fermer ce run ? Sa session s'arrête et son worktree est retiré.",
   closeRun: "Fermer",
@@ -723,6 +722,33 @@ const fr = {
   ticketsJiraKeyPlaceholder: "ACME",
   ticketsSourceFailed: "{source} n'a pas pu être lu : {error}",
   ticketsMcpSource: "MCP {name}",
+  ticketsUiAssignees: "assigné à {names}",
+  ticketsUiNoSource: "Aucune source de tickets pour {project}",
+  ticketsUiNoSourceHelp: "Ajoute GitHub Issues, GitHub Projects, Jira ou une source MCP dans la section Tickets du projet.",
+  ticketsUiOpenLink: "Ouvrir dans le navigateur",
+  ticketsUiResume: "Reprendre",
+  ticketsUiResumed: "Session reprise.",
+  ticketsUiReady: "Prêt à nettoyer",
+  ticketsUiMergedTitle: "PR mergée : prêt à nettoyer",
+  ticketsUiClosedTitle: "PR fermée sans merge : prêt à nettoyer",
+  ticketsUiCleanHelp:
+    "Nettoyer arrête la session, retire le worktree et la branche locale. Refusé s'il reste du travail non commité ou non poussé.",
+  ticketsUiClean: "Nettoyer",
+  ticketsUiCleanUncommitted:
+    "Nettoyage refusé : le worktree a des changements non commités. Livre-les d'abord, ou ferme de force.",
+  ticketsUiCleanUnpushed: "Nettoyage refusé : des commits ne sont pas poussés. Livre-les d'abord, ou ferme de force.",
+  ticketsUiCleaned: "Run nettoyé : sa session est arrêtée, son worktree et sa branche locale retirés.",
+  ticketsUiNotifyMerged: "PR mergée · {key}",
+  ticketsUiNotifyClosed: "PR fermée · {key}",
+  ticketsUiNotifyReady: "{title} : prêt à nettoyer dans Tickets.",
+  ticketsUiNotifyCleaned: "{title} : run nettoyé, worktree retiré.",
+  ticketsUiNotifyFailed: "{title} : nettoyage impossible. {error}",
+  ticketsUiTrust:
+    "La session ne démarre pas : Claude Code demande sans doute s'il peut faire confiance à ce dossier. Ouvre la tuile et choisis Yes.",
+  ticketsUiEventResumed: "Session Claude Code reprise",
+  ticketsUiEventMerged: "PR mergée",
+  ticketsUiEventPrClosed: "PR fermée sans merge",
+  ticketsUiEventMoved: "Ticket passé à {to}",
   schedulerShow: "Afficher le planificateur",
   schedulerView: "Planificateur",
   schedulerTabTasks: "Tâches",
@@ -1313,6 +1339,8 @@ const fr = {
   navWorking: "Au travail : {count}",
   navWaiting: "En attente : {count}",
   navFailed: "En erreur : {count}",
+  // UX pass 2 · T3: terminals.
+  terminalsShown: "Sessions affichées",
 };
 
 type Key = keyof typeof fr;
@@ -1960,7 +1988,6 @@ const en: Record<Key, string> = {
   deliverAgain: "New preview",
   delivered: "Delivered: the pull request is open.",
   deliveredAgain: "Delivered: the pull request is updated.",
-  providerGithub: "GitHub",
   statusRenamed: "Renamed",
   closeConfirm: "Close this run? Its session stops and its worktree is removed.",
   closeRun: "Close",
@@ -2033,6 +2060,33 @@ const en: Record<Key, string> = {
   ticketsJiraKeyPlaceholder: "ACME",
   ticketsSourceFailed: "Could not read {source}: {error}",
   ticketsMcpSource: "MCP {name}",
+  ticketsUiAssignees: "assigned to {names}",
+  ticketsUiNoSource: "No ticket source for {project}",
+  ticketsUiNoSourceHelp: "Add GitHub Issues, GitHub Projects, Jira or an MCP source in the project's Tickets section.",
+  ticketsUiOpenLink: "Open in the browser",
+  ticketsUiResume: "Resume",
+  ticketsUiResumed: "Session resumed.",
+  ticketsUiReady: "Ready to clean up",
+  ticketsUiMergedTitle: "Pull request merged: ready to clean up",
+  ticketsUiClosedTitle: "Pull request closed without merging: ready to clean up",
+  ticketsUiCleanHelp:
+    "Cleaning up stops the session and removes the worktree and the local branch. Refused while some work is not committed or not pushed.",
+  ticketsUiClean: "Clean up",
+  ticketsUiCleanUncommitted:
+    "Clean-up refused: the worktree has uncommitted changes. Deliver them first, or close by force.",
+  ticketsUiCleanUnpushed: "Clean-up refused: some commits are not pushed. Deliver them first, or close by force.",
+  ticketsUiCleaned: "Run cleaned up: its session is stopped, its worktree and local branch removed.",
+  ticketsUiNotifyMerged: "Pull request merged · {key}",
+  ticketsUiNotifyClosed: "Pull request closed · {key}",
+  ticketsUiNotifyReady: "{title}: ready to clean up in Tickets.",
+  ticketsUiNotifyCleaned: "{title}: run cleaned up, worktree removed.",
+  ticketsUiNotifyFailed: "{title}: could not clean up. {error}",
+  ticketsUiTrust:
+    "The session is not starting: Claude Code is probably asking whether it may trust this folder. Open the tile and choose Yes.",
+  ticketsUiEventResumed: "Claude Code session resumed",
+  ticketsUiEventMerged: "Pull request merged",
+  ticketsUiEventPrClosed: "Pull request closed without merging",
+  ticketsUiEventMoved: "Ticket moved to {to}",
   schedulerShow: "Show the scheduler",
   schedulerView: "Scheduler",
   schedulerTabTasks: "Tasks",
@@ -2619,6 +2673,8 @@ const en: Record<Key, string> = {
   navWorking: "Working: {count}",
   navWaiting: "Waiting: {count}",
   navFailed: "Failed: {count}",
+  // UX pass 2 · T3: terminals.
+  terminalsShown: "Sessions shown",
 };
 
 const messages = { fr, en };
