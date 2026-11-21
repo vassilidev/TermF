@@ -14,6 +14,7 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
 mod ssh;
 mod sync;
+mod tickets;
 
 const USAGE: &str = "\
 usage:
@@ -52,6 +53,16 @@ usage:
   termf sync recover                    set a new password with the recovery key
   termf sync scopes <list>              choose what syncs: config, projects, conventions
   termf sync disable                    stop syncing on this machine
+  termf run <ticket> [--project <id>] [--repo <name>]
+                                        work on a ticket (URL, owner/repo#42, repo#42, #42) in a new
+                                        worktree, with a Claude Code session
+  termf runs [<run>]                    list runs, or show one run and its events
+  termf inbox [--project <id>]          open GitHub issues assigned to you
+  termf deliver <run> [--yes]           show what the run would send, then (once you agree, or with
+                                        --yes) commit it, push and open the pull request
+  termf close <run> [--force]           remove the run's worktree (--force drops work not pushed)
+  termf guard                           refuse pushes and tracker writes in a run's session
+                                        (Claude Code PreToolUse hook, JSON on stdin)
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -67,6 +78,9 @@ fn main() -> ExitCode {
     if let ["hook", event] = args.as_slice() {
         hook(event);
         return ExitCode::SUCCESS;
+    }
+    if let ["guard"] = args.as_slice() {
+        return tickets::guard();
     }
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
@@ -130,6 +144,10 @@ fn run(args: &[&str]) -> Result<()> {
         ["config", rest @ ..] => config(rest.to_vec())?,
         ["ssh", rest @ ..] => ssh::run(rest)?,
         ["sync", rest @ ..] => sync::run(rest)?,
+        [
+            command @ ("run" | "runs" | "inbox" | "deliver" | "close"),
+            rest @ ..,
+        ] => tickets::run(command, rest.to_vec())?,
         ["-h" | "--help" | "help"] => println!("{USAGE}"),
         _ => bail!(USAGE),
     }

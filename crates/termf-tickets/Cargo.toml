@@ -1,0 +1,15 @@
+[package]
+name = "termf-tickets"
+description = "Tickets: trackers (GitHub Issues), the runs that work on them (SQLite, worktrees) and their pull requests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+termf-core = { path = "../termf-core" }
+termf-ssh = { path = "../termf-ssh" }
+toml = "1.2.2"

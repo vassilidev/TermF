@@ -69,6 +69,32 @@ pub struct Settings {
     pub editor: Option<String>,
     pub keep_awake: KeepAwake,
     pub keep_display_on: bool,
+    pub tickets: TicketSettings,
+}
+
+/// `[tickets]` in `termf.toml`.
+#[derive(Deserialize, Default, Debug)]
+pub struct TicketSettings {
+    /// The `[agents]` entry a ticket's session runs; without it, the one named `claude`.
+    pub agent: Option<String>,
+}
+
+impl Settings {
+    /// The agent a ticket's session runs: `[tickets] agent`, else the `[agents]` entry named `claude`, and
+    /// never a guess. It must run Claude Code, which takes the ticket's task as its first message.
+    pub fn ticket_agent(&self) -> Result<String> {
+        let name = self.tickets.agent.as_deref().unwrap_or("claude");
+        let command = self.agents.get(name).with_context(|| {
+            format!(
+                "no agent {name} in termf.toml [agents]: add it, or name the agent of tickets with [tickets] agent = \"<name>\""
+            )
+        })?;
+        ensure!(
+            claude::is_claude(command),
+            "the agent {name} does not run Claude Code, which ticket runs need"
+        );
+        Ok(name.to_owned())
+    }
 }
 
 // Must stay in sync with DEFAULT_SETTINGS (checked by a test); parsing it here would recurse through serde(default).
@@ -82,6 +108,7 @@ impl Default for Settings {
             editor: None,
             keep_awake: KeepAwake::Auto,
             keep_display_on: false,
+            tickets: TicketSettings::default(),
         }
     }
 }
@@ -536,6 +563,25 @@ mod tests {
         let settings = load_settings(&dir).unwrap();
         assert_eq!(settings.keep_awake, KeepAwake::Off);
         assert!(!settings.keep_display_on);
+    }
+
+    #[test]
+    fn picks_the_agent_of_tickets() {
+        let settings = |text: &str| toml::from_str::<Settings>(text).unwrap();
+        assert_eq!(settings("").ticket_agent().unwrap(), "claude");
+        let chosen = "[agents]\nclaude = \"claude\"\nopus = \"claude --model opus\"\n[tickets]\nagent = \"opus\"\n";
+        assert_eq!(settings(chosen).ticket_agent().unwrap(), "opus");
+        for (text, error) in [
+            (
+                "[agents]\nsonnet = \"claude --model sonnet\"\n",
+                "no agent claude",
+            ),
+            ("[agents]\nclaude = \"codex\"\n", "does not run Claude Code"),
+            ("[tickets]\nagent = \"nope\"\n", "no agent nope"),
+        ] {
+            let found = settings(text).ticket_agent().unwrap_err().to_string();
+            assert!(found.contains(error), "{text}: {found}");
+        }
     }
 
     #[test]

@@ -6,6 +6,7 @@ mod library;
 mod quick_terminal;
 mod ssh;
 mod sync;
+mod tickets;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -101,6 +102,7 @@ fn pty_spawn(
         cols,
         rows,
         remote_control,
+        None,
     )
     .map_err(err)?;
     state.keep_awake.update(&app);
@@ -167,6 +169,7 @@ fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config_dir = termf_core::default_config_dir().expect("cannot locate the config directory");
+    let data_dir = termf_core::default_data_dir().expect("cannot locate the data directory");
     tauri::Builder::default()
         // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -184,6 +187,7 @@ pub fn run() {
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new();
+            app.manage(tickets::TicketsState::new(config_dir.clone(), data_dir));
             app.manage(AppState {
                 config_dir,
                 sessions: api.sessions(app.handle().clone()),
@@ -277,6 +281,14 @@ pub fn run() {
             sync::sync_change_password,
             sync::sync_scopes,
             sync::sync_disable,
+            tickets::tickets_inbox,
+            tickets::tickets_resolve,
+            tickets::tickets_run,
+            tickets::tickets_runs,
+            tickets::tickets_events,
+            tickets::tickets_deliver_preview,
+            tickets::tickets_deliver,
+            tickets::tickets_close,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Stream, prelude::*};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
@@ -15,7 +15,7 @@ use termf_core::claude;
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
-use crate::AppState;
+use crate::{AppState, tickets};
 
 struct Meta {
     title: String,
@@ -244,8 +244,16 @@ fn random_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// What a ticket run adds to its Claude Code session: the project whose library applies, and the file that
+/// holds its task.
+pub struct RunSession<'a> {
+    pub project: &'a str,
+    pub brief: &'a Path,
+}
+
 /// Starts a session. A Claude Code agent gets an ephemeral plugin whose hooks report its status,
 /// and Remote Control when asked; other agents and shells get neither.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(
     state: &AppState,
     agent: Option<&str>,
@@ -254,6 +262,7 @@ pub fn spawn(
     cols: u16,
     rows: u16,
     remote_control: bool,
+    run: Option<RunSession>,
 ) -> Result<SessionSummary> {
     let command = match agent {
         Some(name) => {
@@ -272,6 +281,10 @@ pub fn spawn(
     };
     // Status needs the local API and the CLI the hooks run.
     let hooks = sessions_dir.as_ref().and_then(|_| termf_binary());
+    ensure!(
+        run.is_none() || hooks.is_some(),
+        "a ticket run needs its guard hook, which this session cannot get"
+    );
 
     let cwd_text = cwd.to_string_lossy().into_owned();
     let mut new_id = None;
@@ -292,9 +305,9 @@ pub fn spawn(
         if let Some(dir) = &dir {
             let plugin = dir.join("plugin");
             if let Some(termf) = &hooks {
-                claude::write_plugin(&plugin, termf)?;
+                claude::write_plugin(&plugin, termf, run.is_some())?;
             }
-            let prompt = library(state, &cwd, dir);
+            let prompt = library(state, &cwd, dir, run.as_ref().map(|r| r.project));
             if plugin.is_dir() {
                 extra.push(format!(
                     "--plugin-dir {}",
@@ -310,6 +323,22 @@ pub fn spawn(
         }
         if remote_control {
             extra.push(format!("--remote-control {}", shell_quote(&title)));
+        }
+        if let Some(run) = &run {
+            // Before the variadic options, which would take it as one of their values.
+            extra.push(shell_quote(&termf_tickets::kickoff(run.brief)));
+            if let Some(folder) = run.brief.parent() {
+                extra.push(format!(
+                    "--add-dir {}",
+                    shell_quote(&folder.to_string_lossy())
+                ));
+            }
+            // Defense in depth with the `termf guard` hook, not a guarantee: TermF pushes once the user
+            // delivers the run.
+            extra.push(format!(
+                "--disallowedTools {}",
+                shell_quote("Bash(git push:*)")
+            ));
         }
         let command = command.as_deref().map(|c| {
             if extra.is_empty() {
@@ -346,8 +375,8 @@ pub fn spawn(
 
 /// Writes the repository's library into the session folder and returns the system prompt file, if any.
 /// A library that cannot be read never keeps the agent from starting.
-fn library(state: &AppState, cwd: &Path, dir: &Path) -> Option<PathBuf> {
-    termf_library::Scope::new(&state.config_dir, Some(cwd), None)
+fn library(state: &AppState, cwd: &Path, dir: &Path, project: Option<&str>) -> Option<PathBuf> {
+    termf_library::Scope::new(&state.config_dir, Some(cwd), project.map(str::to_owned))
         .and_then(|scope| termf_library::materialize(&state.config_dir, &scope, dir))
         .unwrap_or_else(|e| {
             eprintln!("termf: library not loaded: {e:#}");
@@ -360,6 +389,26 @@ pub fn termf_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let path = exe.with_file_name(format!("termf{}", std::env::consts::EXE_SUFFIX));
     path.is_file().then_some(path)
+}
+
+/// Checked before a ticket run creates anything: its ticket is untrusted, so its session never starts without
+/// the `termf guard` hook, which needs the local API and the CLI.
+pub fn run_guard(state: &AppState) -> Result<()> {
+    let api = &state.api;
+    guard_ready(api.endpoint.is_some(), api.error.as_deref(), termf_binary())
+}
+
+fn guard_ready(api_on: bool, api_error: Option<&str>, termf: Option<PathBuf>) -> Result<()> {
+    ensure!(
+        api_on,
+        "a ticket run needs TermF's local API, whose hooks keep its agent from pushing: {}",
+        api_error.unwrap_or("it is off")
+    );
+    ensure!(
+        termf.is_some(),
+        "a ticket run needs the termf CLI next to TermF (`pnpm bundle`, or `cargo build -p termf-cli` in development): its hook keeps the agent from pushing"
+    );
+    Ok(())
 }
 
 /// Answers the CLI and the hooks, one thread per connection.
@@ -434,7 +483,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             }
             let name = cwd.file_name().unwrap_or(cwd.as_os_str()).to_string_lossy();
             let title = format!("{name} · {}", agent.as_deref().unwrap_or("shell"));
-            let session = spawn(state, agent.as_deref(), cwd, title, 120, 32, false)?;
+            let session = spawn(state, agent.as_deref(), cwd, title, 120, 32, false, None)?;
             state.keep_awake.update(app);
             app.emit("session-opened", &session)?;
             serde_json::to_value(session)?
@@ -456,6 +505,38 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             state.api.hook(app, session, &event, &payload);
             Value::Null
         }
+        Call::Run {
+            ticket,
+            project,
+            repo,
+        } => {
+            let run = tickets::start(app, &ticket, project.as_deref(), repo.as_deref(), 120, 32)?;
+            serde_json::to_value(run)?
+        }
+        Call::Deliver { run, confirm } => {
+            serde_json::to_value(tickets::deliver(app, run, &confirm)?)?
+        }
+        Call::Close { run, force } => serde_json::to_value(tickets::close(app, run, force)?)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_needs_its_guard() {
+        let termf = || Some(PathBuf::from("/opt/termf"));
+        assert!(guard_ready(true, None, termf()).is_ok());
+        let no_cli = guard_ready(true, None, None).unwrap_err().to_string();
+        assert!(no_cli.contains("needs the termf CLI"), "{no_cli}");
+        let no_api = guard_ready(false, Some("cannot listen"), termf())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            no_api.contains("local API") && no_api.contains("cannot listen"),
+            "{no_api}"
+        );
+    }
 }
