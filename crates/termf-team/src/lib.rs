@@ -1415,7 +1415,14 @@ impl Inner {
                 self.done(store, run, i, &message);
             }
             StepKind::Shell => {
-                let Some(command) = self.command(run, i)? else {
+                let command = match self.command(run, i) {
+                    Ok(command) => command,
+                    Err(e) => {
+                        self.block(store, run, i, &format!("{e:#}"));
+                        return Ok(true);
+                    }
+                };
+                let Some(command) = command else {
                     self.skip(
                         store,
                         run,

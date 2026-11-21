@@ -46,6 +46,8 @@ impl Git<'_> {
             std::fs::create_dir_all(parent)?;
         }
         let path = path.to_string_lossy();
+        // A task's folder removed by hand stays registered until pruned, and `add` would refuse its path.
+        let _ = self.run(main, &["worktree", "prune"]);
         self.run(main, &["worktree", "add", "-q", "--detach", &path, &base])?;
         Ok(base)
     }
