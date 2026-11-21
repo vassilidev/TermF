@@ -710,6 +710,30 @@ fn maps_keys_to_hosts_and_repositories() {
 }
 
 #[test]
+fn lists_a_repository_key_once_in_order() {
+    let ssh = scratch("repo-keys-once");
+    fs::write(
+        ssh.config(),
+        "Host gh-a\n  IdentityFile ~/.ssh/work\n  IdentityFile ~/.ssh/perso\n\nHost gh-b\n  IdentityFile ~/.ssh/work\n",
+    )
+    .unwrap();
+    let repo = ssh.home.join("src").join("r");
+    git_repo(
+        &repo,
+        &[
+            ("origin", "git@gh-a:x/r.git"),
+            ("upstream", "git@gh-b:x/r.git"),
+        ],
+    );
+    let inventory = ssh.collect(&[repo], Agent::default());
+    let key = |name: &str| ssh.dir.join(name).to_string_lossy().into_owned();
+    assert_eq!(
+        inventory.repos[0].identity_files,
+        [key("work"), key("perso")]
+    );
+}
+
+#[test]
 fn rotates_a_key_and_keeps_the_old_one() {
     let ssh = scratch("rotate");
     let old = ssh.generate("old", KeyType::Ed25519, "old", None).unwrap();
