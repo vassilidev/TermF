@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { files } from "$lib/files.svelte";
+import { ui } from "$lib/state.svelte";
 import { t } from "$lib/i18n";
 
 export { outcome } from "$lib/ci-logic";
@@ -66,9 +66,7 @@ export type CiNotify = "mine" | "all" | "off";
 export const ci = $state({
   /** Loaded once first shown, then kept mounted, like the Library view. */
   loaded: false,
-  /** A project id, or "" for every repository. */
-  scope: "",
-  /** The repository's path. */
+  /** The repository's path, one of the current project's. */
   repo: "",
   branch: "",
   status: "",
@@ -79,7 +77,7 @@ export const ci = $state({
 });
 
 export function showCi() {
-  files.view = "ci";
+  ui.view = "ci";
   ci.loaded = true;
 }
 

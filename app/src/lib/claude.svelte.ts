@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { files } from "$lib/files.svelte";
+import { ui } from "$lib/state.svelte";
 import { t } from "$lib/i18n";
 
 export type Scope = "user" | "project" | "local" | "managed";
@@ -109,7 +109,7 @@ export const claudeView = $state({
 });
 
 export function showClaude(tab?: "config" | "artifacts") {
-  files.view = "claude";
+  ui.view = "claude";
   claudeView.loaded = true;
   if (tab) claudeView.tab = tab;
   if (!claudeView.overview && !claudeView.loading) loadOverview();

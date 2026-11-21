@@ -12,9 +12,8 @@
   import { listen } from "@tauri-apps/api/event";
   import Terminal, { fontReady } from "$lib/Terminal.svelte";
   import { t } from "$lib/i18n";
-  import { files } from "$lib/files.svelte";
   import { keys } from "$lib/commands";
-  import { app } from "$lib/state.svelte";
+  import { app, ui } from "$lib/state.svelte";
 
   let open = $state(false);
   let id = $state<number | null>(null);
@@ -33,7 +32,7 @@
       previousFocus = document.activeElement as HTMLElement | null;
     }
     // The panel lives in the terminals pane.
-    files.view = "terminals";
+    ui.view = "terminals";
     try {
       id = await invoke<number>("quick_terminal", { cwd: contextCwd(), cols: 120, rows: 16 });
     } catch (e) {
@@ -51,7 +50,7 @@
     previousFocus?.focus();
   }
 
-  const visible = () => open && files.view === "terminals";
+  const visible = () => open && ui.view === "terminals";
   toggle = () => (visible() ? hide() : show());
 
   // In-app only, so Ctrl+` stays free for other apps (VS Code…) while TermF is in the background.

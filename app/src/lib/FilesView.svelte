@@ -3,20 +3,22 @@
   import FileFinder from "$lib/FileFinder.svelte";
   import FileSearch from "$lib/FileSearch.svelte";
   import FileTree from "$lib/FileTree.svelte";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import X from "@lucide/svelte/icons/x";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t } from "$lib/i18n";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { app } from "$lib/state.svelte";
+  import { app, ui } from "$lib/state.svelte";
   import {
     activate,
     ask,
     closeTab,
+    currentProject,
     files,
     isMac,
     refreshStatus,
+    scopeRepo,
     sync,
     tabKey,
   } from "$lib/files.svelte";
@@ -29,10 +31,17 @@
   onMount(() => {
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
       if (!unsaved()) return;
-      files.view = "files";
+      ui.view = "files";
       if (!(await ask(t("filesUnsavedClose")))) event.preventDefault();
     });
     return () => void unlisten.then((stop) => stop());
+  });
+
+  const project = $derived(currentProject());
+
+  $effect(() => {
+    void app.project;
+    untrack(scopeRepo);
   });
 
   $effect(() => {
@@ -58,7 +67,7 @@
 
   // Only while this view is shown: Ctrl+P belongs to the shell in a terminal.
   function onkeydown(e: KeyboardEvent) {
-    if (files.view !== "files" || !(isMac ? e.metaKey : e.ctrlKey) || !files.repo) return;
+    if (ui.view !== "files" || !(isMac ? e.metaKey : e.ctrlKey) || !files.repo) return;
     const key = e.key.toLowerCase();
     if (key === "p" && !e.shiftKey) {
       e.preventDefault();
@@ -75,7 +84,7 @@
 <svelte:window {onkeydown} onbeforeunload={(e) => unsaved() && e.preventDefault()} />
 
 <div class="files">
-  <ViewHeader title={t("viewFiles")} />
+  <ViewHeader title={t("viewFiles")} context={project?.name ?? t("ticketsAll")} />
   <div class="body">
     <aside class="side">
       <div class="bar">
@@ -83,18 +92,24 @@
           {#if !files.repo}
             <option value="">{t("noRepos")}</option>
           {/if}
-          {#each app.workspace?.projects ?? [] as project (project.id)}
-            <optgroup label={project.name}>
-              {#each project.repos as repo (repo.path)}
+          {#if project}
+            {#each project.repos as repo (repo.path)}
+              <option value={repo.path}>{repo.name}</option>
+            {/each}
+          {:else}
+            {#each app.workspace?.projects ?? [] as project (project.id)}
+              <optgroup label={project.name}>
+                {#each project.repos as repo (repo.path)}
+                  <option value={repo.path}>{repo.name}</option>
+                {/each}
+              </optgroup>
+            {/each}
+            <optgroup label={t("repos")}>
+              {#each app.workspace?.repos ?? [] as repo (repo.path)}
                 <option value={repo.path}>{repo.name}</option>
               {/each}
             </optgroup>
-          {/each}
-          <optgroup label={t("repos")}>
-            {#each app.workspace?.repos ?? [] as repo (repo.path)}
-              <option value={repo.path}>{repo.name}</option>
-            {/each}
-          </optgroup>
+          {/if}
         </select>
         <button class="icon-btn" onclick={refresh} aria-label={t("filesRefresh")} title={t("filesRefresh")}>
           <RefreshCw size={14} aria-hidden="true" />

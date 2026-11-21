@@ -1,79 +1,59 @@
 <script lang="ts">
   import "../app.css";
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import AppNav from "$lib/AppNav.svelte";
   import CommandPalette from "$lib/CommandPalette.svelte";
-  import SessionGrid from "$lib/SessionGrid.svelte";
-  import Sidebar from "$lib/Sidebar.svelte";
-  import TopBar from "$lib/TopBar.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import { onShortcut } from "$lib/commands";
-  import { lang } from "$lib/i18n";
+  import { lang, t } from "$lib/i18n";
   import { app, init, ui } from "$lib/state.svelte";
-  import { files } from "$lib/files.svelte";
-  import { library } from "$lib/library.svelte";
-  import { ssh } from "$lib/ssh.svelte";
-  import { tickets } from "$lib/tickets.svelte";
-  import { ci, watchCi } from "$lib/ci.svelte";
-  import { schedule, watchSchedule } from "$lib/schedule.svelte";
-  import { claudeView } from "$lib/claude.svelte";
+  import { watchCi } from "$lib/ci.svelte";
+  import { watchSchedule } from "$lib/schedule.svelte";
+  import { loadRuns, upsert, type Run } from "$lib/tickets.svelte";
+  import { views } from "$lib/views";
 
   onMount(() => {
     document.documentElement.lang = lang;
     const stop = init();
     const stopCi = watchCi();
     const stopSchedule = watchSchedule();
-    return () => (stop(), stopCi(), stopSchedule());
+    // The runs tell which project a ticket's session belongs to.
+    loadRuns();
+    const unlistenRuns = listen<Run>("run-updated", ({ payload }) => upsert(payload));
+    return () => (stop(), stopCi(), stopSchedule(), unlistenRuns.then((off) => off()));
   });
 </script>
 
 <svelte:window onkeydowncapture={onShortcut} />
 
 <div class="app">
-  <TopBar />
-  <Sidebar />
+  <AppNav />
   <div class="main">
-    {#if app.error}
+    {#if app.error || app.workspace?.apiError || app.workspace?.quickTerminalError || app.workspace?.scanTruncated}
       <div class="banners">
-        <Banner kind="error" ondismiss={() => (app.error = "")}>{app.error}</Banner>
+        {#if app.error}
+          <Banner kind="error" ondismiss={() => (app.error = "")}>{app.error}</Banner>
+        {/if}
+        {#if app.workspace?.apiError}
+          <Banner><span title={app.workspace.apiError}>{t("apiOff")}</span></Banner>
+        {/if}
+        {#if app.workspace?.quickTerminalError}
+          <Banner>{t("shortcutError", { error: app.workspace.quickTerminalError })}</Banner>
+        {/if}
+        {#if app.workspace?.scanTruncated}
+          <Banner>{t("truncated")}</Banner>
+        {/if}
       </div>
     {/if}
-    <!-- Hidden, not unmounted: terminals keep running and keep their scrollback. -->
-    <div class="pane" hidden={files.view !== "terminals"}><SessionGrid /></div>
-    {#if files.loaded}
-      {#await import("$lib/FilesView.svelte") then { default: FilesView }}
-        <div class="pane" hidden={files.view !== "files"}><FilesView /></div>
-      {/await}
-    {/if}
-    {#if library.loaded}
-      {#await import("$lib/LibraryView.svelte") then { default: LibraryView }}
-        <div class="pane" hidden={files.view !== "library"}><LibraryView /></div>
-      {/await}
-    {/if}
-    {#if ssh.loaded}
-      {#await import("$lib/SshView.svelte") then { default: SshView }}
-        <div class="pane" hidden={files.view !== "ssh"}><SshView /></div>
-      {/await}
-    {/if}
-    {#if tickets.loaded}
-      {#await import("$lib/TicketsView.svelte") then { default: TicketsView }}
-        <div class="pane" hidden={files.view !== "tickets"}><TicketsView /></div>
-      {/await}
-    {/if}
-    {#if ci.loaded}
-      {#await import("$lib/CiView.svelte") then { default: CiView }}
-        <div class="pane" hidden={files.view !== "ci"}><CiView /></div>
-      {/await}
-    {/if}
-    {#if schedule.loaded}
-      {#await import("$lib/SchedulerView.svelte") then { default: SchedulerView }}
-        <div class="pane" hidden={files.view !== "scheduler"}><SchedulerView /></div>
-      {/await}
-    {/if}
-    {#if claudeView.loaded}
-      {#await import("$lib/ClaudeView.svelte") then { default: ClaudeView }}
-        <div class="pane" hidden={files.view !== "claude"}><ClaudeView /></div>
-      {/await}
-    {/if}
+    {#each views as view (view.id)}
+      {#if view.loaded()}
+        {#await view.load() then { default: View }}
+          <!-- Hidden, not unmounted: terminals keep running and keep their scrollback. -->
+          <div class="pane" hidden={ui.view !== view.id}><View /></div>
+        {/await}
+      {/if}
+    {/each}
   </div>
 </div>
 
@@ -84,15 +64,11 @@
 <style>
   .app {
     display: grid;
-    grid-template:
-      "top top" auto
-      "side main" minmax(0, 1fr)
-      / 264px minmax(0, 1fr);
+    grid-template: minmax(0, 1fr) / var(--nav-width) minmax(0, 1fr);
     height: 100vh;
   }
 
   .main {
-    grid-area: main;
     display: flex;
     flex-direction: column;
     min-width: 0;

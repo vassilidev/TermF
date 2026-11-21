@@ -18,8 +18,8 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
-  import { allRepos, files } from "$lib/files.svelte";
-  import { app } from "$lib/state.svelte";
+  import { currentProject, scopeRepos } from "$lib/files.svelte";
+  import { ui } from "$lib/state.svelte";
   import {
     ci,
     duration,
@@ -69,13 +69,11 @@
     error: string;
   } | null>(null);
 
-  const projects = $derived(app.workspace?.projects ?? []);
-  const repos = $derived(ci.scope ? (projects.find((p) => p.id === ci.scope)?.repos ?? []) : allRepos());
+  const repos = $derived(scopeRepos());
   const current = $derived(runs?.find((r) => r.id === selected) ?? runs?.[0]);
 
-  // A deleted project falls back to every repository; a repository out of the scope, to its first one.
+  // A repository out of the current project falls back to the project's first one.
   $effect(() => {
-    if (ci.scope && app.workspace && !projects.some((p) => p.id === ci.scope)) ci.scope = "";
     if (!repos.some((r) => r.path === ci.repo)) ci.repo = repos[0]?.path ?? "";
   });
 
@@ -96,7 +94,7 @@
 
   // While the view is on screen: a look every 30 s, cheap since GitHub answers "unchanged" (ETag).
   $effect(() => {
-    if (files.view !== "ci") return;
+    if (ui.view !== "ci") return;
     const timer = setInterval(() => document.visibilityState === "visible" && refresh(), 30_000);
     return () => clearInterval(timer);
   });
@@ -270,18 +268,7 @@
 </script>
 
 <div class="ci">
-  <ViewHeader title={t("viewCi")}>
-    <label class="labelled inline">
-      <span>{t("libraryScope")}</span>
-      <select class="field" bind:value={ci.scope}>
-        <option value="">{t("ciAllRepos")}</option>
-        {#if projects.length}
-          <optgroup label={t("projects")}>
-            {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
-          </optgroup>
-        {/if}
-      </select>
-    </label>
+  <ViewHeader title={t("viewCi")} context={currentProject()?.name ?? t("ticketsAll")}>
     <label class="labelled inline">
       <span>{t("ciRepo")}</span>
       <select class="field" bind:value={ci.repo} disabled={!repos.length}>
