@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Stream, prelude::*};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
@@ -281,6 +281,10 @@ pub fn spawn(
     };
     // Status needs the local API and the CLI the hooks run.
     let hooks = sessions_dir.as_ref().and_then(|_| termf_binary());
+    ensure!(
+        run.is_none() || hooks.is_some(),
+        "a ticket run needs its guard hook, which this session cannot get"
+    );
 
     let cwd_text = cwd.to_string_lossy().into_owned();
     let mut new_id = None;
@@ -385,6 +389,26 @@ pub fn termf_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let path = exe.with_file_name(format!("termf{}", std::env::consts::EXE_SUFFIX));
     path.is_file().then_some(path)
+}
+
+/// Checked before a ticket run creates anything: its ticket is untrusted, so its session never starts without
+/// the `termf guard` hook, which needs the local API and the CLI.
+pub fn run_guard(state: &AppState) -> Result<()> {
+    let api = &state.api;
+    guard_ready(api.endpoint.is_some(), api.error.as_deref(), termf_binary())
+}
+
+fn guard_ready(api_on: bool, api_error: Option<&str>, termf: Option<PathBuf>) -> Result<()> {
+    ensure!(
+        api_on,
+        "a ticket run needs TermF's local API, whose hooks keep its agent from pushing: {}",
+        api_error.unwrap_or("it is off")
+    );
+    ensure!(
+        termf.is_some(),
+        "a ticket run needs the termf CLI next to TermF (`pnpm bundle`, or `cargo build -p termf-cli` in development): its hook keeps the agent from pushing"
+    );
+    Ok(())
 }
 
 /// Answers the CLI and the hooks, one thread per connection.
@@ -495,4 +519,24 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         Call::Close { run, force } => serde_json::to_value(tickets::close(app, run, force)?)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_needs_its_guard() {
+        let termf = || Some(PathBuf::from("/opt/termf"));
+        assert!(guard_ready(true, None, termf()).is_ok());
+        let no_cli = guard_ready(true, None, None).unwrap_err().to_string();
+        assert!(no_cli.contains("needs the termf CLI"), "{no_cli}");
+        let no_api = guard_ready(false, Some("cannot listen"), termf())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            no_api.contains("local API") && no_api.contains("cannot listen"),
+            "{no_api}"
+        );
+    }
 }

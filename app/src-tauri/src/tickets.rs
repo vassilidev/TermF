@@ -56,6 +56,7 @@ pub fn start(
 ) -> Result<Run> {
     let state = app.state::<AppState>();
     let agent = termf_core::load_settings(&state.config_dir)?.ticket_agent()?;
+    api::run_guard(&state)?;
     let tickets = tickets(app);
     let launch = tickets.start(input, project, repo)?;
     let run = &launch.run;
