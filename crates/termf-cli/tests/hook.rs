@@ -1,0 +1,105 @@
+//! `termf hook` and `termf statusline` against a stand-in for TermF's socket.
+
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command, Stdio};
+use std::thread::{self, JoinHandle};
+
+use interprocess::local_socket::{GenericFilePath, ListenerOptions, prelude::*};
+use serde_json::{Value, json};
+
+/// Listens like TermF, answers one request with `reply`, and returns the request.
+fn fake_termf(name: &str, reply: Value) -> (String, JoinHandle<Value>) {
+    let socket = if cfg!(windows) {
+        format!(r"\\.\pipe\termf-test-{name}-{}", std::process::id())
+    } else {
+        std::env::temp_dir()
+            .join(format!("termf-test-{name}-{}.sock", std::process::id()))
+            .to_string_lossy()
+            .into_owned()
+    };
+    let listener = ListenerOptions::new()
+        .name(socket.as_str().to_fs_name::<GenericFilePath>().unwrap())
+        .try_overwrite(true)
+        .create_sync()
+        .unwrap();
+    let request = thread::spawn(move || {
+        let mut conn = BufReader::new(listener.incoming().next().unwrap().unwrap());
+        let mut line = String::new();
+        conn.read_line(&mut line).unwrap();
+        let answer = format!("{}\n", json!({ "ok": reply }));
+        conn.get_mut().write_all(answer.as_bytes()).unwrap();
+        serde_json::from_str(&line).unwrap()
+    });
+    (socket, request)
+}
+
+fn termf(args: &[&str], socket: &str, stdin: &str) -> String {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_termf"))
+        .args(args)
+        .env("TERMF_SOCKET", socket)
+        .env("TERMF_TOKEN", "session-token")
+        .env("TERMF_SESSION_ID", "7")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    String::from_utf8(out.stdout).unwrap()
+}
+
+#[test]
+fn prints_what_termf_answers_a_hook() {
+    let output = json!({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "write the handoff"}});
+    let (socket, request) = fake_termf("stop", output.clone());
+    let stop =
+        json!({"session_id": "abc", "hook_event_name": "Stop", "last_assistant_message": "done"});
+    let printed = termf(&["hook", "Stop"], &socket, &stop.to_string());
+    assert_eq!(
+        serde_json::from_str::<Value>(&printed).unwrap(),
+        output,
+        "{printed}"
+    );
+    assert_eq!(
+        request.join().unwrap(),
+        json!({"token": "session-token", "method": "hook", "params": {"session": 7, "event": "Stop", "payload": stop}})
+    );
+
+    let (socket, request) = fake_termf("start", Value::Null);
+    let start =
+        json!({"session_id": "abc", "hook_event_name": "SessionStart", "source": "startup"});
+    assert_eq!(
+        termf(&["hook", "SessionStart"], &socket, &start.to_string()),
+        ""
+    );
+    assert_eq!(request.join().unwrap()["params"]["event"], "SessionStart");
+}
+
+#[test]
+fn reports_the_status_line_and_prints_nothing_of_its_own() {
+    let (socket, request) = fake_termf("status", Value::Null);
+    let input = json!({"session_id": "abc", "context_window": {"used_percentage": 42}});
+    assert_eq!(termf(&["statusline"], &socket, &input.to_string()), "");
+    let request = request.join().unwrap();
+    assert_eq!(request["params"]["event"], "StatusLine");
+    assert_eq!(request["params"]["payload"], input);
+}
+
+#[cfg(unix)]
+#[test]
+fn runs_your_status_line_with_the_same_input() {
+    let (socket, request) = fake_termf("chained", Value::Null);
+    let chained = std::env::temp_dir().join(format!("termf-test-chained-{}", std::process::id()));
+    std::fs::write(&chained, "printf 'mine:'; cat").unwrap();
+    let input = r#"{"session_id":"abc"}"#;
+    let printed = termf(&["statusline", chained.to_str().unwrap()], &socket, input);
+    assert_eq!(printed, format!("mine:{input}"));
+    request.join().unwrap();
+    std::fs::remove_file(chained).unwrap();
+}

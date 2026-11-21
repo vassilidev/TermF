@@ -1,7 +1,7 @@
 //! Claude Code adapter: an ephemeral plugin per session whose hooks report the session state to TermF.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{Map, Value, json};
@@ -76,9 +76,105 @@ pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
     Ok(())
 }
 
+/// Writes the file given to `--settings`: a status line running `<termf> statusline`, which reports the
+/// context to TermF, then runs the status line you set yourself, if any, saved next to it.
+pub fn write_settings(dir: &Path, termf: &Path, cwd: &Path, claude_dir: &Path) -> Result<PathBuf> {
+    fs::create_dir_all(dir)?;
+    let mut status_line = user_status_line(cwd, claude_dir)
+        .filter(|s| s["type"] == "command" && s["command"].is_string())
+        .unwrap_or_else(|| json!({ "type": "command" }));
+    let mut command = format!("{} statusline", quote(termf));
+    if let Some(yours) = status_line["command"].as_str() {
+        let chained = dir.join("statusline");
+        fs::write(&chained, yours)?;
+        command = format!("{command} {}", quote(&chained));
+    }
+    status_line["command"] = command.into();
+    let file = dir.join("settings.json");
+    fs::write(
+        &file,
+        serde_json::to_string_pretty(&json!({ "statusLine": status_line }))?,
+    )?;
+    Ok(file)
+}
+
+/// The status line set in the repository's local settings, else its shared ones, else yours.
+fn user_status_line(cwd: &Path, claude_dir: &Path) -> Option<Value> {
+    [
+        cwd.join(".claude/settings.local.json"),
+        cwd.join(".claude/settings.json"),
+        claude_dir.join("settings.json"),
+    ]
+    .iter()
+    .find_map(|file| {
+        let settings: Value = serde_json::from_str(&fs::read_to_string(file).ok()?).ok()?;
+        settings.get("statusLine").cloned()
+    })
+}
+
+/// One word for the shell Claude Code runs a status line in: sh, or Git Bash on Windows.
+fn quote(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    if cfg!(windows) {
+        format!("\"{}\"", path.replace('\\', "/"))
+    } else {
+        format!("'{}'", path.replace('\'', r"'\''"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn sets_a_status_line_that_chains_yours() {
+        let root = std::env::temp_dir().join(format!("termf-settings-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (dir, repo, claude_dir) = (root.join("s"), root.join("repo"), root.join("home"));
+        fs::create_dir_all(repo.join(".claude")).unwrap();
+        fs::create_dir_all(&claude_dir).unwrap();
+        let termf = Path::new("/opt/Term F/termf");
+        let status_line = |file: &Path| -> Value {
+            let settings: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+            settings["statusLine"].clone()
+        };
+
+        let file = write_settings(&dir, termf, &repo, &claude_dir).unwrap();
+        assert_eq!(
+            status_line(&file),
+            json!({"type": "command", "command": "'/opt/Term F/termf' statusline"})
+        );
+        assert!(!dir.join("statusline").exists());
+
+        fs::write(
+            claude_dir.join("settings.json"),
+            r#"{"statusLine": {"type": "command", "command": "~/mine.sh", "padding": 2}}"#,
+        )
+        .unwrap();
+        fs::write(
+            repo.join(".claude/settings.json"),
+            r#"{"statusLine": {"type": "command", "command": "jq -r .model.id"}}"#,
+        )
+        .unwrap();
+        let file = write_settings(&dir, termf, &repo, &claude_dir).unwrap();
+        let chained = dir.join("statusline");
+        assert_eq!(
+            status_line(&file)["command"],
+            format!("'/opt/Term F/termf' statusline '{}'", chained.display())
+        );
+        assert_eq!(
+            fs::read_to_string(&chained).unwrap(),
+            "jq -r .model.id",
+            "the project's first"
+        );
+
+        fs::remove_file(repo.join(".claude/settings.json")).unwrap();
+        let file = write_settings(&dir, termf, &repo, &claude_dir).unwrap();
+        assert_eq!(status_line(&file)["padding"], 2, "your other fields kept");
+        assert_eq!(fs::read_to_string(&chained).unwrap(), "~/mine.sh");
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn recognizes_claude_commands() {

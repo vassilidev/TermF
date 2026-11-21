@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 
 pub mod claude;
+pub mod context;
 pub mod ipc;
 pub mod shell;
 
@@ -28,6 +29,12 @@ keep_awake = "auto"
 # Also keep the screen on, which prevents the automatic lock. Off by default: it costs energy,
 # and an unattended unlocked computer is a risk.
 keep_display_on = false
+# Claude Code sessions: once the context passes `context_reset_at` % of the model's window, at the end
+# of a turn the agent writes a handoff, TermF clears the context (/clear) and the agent resumes from
+# the handoff, with no action from you. The gauge on each session warns from `context_warning_at` %.
+context_reset = true
+context_reset_at = 70
+context_warning_at = 50
 
 # Agents available in the UI: name = command run in the repository.
 # A command that starts with `claude` also reports its status (working, waiting…) to TermF.
@@ -69,6 +76,9 @@ pub struct Settings {
     pub editor: Option<String>,
     pub keep_awake: KeepAwake,
     pub keep_display_on: bool,
+    pub context_reset: bool,
+    pub context_reset_at: u8,
+    pub context_warning_at: u8,
     pub tickets: TicketSettings,
 }
 
@@ -108,6 +118,9 @@ impl Default for Settings {
             editor: None,
             keep_awake: KeepAwake::Auto,
             keep_display_on: false,
+            context_reset: true,
+            context_reset_at: 70,
+            context_warning_at: 50,
             tickets: TicketSettings::default(),
         }
     }
@@ -189,18 +202,37 @@ pub fn load_settings(config_dir: &Path) -> Result<Settings> {
 
 /// Saves the keep-awake choice made in the UI into `termf.toml`, keeping the rest of the file and its comments.
 pub fn save_keep_awake(config_dir: &Path, mode: KeepAwake, display_on: bool) -> Result<()> {
-    load_settings(config_dir)?;
-    let file = config_dir.join("termf.toml");
-    let mut doc: DocumentMut = fs::read_to_string(&file)?
-        .parse()
-        .with_context(|| format!("invalid {}", file.display()))?;
     let mode = match mode {
         KeepAwake::Auto => "auto",
         KeepAwake::Always => "always",
         KeepAwake::Off => "off",
     };
-    doc["keep_awake"] = value(mode);
-    doc["keep_display_on"] = value(display_on);
+    edit_settings(config_dir, |doc| {
+        doc["keep_awake"] = value(mode);
+        doc["keep_display_on"] = value(display_on);
+    })
+}
+
+/// Saves the context reset settings made in the UI into `termf.toml`, like `save_keep_awake`.
+pub fn save_context_reset(config_dir: &Path, on: bool, reset_at: u8, warning_at: u8) -> Result<()> {
+    ensure!(
+        (1..=100).contains(&reset_at) && (1..=100).contains(&warning_at),
+        "thresholds go from 1 to 100 %"
+    );
+    edit_settings(config_dir, |doc| {
+        doc["context_reset"] = value(on);
+        doc["context_reset_at"] = value(i64::from(reset_at));
+        doc["context_warning_at"] = value(i64::from(warning_at));
+    })
+}
+
+fn edit_settings(config_dir: &Path, edit: impl FnOnce(&mut DocumentMut)) -> Result<()> {
+    load_settings(config_dir)?;
+    let file = config_dir.join("termf.toml");
+    let mut doc: DocumentMut = fs::read_to_string(&file)?
+        .parse()
+        .with_context(|| format!("invalid {}", file.display()))?;
+    edit(&mut doc);
     write_atomic(&file, &doc.to_string())
 }
 
@@ -585,6 +617,24 @@ mod tests {
     }
 
     #[test]
+    fn saves_context_reset_settings() {
+        let dir = temp_dir("context-reset");
+        fs::write(dir.join("termf.toml"), "# mine\nkeep_awake = \"off\"\n").unwrap();
+        save_context_reset(&dir, false, 80, 60).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\n"), "comments kept: {text}");
+        let settings = load_settings(&dir).unwrap();
+        assert!(!settings.context_reset);
+        assert_eq!(
+            (settings.context_reset_at, settings.context_warning_at),
+            (80, 60)
+        );
+        assert_eq!(settings.keep_awake, KeepAwake::Off);
+        assert!(save_context_reset(&dir, true, 0, 50).is_err());
+        assert!(save_context_reset(&dir, true, 70, 101).is_err());
+    }
+
+    #[test]
     fn creates_and_reads_default_settings() {
         let dir = temp_dir("settings");
         let settings = load_settings(&dir).unwrap();
@@ -601,6 +651,10 @@ mod tests {
         );
         assert_eq!(settings.keep_awake, defaults.keep_awake);
         assert_eq!(settings.keep_display_on, defaults.keep_display_on);
+        assert_eq!(settings.context_reset, defaults.context_reset);
+        assert_eq!(settings.context_reset_at, defaults.context_reset_at);
+        assert_eq!(settings.context_warning_at, defaults.context_warning_at);
+        assert!(settings.context_reset, "on by default");
         assert!(dir.join("termf.toml").exists());
 
         fs::write(

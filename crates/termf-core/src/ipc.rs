@@ -114,6 +114,9 @@ pub struct SessionSummary {
     pub remote_control: bool,
     /// The agent's own conversation id, e.g. Claude Code's `session_id`.
     pub agent_session_id: Option<String>,
+    /// Context gauge and reset, for Claude Code sessions that report through hooks.
+    #[serde(default)]
+    pub context: Option<crate::context::Gauge>,
 }
 
 /// Serializes `msg` as one line; serde_json escapes newlines inside strings.
@@ -252,6 +255,18 @@ pub fn answers_prompt(input: &[u8]) -> bool {
     input.first().is_some_and(|&b| b != 0x1b)
 }
 
+/// Whether terminal input is someone typing in the prompt (keys, Enter, Esc, a paste, history arrows),
+/// rather than a focus, mouse or terminal report.
+pub fn is_typing(input: &[u8]) -> bool {
+    match input {
+        [0x1b] => true,
+        [0x1b, rest @ ..] => {
+            rest.starts_with(b"[200~") || matches!(rest, b"[A" | b"[B" | b"OA" | b"OB")
+        }
+        other => !other.is_empty(),
+    }
+}
+
 /// Status a Claude Code hook event means, or `None` when it says nothing about the state.
 pub fn hook_status(event: &str, payload: &Value) -> Option<Status> {
     let field = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
@@ -350,6 +365,7 @@ mod tests {
             status: None,
             remote_control: false,
             agent_session_id: None,
+            context: None,
         }
     }
 
@@ -522,6 +538,31 @@ mod tests {
         assert!(!answers_prompt(b"\x1b[I"), "focus report");
         assert!(!answers_prompt(b"\x1b[B"), "arrow key");
         assert!(!answers_prompt(b""));
+    }
+
+    #[test]
+    fn tells_typing_from_terminal_reports() {
+        for typed in [
+            &b"a"[..],
+            b"\r",
+            b"\x03",
+            b"\x1b",
+            b"\x1b[A",
+            b"\x1bOB",
+            b"\x1b[200~hi\x1b[201~",
+        ] {
+            assert!(is_typing(typed), "{typed:?}");
+        }
+        for report in [
+            &b""[..],
+            b"\x1b[I",
+            b"\x1b[O",
+            b"\x1b[<0;3;4M",
+            b"\x1b]11;rgb:0/0/0\x07",
+            b"\x1b[?1;2c",
+        ] {
+            assert!(!is_typing(report), "{report:?}");
+        }
     }
 
     #[test]

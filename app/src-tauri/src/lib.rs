@@ -1,5 +1,6 @@
 mod api;
 mod config;
+mod context;
 mod files;
 mod keep_awake;
 mod library;
@@ -289,6 +290,9 @@ pub fn run() {
             tickets::tickets_deliver_preview,
             tickets::tickets_deliver,
             tickets::tickets_close,
+            context::context_settings,
+            context::context_settings_set,
+            context::context_reset,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

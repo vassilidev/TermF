@@ -7,12 +7,14 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Smartphone from "@lucide/svelte/icons/smartphone";
   import X from "@lucide/svelte/icons/x";
+  import ContextGauge from "$lib/ContextGauge.svelte";
   import Terminal from "$lib/Terminal.svelte";
   import { keys, toggleMaximize } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { app, closeSession, ticked, type Session } from "$lib/state.svelte";
+  import { app, closeSession, resetContext, ticked, type Session } from "$lib/state.svelte";
 
   let { session, index }: { session: Session; index: number } = $props();
 
@@ -58,6 +60,7 @@
         <pill.icon size={13} aria-hidden="true" />{pill.label}
       </span>
     {/if}
+    {#if session.context && session.running}<ContextGauge gauge={session.context} />{/if}
     <span class="title" title={session.cwd}>{session.title}</span>
     {#if session.remoteControl}
       <span class="rc" role="img" aria-label={t("remoteControlOn")} title={t("remoteControlOn")}>
@@ -76,6 +79,17 @@
         aria-label={t("broadcastTo")}
         title={t("broadcastTo")}
       />
+      {#if session.context && session.running}
+        <button
+          class="icon-btn sm"
+          onclick={() => resetContext(session.id)}
+          disabled={session.context.phase !== "idle"}
+          aria-label={t("contextReset")}
+          title={t("contextReset")}
+        >
+          <RotateCcw size={14} aria-hidden="true" />
+        </button>
+      {/if}
       <button
         class="icon-btn sm"
         onclick={() => toggleMaximize(session.id)}
