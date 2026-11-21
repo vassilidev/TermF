@@ -438,6 +438,9 @@ const fr = {
   sshRotationOld: "L'ancienne clé « {name} » est toujours là. Mets-la à la corbeille une fois la nouvelle vérifiée.",
   sshTrashOld: "Mettre l'ancienne clé à la corbeille",
   sshShowNewKey: "Voir la nouvelle clé",
+  sshBits: "{bits} bits",
+  sshEditManyKeys: "Plusieurs IdentityFile, le formulaire n'en garde qu'un : à modifier à la main.",
+  sshEditOutside: "IdentityFile hors de ~/.ssh, que TermF ne touche pas : à modifier à la main.",
 };
 
 type Key = keyof typeof fr;
@@ -877,6 +880,9 @@ const en: Record<Key, string> = {
   sshRotationOld: "The old key “{name}” is still there. Move it to the trash once the new one works.",
   sshTrashOld: "Move the old key to the trash",
   sshShowNewKey: "Show the new key",
+  sshBits: "{bits} bits",
+  sshEditManyKeys: "Several IdentityFile lines and the form keeps one: edit by hand.",
+  sshEditOutside: "IdentityFile outside ~/.ssh, which TermF leaves alone: edit by hand.",
 };
 
 const messages = { fr, en };

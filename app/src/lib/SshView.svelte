@@ -134,6 +134,14 @@
   // The form only writes ~/.ssh/config, not the files it includes.
   const inMainConfig = (h: Host) =>
     !!inventory && h.file.startsWith(inventory.dir) && h.file.slice(inventory.dir.length + 1) === "config";
+  const inSshDir = (file: string) =>
+    !!inventory && file.startsWith(inventory.dir) && /[\\/]/.test(file.charAt(inventory.dir.length));
+
+  /** Why saving this block from the form would lose part of it: the form sets one key, inside ~/.ssh. */
+  function byHand(h: Host): "sshEditManyKeys" | "sshEditOutside" | null {
+    if (h.identityFiles.length > 1) return "sshEditManyKeys";
+    return h.identityFiles.every(inSshDir) ? null : "sshEditOutside";
+  }
 
   function target(h: Host): string {
     return `${h.user ? `${h.user}@` : ""}${h.hostName ?? h.patterns.join(" ")}${h.port ? `:${h.port}` : ""}`;
@@ -228,7 +236,7 @@
           <div>
             {t("sshProblems")}
             <ul class="paths">
-              {#each inventory.problems as problem (problem.path)}
+              {#each inventory.problems as problem, i (i)}
                 <li><span class="mono">{shortPath(problem.path)}</span> · {problem.error}</li>
               {/each}
             </ul>
@@ -380,7 +388,7 @@
 
             <dl class="meta">
               <dt>{t("sshMetaType")}</dt>
-              <dd>{algorithm(key.algorithm)}{key.bits ? ` · ${key.bits} bits` : ""}</dd>
+              <dd>{algorithm(key.algorithm)}{key.bits ? ` · ${t("sshBits", { bits: key.bits })}` : ""}</dd>
               <dt>{t("sshMetaFingerprint")}</dt>
               <dd class="mono">{key.fingerprint ?? "—"}</dd>
               {#if !key.orphan}
@@ -450,7 +458,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each inventory.agent.keys as agentKey (agentKey.fingerprint)}
+            {#each inventory.agent.keys as agentKey, i (i)}
               {@const file = keys.find((k) => k.fingerprint === agentKey.fingerprint)}
               <tr>
                 <td class="nowrap">{agentKey.kind}{agentKey.bits ? ` · ${agentKey.bits}` : ""}</td>
@@ -498,8 +506,11 @@
             </tr>
           </thead>
           <tbody>
-            {#each inventory.hosts as host (`${host.file}:${host.line}`)}
+            <!-- Index keys: a file included twice lists its blocks twice. -->
+            {#each inventory.hosts as host, i (i)}
               {@const tested = single(host) && !!tests[host.patterns[0]]}
+              {@const editable = single(host) && inMainConfig(host)}
+              {@const reason = editable ? byHand(host) : null}
               <tr class:tested>
                 <td>
                   {#if host.line === 0}
@@ -510,15 +521,16 @@
                 </td>
                 <td class="mono">{host.hostName || host.user || host.port ? target(host) : "—"}</td>
                 <td>
-                  {#each host.identityFiles as file (file)}<span class="block">{keyName(file)}</span>{:else}—{/each}
+                  {#each host.identityFiles as file, j (j)}<span class="block">{keyName(file)}</span>{:else}—{/each}
                   {#if host.identitiesOnly}<span class="badge">IdentitiesOnly</span>{/if}
+                  {#if reason}<span class="muted small block">{t(reason)}</span>{/if}
                 </td>
                 <td class="mono muted nowrap">{shortPath(host.file)}{host.line ? `:${host.line}` : ""}</td>
                 <td class="end">
                   {#if single(host)}
                     <div class="row-actions">
                       {@render testButton(host.patterns[0])}
-                      {#if inMainConfig(host)}
+                      {#if editable && !reason}
                         <button class="btn sm" onclick={() => (ssh.panel = { kind: "host", host })}>{t("sshEdit")}</button>
                       {/if}
                     </div>
@@ -569,7 +581,7 @@
                   {/each}
                 </td>
                 <td>
-                  {#each repo.identityFiles as file (file)}<span class="block">{keyName(file)}</span>{:else}{t("sshDefaultKeys")}{/each}
+                  {#each repo.identityFiles as file, i (i)}<span class="block">{keyName(file)}</span>{:else}{t("sshDefaultKeys")}{/each}
                   <span class="muted small block">
                     {repo.sshCommand ? t("sshViaCommand") : repo.identityFiles.length ? t("sshViaConfig") : ""}
                   </span>

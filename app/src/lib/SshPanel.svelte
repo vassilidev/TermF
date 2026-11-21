@@ -64,10 +64,10 @@
 
   async function rotate() {
     if (!old) return;
-    await act(async () => {
+    const done = await act(async () => {
       rotation = await invoke<Rotation>("ssh_rotate", { path: old.path, ...keyArgs(), upload });
     });
-    passphrase = confirm = "";
+    if (done) passphrase = confirm = "";
   }
 
   async function trashOld() {
@@ -107,7 +107,8 @@
     // Without a key of its own, IdentitiesOnly would also keep ssh from offering the agent's keys.
     identitiesOnly: (!!identityFile && identitiesOnly) || null,
   });
-  const fresh = $derived(!!preview && preview.for === JSON.stringify(entry));
+  const valid = $derived(!!entry.alias && portOk);
+  const fresh = $derived(valid && !!preview && preview.for === JSON.stringify(entry));
   const known = $derived(!identityFile || keys.some((k) => k.path === identityFile));
 
   async function showPreview() {
@@ -122,6 +123,7 @@
   }
 
   async function save() {
+    if (!fresh || !preview?.diff) return;
     const saved = entry.alias;
     const done = await act(async () => {
       await invoke("ssh_host_save", { host: entry });
@@ -276,16 +278,19 @@
           </div>
         </div>
       {/if}
-      <div class="old">
-        {#if confirmTrash}
-          <span>{t("sshTrashConfirm", { name: old.name, dir: `${dir}/.termf-trash` })}</span>
-          <button class="btn sm" onclick={() => (confirmTrash = false)}>{t("cancel")}</button>
-          <button class="btn sm danger" onclick={trashOld} disabled={ssh.busy}>{t("sshTrash")}</button>
-        {:else}
-          <span>{t("sshRotationOld", { name: old.name })}</span>
-          <button class="btn sm quiet danger-text" onclick={() => (confirmTrash = true)}>{t("sshTrashOld")}</button>
-        {/if}
-      </div>
+      <!-- After a failed step, something may still use the old key. -->
+      {#if !rotation.errors.length && (rotation.uploaded || !upload)}
+        <div class="old">
+          {#if confirmTrash}
+            <span>{t("sshTrashConfirm", { name: old.name, dir: `${dir}/.termf-trash` })}</span>
+            <button class="btn sm" onclick={() => (confirmTrash = false)}>{t("cancel")}</button>
+            <button class="btn sm danger" onclick={trashOld} disabled={ssh.busy}>{t("sshTrash")}</button>
+          {:else}
+            <span>{t("sshRotationOld", { name: old.name })}</span>
+            <button class="btn sm quiet danger-text" onclick={() => (confirmTrash = true)}>{t("sshTrashOld")}</button>
+          {/if}
+        </div>
+      {/if}
       <footer>
         <button class="btn primary" onclick={() => close(rotation?.key)}>{t("sshShowNewKey")}</button>
       </footer>
@@ -295,6 +300,7 @@
     <form
       onsubmit={(e) => {
         e.preventDefault();
+        if (!valid) return;
         if (fresh && preview?.diff) save();
         else showPreview();
       }}
@@ -341,7 +347,7 @@
       </div>
 
       <div class="preview-head">
-        <button type="button" class="btn" onclick={showPreview} disabled={!entry.alias || !portOk}>{t("sshPreview")}</button>
+        <button type="button" class="btn" onclick={showPreview} disabled={!valid}>{t("sshPreview")}</button>
         {#if !fresh}<span class="muted hint">{t("sshPreviewNeeded")}</span>{/if}
       </div>
 
