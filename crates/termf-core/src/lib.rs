@@ -272,7 +272,7 @@ pub fn delete_project(config_dir: &Path, id: &str) -> Result<()> {
     Ok(fs::remove_file(project_file(config_dir, id)?)?)
 }
 
-fn project_file(config_dir: &Path, id: &str) -> Result<PathBuf> {
+pub fn project_file(config_dir: &Path, id: &str) -> Result<PathBuf> {
     // The id comes from the UI and becomes a file name.
     ensure!(
         !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\', ':']),
@@ -373,7 +373,7 @@ fn write_layouts(config_dir: &Path, mut layouts: Vec<Layout>) -> Result<()> {
 }
 
 /// Writes through a temporary file so a crash never leaves a half-written config.
-fn write_atomic(file: &Path, text: &str) -> Result<()> {
+pub fn write_atomic(file: &Path, text: &str) -> Result<()> {
     let tmp = file.with_extension("toml.tmp");
     fs::write(&tmp, text)
         .and_then(|()| fs::rename(&tmp, file))
@@ -482,7 +482,7 @@ pub fn expand_tilde(path: &str) -> PathBuf {
 }
 
 /// Inverse of `expand_tilde`, so config files stay valid on another machine.
-fn portable(path: &str) -> String {
+pub fn portable(path: &str) -> String {
     let home = dirs::home_dir();
     match home
         .as_deref()

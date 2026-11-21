@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -265,21 +265,19 @@ pub fn spawn(
     };
     let is_claude = command.as_deref().is_some_and(claude::is_claude);
     let remote_control = remote_control && is_claude;
-    // Status needs the local API and the CLI the hooks run.
-    let hooks = match &state.api.endpoint {
-        Some(endpoint) if is_claude => {
-            termf_binary().map(|termf| (endpoint.data_dir.join("sessions"), termf))
-        }
+    // Session folders live with the local API, which clears them at startup.
+    let sessions_dir = match &state.api.endpoint {
+        Some(endpoint) if is_claude => Some(endpoint.data_dir.join("sessions")),
         _ => None,
     };
+    // Status needs the local API and the CLI the hooks run.
+    let hooks = sessions_dir.as_ref().and_then(|_| termf_binary());
 
     let cwd_text = cwd.to_string_lossy().into_owned();
     let mut new_id = None;
     let spawned = state.sessions.spawn_with(|id| {
         new_id = Some(id);
-        let dir = hooks
-            .as_ref()
-            .map(|(sessions, _)| sessions.join(id.to_string()));
+        let dir = sessions_dir.as_ref().map(|s| s.join(id.to_string()));
         state.api.meta.lock().unwrap().insert(
             id,
             Meta {
@@ -291,13 +289,24 @@ pub fn spawn(
             },
         );
         let mut extra = Vec::new();
-        if let (Some(dir), Some((_, termf))) = (&dir, &hooks) {
+        if let Some(dir) = &dir {
             let plugin = dir.join("plugin");
-            claude::write_plugin(&plugin, termf)?;
-            extra.push(format!(
-                "--plugin-dir {}",
-                shell_quote(&plugin.to_string_lossy())
-            ));
+            if let Some(termf) = &hooks {
+                claude::write_plugin(&plugin, termf)?;
+            }
+            let prompt = library(state, &cwd, dir);
+            if plugin.is_dir() {
+                extra.push(format!(
+                    "--plugin-dir {}",
+                    shell_quote(&plugin.to_string_lossy())
+                ));
+            }
+            if let Some(prompt) = prompt {
+                extra.push(format!(
+                    "--append-system-prompt-file {}",
+                    shell_quote(&prompt.to_string_lossy())
+                ));
+            }
         }
         if remote_control {
             extra.push(format!("--remote-control {}", shell_quote(&title)));
@@ -333,6 +342,17 @@ pub fn spawn(
         running: true,
         exit_code: None,
     }))
+}
+
+/// Writes the repository's library into the session folder and returns the system prompt file, if any.
+/// A library that cannot be read never keeps the agent from starting.
+fn library(state: &AppState, cwd: &Path, dir: &Path) -> Option<PathBuf> {
+    termf_library::Scope::new(&state.config_dir, Some(cwd), None)
+        .and_then(|scope| termf_library::materialize(&state.config_dir, &scope, dir))
+        .unwrap_or_else(|e| {
+            eprintln!("termf: library not loaded: {e:#}");
+            None
+        })
 }
 
 /// The CLI ships next to the app executable: bundled as a sidecar, or in `target/<profile>/` during development.

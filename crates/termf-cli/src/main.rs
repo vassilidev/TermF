@@ -1,5 +1,6 @@
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -8,6 +9,8 @@ use anyhow::{Context, Result, bail};
 use interprocess::local_socket::{GenericFilePath, Stream, prelude::*};
 use serde_json::Value;
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary};
+use termf_library::archive::{self, Action, Status};
+use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
 const USAGE: &str = "\
 usage:
@@ -15,7 +18,18 @@ usage:
   termf open <path> [--agent <name>]    open a session (a shell without --agent)
   termf say <session> <text>...         type text then Enter in a session (id or part of its title)
   termf watch                           print status changes
-  termf hook <event>                    forward a Claude Code hook (JSON on stdin)";
+  termf hook <event>                    forward a Claude Code hook (JSON on stdin)
+  termf library ls [--kind <kind>] [--repo <path>] [--project <id>]
+                                        list the library: each item's layer, state and why
+  termf library explain <name> [--kind <kind>] [--repo <path>] [--project <id>]
+  termf library enable|disable <name> [--kind <kind>] [--project <id>]
+                                        switch an item on or off, globally or for a project
+  termf library import-claude [--repo <path>] [--project <id>] [--overwrite]
+                                        import skills, agents and commands from ~/.claude (or a repository's)
+  termf config export [-o <file>]       write the config and the library to one archive
+  termf config import <file> [--dry-run] [--replace <item>]... [--replace-all]
+                                        import an archive: merge, or replace the items named
+kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -82,10 +96,209 @@ fn run(args: &[&str]) -> Result<()> {
                 }
             }
         }
+        ["library", rest @ ..] => library(rest.to_vec())?,
+        ["config", rest @ ..] => config(rest.to_vec())?,
         ["-h" | "--help" | "help"] => println!("{USAGE}"),
         _ => bail!(USAGE),
     }
     Ok(())
+}
+
+/// Works on the config files directly: TermF does not need to run.
+fn library(mut args: Vec<&str>) -> Result<()> {
+    let config_dir = termf_core::default_config_dir()?;
+    let kind = match take_opt(&mut args, "--kind")? {
+        Some(k) => Some(Kind::parse(&k).with_context(|| format!("unknown kind {k}"))?),
+        None => None,
+    };
+    let repo = take_opt(&mut args, "--repo")?
+        .map(std::path::absolute)
+        .transpose()?;
+    let project = take_opt(&mut args, "--project")?;
+    let overwrite = take_flag(&mut args, "--overwrite");
+    let scope = || Scope::new(&config_dir, repo.as_deref(), project.clone());
+    let named = |name: &str| -> Result<Item> {
+        let mut found: Vec<Item> = termf_library::resolve(&config_dir, &scope()?)?
+            .into_iter()
+            .filter(|i| i.name == name && kind.is_none_or(|k| i.kind == k))
+            .collect();
+        match found.len() {
+            1 => Ok(found.remove(0)),
+            0 => bail!("no library item named {name}"),
+            _ => bail!("several items are named {name}: add --kind"),
+        }
+    };
+    match args.as_slice() {
+        ["ls"] => {
+            for item in termf_library::resolve(&config_dir, &scope()?)? {
+                if kind.is_none_or(|k| item.kind == k) {
+                    let state = if item.active { "on" } else { "off" };
+                    let (kind, name, layer) = (item.kind, &item.name, item.layer);
+                    println!(
+                        "{kind:<10}  {name:<24}  {state:<3}  {layer:<7}  {}",
+                        why(&item)
+                    );
+                }
+            }
+        }
+        ["explain", name] => {
+            let item = named(name)?;
+            println!(
+                "{} {}: {}",
+                item.kind,
+                item.name,
+                if item.active { "on" } else { "off" }
+            );
+            let place = item.path.as_ref().map(|p| format!(" ({})", p.display()));
+            println!("  layer: {}{}", item.layer, place.unwrap_or_default());
+            if !item.shadows.is_empty() {
+                let hidden: Vec<String> = item.shadows.iter().map(|l| l.to_string()).collect();
+                println!("  hides: {}", hidden.join(", "));
+            }
+            println!("  why: {}", why(&item));
+            if let Some(error) = &item.error {
+                println!("  error: {error}");
+            }
+        }
+        [action @ ("enable" | "disable"), name] => {
+            let kind = match kind {
+                Some(kind) => kind,
+                None => named(name)?.kind,
+            };
+            let on = *action == "enable";
+            termf_library::set_toggle(&config_dir, project.as_deref(), kind, name, Some(on))?;
+            let item = named(name)?;
+            println!(
+                "{} {}: {}",
+                item.kind,
+                item.name,
+                if item.active { "on" } else { "off" }
+            );
+        }
+        ["import-claude"] => {
+            let from = match &repo {
+                Some(repo) => repo.join(".claude"),
+                None => termf_core::expand_tilde("~/.claude"),
+            };
+            let library = termf_library::library_dir(&config_dir, project.as_deref())?;
+            for i in termf_library::import_claude(&from, &library, overwrite)? {
+                let outcome = match i.outcome {
+                    Outcome::Imported => "imported",
+                    Outcome::Replaced => "replaced",
+                    Outcome::Skipped => "skipped (already in the library; --overwrite replaces it)",
+                    Outcome::Unsupported => "skipped (subfolders are not supported)",
+                };
+                println!("{:<10}  {:<24}  {outcome}", i.kind, i.name);
+            }
+        }
+        _ => bail!(USAGE),
+    }
+    Ok(())
+}
+
+fn why(item: &Item) -> String {
+    match item.toggles.iter().next_back() {
+        Some((layer, on)) => {
+            let place = match layer {
+                Layer::Global => "termf.toml",
+                Layer::Project => "the project's file",
+                _ => "this launch",
+            };
+            format!("{}{} in {place}", if *on { '+' } else { '-' }, item.name)
+        }
+        None if item.layer == Layer::Shipped => "shipped with TermF, off until enabled".into(),
+        None => format!("in the {} library", item.layer),
+    }
+}
+
+fn config(mut args: Vec<&str>) -> Result<()> {
+    let config_dir = termf_core::default_config_dir()?;
+    let out = take_opt(&mut args, "-o")?;
+    let dry_run = take_flag(&mut args, "--dry-run");
+    let replace_all = take_flag(&mut args, "--replace-all");
+    let mut replace = Vec::new();
+    while let Some(item) = take_opt(&mut args, "--replace")? {
+        replace.push(item);
+    }
+    match args.as_slice() {
+        ["export"] => {
+            let out = out.unwrap_or_else(|| "termf-config.tar.gz".into());
+            let count = archive::export(&config_dir, Path::new(&out))?;
+            println!("{count} files written to {out}");
+        }
+        ["import", file] => {
+            let file = Path::new(file);
+            if replace_all {
+                let preview = archive::preview(file, &config_dir)?;
+                replace = preview.changes.into_iter().map(|c| c.item).collect();
+            }
+            let preview = if dry_run {
+                archive::preview(file, &config_dir)?
+            } else {
+                archive::apply(file, &config_dir, &replace)?
+            };
+            for change in &preview.changes {
+                let status = match change.status {
+                    Status::Added => "added",
+                    Status::Unchanged => "unchanged",
+                    Status::Changed => "changed",
+                    Status::Conflict => "conflict",
+                };
+                let done = match (dry_run, change.action(&replace)) {
+                    (true, _) | (_, Action::Write) => "",
+                    (false, Action::Replace) => ", replaced",
+                    (false, Action::Merge) => ", merged",
+                    (false, Action::Keep) if change.status == Status::Unchanged => "",
+                    (false, Action::Keep) => ", kept yours",
+                };
+                let mut keys = Vec::new();
+                if !change.added_keys.is_empty() {
+                    keys.push(format!("new: {}", change.added_keys.join(", ")));
+                }
+                if !change.conflicts.is_empty() {
+                    keys.push(format!("differ: {}", change.conflicts.join(", ")));
+                }
+                let keys = if keys.is_empty() {
+                    String::new()
+                } else {
+                    format!("  ({})", keys.join("; "))
+                };
+                println!("{:<24}  {}{keys}", format!("{status}{done}"), change.item);
+            }
+            for repo in &preview.missing_repos {
+                let clone = repo
+                    .remote
+                    .as_deref()
+                    .map(|r| format!(": git clone {r} {}", repo.path));
+                println!(
+                    "missing repository {} in {}{}",
+                    repo.path,
+                    repo.project,
+                    clone.unwrap_or_default()
+                );
+            }
+        }
+        _ => bail!(USAGE),
+    }
+    Ok(())
+}
+
+/// Takes `name value` out of `args`.
+fn take_opt(args: &mut Vec<&str>, name: &str) -> Result<Option<String>> {
+    match args.iter().position(|a| *a == name) {
+        Some(i) if i + 1 < args.len() => {
+            let value = args.remove(i + 1).to_owned();
+            args.remove(i);
+            Ok(Some(value))
+        }
+        Some(_) => bail!("{name} needs a value"),
+        None => Ok(None),
+    }
+}
+
+fn take_flag(args: &mut Vec<&str>, name: &str) -> bool {
+    let found = args.iter().position(|a| *a == name);
+    found.map(|i| args.remove(i)).is_some()
 }
 
 /// Never fails and returns within two seconds: a hook must not get in the agent's way, even when TermF is gone.
