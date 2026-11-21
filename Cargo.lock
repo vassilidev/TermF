@@ -5605,6 +5605,7 @@ dependencies = [
  "p521",
  "pkcs8",
  "rsa",
+ "sec1",
  "serde",
  "serde_json",
  "sha1",

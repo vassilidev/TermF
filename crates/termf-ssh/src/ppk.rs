@@ -40,7 +40,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn unhex(text: &str) -> Result<Vec<u8>> {
-    ensure!(text.len() % 2 == 0, "invalid PuTTY key");
+    ensure!(text.len().is_multiple_of(2), "invalid PuTTY key");
     (0..text.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&text[i..i + 2], 16).map_err(|_| anyhow!("invalid PuTTY key")))
@@ -349,7 +349,7 @@ pub(crate) fn decode(text: &str, passphrase: Option<&str>) -> Result<(Secret, St
             )
         };
     if encrypted {
-        ensure!(file.private.len() % 16 == 0, "invalid PuTTY key");
+        ensure!(file.private.len().is_multiple_of(16), "invalid PuTTY key");
         cbc::Decryptor::<Aes256>::new(cipher[..].into(), (&iv).into())
             .decrypt_padded_mut::<NoPadding>(&mut file.private)
             .map_err(|_| anyhow!("invalid PuTTY key"))?;

@@ -312,3 +312,6 @@ fn write_all(dir: &Path, name: &str, outputs: &[Output]) -> Result<Vec<PathBuf>>
     }
     Ok(paths)
 }
+
+#[cfg(test)]
+mod tests;

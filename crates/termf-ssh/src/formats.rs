@@ -128,6 +128,14 @@ macro_rules! on_curve {
 }
 
 impl Curve {
+    fn oid(self) -> ObjectIdentifier {
+        ObjectIdentifier::new_unwrap(match self {
+            Curve::P256 => "1.2.840.10045.3.1.7",
+            Curve::P384 => "1.3.132.0.34",
+            Curve::P521 => "1.3.132.0.35",
+        })
+    }
+
     fn jwk(self) -> &'static str {
         match self {
             Curve::P256 => "P-256",
@@ -263,8 +271,20 @@ impl Secret {
                 Secret::Ec(curve, Zeroizing::new(pair.private_key_bytes().to_vec()))
             }
             KeypairData::Rsa(pair) => {
-                let mut key = RsaPrivateKey::try_from(pair)?;
-                let _ = key.precompute();
+                // Not ssh-key's own conversion: 0.6.7 passes `p` as both primes.
+                let int = |m: &ssh_key::Mpint| {
+                    m.as_positive_bytes()
+                        .map(BigUint::from_bytes_be)
+                        .context("invalid RSA key")
+                };
+                let primes = vec![int(&pair.private.p)?, int(&pair.private.q)?];
+                let key = RsaPrivateKey::from_components(
+                    int(&pair.public.n)?,
+                    int(&pair.public.e)?,
+                    int(&pair.private.d)?,
+                    primes,
+                )
+                .map_err(|_| anyhow!("invalid RSA key"))?;
                 Secret::Rsa(Box::new(key))
             }
             _ => bail!("unsupported key type: Ed25519, ECDSA or RSA only"),
@@ -324,15 +344,8 @@ impl Secret {
         })
     }
 
-    /// RFC 7638: SHA-256 of the required public members, sorted, without spaces.
     pub fn thumbprint(&self) -> Result<String> {
-        let members = self.jwk_public()?;
-        let canonical: Vec<String> = members
-            .iter()
-            .map(|(k, v)| format!("\"{k}\":\"{v}\""))
-            .collect();
-        let digest = Sha256::digest(format!("{{{}}}", canonical.join(",")));
-        Ok(Base64UrlUnpadded::encode_string(&digest))
+        Ok(thumbprint(&self.jwk_public()?))
     }
 
     fn jwk_private(&self) -> Result<Vec<(&'static str, Zeroizing<String>)>> {
@@ -488,9 +501,17 @@ impl Secret {
                 let Secret::Ec(curve, d) = self else {
                     bail!("SEC1 holds ECDSA keys only: choose PKCS#8");
                 };
-                let text = on_curve!(*curve, c => c::SecretKey::from_slice(d)
-                    .map_err(|_| anyhow!("invalid private key"))?
-                    .to_sec1_pem(LineEnding::LF)?);
+                // Built here: the curve crates leave out the curve's name, without which OpenSSL
+                // cannot read the key.
+                let point = Self::ec_point(*curve, d)?;
+                let key = sec1::EcPrivateKey {
+                    private_key: d,
+                    parameters: Some(sec1::EcParameters::NamedCurve(curve.oid())),
+                    public_key: Some(&point),
+                };
+                let der = Zeroizing::new(key.to_der()?);
+                let text = SecretDocument::try_from(der.as_slice())?
+                    .to_pem("EC PRIVATE KEY", LineEnding::LF)?;
                 vec![private(".pem", text), public(".pub.pem", self.spki_pem()?)]
             }
             Format::Pkcs8 => {
@@ -539,15 +560,32 @@ impl Secret {
                 curve25519_dalek::MontgomeryPoint(Self::x25519_public(&other)).mul_clamped(**seed);
             return Ok(ours == theirs);
         }
+        let message = b"TermF key test";
+        if let Secret::Rsa(key) = self {
+            // ssh-key 0.6.7 cannot sign with RSA (see `from_ssh`): the rsa crate signs directly.
+            use rsa::signature::{Signer, Verifier};
+            let signer = rsa::pkcs1v15::SigningKey::<Sha256>::new(key.as_ref().clone());
+            let signature = signer.try_sign(message)?;
+            let verifier = rsa::pkcs1v15::VerifyingKey::<Sha256>::new(key.to_public_key());
+            return Ok(verifier.verify(message, &signature).is_ok());
+        }
         let key = PrivateKey::new(self.to_ssh()?.context("no SSH form")?, "")?;
         const NAMESPACE: &str = "termf-key-test";
-        let message = b"TermF key test";
         let signature = key.sign(NAMESPACE, HashAlg::Sha512, message)?;
         Ok(key
             .public_key()
             .verify(NAMESPACE, message, &signature)
             .is_ok())
     }
+}
+
+/// RFC 7638: SHA-256 of the required public members, sorted, without spaces.
+pub(crate) fn thumbprint(members: &[(&str, String)]) -> String {
+    let canonical: Vec<String> = members
+        .iter()
+        .map(|(k, v)| format!("\"{k}\":\"{v}\""))
+        .collect();
+    Base64UrlUnpadded::encode_string(&Sha256::digest(format!("{{{}}}", canonical.join(","))))
 }
 
 fn okp_spki(oid: ObjectIdentifier, public: &[u8]) -> Result<Vec<u8>> {
@@ -718,10 +756,13 @@ pub(crate) fn parse(text: &str, pass: Option<&str>) -> Result<Parsed> {
                 .map_err(|_| anyhow!("invalid PKCS#8 key"))?;
             let decrypted = match info.decrypt(passphrase(pass)?) {
                 Ok(doc) => doc,
-                Err(pkcs8::Error::EncryptedPrivateKey(pkcs8::pkcs5::Error::DecryptFailed)) => {
-                    return Err(Locked::WrongPassphrase.into());
-                }
-                Err(e) => bail!("unsupported PKCS#8 encryption ({e})"),
+                Err(pkcs8::Error::EncryptedPrivateKey(
+                    e @ (pkcs8::pkcs5::Error::UnsupportedAlgorithm { .. }
+                    | pkcs8::pkcs5::Error::AlgorithmParametersInvalid { .. }
+                    | pkcs8::pkcs5::Error::NoPbes1CryptSupport),
+                )) => bail!("unsupported PKCS#8 encryption ({e})"),
+                // pkcs5 reports a failed unpadding as `EncryptFailed` as well as `DecryptFailed`.
+                Err(_) => return Err(Locked::WrongPassphrase.into()),
             };
             // A wrong passphrase can still unpad by chance: what follows is then not DER.
             let secret = from_pkcs8(decrypted.as_bytes()).map_err(|_| Locked::WrongPassphrase)?;

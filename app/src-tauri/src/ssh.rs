@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use tauri::State;
 use termf_files::Files;
-use termf_ssh::{HostEntry, HostPreview, HostTest, Inventory, KeyType, Rotation, Ssh};
+use termf_ssh::{
+    Algo, Check, Generated, HostEntry, HostPreview, HostTest, Inventory, KeyType, Rotation, Spec,
+    Ssh,
+};
 
 use crate::{CmdResult, api, err};
 
@@ -74,9 +77,45 @@ pub async fn ssh_assign(
     blocking(move |ssh| ssh.assign(&termf_ssh::known_repo(&repo, &known)?, path.as_deref())).await
 }
 
+/// With `path`, only that key is offered.
 #[tauri::command]
-pub async fn ssh_test(host: String) -> CmdResult<HostTest> {
-    blocking(move |_| termf_ssh::test_host(&host)).await
+pub async fn ssh_test(host: String, path: Option<String>) -> CmdResult<HostTest> {
+    blocking(move |ssh| ssh.test_host(&host, path.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn keys_generate(algorithm: Algo, spec: Spec) -> CmdResult<Generated> {
+    blocking(move |ssh| ssh.create(algorithm, &spec)).await
+}
+
+#[tauri::command]
+pub async fn keys_convert(
+    path: String,
+    passphrase: Option<String>,
+    spec: Spec,
+) -> CmdResult<Generated> {
+    blocking(move |ssh| ssh.convert(&path, passphrase.as_deref(), &spec)).await
+}
+
+/// The private key in clear: only on the user's explicit request.
+#[tauri::command]
+pub async fn keys_reveal(path: String, passphrase: Option<String>) -> CmdResult<String> {
+    blocking(move |ssh| Ok(ssh.reveal(&path, passphrase.as_deref())?.to_string())).await
+}
+
+#[tauri::command]
+pub async fn keys_test(
+    path: String,
+    passphrase: Option<String>,
+    public: Option<String>,
+) -> CmdResult<Vec<Check>> {
+    blocking(move |ssh| ssh.test(&path, passphrase.as_deref(), public.as_deref())).await
+}
+
+/// Returns whether the clipboard still held the copied secret and was emptied.
+#[tauri::command]
+pub async fn keys_clipboard_clear(digest: String) -> CmdResult<bool> {
+    blocking(move |_| termf_ssh::clipboard_clear(&digest)).await
 }
 
 /// Returns the files whose permissions changed.
