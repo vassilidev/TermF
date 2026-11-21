@@ -792,18 +792,21 @@ const fr = {
   wtKindEnv: "Ports",
   wtKindCommand: "Commande",
   wtKindAgent: "Agent",
-  wtCopied: "copié",
-  wtCloned: "cloné",
-  wtInstalled: "installé",
+  wtCopied: "copie",
+  wtCloned: "clone",
+  wtInstalled: "installation",
   wtPresent: "déjà là",
-  wtCreated: "créée",
-  wtRan: "lancé",
-  wtSet: "défini",
-  wtDropped: "supprimée",
-  wtReleased: "libérés",
-  wtSkipped: "ignoré",
-  wtRefused: "refusé",
-  wtFailed: "en échec",
+  wtCreated: "création",
+  wtRan: "exécution",
+  wtSet: "attribution",
+  wtDropped: "suppression",
+  wtReleased: "libération",
+  wtSkipped: "rien à faire",
+  wtRefused: "refus",
+  wtFailed: "échec",
+  wtEventSetup: "Worktree préparé ({count} étapes)",
+  wtEventSetupFailed: "Worktree préparé, {failed} étapes en échec sur {count}",
+  wtEventTeardown: "Copie de la base et ports du worktree rendus",
 };
 
 type Key = keyof typeof fr;
@@ -1604,6 +1607,9 @@ const en: Record<Key, string> = {
   wtSkipped: "skipped",
   wtRefused: "refused",
   wtFailed: "failed",
+  wtEventSetup: "Worktree prepared ({count} steps)",
+  wtEventSetupFailed: "Worktree prepared, {failed} of {count} steps failed",
+  wtEventTeardown: "Worktree's database copy and ports given back",
 };
 
 const messages = { fr, en };

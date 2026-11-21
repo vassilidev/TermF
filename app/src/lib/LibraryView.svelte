@@ -77,7 +77,7 @@
   } as const;
 
   const visible = $derived(items.filter((i) => matches(i, query)));
-  const shown = $derived(visible.filter((i) => i.kind === library.tab));
+  const shown = $derived(library.tab === "conventions" ? [] : visible.filter((i) => i.kind === library.tab));
   const current = $derived(shown.find((i) => i.name === selected) ?? shown[0]);
   const here = $derived<Layer>(library.scope ? "project" : "global");
 

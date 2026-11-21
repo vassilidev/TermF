@@ -99,6 +99,13 @@
         return e.dropped.length ? t("eventClosedForce", { dropped: e.dropped.join(", ") }) : t("eventClosed");
       case "failed":
         return t("eventFailed", { error: e.error });
+      case "setup": {
+        const failed = e.steps.filter((s) => s.outcome === "failed" || s.outcome === "refused").length;
+        const count = e.steps.length;
+        return failed ? t("wtEventSetupFailed", { count, failed }) : t("wtEventSetup", { count });
+      }
+      case "teardown":
+        return t("wtEventTeardown");
     }
   }
 

@@ -73,8 +73,8 @@
   let running = $state("");
   let error = $state("");
 
-  const base = $derived(view ? (view.draft?.recipe ?? view.recipe) : null);
-  const dirty = $derived(!!edit && !!base && JSON.stringify(edit) !== JSON.stringify(base));
+  const pristine = $derived(view ? JSON.stringify(editable(view.draft?.recipe ?? view.recipe)) : "");
+  const dirty = $derived(!!edit && JSON.stringify(edit) !== pristine);
   const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD" });
   const seconds = new Intl.NumberFormat(lang, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 
@@ -532,7 +532,7 @@
   .detected {
     border-color: transparent;
     background: var(--waiting-soft);
-    color: var(--waiting-text);
+    color: var(--warning);
   }
 
   .draft {
@@ -548,10 +548,16 @@
   }
 
   .actions {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
+    margin: -8px 0;
+    padding: 8px 0;
+    background: var(--panel);
   }
 
   .grow {
@@ -631,7 +637,7 @@
     align-items: center;
     justify-content: space-between;
     background: var(--waiting-soft);
-    color: var(--waiting-text);
+    color: var(--warning);
   }
 
   .part {
