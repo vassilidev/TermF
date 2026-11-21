@@ -14,7 +14,7 @@
   import SecretView from "$lib/SecretView.svelte";
   import { t } from "$lib/i18n";
   import { shortPath } from "$lib/state.svelte";
-  import { act, nameError, ssh, type Algo, type Format, type Generated, type Usage } from "$lib/ssh.svelte";
+  import { act, nameError, readable, ssh, type Algo, type Format, type Generated, type Usage } from "$lib/ssh.svelte";
 
   // Keyed on the panel by SshView: a new panel is a new instance.
   const panel = ssh.panel as { kind: "generate"; usage?: Usage } | { kind: "convert"; path?: string };
@@ -59,7 +59,7 @@
   const OTHER = "?other";
 
   const keys = $derived(ssh.inventory?.keys ?? []);
-  const sources = $derived(keys.filter((k) => !k.orphan));
+  const sources = $derived(keys.filter((k) => !k.orphan && readable(k.algorithm)));
   const sshDir = $derived(ssh.inventory ? shortPath(ssh.inventory.dir) : "~/.ssh");
 
   let mode = $state<"new" | "convert">(panel.kind === "convert" ? "convert" : "new");
@@ -154,8 +154,13 @@
       source = list.value;
       return;
     }
-    const picked = await open({ directory: false, multiple: false });
-    if (typeof picked === "string") source = picked;
+    // Picked by the backend, which then lets the key commands read this file.
+    try {
+      const picked = await invoke<string | null>("keys_pick_file");
+      if (picked) source = picked;
+    } catch (e) {
+      ssh.error = String(e);
+    }
     list.value = source;
   }
 

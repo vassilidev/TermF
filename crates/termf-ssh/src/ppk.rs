@@ -117,9 +117,9 @@ fn argon2(
     passes: u32,
     lanes: u32,
 ) -> Result<Zeroizing<[u8; 80]>> {
-    // Bounds keep a crafted file from asking for gigabytes.
+    // Bounds keep a crafted file from asking for gigabytes or minutes (PuTTYgen uses 8 MiB).
     ensure!(
-        memory <= 1 << 20 && passes <= 1000 && lanes <= 64,
+        memory <= 256 * 1024 && passes <= 100 && lanes <= 16,
         "unreasonable Argon2 parameters"
     );
     let params =

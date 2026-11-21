@@ -8,7 +8,6 @@ mod ppk;
 mod tools;
 
 use std::fs;
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -750,22 +749,6 @@ fn create_private_dir(dir: &Path) -> Result<()> {
     builder
         .create(dir)
         .with_context(|| format!("cannot create {}", dir.display()))
-}
-
-#[cfg_attr(not(unix), allow(unused_variables))]
-fn write_new(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(mode);
-    }
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("cannot create {}", path.display()))?;
-    file.write_all(bytes)?;
-    Ok(file.sync_all()?)
 }
 
 #[cfg(test)]

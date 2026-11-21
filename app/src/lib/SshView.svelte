@@ -27,7 +27,7 @@
   import SshPanel from "$lib/SshPanel.svelte";
   import { ago, t } from "$lib/i18n";
   import { shortPath } from "$lib/state.svelte";
-  import { act, algorithm, refresh, ssh, type Host, type HostTest, type RepoKeys, type SshKey } from "$lib/ssh.svelte";
+  import { act, algorithm, readable, refresh, ssh, type Host, type HostTest, type RepoKeys, type SshKey } from "$lib/ssh.svelte";
 
   const inventory = $derived(ssh.inventory);
   const keys = $derived(inventory?.keys ?? []);
@@ -348,12 +348,14 @@
                 <button class="btn sm" aria-expanded={asking === "reveal"} onclick={() => (asking = asking === "reveal" ? "" : "reveal")}>
                   <Eye size={14} aria-hidden="true" />{t("keysReveal")}
                 </button>
-                <button class="btn sm" aria-expanded={asking === "test"} onclick={() => (asking = asking === "test" ? "" : "test")}>
-                  <FlaskConical size={14} aria-hidden="true" />{t("keysTest")}
-                </button>
-                <button class="btn sm" onclick={() => { ssh.panel = { kind: "convert", path: key.path }; }}>
-                  <ArrowRightLeft size={14} aria-hidden="true" />{t("keysConvert")}
-                </button>
+                {#if readable(key.algorithm)}
+                  <button class="btn sm" aria-expanded={asking === "test"} onclick={() => (asking = asking === "test" ? "" : "test")}>
+                    <FlaskConical size={14} aria-hidden="true" />{t("keysTest")}
+                  </button>
+                  <button class="btn sm" onclick={() => { ssh.panel = { kind: "convert", path: key.path }; }}>
+                    <ArrowRightLeft size={14} aria-hidden="true" />{t("keysConvert")}
+                  </button>
+                {/if}
               {/if}
             </div>
 

@@ -136,6 +136,15 @@ impl Curve {
         })
     }
 
+    /// Bytes of a scalar or coordinate.
+    fn size(self) -> usize {
+        match self {
+            Curve::P256 => 32,
+            Curve::P384 => 48,
+            Curve::P521 => 66,
+        }
+    }
+
     fn jwk(self) -> &'static str {
         match self {
             Curve::P256 => "P-256",
@@ -787,6 +796,27 @@ pub(crate) fn parse(text: &str, pass: Option<&str>) -> Result<Parsed> {
     }
 }
 
+/// Whether `text` holds a private key stored in clear, even one `parse` cannot read (DSA, `-sk`).
+pub(crate) fn plain_private(text: &str) -> bool {
+    let Some((label, block)) = pem_block(text, "PRIVATE KEY") else {
+        return false;
+    };
+    if label != "OPENSSH PRIVATE KEY" {
+        return !label.starts_with("ENCRYPTED") && !block.contains("Proc-Type:");
+    }
+    // openssh-key-v1: magic, then the cipher name, "none" when the key is not encrypted.
+    let body: String = block
+        .lines()
+        .filter(|l| !l.starts_with("-----"))
+        .flat_map(|l| l.chars().filter(|c| !c.is_whitespace()))
+        .collect();
+    let Ok(bytes) = base64ct::Base64::decode_vec(&body).map(Zeroizing::new) else {
+        return false;
+    };
+    let rest = bytes.strip_prefix(b"openssh-key-v1\0");
+    rest.and_then(|r| r.get(..8)) == Some(&[0, 0, 0, 4, b'n', b'o', b'n', b'e'][..])
+}
+
 /// The public half of any supported format (or of a private key file), as DER SPKI.
 pub(crate) fn parse_public(text: &str) -> Result<Vec<u8>> {
     let text = text.trim_start_matches('\u{feff}').trim();
@@ -897,7 +927,11 @@ fn jwk_secret(jwk: &serde_json::Map<String, Value>) -> Result<Secret> {
         ("EC", crv) => {
             let curve =
                 jwk_curve(crv).context("unsupported JWK curve: P-256, P-384 or P-521 only")?;
-            let d = jwk_bytes(jwk, "d")?;
+            // Some producers drop leading zero bytes: stored full length, as RFC 7518 writes it.
+            let short = jwk_bytes(jwk, "d")?;
+            ensure!(short.len() <= curve.size(), "\"d\" has the wrong length");
+            let mut d = Zeroizing::new(vec![0u8; curve.size()]);
+            d[curve.size() - short.len()..].copy_from_slice(&short);
             Secret::ec_point(curve, &d).map_err(|_| anyhow!("\"d\" is not a valid private key"))?;
             Secret::Ec(curve, d)
         }

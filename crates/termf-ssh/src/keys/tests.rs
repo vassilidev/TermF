@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 use base64ct::Encoding;
 
 use super::*;
-use crate::formats::{parse, parse_public, thumbprint};
+use crate::formats::{self, parse, parse_public, thumbprint};
 
 const ALGOS: [Algo; 8] = [
     Algo::Ed25519,
@@ -435,9 +437,17 @@ fn exports_where_the_user_said_and_nowhere_else() {
     );
 }
 
+/// Remembers what `made` wrote, as the app does: those files become readable.
+fn remember(made: &Generated, allowed: &mut HashSet<PathBuf>) {
+    for path in made.files.iter().filter_map(|f| f.path.as_ref()) {
+        allowed.insert(Path::new(path).canonicalize().unwrap());
+    }
+}
+
 #[test]
 fn converts_reveals_and_tests_a_key() {
     let (ssh, out) = scratch("convert");
+    let mut allowed = HashSet::new();
     let key = ssh
         .generate(
             "id_ed25519",
@@ -450,20 +460,20 @@ fn converts_reveals_and_tests_a_key() {
 
     // Reveal: an encrypted key needs its passphrase, and comes out decrypted in its own format.
     assert_eq!(
-        locked(ssh.reveal(&key, None).unwrap_err()),
+        locked(ssh.reveal(&key, None, &allowed).unwrap_err()),
         Locked::NeedsPassphrase
     );
     assert_eq!(
-        locked(ssh.reveal(&key, Some("no")).unwrap_err()),
+        locked(ssh.reveal(&key, Some("no"), &allowed).unwrap_err()),
         Locked::WrongPassphrase
     );
-    let clear = ssh.reveal(&key, Some("pw")).unwrap();
+    let clear = ssh.reveal(&key, Some("pw"), &allowed).unwrap();
     assert!(clear.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----"));
     let parsed = parse(&clear, None).unwrap();
     assert!(!parsed.encrypted);
     assert_eq!(parsed.comment, "alex@laptop");
 
-    // Convert to PuTTY, then test the result and its .pub.
+    // Convert to PuTTY, then test the result against its .pub.
     let made = ssh
         .convert(
             &key,
@@ -472,8 +482,10 @@ fn converts_reveals_and_tests_a_key() {
                 comment: String::new(),
                 ..spec(Usage::Ssh, Format::Ppk, "laptop", None, Some(&out))
             },
+            &allowed,
         )
         .unwrap();
+    remember(&made, &mut allowed);
     let ppk = made.files[0].path.clone().unwrap();
     assert!(ppk.ends_with("laptop.ppk"));
     assert!(
@@ -484,14 +496,25 @@ fn converts_reveals_and_tests_a_key() {
             .ends_with(" alex@laptop\n"),
         "the key's comment is kept"
     );
-    let unencrypted = ssh.reveal(&ppk, None).unwrap();
+    let unencrypted = ssh.reveal(&ppk, None, &allowed).unwrap();
     assert_eq!(
         *unencrypted,
         fs::read_to_string(&ppk).unwrap(),
         "a key without passphrase is shown as it is"
     );
+    let checks = ssh.test(&ppk, None, None, &allowed).unwrap();
+    let kinds: Vec<_> = checks.iter().map(|c| (c.kind, c.ok)).collect();
+    assert_eq!(
+        kinds,
+        [
+            (CheckKind::Read, true),
+            (CheckKind::Pair, true),
+            (CheckKind::Signature, true)
+        ]
+    );
+    assert_eq!(checks[1].detail.as_deref(), Some("laptop.pub"));
 
-    let checks = ssh.test(&key, Some("pw"), None).unwrap();
+    let checks = ssh.test(&key, Some("pw"), None, &allowed).unwrap();
     let kinds: Vec<_> = checks.iter().map(|c| (c.kind, c.ok)).collect();
     assert_eq!(
         kinds,
@@ -505,7 +528,7 @@ fn converts_reveals_and_tests_a_key() {
     assert_eq!(checks[0].detail.as_deref(), Some("Ed25519"));
     assert_eq!(checks[2].detail.as_deref(), Some("id_ed25519.pub"));
     assert_eq!(
-        ssh.test(&key, Some("no"), None).unwrap(),
+        ssh.test(&key, Some("no"), None, &allowed).unwrap(),
         [check(
             CheckKind::Passphrase,
             false,
@@ -521,14 +544,15 @@ fn converts_reveals_and_tests_a_key() {
             &spec(Usage::Sign, Format::Pkcs8, "other", None, Some(&out)),
         )
         .unwrap();
+    remember(&other, &mut allowed);
     let public = other.files[1].path.clone().unwrap();
-    let checks = ssh.test(&key, Some("pw"), Some(&public)).unwrap();
+    let checks = ssh.test(&key, Some("pw"), Some(&public), &allowed).unwrap();
     assert_eq!(
         checks[2],
         check(CheckKind::Pair, false, Some("other.pub.pem".into()), None)
     );
     let pem = other.files[0].path.clone().unwrap();
-    let checks = ssh.test(&pem, None, None).unwrap();
+    let checks = ssh.test(&pem, None, None, &allowed).unwrap();
     assert!(checks.iter().all(|c| c.ok), "{checks:?}");
     assert_eq!(
         checks[1].detail.as_deref(),
@@ -542,23 +566,124 @@ fn converts_reveals_and_tests_a_key() {
             &spec(Usage::Encrypt, Format::Jwk, "box", None, Some(&out)),
         )
         .unwrap();
+    remember(&x, &mut allowed);
     let checks = ssh
-        .test(x.files[0].path.as_ref().unwrap(), None, None)
+        .test(x.files[0].path.as_ref().unwrap(), None, None, &allowed)
         .unwrap();
     assert_eq!(checks.last().unwrap().kind, CheckKind::Agreement);
     assert!(checks.iter().all(|c| c.ok), "{checks:?}");
 
     // Something that is not a key: a clear failure, without its content.
-    fs::write(out.join("notes.txt"), "dear diary").unwrap();
+    let notes = out.join("notes.txt");
+    fs::write(&notes, "dear diary").unwrap();
+    allowed.insert(notes.canonicalize().unwrap());
     let checks = ssh
-        .test(&out.join("notes.txt").to_string_lossy(), None, None)
+        .test(&notes.to_string_lossy(), None, None, &allowed)
         .unwrap();
     assert_eq!(
         (checks.len(), checks[0].kind, checks[0].ok),
         (1, CheckKind::Read, false)
     );
     assert!(!checks[0].error.as_ref().unwrap().contains("diary"));
-    assert!(ssh.reveal("relative/key", None).is_err());
+    assert!(ssh.reveal("relative/key", None, &allowed).is_err());
+
+    // A key TermF cannot read is still shown when it is in clear, never when it is encrypted.
+    let dsa = ssh.dir().join("id_dsa");
+    fs::write(
+        &dsa,
+        "-----BEGIN DSA PRIVATE KEY-----\nMIIBuw==\n-----END DSA PRIVATE KEY-----\n",
+    )
+    .unwrap();
+    let dsa = dsa.to_string_lossy().into_owned();
+    assert!(
+        ssh.reveal(&dsa, None, &allowed)
+            .unwrap()
+            .contains("DSA PRIVATE KEY")
+    );
+    let encrypted = fs::read_to_string(&key).unwrap();
+    assert!(!formats::plain_private(&encrypted));
+    assert!(formats::plain_private(&clear));
+}
+
+#[test]
+fn reads_only_keys_in_ssh_written_or_picked() {
+    let (ssh, out) = scratch("allowed");
+    let mut allowed = HashSet::new();
+    let made = ssh
+        .create(
+            Algo::P256,
+            &spec(Usage::Tls, Format::Pkcs8, "tls", None, Some(&out)),
+        )
+        .unwrap();
+    let private = made.files[0].path.clone().unwrap();
+    let refused = |e: anyhow::Error| format!("{e:#}").contains("was not picked");
+    // Outside ~/.ssh and neither written nor picked this session: refused by every command.
+    assert!(refused(ssh.reveal(&private, None, &allowed).unwrap_err()));
+    assert!(refused(
+        ssh.test(&private, None, None, &allowed).unwrap_err()
+    ));
+    let jwk = spec(Usage::Sign, Format::Jwk, "copy", None, None);
+    assert!(refused(
+        ssh.convert(&private, None, &jwk, &allowed).unwrap_err()
+    ));
+    remember(&made, &mut allowed);
+    assert!(ssh.reveal(&private, None, &allowed).is_ok());
+    assert!(ssh.convert(&private, None, &jwk, &allowed).is_ok());
+
+    // Inside ~/.ssh nothing needs picking; the public file of a test goes through the same gate.
+    let key = ssh
+        .generate("id", crate::KeyType::Ed25519, "", None)
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let none = HashSet::new();
+    assert!(ssh.reveal(&key, None, &none).is_ok());
+    let elsewhere = made.files[1].path.clone().unwrap();
+    assert!(refused(
+        ssh.test(&key, None, Some(&elsewhere), &none).unwrap_err()
+    ));
+
+    // A symlink in ~/.ssh leading out counts as the file it leads to.
+    #[cfg(unix)]
+    {
+        let link = ssh.dir().join("outside");
+        std::os::unix::fs::symlink(&private, &link).unwrap();
+        assert!(refused(
+            ssh.reveal(&link.to_string_lossy(), None, &none)
+                .unwrap_err()
+        ));
+    }
+}
+
+#[test]
+fn a_failed_write_leaves_no_file() {
+    let (ssh, out) = scratch("half");
+    let secret = Secret::random(Algo::Ed25519).unwrap();
+    let outputs = secret.encode(Format::Pkcs8, "", None, Usage::Sign).unwrap();
+    let calls = std::cell::Cell::new(0);
+    let error = write_all(&out, "k", &outputs, |file, bytes| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 2 {
+            file.write_all(&bytes[..10])?;
+            return Err(std::io::Error::other("disk full"));
+        }
+        fill(file, bytes)
+    })
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("disk full"));
+    assert_eq!(
+        fs::read_dir(&out).unwrap().count(),
+        0,
+        "neither the written file nor the half-written one is left"
+    );
+    // Nothing that can fail runs after the files are written.
+    let made = ssh
+        .create(
+            Algo::Ed25519,
+            &spec(Usage::Sign, Format::Jwk, "k", None, Some(&out)),
+        )
+        .unwrap();
+    assert_eq!(made.files.iter().filter(|f| f.path.is_some()).count(), 2);
 }
 
 #[test]
@@ -573,6 +698,12 @@ fn finds_the_public_file_next_to_a_key() {
         "k.pub.jwk.json",
         "p.ppk",
         "p.pub",
+        "api.prod",
+        "api.prod.pub",
+        "api.prod.pem",
+        "api.prod.pub.pem",
+        "api.prod.jwks.json",
+        "api.prod.pub.jwks.json",
     ] {
         fs::write(out.join(name), "").unwrap();
     }
@@ -581,7 +712,37 @@ fn finds_the_public_file_next_to_a_key() {
     assert_eq!(sibling("a.pem").as_deref(), Some("a.pub.pem"));
     assert_eq!(sibling("k.jwk.json").as_deref(), Some("k.pub.jwk.json"));
     assert_eq!(sibling("p.ppk").as_deref(), Some("p.pub"));
+    assert_eq!(sibling("api.prod").as_deref(), Some("api.prod.pub"));
+    assert_eq!(sibling("api.prod.pem").as_deref(), Some("api.prod.pub.pem"));
+    assert_eq!(
+        sibling("api.prod.jwks.json").as_deref(),
+        Some("api.prod.pub.jwks.json")
+    );
     assert_eq!(sibling("id.pub"), None);
+}
+
+#[test]
+fn a_short_jwk_d_is_padded() {
+    let mut d = Zeroizing::new(vec![0u8; 32]);
+    for (i, b) in d.iter_mut().enumerate() {
+        *b = i as u8;
+    }
+    let secret = Secret::Ec(formats::Curve::P256, d);
+    let jwk = secret
+        .encode(Format::Jwk, "", None, Usage::Sign)
+        .unwrap()
+        .remove(0)
+        .text;
+    let full = base64ct::Base64UrlUnpadded::encode_string(&(0..32u8).collect::<Vec<_>>());
+    let short = base64ct::Base64UrlUnpadded::encode_string(&(1..32u8).collect::<Vec<_>>());
+    let parsed = parse(&jwk.replace(&full, &short), None).unwrap().secret;
+    assert_eq!(parsed.spki().unwrap(), secret.spki().unwrap());
+    let again = parsed
+        .encode(Format::Jwk, "", None, Usage::Sign)
+        .unwrap()
+        .remove(0)
+        .text;
+    assert!(again.contains(&full), "written back at full length");
 }
 
 #[test]

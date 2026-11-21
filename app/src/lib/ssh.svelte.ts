@@ -189,6 +189,11 @@ export function algorithm(name: string): string {
   return (base === "dss" ? "DSA" : base.toUpperCase()) + sk;
 }
 
+/** Whether TermF can test or convert a key of this algorithm: not DSA, Ed448 or a hardware (`sk-`) key. */
+export function readable(algorithm: string): boolean {
+  return !/^sk-|ssh-dss|ed448/.test(algorithm);
+}
+
 /** What `generate` accepts as a key name, and not taken yet. */
 export function nameError(name: string, keys: SshKey[]): "sshNameInvalid" | "sshNameTaken" | null {
   if (

@@ -1,7 +1,9 @@
 //! Keys of any format: generate, convert, reveal and test (architecture §12.7). An SSH key in OpenSSH
 //! format goes to `~/.ssh`; any other key goes only to the folder the user picked, or is only returned.
 
+use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, ensure};
@@ -11,7 +13,7 @@ use zeroize::Zeroizing;
 
 use crate::formats::{self, Output, Secret};
 pub use crate::formats::{Algo, Format, Locked, Usage};
-use crate::{MAX_KEY_BYTES, NOT_KEYS, Ssh, create_private_dir, write_new};
+use crate::{MAX_KEY_BYTES, NOT_KEYS, Ssh, create_private_dir};
 
 /// What to make of a key. No `Debug`: it holds the passphrase.
 #[derive(Deserialize, Clone)]
@@ -92,14 +94,8 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// A key file the UI names: absolute, small, text. Its content never appears in an error.
-fn read_key(path: &str) -> Result<Zeroizing<String>> {
-    let path = Path::new(path);
-    ensure!(
-        path.is_absolute(),
-        "{} is not an absolute path",
-        path.display()
-    );
+/// A key file: small, text. Its content never appears in an error.
+fn read_key(path: &Path) -> Result<Zeroizing<String>> {
     let meta = fs::metadata(path).with_context(|| format!("cannot open {}", path.display()))?;
     ensure!(
         meta.is_file() && meta.len() <= MAX_KEY_BYTES,
@@ -113,16 +109,24 @@ fn read_key(path: &str) -> Result<Zeroizing<String>> {
     Ok(Zeroizing::new(text.to_owned()))
 }
 
-/// The public file next to a private one: `id.pub`, `id.pub.pem` for `id.pem`, `id.pub` for `id.ppk`.
+/// The public file next to a private one, as `export` names them: `id.pub`, `api.prod.pub.pem` for
+/// `api.prod.pem`, `k.pub.jwk.json` for `k.jwk.json`, `id.pub` for `id.ppk`; else `<file>.pub`.
 fn sibling_public(private: &Path) -> Option<PathBuf> {
+    const SUFFIXES: [(&str, &str); 4] = [
+        (".jwks.json", ".pub.jwks.json"),
+        (".jwk.json", ".pub.jwk.json"),
+        (".pem", ".pub.pem"),
+        (".ppk", ".pub"),
+    ];
     let name = file_name(private);
-    let mut candidates = vec![format!("{name}.pub")];
-    if let Some((stem, ext)) = name.split_once('.') {
-        candidates.push(format!("{stem}.pub.{ext}"));
-    }
-    if let Some((stem, _)) = name.rsplit_once('.') {
-        candidates.push(format!("{stem}.pub"));
-    }
+    let mut candidates: Vec<String> = SUFFIXES
+        .iter()
+        .filter_map(|(private, public)| {
+            name.strip_suffix(private)
+                .map(|stem| format!("{stem}{public}"))
+        })
+        .collect();
+    candidates.push(format!("{name}.pub"));
     candidates
         .into_iter()
         .map(|c| private.with_file_name(c))
@@ -130,14 +134,37 @@ fn sibling_public(private: &Path) -> Option<PathBuf> {
 }
 
 impl Ssh {
+    /// A key file the UI may read: inside `~/.ssh` (a symlink leading out is refused), or one of
+    /// `allowed`, the canonical paths TermF wrote or the user picked in a dialog this session.
+    pub fn readable(&self, path: &str, allowed: &HashSet<PathBuf>) -> Result<PathBuf> {
+        if let Ok(inside) = self.resolve(path) {
+            return Ok(inside);
+        }
+        let canonical = Path::new(path)
+            .canonicalize()
+            .with_context(|| format!("cannot open {path}"))?;
+        ensure!(
+            allowed.contains(&canonical),
+            "{path} is outside {} and was not picked in this session: choose it with “Other file…”",
+            self.dir.display()
+        );
+        Ok(canonical)
+    }
+
     /// A new key of any algorithm, in `spec`'s format.
     pub fn create(&self, algorithm: Algo, spec: &Spec) -> Result<Generated> {
         self.export(&Secret::random(algorithm)?, spec)
     }
 
-    /// The key at `path`, in another format; an empty comment keeps the key's own.
-    pub fn convert(&self, path: &str, passphrase: Option<&str>, spec: &Spec) -> Result<Generated> {
-        let parsed = formats::parse(&read_key(path)?, passphrase)?;
+    /// The key at `path` (see `readable`), in another format; an empty comment keeps the key's own.
+    pub fn convert(
+        &self,
+        path: &str,
+        passphrase: Option<&str>,
+        spec: &Spec,
+        allowed: &HashSet<PathBuf>,
+    ) -> Result<Generated> {
+        let parsed = formats::parse(&read_key(&self.readable(path, allowed)?)?, passphrase)?;
         let mut spec = spec.clone();
         if spec.comment.trim().is_empty() {
             spec.comment = parsed.comment;
@@ -146,10 +173,20 @@ impl Ssh {
     }
 
     /// The private key in clear, on an explicit request: the file as it is, or decrypted with
-    /// `passphrase` and re-encoded in its own format.
-    pub fn reveal(&self, path: &str, passphrase: Option<&str>) -> Result<Zeroizing<String>> {
-        let text = read_key(path)?;
-        let parsed = formats::parse(&text, passphrase)?;
+    /// `passphrase` and re-encoded in its own format. A key TermF cannot read (DSA, `-sk`) is shown
+    /// as it is when it is not encrypted.
+    pub fn reveal(
+        &self,
+        path: &str,
+        passphrase: Option<&str>,
+        allowed: &HashSet<PathBuf>,
+    ) -> Result<Zeroizing<String>> {
+        let text = read_key(&self.readable(path, allowed)?)?;
+        let parsed = match formats::parse(&text, passphrase) {
+            Ok(parsed) => parsed,
+            Err(_) if formats::plain_private(&text) => return Ok(text),
+            Err(e) => return Err(e),
+        };
         if !parsed.encrypted {
             return Ok(text);
         }
@@ -168,8 +205,11 @@ impl Ssh {
         path: &str,
         passphrase: Option<&str>,
         public: Option<&str>,
+        allowed: &HashSet<PathBuf>,
     ) -> Result<Vec<Check>> {
-        let text = read_key(path)?;
+        let path = self.readable(path, allowed)?;
+        let public = public.map(|p| self.readable(p, allowed)).transpose()?;
+        let text = read_key(&path)?;
         let parsed = match formats::parse(&text, passphrase) {
             Ok(parsed) => parsed,
             Err(e) => {
@@ -185,15 +225,9 @@ impl Ssh {
         if parsed.encrypted {
             checks.push(check(CheckKind::Passphrase, true, None, None));
         }
-        let public = match public {
-            Some(public) => Some(PathBuf::from(public)),
-            None if parsed.format == Format::Ppk => None,
-            None => sibling_public(Path::new(path)),
-        };
-        if let Some(public) = public {
+        if let Some(public) = public.or_else(|| sibling_public(&path)) {
             let name = Some(file_name(&public));
-            let result =
-                read_key(&public.to_string_lossy()).and_then(|t| formats::parse_public(&t));
+            let result = read_key(&public).and_then(|t| formats::parse_public(&t));
             checks.push(match result {
                 Ok(der) => check(CheckKind::Pair, der == secret.spki()?, name, None),
                 Err(e) => check(CheckKind::Pair, false, name, Some(format!("{e:#}"))),
@@ -252,10 +286,7 @@ impl Ssh {
                 })
                 .transpose()?
         };
-        let written = match &dir {
-            Some(dir) => write_all(dir, name, &outputs)?,
-            None => Vec::new(),
-        };
+        // Everything that can fail comes before the files, so a failure leaves none behind.
         let fingerprint = secret
             .to_ssh()?
             .map(|pair| {
@@ -263,10 +294,15 @@ impl Ssh {
                     .map(|k| k.public_key().fingerprint(HashAlg::Sha256).to_string())
             })
             .transpose()?;
+        let kid = secret.thumbprint()?;
+        let written = match &dir {
+            Some(dir) => write_all(dir, name, &outputs, fill)?,
+            None => Vec::new(),
+        };
         Ok(Generated {
             algorithm: secret.label(),
             fingerprint,
-            kid: secret.thumbprint()?,
+            kid,
             files: outputs
                 .into_iter()
                 .enumerate()
@@ -292,8 +328,19 @@ impl Ssh {
     }
 }
 
-/// Every file or none: nothing is overwritten, and a failure removes what this call created.
-fn write_all(dir: &Path, name: &str, outputs: &[Output]) -> Result<Vec<PathBuf>> {
+fn fill(file: &mut fs::File, bytes: &[u8]) -> std::io::Result<()> {
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+/// Every file or none: nothing is overwritten, and a failure removes every file this call created,
+/// the half-written one included. `fill` writes a file's content.
+fn write_all(
+    dir: &Path,
+    name: &str,
+    outputs: &[Output],
+    fill: impl Fn(&mut fs::File, &[u8]) -> std::io::Result<()>,
+) -> Result<Vec<PathBuf>> {
     let paths: Vec<PathBuf> = outputs
         .iter()
         .map(|o| dir.join(format!("{name}{}", o.suffix)))
@@ -305,16 +352,36 @@ fn write_all(dir: &Path, name: &str, outputs: &[Output]) -> Result<Vec<PathBuf>>
             path.display()
         );
     }
-    for (i, (path, output)) in paths.iter().zip(outputs).enumerate() {
+    let mut created: Vec<&PathBuf> = Vec::new();
+    for (path, output) in paths.iter().zip(outputs) {
         let mode = if output.secret { 0o600 } else { 0o644 };
-        if let Err(e) = write_new(path, output.text.as_bytes(), mode) {
-            for done in &paths[..i] {
+        let result = create_new(path, mode).and_then(|mut file| {
+            created.push(path);
+            fill(&mut file, output.text.as_bytes())
+                .with_context(|| format!("cannot write {}", path.display()))
+        });
+        if let Err(e) = result {
+            for done in &created {
                 let _ = fs::remove_file(done);
             }
             return Err(e);
         }
     }
     Ok(paths)
+}
+
+#[cfg_attr(not(unix), allow(unused_variables))]
+fn create_new(path: &Path, mode: u32) -> Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(mode);
+    }
+    options
+        .open(path)
+        .with_context(|| format!("cannot create {}", path.display()))
 }
 
 #[cfg(test)]

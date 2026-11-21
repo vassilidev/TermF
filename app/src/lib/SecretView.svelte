@@ -23,24 +23,32 @@
   let busy = $state(false);
   let error = $state("");
   let timer: ReturnType<typeof setInterval> | undefined;
+  /** Bumped by every reveal and hide: a reveal answered after a hide (or a newer reveal) is dropped. */
+  let request = 0;
+  let gone = false;
 
   function hide() {
+    request++;
     clearInterval(timer);
     text = "";
     left = 0;
   }
 
   async function reveal() {
+    const asked = ++request;
     busy = true;
     error = "";
     try {
-      text = await load(encrypted ? passphrase : null);
+      const key = await load(encrypted ? passphrase : null);
+      if (asked !== request || gone || files.view !== "ssh") return;
+      text = key;
       left = SHOW_FOR;
       clearInterval(timer);
       timer = setInterval(() => {
         if (--left <= 0) hide();
       }, 1000);
     } catch (e) {
+      if (asked !== request || gone) return;
       error = /wrong passphrase/.test(String(e)) ? t("keysCheckPassphraseFailed") : String(e);
     } finally {
       passphrase = "";
@@ -52,7 +60,10 @@
   $effect(() => {
     if (files.view !== "ssh") hide();
   });
-  onDestroy(hide);
+  onDestroy(() => {
+    gone = true;
+    hide();
+  });
 </script>
 
 {#if text}
