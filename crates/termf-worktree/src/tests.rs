@@ -1363,6 +1363,7 @@ fn never_copies_the_repository_worktrees_into_a_new_one() {
             name,
             &[(".gitignore", ignore), (".claude/notes.md", "{}\n")],
         );
+        fs::create_dir_all(app.join(".git/info")).unwrap();
         fs::write(app.join(".git/info/exclude"), "/.claude/worktrees/\n").unwrap();
         let nested = |branch: &str| {
             let path = app.join(".claude/worktrees").join(branch);

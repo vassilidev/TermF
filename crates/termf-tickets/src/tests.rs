@@ -616,6 +616,7 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     // In the repository, as Claude Code's own worktrees, so its sessions inherit the trust given to it; hidden
     // from git by the repository's local exclude file, whose last line had no newline.
     let exclude = front.join(".git/info/exclude");
+    fs::create_dir_all(exclude.parent().unwrap()).unwrap();
     fs::write(&exclude, "*.log").unwrap();
     let launch = t
         .start("https://github.com/acme/front/issues/42", None, None)
@@ -1107,7 +1108,7 @@ fn keeps_worktrees_in_the_data_folder_when_asked_and_closes_both_kinds() {
         let preview = t.deliver_preview(id).unwrap();
         t.deliver(id, &preview.fingerprint).unwrap();
     };
-    let exclude = || fs::read_to_string(front.join(".git/info/exclude")).unwrap();
+    let exclude = || fs::read_to_string(front.join(".git/info/exclude")).unwrap_or_default();
 
     place("data");
     let (closed, closed_tree) = start();
