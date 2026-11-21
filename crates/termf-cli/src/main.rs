@@ -13,6 +13,7 @@ use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
 mod ssh;
+mod sync;
 
 const USAGE: &str = "\
 usage:
@@ -40,6 +41,17 @@ usage:
   termf ssh assign <key> [<repo>]       make a repository (default: here) use only this key
   termf ssh assign --none [<repo>]      back to the default keys
   termf ssh trash <key>                 move a key to ~/.ssh/.termf-trash
+  termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions]
+                                        sync this machine's config, encrypted, through a remote
+  termf sync status                     remote, last sync, conflicts, missing repositories
+  termf sync push | pull                sync now (pull only brings changes in)
+  termf sync resolve <path> --local|--remote
+                                        settle a conflict
+  termf sync devices                    machines syncing, and when they last did
+  termf sync change-password            re-encrypt everything; other machines need the new password
+  termf sync recover                    set a new password with the recovery key
+  termf sync scopes <list>              choose what syncs: config, projects, conventions
+  termf sync disable                    stop syncing on this machine
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -117,6 +129,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["library", rest @ ..] => library(rest.to_vec())?,
         ["config", rest @ ..] => config(rest.to_vec())?,
         ["ssh", rest @ ..] => ssh::run(rest)?,
+        ["sync", rest @ ..] => sync::run(rest)?,
         ["-h" | "--help" | "help"] => println!("{USAGE}"),
         _ => bail!(USAGE),
     }

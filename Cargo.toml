@@ -27,6 +27,13 @@ opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
 
+# Same for the sync password's Argon2id (64 MiB).
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = true
