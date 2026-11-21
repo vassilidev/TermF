@@ -238,24 +238,23 @@ pub fn agent_remove(key: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `host` comes from the UI: it can never be read as an option.
-pub fn test_host(host: &str) -> Result<HostTest> {
+/// `host` comes from the UI: it can never be read as an option. With `identity`, only that key is offered.
+pub fn test_host(host: &str, identity: Option<&Path>) -> Result<HostTest> {
     ensure!(
         !host.is_empty()
             && !host.starts_with('-')
             && !host.contains(|c: char| c.is_whitespace() || c.is_control()),
         "invalid host {host:?}"
     );
-    let out = command("ssh")
-        .args([
-            "-T",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=10",
-            "--",
-            host,
-        ])
+    let mut cmd = command("ssh");
+    cmd.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]);
+    if let Some(identity) = identity {
+        cmd.arg("-i")
+            .arg(identity)
+            .args(["-o", "IdentitiesOnly=yes"]);
+    }
+    let out = cmd
+        .args(["--", host])
         .stdin(Stdio::null())
         .output()
         .context("cannot run ssh")?;
@@ -506,6 +505,82 @@ fn ssh_host(url: &str) -> Option<String> {
         None => return None,
     };
     (!host.is_empty()).then(|| host.to_owned())
+}
+
+/// What a copied secret is compared on: line endings and trailing blanks change on the way through
+/// some clipboards (Windows turns LF into CRLF).
+pub fn clipboard_digest(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let normalized = Zeroizing::new(text.replace('\r', ""));
+    Sha256::digest(normalized.trim_end())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Empties the clipboard if it still holds the text whose `clipboard_digest` is `digest`, so a copied
+/// private key does not linger, while anything copied since is left alone. Returns whether it was emptied.
+pub fn clipboard_clear(digest: &str) -> Result<bool> {
+    // (read, clear) commands; the clear ones get an empty stdin.
+    let tools: &[(&[&str], &[&str])] = if cfg!(target_os = "macos") {
+        &[(&["pbpaste"], &["pbcopy"])]
+    } else if cfg!(windows) {
+        &[(
+            &[
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-Clipboard -Raw",
+            ],
+            &["clip"],
+        )]
+    } else {
+        &[
+            (&["wl-paste", "--no-newline"], &["wl-copy", "--clear"]),
+            (
+                &["xclip", "-selection", "clipboard", "-o"],
+                &["xclip", "-selection", "clipboard", "-i"],
+            ),
+            (
+                &["xsel", "--clipboard", "--output"],
+                &["xsel", "--clipboard", "--clear"],
+            ),
+        ]
+    };
+    let mut found = false;
+    for (read, clear) in tools {
+        let out = match command(read[0])
+            .args(&read[1..])
+            .stdin(Stdio::null())
+            .output()
+        {
+            Ok(out) => out,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).with_context(|| format!("cannot run {}", read[0])),
+        };
+        found = true;
+        // wl-paste outside Wayland, or an empty clipboard: the next tool may know better.
+        if !out.status.success() {
+            continue;
+        }
+        let content = Zeroizing::new(String::from_utf8_lossy(&out.stdout).into_owned());
+        if clipboard_digest(&content) != digest {
+            return Ok(false);
+        }
+        let status = command(clear[0])
+            .args(&clear[1..])
+            .stdin(Stdio::null())
+            .status()
+            .with_context(|| format!("cannot run {}", clear[0]))?;
+        ensure!(status.success(), "{} failed", clear[0]);
+        return Ok(true);
+    }
+    ensure!(
+        found,
+        "no clipboard tool found (wl-clipboard, xclip or xsel)"
+    );
+    Ok(false)
 }
 
 #[cfg(test)]

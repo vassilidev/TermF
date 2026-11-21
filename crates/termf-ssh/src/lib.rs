@@ -2,22 +2,26 @@
 //! repositories that use them. Private key contents never leave this crate: only public data is returned.
 
 mod config;
+mod formats;
+mod keys;
+mod ppk;
 mod tools;
 
 use std::fs;
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
 use ssh_key::public::KeyData;
-use ssh_key::rand_core::OsRng;
-use ssh_key::{Algorithm, EcdsaCurve, HashAlg, LineEnding, PrivateKey, PublicKey};
+use ssh_key::{EcdsaCurve, HashAlg, PrivateKey, PublicKey};
 use zeroize::Zeroizing;
 
 pub use config::{Host, HostEntry};
-pub use tools::{ASKPASS_ENV, Agent, AgentKey, HostTest, Remote, RepoKeys, askpass, test_host};
+pub use keys::{Algo, Check, CheckKind, Format, Generated, KeyFile, Locked, Spec, Usage};
+pub use tools::{
+    ASKPASS_ENV, Agent, AgentKey, HostTest, Remote, RepoKeys, askpass, clipboard_clear, test_host,
+};
 
 pub const TRASH: &str = ".termf-trash";
 
@@ -333,54 +337,26 @@ impl Ssh {
         comment: &str,
         passphrase: Option<&str>,
     ) -> Result<PathBuf> {
-        ensure!(
-            !name.is_empty()
-                && name.len() <= 100
-                && !name.starts_with('.')
-                && !name.ends_with(".pub")
-                && !NOT_KEYS.contains(&name)
-                && name
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "._-@+".contains(c)),
-            "invalid key name {name:?}: letters, digits and . _ - @ + only"
-        );
-        ensure!(
-            !comment.contains(|c: char| c.is_control()),
-            "the comment must fit on one line"
-        );
-        create_private_dir(&self.dir)?;
-        let private = self.dir.join(name);
-        let public = with_pub(&private);
-        for file in [&private, &public] {
-            ensure!(
-                fs::symlink_metadata(file).is_err(),
-                "{} already exists",
-                file.display()
-            );
-        }
-        let algorithm = match kind {
-            KeyType::Ed25519 => Algorithm::Ed25519,
-            KeyType::Ecdsa => Algorithm::Ecdsa {
-                curve: EcdsaCurve::NistP256,
-            },
-            KeyType::Rsa => Algorithm::Rsa {
-                hash: Some(HashAlg::Sha512),
-            },
+        let algo = match kind {
+            KeyType::Ed25519 => Algo::Ed25519,
+            KeyType::Ecdsa => Algo::P256,
+            KeyType::Rsa => Algo::Rsa4096,
         };
-        let mut key = PrivateKey::random(&mut OsRng, algorithm)?;
-        key.set_comment(comment);
-        let public_line = key.public_key().to_openssh()?;
-        if let Some(passphrase) = passphrase.filter(|p| !p.is_empty()) {
-            // OpenSSH's own format: aes256-ctr with a bcrypt-pbkdf key.
-            key = key.encrypt(&mut OsRng, passphrase)?;
-        }
-        write_new(&private, key.to_openssh(LineEnding::LF)?.as_bytes(), 0o600)?;
-        if let Err(e) = write_new(&public, format!("{public_line}\n").as_bytes(), 0o644) {
-            // Only the file just created is removed, so a failed generation leaves nothing behind.
-            let _ = fs::remove_file(&private);
-            return Err(e);
-        }
-        Ok(private)
+        let spec = Spec {
+            usage: Usage::Ssh,
+            format: Format::Openssh,
+            name: name.into(),
+            comment: comment.into(),
+            passphrase: passphrase.map(str::to_owned),
+            dir: None,
+        };
+        let generated = self.create(algo, &spec)?;
+        Ok(PathBuf::from(
+            generated.files[0]
+                .path
+                .as_ref()
+                .expect("OpenSSH keys are written"),
+        ))
     }
 
     pub fn agent_add(
@@ -773,22 +749,6 @@ fn create_private_dir(dir: &Path) -> Result<()> {
     builder
         .create(dir)
         .with_context(|| format!("cannot create {}", dir.display()))
-}
-
-#[cfg_attr(not(unix), allow(unused_variables))]
-fn write_new(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(mode);
-    }
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("cannot create {}", path.display()))?;
-    file.write_all(bytes)?;
-    Ok(file.sync_all()?)
 }
 
 #[cfg(test)]

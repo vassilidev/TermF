@@ -30,7 +30,7 @@ import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
 import { files, isMac, showFiles } from "$lib/files.svelte";
 import { exportConfig, importConfig, library, showLibrary } from "$lib/library.svelte";
-import { generateKey, showSsh } from "$lib/ssh.svelte";
+import { generateKey, newKey, showSsh } from "$lib/ssh.svelte";
 import {
   app,
   load,
@@ -289,6 +289,7 @@ export function commands(): Command[] {
     { id: "config-export", label: t("configExportLong"), icon: FileDown, run: exportConfig },
     { id: "config-import", label: t("configImportLong"), icon: FileUp, run: importConfig },
     { id: "ssh-generate", label: t("sshGenerateLong"), icon: KeyRound, run: generateKey },
+    { id: "keys-generate", label: t("keysGenerateLong"), icon: KeyRound, run: newKey },
   );
   list.push({ id: "reload", label: t("reload"), icon: RefreshCw, run: load });
   return list;

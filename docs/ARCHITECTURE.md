@@ -906,7 +906,7 @@ Pour chaque clé :
 
 **Implémentation** : le parsing et les empreintes passent par la crate `ssh-key` (RustCrypto). La génération et l'agent passent par les `ssh-keygen` / `ssh-add` du système (présents sous macOS, Linux et Windows 10+), pour une compatibilité maximale.
 
-**Sécurité** : le contenu d'une clé privée n'est jamais affiché, jamais envoyé à la webview et jamais lisible par un agent (règles `deny`, §12.2). La synchronisation des clés (§5.4) est optionnelle et chiffrée.
+**Sécurité** : le contenu d'une clé privée n'est affiché et envoyé à la webview que sur révélation explicite (§12.6), masqué de nouveau après un délai, et jamais lisible par un agent (règles `deny`, §12.2). La synchronisation des clés (§5.4) est optionnelle et chiffrée.
 
 ---
 

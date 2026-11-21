@@ -1,10 +1,41 @@
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 use termf_files::Files;
-use termf_ssh::{HostEntry, HostPreview, HostTest, Inventory, KeyType, Rotation, Ssh};
+use termf_ssh::{
+    Algo, Check, Generated, HostEntry, HostPreview, HostTest, Inventory, KeyType, Rotation, Spec,
+    Ssh,
+};
 
 use crate::{CmdResult, api, err};
+
+/// Key files outside ~/.ssh the key commands may read: those TermF wrote, or the user picked in a native
+/// dialog, during this session (canonical paths). The webview cannot add to it.
+#[derive(Default)]
+pub struct KeyFiles(Mutex<HashSet<PathBuf>>);
+
+impl KeyFiles {
+    fn allowed(&self) -> HashSet<PathBuf> {
+        self.0.lock().map(|set| set.clone()).unwrap_or_default()
+    }
+
+    fn remember(&self, paths: impl IntoIterator<Item = PathBuf>) {
+        if let Ok(mut set) = self.0.lock() {
+            set.extend(paths.into_iter().filter_map(|p| p.canonicalize().ok()));
+        }
+    }
+
+    fn remember_written(&self, made: &Generated) {
+        self.remember(
+            made.files
+                .iter()
+                .filter_map(|f| f.path.as_ref().map(PathBuf::from)),
+        );
+    }
+}
 
 /// Every command runs on the blocking pool: they read ~/.ssh, run ssh, git or gh, or generate keys.
 async fn blocking<T: Send + 'static>(
@@ -74,9 +105,87 @@ pub async fn ssh_assign(
     blocking(move |ssh| ssh.assign(&termf_ssh::known_repo(&repo, &known)?, path.as_deref())).await
 }
 
+/// With `path`, only that key is offered.
 #[tauri::command]
-pub async fn ssh_test(host: String) -> CmdResult<HostTest> {
-    blocking(move |_| termf_ssh::test_host(&host)).await
+pub async fn ssh_test(host: String, path: Option<String>) -> CmdResult<HostTest> {
+    blocking(move |ssh| ssh.test_host(&host, path.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn keys_generate(
+    keys: State<'_, KeyFiles>,
+    algorithm: Algo,
+    spec: Spec,
+) -> CmdResult<Generated> {
+    let made = blocking(move |ssh| ssh.create(algorithm, &spec)).await?;
+    keys.remember_written(&made);
+    Ok(made)
+}
+
+/// `path`: in ~/.ssh, written by TermF or picked with `keys_pick_file`, like every key command below.
+#[tauri::command]
+pub async fn keys_convert(
+    keys: State<'_, KeyFiles>,
+    path: String,
+    passphrase: Option<String>,
+    spec: Spec,
+) -> CmdResult<Generated> {
+    let allowed = keys.allowed();
+    let made =
+        blocking(move |ssh| ssh.convert(&path, passphrase.as_deref(), &spec, &allowed)).await?;
+    keys.remember_written(&made);
+    Ok(made)
+}
+
+/// The private key in clear: only on the user's explicit request.
+#[tauri::command]
+pub async fn keys_reveal(
+    keys: State<'_, KeyFiles>,
+    path: String,
+    passphrase: Option<String>,
+) -> CmdResult<String> {
+    let allowed = keys.allowed();
+    blocking(move |ssh| {
+        Ok(ssh
+            .reveal(&path, passphrase.as_deref(), &allowed)?
+            .to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn keys_test(
+    keys: State<'_, KeyFiles>,
+    path: String,
+    passphrase: Option<String>,
+    public: Option<String>,
+) -> CmdResult<Vec<Check>> {
+    let allowed = keys.allowed();
+    blocking(move |ssh| ssh.test(&path, passphrase.as_deref(), public.as_deref(), &allowed)).await
+}
+
+/// A key file chosen in the native dialog, which the key commands may then read. `None`: cancelled.
+#[tauri::command]
+pub async fn keys_pick_file(
+    app: AppHandle,
+    keys: State<'_, KeyFiles>,
+) -> CmdResult<Option<String>> {
+    let picked =
+        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_file())
+            .await
+            .map_err(|e| e.to_string())?;
+    let Some(path) = picked else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    keys.remember([path.clone()]);
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Returns whether the clipboard still held the copied secret and was emptied.
+#[tauri::command]
+pub async fn keys_clipboard_clear(digest: String) -> CmdResult<bool> {
+    blocking(move |_| termf_ssh::clipboard_clear(&digest)).await
 }
 
 /// Returns the files whose permissions changed.

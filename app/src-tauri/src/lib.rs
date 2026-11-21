@@ -188,6 +188,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(Files::default()))
+        .manage(ssh::KeyFiles::default())
         .plugin(quick_terminal::plugin())
         // One setup: a second call to `setup` would replace this one.
         .setup(move |app| {
@@ -291,6 +292,12 @@ pub fn run() {
             ssh::ssh_fix_permissions,
             ssh::ssh_rotate,
             ssh::ssh_trash,
+            ssh::keys_generate,
+            ssh::keys_convert,
+            ssh::keys_reveal,
+            ssh::keys_test,
+            ssh::keys_clipboard_clear,
+            ssh::keys_pick_file,
             sync::sync_status,
             sync::sync_probe,
             sync::sync_setup,
