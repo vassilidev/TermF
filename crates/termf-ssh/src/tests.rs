@@ -248,12 +248,33 @@ fn guards_paths_from_the_ui() {
 
     #[cfg(unix)]
     {
-        use std::os::unix::fs::symlink;
-        ssh.generate("real", KeyType::Ed25519, "", None).unwrap();
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let real = ssh.generate("real", KeyType::Ed25519, "", None).unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o644)).unwrap();
         symlink(&outside, ssh.dir.join("leak")).unwrap();
-        symlink(ssh.dir.join("real"), ssh.dir.join("alias")).unwrap();
+        symlink(&real, ssh.dir.join("alias")).unwrap();
         assert!(ssh.resolve("leak").is_err(), "symlink out of ~/.ssh");
-        assert!(ssh.resolve("alias").is_ok(), "symlink within ~/.ssh");
+        assert_eq!(
+            ssh.resolve("alias").unwrap(),
+            ssh.dir.join("alias"),
+            "a symlink within ~/.ssh is used as the entry it is"
+        );
+        let (keys, problems) = ssh.scan();
+        assert!(keys.iter().all(|k| k.name != "leak"));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.path.ends_with("leak") && p.error.contains("outside")),
+            "{problems:?}"
+        );
+        assert!(find(&keys, "real").too_open);
+        assert!(
+            !find(&keys, "alias").too_open,
+            "fix permissions never touches a symlink, so it is not reported"
+        );
+        ssh.fix_permissions().unwrap();
+        assert!(!find(&ssh.scan().0, "real").too_open);
+
         let lone = ssh.generate("lone", KeyType::Ed25519, "", None).unwrap();
         fs::remove_file(with_pub(&lone)).unwrap();
         symlink(&outside, with_pub(&lone)).unwrap();
@@ -263,6 +284,14 @@ fn guards_paths_from_the_ui() {
             outside.exists(),
             "a sibling symlinked out of ~/.ssh is left alone"
         );
+
+        // A .pub that is a link to its own key: both entries go, once each.
+        let twin = ssh.generate("twin", KeyType::Ed25519, "", None).unwrap();
+        fs::remove_file(with_pub(&twin)).unwrap();
+        symlink("twin", with_pub(&twin)).unwrap();
+        let trashed = ssh.trash("twin.pub").unwrap();
+        assert!(fs::symlink_metadata(trashed.join("twin.pub")).is_ok());
+        assert!(trashed.join("twin").is_file() && !twin.exists());
     }
 
     let repo = ssh.home.join("repo");
@@ -454,6 +483,100 @@ fn adds_a_host_before_the_catch_all() {
 }
 
 #[test]
+fn quotes_values_so_openssh_reads_them_back() {
+    let ssh = scratch("quotes");
+    let entry = HostEntry {
+        alias: "box".into(),
+        user: Some("o'neil".into()),
+        identity_file: Some("~/.ssh/my key".into()),
+        ..Default::default()
+    };
+    let text = upsert("", &entry).unwrap();
+    assert_eq!(
+        text,
+        "Host box\n  User \"o'neil\"\n  IdentityFile \"~/.ssh/my key\"\n"
+    );
+    fs::write(ssh.config(), &text).unwrap();
+    let hosts = config::hosts(&ssh.dir, &ssh.home);
+    assert_eq!(hosts[0].user.as_deref(), Some("o'neil"));
+    assert_eq!(
+        hosts[0].identity_files,
+        [ssh.dir.join("my key").to_string_lossy()]
+    );
+    // The system's ssh agrees (-G only prints the resolved options; -F skips every other config).
+    let out = Command::new("ssh")
+        .arg("-G")
+        .arg("-F")
+        .arg(ssh.config())
+        .arg("box")
+        .output()
+        .unwrap();
+    let resolved = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{out:?}");
+    assert!(resolved.contains("\nuser o'neil\n"), "{resolved}");
+    assert!(
+        resolved
+            .lines()
+            .any(|l| l.starts_with("identityfile ") && l.ends_with("my key")),
+        "{resolved}"
+    );
+
+    for value in ["say \"hi\"", r"DOMAIN\me"] {
+        let bad = HostEntry {
+            user: Some(value.into()),
+            ..entry.clone()
+        };
+        let error = upsert("", &bad).unwrap_err().to_string();
+        assert!(error.contains("edit the file by hand"), "{error}");
+    }
+}
+
+#[test]
+fn never_splits_a_shared_block_and_warns_about_earlier_ones() {
+    let ssh = scratch("shared");
+    ssh.generate("web", KeyType::Ed25519, "", None).unwrap();
+    let entry = HostEntry {
+        alias: "web".into(),
+        user: Some("deploy".into()),
+        identity_file: Some("web".into()),
+        ..Default::default()
+    };
+    let shared = "Host web db\n  User root\n";
+    let error = upsert(shared, &entry).unwrap_err().to_string();
+    assert!(
+        error.contains("line 1") && error.contains("Host web db"),
+        "{error}"
+    );
+    assert!(upsert("Host !web other\n  User x\n", &entry).is_ok());
+
+    fs::create_dir_all(ssh.dir.join("config.d")).unwrap();
+    fs::write(
+        ssh.dir.join("config.d/team"),
+        "Host web\n  HostName web.example.com\n",
+    )
+    .unwrap();
+    let config = "IdentityFile ~/.ssh/everywhere\nInclude config.d/*\n\nHost w*\n  User admin\n\nHost *\n  User fallback\n";
+    fs::write(ssh.config(), config).unwrap();
+    let preview = ssh.host_preview(&entry).unwrap();
+    assert!(preview.diff.contains("+Host web"), "{}", preview.diff);
+    let warnings = preview.warnings.join("\n");
+    assert_eq!(preview.warnings.len(), 3, "{warnings}");
+    assert!(
+        warnings.contains("also declared in") && warnings.contains("team:1"),
+        "{warnings}"
+    );
+    assert!(warnings.contains("gets User from `Host w*`"), "{warnings}");
+    assert!(
+        warnings.contains("before any Host") && warnings.contains("IdentityFile"),
+        "{warnings}"
+    );
+    assert!(
+        !warnings.contains("fallback") && !warnings.contains("`Host *`"),
+        "Host * comes after the new block"
+    );
+}
+
+#[test]
 fn saves_hosts_atomically() {
     let ssh = scratch("save");
     ssh.generate("id_work", KeyType::Ed25519, "", None).unwrap();
@@ -466,12 +589,13 @@ fn saves_hosts_atomically() {
     };
     let preview = ssh.host_preview(&entry).unwrap();
     assert!(
-        preview.contains("+  IdentityFile ~/.ssh/id_work"),
-        "{preview}"
+        preview.diff.contains("+  IdentityFile ~/.ssh/id_work"),
+        "{preview:?}"
     );
+    assert!(preview.warnings.is_empty());
     assert!(!ssh.config().exists(), "a preview writes nothing");
     ssh.host_save(&entry).unwrap();
-    assert_eq!(ssh.host_preview(&entry).unwrap(), "");
+    assert_eq!(ssh.host_preview(&entry).unwrap().diff, "");
     let hosts = config::hosts(&ssh.dir, &ssh.home);
     assert_eq!(
         hosts[0].identity_files,
@@ -591,7 +715,13 @@ fn rotates_a_key_and_keeps_the_old_one() {
     let old = ssh.generate("old", KeyType::Ed25519, "old", None).unwrap();
     fs::write(
         ssh.config(),
-        "# hosts\nHost gh\n  IdentityFile ~/.ssh/old\nHost other\n  IdentityFile ~/.ssh/other\n",
+        "# hosts\nHost gh\n  IdentityFile ~/.ssh/old\nHost other\n  IdentityFile ~/.ssh/other\nInclude config.d/*\n",
+    )
+    .unwrap();
+    fs::create_dir_all(ssh.dir.join("config.d")).unwrap();
+    fs::write(
+        ssh.dir.join("config.d/work"),
+        "Host gitlab\n  IdentityFile ~/.ssh/old.pub\n",
     )
     .unwrap();
     let (repo, untouched) = (ssh.home.join("repo"), ssh.home.join("untouched"));
@@ -610,12 +740,26 @@ fn rotates_a_key_and_keeps_the_old_one() {
             &[repo.clone(), untouched.clone()],
         )
         .unwrap();
-    assert_eq!(rotation.hosts, ["gh"]);
+    assert_eq!(rotation.hosts, ["gh", "gitlab"]);
     assert_eq!(rotation.repos, [repo.to_string_lossy()]);
-    assert_eq!(rotation.upload_error, None);
+    assert!(rotation.errors.is_empty(), "{:?}", rotation.errors);
+    assert!(!rotation.uploaded);
+    assert!(
+        rotation
+            .warning
+            .as_deref()
+            .unwrap()
+            .contains("no server knows the new key"),
+        "repointing without an upload says so"
+    );
     assert_eq!(
         fs::read_to_string(ssh.config()).unwrap(),
-        "# hosts\nHost gh\n  IdentityFile ~/.ssh/new\nHost other\n  IdentityFile ~/.ssh/other\n"
+        "# hosts\nHost gh\n  IdentityFile ~/.ssh/new\nHost other\n  IdentityFile ~/.ssh/other\nInclude config.d/*\n"
+    );
+    assert_eq!(
+        fs::read_to_string(ssh.dir.join("config.d/work")).unwrap(),
+        "Host gitlab\n  IdentityFile ~/.ssh/new\n",
+        "included files are rewritten too"
     );
     let command = tools::local_ssh_command(&repo).unwrap();
     assert!(
@@ -627,6 +771,36 @@ fn rotates_a_key_and_keeps_the_old_one() {
         old.exists() && with_pub(&old).exists(),
         "the old key stays until trashed"
     );
+
+    // A step that fails is reported, and what was done is still listed.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let set = |p: &Path, m| fs::set_permissions(p, fs::Permissions::from_mode(m)).unwrap();
+        fs::write(
+            ssh.dir.join("config.d/work"),
+            "Host gitlab\n  IdentityFile ~/.ssh/new\n",
+        )
+        .unwrap();
+        set(&ssh.dir.join("config.d"), 0o500);
+        let rotation = ssh
+            .rotate(
+                "new",
+                "newer",
+                KeyType::Ed25519,
+                "",
+                None,
+                false,
+                std::slice::from_ref(&repo),
+            )
+            .unwrap();
+        set(&ssh.dir.join("config.d"), 0o700);
+        assert_eq!(rotation.hosts, ["gh"]);
+        assert_eq!(rotation.repos, [repo.to_string_lossy()]);
+        assert_eq!(rotation.errors.len(), 1, "{:?}", rotation.errors);
+        assert!(rotation.errors[0].contains("work"), "{:?}", rotation.errors);
+        assert!(rotation.key.ends_with("newer") && Path::new(&rotation.key).exists());
+    }
 }
 
 #[cfg(unix)]

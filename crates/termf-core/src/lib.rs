@@ -9,6 +9,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 
 pub mod claude;
 pub mod ipc;
+pub mod shell;
 
 const DEFAULT_SETTINGS: &str = r#"# TermF — global settings
 # Folders scanned for git repositories. Hidden, system, media and dependency folders are skipped.

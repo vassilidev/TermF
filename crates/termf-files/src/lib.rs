@@ -335,10 +335,14 @@ impl Files {
                 cmd.args(["/d", "/c", editor]);
                 cmd
             }
-            // A login shell so GUI launches find the editor on the user's PATH; the path is `$1`, never interpolated.
+            // /bin/sh parses the command (the path is `$1`, never interpolated); the user's shell, maybe fish
+            // or nushell, only gives its PATH so GUI launches find the editor.
             Some(editor) => {
-                let mut cmd = command(&std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()));
-                cmd.args(["-l", "-c", &format!("{editor} \"$1\""), "termf"]);
+                let mut cmd = command("/bin/sh");
+                cmd.args(["-c", &format!("{editor} \"$1\""), "termf"]);
+                if let Some(path) = termf_core::shell::login_path() {
+                    cmd.env("PATH", path);
+                }
                 cmd
             }
             None if cfg!(target_os = "macos") => command("open"),

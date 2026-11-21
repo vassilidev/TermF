@@ -19,7 +19,6 @@ use zeroize::Zeroizing;
 pub use config::{Host, HostEntry};
 pub use tools::{ASKPASS_ENV, Agent, AgentKey, HostTest, Remote, RepoKeys, askpass, test_host};
 
-/// Deleted keys are moved here, never erased.
 pub const TRASH: &str = ".termf-trash";
 
 // Private keys are a few KB: anything larger in ~/.ssh is something else.
@@ -69,14 +68,13 @@ pub struct Key {
     pub encrypted: Option<bool>,
     /// Unix permission bits of the private key (of the `.pub` for an orphan).
     pub mode: Option<u32>,
-    /// Readable by others: ssh refuses such a key.
+    /// Readable by others: ssh refuses such a key. Never set for a symlink, which "fix permissions" leaves alone.
     pub too_open: bool,
     /// Seconds since the Unix epoch.
     pub modified: Option<u64>,
     pub in_agent: bool,
-    /// Config hosts naming this key (their patterns).
+    /// Patterns of the config hosts naming this key.
     pub hosts: Vec<String>,
-    /// Repositories using it.
     pub repos: Vec<String>,
 }
 
@@ -110,16 +108,28 @@ pub enum KeyType {
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Rotation {
+    /// The new private key, which exists whatever failed afterwards.
     pub key: String,
-    /// Config hosts now naming the new key.
+    pub uploaded: bool,
+    /// Config hosts (config and included files) now naming the new key.
     pub hosts: Vec<String>,
     /// Repositories whose `core.sshCommand` now names the new key.
     pub repos: Vec<String>,
-    /// The upload to GitHub was asked for and failed; everything else is done.
-    pub upload_error: Option<String>,
+    /// Set when hosts or repositories were repointed without an upload: no server knows the new key yet.
+    pub warning: Option<String>,
+    /// Steps that failed; everything listed above is done. A failed upload repoints nothing.
+    pub errors: Vec<String>,
 }
 
-/// What a private key file tells without its passphrase.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostPreview {
+    /// Empty when the config already says so.
+    pub diff: String,
+    /// Why the block may not fully apply (an earlier block matching the alias, an included file).
+    pub warnings: Vec<String>,
+}
+
 struct Private {
     /// `None` for PEM keys, which ssh-key cannot read: their `.pub` has the details.
     public: Option<PublicKey>,
@@ -127,7 +137,6 @@ struct Private {
     algorithm: &'static str,
 }
 
-/// The user's SSH folder. Tests point it at a scratch home.
 #[derive(Clone, Debug)]
 pub struct Ssh {
     home: PathBuf,
@@ -155,7 +164,7 @@ impl Ssh {
         self.dir.join("config")
     }
 
-    /// Everything the SSH view shows. `repos` are the known repositories, whose remotes are mapped to keys.
+    /// `repos`: the known repositories, whose remotes are mapped to keys.
     pub fn inventory(&self, repos: &[PathBuf]) -> Inventory {
         self.collect(repos, tools::agent())
     }
@@ -202,17 +211,24 @@ impl Ssh {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return (keys, problems);
         };
-        // is_file follows symlinks: keys linked from a dotfiles folder are listed too.
-        let mut files: Vec<PathBuf> = entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.is_file())
-            .collect();
+        let mut files = Vec::new();
+        for path in entries.flatten().map(|e| e.path()).filter(|p| p.is_file()) {
+            let name = file_name(&path);
+            if name.starts_with('.') || NOT_KEYS.contains(&name.as_str()) {
+                continue;
+            }
+            // Every action refuses a symlink leading out of ~/.ssh, so it is reported rather than listed.
+            match self.resolve(&path.to_string_lossy()) {
+                Ok(_) => files.push(path),
+                Err(_) => problems.push(Problem::new(
+                    &path,
+                    "links to a file outside ~/.ssh, which TermF leaves alone",
+                )),
+            }
+        }
         files.sort();
         for path in &files {
-            let name = file_name(path);
-            if name.ends_with(".pub") || name.starts_with('.') || NOT_KEYS.contains(&name.as_str())
-            {
+            if file_name(path).ends_with(".pub") {
                 continue;
             }
             match read_private(path) {
@@ -237,26 +253,36 @@ impl Ssh {
         (keys, problems)
     }
 
-    /// A path from the UI, checked to be a file inside `~/.ssh` once symlinks and `..` are resolved,
-    /// and outside the trash. Returned under `~/.ssh` as the user knows it, not canonicalized.
+    /// A path from the UI. Both the entry (once `..` and symlinked folders are resolved) and the file it
+    /// leads to must be inside `~/.ssh` and outside the trash, so a symlink cannot lead out. Returns the
+    /// entry, not its target, under `~/.ssh` as the user knows it.
     pub fn resolve(&self, path: &str) -> Result<PathBuf> {
         let dir = self
             .dir
             .canonicalize()
             .with_context(|| format!("cannot open {}", self.dir.display()))?;
-        let file = dir
-            .join(path)
+        let joined = dir.join(path);
+        let outside = || anyhow!("{path} is outside {}", self.dir.display());
+        let name = joined.file_name().ok_or_else(outside)?;
+        let entry = joined
+            .parent()
+            .ok_or_else(outside)?
+            .canonicalize()
+            .with_context(|| format!("cannot open {path}"))?
+            .join(name);
+        let target = entry
             .canonicalize()
             .with_context(|| format!("cannot open {path}"))?;
-        let inside = file
-            .strip_prefix(&dir)
-            .map_err(|_| anyhow!("{path} is outside {}", self.dir.display()))?;
-        ensure!(
-            inside.components().next() != Some(Component::Normal(TRASH.as_ref())),
-            "{path} is in the trash"
-        );
-        ensure!(file.is_file(), "{path} is not a file");
-        Ok(self.dir.join(inside))
+        for file in [&entry, &target] {
+            let inside = file.strip_prefix(&dir).map_err(|_| outside())?;
+            ensure!(inside.components().next().is_some(), "{path} is not a file");
+            ensure!(
+                inside.components().next() != Some(Component::Normal(TRASH.as_ref())),
+                "{path} is in the trash"
+            );
+        }
+        ensure!(target.is_file(), "{path} is not a file");
+        Ok(self.dir.join(entry.strip_prefix(&dir)?))
     }
 
     /// The private and public files of the key at `path` (either of them). The other half goes through
@@ -290,8 +316,7 @@ impl Ssh {
         format!("~/.ssh/{}", parts.join("/"))
     }
 
-    /// Creates `name` and `name.pub` in `~/.ssh`, in-process: a passphrase is never handed to another
-    /// program. Never overwrites a file. Returns the private key's path.
+    /// In-process, so the passphrase is never handed to another program. Returns the private key's path.
     pub fn generate(
         &self,
         name: &str,
@@ -349,7 +374,6 @@ impl Ssh {
         Ok(private)
     }
 
-    /// Adds a key to the agent; see `tools::agent_add` for how the passphrase travels.
     pub fn agent_add(
         &self,
         path: &str,
@@ -367,7 +391,7 @@ impl Ssh {
         tools::agent_remove(&public.or(private).expect("resolve found a file"))
     }
 
-    /// Uploads the public key to GitHub with `gh`; the title defaults to the key's comment, then its name.
+    /// An empty title falls back to the key's comment, then its file name.
     pub fn github_upload(&self, path: &str, title: &str) -> Result<()> {
         let key = self.public_key(path)?;
         let title = [title, key.comment()]
@@ -380,7 +404,6 @@ impl Ssh {
         tools::github_upload(&key.to_openssh()?, &title)
     }
 
-    /// The config as it is and as it would be with `entry`.
     fn host_edit(&self, entry: &HostEntry) -> Result<(String, String)> {
         let mut entry = entry.clone();
         if let Some(key) = &entry.identity_file {
@@ -395,10 +418,13 @@ impl Ssh {
         Ok((before, after))
     }
 
-    /// The diff `host_save` would apply; empty when the config already says so.
-    pub fn host_preview(&self, entry: &HostEntry) -> Result<String> {
+    /// What `host_save` would change.
+    pub fn host_preview(&self, entry: &HostEntry) -> Result<HostPreview> {
         let (before, after) = self.host_edit(entry)?;
-        Ok(config::diff(&before, &after))
+        Ok(HostPreview {
+            diff: config::diff(&before, &after),
+            warnings: config::warnings(&after, entry, &self.dir, &self.home),
+        })
     }
 
     pub fn host_save(&self, entry: &HostEntry) -> Result<()> {
@@ -421,7 +447,7 @@ impl Ssh {
         tools::assign(repo, private.as_deref())
     }
 
-    /// Makes `~/.ssh` and its keys private again, as ssh requires; returns what changed. Symlinks are left alone.
+    /// Returns what changed. Symlinks are left alone: their target may be anyone's file.
     pub fn fix_permissions(&self) -> Result<Vec<String>> {
         #[cfg(unix)]
         {
@@ -458,8 +484,9 @@ impl Ssh {
         }
     }
 
-    /// Replaces a key: generates `name`, points the config hosts and the repositories using the old key at
-    /// it, and uploads it to GitHub when asked. The old key stays until the user trashes it.
+    /// Replaces a key: generates `name`, uploads it to GitHub when asked, then points the config hosts and
+    /// the repositories using the old key at it. The old key stays until the user trashes it. Once the new
+    /// key exists, failures are collected in the result instead of hiding what was done.
     #[allow(clippy::too_many_arguments)]
     pub fn rotate(
         &self,
@@ -474,16 +501,38 @@ impl Ssh {
         let (old_private, old_public) = self.pair(old)?;
         let old: Vec<PathBuf> = [old_private, old_public].into_iter().flatten().collect();
         let new = self.generate(name, kind, comment, passphrase)?;
-        let mut hosts = Vec::new();
-        if let Ok(before) = fs::read_to_string(self.config()) {
-            let (after, changed) =
-                config::replace_identity(&before, &self.home, &old, &self.portable(&new));
-            if after != before {
-                config::write(&self.config(), &after)?;
+        let mut rotation = Rotation {
+            key: new.to_string_lossy().into_owned(),
+            uploaded: false,
+            hosts: Vec::new(),
+            repos: Vec::new(),
+            warning: None,
+            errors: Vec::new(),
+        };
+        if upload {
+            if let Err(e) = self.github_upload(&rotation.key, comment) {
+                // Hosts pointing at a key the server refuses would stop working.
+                rotation
+                    .errors
+                    .push(format!("upload to GitHub: {e:#}; nothing was repointed"));
+                return Ok(rotation);
             }
-            hosts = changed;
+            rotation.uploaded = true;
         }
-        let mut changed_repos = Vec::new();
+        let portable = self.portable(&new);
+        for file in config::files(&self.dir, &self.home) {
+            let Ok(before) = fs::read_to_string(&file) else {
+                continue;
+            };
+            let (after, hosts) = config::replace_identity(&before, &self.home, &old, &portable);
+            if after == before {
+                continue;
+            }
+            match config::write(&file, &after) {
+                Ok(()) => rotation.hosts.extend(hosts),
+                Err(e) => rotation.errors.push(format!("{e:#}")),
+            }
+        }
         for repo in repos {
             let uses_old = tools::local_ssh_command(repo).is_some_and(|c| {
                 tools::identity_args(&c).iter().any(|f| {
@@ -491,24 +540,24 @@ impl Ssh {
                     old.iter().any(|o| same_file(&file, o))
                 })
             });
-            if uses_old {
-                tools::assign(repo, Some(&new))?;
-                changed_repos.push(repo.to_string_lossy().into_owned());
+            if !uses_old {
+                continue;
+            }
+            match tools::assign(repo, Some(&new)) {
+                Ok(()) => rotation.repos.push(repo.to_string_lossy().into_owned()),
+                Err(e) => rotation.errors.push(format!("{}: {e:#}", repo.display())),
             }
         }
-        let upload_error = upload
-            .then(|| self.github_upload(&new.to_string_lossy(), comment).err())
-            .flatten()
-            .map(|e| format!("{e:#}"));
-        Ok(Rotation {
-            key: new.to_string_lossy().into_owned(),
-            hosts,
-            repos: changed_repos,
-            upload_error,
-        })
+        if !upload && !(rotation.hosts.is_empty() && rotation.repos.is_empty()) {
+            rotation.warning = Some(
+                "no server knows the new key yet: add it to each one (GitHub, GitLab, authorized_keys) \
+                 before relying on the hosts and repositories now using it"
+                    .into(),
+            );
+        }
+        Ok(rotation)
     }
 
-    /// Moves the key's files into `~/.ssh/.termf-trash/<timestamp>/`; nothing is ever erased.
     pub fn trash(&self, path: &str) -> Result<PathBuf> {
         let (private, public) = self.pair(path)?;
         let root = self.dir.join(TRASH);
@@ -524,9 +573,19 @@ impl Ssh {
             })
             .find(|dir| fs::create_dir(dir).is_ok())
             .with_context(|| format!("cannot create a folder in {}", root.display()))?;
-        for file in [private, public].into_iter().flatten() {
-            fs::rename(&file, dir.join(file_name(&file)))
-                .with_context(|| format!("cannot move {}", file.display()))?;
+        let mut files: Vec<PathBuf> = [private, public].into_iter().flatten().collect();
+        files.dedup();
+        let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+        for file in files {
+            let to = dir.join(file_name(&file));
+            if let Err(e) = fs::rename(&file, &to) {
+                // Both halves go to the trash, or neither does.
+                for (from, to) in moved.iter().rev() {
+                    let _ = fs::rename(to, from);
+                }
+                return Err(e).with_context(|| format!("cannot move {}", file.display()));
+            }
+            moved.push((file, to));
         }
         Ok(dir)
     }
@@ -644,7 +703,9 @@ fn key(path: &Path, private: Option<Private>, problems: &mut Vec<Problem>) -> Ke
         comment,
         encrypted: private.map(|p| p.encrypted),
         mode,
-        too_open: !orphan && mode.is_some_and(|m| m & 0o077 != 0),
+        too_open: !orphan
+            && mode.is_some_and(|m| m & 0o077 != 0)
+            && !fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()),
         modified: meta
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
@@ -688,7 +749,6 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Same file once symlinks are resolved; plain comparison when either does not exist.
 pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
 }

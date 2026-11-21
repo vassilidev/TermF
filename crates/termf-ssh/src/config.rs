@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
-/// A `Host` block of the config or of a file it includes.
 #[derive(Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Host {
@@ -85,18 +84,47 @@ pub struct HostEntry {
 // OpenSSH's own limit.
 const MAX_INCLUDE_DEPTH: usize = 16;
 
-/// The Host blocks of `ssh_dir/config` and of the files it includes. Best effort: an `Include` inside a
-/// block is read as if it were global, and `Match` blocks are skipped.
-pub fn hosts(ssh_dir: &Path, home: &Path) -> Vec<Host> {
-    let mut hosts = Vec::new();
-    read_hosts(&ssh_dir.join("config"), ssh_dir, home, 0, &mut hosts);
-    hosts
+#[derive(Default)]
+struct Parsed {
+    /// In the order ssh reads them: an included file's blocks sit where its `Include` is.
+    hosts: Vec<Host>,
+    /// The config, then each file it includes, once.
+    files: Vec<PathBuf>,
 }
 
-fn read_hosts(file: &Path, ssh_dir: &Path, home: &Path, depth: usize, out: &mut Vec<Host>) {
-    let Ok(text) = fs::read_to_string(file) else {
-        return;
-    };
+/// Best effort: an `Include` inside a block is read as if it were global, and `Match` blocks are skipped.
+pub fn hosts(ssh_dir: &Path, home: &Path) -> Vec<Host> {
+    parse(ssh_dir, home, None).hosts
+}
+
+pub fn files(ssh_dir: &Path, home: &Path) -> Vec<PathBuf> {
+    parse(ssh_dir, home, None).files
+}
+
+/// `config`: the text to read instead of `~/.ssh/config`, for a preview.
+fn parse(ssh_dir: &Path, home: &Path, config: Option<&str>) -> Parsed {
+    let mut parsed = Parsed::default();
+    let file = ssh_dir.join("config");
+    let text = config
+        .map(str::to_owned)
+        .or_else(|| fs::read_to_string(&file).ok());
+    if let Some(text) = text {
+        read_hosts(&text, &file, ssh_dir, home, 0, &mut parsed);
+    }
+    parsed
+}
+
+fn read_hosts(
+    text: &str,
+    file: &Path,
+    ssh_dir: &Path,
+    home: &Path,
+    depth: usize,
+    out: &mut Parsed,
+) {
+    if !out.files.iter().any(|f| f == file) {
+        out.files.push(file.to_path_buf());
+    }
     let file_name = file.to_string_lossy().into_owned();
     let keep = |host: &Host| host.line > 0 || host.has_settings();
     let mut current = Some(Host {
@@ -110,7 +138,7 @@ fn read_hosts(file: &Path, ssh_dir: &Path, home: &Path, depth: usize, out: &mut 
         };
         match keyword.as_str() {
             "host" | "match" => {
-                out.extend(current.take().filter(keep));
+                out.hosts.extend(current.take().filter(keep));
                 current = (keyword == "host").then(|| Host {
                     patterns: args,
                     file: file_name.clone(),
@@ -120,7 +148,9 @@ fn read_hosts(file: &Path, ssh_dir: &Path, home: &Path, depth: usize, out: &mut 
             }
             "include" if depth < MAX_INCLUDE_DEPTH => {
                 for path in args.iter().flat_map(|a| include_paths(a, ssh_dir, home)) {
-                    read_hosts(&path, ssh_dir, home, depth + 1, out);
+                    if let Ok(text) = fs::read_to_string(&path) {
+                        read_hosts(&text, &path, ssh_dir, home, depth + 1, out);
+                    }
                 }
             }
             _ => {
@@ -130,7 +160,7 @@ fn read_hosts(file: &Path, ssh_dir: &Path, home: &Path, depth: usize, out: &mut 
             }
         }
     }
-    out.extend(current.filter(keep));
+    out.hosts.extend(current.filter(keep));
 }
 
 fn include_paths(arg: &str, ssh_dir: &Path, home: &Path) -> Vec<PathBuf> {
@@ -172,7 +202,6 @@ pub(crate) fn expand(path: &str, home: &Path) -> PathBuf {
     path.components().collect()
 }
 
-/// `*` and `?` wildcards.
 fn wildcard(pattern: &str, text: &str) -> bool {
     let (p, t): (Vec<char>, Vec<char>) = (pattern.chars().collect(), text.chars().collect());
     let (mut pi, mut ti, mut star, mut mark) = (0, 0, None, 0);
@@ -195,7 +224,6 @@ fn wildcard(pattern: &str, text: &str) -> bool {
     p[pi..].iter().all(|&c| c == '*')
 }
 
-/// The keyword (lowercased) and arguments of a config line; `None` for blank lines and comments.
 fn directive(line: &str) -> Option<(String, Vec<String>)> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') {
@@ -240,8 +268,9 @@ fn indent(line: &str) -> &str {
     &line[..line.len() - line.trim_start().len()]
 }
 
+// Double quotes group words for every OpenSSH version; since 8.7 a single quote opens a quote too.
 fn quote(value: &str) -> String {
-    if value.contains(|c: char| c.is_whitespace() || c == '#') {
+    if value.contains(|c: char| c.is_whitespace() || c == '#' || c == '\'') {
         format!("\"{value}\"")
     } else {
         value.into()
@@ -255,7 +284,7 @@ fn check(entry: &HostEntry) -> Result<()> {
             && !alias.starts_with('-')
             && !alias.contains(|c: char| c.is_whitespace()
                 || c.is_control()
-                || "*?!\"'#\\=".contains(c)),
+                || "*?!\"'#\\=,".contains(c)),
         "invalid host alias {alias:?}"
     );
     for value in [&entry.host_name, &entry.user, &entry.identity_file]
@@ -263,12 +292,28 @@ fn check(entry: &HostEntry) -> Result<()> {
         .flatten()
     {
         ensure!(
-            !value.trim().is_empty() && !value.contains(|c: char| c.is_control() || c == '"'),
+            !value.trim().is_empty() && !value.contains(|c: char| c.is_control()),
             "invalid value {value:?}"
+        );
+        // OpenSSH before 8.7 reads no escapes and later versions do: no spelling means the same to both.
+        ensure!(
+            !value.contains(['"', '\\']),
+            "{value:?}: TermF cannot write a \" or \\ in ~/.ssh/config, edit the file by hand"
         );
     }
     ensure!(entry.port != Some(0), "invalid port 0");
     Ok(())
+}
+
+fn declares(line: &str, alias: &str) -> Option<Vec<String>> {
+    match directive(line) {
+        Some((k, patterns))
+            if k == "host" && patterns.iter().any(|p| p.eq_ignore_ascii_case(alias)) =>
+        {
+            Some(patterns)
+        }
+        _ => None,
+    }
 }
 
 /// `text` with the block of `entry.alias` added or updated. Only the five options of `HostEntry` change:
@@ -291,9 +336,20 @@ pub fn upsert(text: &str, entry: &HostEntry) -> Result<String> {
     let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
     let starts_block =
         |l: &str| matches!(directive(l), Some((k, _)) if k == "host" || k == "match");
-    let start = lines.iter().position(|l| {
-        matches!(directive(l), Some((k, a)) if k == "host" && a.len() == 1 && a[0].eq_ignore_ascii_case(&entry.alias))
-    });
+    let start = lines
+        .iter()
+        .position(|l| declares(l, &entry.alias).is_some());
+    // A second block for the alias would be ignored where they disagree, and editing a shared one would
+    // change the other hosts too.
+    if let Some(start) = start {
+        ensure!(
+            declares(&lines[start], &entry.alias).is_some_and(|p| p.len() == 1),
+            "{} shares its block with other hosts (line {}: `{}`): edit ~/.ssh/config by hand",
+            entry.alias,
+            start + 1,
+            lines[start].trim()
+        );
+    }
     match start {
         Some(start) => {
             let end = lines[start + 1..]
@@ -372,7 +428,59 @@ pub fn upsert(text: &str, entry: &HostEntry) -> Result<String> {
     Ok(join(text, &lines))
 }
 
-/// Points every IdentityFile naming one of `old` at `new`; returns the text and the hosts changed.
+/// Why the block of `entry` may not fully apply once `config` is `~/.ssh/config`: ssh keeps the first
+/// value it reads, so an earlier block matching the alias wins. A block for it in an included file is
+/// reported too.
+pub fn warnings(config: &str, entry: &HostEntry, ssh_dir: &Path, home: &Path) -> Vec<String> {
+    let hosts = parse(ssh_dir, home, Some(config)).hosts;
+    let main = ssh_dir.join("config").to_string_lossy().into_owned();
+    let alias = &entry.alias;
+    let Some(at) = hosts.iter().position(|h| {
+        h.file == main && h.patterns.len() == 1 && h.patterns[0].eq_ignore_ascii_case(alias)
+    }) else {
+        return Vec::new();
+    };
+    let place = |h: &Host| match h.line {
+        0 => format!("the top of {}, before any Host", h.file),
+        line => format!("`Host {}` ({}:{line})", h.patterns.join(" "), h.file),
+    };
+    let mut warnings: Vec<String> = hosts
+        .iter()
+        .filter(|h| h.file != main && h.patterns.iter().any(|p| p.eq_ignore_ascii_case(alias)))
+        .map(|h| format!("{alias} is also declared in {}", place(h)))
+        .collect();
+    for host in hosts[..at].iter().filter(|h| h.matches(alias)) {
+        let options: Vec<&str> = [
+            (
+                "HostName",
+                entry.host_name.is_some() && host.host_name.is_some(),
+            ),
+            ("User", entry.user.is_some() && host.user.is_some()),
+            ("Port", entry.port.is_some() && host.port.is_some()),
+            (
+                "IdentityFile",
+                entry.identity_file.is_some() && !host.identity_files.is_empty(),
+            ),
+            (
+                "IdentitiesOnly",
+                entry.identities_only.is_some() && host.identities_only.is_some(),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(name, both)| both.then_some(name))
+        .collect();
+        if !options.is_empty() {
+            warnings.push(format!(
+                "{alias} already gets {} from {}, which ssh reads first",
+                options.join(", "),
+                place(host)
+            ));
+        }
+    }
+    warnings
+}
+
+/// Returns the text and the hosts whose IdentityFile changed.
 pub fn replace_identity(
     text: &str,
     home: &Path,
@@ -403,7 +511,6 @@ pub fn replace_identity(
     (join(text, &lines), hosts)
 }
 
-/// Lines back into text, with the file's own line ending.
 fn join(original: &str, lines: &[String]) -> String {
     let eol = if original.contains("\r\n") {
         "\r\n"

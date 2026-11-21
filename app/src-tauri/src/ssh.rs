@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tauri::State;
 use termf_files::Files;
-use termf_ssh::{HostEntry, HostTest, Inventory, KeyType, Rotation, Ssh};
+use termf_ssh::{HostEntry, HostPreview, HostTest, Inventory, KeyType, Rotation, Ssh};
 
 use crate::{CmdResult, api, err};
 
@@ -53,9 +53,8 @@ pub async fn ssh_github_upload(path: String, title: String) -> CmdResult<()> {
     blocking(move |ssh| ssh.github_upload(&path, &title)).await
 }
 
-/// The diff `ssh_host_save` would apply to ~/.ssh/config; empty when nothing changes.
 #[tauri::command]
-pub async fn ssh_host_preview(host: HostEntry) -> CmdResult<String> {
+pub async fn ssh_host_preview(host: HostEntry) -> CmdResult<HostPreview> {
     blocking(move |ssh| ssh.host_preview(&host)).await
 }
 

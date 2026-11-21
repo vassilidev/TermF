@@ -149,39 +149,23 @@ fn agent_error(out: &Output) -> String {
 /// A passphrase reaches ssh-add through `askpass` (the `termf` binary), which reads it from a pipe:
 /// never from arguments, environment or files. Without `askpass`, ssh-add asks on the terminal if any.
 pub fn agent_add(key: &Path, passphrase: Option<&str>, askpass: Option<&Path>) -> Result<()> {
-    let (mut cmd, keychain) = ssh_add();
-    if keychain {
-        cmd.arg("--apple-use-keychain");
+    ensure!(
+        askpass.is_some() || passphrase.is_none(),
+        "the termf helper that hands the passphrase to ssh-add is missing: run `ssh-add {}` in a terminal",
+        key.display()
+    );
+    let (_, keychain) = ssh_add();
+    let mut out = add_once(
+        key,
+        keychain.then_some("--apple-use-keychain"),
+        passphrase,
+        askpass,
+    )?;
+    let text = output_text(&out);
+    // macOS before 12 only knows the older spelling.
+    if keychain && (text.contains("illegal option") || text.contains("unrecognized option")) {
+        out = add_once(key, Some("-K"), passphrase, askpass)?;
     }
-    cmd.arg(key).stdout(Stdio::piped()).stderr(Stdio::piped());
-    match askpass {
-        Some(askpass) => {
-            cmd.env("SSH_ASKPASS", askpass)
-                .env("SSH_ASKPASS_REQUIRE", "force")
-                .env(ASKPASS_ENV, "1")
-                .stdin(Stdio::piped());
-            // OpenSSH before 8.4 ignores SSH_ASKPASS_REQUIRE and only asks askpass when DISPLAY is set.
-            if std::env::var_os("DISPLAY").is_none() {
-                cmd.env("DISPLAY", ":0");
-            }
-        }
-        None => {
-            ensure!(
-                passphrase.is_none(),
-                "the termf helper that hands the passphrase to ssh-add is missing: run `ssh-add {}` in a terminal",
-                key.display()
-            );
-            cmd.env("SSH_ASKPASS_REQUIRE", "never").stdin(Stdio::null());
-        }
-    }
-    let mut child = cmd.spawn().context("cannot run ssh-add")?;
-    // ssh-add never reads this pipe itself: its askpass child inherits it as stdin.
-    if let Some(mut stdin) = child.stdin.take() {
-        let line = Zeroizing::new(format!("{}\n", passphrase.unwrap_or("")));
-        // An unencrypted key, or one whose passphrase is in the keychain, is added without asking.
-        let _ = stdin.write_all(line.as_bytes());
-    }
-    let out = child.wait_with_output()?;
     if out.status.success() {
         return Ok(());
     }
@@ -196,6 +180,40 @@ pub fn agent_add(key: &Path, passphrase: Option<&str>, askpass: Option<&Path>) -
     bail!(agent_error(&out))
 }
 
+fn add_once(
+    key: &Path,
+    keychain_flag: Option<&str>,
+    passphrase: Option<&str>,
+    askpass: Option<&Path>,
+) -> Result<Output> {
+    let (mut cmd, _) = ssh_add();
+    cmd.args(keychain_flag)
+        .arg(key)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    match askpass {
+        Some(askpass) => {
+            cmd.env("SSH_ASKPASS", askpass)
+                .env("SSH_ASKPASS_REQUIRE", "force")
+                .env(ASKPASS_ENV, "1")
+                .stdin(Stdio::piped());
+            // OpenSSH before 8.4 ignores SSH_ASKPASS_REQUIRE and only asks askpass when DISPLAY is set.
+            if std::env::var_os("DISPLAY").is_none() {
+                cmd.env("DISPLAY", ":0");
+            }
+        }
+        None => _ = cmd.env("SSH_ASKPASS_REQUIRE", "never").stdin(Stdio::null()),
+    }
+    let mut child = cmd.spawn().context("cannot run ssh-add")?;
+    // ssh-add never reads this pipe itself: its askpass child inherits it as stdin.
+    if let Some(mut stdin) = child.stdin.take() {
+        let line = Zeroizing::new(format!("{}\n", passphrase.unwrap_or("")));
+        // An unencrypted key, or one whose passphrase is in the keychain, is added without asking.
+        let _ = stdin.write_all(line.as_bytes());
+    }
+    Ok(child.wait_with_output()?)
+}
+
 /// The askpass side, run by the `termf` binary when `ASKPASS_ENV` is set: prints the passphrase TermF wrote
 /// on the pipe it inherited from ssh-add. A second call (after a wrong passphrase) finds the pipe empty,
 /// which makes ssh-add give up instead of asking forever.
@@ -208,7 +226,6 @@ pub fn askpass() -> Result<()> {
     Ok(out.flush()?)
 }
 
-/// `key`: a public key file, or a private one whose public half ssh-add can read.
 pub fn agent_remove(key: &Path) -> Result<()> {
     let (mut cmd, _) = ssh_add();
     let out = cmd
@@ -221,7 +238,7 @@ pub fn agent_remove(key: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `ssh -T` without prompts. `host` comes from the UI: it can never be read as an option.
+/// `host` comes from the UI: it can never be read as an option.
 pub fn test_host(host: &str) -> Result<HostTest> {
     ensure!(
         !host.is_empty()
@@ -305,19 +322,15 @@ pub fn github_upload(public_key: &str, title: &str) -> Result<()> {
     if text.contains("gh auth login") {
         bail!("gh is not signed in: run `gh auth login`");
     }
-    if out.status.code() == Some(127) || text.contains("command not found") {
-        bail!("the GitHub CLI (gh) is not installed");
-    }
     bail!("gh ssh-key add failed: {text}")
 }
 
 fn gh() -> Command {
-    if cfg!(windows) {
-        return command("gh");
+    let mut cmd = command("gh");
+    // Launched from the Finder, TermF lacks the PATH the shell profile sets (Homebrew…); it is also gh's lookup PATH.
+    if let Some(path) = termf_core::shell::login_path() {
+        cmd.env("PATH", path);
     }
-    // A login shell, so a GUI launch finds gh on the PATH set by the shell profile; args stay "$@".
-    let mut cmd = command(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()));
-    cmd.args(["-l", "-c", "exec gh \"$@\"", "gh"]);
     cmd
 }
 
@@ -327,7 +340,6 @@ fn git(repo: &Path) -> Command {
     cmd
 }
 
-/// Makes git use `key`, and only it, for this repository; `None` goes back to the default keys.
 pub fn assign(repo: &Path, key: Option<&Path>) -> Result<()> {
     let out = match key {
         Some(key) => git(repo)
@@ -364,7 +376,6 @@ fn sh_quote(word: &str) -> String {
     }
 }
 
-/// The `-i` files of an ssh command line.
 pub(crate) fn identity_args(command: &str) -> Vec<String> {
     let words = config::words(command);
     let mut files = Vec::new();
@@ -390,7 +401,6 @@ pub(crate) fn local_ssh_command(repo: &Path) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
-/// The SSH remotes and keys of each repository that has some; one git call per repository, a few at a time.
 pub(crate) fn repos_keys(repos: &[PathBuf], hosts: &[Host], home: &Path) -> Vec<RepoKeys> {
     let chunk = repos.len().div_ceil(8).max(1);
     std::thread::scope(|s| {
@@ -469,7 +479,6 @@ fn repo_keys(repo: &Path, hosts: &[Host], home: &Path) -> Option<RepoKeys> {
     })
 }
 
-/// The host of an SSH remote URL (maybe an alias of the config); `None` for other transports.
 fn ssh_host(url: &str) -> Option<String> {
     let host = match ["ssh://", "git+ssh://", "ssh+git://"]
         .iter()
