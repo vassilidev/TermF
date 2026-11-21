@@ -15,6 +15,7 @@ import LibraryBig from "@lucide/svelte/icons/library-big";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Play from "@lucide/svelte/icons/play";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
@@ -29,6 +30,7 @@ import {
   openLayout,
   openSelected,
   openSession,
+  resetContext,
   selected,
   setKeepAwake,
   shortPath,
@@ -156,6 +158,16 @@ export function commands(): Command[] {
   }
   if (app.sessions.length) {
     list.push({ id: "maximize", label: t("maximizeActive"), keys: keys.maximize, icon: Maximize2, run: () => toggleMaximize() });
+  }
+  for (const s of app.sessions) {
+    if (s.running && s.context?.phase === "idle") {
+      list.push({
+        id: `reset-${s.id}`,
+        label: t("contextResetSession", { session: s.title }),
+        icon: RotateCcw,
+        run: () => resetContext(s.id),
+      });
+    }
   }
   list.push({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
   if (files.view !== "terminals") {

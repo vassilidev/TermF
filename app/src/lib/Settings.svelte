@@ -3,6 +3,7 @@
   import FileUp from "@lucide/svelte/icons/file-up";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SettingsIcon from "@lucide/svelte/icons/settings";
+  import ContextReset from "$lib/ContextReset.svelte";
   import KeepAwake from "$lib/KeepAwake.svelte";
   import SyncSettings from "$lib/SyncSettings.svelte";
   import { t } from "$lib/i18n";
@@ -62,6 +63,7 @@
   >
     <h2>{t("settings")}</h2>
     <KeepAwake />
+    <ContextReset />
     {#if app.workspace}
       <section class="config">
         <h3>{t("configFolder")}</h3>

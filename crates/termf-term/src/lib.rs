@@ -189,6 +189,13 @@ impl Sessions {
         Ok(())
     }
 
+    /// Types `text` then Enter, sent apart so a TUI that detects pastes, like Claude Code, reads Enter as a key press.
+    pub fn type_line(&self, id: u32, text: &str) -> Result<()> {
+        self.write(id, text.as_bytes())?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        self.write(id, b"\r")
+    }
+
     pub fn resize(&self, id: u32, cols: u16, rows: u16) -> Result<()> {
         self.with(id, |s| s.master.resize(size(cols, rows)))?
     }
@@ -356,6 +363,46 @@ mod tests {
             .unwrap();
         let (text, _) = collect(&sessions, id);
         assert!(text.contains(&format!("[{id}|{tricky}]")), "got {text:?}");
+    }
+
+    #[test]
+    fn types_a_line_then_enter() {
+        let sessions = Sessions::default();
+        // Raw mode: the bytes as typed, Enter included, dumped in hex.
+        let id = sessions
+            .spawn(spec(
+                "/bin/sh",
+                &[
+                    "-c",
+                    "stty raw -echo; printf ready; head -c 7 | od -An -tx1",
+                ],
+            ))
+            .unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut seen = String::from_utf8_lossy(
+            &sessions
+                .attach(
+                    id,
+                    Box::new(move |out| {
+                        if let Output::Data(d) = out {
+                            let _ = tx.send(d);
+                        }
+                    }),
+                )
+                .unwrap(),
+        )
+        .into_owned();
+        let mut wait_for = |text: &str| {
+            while !seen.contains(text) {
+                let d = rx.recv_timeout(Duration::from_secs(10)).expect("no output");
+                seen.push_str(&String::from_utf8_lossy(&d));
+            }
+        };
+        wait_for("ready");
+        sessions.type_line(id, "/clear").unwrap();
+        wait_for("0d");
+        let hex = seen.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(hex.contains("2f 63 6c 65 61 72 0d"), "got {seen:?}");
     }
 
     #[test]

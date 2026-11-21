@@ -23,6 +23,8 @@ usage:
   termf say <session> <text>...         type text then Enter in a session (id or part of its title)
   termf watch                           print status changes
   termf hook <event>                    forward a Claude Code hook (JSON on stdin)
+  termf statusline [<file>]             Claude Code status line of TermF sessions: reports the context,
+                                        then runs the status line command saved in <file>
   termf library ls [--kind <kind>] [--repo <path>] [--project <id>]
                                         list the library: each item's layer, state and why
   termf library explain <name> [--kind <kind>] [--repo <path>] [--project <id>]
@@ -75,9 +77,15 @@ fn main() -> ExitCode {
     }
     let args: Vec<String> = env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    if let ["hook", event] = args.as_slice() {
-        hook(event);
-        return ExitCode::SUCCESS;
+    match args.as_slice() {
+        ["hook", event] => {
+            hook(event);
+            return ExitCode::SUCCESS;
+        }
+        ["statusline", chained @ ..] if chained.len() < 2 => {
+            return statusline(chained.first().copied());
+        }
+        _ => {}
     }
     if let ["guard"] = args.as_slice() {
         return tickets::guard();
@@ -365,19 +373,78 @@ fn hook(event: &str) {
     let _ = wait.recv_timeout(Duration::from_secs(2));
 }
 
+/// Prints TermF's answer, if any, for Claude Code to read (e.g. the handoff it asks for).
 fn forward_hook(event: String) -> Result<()> {
-    // Not started by TermF: nothing to report to.
-    let session = env::var(ipc::ENV_SESSION)?.parse()?;
     let mut payload = String::new();
     std::io::stdin().read_to_string(&mut payload)?;
-    let payload = serde_json::from_str(&payload).unwrap_or(Value::Null);
+    let reply = forward(event, serde_json::from_str(&payload).unwrap_or(Value::Null))?;
+    if !reply.is_null() {
+        println!("{reply}");
+    }
+    Ok(())
+}
+
+fn forward(event: String, payload: Value) -> Result<Value> {
+    // Not started by TermF: nothing to report to.
+    let session = env::var(ipc::ENV_SESSION)?.parse()?;
     // Waiting for the reply keeps consecutive hooks in order.
     Client::connect(Some(env::var(ipc::ENV_TOKEN)?))?.call(Call::Hook {
         session,
         event,
         payload,
-    })?;
-    Ok(())
+    })
+}
+
+/// The status line of the Claude Code sessions TermF starts: reports the context to TermF, then shows
+/// the status line you set, saved in `chained`, with the same input.
+fn statusline(chained: Option<&str>) -> ExitCode {
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    let payload = serde_json::from_str(&input).unwrap_or(Value::Null);
+    let (done, wait) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = forward("StatusLine".into(), payload);
+        let _ = done.send(());
+    });
+    let code = match chained.and_then(|file| std::fs::read_to_string(file).ok()) {
+        Some(command) => run_chained(&command, &input),
+        None => ExitCode::SUCCESS,
+    };
+    let _ = wait.recv_timeout(Duration::from_secs(1));
+    code
+}
+
+fn run_chained(command: &str, input: &str) -> ExitCode {
+    let Some(shell) = shell() else {
+        return ExitCode::FAILURE;
+    };
+    let child = std::process::Command::new(shell)
+        .args(["-c", command])
+        .stdin(std::process::Stdio::piped())
+        .spawn();
+    let Ok(mut child) = child else {
+        return ExitCode::FAILURE;
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input.as_bytes());
+    }
+    match child.wait() {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        _ => ExitCode::FAILURE,
+    }
+}
+
+/// The shell Claude Code runs status lines with: Git Bash on Windows, where a bare `bash` can be WSL's.
+// shortcut: without Git Bash, Claude Code uses PowerShell and your status line is not shown; upgrade if
+// TermF ever runs on such machines.
+fn shell() -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return Some("sh".into());
+    }
+    env::var_os("CLAUDE_CODE_GIT_BASH_PATH")
+        .map(Into::into)
+        .or_else(|| env::var_os("ProgramFiles").map(|p| Path::new(&p).join(r"Git\bin\bash.exe")))
+        .filter(|bash: &std::path::PathBuf| bash.is_file())
 }
 
 struct Client {

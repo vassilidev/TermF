@@ -114,6 +114,9 @@ pub struct SessionSummary {
     pub remote_control: bool,
     /// The agent's own conversation id, e.g. Claude Code's `session_id`.
     pub agent_session_id: Option<String>,
+    /// Context gauge and reset, for Claude Code sessions that report through hooks.
+    #[serde(default)]
+    pub context: Option<crate::context::Gauge>,
 }
 
 /// Serializes `msg` as one line; serde_json escapes newlines inside strings.
@@ -252,6 +255,26 @@ pub fn answers_prompt(input: &[u8]) -> bool {
     input.first().is_some_and(|&b| b != 0x1b)
 }
 
+/// Whether terminal input is someone typing: any key, Esc and Alt sequences included, but not the reports
+/// a terminal sends on its own (focus, mouse, replies to queries).
+pub fn is_typing(input: &[u8]) -> bool {
+    let Some(rest) = input.strip_prefix(b"\x1b") else {
+        return !input.is_empty();
+    };
+    let csi_params = |end: u8| {
+        rest.strip_prefix(b"[")
+            .and_then(|r| r.strip_suffix(&[end]))
+            .is_some_and(|p| !p.is_empty() && p.iter().all(|b| b.is_ascii_digit() || *b == b';'))
+    };
+    let report = matches!(rest, b"[I" | b"[O") // focus
+        || rest.starts_with(b"[M") || rest.starts_with(b"[<") // mouse
+        || rest.starts_with(b"[?") || rest.starts_with(b"[>") // device attributes and modes
+        || csi_params(b'R') // cursor position
+        // OSC (colours…) and DCS replies; Alt+] and Alt+P alone are two bytes.
+        || (rest.starts_with(b"]") || rest.starts_with(b"P")) && rest.len() > 1;
+    !report
+}
+
 /// Status a Claude Code hook event means, or `None` when it says nothing about the state.
 pub fn hook_status(event: &str, payload: &Value) -> Option<Status> {
     let field = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
@@ -350,6 +373,7 @@ mod tests {
             status: None,
             remote_control: false,
             agent_session_id: None,
+            context: None,
         }
     }
 
@@ -522,6 +546,44 @@ mod tests {
         assert!(!answers_prompt(b"\x1b[I"), "focus report");
         assert!(!answers_prompt(b"\x1b[B"), "arrow key");
         assert!(!answers_prompt(b""));
+    }
+
+    #[test]
+    fn tells_typing_from_terminal_reports() {
+        for typed in [
+            &b"a"[..],
+            b"\r",
+            b"\x03",
+            b"\x1b",
+            b"\x1b[A",
+            b"\x1bOB",
+            b"\x1b[200~hi\x1b[201~",
+            b"\x1b\x7f",   // Alt+Backspace
+            b"\x1b[3~",    // Delete
+            b"\x1bb",      // Alt+b
+            b"\x1b[97;5u", // CSI u
+            b"\x1b]",      // Alt+]
+            b"\x1bP",      // Alt+Shift+p
+            b"\x1b[1;5D",  // Ctrl+Left
+        ] {
+            assert!(is_typing(typed), "{typed:?}");
+        }
+        for report in [
+            &b""[..],
+            b"\x1b[I",
+            b"\x1b[O",
+            b"\x1b[<0;3;4M",
+            b"\x1b[M #!",
+            b"\x1b]11;rgb:0/0/0\x07",
+            b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\",
+            b"\x1bP1$r0m\x1b\\",
+            b"\x1b[?1;2c",
+            b"\x1b[>0;276;0c",
+            b"\x1b[?2004;1$y",
+            b"\x1b[12;40R",
+        ] {
+            assert!(!is_typing(report), "{report:?}");
+        }
     }
 
     #[test]

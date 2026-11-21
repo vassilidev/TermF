@@ -41,7 +41,27 @@ export type Session = {
   /** Only agents that report their state (Claude Code) have one. */
   status: Status | null;
   remoteControl: boolean;
+  /** Context gauge and reset, for Claude Code sessions that report to TermF. */
+  context: Gauge | null;
 };
+export type ResetPhase = "idle" | "queued" | "handoff" | "clearing" | "resuming";
+export type ResetFailure =
+  | "typed"
+  | "busy"
+  | "interrupted"
+  | "empty_handoff"
+  | "save_failed"
+  | "write_failed"
+  | "timeout";
+export type Gauge = {
+  /** Null until the conversation's first answer. */
+  percent: number | null;
+  tokens: number | null;
+  window: number | null;
+  phase: ResetPhase;
+  failure: ResetFailure | null;
+};
+export type ContextSettings = { on: boolean; resetAt: number; warningAt: number };
 
 export const app = $state({
   workspace: null as Workspace | null,
@@ -51,6 +71,7 @@ export const app = $state({
   layouts: [] as Layout[],
   keepAwake: null as KeepAwakeState | null,
   sync: null as SyncStatus | null,
+  contextSettings: null as ContextSettings | null,
 });
 
 /** Overlays opened from the top bar, the shortcuts or the palette. */
@@ -106,13 +127,33 @@ export function init(): () => void {
   const unlistenOpened = listen<Session>("session-opened", ({ payload }) => {
     if (!app.sessions.some((s) => s.id === payload.id)) app.sessions.push(payload);
   });
+  invoke<ContextSettings>("context_settings").then((s) => (app.contextSettings = s), () => {});
+  const unlistenContext = listen<{ id: number; context: Gauge }>("session-context", ({ payload }) => {
+    const session = app.sessions.find((s) => s.id === payload.id);
+    if (session) session.context = payload.context;
+  });
   return () => {
     unlisten.then((stop) => stop());
     unlistenStatus.then((stop) => stop());
     unlistenOpened.then((stop) => stop());
     unlistenKeepAwake.then((stop) => stop());
     unlistenSync.then((stop) => stop());
+    unlistenContext.then((stop) => stop());
   };
+}
+
+/** Starts the handoff, clear and resume sequence by hand: at once if the agent is idle, else at the end of its turn. */
+export function resetContext(id: number) {
+  invoke("context_reset", { id }).catch((e) => (app.error = String(e)));
+}
+
+export async function setContextSettings(settings: ContextSettings): Promise<string> {
+  try {
+    app.contextSettings = await invoke<ContextSettings>("context_settings_set", settings);
+    return "";
+  } catch (e) {
+    return String(e);
+  }
 }
 
 /** Sessions waiting for the user; an exited session never is, whatever its last status. */

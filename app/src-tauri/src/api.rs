@@ -5,13 +5,16 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Stream, prelude::*};
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::claude;
+use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
@@ -24,6 +27,20 @@ struct Meta {
     agent_session_id: Option<String>,
     /// Removed with the session.
     dir: Option<PathBuf>,
+    /// Claude Code sessions that report through hooks only.
+    reset: Option<Reset>,
+}
+
+/// Lets the agent get back to its prompt before TermF types in it.
+const TYPE_AFTER: Duration = Duration::from_millis(1500);
+/// How long a step of the reset may take: writing the handoff, or reacting to what TermF typed.
+const HANDOFF_TIME: Duration = Duration::from_secs(600);
+const STEP_TIME: Duration = Duration::from_secs(30);
+
+#[derive(Serialize, Clone)]
+struct ContextEvent {
+    id: u32,
+    context: Gauge,
 }
 
 struct Endpoint {
@@ -49,6 +66,8 @@ pub struct Api {
     pub error: Option<String>,
     meta: Mutex<HashMap<u32, Meta>>,
     watchers: Mutex<Vec<mpsc::Sender<StatusEvent>>>,
+    /// The context reset settings last read from a valid `termf.toml`.
+    limits: Mutex<Option<Limits>>,
 }
 
 impl Api {
@@ -66,6 +85,7 @@ impl Api {
             error,
             meta: Mutex::default(),
             watchers: Mutex::default(),
+            limits: Mutex::default(),
         };
         (api, listener)
     }
@@ -110,6 +130,7 @@ impl Api {
                 .map(|s| if info.running { s } else { Status::Done }),
             remote_control: meta.is_some_and(|m| m.remote_control),
             agent_session_id: meta.and_then(|m| m.agent_session_id.clone()),
+            context: meta.and_then(|m| m.reset.as_ref()).map(|r| r.gauge.clone()),
             id: info.id,
             title: info.title,
             cwd: info.cwd,
@@ -140,18 +161,174 @@ impl Api {
         app.state::<AppState>().keep_awake.update(app);
     }
 
-    fn hook(&self, app: &AppHandle, id: u32, event: &str, payload: &Value) {
-        if let Some(agent_session) = payload.get("session_id").and_then(Value::as_str)
+    /// Handles a hook, or the status line `termf statusline` reports, and returns what `termf hook`
+    /// prints for Claude Code to read (null: nothing).
+    fn hook(&self, app: &AppHandle, id: u32, event: &str, payload: &Value) -> Value {
+        let text = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
+        let (agent_session, handoff) = (text("session_id"), self.handoff_file(id));
+        let mut current = true;
+        if !agent_session.is_empty()
             && let Some(m) = self.meta.lock().unwrap().get_mut(&id)
         {
-            m.agent_session_id = Some(agent_session.into());
+            if event == "StatusLine" {
+                // A status line still running for the conversation before /clear.
+                current = m
+                    .agent_session_id
+                    .as_deref()
+                    .is_none_or(|s| s == agent_session);
+            } else {
+                m.agent_session_id = Some(agent_session.into());
+            }
         }
-        if let Some(status) = ipc::hook_status(event, payload) {
+        let mut status = ipc::hook_status(event, payload);
+        let limits = (event == "Stop").then(|| self.limits(&app.state::<AppState>().config_dir));
+        let mut then = None;
+        let output = self.update(app, id, true, |reset| {
+            let mut output = Value::Null;
+            match event {
+                "StatusLine" if current => reset.measure(&payload["context_window"]),
+                "SessionStart" => {
+                    if let Some(handoff_text) = reset.session_start(text("source")) {
+                        output = context::session_start_output(&handoff_text, &handoff);
+                        then = Some((reset.step(), context::resume_prompt(&handoff)));
+                    }
+                }
+                "UserPromptSubmit" => reset.prompt_submitted(),
+                "StopFailure" => reset.interrupted(),
+                // A minute at the prompt with a step still waiting for the agent: it will not come.
+                "Notification" if status == Some(Status::Idle) => {
+                    reset.timeout(reset.step());
+                }
+                "Stop" => {
+                    let busy = payload["background_tasks"]
+                        .as_array()
+                        .is_some_and(|tasks| !tasks.is_empty());
+                    let continuing = payload["stop_hook_active"] == true;
+                    let save = |text: &str| Ok(fs::write(&handoff, text)?);
+                    let limits = limits.expect("read for Stop");
+                    let reply = text("last_assistant_message");
+                    match reset.stop(limits, busy, continuing, reply, save) {
+                        Next::AskHandoff => {
+                            let request = context::handoff_request(reset.gauge.percent);
+                            output = context::stop_output(&request);
+                        }
+                        Next::Clear => then = Some((reset.step(), "/clear".into())),
+                        Next::Nothing => {}
+                    }
+                }
+                _ => {}
+            }
+            if let Some(status) = status {
+                reset.activity(status);
+            }
+            // The agent is not done while it goes through the reset: no "finished" notification.
+            if reset.active() && status == Some(Status::Idle) {
+                status = Some(Status::Working);
+            }
+            output
+        });
+        if let Some(status) = status {
             self.set_status(app, id, status);
         }
+        if let Some((step, line)) = then {
+            type_later(app.clone(), id, step, line);
+        }
+        output.unwrap_or_default()
+    }
+
+    fn handoff_file(&self, id: u32) -> PathBuf {
+        let meta = self.meta.lock().unwrap();
+        let dir = meta
+            .get(&id)
+            .and_then(|m| m.dir.clone())
+            .unwrap_or_default();
+        dir.join("handoff.md")
+    }
+
+    /// The context reset settings, or the last valid ones while `termf.toml` cannot be read; none read
+    /// yet, no automatic reset.
+    fn limits(&self, config_dir: &Path) -> Limits {
+        let mut last = self.limits.lock().unwrap();
+        if let Ok(settings) = termf_core::load_settings(config_dir) {
+            *last = Some(Limits {
+                on: settings.context_reset,
+                reset_at: settings.context_reset_at.clamp(1, 100),
+            });
+        }
+        last.unwrap_or(Limits {
+            on: false,
+            reset_at: 100,
+        })
+    }
+
+    /// `update` for what does not come from a hook.
+    fn reset<T>(&self, app: &AppHandle, id: u32, f: impl FnOnce(&mut Reset) -> T) -> Option<T> {
+        self.update(app, id, false, f)
+    }
+
+    /// Runs `f` on a Claude Code session's reset, then shows the change: the gauge in the UI, a timer
+    /// for a new step, and the agent idle again when a sequence stops while it sat at its prompt (hooks
+    /// bring their own status).
+    fn update<T>(
+        &self,
+        app: &AppHandle,
+        id: u32,
+        from_hook: bool,
+        f: impl FnOnce(&mut Reset) -> T,
+    ) -> Option<T> {
+        let (value, gauge, timer, idle) = {
+            let mut meta = self.meta.lock().unwrap();
+            let reset = meta.get_mut(&id)?.reset.as_mut()?;
+            let (before, step) = (reset.gauge.clone(), reset.step());
+            let value = f(reset);
+            let time = match reset.gauge.phase {
+                Phase::Handoff => HANDOFF_TIME,
+                _ => STEP_TIME,
+            };
+            let timer = (reset.step() != step && reset.active()).then(|| (reset.step(), time));
+            let idle = !from_hook
+                && matches!(before.phase, Phase::Clearing | Phase::Resuming)
+                && !reset.active();
+            let gauge = (reset.gauge != before).then(|| reset.gauge.clone());
+            (value, gauge, timer, idle)
+        };
+        if let Some(context) = gauge {
+            let _ = app.emit("session-context", ContextEvent { id, context });
+        }
+        if let Some((step, after)) = timer {
+            time_out(app.clone(), id, step, after);
+        }
+        if idle {
+            self.set_status(app, id, Status::Idle);
+        }
+        Some(value)
+    }
+
+    /// The reset button: at once when the agent waits at its prompt, else at the end of its turn.
+    pub fn request_reset(&self, app: &AppHandle, id: u32) -> Result<()> {
+        let idle = self
+            .meta
+            .lock()
+            .unwrap()
+            .get(&id)
+            .is_some_and(|m| m.status == Some(Status::Idle));
+        let request = self
+            .reset(app, id, |r| {
+                r.request(idle)
+                    .then(|| (r.step(), context::handoff_request(r.gauge.percent)))
+            })
+            .context("only Claude Code sessions that report to TermF can be reset")?;
+        if let Some((step, line)) = request
+            && let Err(e) = app.state::<AppState>().sessions.type_line(id, &line)
+        {
+            self.reset(app, id, |r| r.write_failed(step));
+            return Err(e);
+        }
+        Ok(())
     }
 
     /// Typing into a waiting session answers it (e.g. approves a tool), which no hook reports right away.
+    /// Typing otherwise stops a reset under way, and keeps one from typing over a draft.
     pub fn input(&self, app: &AppHandle, id: u32, input: &[u8]) {
         let waiting = self
             .meta
@@ -161,6 +338,8 @@ impl Api {
             .is_some_and(|m| m.status == Some(Status::Waiting));
         if waiting && ipc::answers_prompt(input) {
             self.set_status(app, id, Status::Working);
+        } else if !waiting && ipc::is_typing(input) {
+            self.reset(app, id, Reset::typed);
         }
     }
 
@@ -299,6 +478,7 @@ pub fn spawn(
                 remote_control,
                 agent_session_id: None,
                 dir: dir.clone(),
+                reset: hooks.is_some().then(Reset::default),
             },
         );
         let mut extra = Vec::new();
@@ -306,6 +486,12 @@ pub fn spawn(
             let plugin = dir.join("plugin");
             if let Some(termf) = &hooks {
                 claude::write_plugin(&plugin, termf, run.is_some())?;
+                // The status line is what measures the context.
+                let settings = claude::write_settings(dir, termf, &cwd, &claude_dir())?;
+                extra.push(format!(
+                    "--settings {}",
+                    shell_quote(&settings.to_string_lossy())
+                ));
             }
             let prompt = library(state, &cwd, dir, run.as_ref().map(|r| r.project));
             if plugin.is_dir() {
@@ -490,10 +676,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         }
         Call::Say { session, text } => {
             let id = ipc::find_session(&state.api.list(&state.sessions), &session)?;
-            state.sessions.write(id, text.as_bytes())?;
-            // Sent apart so a TUI that detects pastes, like Claude Code, reads Enter as a key press.
-            std::thread::sleep(Duration::from_millis(100));
-            state.sessions.write(id, b"\r")?;
+            state.sessions.type_line(id, &text)?;
             state.api.input(app, id, b"\r");
             Value::Null
         }
@@ -501,10 +684,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             session,
             event,
             payload,
-        } => {
-            state.api.hook(app, session, &event, &payload);
-            Value::Null
-        }
+        } => state.api.hook(app, session, &event, &payload),
         Call::Run {
             ticket,
             project,
@@ -519,6 +699,36 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         Call::Close { run, force } => serde_json::to_value(tickets::close(app, run, force)?)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
+}
+
+fn claude_dir() -> PathBuf {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| termf_core::expand_tilde("~/.claude"))
+}
+
+/// Ends a reset whose step is still `step` after `after`. Not generic, unlike `Api::update` which calls it.
+fn time_out(app: AppHandle, id: u32, step: u64, after: Duration) {
+    thread::spawn(move || {
+        thread::sleep(after);
+        app.state::<AppState>()
+            .api
+            .reset(&app, id, |r| r.timeout(step));
+    });
+}
+
+/// Types `line` once the agent is back at its prompt, if the reset step that asked for it is still on.
+fn type_later(app: AppHandle, id: u32, step: u64, line: String) {
+    thread::spawn(move || {
+        thread::sleep(TYPE_AFTER);
+        let state = app.state::<AppState>();
+        let due = state
+            .api
+            .reset(&app, id, |r| r.clear_due(step) || r.resume_due(step));
+        if due == Some(true) && state.sessions.type_line(id, &line).is_err() {
+            state.api.reset(&app, id, |r| r.write_failed(step));
+        }
+    });
 }
 
 #[cfg(test)]
