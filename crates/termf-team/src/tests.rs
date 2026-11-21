@@ -12,8 +12,8 @@ use super::*;
 /// A stand-in for Claude Code that reads stream-json and answers each step from files a test writes: for the
 /// step `<key>` (read from the brief, or remembered for the conversation), its `<n>`th message runs
 /// `<key>.sh <n>` in the session's folder, then answers `<key>.<n>.json`, else `<key>.json`, else a report that
-/// says it is done; `NONE` answers plain text. Each turn costs `cost` cents (1 by default). It logs each step's
-/// begin and end, and the messages.
+/// says it is done; `NONE` answers plain text. Each turn costs `<key>.cost`, else `cost`, cents (1 by default).
+/// It logs each step's begin and end, and the messages.
 const FAKE: &str = r#"
 prev=
 for a in "$@"; do
@@ -39,7 +39,7 @@ while IFS= read -r line; do
   ans="$dir/$key.$n.json"
   [ -f "$ans" ] || ans="$dir/$key.json"
   echo "$key $n end" >> "$log.steps"
-  spent=$((spent + cost))
+  spent=$((spent + $(cat "$dir/$key.cost" 2>/dev/null || echo "$cost")))
   total=$(printf '%d.%02d' $((spent / 100)) $((spent % 100)))
   if [ -f "$ans" ] && [ "$(cat "$ans")" = NONE ]; then
     printf '{"type":"result","subtype":"success","is_error":false,"result":"I did it.","total_cost_usd":%s,"session_id":"%s"}\n' "$total" "$sid"
@@ -866,6 +866,262 @@ fn goes_on_after_a_restart_and_an_emergency_stop() {
         env.step(&run, "implement:T1").sessions.len(),
         1,
         "the same conversation, resumed"
+    );
+}
+
+#[test]
+fn stops_a_command_and_ignores_what_an_old_launch_says() {
+    let env = Env::new("shell-stop");
+    let a = env.answers.display();
+    let command = format!(
+        "n=$(( $(cat '{a}/count' 2>/dev/null || echo 0) + 1 )); echo $n > '{a}/count'; sleep 2; echo done-$n >> '{a}/log'"
+    );
+    fs::write(
+        env.config.join("library/workflows/shelly.toml"),
+        format!(
+            "[steps.check]\ntype = \"shell\"\nrun = {}\n",
+            toml::Value::String(command)
+        ),
+    )
+    .unwrap();
+    let shelly = Options {
+        workflow: Some("shelly".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), shelly).unwrap();
+    let count = || fs::read_to_string(env.answers.join("count")).unwrap_or_default();
+    env.until("the command at work", |_| count() == "1\n");
+    env.team.stop(Some(1)).unwrap();
+    let lean = Options {
+        workflow: Some("lean".into()),
+        ..Options::default()
+    };
+    let error = env
+        .team
+        .start(env.target.clone(), lean)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("runs the workflow shelly"), "{error}");
+
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    let run = env.state(RunState::Done);
+    assert_eq!(
+        run.steps[0].state,
+        StepState::Done,
+        "{:?}",
+        run.steps[0].note
+    );
+    assert_eq!(count(), "2\n");
+    assert_eq!(
+        fs::read_to_string(env.answers.join("log")).unwrap(),
+        "done-2\n",
+        "the first command was killed"
+    );
+}
+
+#[test]
+fn asks_the_last_task_again_from_the_visual_gate() {
+    let env = Env::new("visual");
+    fs::write(
+        env.config.join("library/workflows/visual.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"orchestrator\"\n[steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n[steps.rules]\ntype = \"rules\"\nneeds = [\"implement\"]\n[steps.visual]\ntype = \"visual\"\nneeds = [\"rules\"]\n",
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([
+            task("T1", "front", &["web"], &[]),
+            task("T2", "back", &["src"], &[])
+        ])),
+    );
+    env.script(
+        "implement:T1",
+        "sleep 1; mkdir -p web; echo \"<b>$1</b>\" > web/a.html\n",
+    );
+    let options = Options {
+        workflow: Some("visual".into()),
+        rules: [("visual-review".to_owned(), Level::Warn)].into(),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let waits = |r: &TeamRun| r.steps.last().unwrap().state == StepState::Waiting;
+    env.until("the visual gate", waits);
+
+    env.team.revise(1, "visual", "Bigger button").unwrap();
+    let run = env.until("the gate after the task ran again", |r| {
+        waits(r) && env.steps_log().iter().any(|l| l == "implement:T1 2 end")
+    });
+    assert!(env.message("implement:T1", 2).contains("Bigger button"));
+    assert_eq!(env.step(&run, "implement:T1").sessions.len(), 2);
+    assert_eq!(
+        env.step(&run, "implement:T2").sessions.len(),
+        1,
+        "the other task keeps its work"
+    );
+    let rules = env.kinds().iter().filter(|k| *k == "step_done").count();
+    assert_eq!(
+        rules, 8,
+        "plan, T1, T2, implement and rules, then T1, implement and rules again"
+    );
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("web/a.html")).unwrap(),
+        "<b>2</b>\n"
+    );
+    let run = env.team.approve(1, "visual").unwrap();
+    assert_eq!(run.state, RunState::Done);
+}
+
+#[test]
+fn shares_the_run_budget_between_parallel_sessions() {
+    let env = Env::new("share");
+    env.answer(
+        "plan.json",
+        env.plan(json!([
+            task("T1", "back", &["a"], &[]),
+            task("T2", "back", &["b"], &[]),
+            task("T3", "back", &["c"], &["T1", "T2"])
+        ])),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        budget: Some(1.0),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Done);
+    let budget = |key: &str| {
+        let session = env.step(&run, key).session.unwrap();
+        env.agents.session(session).unwrap().spec.budget.unwrap()
+    };
+    assert!((budget("plan") - 1.0).abs() < 1e-9);
+    let (t1, t2) = (budget("implement:T1"), budget("implement:T2"));
+    assert!(t1 + t2 <= 0.99 + 1e-9, "{t1} + {t2}");
+    assert!(
+        (t1 - 0.495).abs() < 1e-9 && (t2 - 0.495).abs() < 1e-9,
+        "{t1} {t2}"
+    );
+    assert!(
+        (budget("implement:T3") - 0.97).abs() < 1e-9,
+        "alone, it gets all that is left"
+    );
+}
+
+#[test]
+fn a_bigger_budget_goes_on_in_new_sessions() {
+    let mut env = Env::new("budget-more");
+    env.answer(
+        "plan.json",
+        env.plan(json!([
+            task("T1", "back", &["a"], &[]),
+            task("T2", "back", &["b"], &[])
+        ])),
+    );
+    env.script(
+        "implement:T2",
+        "if [ \"$1\" = 1 ]; then sleep 30; fi; echo $1 > b.txt\n",
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        budget: Some(1.0),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    env.until("T1 done and T2 at work", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.state == StepState::Done)
+            && env.steps_log().iter().any(|l| l == "implement:T2 1 begin")
+    });
+    // A turn that never ended, as a budget stop leaves it; the fake cannot answer an interrupt mid-script.
+    env.restart();
+
+    let more = Options {
+        budget: Some(5.0),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), more).unwrap();
+    let run = env.state(RunState::Done);
+    let t2 = env.step(&run, "implement:T2");
+    assert_eq!(
+        (t2.sessions.len(), t2.attempt),
+        (2, 1),
+        "a new session, not a correction"
+    );
+    let first = env
+        .agents
+        .session(t2.sessions[0])
+        .unwrap()
+        .spec
+        .budget
+        .unwrap();
+    let second = env
+        .agents
+        .session(t2.sessions[1])
+        .unwrap()
+        .spec
+        .budget
+        .unwrap();
+    assert!(first < 0.5 && second > 3.0, "{first} {second}");
+    assert!(
+        env.message("implement:T2", 2)
+            .contains("TermF stopped while you were working")
+    );
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("b.txt")).unwrap(),
+        "2\n"
+    );
+    assert_eq!(env.step(&run, "implement:T1").sessions.len(), 1);
+}
+
+#[test]
+fn leaves_a_merge_conflict_to_the_task_agent() {
+    let env = Env::new("conflict");
+    env.answer(
+        "plan.json",
+        env.plan(json!([
+            task("T1", "back", &["a"], &[]),
+            task("T2", "back", &["b"], &[])
+        ])),
+    );
+    env.script("implement:T1", "echo one > shared.txt\n");
+    env.script(
+        "implement:T2",
+        "case $1 in 1) sleep 1; echo two > shared.txt ;; 3) echo both > shared.txt ;; esac\n",
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.until("T2 blocked", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T2" && s.state == StepState::Blocked)
+    });
+    let second = env.message("implement:T2", 2);
+    assert!(
+        second.contains("conflicts with the work of other tasks") && second.contains("shared.txt"),
+        "{second}"
+    );
+    let note = env.step(&run, "implement:T2").note.clone().unwrap();
+    assert!(note.contains("conflict markers are left"), "{note}");
+    let error = format!("{:#}", env.team.approve(1, "implement:T2").unwrap_err());
+    assert!(error.contains("conflict markers are left"), "{error}");
+
+    env.team
+        .revise(1, "implement:T2", "Keep both lines' intent")
+        .unwrap();
+    let run = env.state(RunState::Done);
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("shared.txt")).unwrap(),
+        "both\n"
+    );
+    assert_eq!(
+        env.step(&run, "implement:T2").files,
+        ["shared.txt"],
+        "measured from the run's work"
     );
 }
 

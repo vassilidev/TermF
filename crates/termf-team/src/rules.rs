@@ -239,15 +239,24 @@ pub fn check_scope(
 pub fn changed_texts(diff: &str) -> Vec<(String, String)> {
     let mut by_file: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
     let mut file: Option<String> = None;
+    // Between `diff --git` and the first hunk: an added `++ x` or a removed `-- x` is not a header.
+    let mut header = false;
     for line in diff.lines() {
-        if let Some(path) = line.strip_prefix("+++ ") {
-            file = path
-                .strip_prefix("b/")
-                .map(str::to_owned)
-                .filter(|f| !excluded(f));
+        if line.starts_with("diff ") {
+            (header, file) = (true, None);
             continue;
         }
-        if line.starts_with("--- ") || line.starts_with("diff ") {
+        if line.starts_with("@@") {
+            header = false;
+            continue;
+        }
+        if header {
+            if let Some(path) = line.strip_prefix("+++ ") {
+                file = path
+                    .strip_prefix("b/")
+                    .map(str::to_owned)
+                    .filter(|f| !excluded(f));
+            }
             continue;
         }
         let Some(file) = &file else { continue };
@@ -269,20 +278,28 @@ pub fn changed_texts(diff: &str) -> Vec<(String, String)> {
     changed
 }
 
+/// Tests, snapshots, fixtures and lockfiles, by their folders and names.
 fn excluded(file: &str) -> bool {
     let lower = file.to_lowercase();
-    [
+    let mut parts: Vec<&str> = lower.split('/').collect();
+    let name = parts.pop().unwrap_or_default();
+    let folders = [
         "test",
+        "tests",
         "spec",
+        "specs",
+        "__tests__",
         "__snapshots__",
-        ".snap",
         "fixtures",
-        ".lock",
-        "-lock.",
-        "lock.json",
-    ]
-    .iter()
-    .any(|p| lower.contains(p))
+        "__fixtures__",
+    ];
+    parts.iter().any(|p| folders.contains(p))
+        || [".test.", ".spec.", "_test.", "-lock."]
+            .iter()
+            .any(|p| name.contains(p))
+        || name.starts_with("test_")
+        || name.ends_with(".snap")
+        || name.ends_with(".lock")
 }
 
 fn extension(file: &str) -> String {
@@ -619,6 +636,47 @@ diff --git a/README.md b/README.md
         assert!(found.iter().all(|f| f.2));
         assert!(
             ui_file("src/Invoices.tsx") && ui_file("locales/fr.json") && !ui_file("src/api.ts")
+        );
+    }
+
+    #[test]
+    fn leaves_out_tests_and_lockfiles_by_name_only() {
+        for file in [
+            "src/__tests__/a.tsx",
+            "src/Invoices.test.tsx",
+            "web/b.spec.ts",
+            "tests/x.py",
+            "pkg/a_test.go",
+            "test_api.py",
+            "e2e/fixtures/a.json",
+            "src/__snapshots__/a.tsx.snap",
+            "pnpm-lock.yaml",
+            "package-lock.json",
+            "Cargo.lock",
+        ] {
+            assert!(excluded(file), "{file}");
+        }
+        for file in [
+            "src/LatestInvoices.tsx",
+            "src/Inspector.svelte",
+            "web/special-offers/a.tsx",
+            "web/contest/a.tsx",
+            "src/blocking.ts",
+        ] {
+            assert!(!excluded(file), "{file}");
+        }
+        let diff = "diff --git a/notes.md b/notes.md\n--- a/notes.md\n+++ b/notes.md\n@@ -1 +1,2 @@\n--- old rule\n+++ new rule\n+## Next heading\n";
+        let texts: Vec<String> = changed_texts(diff)
+            .into_iter()
+            .map(|(f, t)| format!("{f}: {t}"))
+            .collect();
+        assert!(
+            texts.contains(&"notes.md: Next heading".to_owned()),
+            "{texts:?}"
+        );
+        assert!(
+            texts.contains(&"notes.md: old rule".to_owned()),
+            "{texts:?}"
         );
     }
 

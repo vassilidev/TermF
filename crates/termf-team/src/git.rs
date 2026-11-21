@@ -59,9 +59,20 @@ impl Git<'_> {
         );
     }
 
-    /// Commits everything that changed in `dir`, when anything did.
+    /// Commits everything that changed in `dir`, when anything did, unless a conflict marker is left.
     pub fn commit_all(&self, dir: &Path, message: &str) -> Result<()> {
         self.run(dir, &["add", "-A"])?;
+        let check = self.output(dir, &["diff", "--cached", "--check"])?;
+        let markers: Vec<&str> = std::str::from_utf8(&check.stdout)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.ends_with("leftover conflict marker"))
+            .collect();
+        ensure!(
+            markers.is_empty(),
+            "conflict markers are left: {}",
+            markers.join(", ")
+        );
         let staged = !self
             .output(dir, &["diff", "--cached", "--quiet"])?
             .status
@@ -87,6 +98,20 @@ impl Git<'_> {
             .filter_map(|n| n.parse::<usize>().ok())
             .sum();
         Ok((names.lines().map(str::to_owned).collect(), diff, lines))
+    }
+
+    /// Merges `commit` into what `dir` is on, leaving a conflict there: the files in conflict.
+    pub fn merge_in(&self, dir: &Path, commit: &str, message: &str) -> Result<Vec<String>> {
+        let out = self.output(dir, &["merge", "-q", "--no-edit", "-m", message, commit])?;
+        if out.status.success() {
+            return Ok(Vec::new());
+        }
+        let conflicts = self.run(dir, &["diff", "--name-only", "--diff-filter=U"])?;
+        if conflicts.is_empty() {
+            let _ = self.output(dir, &["merge", "--abort"]);
+            anyhow::bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+        Ok(conflicts.lines().map(str::to_owned).collect())
     }
 
     /// Merges `commit` into the branch `dir` is on; a conflict leaves `dir` as it was.

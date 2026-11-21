@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel as mpsc};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -316,6 +316,7 @@ enum Msg {
     Shell {
         run: i64,
         step: String,
+        launch: u64,
         ok: bool,
         output: String,
     },
@@ -339,6 +340,9 @@ pub fn channel() -> (Notifier, Inbox) {
     (Notifier(tx.clone()), Inbox(rx, tx))
 }
 
+/// A `shell` step's launch: its id, and what kills its command.
+type Launch = (u64, Arc<AtomicBool>);
+
 pub struct Team {
     inner: Arc<Inner>,
 }
@@ -354,6 +358,9 @@ struct Inner {
     /// Added to git's environment.
     env: Vec<(String, String)>,
     closed: AtomicBool,
+    /// The `shell` steps at work, by run and step: their launch, and what kills it.
+    shells: Mutex<BTreeMap<(i64, String), Launch>>,
+    launches: AtomicU64,
 }
 
 impl Team {
@@ -387,6 +394,8 @@ impl Team {
             sink: Box::new(sink),
             env,
             closed: AtomicBool::new(false),
+            shells: Mutex::default(),
+            launches: AtomicU64::new(0),
         });
         if let Err(e) = inner.recover() {
             eprintln!("termf: team runs left as they were: {e:#}");
@@ -410,6 +419,9 @@ impl Team {
     pub fn shutdown(&self) {
         let _lock = self.inner.lock.lock().unwrap();
         self.inner.closed.store(true, Ordering::SeqCst);
+        for (_, kill) in std::mem::take(&mut *self.inner.shells.lock().unwrap()).into_values() {
+            kill.store(true, Ordering::SeqCst);
+        }
     }
 
     /// Starts the team on `target`, or goes on with a run paused, stopped or out of budget.
@@ -424,7 +436,20 @@ impl Team {
             Some(run) if run.state == RunState::Done => {
                 bail!("the team of run {} is done", run.run)
             }
+            Some(run)
+                if options
+                    .workflow
+                    .as_ref()
+                    .is_some_and(|w| *w != run.workflow) =>
+            {
+                bail!(
+                    "the team of run {} runs the workflow {}: it cannot change on the way",
+                    run.run,
+                    run.workflow
+                )
+            }
             Some(mut run) => {
+                let fresh = options.budget.is_some();
                 run.plan_only = options.plan_only;
                 run.rules.extend(options.rules);
                 if let Some(budget) = options.budget {
@@ -442,7 +467,7 @@ impl Team {
                 inner.event(&store, &run, None, "resumed", "the team goes on");
                 for i in 0..run.steps.len() {
                     if run.steps[i].state == StepState::Running {
-                        inner.resume_step(&store, &mut run, i);
+                        inner.resume_step(&store, &mut run, i, fresh);
                     }
                 }
                 run
@@ -476,11 +501,18 @@ impl Team {
             }
             StepState::Blocked => {
                 if step.kind == StepKind::Task && !step.integrated && step.worktree.is_some() {
-                    inner.integrate(&run, i).with_context(|| {
+                    let conflict = inner.integrate(&mut run, i).with_context(|| {
                         format!(
                             "{key} cannot be merged into the run's worktree as it is: revise it"
                         )
                     })?;
+                    if let Some(why) = conflict {
+                        inner.block(&store, &mut run, i, &why);
+                        inner.save(&store, &mut run)?;
+                        bail!(
+                            "{key} conflicts with the work merged meanwhile: revise it, its agent resolves the conflict"
+                        );
+                    }
                     run.steps[i].integrated = true;
                     inner.drop_worktree(&run, i);
                     run.steps[i].worktree = None;
@@ -546,6 +578,9 @@ impl Team {
             }
         } else {
             run.steps[target].feedback = (!feedback.is_empty()).then(|| feedback.to_owned());
+        }
+        if target != i {
+            inner.reopen_after(&mut run, target);
         }
         let step = &mut run.steps[target];
         step.state = StepState::Pending;
@@ -799,9 +834,19 @@ impl Inner {
             Msg::Shell {
                 run,
                 step,
+                launch,
                 ok,
                 output,
             } => {
+                // A launch stopped or replaced since says nothing of the step.
+                {
+                    let mut shells = self.shells.lock().unwrap();
+                    let key = (run, step.clone());
+                    if shells.get(&key).is_none_or(|(id, _)| *id != launch) {
+                        return Ok(());
+                    }
+                    shells.remove(&key);
+                }
                 let mut run = self.get(&store, run)?;
                 let Ok(i) = run.index(&step) else {
                     return Ok(());
@@ -853,12 +898,10 @@ impl Inner {
         run.cost = run.steps.iter().map(|s| s.cost).sum();
     }
 
-    /// Stops the run's agents and leaves it in `state`.
+    /// Stops the run's agents and commands and leaves it in `state`.
     fn halt(&self, store: &Store, run: &mut TeamRun, state: RunState, why: &str) -> Result<()> {
         for step in run.steps.iter().filter(|s| s.state == StepState::Running) {
-            if let Some(session) = step.session.filter(|_| step.agent()) {
-                let _ = self.agents.stop(session);
-            }
+            self.interrupt(run.run, step);
         }
         self.costs(run);
         run.state = state;
@@ -867,8 +910,20 @@ impl Inner {
         self.save(store, run)
     }
 
-    /// Takes up a step that was running when the team stopped: its turn ended (handled), or it goes on.
-    fn resume_step(&self, store: &Store, run: &mut TeamRun, i: usize) {
+    /// Stops what the running `step` started: its agent's session, or its command.
+    fn interrupt(&self, run: i64, step: &Step) {
+        if step.kind == StepKind::Shell {
+            if let Some((_, kill)) = self.shells.lock().unwrap().remove(&(run, step.key.clone())) {
+                kill.store(true, Ordering::SeqCst);
+            }
+        } else if let Some(session) = step.session.filter(|_| step.agent()) {
+            let _ = self.agents.stop(session);
+        }
+    }
+
+    /// Takes up a step that was running when the team stopped: its turn ended (handled), or it goes on, in a
+    /// new session when `fresh` (its session's budget was the share of a smaller run budget).
+    fn resume_step(&self, store: &Store, run: &mut TeamRun, i: usize, fresh: bool) {
         let step = &run.steps[i];
         if step.kind == StepKind::Shell {
             run.steps[i].state = StepState::Pending;
@@ -885,6 +940,14 @@ impl Inner {
                 self.block(store, run, i, &format!("{e:#}"));
                 return;
             }
+        }
+        if fresh {
+            let step = &mut run.steps[i];
+            step.state = StepState::Pending;
+            // Going on is not a correction.
+            step.attempt = step.attempt.saturating_sub(1);
+            step.feedback = Some(CONTINUE.to_owned());
+            return;
         }
         let last = self
             .agents
@@ -1215,7 +1278,10 @@ impl Inner {
             self.retry(store, run, i, &why);
             return Ok(());
         }
-        self.integrate(run, i)?;
+        if let Some(why) = self.integrate(run, i)? {
+            self.retry(store, run, i, &why);
+            return Ok(());
+        }
         run.steps[i].integrated = true;
         self.drop_worktree(run, i);
         run.steps[i].worktree = None;
@@ -1242,22 +1308,42 @@ impl Inner {
             .context("cannot commit the task's work")
     }
 
-    /// Merges the task's work into the run's worktree.
-    fn integrate(&self, run: &TeamRun, i: usize) -> Result<()> {
+    /// Merges the task's work into the run's worktree. When it conflicts with the work merged since the task
+    /// started, the run's work is merged into the task's worktree instead, and the conflict left there for its
+    /// agent: what to tell it.
+    fn integrate(&self, run: &mut TeamRun, i: usize) -> Result<Option<String>> {
         self.commit(run, i)?;
         let git = Git(&self.env);
         let step = &run.steps[i];
         let worktree = step
             .worktree
-            .as_deref()
+            .clone()
             .context("the task's worktree is gone")?;
-        let commit = git.head(worktree)?;
+        let commit = git.head(&worktree)?;
         if Some(&commit) == step.base.as_ref() {
-            return Ok(());
+            return Ok(None);
         }
         let message = format!("Merge {} of {}", step.key, run.target.ticket);
-        git.merge(&run.target.worktree, &commit, &message)
-            .with_context(|| format!("cannot merge {} into the run's worktree", step.key))
+        if git.merge(&run.target.worktree, &commit, &message).is_ok() {
+            return Ok(None);
+        }
+        let head = git.head(&run.target.worktree)?;
+        let conflicts = git.merge_in(&worktree, &head, "Merge the run's work")?;
+        // What the task changed is now measured from the run's work.
+        run.steps[i].base = Some(head);
+        if conflicts.is_empty() {
+            git.merge(&run.target.worktree, &git.head(&worktree)?, &message)
+                .with_context(|| {
+                    format!("cannot merge {} into the run's worktree", run.steps[i].key)
+                })?;
+            return Ok(None);
+        }
+        Ok(Some(format!(
+            "your work conflicts with the work of other tasks merged meanwhile, in {}: TermF merged their work \
+             into your worktree, so the conflict is there. Resolve it, keeping what both sides meant, and leave no \
+             conflict marker.",
+            conflicts.join(", ")
+        )))
     }
 
     fn drop_worktree(&self, run: &TeamRun, i: usize) {
@@ -1461,12 +1547,52 @@ impl Inner {
                         return Ok(false);
                     }
                 }
-                if let Err(e) = self.launch(store, run, i) {
+                let running = running(None).count();
+                let budget = self.share(run, i);
+                if running > 0 && budget.is_some_and(|b| b < 0.01) {
+                    return Ok(false);
+                }
+                let budget = budget.map(|b| b.max(0.01));
+                if let Err(e) = self.launch(store, run, i, budget) {
                     self.block(store, run, i, &format!("its agent cannot start: {e:#}"));
                 }
             }
         }
         Ok(true)
+    }
+
+    /// The budget of the session of step `i`: its step's, within its share of what the run has left once the
+    /// sessions at work have spent all theirs, shared with the agent steps ready to start.
+    fn share(&self, run: &mut TeamRun, i: usize) -> Option<f64> {
+        let own = run.steps[i].budget;
+        let Some(budget) = run.budget else {
+            return own;
+        };
+        self.costs(run);
+        let mut running = 0;
+        let mut reserved = 0.0;
+        for step in run
+            .steps
+            .iter()
+            .filter(|s| s.state == StepState::Running && s.agent())
+        {
+            running += 1;
+            if let Some(session) = step.session.and_then(|s| self.agents.session(s).ok()) {
+                reserved += session
+                    .spec
+                    .budget
+                    .map_or(0.0, |b| (b - session.cost).max(0.0));
+            }
+        }
+        let ready = run
+            .steps
+            .iter()
+            .filter(|s| s.state == StepState::Pending && s.agent())
+            .filter(|s| s.needs.iter().all(|n| self.over(run, n)))
+            .count();
+        let slots = run.max_parallel.saturating_sub(running);
+        let share = (budget - run.cost - reserved) / ready.min(slots).max(1) as f64;
+        Some(own.map_or(share, |own| own.min(share)))
     }
 
     fn wait(&self, store: &Store, run: &mut TeamRun, i: usize, note: &str) {
@@ -1486,7 +1612,8 @@ impl Inner {
         self.event(store, run, Some(&key), "step_skipped", note);
     }
 
-    /// The agent step a gate decides on: the nearest one among what it needs.
+    /// The agent step a gate decides on: the nearest one among what it needs; through a `foreach`, the task of
+    /// its plan that finished last.
     fn agent_before(&self, run: &TeamRun, i: usize) -> Option<usize> {
         let mut queue: std::collections::VecDeque<&String> = run.steps[i].needs.iter().collect();
         while let Some(key) = queue.pop_front() {
@@ -1494,9 +1621,56 @@ impl Inner {
             if run.steps[j].agent() {
                 return Some(j);
             }
+            if run.steps[j].kind == StepKind::Foreach {
+                let prefix = format!("{key}:");
+                let last = (0..run.steps.len())
+                    .filter(|k| run.steps[*k].key.starts_with(&prefix))
+                    .max_by_key(|k| run.steps[*k].finished);
+                if last.is_some() {
+                    return last;
+                }
+            }
             queue.extend(run.steps[j].needs.iter());
         }
         None
+    }
+
+    /// What comes after `target`, which runs again, goes back to pending to see its new work: stopped if at
+    /// work. The plan's other tasks keep theirs.
+    fn reopen_after(&self, run: &mut TeamRun, target: usize) {
+        let key = run.steps[target].key.clone();
+        let mut after = std::collections::HashSet::from([key.clone()]);
+        // A task's work reaches what needs its foreach.
+        if let Some((each, _)) = key.split_once(':') {
+            after.insert(each.to_owned());
+        }
+        loop {
+            let more: Vec<String> = run
+                .steps
+                .iter()
+                .filter(|s| s.kind != StepKind::Task && !after.contains(&s.key))
+                .filter(|s| s.needs.iter().any(|n| after.contains(n)))
+                .map(|s| s.key.clone())
+                .collect();
+            if more.is_empty() {
+                break;
+            }
+            after.extend(more);
+        }
+        for j in 0..run.steps.len() {
+            let step = &run.steps[j];
+            if step.key == key || !after.contains(&step.key) || step.state == StepState::Pending {
+                continue;
+            }
+            if step.state == StepState::Running {
+                self.interrupt(run.run, step);
+            }
+            let step = &mut run.steps[j];
+            step.state = StepState::Pending;
+            step.attempt = 0;
+            step.feedback = None;
+            step.note = None;
+        }
     }
 
     /// The command of the `shell` step `i`: `{{ repo.checks }}` is the repository's `checks` in its project.
@@ -1538,24 +1712,33 @@ impl Inner {
             termf_worktree::Setup::new(self.config_dir.clone(), self.data_dir.clone()).env(&cwd);
         let tx = self.tx.lock().unwrap().clone();
         let extra = self.env.clone();
+        let launch = self.launches.fetch_add(1, Ordering::SeqCst);
+        let kill = Arc::new(AtomicBool::new(false));
+        let killed = kill.clone();
+        self.shells
+            .lock()
+            .unwrap()
+            .insert((run, step.clone()), (launch, kill));
         std::thread::spawn(move || {
             let (program, args) = termf_term::shell_command(Some(&command));
             let mut cmd = std::process::Command::new(program);
             cmd.args(args).current_dir(&cwd).envs(env).envs(extra);
-            let (ok, output) = match termf_core::process::run(cmd, b"", SHELL_TIMEOUT) {
-                Ok((status, out, err)) => {
-                    let text = format!(
-                        "{}\n{}",
-                        String::from_utf8_lossy(&out),
-                        String::from_utf8_lossy(&err)
-                    );
-                    (status.success(), termf_core::process::tail(&text))
-                }
-                Err(e) => (false, format!("{e:#}")),
-            };
+            let (ok, output) =
+                match termf_core::process::run_until(cmd, b"", SHELL_TIMEOUT, &killed) {
+                    Ok((status, out, err)) => {
+                        let text = format!(
+                            "{}\n{}",
+                            String::from_utf8_lossy(&out),
+                            String::from_utf8_lossy(&err)
+                        );
+                        (status.success(), termf_core::process::tail(&text))
+                    }
+                    Err(e) => (false, format!("{e:#}")),
+                };
             let _ = tx.send(Msg::Shell {
                 run,
                 step,
+                launch,
                 ok,
                 output,
             });
@@ -1572,8 +1755,8 @@ impl Inner {
             .collect())
     }
 
-    /// The rules for a step of `task`, at their levels: workflow, then `termf.toml` and project `[rules]`, then
-    /// the ticket's and the task's.
+    /// The rules for a step of `task`, at their levels: `termf.toml`'s `[rules]`, then the workflow's, the
+    /// project's, the ticket's and the task's.
     fn rules(&self, run: &TeamRun, task: Option<&str>, cwd: &Path) -> Result<Vec<rules::Rule>> {
         let global = rules::read_levels(&self.config_dir.join("termf.toml"))?;
         let project = rules::read_levels(&termf_core::project_file(
@@ -1591,7 +1774,13 @@ impl Inner {
     }
 
     /// Opens the step's session: its role, its worktree (a task's own), its brief.
-    fn launch(&self, store: &Store, run: &mut TeamRun, i: usize) -> Result<()> {
+    fn launch(
+        &self,
+        store: &Store,
+        run: &mut TeamRun,
+        i: usize,
+        budget: Option<f64>,
+    ) -> Result<()> {
         let step = &run.steps[i];
         let task = run
             .plan
@@ -1610,6 +1799,7 @@ impl Inner {
             let step = &mut run.steps[i];
             step.worktree = Some(path);
             step.base = Some(base);
+            step.integrated = false;
         }
         let step = &run.steps[i];
         let cwd = step
@@ -1628,11 +1818,6 @@ impl Inner {
         let effort = task
             .as_ref()
             .map(|t| bounded(t.size.effort(), role.meta.get("effort_range")));
-        let left = run.budget.map(|b| (b - run.cost).max(0.01));
-        let budget = match (step.budget, left) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
         let spec = SessionSpec {
             cwd,
             title: format!("{} · {} · {role_name}", run.target.ticket, step.key),
