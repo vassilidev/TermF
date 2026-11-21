@@ -691,10 +691,7 @@ fn process(args: &[&str]) -> std::process::Child {
 }
 
 fn end(mut process: std::process::Child) {
-    let group = format!("-{}", process.id());
-    let _ = std::process::Command::new("kill")
-        .args(["-KILL", &group])
-        .status();
+    crate::agents::kill_group(process.id());
     let _ = process.wait();
 }
 
