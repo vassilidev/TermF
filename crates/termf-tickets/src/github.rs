@@ -1,9 +1,11 @@
 //! GitHub Issues and Projects v2 boards through the GitHub CLI: `gh` brings its own sign-in (`gh auth login`),
 //! so TermF keeps no token.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Output, Stdio};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
@@ -11,11 +13,15 @@ use termf_ssh::Ssh;
 
 use crate::{Comment, Ticket, TicketProvider, TicketRef, TicketSummary};
 
+/// A GET of the REST API → its last ETag and answer.
+pub(crate) type Etags = Arc<Mutex<HashMap<String, (String, Value)>>>;
+
 pub struct GitHub {
     pub program: PathBuf,
     pub env: Vec<(String, String)>,
     /// The project's board, whose Status `transition` changes.
     pub board: Option<Board>,
+    pub(crate) etags: Etags,
 }
 
 /// A Projects v2 board: `acme/4`, or its address.
@@ -101,6 +107,8 @@ const MOVE_ITEM: &str = "mutation($project: ID!, $item: ID!, $field: ID!, $optio
 
 /// Pages of 100 items a board is read for at most.
 const MAX_PAGES: usize = 30;
+/// GitHub's search gives 1000 results at most: 10 pages of 100.
+const SEARCH_PAGES: u32 = 10;
 
 pub(crate) fn reference(slug: &str, number: u64) -> TicketRef {
     TicketRef {
@@ -231,8 +239,20 @@ pub(crate) fn ticket_from(
     })
 }
 
+/// `owner/name` and the number of a pull request's address.
+fn pull_request(url: &str) -> Result<(String, u64)> {
+    let path = url.strip_prefix("https://github.com/").unwrap_or_default();
+    match path.split('/').collect::<Vec<_>>().as_slice() {
+        [owner, name, "pull", n, ..] if valid_slug(&format!("{owner}/{name}")) => {
+            let n = number(n).with_context(|| format!("{url} is not a GitHub pull request"))?;
+            Ok((format!("{owner}/{name}"), n))
+        }
+        _ => bail!("{url} is not a GitHub pull request"),
+    }
+}
+
 impl GitHub {
-    fn run(&self, dir: Option<&Path>, args: &[&str], input: Option<&str>) -> Result<String> {
+    fn output(&self, dir: Option<&Path>, args: &[&str], input: Option<&str>) -> Result<Output> {
         let mut cmd = crate::command(&self.program);
         // Launched from the Finder, TermF lacks the PATH of the shell profile (Homebrew…), which gh also needs.
         if self.program == Path::new("gh")
@@ -259,7 +279,11 @@ impl GitHub {
         if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
             stdin.write_all(input.as_bytes())?;
         }
-        let out = child.wait_with_output()?;
+        Ok(child.wait_with_output()?)
+    }
+
+    fn run(&self, dir: Option<&Path>, args: &[&str], input: Option<&str>) -> Result<String> {
+        let out = self.output(dir, args, input)?;
         if out.status.success() {
             return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
         }
@@ -268,6 +292,109 @@ impl GitHub {
             bail!("gh is not signed in: run `gh auth login`");
         }
         bail!("gh {} failed: {error}", args[..2.min(args.len())].join(" "))
+    }
+
+    /// A GET of the REST API. Unless `fresh`, it is asked with the ETag of the last answer, and GitHub's "not
+    /// modified", which costs no rate limit, gives that answer again.
+    fn get(&self, path: &str, fields: &[(&str, String)], fresh: bool) -> Result<Value> {
+        let mut args: Vec<String> = ["api", "--include", "--method", "GET", path]
+            .map(String::from)
+            .to_vec();
+        for (name, value) in fields {
+            args.extend(["-f".into(), format!("{name}={value}")]);
+        }
+        let key = args.join(" ");
+        let cached = self.etags.lock().unwrap().get(&key).cloned();
+        let cached = cached.filter(|_| !fresh);
+        if let Some((etag, _)) = &cached {
+            args.extend(["-H".into(), format!("If-None-Match: {etag}")]);
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let answer = self.output(None, &args, None)?;
+        let out = String::from_utf8_lossy(&answer.stdout);
+        let (head, body) = out
+            .split_once("\r\n\r\n")
+            .or_else(|| out.split_once("\n\n"))
+            .unwrap_or((&out, ""));
+        // gh exits with an error on 304, after printing the headers.
+        if let (Some("304"), Some((_, value))) = (head.split_whitespace().nth(1), cached) {
+            return Ok(value);
+        }
+        if !answer.status.success() {
+            let error = String::from_utf8_lossy(&answer.stderr).trim().to_owned();
+            if error.contains("gh auth login") {
+                bail!("gh is not signed in: run `gh auth login`");
+            }
+            bail!("gh api {path} failed: {error}");
+        }
+        let value: Value =
+            serde_json::from_str(body).with_context(|| format!("gh api {path} gave no JSON"))?;
+        let etag = head.lines().find_map(|line| {
+            let (name, etag) = line.split_once(':')?;
+            name.trim()
+                .eq_ignore_ascii_case("etag")
+                .then(|| etag.trim().to_owned())
+        });
+        if let Some(etag) = etag {
+            let mut etags = self.etags.lock().unwrap();
+            // shortcut: forgets every answer past 256 queries; keep the most used ones if that ever shows.
+            if etags.len() >= 256 {
+                etags.clear();
+            }
+            etags.insert(key, (etag, value.clone()));
+        }
+        Ok(value)
+    }
+
+    /// The issues a search finds, every page (GitHub stops at 1000), each asked with its ETag unless `fresh`.
+    pub(crate) fn issues(&self, query: &str, fresh: bool) -> Result<Vec<TicketSummary>> {
+        let mut items: Vec<Value> = Vec::new();
+        for page in 1..=SEARCH_PAGES {
+            let fields = [
+                ("q", query.to_owned()),
+                ("per_page", "100".to_owned()),
+                ("page", page.to_string()),
+            ];
+            let answer = self.get("search/issues", &fields, fresh)?;
+            let found = answer["items"].as_array().cloned().unwrap_or_default();
+            let done = found.is_empty();
+            items.extend(found);
+            if done || items.len() as u64 >= answer["total_count"].as_u64().unwrap_or(0) {
+                break;
+            }
+        }
+        Ok(items
+            .iter()
+            .filter_map(|item| {
+                let labels = item["labels"].as_array().into_iter().flatten();
+                Some(TicketSummary {
+                    reference: self.resolve(item["html_url"].as_str()?)?,
+                    title: item["title"].as_str().unwrap_or_default().into(),
+                    state: item["state"].as_str().unwrap_or_default().into(),
+                    labels: labels
+                        .filter_map(|l| l["name"].as_str().map(str::to_owned))
+                        .collect(),
+                    assignees: logins(&item["assignees"]),
+                    updated: item["updated_at"].as_str().unwrap_or_default().into(),
+                    project: None,
+                    source: "github".into(),
+                })
+            })
+            .collect())
+    }
+
+    /// `merged` or `closed` once the pull request at `url` is, `None` while it is open. Asked with its ETag.
+    pub(crate) fn pr_state(&self, url: &str) -> Result<Option<&'static str>> {
+        let (slug, number) = pull_request(url)?;
+        let pull = self.get(&format!("repos/{slug}/pulls/{number}"), &[], false)?;
+        Ok(match pull["state"].as_str() {
+            Some("closed") if pull["merged"] == true || pull["merged_at"].is_string() => {
+                Some("merged")
+            }
+            Some("closed") => Some("closed"),
+            Some(_) => None,
+            None => bail!("GitHub gave no state for {url}"),
+        })
     }
 
     fn json(&self, args: &[&str]) -> Result<Value> {
@@ -447,37 +574,7 @@ impl TicketProvider for GitHub {
 
     /// Every page; GitHub stops at 1000 results.
     fn search(&self, query: &str) -> Result<Vec<TicketSummary>> {
-        let pages = self.json(&[
-            "api",
-            "--paginate",
-            "--slurp",
-            "--method",
-            "GET",
-            "search/issues",
-            "-f",
-            &format!("q={query}"),
-            "-f",
-            "per_page=100",
-        ])?;
-        let pages = pages.as_array().into_iter().flatten();
-        let items = pages.flat_map(|page| page["items"].as_array().into_iter().flatten());
-        Ok(items
-            .filter_map(|item| {
-                let labels = item["labels"].as_array().into_iter().flatten();
-                Some(TicketSummary {
-                    reference: self.resolve(item["html_url"].as_str()?)?,
-                    title: item["title"].as_str().unwrap_or_default().into(),
-                    state: item["state"].as_str().unwrap_or_default().into(),
-                    labels: labels
-                        .filter_map(|l| l["name"].as_str().map(str::to_owned))
-                        .collect(),
-                    assignees: logins(&item["assignees"]),
-                    updated: item["updated_at"].as_str().unwrap_or_default().into(),
-                    project: None,
-                    source: "github".into(),
-                })
-            })
-            .collect())
+        self.issues(query, false)
     }
 
     fn comment(&self, ticket: &TicketRef, body: &str) -> Result<()> {

@@ -16,3 +16,4 @@ termf-ssh = { path = "../termf-ssh" }
 termf-worktree = { path = "../termf-worktree" }
 toml = "1.2.2"
 toml_edit = "0.25"
+uuid = { version = "1.29.3", features = ["v4"] }
