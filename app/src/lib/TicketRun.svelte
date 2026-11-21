@@ -2,13 +2,11 @@
   import { invoke } from "@tauri-apps/api/core";
   import { focusSession } from "$lib/commands";
   import { app, type Session } from "$lib/state.svelte";
+  import { liveSession } from "$lib/tickets-logic";
   import { tickets, type Run } from "$lib/tickets.svelte";
 
   export function runSession(run: Run): Session | undefined {
-    const id = tickets.sessions[run.id];
-    if (id !== undefined) return app.sessions.find((s) => s.id === id && s.running);
-    // shortcut: a run launched elsewhere (CLI, earlier launch) is found by its folder, among Claude Code sessions only; use Run's session once phase3/ticket-sources gives it.
-    return app.sessions.find((s) => s.running && s.context && s.cwd === run.worktree);
+    return liveSession(run, app.sessions);
   }
 
   /** Shows the run's tile. `session-opened` may come after the answer that started the run: then the list is asked. */
@@ -24,19 +22,34 @@
 
 <script lang="ts">
   import Archive from "@lucide/svelte/icons/archive";
+  import BrushCleaning from "@lucide/svelte/icons/brush-cleaning";
   import Check from "@lucide/svelte/icons/check";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Copy from "@lucide/svelte/icons/copy";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
+  import GitMerge from "@lucide/svelte/icons/git-merge";
+  import GitPullRequestClosed from "@lucide/svelte/icons/git-pull-request-closed";
   import Info from "@lucide/svelte/icons/info";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Send from "@lucide/svelte/icons/send";
+  import ShieldQuestionMark from "@lucide/svelte/icons/shield-question-mark";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import CiChecks from "$lib/CiChecks.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { repoName, shortPath } from "$lib/state.svelte";
-  import { upsert, type Delivery, type DeliveryPreview, type RunEvent } from "$lib/tickets.svelte";
+  import { readyToClean, refusal, resumable } from "$lib/tickets-logic";
+  import {
+    openUrl,
+    upsert,
+    type Delivery,
+    type DeliveryPreview,
+    type Resumed,
+    type RunEvent,
+  } from "$lib/tickets.svelte";
 
   let { run }: { run: Run } = $props();
 
@@ -44,19 +57,31 @@
     | null
     | { kind: "preview"; preview: DeliveryPreview }
     | { kind: "delivered"; warning: string | null; again: boolean }
+    | { kind: "resumed"; warning: string }
     | { kind: "close" }
-    | { kind: "refused"; detail: string }
+    | { kind: "refused"; detail: string; cleanup: boolean }
     | { kind: "force" };
 
   let step = $state<Step>(null);
   /** The action under way. */
-  let busy = $state<"" | "preview" | "deliver" | "close">("");
+  let busy = $state<"" | "preview" | "deliver" | "close" | "resume" | "cleanup">("");
   let stepError = $state("");
   let events = $state<RunEvent[]>([]);
 
   const session = $derived(runSession(run));
   const open = $derived(run.status === "running" || run.status === "delivered");
   const project = $derived(app.workspace?.projects.find((p) => p.id === run.project)?.name ?? run.project);
+
+  /** How long a run's session may stay "starting" before the trust question is the likely reason. */
+  const TRUST_DELAY = 6000;
+  /** Claude Code asks whether to trust a folder before any hook runs, so its session stays "starting". */
+  let untrusted = $state(false);
+  $effect(() => {
+    untrusted = false;
+    if (session?.status !== "starting") return;
+    const timer = setTimeout(() => (untrusted = true), TRUST_DELAY);
+    return () => clearTimeout(timer);
+  });
 
   let eventsRequest = 0;
 
@@ -88,14 +113,22 @@
         return t("eventWorktree", { branch: e.branch, base: e.base });
       case "session_opened":
         return t("eventSession");
+      case "session_resumed":
+        return t("ticketsUiEventResumed");
       case "committed":
         return t("eventCommitted", { commit: short(e.commit), message: e.message.split("\n")[0] });
       case "pushed":
         return t("eventPushed", { branch: e.branch, commit: short(e.commit) });
       case "pr_opened":
         return t("eventPr", { url: e.url });
+      case "pr_merged":
+        return t("ticketsUiEventMerged");
+      case "pr_closed":
+        return t("ticketsUiEventPrClosed");
       case "ticket_commented":
         return t("eventCommented");
+      case "ticket_moved":
+        return t("ticketsUiEventMoved", { to: e.to });
       case "closed":
         return e.dropped.length ? t("eventClosedForce", { dropped: e.dropped.join(", ") }) : t("eventClosed");
       case "failed":
@@ -139,18 +172,29 @@
       step = { kind: "delivered", warning: delivery.warning, again };
     });
 
-  const close = (force: boolean) =>
-    act("close", async () => {
+  /** Closing and cleaning up refuse alike while work is not pushed. */
+  const close = (force: boolean, cleanup = false) =>
+    act(cleanup ? "cleanup" : "close", async () => {
       try {
-        upsert(await invoke<Run>("tickets_close", { id: run.id, force }));
+        upsert(await invoke<Run>(cleanup ? "tickets_cleanup" : "tickets_close", { id: run.id, force }));
       } catch (e) {
-        const error = e as { kind?: string; message?: string };
-        if (force || (error.kind !== "uncommitted" && error.kind !== "unpushed")) throw error.message ?? e;
-        step = { kind: "refused", detail: error.message ?? String(e) };
+        const refused = refusal(e);
+        if (force || refused.kind === "error") throw refused.message;
+        step = { kind: "refused", detail: refused.message, cleanup };
         return;
       }
       step = null;
-      tickets.done = t("runClosed");
+      tickets.done = t(cleanup ? "ticketsUiCleaned" : "runClosed");
+    });
+
+  /** Without a warning, straight to the tile, like a launch. */
+  const resume = () =>
+    act("resume", async () => {
+      step = null;
+      const resumed = await invoke<Resumed>("tickets_resume", { id: run.id, cols: 120, rows: 32 });
+      upsert(resumed.run);
+      if (resumed.warning) step = { kind: "resumed", warning: resumed.warning };
+      else await openTile(resumed.run);
     });
 
   async function copy(url: string) {
@@ -166,6 +210,9 @@
 {#snippet link(url: string)}
   <span class="link-row">
     <span class="mono">{url}</span>
+    <button class="icon-btn sm" onclick={() => openUrl(url)} aria-label={t("ticketsUiOpenLink")} title={t("ticketsUiOpenLink")}>
+      <ExternalLink size={13} aria-hidden="true" />
+    </button>
     <button class="icon-btn sm" onclick={() => copy(url)} aria-label={t("runCopyLink")} title={t("runCopyLink")}>
       <Copy size={13} aria-hidden="true" />
     </button>
@@ -180,16 +227,47 @@
 
 <header>
   <div class="title">
-    <StatusPill status={run.status} />
+    <StatusPill status={run.status} label={readyToClean(run) ? t("ticketsUiReady") : undefined} />
     <span class="mono muted">{run.ticket.key}</span>
   </div>
   <h2>{run.title}</h2>
 </header>
 
+{#if readyToClean(run)}
+  {@const merged = run.prState === "merged"}
+  <section class="ask ready" aria-labelledby="ready-title">
+    <p class="ok" id="ready-title">
+      {#if merged}<GitMerge size={14} aria-hidden="true" />{:else}<GitPullRequestClosed
+          size={14}
+          aria-hidden="true"
+        />{/if}
+      {t(merged ? "ticketsUiMergedTitle" : "ticketsUiClosedTitle")}
+    </p>
+    <p>{t("ticketsUiCleanHelp")}</p>
+    <div class="buttons">
+      <button class="btn sm primary" onclick={() => close(false, true)} disabled={!!busy}>
+        {#if busy === "cleanup"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<BrushCleaning
+            size={14}
+            aria-hidden="true"
+          />{/if}
+        {t("ticketsUiClean")}
+      </button>
+    </div>
+  </section>
+{/if}
+
 <div class="actions">
   {#if session}
     <button class="btn sm" onclick={() => openTile(run)}>
       <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
+    </button>
+  {:else if resumable(run)}
+    <button class="btn sm" onclick={resume} disabled={!!busy}>
+      {#if busy === "resume"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<RotateCcw
+          size={14}
+          aria-hidden="true"
+        />{/if}
+      {t("ticketsUiResume")}
     </button>
   {/if}
   {#if open}
@@ -213,6 +291,18 @@
 </div>
 {#if open && !session}
   <p class="muted small">{t("runNoSession")}</p>
+{/if}
+{#if untrusted}
+  <div class="trust">
+    <Banner kind="warn" icon={ShieldQuestionMark}>
+      {t("ticketsUiTrust")}
+      {#snippet action()}
+        <button class="btn sm" onclick={() => openTile(run)}>
+          <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
+        </button>
+      {/snippet}
+    </Banner>
+  </div>
 {/if}
 
 {#if step?.kind === "preview"}
@@ -272,6 +362,19 @@
       <button class="btn sm" onclick={() => (step = null)}>{t("dismiss")}</button>
     </div>
   </section>
+{:else if step?.kind === "resumed"}
+  <section class="ask done" role="status">
+    <p class="ok"><Check size={14} aria-hidden="true" />{t("ticketsUiResumed")}</p>
+    <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{step.warning}</p>
+    <div class="buttons">
+      <button class="btn sm" onclick={() => (step = null)}>{t("dismiss")}</button>
+      {#if session}
+        <button class="btn sm primary" onclick={() => openTile(run)}>
+          <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
+        </button>
+      {/if}
+    </div>
+  </section>
 {:else if step?.kind === "close"}
   <section class="ask confirm" role="alert">
     <span>{t("closeConfirm")}</span>
@@ -286,7 +389,9 @@
   </section>
 {:else if step?.kind === "refused"}
   <section class="ask confirm warn" role="alert">
-    <p class="refused"><TriangleAlert size={14} aria-hidden="true" />{t("closeRefused")}</p>
+    <p class="refused">
+      <TriangleAlert size={14} aria-hidden="true" />{t(step.cleanup ? "ticketsUiCleanRefused" : "closeRefused")}
+    </p>
     <p class="mono muted">{step.detail}</p>
     <div class="buttons">
       <button class="btn sm" onclick={() => (step = null)}>{t("cancel")}</button>
@@ -397,6 +502,14 @@
   .ask.warn {
     border-color: var(--waiting-ring);
     background: var(--waiting-soft);
+  }
+
+  .ask.ready {
+    background: var(--done-soft);
+  }
+
+  .trust {
+    margin-top: 12px;
   }
 
   .ask p {
