@@ -67,7 +67,7 @@ export type Gauge = {
   failure: ResetFailure | null;
 };
 export type ContextSettings = { on: boolean; resetAt: number; warningAt: number };
-export type ViewId = "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude";
+export type ViewId = "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude" | "team" | "project";
 
 const projectKey = "termf.project";
 
@@ -110,7 +110,7 @@ export const ui = $state({
   settings: false,
   switcher: false,
   launcher: false,
-  /** The project whose editor is open, "" for a new one. */
+  /** The project whose page is open, "" for a new one. */
   editing: null as string | null,
 });
 
