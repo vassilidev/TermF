@@ -76,6 +76,8 @@ impl Sandbox {
             curl: "curl".into(),
             claude: Some(vec!["/bin/sh".into(), path(&claude)]),
             secrets: Box::new(self.secrets.clone()),
+            claude_dir: self.root.join("claude-dir"),
+            etags: Default::default(),
         }
     }
 
@@ -324,6 +326,33 @@ fn frames_the_ticket_as_data() {
 }
 
 #[test]
+fn adds_new_columns_to_an_old_database() {
+    let sb = Sandbox::new("migrate");
+    let data = sb.root.join("data");
+    fs::create_dir_all(&data).unwrap();
+    let old = rusqlite::Connection::open(data.join("termf.db")).unwrap();
+    old.execute_batch(
+        "CREATE TABLE runs (id INTEGER PRIMARY KEY, project TEXT NOT NULL, provider TEXT NOT NULL, \
+         ticket_key TEXT NOT NULL, ticket_url TEXT NOT NULL, title TEXT NOT NULL, repo TEXT NOT NULL, \
+         worktree TEXT, branch TEXT, base TEXT, status TEXT NOT NULL, pr_url TEXT, created INTEGER NOT NULL, \
+         updated INTEGER NOT NULL);
+         INSERT INTO runs (project, provider, ticket_key, ticket_url, title, repo, status, created, updated)
+         VALUES ('acme', 'github', 'acme/front#1', 'https://github.com/acme/front/issues/1', 'Old', '/r', 'running', 1, 1);",
+    )
+    .unwrap();
+    drop(old);
+    let run = Store::open(&data).unwrap().run(1).unwrap();
+    assert_eq!(
+        (run.title.as_str(), run.claude_session, run.pr_state),
+        ("Old", None, None)
+    );
+    assert!(
+        Store::open(&data).is_ok(),
+        "opened again: the columns are there"
+    );
+}
+
+#[test]
 fn stores_runs_and_events() {
     let sb = Sandbox::new("store");
     let data = sb.root.join("data");
@@ -430,13 +459,22 @@ fn spreads_long_searches() {
 }
 
 /// A `gh` that answers from fixtures and writes each call (and what it reads on stdin) to `gh.log`. While a
-/// `fail-comments` file exists, commenting fails.
+/// `fail-comments` file exists, commenting fails. A search asked with an ETag is not modified. Pull requests
+/// are in the state the `pr-state` file says: `open` (without it), `merged` or `closed`; while `fail-pulls`
+/// exists, GitHub cannot tell.
 #[cfg(unix)]
 fn fake_gh(sb: &Sandbox) {
     use std::os::unix::fs::PermissionsExt;
+    let page1 = json!({ "total_count": 3, "items": [
+        { "html_url": "https://github.com/other/x/issues/1", "title": "Elsewhere", "state": "open", "labels": [], "updated_at": "2026-11-19T10:00:00Z" },
+        { "html_url": "https://github.com/acme/front/pull/9", "title": "A pull request", "state": "open", "labels": [], "updated_at": "" },
+    ]});
+    let page2 = json!({ "total_count": 3, "items": [
+        { "html_url": "https://github.com/acme/front/issues/42", "title": "Fix the login button", "state": "open", "labels": [{ "name": "bug" }], "updated_at": "2026-11-20T10:00:00Z" },
+    ]});
     let script = format!(
         r#"#!/bin/sh
-root='{}'
+root='{root}'
 log="$root/gh.log"
 printf '%s\n' "$*" >> "$log"
 case "$*" in
@@ -444,8 +482,20 @@ case "$*" in
   echo '{{"title":"Fix the login button","body":"Nothing happens on Safari.","state":"open","user":{{"login":"alice"}},"labels":[{{"name":"bug"}}],"assignees":[]}}' ;;
 "api --paginate --slurp repos/acme/front/issues/42/comments?per_page=100")
   echo '[[{{"user":{{"login":"bob"}},"created_at":"2026-11-20T10:00:00Z","body":"Also on mobile"}}]]' ;;
-"api --paginate --slurp --method GET search/issues -f q="*)
-  echo '[{{"items":[{{"html_url":"https://github.com/other/x/issues/1","title":"Elsewhere","state":"open","labels":[],"updated_at":"2026-11-19T10:00:00Z"}},{{"html_url":"https://github.com/acme/front/pull/9","title":"A pull request","state":"open","labels":[],"updated_at":""}}]}},{{"items":[{{"html_url":"https://github.com/acme/front/issues/42","title":"Fix the login button","state":"open","labels":[{{"name":"bug"}}],"updated_at":"2026-11-20T10:00:00Z"}}]}}]' ;;
+"api --include --method GET search/issues "*"If-None-Match: "*)
+  printf 'HTTP/2.0 304 Not Modified\nEtag: "p"\n\n'; exit 1 ;;
+"api --include --method GET search/issues -f q="*"-f page=1")
+  printf 'HTTP/2.0 200 OK\nEtag: "p1"\n\n%s\n' '{page1}' ;;
+"api --include --method GET search/issues -f q="*"-f page=2")
+  printf 'HTTP/2.0 200 OK\r\nETag: "p2"\r\n\r\n%s\n' '{page2}' ;;
+"api --include --method GET repos/acme/front/pulls/7")
+  [ -e "$root/fail-pulls" ] && {{ echo 'HTTP 502: Bad Gateway' >&2; exit 1; }}
+  case "$(cat "$root/pr-state" 2>/dev/null)" in
+  merged) body='{{"state":"closed","merged":true}}' ;;
+  closed) body='{{"state":"closed","merged":false}}' ;;
+  *) body='{{"state":"open","merged":false}}' ;;
+  esac
+  printf 'HTTP/2.0 200 OK\n\n%s\n' "$body" ;;
 "pr create "*)
   echo 'https://github.com/acme/front/pull/7' ;;
 "api --method POST repos/acme/front/issues/42/comments --input -")
@@ -455,21 +505,17 @@ case "$*" in
   echo "unexpected gh call: $*" >&2; exit 1 ;;
 esac
 "#,
-        sb.root.display()
+        root = sb.root.display()
     );
     let gh = sb.root.join("gh");
     fs::write(&gh, script).unwrap();
     fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
+/// A clone of `acme/front` whose GitHub address leads to a local bare repository, and git may reach nothing
+/// else (GIT_ALLOW_PROTOCOL). Returns the clone and the bare repository.
 #[cfg(unix)]
-#[test]
-fn runs_a_ticket_from_worktree_to_pull_request() {
-    use std::cell::Cell;
-
-    let sb = Sandbox::new("run");
-    fake_gh(&sb);
-    // GitHub URLs lead to local bare repositories, and git may reach nothing else (GIT_ALLOW_PROTOCOL).
+fn github_clone(sb: &Sandbox) -> (PathBuf, PathBuf) {
     let remotes = sb.root.join("remotes");
     let rewrite = format!(
         "[url \"{}/\"]\n\tinsteadOf = https://github.com/\n",
@@ -484,6 +530,17 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     let front = sb.root.join("repos/front");
     let github_url = "https://github.com/acme/front.git";
     sb.git(&sb.root, &["clone", "-q", github_url, &path(&front)]);
+    (front, bare)
+}
+
+#[cfg(unix)]
+#[test]
+fn runs_a_ticket_from_worktree_to_pull_request() {
+    use std::cell::Cell;
+
+    let sb = Sandbox::new("run");
+    fake_gh(&sb);
+    let (front, bare) = github_clone(&sb);
     let project = format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n");
     sb.project("acme", &project);
     let t = sb.tickets();
@@ -512,10 +569,27 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         [("acme/front#42", Some("acme")), ("other/x#1", None)],
         "every page, newest first, pull requests left out"
     );
+    let asked = |etag: &str| log().matches(&format!("If-None-Match: \"{etag}\"")).count();
+    assert_eq!(
+        t.inbox(None, false).unwrap(),
+        inbox,
+        "nothing changed (304): the last answer"
+    );
+    assert_eq!(
+        (asked("p1"), asked("p2")),
+        (1, 1),
+        "each page with its ETag"
+    );
+    assert_eq!(t.inbox(None, true).unwrap(), inbox);
+    assert_eq!(
+        (asked("p1"), asked("p2")),
+        (1, 1),
+        "a refresh asks without the ETag"
+    );
     let implicit = t.inbox(Some("acme"), false).unwrap();
     assert_eq!(implicit.errors, []);
     assert!(
-        log().contains("assignee:@me repo:acme/front -f per_page=100\n"),
+        log().contains("assignee:@me repo:acme/front -f per_page=100 -f page=1\n"),
         "without [trackers], GitHub Issues on the repositories' remotes, as before sources"
     );
     assert_eq!(t.configured(Some("acme")).unwrap()[0].sources, ["github"]);
@@ -785,6 +859,259 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         2,
         "one pull request per run"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn resumes_runs_and_cleans_them_up_after_merge() {
+    use std::cell::Cell;
+
+    let sb = Sandbox::new("resume");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let t = sb.tickets();
+    let pulls = || {
+        let log = fs::read_to_string(sb.root.join("gh.log")).unwrap_or_default();
+        log.matches("repos/acme/front/pulls/7").count()
+    };
+    let kinds = |id| -> Vec<String> {
+        let events = t.events(id).unwrap();
+        let kind = |e: &RunEvent| {
+            serde_json::to_value(e).unwrap()["kind"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        events.iter().map(kind).collect()
+    };
+    let transcript = |conversation: &str| {
+        let folder = sb.root.join("claude-dir/projects/-somewhere");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join(format!("{conversation}.jsonl")), "{}\n").unwrap();
+    };
+    let deliver = |id| {
+        let worktree = PathBuf::from(t.run(id).unwrap().worktree.unwrap());
+        fs::write(worktree.join(format!("fix-{id}.txt")), "fixed\n").unwrap();
+        let preview = t.deliver_preview(id).unwrap();
+        t.deliver(id, &preview.fingerprint).unwrap().run
+    };
+
+    // The session gets its conversation id, which the run keeps.
+    let launch = t.start("front#42", None, None).unwrap();
+    let conversation = launch.run.claude_session.clone().unwrap();
+    assert!(
+        uuid::Uuid::parse_str(&conversation).is_ok(),
+        "{conversation}"
+    );
+    assert_eq!(
+        launch.args,
+        [
+            "--session-id",
+            conversation.as_str(),
+            kickoff(&launch.brief).as_str()
+        ]
+    );
+    assert_eq!(
+        t.run(1).unwrap().claude_session.as_deref(),
+        Some(conversation.as_str())
+    );
+
+    // Claude Code's folder may not be TermF's: a missing conversation is a warning, not a refusal.
+    let unsure = t.resume(1).unwrap();
+    assert_eq!(unsure.args, ["--resume", conversation.as_str()]);
+    let warning = unsure.warning.unwrap_or_default();
+    assert!(
+        warning.contains("may no longer have the conversation"),
+        "{warning}"
+    );
+    transcript(&conversation);
+    let resumed = t.resume(1).unwrap();
+    assert_eq!(resumed.warning, None);
+    assert_eq!(resumed.args, ["--resume", conversation.as_str()]);
+    assert_eq!(resumed.brief, launch.brief);
+    assert_eq!(resumed.env, launch.env, "the setup's ports, not new ones");
+    assert!(resumed.env.contains_key("PORT"));
+
+    // `/clear` starts a new conversation: the next resume takes that one.
+    let cleared = "0b9c3c1e-5f0a-4d6b-9a57-3f1d2c4e8a10";
+    t.conversation(1, cleared).unwrap();
+    assert_eq!(t.resume(1).unwrap().args, ["--resume", cleared]);
+    assert!(
+        t.conversation(1, "../../../etc/passwd-0000000000000000000")
+            .is_err()
+    );
+    let resumed = t.session_resumed(1, 9, cleared).unwrap();
+    assert_eq!(resumed.claude_session.as_deref(), Some(cleared));
+    assert_eq!(
+        t.events(1).unwrap().pop().unwrap().event,
+        Event::SessionResumed {
+            session: 9,
+            conversation: cleared.into()
+        }
+    );
+
+    // Merged: told (ask), and cleaned up once nothing would be lost.
+    let refused = format!("{:#}", t.cleanup(1, || {}).unwrap_err());
+    assert!(refused.contains("only a delivered run"), "{refused}");
+    let delivered = deliver(1);
+    assert_eq!(
+        delivered.pr_url.as_deref(),
+        Some("https://github.com/acme/front/pull/7")
+    );
+    assert_eq!(
+        t.after_merge(false, |_| {}).unwrap(),
+        PrCheck::default(),
+        "still open"
+    );
+    let open = format!("{:#}", t.cleanup(1, || {}).unwrap_err());
+    assert!(open.contains("is open"), "{open}");
+    fs::write(sb.root.join("pr-state"), "merged").unwrap();
+    // GitHub cannot tell: said, and asked again next time.
+    fs::write(sb.root.join("fail-pulls"), "").unwrap();
+    let failed = t.after_merge(false, |_| {}).unwrap();
+    assert!(failed.cleanups.is_empty());
+    assert_eq!(failed.errors.len(), 1);
+    assert_eq!(failed.errors[0].run, 1);
+    assert!(failed.errors[0].message.contains("HTTP 502"), "{failed:?}");
+    fs::remove_file(sb.root.join("fail-pulls")).unwrap();
+    let stopped = Cell::new(0_i64);
+    let found = t.after_merge(false, |id| stopped.set(id)).unwrap().cleanups;
+    assert_eq!(found.len(), 1);
+    let ready = &found[0];
+    assert!(!ready.cleaned && ready.error.is_none());
+    assert_eq!(ready.run.pr_state.as_deref(), Some("merged"));
+    assert_eq!(
+        ready.run.status,
+        RunStatus::Delivered,
+        "ask: the user closes it"
+    );
+    let worktree = PathBuf::from(ready.run.worktree.clone().unwrap());
+    assert!(worktree.exists() && stopped.get() == 0);
+    assert_eq!(kinds(1).last().unwrap(), "pr_merged");
+    let asked = pulls();
+    assert_eq!(
+        t.after_merge(false, |_| {}).unwrap(),
+        PrCheck::default(),
+        "told once"
+    );
+    assert_eq!(
+        pulls(),
+        asked,
+        "a merged pull request is not asked about again"
+    );
+
+    fs::write(worktree.join("late.txt"), "more\n").unwrap();
+    let refused = t.cleanup(1, || stopped.set(1)).unwrap_err();
+    assert!(refused.downcast_ref::<Unpushed>().unwrap().uncommitted);
+    assert!(worktree.exists() && stopped.get() == 0);
+    fs::remove_file(worktree.join("late.txt")).unwrap();
+    let closed = t.cleanup(1, || stopped.set(1)).unwrap();
+    assert_eq!((closed.status, stopped.get()), (RunStatus::Closed, 1));
+    assert!(!worktree.exists());
+    assert_eq!(kinds(1)[kinds(1).len() - 2..], ["teardown", "closed"]);
+    let over = format!("{:#}", t.resume(1).err().unwrap());
+    assert!(over.contains("is closed"), "{over}");
+
+    // Auto: closed by TermF, unless work would be lost.
+    fs::remove_file(sb.root.join("pr-state")).unwrap();
+    let kept = t.start("front#42", None, None).unwrap().run.id;
+    deliver(kept);
+    let kept_tree = PathBuf::from(t.run(kept).unwrap().worktree.unwrap());
+    fs::write(kept_tree.join("late.txt"), "more\n").unwrap();
+    let cleaned = t.start("front#42", None, None).unwrap().run.id;
+    deliver(cleaned);
+    fs::write(sb.root.join("pr-state"), "closed").unwrap();
+    let found = t.after_merge(true, |id| stopped.set(id)).unwrap().cleanups;
+    let outcome: Vec<(i64, bool, Option<&str>)> = found
+        .iter()
+        .map(|c| (c.run.id, c.cleaned, c.run.pr_state.as_deref()))
+        .collect();
+    assert_eq!(
+        outcome,
+        [
+            (cleaned, true, Some("closed")),
+            (kept, false, Some("closed"))
+        ]
+    );
+    assert!(found[1].error.as_deref().unwrap().contains("not committed"));
+    assert_eq!(
+        stopped.get(),
+        cleaned,
+        "the session ends before its folder goes"
+    );
+    assert_eq!(t.run(cleaned).unwrap().status, RunStatus::Closed);
+    assert!(kinds(cleaned).contains(&"teardown".to_owned()));
+    assert_eq!(t.run(kept).unwrap().status, RunStatus::Delivered);
+    assert!(kept_tree.exists());
+
+    // Reopened: asked again when cleaning up, and forgotten.
+    fs::remove_file(sb.root.join("pr-state")).unwrap();
+    let reopened = format!("{:#}", t.cleanup(kept, || {}).unwrap_err());
+    assert!(reopened.contains("is open"), "{reopened}");
+    assert_eq!(t.run(kept).unwrap().pr_state, None);
+    // Closed again, then delivered again: its state is asked again.
+    fs::write(sb.root.join("pr-state"), "closed").unwrap();
+    assert_eq!(t.after_merge(false, |_| {}).unwrap().cleanups.len(), 1);
+    assert_eq!(deliver(kept).pr_state, None);
+    assert_eq!(t.run(kept).unwrap().pr_state, None);
+    let again = t.after_merge(true, |_| {}).unwrap().cleanups;
+    assert_eq!(
+        (again.len(), again[0].cleaned),
+        (1, true),
+        "the late work went with the delivery"
+    );
+}
+
+#[test]
+fn writers_keep_each_others_columns() {
+    let sb = Sandbox::new("writers");
+    let data = sb.root.join("data");
+    let (store, other) = (Store::open(&data).unwrap(), Store::open(&data).unwrap());
+    let url = "https://github.com/acme/front/pull/7";
+    let delivered = |id| {
+        let mut run = store.create("acme", &sample(), "/src/front").unwrap();
+        assert_eq!(run.id, id);
+        run.status = RunStatus::Delivered;
+        run.pr_url = Some(url.into());
+        store.update(&mut run).unwrap();
+        run
+    };
+    let mut stale = delivered(1);
+    let cleared = "0b9c3c1e-5f0a-4d6b-9a57-3f1d2c4e8a10";
+    other.set_conversation(1, cleared).unwrap();
+    assert!(other.pr_done(1, "merged", url).unwrap().is_some());
+    assert!(
+        store.pr_done(1, "merged", url).unwrap().is_none(),
+        "two checks at once record it once"
+    );
+    // A delivery or a close that read the run before writes its own columns only.
+    stale.branch = Some("termf/42".into());
+    store.update(&mut stale).unwrap();
+    let run = store.run(1).unwrap();
+    assert_eq!(
+        (
+            run.claude_session.as_deref(),
+            run.pr_state.as_deref(),
+            run.branch.as_deref()
+        ),
+        (Some(cleared), Some("merged"), Some("termf/42"))
+    );
+    let merged = store.events(1).unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].event, Event::PrMerged { url: url.into() });
+
+    // A run closed meanwhile stays closed.
+    let mut closing = delivered(2);
+    closing.status = RunStatus::Closed;
+    store.update(&mut closing).unwrap();
+    assert!(other.pr_done(2, "closed", url).unwrap().is_none());
+    let run = store.run(2).unwrap();
+    assert_eq!((run.status, run.pr_state), (RunStatus::Closed, None));
+    assert!(store.events(2).unwrap().is_empty());
 }
 
 // Sources: Jira, GitHub Projects, MCP, and their merge.
@@ -1336,10 +1663,10 @@ fn fake_gh_board(sb: &Sandbox) {
             { "id": "I9", "project": { "id": "OTHER" } }, { "id": "I1", "project": { "id": "P1" } },
         ]}},
     }});
-    let search = json!([{ "items": [
+    let search = json!({ "total_count": 2, "items": [
         { "html_url": "https://github.com/acme/front/issues/1", "title": "Issue 1", "state": "open", "labels": [], "updated_at": "2026-11-19T10:00:00Z" },
         { "html_url": "https://github.com/acme/front/issues/7", "title": "Issue 7", "state": "open", "labels": [], "updated_at": "2026-11-17T10:00:00Z" },
-    ]}]);
+    ]});
     let script = format!(
         r#"#!/bin/sh
 printf '%s' "$*" | tr '\n' ' ' >> '{root}/gh.log'
@@ -1349,7 +1676,7 @@ case "$*" in
 *projectItems*) echo '{board_item}' ;;
 *"-f cursor=c2"*) echo '{second}' ;;
 "api graphql "*) echo '{first}' ;;
-"api --paginate --slurp --method GET search/issues "*) echo '{search}' ;;
+"api --include --method GET search/issues "*) printf 'HTTP/2.0 200 OK\n\n%s\n' '{search}' ;;
 *) echo "unexpected gh call: $*" >&2; exit 1 ;;
 esac
 "#,

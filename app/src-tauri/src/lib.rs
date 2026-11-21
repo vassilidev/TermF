@@ -229,6 +229,7 @@ pub fn run() {
             }
             quick_terminal::register(app.handle());
             claude::watch(app.handle());
+            tickets::watch(app.handle());
             let sync = sync::start(app.handle(), app.state::<AppState>().config_dir.clone());
             app.manage(sync);
             Ok(())
@@ -324,6 +325,9 @@ pub fn run() {
             tickets::tickets_deliver_preview,
             tickets::tickets_deliver,
             tickets::tickets_close,
+            tickets::tickets_resume,
+            tickets::tickets_cleanup,
+            tickets::tickets_check,
             worktree::worktree_recipe,
             worktree::worktree_recipe_save,
             worktree::worktree_recipe_propose,

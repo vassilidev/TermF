@@ -59,6 +59,10 @@ pub enum Call {
         run: i64,
         force: bool,
     },
+    /// Opens a new session that resumes a run's Claude Code conversation, when it has none.
+    Resume {
+        run: i64,
+    },
     /// Runs a scheduled task now; `scheduled`: only if one of its times is due and not run yet.
     Schedule {
         task: String,
