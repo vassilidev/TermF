@@ -6,9 +6,11 @@
   import Import from "@lucide/svelte/icons/import";
   import Info from "@lucide/svelte/icons/info";
   import Search from "@lucide/svelte/icons/search";
+  import Telescope from "@lucide/svelte/icons/telescope";
   import X from "@lucide/svelte/icons/x";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import Conventions from "$lib/Conventions.svelte";
+  import LibraryScout from "$lib/LibraryScout.svelte";
   import SyncView from "$lib/SyncView.svelte";
   import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import { t } from "$lib/i18n";
@@ -148,6 +150,9 @@
       </select>
     </label>
     <div class="tools">
+      <button class="btn sm" onclick={() => { library.panel = { kind: "scout" }; }}>
+        <Telescope size={14} aria-hidden="true" />{t("scoutOpen")}
+      </button>
       <button class="btn sm" onclick={() => { library.panel = { kind: "claude" }; }}>
         <Import size={14} aria-hidden="true" />{t("claudeImport")}
       </button>
@@ -201,6 +206,8 @@
 
   {#if library.panel?.kind === "sync"}
     <SyncView />
+  {:else if library.panel?.kind === "scout"}
+    <LibraryScout />
   {:else if library.panel}
     <ConfigTransfer />
   {:else if library.tab === "conventions" && project}

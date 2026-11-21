@@ -18,6 +18,7 @@ import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+import Telescope from "@lucide/svelte/icons/telescope";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
@@ -40,6 +41,7 @@ import {
   waitingSessions,
   type KeepAwakeMode,
 } from "$lib/state.svelte";
+import { showScout } from "$lib/scout.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
 import { launchTicket, showTickets } from "$lib/tickets.svelte";
 import { dispatchWorkflow, showCi } from "$lib/ci.svelte";
@@ -271,6 +273,7 @@ export function commands(): Command[] {
         library.panel = { kind: "claude" };
       },
     },
+    { id: "library-scout", label: t("scoutLaunchLong"), icon: Telescope, run: showScout },
     { id: "config-export", label: t("configExportLong"), icon: FileDown, run: exportConfig },
     { id: "config-import", label: t("configImportLong"), icon: FileUp, run: importConfig },
     { id: "ssh-generate", label: t("sshGenerateLong"), icon: KeyRound, run: generateKey },
