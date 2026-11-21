@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Inbox from "@lucide/svelte/icons/inbox";
   import Info from "@lucide/svelte/icons/info";
@@ -50,17 +49,13 @@
   const runs = $derived(tickets.scope ? tickets.runs.filter((r) => r.project === tickets.scope) : tickets.runs);
   const current = $derived(runs.find((r) => r.id === tickets.selected) ?? runs[0]);
 
-  // A deleted project falls back to every ticket.
+  // The inbox follows the current project; showTickets asked for the first one.
+  let inboxScope = tickets.scope;
   $effect(() => {
-    if (tickets.scope && app.workspace && !project) {
-      tickets.scope = "";
-      scoped();
-    }
-  });
-
-  onMount(() => {
-    const unlisten = listen<Run>("run-updated", ({ payload }) => upsert(payload));
-    return () => unlisten.then((stop) => stop());
+    const scope = tickets.scope;
+    if (scope === inboxScope) return;
+    inboxScope = scope;
+    untrack(scoped);
   });
 
   function scoped() {
@@ -181,20 +176,7 @@
 {/snippet}
 
 <div class="tickets">
-  <ViewHeader title={t("viewTickets")}>
-    <label class="scope">
-      <span>{t("libraryScope")}</span>
-      <select class="field" bind:value={tickets.scope} onchange={scoped}>
-        <option value="">{t("ticketsAll")}</option>
-        {#if projects.length}
-          <optgroup label={t("projects")}>
-            {#each projects as p (p.id)}
-              <option value={p.id}>{p.name}</option>
-            {/each}
-          </optgroup>
-        {/if}
-      </select>
-    </label>
+  <ViewHeader title={t("viewTickets")} context={project?.name ?? t("ticketsAll")}>
     {#snippet actions()}
       <form class="paste" onsubmit={preview}>
         <Ticket size={14} aria-hidden="true" />
@@ -347,19 +329,6 @@
     flex-direction: column;
     min-height: 0;
     background: var(--panel);
-  }
-
-  .scope {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--muted);
-    font-size: var(--text-sm);
-    font-weight: 500;
-  }
-
-  .scope select {
-    width: 200px;
   }
 
   .paste {

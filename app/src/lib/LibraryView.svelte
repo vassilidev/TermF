@@ -15,6 +15,7 @@
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
+  import { currentProject } from "$lib/files.svelte";
   import { app, shortPath } from "$lib/state.svelte";
   import {
     busy,
@@ -33,10 +34,10 @@
   let selected = $state<string | null>(null);
 
   const project = $derived(app.workspace?.projects.find((p) => p.id === library.scope));
+  const ofProject = $derived(currentProject());
 
-  // A deleted project falls back to the global library, and only a project has conventions and a worktree recipe.
+  // Only a project has conventions and a worktree recipe.
   $effect(() => {
-    if (library.scope && app.workspace && !project) library.scope = "";
     if (!library.scope && (library.tab === "conventions" || library.tab === "worktrees")) library.tab = "skill";
   });
 
@@ -145,20 +146,19 @@
 </script>
 
 <div class="library">
-  <ViewHeader title={t("viewLibrary")}>
-    <label class="scope">
-      <span>{t("libraryScope")}</span>
-      <select class="field" bind:value={library.scope} onchange={() => (library.panel = null)}>
-        <option value="">{t("libraryGlobal")}</option>
-        {#if app.workspace?.projects.length}
-          <optgroup label={t("projects")}>
-            {#each app.workspace.projects as p (p.id)}
-              <option value={p.id}>{p.name}</option>
-            {/each}
-          </optgroup>
-        {/if}
-      </select>
-    </label>
+  <ViewHeader title={t("viewLibrary")} context={ofProject ? "" : t("libraryGlobal")}>
+    {#if ofProject}
+      <div class="segmented" role="group" aria-label={t("libraryScope")}>
+        {#each [false, true] as global (global)}
+          <button
+            aria-pressed={library.global === global}
+            onclick={() => ((library.global = global), (library.panel = null))}
+          >
+            {global ? t("libraryGlobal") : ofProject.name}
+          </button>
+        {/each}
+      </div>
+    {/if}
     {#snippet actions()}
       <button class="btn sm" onclick={() => { library.panel = { kind: "scout" }; }}>
         <Telescope size={14} aria-hidden="true" />{t("scoutOpen")}
@@ -328,19 +328,6 @@
     flex-direction: column;
     min-height: 0;
     background: var(--panel);
-  }
-
-  .scope {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--muted);
-    font-size: var(--text-sm);
-    font-weight: 500;
-  }
-
-  .scope select {
-    width: 220px;
   }
 
   .list-pane {

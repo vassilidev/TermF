@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "$lib/i18n";
-import { app, type Repo } from "$lib/state.svelte";
+import { mostRecent } from "$lib/nav-logic";
+import { app, ui, type Project, type Repo } from "$lib/state.svelte";
 
 export type Entry = { name: string; path: string; dir: boolean };
 export type Content =
@@ -26,7 +27,6 @@ export type Tab = {
 };
 
 export const files = $state({
-  view: "terminals" as "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude",
   /** The Files view is only loaded once first shown, then kept mounted. */
   loaded: false,
   repo: "",
@@ -55,18 +55,27 @@ export function allRepos(): Repo[] {
   return repos.filter((r, i) => repos.findIndex((o) => o.path === r.path) === i);
 }
 
+export function currentProject(): Project | undefined {
+  return app.workspace?.projects.find((p) => p.id === app.project);
+}
+
+/** The current project's repositories, or every one. */
+export function scopeRepos(): Repo[] {
+  return app.project === null ? allRepos() : (currentProject()?.repos ?? []);
+}
+
+/** Keeps the Files view's repository when the current project has it, else takes the project's most recent one. */
+export function scopeRepo() {
+  const repos = scopeRepos();
+  if (!repos.some((r) => r.path === files.repo)) files.repo = mostRecent(repos)?.path ?? "";
+}
+
 /** Shows the Files view on the focused session's repository, else keeps the current one or takes the most recent. */
 export function showFiles() {
-  const repos = allRepos();
   const focused = app.sessions.find((s) => s.id === app.focused)?.cwd;
-  if (focused && repos.some((r) => r.path === focused)) files.repo = focused;
-  else if (!repos.some((r) => r.path === files.repo)) {
-    files.repo = repos.reduce<Repo | null>(
-      (best, r) => (!best || (r.modified ?? 0) > (best.modified ?? 0) ? r : best),
-      null,
-    )?.path ?? "";
-  }
-  files.view = "files";
+  if (focused && scopeRepos().some((r) => r.path === focused)) files.repo = focused;
+  else scopeRepo();
+  ui.view = "files";
   files.loaded = true;
   refreshStatus();
   if (files.active) sync(files.active);

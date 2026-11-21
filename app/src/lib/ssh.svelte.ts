@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { files } from "$lib/files.svelte";
+import { ui } from "$lib/state.svelte";
 import { t } from "$lib/i18n";
 
 export type KeyType = "ed25519" | "ecdsa" | "rsa";
@@ -99,7 +99,7 @@ export const ssh = $state({
 });
 
 export function showSsh() {
-  files.view = "ssh";
+  ui.view = "ssh";
   ssh.loaded = true;
   refresh();
 }

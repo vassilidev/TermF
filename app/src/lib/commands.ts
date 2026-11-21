@@ -1,55 +1,59 @@
-import { tick, type Component } from "svelte";
+import { tick } from "svelte";
 import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
+import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
-import CalendarClock from "@lucide/svelte/icons/calendar-clock";
-import Bot from "@lucide/svelte/icons/bot";
 import Images from "@lucide/svelte/icons/images";
-import { showClaude } from "$lib/claude.svelte";
 import Coffee from "@lucide/svelte/icons/coffee";
 import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
 import FileUp from "@lucide/svelte/icons/file-up";
 import FolderSync from "@lucide/svelte/icons/folder-sync";
-import FolderTree from "@lucide/svelte/icons/folder-tree";
 import Import from "@lucide/svelte/icons/import";
 import KeyRound from "@lucide/svelte/icons/key-round";
+import Layers from "@lucide/svelte/icons/layers";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
-import LibraryBig from "@lucide/svelte/icons/library-big";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Play from "@lucide/svelte/icons/play";
+import Plus from "@lucide/svelte/icons/plus";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+import SettingsIcon from "@lucide/svelte/icons/settings";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Telescope from "@lucide/svelte/icons/telescope";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
+import { showClaude } from "$lib/claude.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
-import { files, isMac, showFiles } from "$lib/files.svelte";
+import { allRepos, files, isMac, scopeRepos, showFiles } from "$lib/files.svelte";
 import { exportConfig, importConfig, library, showLibrary } from "$lib/library.svelte";
-import { generateKey, newKey, showSsh } from "$lib/ssh.svelte";
+import { shortcut, type Command } from "$lib/nav-logic";
+import { launchable, sessionProjects, shown } from "$lib/project.svelte";
+import { generateKey, newKey } from "$lib/ssh.svelte";
 import {
   app,
   load,
   openLayout,
-  openSelected,
+  openRepos,
   openSession,
   resetContext,
-  selected,
   setKeepAwake,
+  setProject,
   shortPath,
   ui,
   waitingSessions,
   type KeepAwakeMode,
 } from "$lib/state.svelte";
-import { showScheduler } from "$lib/schedule.svelte";
 import { showScout } from "$lib/scout.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
-import { launchTicket, showTickets } from "$lib/tickets.svelte";
-import { dispatchWorkflow, showCi } from "$lib/ci.svelte";
+import { launchTicket } from "$lib/tickets.svelte";
+import { dispatchWorkflow } from "$lib/ci.svelte";
+import { views } from "$lib/views";
+
+export { rank, type Command } from "$lib/nav-logic";
 
 const mod = isMac ? "⌘" : "Ctrl+";
 
@@ -60,7 +64,10 @@ export const keys = {
   maximize: isMac ? "⌘↵" : "Ctrl+Enter",
   file: `${mod}P`,
   ticket: isMac ? "⌘⇧L" : "Ctrl+Shift+L",
+  switcher: `${mod}O`,
+  launcher: isMac ? "⌘T" : "Ctrl+Shift+T",
   tile: (n: number) => `${mod}${n}`,
+  project: (n: number) => (isMac ? `⌃${n}` : `Alt+${n}`),
 };
 
 /** The session whose tile holds the keyboard focus, else the maximized one. */
@@ -69,9 +76,11 @@ function activeSession(): number | null {
   return tile ? Number(tile.dataset.session) : app.focused;
 }
 
-/** Shows a session's tile (switching the maximized one if needed) and gives its terminal the keyboard. */
+/** Shows a session's tile (switching the maximized one, or the project, if needed) and gives its terminal the keyboard. */
 export async function focusSession(id: number) {
-  files.view = "terminals";
+  const session = app.sessions.find((s) => s.id === id);
+  if (session && !shown(session)) setProject(sessionProjects(session)[0] ?? null);
+  ui.view = "terminals";
   if (app.focused !== null) app.focused = id;
   await tick();
   await fontReady;
@@ -94,38 +103,44 @@ export function toggleMaximize(id = activeSession()) {
   focusSession(id);
 }
 
+/** In Terminals: the launcher of the header, or the one in place of the empty grid. */
+export async function openLauncher() {
+  ui.view = "terminals";
+  await tick();
+  const inline = document.querySelector<HTMLInputElement>(".empty .launcher input");
+  if (inline) inline.focus();
+  else ui.launcher = !ui.launcher;
+}
+
+function switchToProject(n: number) {
+  const project = app.workspace?.projects[n - 1];
+  if (project) setProject(project.id);
+}
+
 /** App-wide shortcuts, in the capture phase so a focused terminal does not also get them. */
 export function onShortcut(e: KeyboardEvent) {
-  if (e.altKey || !(isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
-  // Ctrl+K and Ctrl+J are readline keys: inside a terminal, Linux and Windows need Shift as well.
-  const needsShift = !isMac && !!(e.target as Element | null)?.closest?.(".xterm");
-  const letter = e.key.toLowerCase();
-  let action: (() => void) | null = null;
-  if (letter === "k" && (e.shiftKey || !needsShift)) action = () => (ui.palette = !ui.palette);
-  else if (ui.palette) return;
-  else if (letter === "j" && (e.shiftKey || !needsShift)) action = nextWaiting;
-  else if (letter === "l" && e.shiftKey) action = launchTicket;
-  else if (e.key === "Enter" && !e.shiftKey && files.view === "terminals") action = toggleMaximize;
-  else if (/^Digit[1-9]$/.test(e.code)) {
-    // The code, not the key: AZERTY layouts type digits with Shift.
-    const session = app.sessions[Number(e.code.slice(5)) - 1];
-    if (session) action = () => focusSession(session.id);
-  }
+  const inTerminal = !!(e.target as Element | null)?.closest?.(".xterm");
+  const asked = shortcut(e, isMac, inTerminal);
+  if (!asked) return;
+  if (asked.action !== "palette" && ui.palette) return;
+  const n = "n" in asked ? asked.n : 0;
+  const tile = app.sessions.filter(shown)[n - 1];
+  const actions = {
+    palette: () => (ui.palette = !ui.palette),
+    next: nextWaiting,
+    ticket: launchTicket,
+    switcher: () => (ui.switcher = !ui.switcher),
+    launcher: openLauncher,
+    maximize: ui.view === "terminals" ? () => toggleMaximize() : null,
+    tile: tile ? () => focusSession(tile.id) : null,
+    project: () => switchToProject(n),
+  };
+  const action = actions[asked.action];
   if (!action) return;
   e.preventDefault();
   e.stopPropagation();
   action();
 }
-
-export type Command = {
-  id: string;
-  label: string;
-  hint?: string;
-  keys?: string;
-  icon: Component;
-  checked?: boolean;
-  run: () => void;
-};
 
 const statusLabel = {
   starting: "statusStarting",
@@ -135,42 +150,86 @@ const statusLabel = {
   done: "statusDone",
 } as const;
 
-/** Every action the palette offers, in the order shown before typing. */
+/** Every action the palette offers, by group, in the order shown before typing. */
 export function commands(): Command[] {
   const list: Command[] = [];
   const agents = app.workspace?.agents ?? [];
-  const waiting = waitingSessions().length;
-  if (waiting) {
-    list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, run: nextWaiting });
+  const projects = app.workspace?.projects ?? [];
+
+  list.push({
+    id: "project-all",
+    label: t("ticketsAll"),
+    icon: Layers,
+    group: "projects",
+    checked: app.project === null,
+    run: () => setProject(null),
+  });
+  projects.forEach((project, i) => {
+    const current = project.id === app.project;
+    list.push({
+      id: `project-${project.id}`,
+      label: t("navSwitchTo", { name: project.name }),
+      keys: i < 9 ? keys.project(i + 1) : undefined,
+      icon: ArrowLeftRight,
+      group: "projects",
+      checked: current,
+      run: () => setProject(project.id),
+    });
+    for (const agent of agents) {
+      list.push({
+        id: `project-open-${agent}-${project.id}`,
+        label: t("navOpenInProject", { agent, project: project.name }),
+        icon: Play,
+        group: "projects",
+        searchOnly: !current,
+        run: () => {
+          setProject(project.id);
+          ui.view = "terminals";
+          openRepos(
+            project.repos.map((r) => r.path),
+            agent,
+          );
+        },
+      });
+    }
+    list.push({
+      id: `conventions-${project.id}`,
+      label: t("projectConventions", { project: project.name }),
+      icon: Sparkles,
+      group: "projects",
+      run: () => {
+        setProject(project.id);
+        showLibrary();
+        Object.assign(library, { global: false, tab: "conventions", panel: null });
+      },
+    });
+  });
+
+  if (waitingSessions().length) {
+    list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, group: "sessions", run: nextWaiting });
   }
-  app.sessions.forEach((s, i) =>
+  const visible = app.sessions.filter(shown);
+  for (const s of app.sessions) {
+    const i = visible.indexOf(s);
     list.push({
       id: `session-${s.id}`,
       label: s.title,
       hint: !s.running ? t("exitedLabel") : s.status ? t(statusLabel[s.status]) : undefined,
-      keys: i < 9 ? keys.tile(i + 1) : undefined,
+      keys: i >= 0 && i < 9 ? keys.tile(i + 1) : undefined,
       icon: ArrowRight,
+      group: "sessions",
       run: () => focusSession(s.id),
-    }),
-  );
-  if (selected.size) {
-    for (const agent of agents) {
-      list.push({
-        id: `open-${agent}`,
-        label: t("open", { agent, count: selected.size }),
-        icon: Play,
-        run: () => openSelected(agent),
-      });
-    }
-    list.push({
-      id: "open-shell",
-      label: t("openShell", { count: selected.size }),
-      icon: SquareTerminal,
-      run: () => openSelected(null),
     });
   }
-  if (app.sessions.length) {
-    list.push({ id: "maximize", label: t("maximizeActive"), keys: keys.maximize, icon: Maximize2, run: () => toggleMaximize() });
+  if (visible.length) {
+    list.push({
+      id: "maximize",
+      label: t("maximizeActive"),
+      keys: keys.maximize,
+      icon: Maximize2,
+      group: "sessions",
+      run: () => toggleMaximize(),
+    });
   }
   for (const s of app.sessions) {
     if (s.running && s.context?.phase === "idle") {
@@ -178,33 +237,79 @@ export function commands(): Command[] {
         id: `reset-${s.id}`,
         label: t("contextResetSession", { session: s.title }),
         icon: RotateCcw,
+        group: "sessions",
         run: () => resetContext(s.id),
       });
     }
   }
-  list.push({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
-  list.push({ id: "ticket-launch", label: t("ticketLaunchLong"), keys: keys.ticket, icon: Ticket, run: launchTicket });
-  if (files.view !== "terminals") {
-    list.push({ id: "view", label: t("showTerminals"), icon: LayoutGrid, run: () => (files.view = "terminals") });
+
+  const ticked = launchable();
+  if (ticked.length) {
+    for (const agent of agents) {
+      list.push({
+        id: `open-${agent}`,
+        label: t("open", { agent, count: ticked.length }),
+        icon: Play,
+        group: "repos",
+        run: () => openRepos(ticked, agent),
+      });
+    }
+    list.push({
+      id: "open-shell",
+      label: t("openShell", { count: ticked.length }),
+      icon: SquareTerminal,
+      group: "repos",
+      run: () => openRepos(ticked, null),
+    });
   }
-  if (files.view !== "files") list.push({ id: "view-files", label: t("showFiles"), icon: FolderTree, run: showFiles });
-  if (files.view !== "library") {
-    list.push({ id: "view-library", label: t("showLibrary"), icon: LibraryBig, run: showLibrary });
+  const own = new Set(scopeRepos().map((r) => r.path));
+  const repos = [...allRepos()].sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0));
+  for (const repo of repos) {
+    const searchOnly = !own.has(repo.path);
+    const group = searchOnly ? "others" : "repos";
+    for (const agent of agents) {
+      list.push({
+        id: `repo-${agent}-${repo.path}`,
+        label: t("openIn", { agent, repo: repo.name }),
+        hint: shortPath(repo.path),
+        icon: Play,
+        group,
+        searchOnly,
+        run: () => openSession(repo.path, agent),
+      });
+    }
+    list.push({
+      id: `repo-shell-${repo.path}`,
+      label: t("openShellIn", { repo: repo.name }),
+      hint: shortPath(repo.path),
+      icon: SquareTerminal,
+      group,
+      searchOnly,
+      run: () => openSession(repo.path, null),
+    });
   }
-  if (files.view !== "ssh") list.push({ id: "view-ssh", label: t("showSsh"), icon: KeyRound, run: showSsh });
-  if (files.view !== "tickets") {
-    list.push({ id: "view-tickets", label: t("showTickets"), icon: Ticket, run: showTickets });
+
+  for (const view of views) {
+    if (view.id !== ui.view) {
+      list.push({ id: `view-${view.id}`, label: t(view.command), icon: view.icon, group: "views", run: view.show });
+    }
   }
-  if (files.view !== "scheduler") {
-    list.push({ id: "view-scheduler", label: t("schedulerShow"), icon: CalendarClock, run: showScheduler });
-  }
-  if (files.view !== "ci") list.push({ id: "view-ci", label: t("showCi"), icon: Workflow, run: showCi });
-  list.push({ id: "ci-dispatch", label: t("ciDispatchLong"), icon: Workflow, run: dispatchWorkflow });
-  list.push(
-    { id: "view-claude", label: t("claudeViewShow"), icon: Bot, run: () => showClaude("config") },
-    { id: "claude-artifacts", label: t("claudeViewShowArtifacts"), icon: Images, run: () => showClaude("artifacts") },
-  );
   list.push({
+    id: "claude-artifacts",
+    label: t("claudeViewShowArtifacts"),
+    icon: Images,
+    group: "views",
+    run: () => showClaude("artifacts"),
+  });
+
+  const action = (command: Omit<Command, "group">) => list.push({ ...command, group: "actions" });
+  action({ id: "switcher", label: t("navSwitchProject"), keys: keys.switcher, icon: ArrowLeftRight, run: () => (ui.switcher = true) });
+  action({ id: "launcher", label: t("navNewSession"), keys: keys.launcher, icon: Plus, run: openLauncher });
+  action({ id: "settings", label: t("settings"), icon: SettingsIcon, run: () => (ui.settings = true) });
+  action({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
+  action({ id: "ticket-launch", label: t("ticketLaunchLong"), keys: keys.ticket, icon: Ticket, run: launchTicket });
+  action({ id: "ci-dispatch", label: t("ciDispatchLong"), icon: Workflow, run: dispatchWorkflow });
+  action({
     id: "file",
     label: t("filesFind"),
     keys: keys.file,
@@ -215,30 +320,11 @@ export function commands(): Command[] {
     },
   });
   for (const layout of app.layouts) {
-    list.push({
+    action({
       id: `layout-${layout.name}`,
       label: t("openLayout", { name: layout.name }),
       icon: LayoutGrid,
       run: () => openLayout(layout),
-    });
-  }
-  const repos = [...(app.workspace?.repos ?? [])].sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0));
-  for (const repo of repos) {
-    for (const agent of agents) {
-      list.push({
-        id: `repo-${agent}-${repo.path}`,
-        label: t("openIn", { agent, repo: repo.name }),
-        hint: shortPath(repo.path),
-        icon: Play,
-        run: () => openSession(repo.path, agent),
-      });
-    }
-    list.push({
-      id: `repo-shell-${repo.path}`,
-      label: t("openShellIn", { repo: repo.name }),
-      hint: shortPath(repo.path),
-      icon: SquareTerminal,
-      run: () => openSession(repo.path, null),
     });
   }
   const awake = app.keepAwake;
@@ -249,7 +335,7 @@ export function commands(): Command[] {
       ["off", "keepAwakeOff"],
     ];
     for (const [mode, label] of modes) {
-      list.push({
+      action({
         id: `awake-${mode}`,
         label: t("keepAwakeSet", { mode: t(label) }),
         icon: Coffee,
@@ -259,80 +345,25 @@ export function commands(): Command[] {
     }
   }
   if (app.sync) {
-    list.push({ id: "sync", label: t("syncTitle"), hint: summary(app.sync).text, icon: FolderSync, run: showSync });
+    action({ id: "sync", label: t("syncTitle"), hint: summary(app.sync).text, icon: FolderSync, run: showSync });
     if (app.sync.enabled && app.sync.unlocked) {
-      list.push({ id: "sync-now", label: t("syncNow"), icon: ArrowDownUp, run: () => (showSync(), syncNow()) });
+      action({ id: "sync-now", label: t("syncNow"), icon: ArrowDownUp, run: () => (showSync(), syncNow()) });
     }
   }
-  for (const project of app.workspace?.projects ?? []) {
-    list.push({
-      id: `conventions-${project.id}`,
-      label: t("projectConventions", { project: project.name }),
-      icon: Sparkles,
-      run: () => {
-        showLibrary();
-        Object.assign(library, { scope: project.id, tab: "conventions", panel: null });
-      },
-    });
-  }
-  list.push(
-    {
-      id: "claude-import",
-      label: t("claudeImport"),
-      icon: Import,
-      run: () => {
-        showLibrary();
-        library.panel = { kind: "claude" };
-      },
+  action({
+    id: "claude-import",
+    label: t("claudeImport"),
+    icon: Import,
+    run: () => {
+      showLibrary();
+      library.panel = { kind: "claude" };
     },
-    { id: "library-scout", label: t("scoutLaunchLong"), icon: Telescope, run: showScout },
-    { id: "config-export", label: t("configExportLong"), icon: FileDown, run: exportConfig },
-    { id: "config-import", label: t("configImportLong"), icon: FileUp, run: importConfig },
-    { id: "ssh-generate", label: t("sshGenerateLong"), icon: KeyRound, run: generateKey },
-    { id: "keys-generate", label: t("keysGenerateLong"), icon: KeyRound, run: newKey },
-  );
-  list.push({ id: "reload", label: t("reload"), icon: RefreshCw, run: load });
+  });
+  action({ id: "library-scout", label: t("scoutLaunchLong"), icon: Telescope, run: showScout });
+  action({ id: "config-export", label: t("configExportLong"), icon: FileDown, run: exportConfig });
+  action({ id: "config-import", label: t("configImportLong"), icon: FileUp, run: importConfig });
+  action({ id: "ssh-generate", label: t("sshGenerateLong"), icon: KeyRound, run: generateKey });
+  action({ id: "keys-generate", label: t("keysGenerateLong"), icon: KeyRound, run: newKey });
+  action({ id: "reload", label: t("reload"), icon: RefreshCw, run: load });
   return list;
-}
-
-const fold = (s: string) =>
-  s
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-
-/** Score of `text` for one query word: a substring beats scattered letters, a word start beats both. -1 when absent. */
-function wordScore(text: string, word: string): number {
-  const at = text.indexOf(word);
-  if (at >= 0) return 20 + word.length * 2 + (at === 0 || /[\s·/«“(._-]/.test(text[at - 1]) ? 10 : 0);
-  let from = 0;
-  let score = 0;
-  for (const ch of word) {
-    const found = text.indexOf(ch, from);
-    if (found < 0) return -1;
-    score += found === from ? 2 : 1;
-    from = found + 1;
-  }
-  return score;
-}
-
-/** Commands matching every word of `query`, best first; ties keep the default order. */
-export function rank(list: Command[], query: string): Command[] {
-  const words = fold(query).split(/\s+/).filter(Boolean);
-  if (!words.length) return list;
-  return list
-    .map((command, i) => {
-      const label = fold(command.label);
-      const hint = fold(command.hint ?? "");
-      let score = 0;
-      for (const word of words) {
-        const s = Math.max(wordScore(label, word), wordScore(hint, word) - 4);
-        if (s < 0) return null;
-        score += s;
-      }
-      return { command, score, i };
-    })
-    .filter((r) => r !== null)
-    .sort((a, b) => b.score - a.score || a.i - b.i)
-    .map((r) => r.command);
 }

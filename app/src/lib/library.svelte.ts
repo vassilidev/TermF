@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { files } from "$lib/files.svelte";
-import { load } from "$lib/state.svelte";
+import { app, load, ui } from "$lib/state.svelte";
 
 export type Kind = "skill" | "command" | "role" | "preference" | "rule" | "workflow";
 export type Layer = "shipped" | "global" | "project" | "repo" | "run";
@@ -51,8 +50,12 @@ type Panel =
 export const library = $state({
   /** Loaded once first shown, then kept mounted, like the Files view. */
   loaded: false,
-  /** A project id, or "" for the global library. */
-  scope: "",
+  /** The global layer, even with a current project. */
+  global: false,
+  /** A project id, or "" for the global library: the current project's layer unless `global`. */
+  get scope(): string {
+    return this.global ? "" : (app.project ?? "");
+  },
   tab: "skill" as Kind | "conventions" | "worktrees",
   panel: null as Panel,
   /** Bumped when the library changed on disk, to reload it. */
@@ -62,7 +65,7 @@ export const library = $state({
 });
 
 export function showLibrary() {
-  files.view = "library";
+  ui.view = "library";
   library.loaded = true;
 }
 

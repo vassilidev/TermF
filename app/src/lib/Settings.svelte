@@ -40,14 +40,14 @@
 
 <button
   bind:this={trigger}
-  class="icon-btn trigger"
+  class="nav-item trigger"
   aria-label={label}
   title={label}
   aria-expanded={ui.settings}
   aria-controls="settings-panel"
   onclick={() => (ui.settings = !ui.settings)}
 >
-  <SettingsIcon size={16} aria-hidden="true" />
+  <SettingsIcon size={16} aria-hidden="true" />{t("settings")}
   {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
 </button>
 
@@ -91,14 +91,11 @@
   }
 
   .dot {
-    position: absolute;
-    top: 3px;
-    right: 3px;
     width: 7px;
     height: 7px;
+    margin-left: auto;
     border-radius: 50%;
     background: var(--waiting);
-    box-shadow: 0 0 0 2px var(--chrome);
   }
 
   .dot.error {
@@ -107,14 +104,14 @@
 
   .panel {
     position: fixed;
-    top: 48px;
-    right: 8px;
+    bottom: 8px;
+    left: calc(var(--nav-width) + 8px);
     z-index: 30;
     display: flex;
     flex-direction: column;
     gap: 16px;
     width: 340px;
-    max-height: calc(100vh - 64px);
+    max-height: calc(100vh - 16px);
     padding: 16px;
     overflow-y: auto;
     border: 1px solid var(--border);
