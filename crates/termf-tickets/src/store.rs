@@ -150,6 +150,15 @@ pub enum Event {
     Failed {
         error: String,
     },
+    /// The worktree's preparation (ARCHITECTURE §9); `saved`: the project's recipe, not only detection.
+    Setup {
+        steps: Vec<termf_worktree::Step>,
+        saved: bool,
+    },
+    /// Its database copy dropped and its ports given back.
+    Teardown {
+        steps: Vec<termf_worktree::Step>,
+    },
 }
 
 impl Event {
@@ -175,7 +184,20 @@ impl Event {
                 format!("closed by force, dropping {}", dropped.join(", "))
             }
             Event::Failed { error } => format!("failed: {error}"),
+            Event::Setup { steps, .. } => format!("prepared the worktree: {}", steps_text(steps)),
+            Event::Teardown { steps } => format!("cleaned up the worktree: {}", steps_text(steps)),
         }
+    }
+}
+
+fn steps_text(steps: &[termf_worktree::Step]) -> String {
+    match steps.is_empty() {
+        true => "nothing to do".into(),
+        false => steps
+            .iter()
+            .map(|s| s.describe())
+            .collect::<Vec<_>>()
+            .join("; "),
     }
 }
 

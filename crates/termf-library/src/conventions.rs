@@ -466,7 +466,7 @@ pub fn propose(
     let context = Grounding::new(config_dir, project, owned_items(&dir)?)?;
     let (model, effort) = settings(config_dir);
     let prompt = context.prompt(&source, &given, None);
-    let (answer, cost) = ask(claude, &context.repos, &model, &effort, &prompt)?;
+    let (answer, cost) = ask(claude, &context.repos, &model, &effort, &prompt, &schema())?;
 
     let mut next = Pack {
         model,
@@ -534,7 +534,14 @@ pub fn revise(
         &draft.answers,
         Some((&draft.items[index], comment.trim())),
     );
-    let (answer, cost) = ask(claude, &context.repos, &draft.model, &draft.effort, &prompt)?;
+    let (answer, cost) = ask(
+        claude,
+        &context.repos,
+        &draft.model,
+        &draft.effort,
+        &prompt,
+        &schema(),
+    )?;
     let raw = answer
         .get("items")
         .and_then(Value::as_array)
@@ -1248,19 +1255,20 @@ fn schema() -> Value {
 }
 
 /// Runs Claude Code headless: read-only tools, no project settings, hooks, MCP servers or plugins, nothing saved.
-/// Returns the structured answer and what it cost.
-fn ask(
+/// Returns the answer `schema` describes and what it cost.
+pub fn ask(
     claude: &[String],
     repos: &[(String, PathBuf)],
     model: &str,
     effort: &str,
     prompt: &str,
+    schema: &Value,
 ) -> Result<(Value, Option<f64>)> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
     let mut cmd = Command::new(program);
     cmd.args(lead)
         .args(["-p", "--output-format", "json", "--json-schema"])
-        .arg(schema().to_string())
+        .arg(schema.to_string())
         .args(["--model", model, "--effort", effort])
         .args(["--tools", "Read,Grep,Glob", "--permission-mode", "dontAsk"])
         .args(["--restricted", "--safe-mode", "--strict-mcp-config"])

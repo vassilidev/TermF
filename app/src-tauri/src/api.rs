@@ -1,6 +1,6 @@
 //! Local API socket for the `termf` CLI, and the status agents report through their hooks.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -101,11 +101,16 @@ impl Api {
                         return Vec::new();
                     };
                     tokens.lock().unwrap().insert(id, token.clone());
-                    vec![
+                    let mut env = vec![
                         (ipc::ENV_SOCKET.into(), socket.clone()),
                         (ipc::ENV_TOKEN.into(), token),
                         (ipc::ENV_SESSION.into(), id.to_string()),
-                    ]
+                    ];
+                    // The CLI is not always on the PATH: `/worktree-setup` finds it here.
+                    if let Some(termf) = termf_binary() {
+                        env.push(("TERMF_BIN".into(), termf.to_string_lossy().into_owned()));
+                    }
+                    env
                 })
             }
             None => Sessions::default(),
@@ -423,11 +428,12 @@ fn random_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// What a ticket run adds to its Claude Code session: the project whose library applies, and the file that
-/// holds its task.
+/// What a ticket run adds to its Claude Code session: the project whose library applies, the file that
+/// holds its task, and what its worktree's setup gives it (ports, Compose project name).
 pub struct RunSession<'a> {
     pub project: &'a str,
     pub brief: &'a Path,
+    pub env: &'a BTreeMap<String, String>,
 }
 
 /// Starts a session. A Claude Code agent gets an ephemeral plugin whose hooks report its status,
@@ -542,6 +548,10 @@ pub fn spawn(
             agent: agent.map(str::to_owned),
             cols,
             rows,
+            env: run
+                .as_ref()
+                .map(|r| r.env.clone().into_iter().collect())
+                .unwrap_or_default(),
         })
     });
     if spawned.is_err()

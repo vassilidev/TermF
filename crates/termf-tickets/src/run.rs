@@ -1,6 +1,7 @@
 //! A run's git side: its worktree and branch, its delivery as a pull request, and its cleanup. Agents never
 //! push: only `deliver`, which the user confirms after seeing what it sends, does.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
@@ -18,6 +19,8 @@ pub struct Launch {
     pub run: Run,
     /// The file that holds the session's task: the rules, then the ticket framed as data.
     pub brief: PathBuf,
+    /// What the worktree's setup gives the session: its ports, its Compose project name.
+    pub env: BTreeMap<String, String>,
 }
 
 /// What delivering a run would send, for the user to check first.
@@ -324,8 +327,27 @@ impl Tickets {
         let brief = store.run_dir(run.id).join("brief").join("prompt.md");
         fs::create_dir_all(brief.parent().context("no parent folder")?)?;
         fs::write(&brief, crate::prompt(&ticket, &branch, &base))?;
+        let worktree = PathBuf::from(&path);
         store.record(run.id, &Event::WorktreeCreated { path, branch, base })?;
-        Ok(Launch { run, brief })
+        let report = self.setup().run(&termf_worktree::Worktree {
+            project: run.project.clone(),
+            repo: chosen.name.clone(),
+            source: PathBuf::from(&chosen.path),
+            path: worktree,
+            id: run.id.to_string(),
+        });
+        store.record(
+            run.id,
+            &Event::Setup {
+                steps: report.steps,
+                saved: report.saved,
+            },
+        )?;
+        Ok(Launch {
+            run,
+            brief,
+            env: report.env,
+        })
     }
 
     /// Creates `<data>/worktrees/<project>/<run>/<repo>` and returns its path, its branch and its base.
@@ -626,6 +648,15 @@ impl Tickets {
         if let (Some(worktree), Some(branch), Some(_)) = &parts {
             let worktree = Path::new(worktree);
             if worktree.exists() {
+                let report = self.setup().teardown(worktree);
+                if !report.steps.is_empty() {
+                    store.record(
+                        id,
+                        &Event::Teardown {
+                            steps: report.steps,
+                        },
+                    )?;
+                }
                 let path = worktree.to_string_lossy();
                 let mut args = vec!["worktree", "remove"];
                 if force {

@@ -559,6 +559,11 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         "comments are read"
     );
     assert!(kickoff(&launch.brief).contains(&path(&launch.brief)));
+    let port: u16 = launch.env["PORT"].parse().unwrap();
+    assert!(
+        (41000..=41999).contains(&port),
+        "the session gets its own port"
+    );
     let journal = fs::read_to_string(sb.root.join("data/runs/1/journal.md")).unwrap();
     assert!(journal.starts_with("# Fix the login button\n"));
 
@@ -655,7 +660,13 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     );
     assert_eq!(
         kinds(1),
-        ["worktree_created", "committed", "pushed", "pr_opened"]
+        [
+            "worktree_created",
+            "setup",
+            "committed",
+            "pushed",
+            "pr_opened"
+        ]
     );
 
     t.close(1, false, || stopped.set(true)).unwrap();
@@ -671,6 +682,11 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         "a pushed branch goes with its run"
     );
     assert_eq!(t.run(1).unwrap().status, RunStatus::Closed);
+    assert_eq!(
+        kinds(1)[5..],
+        ["teardown", "closed"],
+        "closing gives the worktree's port back"
+    );
     assert!(t.close(1, false, || {}).is_err(), "already closed");
     assert!(t.deliver_preview(1).is_err());
 
@@ -735,7 +751,13 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     assert_eq!(warned.run.status, RunStatus::Delivered);
     assert_eq!(
         kinds(3),
-        ["worktree_created", "committed", "pushed", "pr_opened"]
+        [
+            "worktree_created",
+            "setup",
+            "committed",
+            "pushed",
+            "pr_opened"
+        ]
     );
     fs::remove_file(sb.root.join("fail-comments")).unwrap();
     assert_eq!(deliver(3).warning, None);
@@ -746,6 +768,7 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         kinds(3),
         [
             "worktree_created",
+            "setup",
             "committed",
             "pushed",
             "pr_opened",

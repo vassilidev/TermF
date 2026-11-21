@@ -19,3 +19,4 @@ termf-library = { path = "../termf-library" }
 termf-ssh = { path = "../termf-ssh" }
 termf-sync = { path = "../termf-sync" }
 termf-tickets = { path = "../termf-tickets" }
+termf-worktree = { path = "../termf-worktree" }
