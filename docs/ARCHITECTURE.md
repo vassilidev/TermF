@@ -347,6 +347,7 @@ Une notification système n'est émise que pour `attend *`, `terminé` et `erreu
   - **Session neuve par étape** : chaque étape démarre une nouvelle session avec un **brief de passation** tiré du journal, pas avec la conversation précédente.
   - **Seuils** : avertissement à 50 %. À 70 %, ou si le canari disparaît, l'agent écrit `handoff.md` (état, décisions, reste à faire), la session est fermée puis relancée sur ce brief. Les seuils se règlent par rôle.
   - **Sessions manuelles** : le bouton « Remise à zéro » envoie `/clear` dans le PTY, ou tue et relance la session.
+  - **Remise à zéro automatique avec reprise (obligatoire, pour toute session Claude lancée par TermF, manuelle ou non)** : au-delà du seuil, à la fin d'un tour, TermF fait écrire à l'agent sa passation (état, décisions, reste à faire), envoie `/clear`, puis le relance sur cette passation sans intervention humaine. Activée par défaut, seuil et désactivation réglables. Le bouton « Remise à zéro » déclenche la même séquence à la demande.
 
 ### 6.6 Remote Control
 
