@@ -147,6 +147,12 @@ pub struct Scope {
     pub project: Option<String>,
     pub repo: Option<PathBuf>,
     pub overrides: Toggles,
+    /// The role a session plays: its prompt comes first, and only the preferences and rules whose
+    /// `applies_to` names it (or `all`, or nothing) apply. `None`: all of them, as before roles.
+    pub role: Option<String>,
+    /// Rule levels (`off`, `advise`, `warn`, `block`) that replace the library's: a rule named here is on
+    /// unless its level is `off`, whatever its switch.
+    pub rules: BTreeMap<String, String>,
 }
 
 impl Scope {
@@ -174,7 +180,7 @@ impl Scope {
         Ok(Scope {
             project,
             repo: Some(repo.to_path_buf()),
-            overrides: Toggles::new(),
+            ..Scope::default()
         })
     }
 }
@@ -239,6 +245,29 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
         }
     }
     Ok(items.into_values().collect())
+}
+
+/// A role a session may play: from any layer, but one from a repository only once switched on, since it
+/// comes with whatever was cloned.
+pub fn role(config_dir: &Path, scope: &Scope, name: &str) -> Result<Item> {
+    let item = explain(config_dir, scope, Kind::Role, name)?;
+    ensure!(
+        item.layer != Layer::Repo || item.active,
+        "the role {name} comes from the repository and is not switched on"
+    );
+    Ok(item)
+}
+
+/// Whether a preference or a rule applies to a session that plays `role`.
+pub fn applies(item: &Item, role: Option<&str>) -> bool {
+    role.is_none_or(|role| {
+        item.applies_to.is_empty() || item.applies_to.iter().any(|a| a == "all" || a == role)
+    })
+}
+
+/// A file of the library shipped with TermF, such as `workflows/default.toml`.
+pub fn shipped(rel: &str) -> Option<&'static str> {
+    SHIPPED.get_file(rel)?.contents_utf8()
 }
 
 pub fn explain(config_dir: &Path, scope: &Scope, kind: Kind, name: &str) -> Result<Item> {

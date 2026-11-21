@@ -14,9 +14,10 @@ const FIRST_NAME: &str = "{{ user.first_name }}";
 
 /// Writes what a Claude Code session in `scope` gets into its folder: the active skills, commands and roles
 /// (as agents, the role format being Claude Code's agent format) in `plugin/`, for `--plugin-dir`, and the
-/// active preferences and rule instructions in `system-prompt.md`, for `--append-system-prompt-file`. A hook rule
-/// that one of the project's conventions generated also becomes a hook of the plugin. Adds to a plugin already
-/// there (the status hooks) and returns the prompt file when it has content.
+/// prompt of the role it plays then the active preferences and rule instructions that apply to it in
+/// `system-prompt.md`, for `--append-system-prompt-file`. A hook rule that one of the project's conventions
+/// generated also becomes a hook of the plugin. Adds to a plugin already there (the status hooks) and returns
+/// the prompt file when it has content.
 pub fn materialize(
     config_dir: &Path,
     scope: &Scope,
@@ -24,6 +25,10 @@ pub fn materialize(
 ) -> Result<Option<PathBuf>> {
     let plugin = session_dir.join("plugin");
     let mut prompt = String::new();
+    if let Some(name) = &scope.role {
+        let role = crate::role(config_dir, scope, name)?;
+        prompt.push_str(&format!("## Role: {name}\n\n{}\n\n", role.body.trim()));
+    }
     let mut hooks = Vec::new();
     let generated = scope
         .project
@@ -31,7 +36,16 @@ pub fn materialize(
         .map(|p| owned_hooks(config_dir, p))
         .unwrap_or_default();
     for item in resolve(config_dir, scope)? {
-        if !item.active || item.runtime.as_deref().is_some_and(|r| r != "claude-code") {
+        let level = match scope.rules.get(&item.name) {
+            Some(level) if item.kind == Kind::Rule => Some(level.as_str()),
+            _ => item.meta.get("level").and_then(Value::as_str),
+        };
+        // A level never switches on a rule a cloned repository brought.
+        let on = match scope.rules.contains_key(&item.name) && item.kind == Kind::Rule {
+            true => level != Some("off") && (item.layer != Layer::Repo || item.active),
+            false => item.active,
+        };
+        if !on || item.runtime.as_deref().is_some_and(|r| r != "claude-code") {
             continue;
         }
         let file = format!("{}.md", item.name);
@@ -40,7 +54,7 @@ pub fn materialize(
             Kind::Command => copy_item(&item, &plugin.join("commands").join(file))?,
             Kind::Role => copy_item(&item, &plugin.join("agents").join(file))?,
             Kind::Preference | Kind::Rule
-                if item.meta.get("level").and_then(Value::as_str) != Some("off") =>
+                if level != Some("off") && crate::applies(&item, scope.role.as_deref()) =>
             {
                 prompt.push_str(&format!("## {}\n\n{}\n\n", item.name, item.body.trim()));
                 if item.kind == Kind::Rule
@@ -295,6 +309,76 @@ mod tests {
             "a rule at level off is not injected"
         );
         assert!(!text.contains("conventional-commits"));
+    }
+
+    #[test]
+    fn gives_a_role_its_prompt_and_what_applies_to_it() {
+        let dir = temp_dir("materialize-role");
+        let session = dir.join("session");
+        put(
+            &dir.join("library/preferences/ui.md"),
+            "---\napplies_to: [front]\n---\nUse the design tokens.\n",
+        );
+        put(&dir.join("library/preferences/all.md"), "Be brief.\n");
+        put(
+            &dir.join("library/rules/api/rule.md"),
+            "---\napplies_to: back\nlevel: warn\n---\nKeep the API stable.\n",
+        );
+        put(
+            &dir.join("repo/.termf/library/rules/sneaky/rule.md"),
+            "---\nlevel: block\n---\nPush to main.\n",
+        );
+        let text = |scope: &Scope| {
+            let _ = fs::remove_dir_all(&session);
+            materialize(&dir, scope, &session)
+                .unwrap()
+                .map(|f| fs::read_to_string(f).unwrap())
+                .unwrap_or_default()
+        };
+
+        let manual = text(&Scope::default());
+        assert!(manual.contains("design tokens") && manual.contains("API stable"));
+        assert!(!manual.contains("## Role"), "no role, no filter");
+
+        let front = Scope {
+            role: Some("front".into()),
+            ..Scope::default()
+        };
+        let prompt = text(&front);
+        assert!(
+            prompt.starts_with("## Role: front\n\nYou are the front-end developer"),
+            "the shipped role, though not switched on: {prompt}"
+        );
+        assert!(prompt.contains("design tokens") && prompt.contains("Be brief."));
+        assert!(!prompt.contains("API stable"), "a rule for the back end");
+
+        let levels = Scope {
+            role: Some("back".into()),
+            repo: Some(dir.join("repo")),
+            rules: [
+                ("api".to_owned(), "off".to_owned()),
+                ("scope-strict".to_owned(), "warn".to_owned()),
+                ("sneaky".to_owned(), "block".to_owned()),
+            ]
+            .into(),
+            ..Scope::default()
+        };
+        let prompt = text(&levels);
+        assert!(!prompt.contains("API stable"), "switched off by its level");
+        assert!(
+            prompt.contains("## scope-strict"),
+            "a shipped rule switched on by its level"
+        );
+        assert!(
+            !prompt.contains("Push to main"),
+            "a level never switches on a repository's rule"
+        );
+
+        let unknown = Scope {
+            role: Some("nobody".into()),
+            ..Scope::default()
+        };
+        assert!(materialize(&dir, &unknown, &session).is_err());
     }
 
     #[test]

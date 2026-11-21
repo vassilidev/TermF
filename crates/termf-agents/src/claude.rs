@@ -14,7 +14,7 @@ pub const TOOL_OUTPUT: usize = 4000;
 
 pub struct ClaudeCode;
 
-/// `--model`, `--effort` and `--permission-mode`, as the spec sets them.
+/// `--model`, `--effort`, `--permission-mode` and the tools, as the spec sets them.
 fn options(spec: &SessionSpec) -> Vec<String> {
     let mut args = Vec::new();
     for (flag, value) in [
@@ -24,6 +24,15 @@ fn options(spec: &SessionSpec) -> Vec<String> {
     ] {
         if let Some(value) = value {
             args.extend([flag.to_owned(), value.clone()]);
+        }
+    }
+    // One value each: Claude Code reads a comma inside a rule such as `Bash(a, b)` as a separator.
+    for (flag, tools) in [
+        ("--allowedTools", &spec.allowed_tools),
+        ("--disallowedTools", &spec.disallowed_tools),
+    ] {
+        for tool in tools {
+            args.extend([flag.to_owned(), tool.clone()]);
         }
     }
     args
@@ -61,6 +70,9 @@ impl AgentRuntime for ClaudeCode {
         }
         if let Some(plugin) = launch.plugin {
             args.extend(["--plugin-dir".into(), plugin.to_string_lossy().into_owned()]);
+        }
+        if let Some(schema) = &spec.json_schema {
+            args.extend(["--json-schema".into(), schema.to_string()]);
         }
         if let Some(prompt) = launch.system_prompt {
             args.extend([
@@ -231,6 +243,7 @@ impl Stream {
             _ => Outcome::Error,
         };
         let result = msg["result"].as_str().map(str::to_owned);
+        let structured = Some(msg["structured_output"].clone()).filter(|v| !v.is_null());
         let error = matches!(outcome, Outcome::Error | Outcome::Budget).then(|| {
             let errors: Vec<&str> = msg["errors"]
                 .as_array()
@@ -249,6 +262,7 @@ impl Stream {
         AgentEvent::TurnEnd {
             outcome,
             result,
+            structured,
             error,
             usage: Usage {
                 input: count("input_tokens"),
