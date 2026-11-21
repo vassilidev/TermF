@@ -1,7 +1,6 @@
 //! Running a task with Claude Code: headless (`claude -p`, its answer saved), or the arguments of an
 //! interactive session.
 
-use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -9,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use termf_term::{shell_command, shell_quote};
 
 use crate::Task;
 use crate::store::{Outcome, Status};
@@ -41,15 +41,19 @@ pub fn headless_args(task: &Task) -> Vec<String> {
     args
 }
 
-/// The prompt is the session's first message.
+/// Go after the agent's command, so they win over its own options. The prompt is the session's first message,
+/// after `--` so that one starting with `-` is not read as an option.
 pub fn tile_args(task: &Task) -> Vec<String> {
     let mut args = options(task);
-    args.push(task.prompt.clone());
+    args.extend(["--".into(), task.prompt.clone()]);
     args
 }
 
-/// A command that opens no console window on Windows.
-fn command(program: impl AsRef<OsStr>) -> Command {
+/// The agent's command with the task's arguments, through the login shell as a tile's: `~`, quotes and the
+/// shell's PATH work the same.
+pub fn headless_command(agent: &str, task: &Task) -> Command {
+    let args: Vec<String> = headless_args(task).iter().map(|a| shell_quote(a)).collect();
+    let (program, args) = shell_command(Some(&format!("{agent} {}", args.join(" "))));
     #[allow(unused_mut)]
     let mut cmd = Command::new(program);
     #[cfg(windows)]
@@ -58,12 +62,24 @@ fn command(program: impl AsRef<OsStr>) -> Command {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    cmd.args(args)
+        .current_dir(termf_core::expand_tilde(&task.dir));
     cmd
 }
 
-/// Runs the task headless with `claude` (the program and its first arguments) and says how it ended.
-pub fn headless(claude: &[String], task: &Task, timeout: Duration) -> Outcome {
-    match execute(claude, task, timeout) {
+/// Runs the task headless with `cmd` (see [`headless_command`]) and says how it ended. `started` gets the
+/// process id.
+pub(crate) fn headless(
+    cmd: Command,
+    task: &Task,
+    timeout: Duration,
+    started: impl FnOnce(u32),
+) -> Outcome {
+    let dir = termf_core::expand_tilde(&task.dir);
+    if !dir.is_dir() {
+        return failed(format!("the folder {} does not exist", dir.display()));
+    }
+    match execute(cmd, &task.prompt, timeout, started) {
         Ok((success, stdout, stderr)) => outcome(success, &stdout, &stderr),
         Err(e) => failed(format!("{e:#}")),
     }
@@ -78,38 +94,80 @@ fn failed(error: String) -> Outcome {
     }
 }
 
-fn execute(claude: &[String], task: &Task, timeout: Duration) -> Result<(bool, String, String)> {
-    let (program, lead) = claude.split_first().context("no Claude Code command")?;
-    let dir = termf_core::expand_tilde(&task.dir);
-    if !dir.is_dir() {
-        bail!("the folder {} does not exist", dir.display());
+/// Kills the run's process group once its runner (the app or the CLI) is gone or its time is up, so it never
+/// outlives them. Its own process group: Ctrl+C on the CLI does not reach it.
+#[cfg(unix)]
+const WATCHDOG: &str = r#"while kill -0 -"$1" 2>/dev/null; do
+  if ! kill -0 "$2" 2>/dev/null || [ "$(date +%s)" -ge "$3" ]; then kill -KILL -"$1" 2>/dev/null; exit 0; fi
+  sleep 1
+done"#;
+
+#[cfg(unix)]
+pub(crate) fn watchdog(group: u32, runner: u32, deadline: i64) -> Option<std::process::Child> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    Command::new("/bin/sh")
+        .args(["-c", WATCHDOG, "sh"])
+        .args([group.to_string(), runner.to_string(), deadline.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .ok()
+}
+
+/// Whether a process still runs (a zombie counts until its parent reaps it).
+pub(crate) fn alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = i32::try_from(pid) else {
+            return false;
+        };
+        // SAFETY: signal 0 only checks that the process exists and may be signalled.
+        let found = unsafe { libc::kill(pid, 0) } == 0;
+        found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
+    #[cfg(windows)]
+    {
+        // shortcut: asks tasklist rather than the Win32 API; only used when a run looks left behind.
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")))
+    }
+}
+
+fn execute(
+    mut cmd: Command,
+    prompt: &str,
+    timeout: Duration,
+    started: impl FnOnce(u32),
+) -> Result<(bool, String, String)> {
     let scratch = scratch_dir()?;
     let result = (|| {
         let (stdin, stdout, stderr) =
             (scratch.join("in"), scratch.join("out"), scratch.join("err"));
-        fs::write(&stdin, &task.prompt)?;
-        let mut cmd = command(program);
-        cmd.args(lead)
-            .args(headless_args(task))
-            .current_dir(&dir)
-            .stdin(fs::File::open(&stdin)?)
+        fs::write(&stdin, prompt)?;
+        cmd.stdin(fs::File::open(&stdin)?)
             .stdout(fs::File::create(&stdout)?)
             .stderr(fs::File::create(&stderr)?);
-        // An app started from the Finder lacks the PATH that finds `claude` (and the `node` it may need).
-        if let Some(path) = termf_core::shell::login_path() {
-            cmd.env("PATH", path);
-        }
-        // Its own process group, so a timeout also stops what it started.
+        // Its own process group, so stopping it also stops what it started.
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("cannot run {program}"))?;
+        let mut child = cmd.spawn().context("cannot run Claude Code")?;
+        started(child.id());
+        // A backup of the deadline below, a minute later, for when this process stops before it.
+        #[cfg(unix)]
+        let mut watchdog = watchdog(
+            child.id(),
+            std::process::id(),
+            crate::now() + timeout.as_secs() as i64 + 60,
+        );
         let deadline = Instant::now() + timeout;
         let status = loop {
             if let Some(status) = child.try_wait()? {
-                break status;
+                break Some(status);
             }
             if Instant::now() > deadline {
                 #[cfg(unix)]
@@ -118,9 +176,17 @@ fn execute(claude: &[String], task: &Task, timeout: Duration) -> Result<(bool, S
                     .status();
                 let _ = child.kill();
                 let _ = child.wait();
-                bail!("stopped after {} min", timeout.as_secs() / 60);
+                break None;
             }
             std::thread::sleep(Duration::from_millis(200));
+        };
+        #[cfg(unix)]
+        if let Some(w) = watchdog.as_mut() {
+            let _ = w.kill();
+            let _ = w.wait();
+        }
+        let Some(status) = status else {
+            bail!("stopped after {} min", timeout.as_secs() / 60);
         };
         let read = |file| String::from_utf8_lossy(&fs::read(file).unwrap_or_default()).into_owned();
         Ok((status.success(), read(&stdout), read(&stderr)))
@@ -148,7 +214,7 @@ fn tail(text: &str) -> String {
     text[start..].into()
 }
 
-/// Reads Claude Code's JSON result: the whole output, else its last JSON line (a wrapper may print first).
+/// Reads Claude Code's JSON result: the whole output, else its last JSON line (a shell profile may print first).
 pub(crate) fn outcome(success: bool, stdout: &str, stderr: &str) -> Outcome {
     let json = |text: &str| {
         serde_json::from_str::<Value>(text.trim())

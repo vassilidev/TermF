@@ -442,6 +442,7 @@ pub fn spawn(
     rows: u16,
     remote_control: bool,
     run: Option<RunSession>,
+    // Added at the end of the agent's command.
     args: &[String],
 ) -> Result<SessionSummary> {
     let command = match agent {
@@ -511,7 +512,6 @@ pub fn spawn(
         if remote_control {
             extra.push(format!("--remote-control {}", shell_quote(&title)));
         }
-        extra.extend(args.iter().map(|a| shell_quote(a)));
         if let Some(run) = &run {
             // Before the variadic options, which would take it as one of their values.
             extra.push(shell_quote(&termf_tickets::kickoff(run.brief)));
@@ -529,11 +529,16 @@ pub fn spawn(
             ));
         }
         let command = command.as_deref().map(|c| {
-            if extra.is_empty() {
+            let mut c = if extra.is_empty() {
                 c.to_owned()
             } else {
                 claude::after_program(c, &extra.join(" "))
+            };
+            // Last, so they win over the agent's own options and may end with `-- <prompt>`.
+            for arg in args {
+                c = format!("{c} {}", shell_quote(arg));
             }
+            c
         });
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {

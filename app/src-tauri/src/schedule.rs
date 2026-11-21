@@ -17,34 +17,36 @@ use crate::{AppState, CmdResult, api, err};
 
 pub struct ScheduleState(Arc<Scheduler>);
 
-/// Fails the runs a previous launch left unfinished, then checks the tasks every minute.
-pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf) -> ScheduleState {
+/// Manages the scheduler, before anything can call it, then checks the tasks every minute.
+pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf) {
     let scheduler = Arc::new(Scheduler::new(config_dir, data_dir));
-    if let Err(e) = scheduler.interrupted(Some(Host::App)) {
-        eprintln!("termf: scheduled tasks: {e:#}");
-    }
-    let (app, s) = (app.clone(), scheduler.clone());
+    app.manage(ScheduleState(scheduler.clone()));
+    let app = app.clone();
     let _ = thread::Builder::new()
         .name("schedule".into())
         .spawn(move || {
-            if let Some(termf) = api::termf_binary() {
-                s.refresh_entries(&termf);
-            }
             loop {
-                tick(&app, &s);
+                tick(&app, &scheduler);
                 // Just past the next minute; it is also how soon a time missed while asleep is caught up.
                 let wait = 61 - termf_schedule::now().rem_euclid(60);
                 thread::sleep(Duration::from_secs(wait as u64));
             }
         });
-    ScheduleState(scheduler)
 }
 
 fn scheduler(app: &AppHandle) -> Arc<Scheduler> {
     app.state::<ScheduleState>().0.clone()
 }
 
-fn tick(app: &AppHandle, s: &Scheduler) {
+/// Also fails the runs whose process is gone and brings the system's entries up to date (an update waits while
+/// its job runs).
+fn tick(app: &AppHandle, s: &Arc<Scheduler>) {
+    if let Err(e) = s.interrupted() {
+        eprintln!("termf: scheduled tasks: {e:#}");
+    }
+    if let Some(termf) = api::termf_binary() {
+        s.refresh_entries(&termf);
+    }
     let tasks = match s.tasks() {
         Ok(tasks) => tasks,
         Err(e) => return eprintln!("termf: scheduled tasks: {e:#}"),
@@ -77,7 +79,7 @@ fn failed(e: anyhow::Error) -> Outcome {
 /// Claims the run, then starts it; `None` when that time already ran (the system's scheduler was first).
 fn launch(
     app: &AppHandle,
-    s: &Scheduler,
+    s: &Arc<Scheduler>,
     id: &str,
     task: &Task,
     trigger: Trigger,
@@ -103,11 +105,11 @@ fn launch(
         updated(app, &run);
         return Ok(Some(run));
     }
-    let claude = termf_schedule::claude_program(&settings);
-    let (app, s, task, started) = (app.clone(), scheduler(app), task.clone(), run.clone());
+    let agent = termf_schedule::claude_command(&settings);
+    let (app, s, task, started) = (app.clone(), s.clone(), task.clone(), run.clone());
     thread::spawn(move || {
         let done = s
-            .run_headless(&started, &task, &claude)
+            .run_headless(&started, &task, &agent)
             .or_else(|e| s.finish(started.id, &failed(e)));
         match done {
             Ok(done) => updated(&app, &done),
@@ -249,6 +251,12 @@ pub async fn schedule_install(app: AppHandle, id: String, on: bool) -> CmdResult
         Ok(s.installed(&id))
     })
     .await
+}
+
+/// This machine's name, which tasks that run on one machine name.
+#[tauri::command]
+pub async fn schedule_machine(app: AppHandle) -> CmdResult<String> {
+    blocking(app, |_, s| Ok(s.machine.clone())).await
 }
 
 /// Claude Desktop's scheduled tasks, read only.

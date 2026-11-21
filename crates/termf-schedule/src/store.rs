@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
     mode TEXT NOT NULL,
     status TEXT NOT NULL,
     host TEXT NOT NULL,
+    pid INTEGER,
     started INTEGER NOT NULL,
     finished INTEGER,
     cost REAL,
@@ -237,19 +238,46 @@ impl Store {
         self.get(run)
     }
 
-    /// Runs `host` left running when it stopped, and any run older than a run may last, are failed.
-    pub(crate) fn interrupted(&self, host: Option<Host>, older_than: i64, now: i64) -> Result<()> {
+    /// The process a headless run runs in, to tell later whether it is still going.
+    pub(crate) fn set_pid(&self, run: i64, pid: u32) -> Result<()> {
         self.conn.execute(
-            "UPDATE schedule_runs SET status = ?1, finished = ?2, error = 'interrupted before the end'
-             WHERE status = ?3 AND (host = ?4 OR started < ?5)",
-            params![
-                text(Status::Failed),
-                now,
-                text(Status::Running),
-                host.map(Host::as_str),
-                older_than
-            ],
+            "UPDATE schedule_runs SET pid = ?2 WHERE id = ?1",
+            params![run, pid],
         )?;
+        Ok(())
+    }
+
+    /// Fails the runs left running whose process is gone (their runner stopped during them), that never got one
+    /// within two minutes, or that started longer ago than a run may last.
+    pub(crate) fn interrupted(&self, older_than: i64, now: i64) -> Result<()> {
+        let mut query = self
+            .conn
+            .prepare("SELECT id, pid, started FROM schedule_runs WHERE status = ?1")?;
+        let rows = query.query_map([text(Status::Running)], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<u32>>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        let mut gone = Vec::new();
+        for row in rows {
+            let (id, pid, started) = row?;
+            let dead = match pid {
+                Some(pid) => !crate::run::alive(pid),
+                None => started < now - 120,
+            };
+            if dead || started < older_than {
+                gone.push(id);
+            }
+        }
+        for id in gone {
+            self.conn.execute(
+                "UPDATE schedule_runs SET status = ?2, finished = ?3, error = 'interrupted before the end'
+                 WHERE id = ?1 AND status = ?4",
+                params![id, text(Status::Failed), now, text(Status::Running)],
+            )?;
+        }
         Ok(())
     }
 

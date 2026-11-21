@@ -259,6 +259,15 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// What this machine is called: its name in the sync, else its host name (the sync's default name).
+pub fn device_name(config_dir: &Path) -> String {
+    let file = config_dir.join(STATE_DIR).join("state.json");
+    fs::read(file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<State>(&bytes).ok())
+        .map_or_else(hostname, |state| state.device_name)
+}
+
 fn hostname() -> String {
     std::env::var("COMPUTERNAME")
         .ok()

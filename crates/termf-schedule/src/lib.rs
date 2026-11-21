@@ -23,7 +23,7 @@ mod store;
 mod tests;
 
 pub use cron::Cron;
-pub use run::{TIMEOUT, headless_args, tile_args};
+pub use run::{TIMEOUT, headless_args, headless_command, tile_args};
 pub use store::{Execution, Host, Outcome, Status, Trigger};
 
 use store::Store;
@@ -63,6 +63,9 @@ pub struct Task {
     pub permissions: Option<String>,
     /// The most a headless run may spend, in US dollars (`--max-budget-usd`).
     pub budget: Option<f64>,
+    /// The machine it runs on (its sync device name, else its host name): the file syncs, the task does not run
+    /// everywhere. `None`: on every machine where TermF is open.
+    pub machine: Option<String>,
     #[serde(default = "yes")]
     pub enabled: bool,
     /// Runs once, at the first chance, when its time passed while TermF and the computer were off or asleep.
@@ -150,16 +153,19 @@ pub fn claude_agent(settings: &Settings) -> Result<String> {
         .context("no agent runs Claude Code in termf.toml [agents]")
 }
 
-/// The program of that agent, else `claude`, for headless runs. It runs directly, with the login shell's PATH.
-pub fn claude_program(settings: &Settings) -> Vec<String> {
-    let program = settings
+/// That agent's command, else `claude`, for headless runs (see [`headless_command`]).
+pub fn claude_command(settings: &Settings) -> String {
+    settings
         .agents
         .values()
         .find(|c| termf_core::claude::is_claude(c))
-        .and_then(|c| c.split_whitespace().next())
-        .unwrap_or("claude");
-    // shortcut: on Windows an npm `claude.cmd` is not found this way; go through `cmd /c` when that matters.
-    vec![program.into()]
+        .cloned()
+        .unwrap_or_else(|| "claude".into())
+}
+
+/// `~` expanded, separators as this system writes them: `~/a/b` read back on Windows gets its own.
+fn folder(dir: &str) -> PathBuf {
+    termf_core::expand_tilde(dir.trim()).components().collect()
 }
 
 /// Ids become file and service names.
@@ -205,17 +211,20 @@ fn check_word(what: &str, value: &Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Trims the task and refuses what cannot run.
-fn checked(mut task: Task) -> Result<Task> {
+/// Trims the task and refuses what cannot run. The folder is only checked when the task runs here and is new
+/// here (new task, new folder, moved here): switching off a task synced from another machine needs no folder.
+fn checked(mut task: Task, previous: Option<&Task>, machine: &str) -> Result<Task> {
     task.name = task.name.trim().replace(['\n', '\r'], " ");
     ensure!(!task.name.is_empty(), "a task needs a name");
     ensure!(!task.prompt.trim().is_empty(), "a task needs a prompt");
     task.cron = task.cron.split_whitespace().collect::<Vec<_>>().join(" ");
     upcoming(&task.cron, now(), 1)?;
-    let dir = termf_core::expand_tilde(task.dir.trim());
-    ensure!(dir.is_dir(), "the folder {} does not exist", dir.display());
-    task.dir = dir.to_string_lossy().into_owned();
-    for value in [&mut task.model, &mut task.effort, &mut task.permissions] {
+    for value in [
+        &mut task.model,
+        &mut task.effort,
+        &mut task.permissions,
+        &mut task.machine,
+    ] {
         *value = value
             .as_deref()
             .map(str::trim)
@@ -225,6 +234,12 @@ fn checked(mut task: Task) -> Result<Task> {
     check_word("model", &task.model)?;
     check_word("effort", &task.effort)?;
     check_word("permission mode", &task.permissions)?;
+    let dir = folder(&task.dir);
+    let mine = |t: &Task| t.machine.as_deref().is_none_or(|m| m == machine);
+    if mine(&task) && previous.is_none_or(|p| folder(&p.dir) != dir || !mine(p)) {
+        ensure!(dir.is_dir(), "the folder {} does not exist", dir.display());
+    }
+    task.dir = dir.to_string_lossy().into_owned();
     if let Some(budget) = task.budget {
         ensure!(
             budget.is_finite() && budget > 0.0,
@@ -239,15 +254,30 @@ pub struct Scheduler {
     data_dir: PathBuf,
     /// `None` on a system TermF cannot schedule on.
     pub system: Option<os::System>,
+    /// This machine's name, for the tasks that run on one machine only.
+    pub machine: String,
 }
 
 impl Scheduler {
     pub fn new(config_dir: PathBuf, data_dir: PathBuf) -> Self {
         let system = os::System::current(&data_dir);
         Self {
+            machine: termf_sync::device_name(&config_dir),
             config_dir,
             data_dir,
             system,
+        }
+    }
+
+    /// Whether the task runs on this machine.
+    pub fn runs_here(&self, task: &Task) -> bool {
+        task.machine.as_deref().is_none_or(|m| m == self.machine)
+    }
+
+    fn here(&self, task: &Task) -> Result<()> {
+        match &task.machine {
+            Some(machine) if !self.runs_here(task) => bail!("this task runs on {machine}"),
+            _ => Ok(()),
         }
     }
 
@@ -270,9 +300,7 @@ impl Scheduler {
             .tasks;
         tasks.retain(|id, _| check_id(id).is_ok());
         for task in tasks.values_mut() {
-            // Rebuilt from its parts: `~/a/b` read back on Windows gets its own separators.
-            let dir: PathBuf = termf_core::expand_tilde(&task.dir).components().collect();
-            task.dir = dir.to_string_lossy().into_owned();
+            task.dir = folder(&task.dir).to_string_lossy().into_owned();
         }
         Ok(tasks)
     }
@@ -286,7 +314,9 @@ impl Scheduler {
     /// Creates a task (`id: None`) or replaces one, and returns its id. Its entry in the system's scheduler, if
     /// any, follows: rewritten for the new schedule, removed when it now runs in a tile.
     pub fn save(&self, id: Option<&str>, task: Task, termf: Option<&Path>) -> Result<String> {
-        let mut task = checked(task)?;
+        let previous = id.and_then(|id| self.task(id).ok());
+        let mut task = checked(task, previous.as_ref(), &self.machine)?;
+        let here = self.runs_here(&task);
         let file = self.file();
         let mut doc: DocumentMut = fs::read_to_string(&file)
             .unwrap_or_default()
@@ -328,9 +358,9 @@ impl Scheduler {
         self.store()?.track(&id, &task, now())?;
         if self.installed(&id) {
             match (task.mode, termf) {
-                (Mode::Tile, _) => self.uninstall(&id)?,
-                (Mode::Headless, Some(termf)) => self.install(&id, termf)?,
-                (Mode::Headless, None) => {}
+                (Mode::Headless, Some(termf)) if here => self.install(&id, termf)?,
+                (Mode::Headless, None) if here => {}
+                _ => self.uninstall(&id)?,
             }
         }
         Ok(id)
@@ -356,6 +386,9 @@ impl Scheduler {
 
     /// The time the task is due for now, if any (see [`due`]).
     pub fn due(&self, id: &str, task: &Task, now: i64) -> Result<Option<(i64, Trigger)>> {
+        if !self.runs_here(task) {
+            return Ok(None);
+        }
         let Some(since) = self.store()?.track(id, task, now)? else {
             return Ok(None);
         };
@@ -368,7 +401,8 @@ impl Scheduler {
         ))
     }
 
-    /// Records the run before it starts; `None` when that scheduled time already has one.
+    /// Records the run before it starts; `None` when that scheduled time already has one. Refused for a task
+    /// of another machine.
     pub fn claim(
         &self,
         id: &str,
@@ -377,6 +411,7 @@ impl Scheduler {
         slot: Option<i64>,
         host: Host,
     ) -> Result<Option<Execution>> {
+        self.here(task)?;
         self.store()?.claim(id, task, trigger, slot, host, now())
     }
 
@@ -384,22 +419,22 @@ impl Scheduler {
         self.store()?.finish(run, outcome, now())
     }
 
-    /// Runs a claimed headless run to its end.
-    pub fn run_headless(
-        &self,
-        run: &Execution,
-        task: &Task,
-        claude: &[String],
-    ) -> Result<Execution> {
-        let outcome = run::headless(claude, task, TIMEOUT);
+    /// Runs a claimed headless run to its end with `agent`, the command of a Claude Code agent.
+    pub fn run_headless(&self, run: &Execution, task: &Task, agent: &str) -> Result<Execution> {
+        let store = self.store()?;
+        let outcome = run::headless(headless_command(agent, task), task, TIMEOUT, |pid| {
+            if let Err(e) = store.set_pid(run.id, pid) {
+                eprintln!("termf: scheduled run {}: {e:#}", run.id);
+            }
+        });
         self.finish(run.id, &outcome)
     }
 
-    /// Fails the runs `host` left running (it stopped during them), and those running for too long.
-    pub fn interrupted(&self, host: Option<Host>) -> Result<()> {
+    /// Fails the runs left running whose process is gone, and those running for longer than a run may.
+    pub fn interrupted(&self) -> Result<()> {
         let now = now();
         let longest = TIMEOUT.as_secs() as i64 + 600;
-        self.store()?.interrupted(host, now - longest, now)
+        self.store()?.interrupted(now - longest, now)
     }
 
     /// Newest first; every task's when `task` is `None`.
@@ -430,6 +465,7 @@ impl Scheduler {
                 "a task that opens a tile needs TermF open: only headless tasks run while it is closed"
             );
         }
+        self.here(&task)?;
         let system = self.system()?;
         let files = system.files(
             id,
@@ -449,17 +485,18 @@ impl Scheduler {
     }
 
     /// Rewrites the installed entries that no longer match their task (changed on another machine, TermF
-    /// moved). Never fails: a stale entry still runs the task, or names one that is gone.
+    /// moved), and removes those of tasks deleted, moved to another machine or to a tile. Never fails: a stale
+    /// entry still runs its task, or names one that no longer runs here.
     pub fn refresh_entries(&self, termf: &Path) {
         let (Ok(tasks), Some(system)) = (self.tasks(), &self.system) else {
             return;
         };
-        for (id, task) in tasks {
-            if !system.installed(&id) {
-                continue;
-            }
-            let result = match (task.mode, Cron::parse(&task.cron)) {
-                (Mode::Headless, Ok(cron)) => {
+        for id in system.installed_ids() {
+            let task = tasks
+                .get(&id)
+                .filter(|t| t.mode == Mode::Headless && self.runs_here(t));
+            let result = match task.map(|t| (t, Cron::parse(&t.cron))) {
+                Some((task, Ok(cron))) => {
                     let files = system.files(&id, &task.name, termf, &cron, task.catchup);
                     let same = files
                         .iter()

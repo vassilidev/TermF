@@ -45,6 +45,9 @@ fn apply(task: &mut Task, args: &mut Vec<&str>) -> Result<()> {
             *value = Some(v);
         }
     }
+    if let Some(machine) = take_opt(args, "--machine")? {
+        task.machine = (machine != "any").then_some(machine);
+    }
     if let Some(budget) = take_opt(args, "--budget")? {
         task.budget = match budget.as_str() {
             "" | "none" => None,
@@ -95,6 +98,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 effort: None,
                 permissions: None,
                 budget: None,
+                machine: Some(s.machine.clone()),
                 enabled: true,
                 catchup: true,
             };
@@ -123,9 +127,14 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                         Mode::Tile => "tile",
                     };
                     let closed = if s.installed(&id) {
-                        "  [also while TermF is closed]"
+                        "  [also while TermF is closed]".to_owned()
+                    } else if !s.runs_here(&task) {
+                        format!(
+                            "  [runs on {}]",
+                            task.machine.as_deref().unwrap_or_default()
+                        )
                     } else {
-                        ""
+                        String::new()
                     };
                     println!(
                         "{id:<24}  {state:<3}  {mode:<8}  {:<16}  next {}  {}{closed}",
@@ -276,7 +285,7 @@ fn run_task(s: &Scheduler, id: &str, scheduled: bool) -> Result<()> {
         )?
     } else {
         let settings = termf_core::load_settings(&termf_core::default_config_dir()?)?;
-        s.run_headless(&run, &task, &termf_schedule::claude_program(&settings))?
+        s.run_headless(&run, &task, &termf_schedule::claude_command(&settings))?
     };
     notify(&done);
     show(&done);

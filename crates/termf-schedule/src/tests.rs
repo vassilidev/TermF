@@ -20,6 +20,7 @@ impl Env {
         let mut scheduler = Scheduler::new(root.join("config"), root.join("data"));
         // Never the real launchd, systemd or Task Scheduler.
         scheduler.system = None;
+        scheduler.machine = "alex-mbp".into();
         Env {
             root,
             scheduler,
@@ -38,6 +39,7 @@ impl Env {
             effort: Some("high".into()),
             permissions: Some("dontAsk".into()),
             budget: Some(2.5),
+            machine: Some("alex-mbp".into()),
             enabled: true,
             catchup: true,
         }
@@ -159,6 +161,7 @@ fn a_scheduled_time_runs_once_across_the_app_and_the_cli() {
     // The CLI the system's scheduler started, on the same database.
     let mut cli = Scheduler::new(env.root.join("config"), env.root.join("data"));
     cli.system = None;
+    cli.machine = "alex-mbp".into();
 
     let at = 1_795_251_600;
     let slot = Some(at);
@@ -277,12 +280,9 @@ fn keeps_the_history() {
         Some("3 commits, all green.")
     );
 
-    // The app stopped during `third`; the CLI's run may still be going.
-    s.interrupted(Some(Host::App)).unwrap();
-    let runs = s.history(None, 10).unwrap();
-    assert_eq!(runs[0].status, Status::Failed);
-    assert_eq!(runs[0].error.as_deref(), Some("interrupted before the end"));
-    assert_eq!(runs[1].status, Status::Running);
+    // Just claimed, no process yet: still starting.
+    s.interrupted().unwrap();
+    assert_eq!(s.run(third.id).unwrap().status, Status::Running);
 
     // History outlives its task.
     s.delete(&a).unwrap();
@@ -318,8 +318,16 @@ fn passes_the_task_to_claude_code() {
             "high",
             "--permission-mode",
             "dontAsk",
+            "--",
             "Summarize yesterday's commits.\nKeep it short.",
         ]
+    );
+    let mut dash = task.clone();
+    dash.prompt = "- list the open PRs".into();
+    assert_eq!(
+        tile_args(&dash)[6..],
+        ["--", "- list the open PRs"],
+        "a prompt starting with - is not an option"
     );
     let mut bare = task.clone();
     (bare.model, bare.effort, bare.permissions, bare.budget) = (None, None, None, None);
@@ -349,6 +357,23 @@ fn reads_claude_code_answers() {
     assert_eq!(crash.error.as_deref(), Some("Error: not logged in"));
 }
 
+/// An executable stand-in for Claude Code that records its arguments, folder and stdin next to itself.
+#[cfg(unix)]
+fn fake_claude(path: &std::path::Path, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let log = path.with_extension("log");
+    fs::write(
+        path,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}.args'\npwd > '{0}.cwd'\ncat > '{0}.stdin'\n{body}\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn runs_headless_with_a_fake_claude() {
@@ -356,54 +381,322 @@ fn runs_headless_with_a_fake_claude() {
     let s = &env.scheduler;
     let id = s.save(None, env.task("Review", "0 9 * * *"), None).unwrap();
     let task = s.task(&id).unwrap();
-    let fake = env.root.join("fake-claude.sh");
-    let log = env.root.join("log");
+    let home = env.root.join("home");
+    let ok = "echo 'profile noise'\necho '{\"type\":\"result\",\"is_error\":false,\"result\":\"All good.\",\"total_cost_usd\":0.3}'";
+    // The agent's command goes through the login shell, as a tile's: `~` and quoted paths with spaces work.
+    let tilde = home.join("bin/claude");
+    let spaced = env.root.join("my tools/claude");
+    fake_claude(&tilde, ok);
+    fake_claude(&spaced, ok);
+    for (agent, fake) in [
+        ("~/bin/claude".to_owned(), &tilde),
+        (format!("\"{}\"", spaced.display()), &spaced),
+    ] {
+        let mut cmd = headless_command(&agent, &task);
+        // Never the user's own shell profile.
+        cmd.env("HOME", &home);
+        let mut pid = None;
+        let done = run::headless(cmd, &task, std::time::Duration::from_secs(60), |p| {
+            pid = Some(p)
+        });
+        assert_eq!(done.status, Status::Succeeded, "{agent}: {:?}", done.error);
+        assert_eq!(done.output.as_deref(), Some("All good."));
+        assert_eq!(done.cost, Some(0.3));
+        assert!(pid.is_some());
+        let log = fake.with_extension("log");
+        let read = |ext: &str| fs::read_to_string(format!("{}.{ext}", log.display())).unwrap();
+        assert_eq!(
+            read("args"),
+            "-p\n--output-format\njson\n--model\nsonnet\n--effort\nhigh\n--permission-mode\ndontAsk\n--max-budget-usd\n2.5\n"
+        );
+        assert_eq!(read("stdin"), task.prompt);
+        assert_eq!(
+            fs::canonicalize(read("cwd").trim()).unwrap(),
+            fs::canonicalize(&env.dir).unwrap()
+        );
+    }
+
+    fake_claude(&tilde, "echo 'Error: not logged in' >&2\nexit 1");
+    let mut cmd = headless_command("~/bin/claude", &task);
+    cmd.env("HOME", &home);
+    let failed = run::headless(cmd, &task, std::time::Duration::from_secs(60), |_| {});
+    assert_eq!(failed.status, Status::Failed);
+    assert!(failed.error.unwrap().ends_with("Error: not logged in"));
+
+    fake_claude(&tilde, "sleep 30");
+    let mut cmd = headless_command("~/bin/claude", &task);
+    cmd.env("HOME", &home);
+    let slow = run::headless(cmd, &task, std::time::Duration::from_millis(500), |_| {});
+    assert_eq!(slow.status, Status::Failed);
+    let error = slow.error.unwrap();
+    assert!(error.starts_with("stopped after"), "{error}");
+}
+
+#[test]
+fn tells_whether_a_process_still_runs() {
+    assert!(run::alive(std::process::id()));
+    let mut quick = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/c", "exit"])
+            .spawn()
+            .unwrap()
+    } else {
+        std::process::Command::new("true").spawn().unwrap()
+    };
+    let pid = quick.id();
+    quick.wait().unwrap();
+    assert!(!run::alive(pid), "gone once reaped");
+}
+
+#[cfg(unix)]
+#[test]
+fn fails_only_the_runs_whose_process_is_gone() {
+    let env = Env::new("interrupted");
+    let s = &env.scheduler;
+    let id = s
+        .save(None, env.task("Nightly", "0 3 * * *"), None)
+        .unwrap();
+    let task = s.task(&id).unwrap();
+    let claim = || {
+        s.claim(&id, &task, Trigger::Manual, None, Host::Cli)
+            .unwrap()
+            .unwrap()
+            .id
+    };
+    let (running, gone, starting) = (claim(), claim(), claim());
+    let mut sleeper = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    let mut quick = std::process::Command::new("true").spawn().unwrap();
+    let dead = quick.id();
+    quick.wait().unwrap();
+    let store = s.store().unwrap();
+    store.set_pid(running, sleeper.id()).unwrap();
+    store.set_pid(gone, dead).unwrap();
+
+    s.interrupted().unwrap();
+    let status = |run| s.run(run).unwrap().status;
+    assert_eq!(status(running), Status::Running, "its process still runs");
+    assert_eq!(status(gone), Status::Failed);
+    assert_eq!(
+        s.run(gone).unwrap().error.as_deref(),
+        Some("interrupted before the end")
+    );
+    assert_eq!(status(starting), Status::Running, "claimed, about to start");
+
+    sleeper.kill().unwrap();
+    sleeper.wait().unwrap();
+    s.interrupted().unwrap();
+    assert_eq!(status(running), Status::Failed);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_run_never_outlives_its_runner() {
+    use std::os::unix::process::CommandExt;
+    let group = || {
+        std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap()
+    };
+    let ended = |child: &mut std::process::Child| {
+        (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            child.try_wait().unwrap().is_some()
+        })
+    };
+    let mut quick = std::process::Command::new("true").spawn().unwrap();
+    let gone_runner = quick.id();
+    quick.wait().unwrap();
+    let mut orphan = group();
+    let mut dog = run::watchdog(orphan.id(), gone_runner, now() + 3600).unwrap();
+    assert!(ended(&mut orphan), "its runner is gone");
+    dog.wait().unwrap();
+
+    let mut late = group();
+    let mut dog = run::watchdog(late.id(), std::process::id(), now() - 1).unwrap();
+    assert!(ended(&mut late), "its time is up");
+    dog.wait().unwrap();
+}
+
+#[test]
+fn runs_only_on_its_machine() {
+    let env = Env::new("machine");
+    let s = &env.scheduler;
+    let mut elsewhere = env.task("Nightly", "0 * * * *");
+    elsewhere.machine = Some("office-pc".into());
+    elsewhere.dir = env.root.join("not here").to_string_lossy().into_owned();
+    let id = s
+        .save(None, elsewhere.clone(), None)
+        .expect("its folder is on office-pc");
+    let task = s.task(&id).unwrap();
+    assert!(!s.runs_here(&task));
+    assert_eq!(s.due(&id, &task, now() + 3 * 86_400).unwrap(), None);
+    assert!(
+        s.claim(&id, &task, Trigger::Manual, None, Host::App)
+            .is_err()
+    );
+
+    let mut anywhere = task.clone();
+    anywhere.machine = Some(" ".into());
+    assert!(
+        s.save(Some(&id), anywhere.clone(), None).is_err(),
+        "on every machine, here too: its folder must exist"
+    );
+    anywhere.dir = env.dir.to_string_lossy().into_owned();
+    s.save(Some(&id), anywhere, None).unwrap();
+    let task = s.task(&id).unwrap();
+    assert_eq!(task.machine, None);
+    assert!(s.runs_here(&task));
+    assert!(
+        s.claim(&id, &task, Trigger::Manual, None, Host::App)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn switches_a_task_whose_folder_is_gone() {
+    let env = Env::new("gone");
+    let s = &env.scheduler;
+    let id = s
+        .save(None, env.task("Nightly", "0 * * * *"), None)
+        .unwrap();
+    fs::remove_dir_all(&env.dir).unwrap();
+    let mut task = s.task(&id).unwrap();
+    task.enabled = false;
+    task.catchup = false;
+    s.save(Some(&id), task.clone(), None)
+        .expect("switching it off needs no folder");
+    task.dir = env.root.join("elsewhere").to_string_lossy().into_owned();
+    assert!(
+        s.save(Some(&id), task, None).is_err(),
+        "a new folder must exist"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn updates_launchd_without_stopping_a_run_and_removes_orphans() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut env = Env::new("launchd");
+    let (states, log) = (env.root.join("states"), env.root.join("launchctl.log"));
+    fs::create_dir_all(&states).unwrap();
+    // A launchctl that keeps each job's state in a file: `print` fails for a job not loaded.
+    let fake = env.root.join("launchctl");
     fs::write(
         &fake,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}.args'\npwd > '{0}.cwd'\ncat > '{0}.stdin'\necho 'profile noise'\necho '{{\"type\":\"result\",\"is_error\":false,\"result\":\"All good.\",\"total_cost_usd\":0.3}}'\n",
-            log.display()
+            r#"#!/bin/sh
+echo "$1 ${{2##*/}} ${{3##*/}}" >> '{log}'
+case "$1" in
+  print) [ -f '{states}'/"${{2##*/}}" ] || exit 113; echo "state = $(cat '{states}'/"${{2##*/}}")";;
+  bootout) rm -f '{states}'/"${{2##*/}}";;
+  bootstrap) b="${{3##*/}}"; echo waiting > '{states}'/"${{b%.plist}}";;
+esac
+"#,
+            log = log.display(),
+            states = states.display()
         ),
     )
     .unwrap();
-    let claude = vec!["/bin/sh".to_owned(), fake.to_string_lossy().into_owned()];
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    env.scheduler.system = Some(os::System {
+        platform: os::Platform::Launchd,
+        home: env.root.join("home"),
+        config: env.root.join("home/.config"),
+        data: env.root.join("data"),
+        launchctl: fake.to_string_lossy().into_owned(),
+    });
+    let s = &env.scheduler;
+    let termf = std::path::Path::new("/opt/termf");
+    let calls = || {
+        let text = fs::read_to_string(&log).unwrap_or_default();
+        let _ = fs::remove_file(&log);
+        text.lines()
+            .map(|l| l.trim().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let label = "dev.termf.schedule.nightly";
+    let plist = env
+        .root
+        .join(format!("home/Library/LaunchAgents/{label}.plist"));
 
-    let run = s
-        .claim(&id, &task, Trigger::Manual, None, Host::Cli)
-        .unwrap()
+    let id = s
+        .save(None, env.task("Nightly", "0 3 * * *"), Some(termf))
         .unwrap();
-    let done = s.run_headless(&run, &task, &claude).unwrap();
-    assert_eq!(done.status, Status::Succeeded);
-    assert_eq!(done.output.as_deref(), Some("All good."));
-    assert_eq!(done.cost, Some(0.3));
-    let read = |ext: &str| fs::read_to_string(format!("{}.{ext}", log.display())).unwrap();
+    s.install(&id, termf).unwrap();
     assert_eq!(
-        read("args"),
-        "-p\n--output-format\njson\n--model\nsonnet\n--effort\nhigh\n--permission-mode\ndontAsk\n--max-budget-usd\n2.5\n"
+        calls(),
+        [
+            format!("print {label}"),
+            format!("bootstrap {} {label}.plist", termf_core::ipc::uid())
+        ]
     );
-    assert_eq!(read("stdin"), task.prompt);
+    assert!(plist.is_file());
+
+    // Loaded and waiting: unloaded, gone, loaded again with the new schedule.
+    let mut task = s.task(&id).unwrap();
+    task.cron = "0 4 * * *".into();
+    s.save(Some(&id), task.clone(), Some(termf)).unwrap();
+    let seen = calls();
     assert_eq!(
-        fs::canonicalize(read("cwd").trim()).unwrap(),
-        fs::canonicalize(&env.dir).unwrap()
+        seen[..3],
+        [
+            format!("print {label}"),
+            format!("bootout {label}"),
+            format!("print {label}")
+        ]
+    );
+    assert!(seen[3].starts_with("bootstrap "));
+    assert!(
+        fs::read_to_string(&plist)
+            .unwrap()
+            .contains("<integer>4</integer>")
     );
 
+    // Running: left alone until a later refresh.
+    fs::write(states.join(label), "running").unwrap();
+    task.cron = "0 5 * * *".into();
+    s.save(Some(&id), task, Some(termf)).unwrap();
+    assert_eq!(calls(), [format!("print {label}")]);
+    assert!(
+        fs::read_to_string(&plist)
+            .unwrap()
+            .contains("<integer>4</integer>")
+    );
+    fs::write(states.join(label), "waiting").unwrap();
+    s.refresh_entries(termf);
+    assert!(calls().contains(&format!("bootout {label}")));
+    assert!(
+        fs::read_to_string(&plist)
+            .unwrap()
+            .contains("<integer>5</integer>")
+    );
+
+    // Entries of a deleted task, and of a task now in a tile, are removed.
+    let agents = env.root.join("home/Library/LaunchAgents");
+    fs::write(agents.join("dev.termf.schedule.deleted.plist"), "x").unwrap();
+    let mut tile = env.task("Weekly", "0 9 * * 1");
+    tile.mode = Mode::Tile;
+    let tile_id = s.save(None, tile, Some(termf)).unwrap();
     fs::write(
-        &fake,
-        "#!/bin/sh\necho 'Error: not logged in' >&2\nexit 1\n",
+        agents.join(format!("dev.termf.schedule.{tile_id}.plist")),
+        "x",
     )
     .unwrap();
-    let run = s
-        .claim(&id, &task, Trigger::Manual, None, Host::Cli)
-        .unwrap()
-        .unwrap();
-    let failed = s.run_headless(&run, &task, &claude).unwrap();
-    assert_eq!(failed.status, Status::Failed);
-    assert_eq!(failed.error.as_deref(), Some("Error: not logged in"));
-
-    fs::write(&fake, "#!/bin/sh\nsleep 30\n").unwrap();
-    let slow = run::headless(&claude, &task, std::time::Duration::from_millis(300));
-    assert_eq!(slow.status, Status::Failed);
-    assert!(slow.error.unwrap().starts_with("stopped after"));
+    assert_eq!(
+        s.system.as_ref().unwrap().installed_ids(),
+        ["deleted", "nightly", "weekly"]
+    );
+    s.refresh_entries(termf);
+    assert_eq!(s.system.as_ref().unwrap().installed_ids(), ["nightly"]);
+    let seen = calls();
+    assert!(seen.contains(&"bootout dev.termf.schedule.deleted".to_owned()));
+    assert!(seen.contains(&"bootout dev.termf.schedule.weekly".to_owned()));
 }
 
 #[test]

@@ -5,6 +5,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread::sleep;
+use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
 
@@ -32,6 +34,8 @@ pub struct System {
     pub config: PathBuf,
     /// TermF's data folder, which keeps the Task Scheduler's task files.
     pub data: PathBuf,
+    /// The `launchctl` program (a stand-in in tests).
+    pub launchctl: String,
 }
 
 impl System {
@@ -50,6 +54,7 @@ impl System {
             home: dirs::home_dir()?,
             config: dirs::config_dir()?,
             data: data_dir.into(),
+            launchctl: "launchctl".into(),
         })
     }
 
@@ -74,6 +79,26 @@ impl System {
 
     pub fn installed(&self, id: &str) -> bool {
         self.paths(id)[0].is_file()
+    }
+
+    /// The tasks this machine has entries for, whether or not they still exist.
+    pub fn installed_ids(&self) -> Vec<String> {
+        let first = self.paths("x").remove(0);
+        let name = first.file_name().unwrap_or_default().to_string_lossy();
+        let (prefix, suffix) = name.split_once('x').unwrap_or_default();
+        let Ok(entries) = fs::read_dir(first.parent().unwrap_or(Path::new("."))) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let id = name.strip_prefix(prefix)?.strip_suffix(suffix)?;
+                (!id.is_empty()).then(|| id.to_owned())
+            })
+            .collect();
+        ids.sort();
+        ids
     }
 
     /// The files of the entry that runs task `id`, in the order of [`System::paths`].
@@ -103,8 +128,35 @@ impl System {
         paths.into_iter().zip(contents).collect()
     }
 
-    /// Writes the entry and has the system load it, replacing what was there.
+    /// launchd's description of the job, `None` when it is not loaded.
+    fn launchd_job(&self, id: &str) -> Option<String> {
+        let out = command(&self.launchctl)
+            .args(["print", &service_target(id)])
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    /// Writes the entry and has the system load it, replacing what was there. A launchd job that is running
+    /// is left alone: unloading it would stop its run, so the update waits for a later refresh.
     pub fn install(&self, id: &str, files: &[(PathBuf, Vec<u8>)]) -> Result<()> {
+        if self.platform == Platform::Launchd
+            && let Some(job) = self.launchd_job(id)
+        {
+            if job.contains("state = running") {
+                return Ok(());
+            }
+            let _ = exec(&self.launchctl, &["bootout", &service_target(id)]);
+            // Unloading goes on after `bootout` returns; loading again too soon fails (I/O error 5).
+            for _ in 0..40 {
+                if self.launchd_job(id).is_none() {
+                    break;
+                }
+                sleep(Duration::from_millis(250));
+            }
+        }
         for (path, bytes) in files {
             fs::create_dir_all(path.parent().context("no parent folder")?)?;
             let tmp = path.with_extension("tmp");
@@ -113,11 +165,16 @@ impl System {
         }
         match self.platform {
             Platform::Launchd => {
-                let _ = exec("launchctl", &["bootout", &service_target(id)]);
-                exec(
-                    "launchctl",
-                    &["bootstrap", &domain(), &files[0].0.to_string_lossy()],
-                )
+                let plist = files[0].0.to_string_lossy();
+                let mut result = Ok(());
+                for _ in 0..5 {
+                    result = exec(&self.launchctl, &["bootstrap", &domain(), &plist]);
+                    if result.is_ok() {
+                        break;
+                    }
+                    sleep(Duration::from_millis(500));
+                }
+                result
             }
             Platform::Systemd => {
                 let timer = format!("{}.timer", unit(id));
@@ -146,7 +203,7 @@ impl System {
         // Unloading fails when the entry was never loaded: removing its files is what matters.
         match self.platform {
             Platform::Launchd => {
-                let _ = exec("launchctl", &["bootout", &service_target(id)]);
+                let _ = exec(&self.launchctl, &["bootout", &service_target(id)]);
             }
             Platform::Systemd => {
                 let timer = format!("{}.timer", unit(id));
@@ -195,7 +252,8 @@ fn service_target(id: &str) -> String {
     format!("{}/{}", domain(), label(id))
 }
 
-fn exec(program: &str, args: &[&str]) -> Result<()> {
+/// A command that opens no console window on Windows.
+fn command(program: &str) -> Command {
     #[allow(unused_mut)]
     let mut cmd = Command::new(program);
     #[cfg(windows)]
@@ -204,7 +262,11 @@ fn exec(program: &str, args: &[&str]) -> Result<()> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let out = cmd
+    cmd
+}
+
+fn exec(program: &str, args: &[&str]) -> Result<()> {
+    let out = command(program)
         .args(args)
         .output()
         .with_context(|| format!("cannot run {program}"))?;
@@ -450,6 +512,7 @@ mod tests {
             home: "/home/alex".into(),
             config: "/home/alex/.config".into(),
             data: "/data/termf".into(),
+            launchctl: "launchctl".into(),
         }
     }
 

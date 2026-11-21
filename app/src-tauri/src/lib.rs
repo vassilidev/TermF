@@ -207,14 +207,14 @@ pub fn run() {
                 settings.keep_awake,
                 settings.keep_display_on,
             );
+            // After the state its runs use, before the local API that can ask it to run a task.
+            let config = app.state::<AppState>().config_dir.clone();
+            schedule::start(app.handle(), config, data_dir);
             if let Some(listener) = listener
                 && let Err(e) = api::serve(app.handle().clone(), listener)
             {
                 eprintln!("termf: local API disabled: {e:#}");
             }
-            let config = app.state::<AppState>().config_dir.clone();
-            let schedule = schedule::start(app.handle(), config, data_dir);
-            app.manage(schedule);
             quick_terminal::register(app.handle());
             let sync = sync::start(app.handle(), app.state::<AppState>().config_dir.clone());
             app.manage(sync);
@@ -319,6 +319,7 @@ pub fn run() {
             schedule::schedule_history,
             schedule::schedule_install,
             schedule::schedule_desktop,
+            schedule::schedule_machine,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
