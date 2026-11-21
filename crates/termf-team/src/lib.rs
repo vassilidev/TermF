@@ -459,9 +459,10 @@ impl Team {
         let _lock = inner.lock.lock().unwrap();
         let store = inner.store()?;
         let mut run = inner.get(&store, id)?;
+        // A team paused or stopped goes on with `start`, which takes up its steps first.
         ensure!(
-            run.state != RunState::Done,
-            "the team of run {id} is {}",
+            run.state.active(),
+            "the team of run {id} is {}: start it to go on",
             run.state.as_str()
         );
         let i = run.index(key)?;
@@ -502,9 +503,10 @@ impl Team {
         let _lock = inner.lock.lock().unwrap();
         let store = inner.store()?;
         let mut run = inner.get(&store, id)?;
+        // A team paused or stopped goes on with `start`, which takes up its steps first.
         ensure!(
-            run.state != RunState::Done,
-            "the team of run {id} is {}",
+            run.state.active(),
+            "the team of run {id} is {}: start it to go on",
             run.state.as_str()
         );
         let i = run.index(key)?;
