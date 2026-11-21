@@ -81,6 +81,7 @@ pub struct Settings {
     pub context_reset_at: u8,
     pub context_warning_at: u8,
     pub tickets: TicketSettings,
+    pub ci: CiSettings,
 }
 
 /// `[tickets]` in `termf.toml`.
@@ -133,8 +134,27 @@ impl Default for Settings {
             context_reset_at: 70,
             context_warning_at: 50,
             tickets: TicketSettings::default(),
+            ci: CiSettings::default(),
         }
     }
+}
+
+/// `[ci]` in `termf.toml`.
+#[derive(Deserialize, Default, Debug)]
+pub struct CiSettings {
+    #[serde(default)]
+    pub notify: CiNotify,
+}
+
+/// Which finished CI runs TermF notifies.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CiNotify {
+    /// Runs the user triggered, or on the branch of one of their ticket runs.
+    #[default]
+    Mine,
+    All,
+    Off,
 }
 
 /// When TermF keeps the computer from sleeping.
@@ -234,6 +254,19 @@ pub fn save_context_reset(config_dir: &Path, on: bool, reset_at: u8, warning_at:
         doc["context_reset"] = value(on);
         doc["context_reset_at"] = value(i64::from(reset_at));
         doc["context_warning_at"] = value(i64::from(warning_at));
+    })
+}
+
+/// Saves the CI notification choice made in the UI into `termf.toml`, like `save_keep_awake`.
+pub fn save_ci_notify(config_dir: &Path, notify: CiNotify) -> Result<()> {
+    let notify = match notify {
+        CiNotify::Mine => "mine",
+        CiNotify::All => "all",
+        CiNotify::Off => "off",
+    };
+    edit_settings(config_dir, |doc| {
+        // A `[ci]` section at the end, not an inline table above the user's comments.
+        doc.entry("ci").or_insert(toml_edit::table())["notify"] = value(notify);
     })
 }
 
@@ -643,6 +676,24 @@ mod tests {
         assert_eq!(settings.keep_awake, KeepAwake::Off);
         assert!(save_context_reset(&dir, true, 0, 50).is_err());
         assert!(save_context_reset(&dir, true, 70, 101).is_err());
+    }
+
+    #[test]
+    fn saves_ci_notifications() {
+        let dir = temp_dir("ci-notify");
+        fs::write(
+            dir.join("termf.toml"),
+            "# mine\n\n[agents]\nclaude = \"claude\"\n",
+        )
+        .unwrap();
+        assert_eq!(load_settings(&dir).unwrap().ci.notify, CiNotify::Mine);
+        save_ci_notify(&dir, CiNotify::Off).unwrap();
+        save_ci_notify(&dir, CiNotify::All).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\n"), "comments kept: {text}");
+        let settings = load_settings(&dir).unwrap();
+        assert_eq!(settings.ci.notify, CiNotify::All);
+        assert_eq!(settings.agents["claude"], "claude");
     }
 
     #[test]

@@ -19,6 +19,7 @@ import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Ticket from "@lucide/svelte/icons/ticket";
+import Workflow from "@lucide/svelte/icons/workflow";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -41,6 +42,7 @@ import {
 } from "$lib/state.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
 import { launchTicket, showTickets } from "$lib/tickets.svelte";
+import { dispatchWorkflow, showCi } from "$lib/ci.svelte";
 
 const mod = isMac ? "⌘" : "Ctrl+";
 
@@ -186,6 +188,8 @@ export function commands(): Command[] {
   if (files.view !== "tickets") {
     list.push({ id: "view-tickets", label: t("showTickets"), icon: Ticket, run: showTickets });
   }
+  if (files.view !== "ci") list.push({ id: "view-ci", label: t("showCi"), icon: Workflow, run: showCi });
+  list.push({ id: "ci-dispatch", label: t("ciDispatchLong"), icon: Workflow, run: dispatchWorkflow });
   list.push({
     id: "file",
     label: t("filesFind"),
