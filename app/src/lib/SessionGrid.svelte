@@ -129,7 +129,7 @@
     display: none;
   }
 
-  .main :global(.view-header kbd) {
+  .main :global(.view-header .primary kbd) {
     border: 0;
     background: rgb(255 255 255 / 0.18);
     color: inherit;

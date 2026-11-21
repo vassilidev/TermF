@@ -109,7 +109,7 @@ export async function openLauncher() {
   await tick();
   const inline = document.querySelector<HTMLInputElement>(".empty .launcher input");
   if (inline) inline.focus();
-  else ui.launcher = !ui.launcher;
+  else if (app.sessions.some(shown)) ui.launcher = !ui.launcher;
 }
 
 function switchToProject(n: number) {

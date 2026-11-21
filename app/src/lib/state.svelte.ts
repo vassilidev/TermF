@@ -7,6 +7,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { t } from "$lib/i18n";
+import { projectsOf } from "$lib/nav-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
@@ -256,6 +257,10 @@ export async function openSession(path: string, agent: string | null) {
         remoteControl: launch.remoteControl,
       }),
     );
+    // A session opened outside the current project would get a hidden tile: show every project instead.
+    if (app.project !== null && !projectsOf(path, app.workspace?.projects ?? [], []).includes(app.project)) {
+      setProject(null);
+    }
   } catch (e) {
     app.error = String(e);
   }
