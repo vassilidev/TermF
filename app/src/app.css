@@ -11,6 +11,8 @@
   --term-bg: #0f1115;
   --running: #22a06b;
   --stopped: #9aa3af;
+  --waiting: #f5a524;
+  --waiting-text: #1b1f24;
   color-scheme: light dark;
 }
 
