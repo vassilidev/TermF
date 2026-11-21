@@ -1,6 +1,6 @@
 # TermF
 
-Poste de pilotage d'agents CLI (Claude Code…) sur plusieurs dépôts. La conception de référence est `docs/ARCHITECTURE.md` ; la feuille de route est au §17.
+Poste de pilotage d'agents CLI (Claude Code…) sur plusieurs dépôts. La conception de référence est `docs/ARCHITECTURE.md` ; la feuille de route est au §17. **L'état d'avancement, la méthode de travail et la suite sont dans `docs/STATUS.md` : le lire en premier pour reprendre.**
 
 ## Structure
 
