@@ -124,7 +124,7 @@
         <input
           class="field"
           type="search"
-          placeholder={t("settingsSearch")}
+          placeholder={t("navSearch")}
           aria-label={t("settingsSearch")}
           bind:value={query}
         />
@@ -167,7 +167,7 @@
           {:else if settings.section === "context"}
             <ContextReset />
           {:else if settings.section === "keys"}
-            <ShortcutEditor />
+            <ShortcutEditor filter={query} />
           {:else if settings.section === "ci"}
             <h2>{t("viewCi")}</h2>
             <label class="labelled">

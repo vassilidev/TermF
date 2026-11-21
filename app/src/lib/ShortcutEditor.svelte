@@ -30,6 +30,9 @@
   ];
   const DIGITS = "1…9";
 
+  /** The search of the Settings view. */
+  let { filter = "" }: { filter?: string } = $props();
+
   let query = $state("");
   let confirming = $state(false);
   let error = $state("");
@@ -48,16 +51,22 @@
       .replace(/\p{Diacritic}/gu, "")
       .toLowerCase();
 
-  const visible = $derived.by(() => {
-    const words = fold(query).split(/\s+/).filter(Boolean);
-    return actions.filter((a) => {
+  function matching(list: KeyAction[], search: string): KeyAction[] {
+    const words = fold(search).split(/\s+/).filter(Boolean);
+    return list.filter((a) => {
       const text = fold([t(a.label), a.help ? t(a.help) : "", shown(a, bound[a.id]), bound[a.id]].join(" "));
       return words.every((w) => text.includes(w));
     });
+  }
+
+  // The settings' search narrows the list when it names actions, not when it only named the section.
+  const visible = $derived.by(() => {
+    const outer = matching(actions, filter);
+    return matching(outer.length ? outer : actions, query);
   });
 
   function keysOf(a: KeyAction): string[] {
-    const c = parse(bound[a.id]);
+    const c = parse(clash?.id === a.id ? clash.combo : bound[a.id]);
     return c ? tokens(c, isMac, a.digits ? DIGITS : "") : [];
   }
 
@@ -79,11 +88,18 @@
     return a.scope === "global" && keymap.globalError ? t("settingsKeysGlobalError", { error: keymap.globalError }) : "";
   }
 
-  function record(a: KeyAction) {
+  // WebKit does not focus a clicked button: the focus is given here, and the keys are read on the window.
+  function record(a: KeyAction, button: HTMLElement) {
     clash = null;
     delete notes[a.id];
     keymap.recording = a.id;
+    button.focus();
   }
+
+  // Leaving the section must not leave every shortcut off.
+  $effect(() => () => {
+    keymap.recording = null;
+  });
 
   function stop() {
     if (keymap.recording) delete notes[keymap.recording];
@@ -95,8 +111,10 @@
     document.getElementById(`key-${id}`)?.focus();
   }
 
-  function capture(e: KeyboardEvent, a: KeyAction) {
-    if (keymap.recording !== a.id) return;
+  /** In the capture phase, before any field or terminal; the app's shortcuts are off meanwhile. */
+  function capture(e: KeyboardEvent) {
+    const a = keymap.recording ? action(keymap.recording) : null;
+    if (!a) return;
     e.preventDefault();
     e.stopPropagation();
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
@@ -154,6 +172,8 @@
   }
 </script>
 
+<svelte:window onkeydowncapture={capture} />
+
 <section class="keys" aria-labelledby="keys-title">
   <h2 id="keys-title">{t("shortcuts")}</h2>
   <p class="lead">{t("settingsKeysHelp")}</p>
@@ -204,8 +224,7 @@
               class="combo"
               class:rec={recording}
               aria-describedby="key-label-{a.id}"
-              onclick={() => (recording ? stop() : record(a))}
-              onkeydown={(e) => capture(e, a)}
+              onclick={(e) => (recording ? stop() : record(a, e.currentTarget))}
               onblur={() => recording && stop()}
             >
               {#if recording}
