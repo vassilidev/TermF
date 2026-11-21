@@ -752,7 +752,15 @@ Un agent parcourt Internet (documentation officielle d'Anthropic et de Claude Co
 
 ### 11.3 Gestion complète de Claude Code (obligatoire)
 
-TermF gère tout ce que Claude Code permet de configurer, de planifier ou de consulter, depuis l'app et la CLI, sans avoir à ouvrir une session ni à éditer des fichiers à la main : tâches planifiées (cron locaux, boucles, routines), réglages et permissions par portée, hooks, serveurs MCP, plugins et marketplaces, skills, agents, commandes, styles de sortie, mémoire (`CLAUDE.md`, mémoire automatique), sessions et transcripts, usage et coûts, Remote Control, comptes et mises à jour. L'inventaire détaillé (emplacements, commandes, ce qu'une app externe peut ou ne peut pas faire) et le découpage en tranches suivent.
+TermF gère tout ce que Claude Code permet de configurer, de planifier ou de consulter, depuis l'app et la CLI, sans avoir à ouvrir une session ni à éditer des fichiers à la main : tâches planifiées (cron locaux, boucles, routines), réglages et permissions par portée, hooks, serveurs MCP, plugins et marketplaces, skills, agents, commandes, styles de sortie, mémoire (`CLAUDE.md`, mémoire automatique), sessions et transcripts, usage et coûts, Remote Control, comptes et mises à jour. L'inventaire vérifié (emplacements, commandes, ce qu'une app externe peut ou ne peut pas faire) est dans [CLAUDE-CODE.md](CLAUDE-CODE.md).
+
+- **Tâches planifiées** : les cron de session de Claude Code ne sont pas pilotables de l'extérieur et meurent avec la session ; les routines cloud ne se gèrent qu'en partie hors du web. TermF a donc **son propre planificateur** : une tâche = prompt + projet/dépôt + planning cron + mode (headless `claude -p` ou session dans une tuile) + modèle, effort, mode de permission, budget. Elle tourne tant que l'app est ouverte, et aussi app fermée via le planificateur de l'OS (launchd, systemd, Planificateur de tâches) qui appelle `termf schedule run <id>`. Historique et résultats des exécutions en base (§14), notification à la fin. TermF liste aussi, en lecture, les tâches de Claude Desktop (`~/.claude/scheduled-tasks/`) et les routines cloud (lien vers le web pour ce qui n'est pas pilotable).
+- **Réglages, permissions, hooks, variables, modèle** : éditeur par portée (utilisateur, projet, local ; géré en lecture seule) avec validation par le schéma officiel, aperçu du diff, écriture atomique, et indication de la portée qui décide pour chaque clé.
+- **MCP et plugins** : à travers `claude mcp …` et `claude plugin …`, jamais en éditant `~/.claude.json` ni `installed_plugins.json`.
+- **Skills, agents, commandes, styles, règles natifs de Claude Code** et **mémoire** (`CLAUDE.md` par portée, mémoire automatique) : parcourir, éditer, activer ; passerelle avec la bibliothèque de TermF (import déjà fait, export vers les dossiers de Claude).
+- **Sessions** : lister par projet, reprendre, dupliquer (`--fork-session`), renommer, purger (`claude purge`) ; sessions de fond via `claude agents --json`.
+- **Usage, coûts et limites** : jauge de contexte et quotas 5 h / 7 j lus dans le JSON de la statusline des sessions lancées par TermF ; coût des runs headless.
+- **Compte et version** : `claude auth status|login|logout`, version, canal, `claude update`, `claude doctor`.
 
 ---
 
