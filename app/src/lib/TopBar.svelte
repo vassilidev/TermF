@@ -8,9 +8,9 @@
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { files, isMac, showFiles } from "$lib/files.svelte";
-  import { app, ui } from "$lib/state.svelte";
+  import { app, ui, waitingSessions } from "$lib/state.svelte";
 
-  const waiting = $derived(app.sessions.filter((s) => s.status === "waiting").length);
+  const waiting = $derived(waitingSessions().length);
 </script>
 
 <header class="topbar">

@@ -10,6 +10,7 @@ import Play from "@lucide/svelte/icons/play";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
+import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
 import { files, isMac, showFiles } from "$lib/files.svelte";
 import {
@@ -22,6 +23,7 @@ import {
   setKeepAwake,
   shortPath,
   ui,
+  waitingSessions,
   type KeepAwakeMode,
 } from "$lib/state.svelte";
 
@@ -47,13 +49,14 @@ export async function focusSession(id: number) {
   files.view = "terminals";
   if (app.focused !== null) app.focused = id;
   await tick();
+  await fontReady;
   document
     .querySelector<HTMLElement>(`[data-session="${id}"] .xterm-helper-textarea`)
     ?.focus();
 }
 
 export function nextWaiting() {
-  const waiting = app.sessions.filter((s) => s.status === "waiting");
+  const waiting = waitingSessions();
   if (!waiting.length) return;
   const from = app.sessions.findIndex((s) => s.id === activeSession());
   const next = waiting.find((s) => app.sessions.indexOf(s) > from) ?? waiting[0];
@@ -110,7 +113,7 @@ const statusLabel = {
 export function commands(): Command[] {
   const list: Command[] = [];
   const agents = app.workspace?.agents ?? [];
-  const waiting = app.sessions.filter((s) => s.status === "waiting").length;
+  const waiting = waitingSessions().length;
   if (waiting) {
     list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, run: nextWaiting });
   }
@@ -118,7 +121,7 @@ export function commands(): Command[] {
     list.push({
       id: `session-${s.id}`,
       label: s.title,
-      hint: s.status ? t(statusLabel[s.status]) : undefined,
+      hint: !s.running ? t("exitedLabel") : s.status ? t(statusLabel[s.status]) : undefined,
       keys: i < 9 ? keys.tile(i + 1) : undefined,
       icon: ArrowRight,
       run: () => focusSession(s.id),

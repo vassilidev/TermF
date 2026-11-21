@@ -71,11 +71,10 @@ export async function load() {
 
 /** Loads the workspace and re-attaches to sessions that outlived a webview reload. Returns a cleanup. */
 export function init(): () => void {
-  load();
+  load().then(() => callLayouts("layouts"));
   invoke<Session[]>("pty_list").then((list) => {
     app.sessions = list;
   });
-  callLayouts("layouts");
   invoke<KeepAwakeState>("keep_awake_state").then((s) => {
     app.keepAwake = s;
   });
@@ -101,6 +100,11 @@ export function init(): () => void {
     unlistenOpened.then((stop) => stop());
     unlistenKeepAwake.then((stop) => stop());
   };
+}
+
+/** Sessions waiting for the user; an exited session never is, whatever its last status. */
+export function waitingSessions(): Session[] {
+  return app.sessions.filter((s) => s.running && s.status === "waiting");
 }
 
 export function repoName(path: string): string {

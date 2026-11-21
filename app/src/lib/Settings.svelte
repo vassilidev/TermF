@@ -47,7 +47,8 @@
     role="dialog"
     aria-label={t("settings")}
     bind:this={panel}
-    {@attach (el) => el.querySelector<HTMLElement>("input:checked, input, button")?.focus()}
+    {@attach (el) =>
+      (el.querySelector<HTMLElement>("input:checked") ?? el.querySelector<HTMLElement>("input, button"))?.focus()}
   >
     <h2>{t("settings")}</h2>
     <KeepAwake />

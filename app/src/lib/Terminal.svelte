@@ -1,7 +1,10 @@
 <script module lang="ts">
   const fontFamily = '"JetBrains Mono Variable", Menlo, Consolas, monospace';
-  // xterm measures its cells when it opens: the bundled font must be there by then.
-  const fontReady = document.fonts.load(`13px ${fontFamily}`).catch(() => {});
+  /** xterm measures its cells when it opens, so terminals open (and can take the focus) once the font is there. */
+  export const fontReady = document.fonts.load(`13px ${fontFamily}`).then(
+    () => {},
+    () => {},
+  );
 
   /** Dark in both app themes: agent TUIs pick their colours for a dark terminal. */
   const theme = {

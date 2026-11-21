@@ -182,7 +182,7 @@
               checked={agent === choice}
               onchange={() => (launch.agent = choice)}
             />
-            <span>{choice ?? "shell"}</span>
+            <span>{choice ?? t("shell")}</span>
           </label>
         {/each}
       </div>
