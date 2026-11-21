@@ -14,6 +14,8 @@ pub struct QuickTerminal {
     pub session: Mutex<Option<u32>>,
     /// Why the global shortcut could not be registered.
     pub error: Mutex<Option<String>>,
+    /// The system-wide shortcut actually registered; empty: none.
+    pub shortcut: Mutex<String>,
 }
 
 pub fn plugin() -> TauriPlugin<Wry> {
@@ -26,33 +28,42 @@ pub fn plugin() -> TauriPlugin<Wry> {
 /// in the UI rather than stopping the app.
 pub fn register(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let accelerator = termf_core::load_settings(&state.config_dir)
+    let wanted = termf_core::load_settings(&state.config_dir)
         .map(|s| s.global_shortcut())
         .unwrap_or_default();
-    if accelerator.is_empty() {
+    follow(app, &wanted);
+}
+
+/// Registers `wanted` unless it already is (after a sync pull, say); a refusal is kept for the UI.
+pub fn follow(app: &AppHandle, wanted: &str) {
+    let quick = &app.state::<AppState>().quick_terminal;
+    if *quick.shortcut.lock().unwrap() == wanted {
         return;
     }
-    if let Err(e) = app.global_shortcut().register(accelerator.as_str()) {
-        *state.quick_terminal.error.lock().unwrap() = Some(format!("{accelerator}: {e}"));
+    if let Err(e) = replace(app, wanted) {
+        *quick.error.lock().unwrap() = Some(format!("{e:#}"));
     }
 }
 
-/// Swaps the system-wide shortcut (empty: none). When the new one cannot be registered, the old one stays.
-pub fn replace(app: &AppHandle, old: &str, new: &str) -> anyhow::Result<()> {
+/// Swaps the registered system-wide shortcut for `new` (empty: none) and returns the one it replaced. When the
+/// system refuses `new`, the previous one stays registered.
+pub fn replace(app: &AppHandle, new: &str) -> anyhow::Result<String> {
+    let quick = &app.state::<AppState>().quick_terminal;
+    let mut current = quick.shortcut.lock().unwrap();
     let shortcuts = app.global_shortcut();
-    if !old.is_empty() {
-        let _ = shortcuts.unregister(old);
+    if !current.is_empty() {
+        let _ = shortcuts.unregister(current.as_str());
     }
     if !new.is_empty()
         && let Err(e) = shortcuts.register(new)
     {
-        if !old.is_empty() {
-            let _ = shortcuts.register(old);
+        if !current.is_empty() {
+            let _ = shortcuts.register(current.as_str());
         }
         anyhow::bail!("{new}: {e}");
     }
-    *app.state::<AppState>().quick_terminal.error.lock().unwrap() = None;
-    Ok(())
+    *quick.error.lock().unwrap() = None;
+    Ok(std::mem::replace(&mut current, new.to_owned()))
 }
 
 fn on_shortcut(app: &AppHandle, _: &Shortcut, event: ShortcutEvent) {

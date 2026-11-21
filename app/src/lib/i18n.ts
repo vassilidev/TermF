@@ -1352,6 +1352,7 @@ const fr = {
   settingsKeysReservedEdit: "{keys} sert à copier, coller, couper, tout sélectionner ou annuler.",
   settingsKeysReservedTerminal: "{keys} reste au terminal : interrompre, fin de saisie, suspendre ou effacer l'écran.",
   settingsKeysReservedAltGr: "Ctrl+Alt tape des caractères (AltGr) sur beaucoup de claviers.",
+  settingsKeysEsc: "Échap",
 };
 
 type Key = keyof typeof fr;
@@ -2696,6 +2697,7 @@ const en: Record<Key, string> = {
   settingsKeysReservedEdit: "{keys} copies, pastes, cuts, selects all or undoes.",
   settingsKeysReservedTerminal: "{keys} stays with the terminal: interrupt, end of input, suspend or clear the screen.",
   settingsKeysReservedAltGr: "Ctrl+Alt types characters (AltGr) on many keyboards.",
+  settingsKeysEsc: "Esc",
 };
 
 const messages = { fr, en };

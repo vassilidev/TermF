@@ -6,7 +6,6 @@
   import Banner from "$lib/ui/Banner.svelte";
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
-  import { loadKeys } from "$lib/keymap.svelte";
   import { showSettings } from "$lib/settings.svelte";
   import { app, init, ui } from "$lib/state.svelte";
   import { watchCi } from "$lib/ci.svelte";
@@ -17,7 +16,6 @@
   onMount(() => {
     document.documentElement.lang = lang;
     const stop = init();
-    loadKeys();
     const stopCi = watchCi();
     const stopSchedule = watchSchedule();
     const stopTickets = watchTickets();

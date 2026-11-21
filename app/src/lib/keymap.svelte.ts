@@ -13,11 +13,21 @@ export const keymap = $state({
   recording: null as string | null,
   /** Why the system-wide shortcut is not registered. */
   globalError: null as string | null,
+  /** What each key place types, where the webview says (not WebKit): a system-wide shortcut is a place. */
+  layout: null as Record<string, string> | null,
 });
 
 type Keys = { keys: Record<string, string>; error: string | null };
+type Keyboard = { getLayoutMap(): Promise<Map<string, string>> };
+
+/** The letter a key place types on this keyboard, for a system-wide shortcut. */
+export const placeLabel = (key: string) => keymap.layout?.[`Key${key}`]?.toUpperCase() ?? key;
 
 export async function loadKeys() {
+  const keyboard = (navigator as Navigator & { keyboard?: Keyboard }).keyboard;
+  if (!keymap.layout && keyboard?.getLayoutMap) {
+    keyboard.getLayoutMap().then((map) => (keymap.layout = Object.fromEntries(map)), () => {});
+  }
   try {
     const loaded = await invoke<Keys>("keys");
     keymap.overrides = loaded.keys;

@@ -7,6 +7,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { t } from "$lib/i18n";
+import { loadKeys } from "$lib/keymap.svelte";
 import { projectsOf } from "$lib/nav-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
@@ -117,7 +118,9 @@ export const selected = new SvelteSet<string>();
 /** Ids of the sessions ticked for broadcast. */
 export const ticked = new SvelteSet<number>();
 
+/** Reads the workspace, and the shortcuts, which a reload, an import or a sync may have changed in termf.toml. */
 export async function load() {
+  loadKeys();
   try {
     app.workspace = await invoke<Workspace>("workspace");
     app.error = "";
@@ -146,6 +149,7 @@ export function init(): () => void {
       app.error = String(e);
     });
   const unlistenSync = listen<SyncStatus>("sync-status", ({ payload }) => {
+    if (payload.lastSync !== app.sync?.lastSync) loadKeys();
     app.sync = payload;
   });
   const unlisten = listen<{ id: number; exitCode: number | null }>("pty-exit", ({ payload }) => {

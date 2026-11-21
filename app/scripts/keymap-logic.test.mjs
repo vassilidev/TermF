@@ -73,6 +73,13 @@ test("a key press becomes a combination: letters as typed, digits and symbols by
   assert.equal(format(pressedCombo(key("`", "Backquote", { ctrlKey: true }))), "Ctrl+`");
   assert.equal(format(pressedCombo(key("F5", "F5"))), "F5");
   assert.equal(pressedCombo(key("Meta", "MetaLeft", { metaKey: true })), null);
+  // A system-wide shortcut is registered by place: AZERTY's A is QWERTY's Q.
+  assert.equal(format(pressedCombo(key("a", "KeyQ", { ctrlKey: true, altKey: true }), true)), "Ctrl+Alt+Q");
+});
+
+test("CmdOrCtrl written by hand is ⌘ on macOS, Ctrl elsewhere", () => {
+  assert.equal(bindings({ palette: "CmdOrCtrl+Shift+P" }, true).palette, "Cmd+Shift+P");
+  assert.equal(bindings({ palette: "commandorcontrol+Shift+P" }, false).palette, "Ctrl+Shift+P");
 });
 
 test("shortcuts on macOS", () => {
@@ -130,6 +137,10 @@ test("shortcuts on Linux and Windows", () => {
   assert.equal(press(key("2", "Digit2", { altKey: true }), true), null);
   assert.deepEqual(press(key("@", "Digit2", { altKey: true, shiftKey: true }), true), { id: "project", n: 2 });
   assert.deepEqual(press(key("l", "KeyL", { ctrlKey: true, shiftKey: true }), true), { id: "launch_ticket" });
+  // No terminal in Files: Shift is not taken there.
+  const files = { mac: false, inTerminal: false, view: "files", limits: nine };
+  assert.deepEqual(match(key("p", "KeyP", { ctrlKey: true }), other, files), { id: "find_file" });
+  assert.equal(match(key("P", "KeyP", { ctrlKey: true, shiftKey: true }), other, files), null);
   // The rule follows the combination, not the action: a palette moved to Ctrl+Y needs Shift in a terminal too.
   const moved = bindings(setBinding({}, "palette", "Ctrl+Y", false), false);
   const ctx = { mac: false, inTerminal: true, view: "terminals" };
@@ -167,6 +178,8 @@ test("conflicts: same combination where both actions work", () => {
   // Elsewhere, Ctrl+K also takes Ctrl+Shift+K (the terminal's way to reach it).
   assert.equal(conflict("launch_ticket", "Ctrl+Shift+K", other, false), "palette");
   assert.equal(conflict("launch_ticket", "Ctrl+Shift+K", mac, true), null);
+  // …but Files has no terminal: its Ctrl+P does not take Ctrl+Shift+P.
+  assert.equal(conflict("search_project", "Ctrl+Shift+P", other, false), null);
   // A removed shortcut clashes with nothing.
   assert.equal(conflict("maximize", "", mac, true), null);
   const removed = bindings(setBinding({}, "palette", "", true), true);

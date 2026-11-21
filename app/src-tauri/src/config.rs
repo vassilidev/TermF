@@ -48,9 +48,11 @@ pub struct Keys {
     error: Option<String>,
 }
 
+/// Also follows a system-wide shortcut that changed in termf.toml behind the app's back (sync, reload).
 #[tauri::command]
-pub fn keys(state: State<AppState>) -> CmdResult<Keys> {
+pub fn keys(app: AppHandle, state: State<AppState>) -> CmdResult<Keys> {
     let settings = termf_core::load_settings(&state.config_dir).map_err(err)?;
+    quick_terminal::follow(&app, &settings.global_shortcut());
     Ok(Keys {
         keys: settings.key_overrides(),
         error: state.quick_terminal.error.lock().unwrap().clone(),
@@ -65,18 +67,21 @@ pub fn keys_set(
     state: State<AppState>,
     keys: BTreeMap<String, String>,
 ) -> CmdResult<Keys> {
-    let before = termf_core::load_settings(&state.config_dir)
+    let saved = termf_core::load_settings(&state.config_dir)
         .map_err(err)?
         .global_shortcut();
     let after = keys.get(QUICK_TERMINAL_GLOBAL).map_or("", |s| s.trim());
-    if before != after {
-        quick_terminal::replace(&app, &before, after).map_err(err)?;
-    }
+    // Only when it changed: a shortcut the system already refused must not block saving the others.
+    let previous = if saved != after {
+        Some(quick_terminal::replace(&app, after).map_err(err)?)
+    } else {
+        None
+    };
     if let Err(e) = termf_core::save_keys(&state.config_dir, &keys) {
-        if before != after {
-            let _ = quick_terminal::replace(&app, after, &before);
+        if let Some(previous) = previous {
+            let _ = quick_terminal::replace(&app, &previous);
         }
         return Err(err(e));
     }
-    self::keys(state)
+    self::keys(app, state)
 }

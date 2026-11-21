@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ago, t } from "$lib/i18n";
+import { loadKeys } from "$lib/keymap.svelte";
 import { showSettings } from "$lib/settings.svelte";
 import { app } from "$lib/state.svelte";
 
@@ -77,6 +78,7 @@ export async function syncNow(publish = true) {
 }
 
 export function keepReport(report: Report) {
+  if (report.pulled.length) loadKeys();
   sync.report = { ...report, at: app.sync?.lastSync ?? null, error: app.sync?.lastError ?? null };
 }
 

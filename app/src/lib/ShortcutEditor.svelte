@@ -18,9 +18,10 @@
     shellKeys,
     tokens,
     type KeyAction,
+    type Combo,
     type KeyGroup,
   } from "$lib/keymap-logic";
-  import { current, keymap, saveKeys } from "$lib/keymap.svelte";
+  import { current, keymap, placeLabel, saveKeys } from "$lib/keymap.svelte";
 
   const groups: [KeyGroup, Parameters<typeof t>[0]][] = [
     ["general", "settingsKeysGeneral"],
@@ -44,7 +45,9 @@
   const bound = $derived(current());
   const fallback = (a: KeyAction) => (isMac ? a.defaults.mac : a.defaults.other);
   const changed = (a: KeyAction) => a.id in keymap.overrides && keymap.overrides[a.id] !== fallback(a);
-  const shown = (a: KeyAction, combo: string) => display(parse(combo), isMac, a.digits ? DIGITS : "");
+  // A system-wide shortcut is a key place, named after what it types on this keyboard when the webview says.
+  const named = (a: KeyAction, c: Combo | null) => (c && a.scope === "global" ? { ...c, key: placeLabel(c.key) } : c);
+  const shown = (a: KeyAction, combo: string) => display(named(a, parse(combo)), isMac, a.digits ? DIGITS : "");
   const fold = (s: string) =>
     s
       .normalize("NFD")
@@ -66,7 +69,7 @@
   });
 
   function keysOf(a: KeyAction): string[] {
-    const c = parse(clash?.id === a.id ? clash.combo : bound[a.id]);
+    const c = named(a, parse(clash?.id === a.id ? clash.combo : bound[a.id]));
     return c ? tokens(c, isMac, a.digits ? DIGITS : "") : [];
   }
 
@@ -120,12 +123,12 @@
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
     if (plain && e.key === "Escape") return stop();
     if (plain && e.key === "Backspace") return (stop(), choose(a, ""));
-    const c = pressedCombo(e);
+    const c = pressedCombo(e, a.scope === "global");
     if (!c) return;
     const why = refusal(a, c, isMac);
     if (why) {
       // Still recording: the next press may do.
-      notes[a.id] = t(why, { keys: display(c, isMac), mods: isMac ? "⌘ / ⌃ / ⌥" : "Ctrl / Alt" });
+      notes[a.id] = t(why, { keys: display(named(a, c), isMac), mods: isMac ? "⌘ / ⌃ / ⌥" : "Ctrl / Alt" });
       return;
     }
     stop();
@@ -240,7 +243,7 @@
               {#if recording}
                 <!-- Keeps the focus on the combination, whose blur would also cancel. -->
                 <button class="btn sm quiet" onpointerdown={(e) => e.preventDefault()} onclick={stop}>
-                  {t("cancel")}<kbd>esc</kbd>
+                  {t("cancel")}<kbd>{t("settingsKeysEsc")}</kbd>
                 </button>
               {:else if changed(a)}
                 {@const label = t("settingsKeysRevert", {

@@ -173,10 +173,13 @@ export function format(c: Combo): string {
   return [...mods, ...(c.key ? [c.key] : [])].join("+");
 }
 
-/** The key of a press: letters as the layout types them (AZERTY's A is A), digits and symbols by their place. */
-export function keyOf(e: { key: string; code: string }): string {
+/**
+ * The key of a press: letters as the layout types them (AZERTY's A is A), digits and symbols by their place.
+ * `physical`: letters by their place too, as the system registers a system-wide shortcut.
+ */
+export function keyOf(e: { key: string; code: string }, physical = false): string {
   if (/^Digit[0-9]$/.test(e.code)) return e.code.slice(5);
-  if (/^[a-z]$/i.test(e.key)) return e.key.toUpperCase();
+  if (!physical && /^[a-z]$/i.test(e.key)) return e.key.toUpperCase();
   if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3);
   if (isFn(e.code)) return e.code;
   return CODES[e.code] ?? "";
@@ -185,8 +188,8 @@ export function keyOf(e: { key: string; code: string }): string {
 type Press = { key: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean };
 
 /** The combination pressed; null for a modifier alone. */
-export function pressedCombo(e: Press): Combo | null {
-  const key = keyOf(e);
+export function pressedCombo(e: Press, physical = false): Combo | null {
+  const key = keyOf(e, physical);
   return key ? { ctrl: e.ctrlKey, alt: e.altKey, cmd: e.metaKey, shift: e.shiftKey, key } : null;
 }
 
@@ -216,7 +219,11 @@ export function aria(c: Combo | null, digit = ""): string | undefined {
 
 /** The combination of each action: its default for this system unless `overrides` changes it. */
 export function bindings(overrides: Record<string, string>, mac: boolean): Record<string, string> {
-  return Object.fromEntries(actions.map((a) => [a.id, overrides[a.id] ?? (mac ? a.defaults.mac : a.defaults.other)]));
+  // Written by hand, as the system-wide shortcut also takes it.
+  const main = (combo: string) => combo.replace(/\b(?:cmd|command)or(?:ctrl|control)\b/gi, mac ? "Cmd" : "Ctrl");
+  return Object.fromEntries(
+    actions.map((a) => [a.id, a.id in overrides ? main(overrides[a.id]) : mac ? a.defaults.mac : a.defaults.other]),
+  );
 }
 
 /** `overrides` with `id` set to `combo`; only what differs from the default is kept. Unknown ids stay as they are. */
@@ -237,6 +244,9 @@ export function shellKeys(c: Combo, mac: boolean): boolean {
   return !mac && !c.shift && !c.cmd && (c.ctrl || c.alt) && (isLetter(c.key) || (c.alt && isDigit(c.key)));
 }
 
+/** Only the actions a terminal can have the focus for take Shift as well. */
+const reachable = (a: KeyAction) => a.scope === "app" || a.scope === "terminals";
+
 /** The full combinations an action takes, so two actions can be compared. */
 function claims(a: KeyAction, combo: string, mac: boolean): string[] {
   const c = parse(combo);
@@ -244,7 +254,7 @@ function claims(a: KeyAction, combo: string, mac: boolean): string[] {
   const keys = a.digits ? ["1", "2", "3", "4", "5", "6", "7", "8", "9"] : [c.key];
   return keys.flatMap((key) => {
     const one = { ...c, key };
-    return shellKeys(one, mac) ? [format(one), format({ ...one, shift: true })] : [format(one)];
+    return reachable(a) && shellKeys(one, mac) ? [format(one), format({ ...one, shift: true })] : [format(one)];
   });
 }
 
@@ -309,7 +319,7 @@ export function match(e: Press, current: Record<string, string>, ctx: Context): 
     if (a.digits ? !/^[1-9]$/.test(got.key) : want.key !== got.key) continue;
     want.key = got.key;
     if (got.ctrl !== want.ctrl || got.alt !== want.alt || got.cmd !== want.cmd) continue;
-    const shell = shellKeys(want, ctx.mac);
+    const shell = reachable(a) && shellKeys(want, ctx.mac);
     if (shell ? ctx.inTerminal && !got.shift : got.shift !== want.shift) continue;
     const n = a.digits ? Number(got.key) : undefined;
     if (n !== undefined && n > (ctx.limits?.[a.id] ?? 9)) continue;

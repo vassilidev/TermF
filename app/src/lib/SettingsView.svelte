@@ -151,9 +151,13 @@
     </nav>
 
     <div class="content">
-      {#if error}
+      {#if error || (settings.section === "config" && settings.error)}
+        <!-- Above the import preview too, whose own errors land here. -->
         <div class="banners">
-          <Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>
+          {#if error}<Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>{/if}
+          {#if settings.section === "config" && settings.error}
+            <Banner kind="error" ondismiss={() => (settings.error = "")}>{settings.error}</Banner>
+          {/if}
         </div>
       {/if}
       {#if settings.section === "sync"}
@@ -195,9 +199,6 @@
             </label>
           {:else if settings.section === "config"}
             <h2>{t("settingsConfig")}</h2>
-            {#if settings.error}
-              <p class="notice error" role="alert">{settings.error}</p>
-            {/if}
             {#if app.workspace}
               <h3>{t("configFolder")}</h3>
               <code title={app.workspace.configDir}>{app.workspace.configDir}</code>
@@ -388,9 +389,5 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-  }
-
-  .notice {
-    margin-bottom: 12px;
   }
 </style>
