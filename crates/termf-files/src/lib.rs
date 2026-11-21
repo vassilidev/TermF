@@ -112,6 +112,11 @@ impl Files {
         self.index.lock().unwrap().clear();
     }
 
+    /// The known repositories, canonicalized.
+    pub fn roots(&self) -> Vec<PathBuf> {
+        self.roots.read().unwrap().clone()
+    }
+
     fn root(&self, repo: &str) -> Result<PathBuf> {
         let root = Path::new(repo)
             .canonicalize()

@@ -356,7 +356,7 @@ fn library(state: &AppState, cwd: &Path, dir: &Path) -> Option<PathBuf> {
 }
 
 /// The CLI ships next to the app executable: bundled as a sidecar, or in `target/<profile>/` during development.
-fn termf_binary() -> Option<PathBuf> {
+pub fn termf_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let path = exe.with_file_name(format!("termf{}", std::env::consts::EXE_SUFFIX));
     path.is_file().then_some(path)

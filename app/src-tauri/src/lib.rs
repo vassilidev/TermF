@@ -4,6 +4,7 @@ mod files;
 mod keep_awake;
 mod library;
 mod quick_terminal;
+mod ssh;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -233,6 +234,18 @@ pub fn run() {
             library::config_export,
             library::config_import_preview,
             library::config_import_apply,
+            ssh::ssh_inventory,
+            ssh::ssh_generate,
+            ssh::ssh_agent_add,
+            ssh::ssh_agent_remove,
+            ssh::ssh_github_upload,
+            ssh::ssh_host_preview,
+            ssh::ssh_host_save,
+            ssh::ssh_assign,
+            ssh::ssh_test,
+            ssh::ssh_fix_permissions,
+            ssh::ssh_rotate,
+            ssh::ssh_trash,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
