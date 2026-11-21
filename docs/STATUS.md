@@ -18,6 +18,7 @@
 | 1c | Remise à zéro automatique du contexte avec reprise (§6.5) : jauge via le JSON de la statusline (`termf statusline` injecté par `--settings`, statusline de l'utilisateur enchaînée), séquence passation (hook `Stop` + `additionalContext`) → `/clear` → reprise (`SessionStart(clear)` réinjecte la passation), garde-fous (brouillon, approbation, tâches de fond, délais), réglages et bouton — vérifiée avec un vrai Claude Code 2.1.330 via un harnais PTY (PR #13) | `crates/termf-core/src/context.rs`, `app/src/lib/ContextReset.svelte` |
 | 3b | Interface des tickets : vue Tickets (portée projet), inbox, « Lancer » → tuile de l'agent, coller une URL/clé, runs et journal, livraison en deux temps, fermeture avec refus expliqué, `⌘⇧L` (PR #14) | `app/src/lib/{TicketsView,TicketRun,tickets.svelte}.*` |
 | 3c | Sources de tickets : Jira Cloud (REST v3 via `curl`, jeton au trousseau), GitHub Projects v2 (`gh api graphql`), source MCP (`claude -p` en lecture seule, Haiku, cache), plusieurs sources par projet (inbox partielle si une source échoue, issues GitHub implicites sans `[trackers]`), section Tickets de l'éditeur de projet, `open_url`, erreur de fermeture structurée (PR #15) | `crates/termf-tickets/src/{jira,mcp,sources}.rs`, `app/src/lib/TicketSources.svelte` |
+| 3d | Worktrees intelligents (§9) : crate `termf-worktree` (détection de stack, recette + skill + agent + `/worktree-setup` dans la bibliothèque du projet, dépendances CoW/cache jamais copiées brutes, fichiers `.env*` repointés, base clonée par worktree Postgres/MySQL/SQLite et supprimée à la fermeture, base distante refusée, ports et Compose par run, agent de préparation en bac à sable), onglet Worktrees de la Bibliothèque, `termf worktree setup|teardown` (PR #17) | `crates/termf-worktree`, `app/src/lib/WorktreeSetup.svelte` |
 | Distribution | CI 3 OS sur chaque push/PR ; workflow `release.yml` (tag `v*` ou lancement manuel) → installeurs macOS arm64/x64, Windows, Linux, CLI embarquée, release en **brouillon** | `.github/workflows/` |
 
 La release brouillon `v0.1.0` a été construite **avant** la passe design : la supprimer (`gh release delete v0.1.0`) puis relancer `gh workflow run release.yml` sur `main` avant de la publier (pré-version).
@@ -26,7 +27,6 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 
 Une branche par tranche, un agent par branche (worktree `.claude/worktrees/agent-*`). Si un agent est interrompu (redémarrage), reprendre depuis l'état du worktree et de la PR. Règles communes des agents et outillage de captures : `.claude/reviews/tools/brief-common.md` et `.claude/reviews/tools/capture/` (durables ; le scratchpad de session est vidé au redémarrage).
 
-- `phase3/smart-worktrees` — **PR #17** : crate `termf-worktree` (détection, recette dans la bibliothèque du projet, CoW/cache, `.env`, base clonée, ports, Compose), onglet Worktrees de la Bibliothèque ; revue en cours.
 - `phase2/library-scout` — agent de veille (§11.2).
 - `phase11/claude-overview` — vue « Claude » : toute la config Claude de la machine, copie/export, artifacts (§11.3).
 - `phase3/ci` — CI/CD native (§13.8).
