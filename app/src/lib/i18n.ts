@@ -722,6 +722,14 @@ const fr = {
   ticketsTesting: "Test en cours…",
   ticketsTestOk: "Ça marche. Premiers tickets :",
   ticketsTestEmpty: "Ça marche, mais aucun ticket pour l'instant.",
+  ticketsImplicit: "Branché par défaut, comme avant les sources : le projet n'en a encore choisi aucune.",
+  ticketsGithubRepos: "Dépôts lus : {repos}",
+  ticketsGithubNoRepo: "Aucun dépôt GitHub dans le projet : indique le dépôt des issues.",
+  ticketsIssuesRepoPlaceholder: "owner/dépôt",
+  ticketsJiraSitePlaceholder: "acme.atlassian.net",
+  ticketsJiraKeyPlaceholder: "ACME",
+  ticketsSourceFailed: "{source} n'a pas pu être lu : {error}",
+  ticketsMcpSource: "MCP {name}",
 };
 
 type Key = keyof typeof fr;
@@ -1441,6 +1449,14 @@ const en: Record<Key, string> = {
   ticketsTesting: "Testing…",
   ticketsTestOk: "It works. First tickets:",
   ticketsTestEmpty: "It works, but no ticket right now.",
+  ticketsImplicit: "Connected by default, as before sources existed: the project has not chosen any yet.",
+  ticketsGithubRepos: "Repositories read: {repos}",
+  ticketsGithubNoRepo: "No GitHub repository in the project: name the issues repository.",
+  ticketsIssuesRepoPlaceholder: "owner/repo",
+  ticketsJiraSitePlaceholder: "acme.atlassian.net",
+  ticketsJiraKeyPlaceholder: "ACME",
+  ticketsSourceFailed: "Could not read {source}: {error}",
+  ticketsMcpSource: "MCP {name}",
 };
 
 const messages = { fr, en };

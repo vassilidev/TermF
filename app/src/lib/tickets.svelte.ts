@@ -10,6 +10,9 @@ export type TicketSummary = TicketRef & {
   updated: string;
   project: string | null;
 };
+/** `source`: `github`, `githubProject`, `jira` or `mcp:<name>`. */
+export type SourceError = { source: string; message: string };
+export type Inbox = { tickets: TicketSummary[]; errors: SourceError[] };
 export type Resolution = {
   ticket: TicketRef;
   project: string;
@@ -58,6 +61,8 @@ export const tickets = $state({
   /** null while the first load of the scope runs. */
   inbox: null as TicketSummary[] | null,
   inboxError: "",
+  /** The sources that could not be read; the others' tickets are in `inbox`. */
+  inboxErrors: [] as SourceError[],
   loading: false,
   runs: [] as Run[],
   /** The run shown in the detail pane, by id. */
@@ -93,8 +98,11 @@ export async function loadInbox() {
   tickets.inboxError = "";
   tickets.loading = true;
   try {
-    const list = await invoke<TicketSummary[]>("tickets_inbox", { project: tickets.scope || null });
-    if (request === inboxRequest) tickets.inbox = list;
+    const inbox = await invoke<Inbox>("tickets_inbox", { project: tickets.scope || null });
+    if (request === inboxRequest) {
+      tickets.inbox = inbox.tickets;
+      tickets.inboxErrors = inbox.errors;
+    }
   } catch (e) {
     if (request === inboxRequest) tickets.inboxError = String(e);
   } finally {

@@ -38,6 +38,13 @@
   const project = $derived(projects.find((p) => p.id === tickets.scope));
   const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
   const providers: Record<string, Parameters<typeof t>[0]> = { github: "providerGithub" };
+  const sourceNames: Record<string, Parameters<typeof t>[0]> = {
+    github: "ticketsGithubIssues",
+    githubProject: "ticketsGithubProject",
+    jira: "ticketsJira",
+  };
+  const sourceName = (id: string) =>
+    id in sourceNames ? t(sourceNames[id]) : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
   const runs = $derived(tickets.scope ? tickets.runs.filter((r) => r.project === tickets.scope) : tickets.runs);
   const current = $derived(runs.find((r) => r.id === tickets.selected) ?? runs[0]);
 
@@ -242,6 +249,18 @@
 
   {#if tickets.tab === "inbox"}
     <div class="pane">
+      {#if tickets.inbox && tickets.inboxErrors.length}
+        <div class="source-errors">
+          {#each tickets.inboxErrors as failed (failed.source)}
+            <p class="notice error" role="alert">
+              <CircleAlert size={14} aria-hidden="true" />{t("ticketsSourceFailed", {
+                source: sourceName(failed.source),
+                error: failed.message,
+              })}
+            </p>
+          {/each}
+        </div>
+      {/if}
       {#if tickets.inboxError}
         <div class="empty">
           <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{t("ticketsError", { error: tickets.inboxError })}</p>
@@ -457,6 +476,14 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+  }
+
+  .source-errors {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 1100px;
+    padding: 12px 12px 0;
   }
 
   .loading {

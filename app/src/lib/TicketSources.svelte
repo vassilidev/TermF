@@ -28,8 +28,16 @@
     github: GithubTracker | null;
     jira: JiraTracker | null;
     mcp: Record<string, McpTracker>;
+    /** No `[trackers]` in the project: GitHub Issues on its repositories, as before sources existed. */
+    implicit: boolean;
   };
-  type Sources = { trackers: Trackers; jiraToken: boolean; mcpTools: Record<string, string[]> };
+  type Sources = {
+    trackers: Trackers;
+    jiraToken: boolean;
+    githubRepos: string[];
+    mcpTools: Record<string, string[]>;
+  };
+  type Account = { site: string; email: string };
   type McpServer = { name: string; status: string; tools: string[] };
   type TicketSummary = { key: string; url: string; title: string; state: string };
   type Test = { busy: boolean; error?: string; tickets?: TicketSummary[] };
@@ -39,7 +47,12 @@
   let { project }: { project: string } = $props();
 
   let trackers = $state<Trackers | null>(null);
+  /** The sources as saved, so an unchanged form writes nothing (an MCP source keeps its last answer). */
+  let saved = "";
+  /** The Jira account `jiraToken` tells about, and the one the Forget button removes. */
+  let tokenAccount = $state<Account | null>(null);
   let jiraToken = $state(false);
+  let githubRepos = $state<string[]>([]);
   let mcpTools = $state<Record<string, string[]>>({});
   let error = $state("");
   let tests = $state<Record<string, Test>>({});
@@ -51,17 +64,41 @@
 
   function load(sources: Sources) {
     trackers = sources.trackers;
+    saved = JSON.stringify(sources.trackers);
+    const jira = sources.trackers.jira;
+    tokenAccount = jira && { site: jira.site, email: jira.email };
     jiraToken = sources.jiraToken;
+    githubRepos = sources.githubRepos;
     mcpTools = sources.mcpTools;
   }
 
   // Mounted per project editor, like the form around it.
   // svelte-ignore state_referenced_locally
-  invoke<Sources>("tickets_sources", { project }).then(load, (e) => (error = String(e)));
+  invoke<Sources>("tickets_sources", { project }).then(load, (e) => {
+    error = String(e);
+  });
 
-  /** Called by the project editor's Save. */
+  /** Called by the project editor's Save; writes only what changed. */
   export async function save() {
-    if (trackers) load(await invoke<Sources>("tickets_sources_save", { project, trackers }));
+    if (trackers && JSON.stringify(trackers) !== saved) {
+      load(await invoke<Sources>("tickets_sources_save", { project, trackers }));
+    }
+  }
+
+  const tokenFor = (jira: JiraTracker) =>
+    jiraToken && tokenAccount?.site === jira.site && tokenAccount.email === jira.email;
+
+  /** Once the site or the e-mail changed: is there a token for them? */
+  async function checkToken() {
+    const jira = trackers?.jira;
+    if (!jira?.site.trim() || !jira.email.trim()) return;
+    const account = { site: jira.site, email: jira.email };
+    try {
+      jiraToken = await invoke<boolean>("tickets_jira_token", account);
+      tokenAccount = account;
+    } catch (e) {
+      error = String(e);
+    }
   }
 
   function github(): GithubTracker {
@@ -114,10 +151,12 @@
 
   async function saveToken() {
     const jira = trackers!.jira!;
+    const account = { site: jira.site, email: jira.email };
     tokenBusy = true;
     try {
-      await invoke("tickets_jira_token_save", { site: jira.site, email: jira.email, token });
+      await invoke("tickets_jira_token_save", { ...account, token });
       token = "";
+      tokenAccount = account;
       jiraToken = true;
       error = "";
     } catch (e) {
@@ -127,9 +166,9 @@
   }
 
   async function forgetToken() {
-    const jira = trackers!.jira!;
+    if (!tokenAccount) return;
     try {
-      await invoke("tickets_jira_token_forget", { site: jira.site, email: jira.email });
+      await invoke("tickets_jira_token_forget", { ...tokenAccount });
       jiraToken = false;
     } catch (e) {
       error = String(e);
@@ -213,10 +252,23 @@
       </label>
       {#if gh?.issues}
         <div class="fields">
+          {#if trackers.implicit}
+            <p class="implicit">{t("ticketsImplicit")}</p>
+          {/if}
           <p class="help">{t("ticketsGithubIssuesHelp")}</p>
+          <p class="help">
+            {githubRepos.length
+              ? t("ticketsGithubRepos", { repos: githubRepos.join(", ") })
+              : t("ticketsGithubNoRepo")}
+          </p>
           <label>
             <span>{t("ticketsIssuesRepo")}</span>
-            <input class="field" bind:value={gh.repo} placeholder="owner/repo" spellcheck="false" />
+            <input
+              class="field"
+              bind:value={gh.repo}
+              placeholder={t("ticketsIssuesRepoPlaceholder")}
+              spellcheck="false"
+            />
           </label>
           <label class="check">
             <input type="checkbox" bind:checked={gh.comment} />
@@ -254,7 +306,9 @@
             <input
               class="field"
               value={gh.columns.join(", ")}
-              onchange={(e) => (gh.columns = list(e.currentTarget.value))}
+              onchange={(e) => {
+                gh.columns = list(e.currentTarget.value);
+              }}
               placeholder={t("ticketsColumnsAll")}
             />
           </label>
@@ -293,15 +347,21 @@
         <div class="fields">
           <label>
             <span>{t("ticketsJiraSite")}</span>
-            <input class="field" bind:value={jira.site} placeholder="acme.atlassian.net" spellcheck="false" />
+            <input
+              class="field"
+              bind:value={jira.site}
+              onchange={checkToken}
+              placeholder={t("ticketsJiraSitePlaceholder")}
+              spellcheck="false"
+            />
           </label>
           <label>
             <span>{t("ticketsJiraEmail")}</span>
-            <input class="field" type="email" bind:value={jira.email} spellcheck="false" />
+            <input class="field" type="email" bind:value={jira.email} onchange={checkToken} spellcheck="false" />
           </label>
           <div class="token">
             <span class="label">{t("ticketsToken")}</span>
-            {#if jiraToken}
+            {#if tokenFor(jira)}
               <p class="saved">
                 <CircleCheck size={13} aria-hidden="true" />{t("ticketsTokenSaved")}
                 <button type="button" class="btn sm quiet forget" onclick={forgetToken}>
@@ -337,7 +397,12 @@
           </label>
           <label>
             <span>{t("ticketsJiraKey")}</span>
-            <input class="field" bind:value={jira.project} placeholder="ACME" spellcheck="false" />
+            <input
+              class="field"
+              bind:value={jira.project}
+              placeholder={t("ticketsJiraKeyPlaceholder")}
+              spellcheck="false"
+            />
           </label>
           <label class="check">
             <input type="checkbox" bind:checked={jira.comment} />
@@ -374,7 +439,9 @@
             <input
               class="field"
               value={source.tools.join(", ")}
-              onchange={(e) => (source.tools = list(e.currentTarget.value))}
+              onchange={(e) => {
+                source.tools = list(e.currentTarget.value);
+              }}
               placeholder={mcpTools[name]?.length ? mcpTools[name].join(", ") : t("ticketsMcpToolsNone")}
               spellcheck="false"
             />
@@ -526,6 +593,15 @@
 
   .inline .field {
     min-width: 0;
+  }
+
+  .implicit {
+    margin: 0;
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    background: var(--hover);
+    font-size: var(--text-xs);
+    line-height: 1.4;
   }
 
   .saved {
