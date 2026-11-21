@@ -389,7 +389,7 @@
     <div class="fact">
       <dt>{t("claudeRedesignMode")}</dt>
       <dd>
-        <span class="fact-value mono">{mode ? show(mode.value) : "default"}</span>
+        <span class="fact-value" class:mono={!!mode}>{mode ? show(mode.value) : t("claudeRedesignModeDefault")}</span>
         <span class="meta">{mode ? scopeLabel(mode.scope) : t("claudeViewDefault")}</span>
       </dd>
     </div>

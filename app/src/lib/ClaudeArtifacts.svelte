@@ -21,6 +21,7 @@
   import { ago, lang, t } from "$lib/i18n";
   import { projectsOf } from "$lib/nav-logic";
   import { app, repoName, type Session } from "$lib/state.svelte";
+  import { tickets } from "$lib/tickets.svelte";
   import { GALLERY, claudeView, copyText, openUrl, type Artifact, type Artifacts, type Failure } from "$lib/claude.svelte";
   import {
     filterArtifacts,
@@ -28,6 +29,7 @@
     selection,
     sortArtifacts,
     toggleAll,
+    updatedDay,
     type Filter,
     type Sort,
     type SortKey,
@@ -46,7 +48,7 @@
   const rows = $derived(
     data
       ? sortArtifacts(
-          filterArtifacts(data.artifacts, filter, (cwd) => projectsOf(cwd, projects, [])),
+          filterArtifacts(data.artifacts, filter, (cwd) => projectsOf(cwd, projects, tickets.runs)),
           sort,
           origin,
         )
@@ -90,18 +92,16 @@
   const deleteFailures: Partial<Record<Failure, Parameters<typeof t>[0]>> = {
     ...failures,
     budget: "claudeRedesignFailBudget",
-    invalid: "claudeRedesignFailInvalid",
   };
 
   const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", maximumFractionDigits: 3 });
   const cost = (usd: number | null) => (usd === null ? "" : t("claudeViewCost", { cost: money.format(usd) }));
-  const day = new Intl.DateTimeFormat(lang, { dateStyle: "medium" });
 
   /** The account's date when it reads as one, as the account gave it otherwise. */
   function updated(a: Artifact): { text: string; title: string } | null {
     if (!a.updated) return null;
-    const at = Date.parse(a.updated);
-    return Number.isNaN(at) ? { text: a.updated, title: a.updated } : { text: day.format(at), title: ago(at / 1000) };
+    const day = updatedDay(a.updated, lang);
+    return day ? { text: day.text, title: ago(day.at / 1000) } : { text: a.updated, title: a.updated };
   }
 
   const columns: { key: SortKey; label: Parameters<typeof t>[0] }[] = [
@@ -118,12 +118,14 @@
   const ariaSort = (key: SortKey) =>
     sort.key !== key ? "none" : sort.dir === "asc" ? "ascending" : "descending";
 
-  async function call(name: string, args: Record<string, unknown> = {}) {
+  async function call(name: string, args: Record<string, unknown> = {}): Promise<boolean> {
     busy = name;
     try {
       claudeView.artifacts = await invoke<Artifacts>(name, args);
+      return true;
     } catch (e) {
       claudeView.error = String(e);
+      return false;
     } finally {
       busy = "";
     }
@@ -157,8 +159,8 @@
   async function remove(list: Artifact[], confirmed: boolean) {
     dialog?.close();
     const ids = list.map((a) => a.id);
-    await call("artifacts_delete", { urls: list.map((a) => a.url), confirmed });
-    selected = selected.filter((id) => !ids.includes(id));
+    if (await call("artifacts_delete", { urls: list.map((a) => a.url), confirmed }))
+      selected = selected.filter((id) => !ids.includes(id));
   }
 </script>
 
@@ -326,7 +328,7 @@
               <td class="title">
                 <span class="name" class:untitled={!a.title} title={a.title ?? a.url}>{a.title ?? t("claudeViewUntitled")}</span>
                 {#if state?.outcome === "failed" && !deletion?.running}
-                  <span class="row-error">{t("claudeRedesignRowFailed")}{state.error ? ` : ${state.error}` : ""}</span>
+                  <span class="row-error">{state.error ? t("claudeRedesignRowFailedWhy", { error: state.error }) : t("claudeRedesignRowFailed")}</span>
                 {/if}
               </td>
               <td class="origin" title={a.cwd ?? ""}>{#if a.cwd}{origin(a)}{:else}<span class="none">—</span>{/if}</td>

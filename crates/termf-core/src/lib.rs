@@ -129,7 +129,6 @@ pub struct ArtifactSettings {
     /// A hidden Claude session lists the account's claude.ai artifacts at startup and every so many hours;
     /// 0: only when asked.
     pub refresh_hours: u32,
-    /// Off: TermF asks you before every deletion. On, you chose to delete in one click.
     pub delete_without_confirmation: bool,
 }
 
@@ -330,7 +329,6 @@ pub fn save_artifacts_refresh(config_dir: &Path, hours: u32) -> Result<()> {
     })
 }
 
-/// Saves whether artifacts are deleted without TermF asking first, like `save_keep_awake`.
 pub fn save_artifacts_delete_without_confirmation(config_dir: &Path, on: bool) -> Result<()> {
     edit_settings(config_dir, |doc| {
         doc.entry("artifacts").or_insert(toml_edit::table())["delete_without_confirmation"] =

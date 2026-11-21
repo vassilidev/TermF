@@ -698,6 +698,27 @@ fn a_listing_replaces_the_index_but_keeps_recent_hooks() {
     );
     assert_eq!(roadmap.title.as_deref(), Some("Roadmap"));
     assert_eq!(artifacts::load(&index).listed, Some(110));
+
+    // Deleted while a listing ran: the listing, begun before, still holds it, and must not bring it back.
+    let deleted = json!({"tool_name": "Artifact", "tool_input": {"action": "delete", "url": URL}});
+    assert!(artifacts::record(&index, &deleted, 205, own()).unwrap());
+    let listed = || {
+        vec![Listed {
+            id: ID.into(),
+            url: URL.into(),
+            title: None,
+            owner: None,
+            updated: None,
+        }]
+    };
+    let result = artifacts::apply_listing(&index, listed(), 200, 210).unwrap();
+    assert!(result.artifacts.iter().all(|a| a.id != ID));
+    assert!(artifacts::load(&index).deleted.is_empty());
+    let result = artifacts::apply_listing(&index, listed(), 300, 310).unwrap();
+    assert!(
+        result.artifacts.iter().any(|a| a.id == ID),
+        "a later listing is the truth again"
+    );
     fs::remove_dir_all(&root).unwrap();
 }
 
@@ -827,10 +848,30 @@ fn a_deletion_says_why_it_failed() {
         d.hook(4, "Stop", &stop(r#"{"error": "tool_missing"}"#)),
         Step::Fail(Failure::ToolMissing, None)
     );
+    // Claude asks instead of deleting: its tile shows and waits for your answer, then for its JSON.
     let mut d = deleting(&[URL]);
-    d.hook(4, "Stop", &stop("Are you sure?"));
-    assert_eq!(d.failure, Some(Failure::Invalid));
-    assert_eq!(d.detail.as_deref(), Some("Are you sure?"));
+    assert_eq!(
+        d.hook(4, "Stop", &stop("Are you sure? {maybe}")),
+        Step::Reveal
+    );
+    assert_eq!(d.hook(4, "Stop", &stop("Which one?")), Step::Nothing);
+    assert!(d.running && d.items[0].outcome == Outcome::Pending);
+    assert_eq!(d.tick(1_000_000), Step::Nothing);
+    assert_eq!(
+        d.hook(4, "Stop", &stop(r#"{"deleted": [], "failed": []}"#)),
+        Step::Answered
+    );
+    let mut d = deleting(&[URL]);
+    d.hook(
+        4,
+        "PostToolUse",
+        &json!({"tool_name": "Artifact", "tool_input": {"action": "delete", "url": URL}}),
+    );
+    assert_eq!(
+        d.hook(4, "Stop", &stop("Done.")),
+        Step::Answered,
+        "nothing left to do"
+    );
 
     // Waiting for you (its folder to trust, a permission): its tile shows, once, and waits as long as it takes.
     let mut d = deleting(&[URL]);
@@ -845,12 +886,43 @@ fn a_deletion_says_why_it_failed() {
     let mut d = deleting(&[URL]);
     d.hook(4, "SessionStart", &json!({}));
     assert_eq!(
-        d.tick(1001 + artifacts::HIDDEN_FOR),
+        d.tick(1001 + d.limits().0),
         Step::Fail(Failure::Timeout, None)
     );
     assert!(d.finish(4, Some((Failure::Timeout, None))));
     assert_eq!(d.items[0].outcome, Outcome::Failed);
     assert_eq!(d.failure, Some(Failure::Timeout));
+}
+
+#[test]
+fn a_bigger_deletion_gets_more_time_and_money_up_to_a_cap() {
+    let urls: Vec<String> = (0..150)
+        .map(|i| format!("https://claude.ai/code/artifact/a{i}"))
+        .collect();
+    let mut d = Deletion::default();
+    d.begin(&urls, 0).unwrap();
+    d.session = Some(4);
+    d.hook(4, "SessionStart", &json!({}));
+    let (secs, usd) = d.limits();
+    assert_eq!(secs, artifacts::HIDDEN_FOR + 150 * artifacts::DELETE_SECS);
+    assert_eq!(d.tick(artifacts::HIDDEN_FOR + 1), Step::Nothing);
+    assert_eq!(d.tick(secs + 1), Step::Fail(Failure::Timeout, None));
+    let status = |c: f64| json!({"cost": {"total_cost_usd": c}});
+    assert_eq!(
+        d.hook(4, "StatusLine", &status(artifacts::MAX_COST_USD + 1.0)),
+        Step::Nothing
+    );
+    assert_eq!(
+        d.hook(4, "StatusLine", &status(usd + 0.01)),
+        Step::Fail(Failure::Budget, None)
+    );
+
+    let many: Vec<String> = (0..1000)
+        .map(|i| format!("https://claude.ai/code/artifact/a{i}"))
+        .collect();
+    let mut huge = Deletion::default();
+    huge.begin(&many, 0).unwrap();
+    assert!(huge.limits().0 < 3600 && huge.limits().1 < 10.0, "capped");
 }
 
 /// A fake `claude` plays the hidden session: it deletes every link of its prompt, then tries one more. Each call

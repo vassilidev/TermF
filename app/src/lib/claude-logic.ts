@@ -20,6 +20,15 @@ export function updatedAt(a: Row): number {
   return Number.isNaN(at) ? a.seen * 1000 : at;
 }
 
+/** The account's date as a day, or `null` when it does not read as one. A date without a time is a calendar day:
+ *  read as midnight UTC, it is shown in UTC too, or it would fall a day early west of Greenwich. */
+export function updatedDay(updated: string, locale: string): { text: string; at: number } | null {
+  const at = Date.parse(updated);
+  if (Number.isNaN(at)) return null;
+  const timeZone = /^\d{4}-\d{2}-\d{2}$/.test(updated.trim()) ? "UTC" : undefined;
+  return { text: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone }).format(at), at };
+}
+
 /** `projectsOf`: the projects a folder belongs to. */
 export function filterArtifacts<T extends Row>(list: T[], filter: Filter, projectsOf: (cwd: string) => string[]): T[] {
   const words = filter.text.toLocaleLowerCase().split(/\s+/).filter(Boolean);

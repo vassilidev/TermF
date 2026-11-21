@@ -41,8 +41,8 @@ impl ClaudeState {
 }
 
 /// Tools a task's session never needs, denied in its own settings: unlike its hook, which TermF must answer
-/// within two seconds, a deny rule holds whatever happens, and over your own `allow` rules. Nothing is allowed
-/// there: without the hook's answer, Claude Code asks, and the session shows its tile.
+/// within two seconds, a deny rule holds whatever happens. The session reads none of your `allow` rules either
+/// (`--restricted`), so without the hook's answer Claude Code asks, and the session shows its tile.
 const DENIED: &[&str] = &[
     "Bash",
     "PowerShell",
@@ -54,7 +54,6 @@ const DENIED: &[&str] = &[
     "Agent",
 ];
 
-/// The settings a hidden listing or deletion session adds.
 fn task_settings() -> Value {
     json!({ "permissions": { "deny": DENIED } })
 }
@@ -217,7 +216,6 @@ fn check_url(url: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("{url} is not a claude.ai artifact"))
 }
 
-/// Whether you chose to delete artifacts without TermF asking first (`[artifacts] delete_without_confirmation`).
 #[tauri::command]
 pub fn artifacts_confirm(app: AppHandle, skip: bool) -> CmdResult<Artifacts> {
     let config_dir = &app.state::<AppState>().config_dir;
@@ -365,9 +363,10 @@ fn save_run(claude: &ClaudeState, refresh: &Refresh) {
     }
 }
 
-/// A small model, and none of your MCP servers: it only calls the `Artifact` tool.
+/// A small model, none of your MCP servers, and none of your settings files: `--restricted` skips them, while
+/// `--settings` and `--plugin-dir`, which carry TermF's hooks, still apply.
 fn list_args() -> Vec<String> {
-    ["--model", "haiku", "--strict-mcp-config"]
+    ["--model", "haiku", "--strict-mcp-config", "--restricted"]
         .map(String::from)
         .to_vec()
 }
@@ -399,7 +398,6 @@ pub fn hook(app: &AppHandle, id: u32, event: &str, payload: &Value) -> Option<Va
     None
 }
 
-/// Carries out a step of the deletion of session `id`; a step of a deletion already over does nothing.
 fn apply_deletion(app: &AppHandle, id: u32, step: Step) {
     let failure = match step {
         Step::Nothing | Step::Done(_) => return,
@@ -534,7 +532,7 @@ mod tests {
         assert_eq!(program("claude --dangerously-skip-permissions"), "claude");
         assert_eq!(program("/opt/bin/claude --model opus"), "/opt/bin/claude");
         let args = list_args().join(" ");
-        assert!(args.contains("--model haiku"));
+        assert!(args.contains("--model haiku") && args.contains("--restricted"));
         assert!(
             !args.contains("allowedTools") && !args.contains("bypass") && !args.contains("skip")
         );
@@ -545,7 +543,8 @@ mod tests {
         );
     }
 
-    /// Without TermF's hook (too slow, or gone), nothing is allowed: Claude Code asks, and the tile shows.
+    /// Without TermF's hook (too slow, or gone), no rule allows a tool (yours are not read, see `list_args`):
+    /// Claude Code asks, and the tile shows.
     #[test]
     fn hidden_sessions_allow_nothing_by_their_settings() {
         let settings = task_settings();

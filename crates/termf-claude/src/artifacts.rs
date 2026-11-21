@@ -17,6 +17,12 @@ pub const READY_WITHIN: u64 = 60;
 pub const HIDDEN_FOR: u64 = 300;
 /// Spending more than this on a listing means something went wrong.
 pub const MAX_COST_USD: f64 = 0.5;
+/// A deletion makes one call per artifact, so it gets this much more time and money for each.
+pub const DELETE_SECS: u64 = 10;
+pub const DELETE_USD: f64 = 0.02;
+// shortcut: limits stop growing past this many artifacts, so a bigger deletion may time out and leave the rest
+// failed (deleted again in one more click); split into batches if people delete that many at once.
+const DELETE_LIMITS_UP_TO: usize = 300;
 const MAX_ITEMS: usize = 5000;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +62,9 @@ pub struct Index {
     pub last: Option<LastRun>,
     #[serde(default)]
     pub paused: bool,
+    /// Artifacts deleted since the last listing, and when: a listing begun before must not bring them back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deleted: Vec<(String, u64)>,
 }
 
 /// An index that cannot be read starts over: it only caches what claude.ai holds.
@@ -146,9 +155,9 @@ pub fn record(file: &Path, payload: &Value, now: u64, own_dir: &Path) -> Result<
         "delete" if input["path"].is_null() && input["paths"].is_null() => {
             let before = index.artifacts.len();
             index.artifacts.retain(|a| a.id != id);
-            if index.artifacts.len() == before {
-                return Ok(false);
-            }
+            index.deleted.push((id, now));
+            save(file, &index)?;
+            return Ok(index.artifacts.len() != before);
         }
         "publish" | "read" | "open" | "pin" | "unpin" => {
             let title = input["title"]
@@ -239,11 +248,18 @@ pub fn parse_listing(message: &str) -> Result<Vec<Listed>, ListingError> {
 }
 
 /// The account listing is the truth: what it no longer holds goes, except what a session recorded since the
-/// listing began.
+/// listing began, and what was deleted meanwhile does not come back.
 pub fn apply_listing(file: &Path, listed: Vec<Listed>, started: u64, now: u64) -> Result<Index> {
     let mut old = load(file);
+    let gone: Vec<String> = old
+        .deleted
+        .drain(..)
+        .filter(|(_, at)| *at >= started)
+        .map(|(id, _)| id)
+        .collect();
     let mut artifacts: Vec<Artifact> = listed
         .into_iter()
+        .filter(|l| !gone.contains(&l.id))
         .map(|l| {
             let known = old
                 .artifacts
@@ -272,6 +288,7 @@ pub fn apply_listing(file: &Path, listed: Vec<Listed>, started: u64, now: u64) -
         listed: Some(now),
         last: old.last,
         paused: old.paused,
+        deleted: Vec::new(),
     };
     save(file, &index)?;
     Ok(index)
@@ -295,7 +312,6 @@ Artifact tool, reply with {\"error\": \"tool_missing\"} and nothing else."
         .into()
 }
 
-/// The deletion you confirmed in TermF, carried out by a hidden session whose hook allows nothing else.
 pub fn delete_prompt(urls: &[String]) -> String {
     format!(
         "Delete these claude.ai artifacts with the Artifact tool, action \"delete\", one call per link: {}. \
@@ -421,7 +437,6 @@ pub enum Step {
     /// Show its tile: it waits for you.
     Reveal,
     Fail(Failure, Option<String>),
-    /// The deletion session answered: each of its artifacts says what became of it.
     Answered,
 }
 
@@ -587,7 +602,6 @@ pub struct Doomed {
     pub id: String,
     pub url: String,
     pub outcome: Outcome,
-    /// What Claude said went wrong.
     pub error: Option<String>,
 }
 
@@ -608,7 +622,6 @@ pub struct Deletion {
 }
 
 impl Deletion {
-    /// Links that are not artifacts are dropped; the same artifact twice counts once.
     pub fn begin(&mut self, urls: &[String], now: u64) -> Result<()> {
         ensure!(!self.running, "artifacts are already being deleted");
         let mut items: Vec<Doomed> = Vec::new();
@@ -636,8 +649,16 @@ impl Deletion {
         self.running && self.session == Some(session)
     }
 
-    /// What a hook of `session` means for the deletion. Only a call that went through (`PostToolUse`) counts as
-    /// a deletion, whatever Claude says afterwards.
+    /// Time (seconds) and money it may take: one tool call per artifact.
+    pub fn limits(&self) -> (u64, f64) {
+        let n = self.items.len().min(DELETE_LIMITS_UP_TO);
+        (
+            HIDDEN_FOR + n as u64 * DELETE_SECS,
+            MAX_COST_USD + n as f64 * DELETE_USD,
+        )
+    }
+
+    /// Only a call that went through (`PostToolUse`) counts as a deletion, whatever Claude says afterwards.
     pub fn hook(&mut self, session: u32, event: &str, payload: &Value) -> Step {
         if !self.owns(session) {
             return Step::Nothing;
@@ -647,7 +668,7 @@ impl Deletion {
             "StatusLine" => {
                 let cost = payload["cost"]["total_cost_usd"].as_f64();
                 self.cost = cost.or(self.cost);
-                if cost.is_some_and(|c| c > MAX_COST_USD) {
+                if cost.is_some_and(|c| c > self.limits().1) {
                     Step::Fail(Failure::Budget, None)
                 } else {
                     Step::Nothing
@@ -679,22 +700,26 @@ impl Deletion {
         Step::Reveal
     }
 
-    /// Reads Claude's answer: why each artifact still there was not deleted.
     fn settle(&mut self, message: &str) -> Step {
         let answer: Option<Value> = message
             .find('{')
             .zip(message.rfind('}'))
-            .and_then(|(start, end)| serde_json::from_str(message.get(start..=end)?).ok());
-        if answer
-            .as_ref()
-            .is_some_and(|a| a["error"] == "tool_missing")
-        {
+            .and_then(|(start, end)| serde_json::from_str(message.get(start..=end)?).ok())
+            .filter(|a: &Value| {
+                a["error"] == "tool_missing" || a["deleted"].is_array() || a["failed"].is_array()
+            });
+        let Some(answer) = answer else {
+            // Claude asks or explains instead of deleting: you answer it in its tile, TermF never does.
+            return if self.items.iter().any(|d| d.outcome == Outcome::Pending) {
+                self.reveal()
+            } else {
+                Step::Answered
+            };
+        };
+        if answer["error"] == "tool_missing" {
             return Step::Fail(Failure::ToolMissing, None);
         }
-        let failed = answer
-            .as_ref()
-            .and_then(|a| a["failed"].as_array().cloned())
-            .unwrap_or_default();
+        let failed = answer["failed"].as_array().cloned().unwrap_or_default();
         for d in &mut self.items {
             let said = failed.iter().find(|f| {
                 f["url"]
@@ -709,10 +734,6 @@ impl Deletion {
                 d.outcome = Outcome::Failed;
             }
         }
-        if answer.is_none() && self.items.iter().any(|d| d.outcome == Outcome::Failed) {
-            self.failure = Some(Failure::Invalid);
-            self.detail = clean(message, 300);
-        }
         Step::Answered
     }
 
@@ -724,14 +745,14 @@ impl Deletion {
         let age = now.saturating_sub(self.started);
         if !self.ready && age > READY_WITHIN {
             self.reveal()
-        } else if age > HIDDEN_FOR {
+        } else if age > self.limits().0 {
             Step::Fail(Failure::Timeout, None)
         } else {
             Step::Nothing
         }
     }
 
-    /// Ends the deletion of `session`; false, and nothing changes, when it is already over.
+    /// False, and nothing changes, when the deletion of `session` is already over.
     pub fn finish(&mut self, session: u32, failure: Option<(Failure, Option<String>)>) -> bool {
         if !self.owns(session) {
             return false;
@@ -740,7 +761,6 @@ impl Deletion {
         true
     }
 
-    /// Ends the deletion under way: what is not deleted by now failed.
     pub fn end(&mut self, failure: Option<(Failure, Option<String>)>) {
         if let Some((failure, detail)) = failure {
             self.failure = Some(failure);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alerts, filterArtifacts, nextSort, selection, sortArtifacts, toggleAll, updatedAt } from "../src/lib/claude-logic.ts";
+import { alerts, filterArtifacts, nextSort, selection, sortArtifacts, toggleAll, updatedAt, updatedDay } from "../src/lib/claude-logic.ts";
 
 const art = (id, title, owner, updated, cwd = null, seen = 0) => ({ id, url: `https://claude.ai/code/artifact/${id}`, title, owner, updated, cwd, seen });
 const list = [
@@ -18,6 +18,19 @@ test("a date the account gives sorts as one; anything else falls back to when Te
   assert.equal(updatedAt(list[0]), Date.parse("2026-11-20"));
   assert.equal(updatedAt(list[2]), 1_700_000_000_000);
   assert.equal(updatedAt(list[4]), 1_800_000_000_000);
+});
+
+test("a day without a time stays that day west of Greenwich; a full date is shown where you are", () => {
+  const tz = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  try {
+    assert.equal(updatedDay("2026-11-20", "en-US").text, "Nov 20, 2026");
+    assert.equal(updatedDay("2026-11-20T03:00:00Z", "en-US").text, "Nov 19, 2026");
+    assert.equal(updatedDay("3 days ago", "en-US"), null);
+  } finally {
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  }
 });
 
 test("filters by words, owner and project, together", () => {
