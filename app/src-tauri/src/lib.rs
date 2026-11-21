@@ -8,6 +8,7 @@ mod context;
 mod files;
 mod keep_awake;
 mod library;
+mod onboarding;
 mod quick_terminal;
 mod schedule;
 mod ssh;
@@ -270,6 +271,8 @@ pub fn run() {
             config::layouts,
             config::layout_save,
             config::layout_delete,
+            config::keys,
+            config::keys_set,
             quick_terminal::quick_terminal,
             keep_awake::keep_awake_state,
             keep_awake::keep_awake_set,
@@ -405,6 +408,14 @@ pub fn run() {
             team::team_runs,
             team::team_run,
             team::team_events,
+            onboarding::onboarding_state,
+            onboarding::onboarding_analyze,
+            onboarding::onboarding_answer,
+            onboarding::onboarding_step,
+            onboarding::onboarding_seen,
+            onboarding::onboarding_decide,
+            onboarding::claude_trust,
+            onboarding::claude_trust_set,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

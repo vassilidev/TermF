@@ -53,16 +53,6 @@
   const visible = () => open && ui.view === "terminals";
   toggle = () => (visible() ? hide() : show());
 
-  // In-app only, so Ctrl+` stays free for other apps (VS Code…) while TermF is in the background.
-  // Not Cmd+` on macOS: the system uses it to cycle windows. Capture phase, so a focused terminal does not see it.
-  function onkeydown(e: KeyboardEvent) {
-    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "Backquote") {
-      e.preventDefault();
-      e.stopPropagation();
-      toggle();
-    }
-  }
-
   onMount(() => {
     const toggled = listen<boolean>("quick-terminal", ({ payload: wasFocused }) =>
       wasFocused && visible() ? hide() : show(),
@@ -79,13 +69,11 @@
   });
 </script>
 
-<svelte:window onkeydowncapture={onkeydown} />
-
 <section class="quick" class:open bind:this={panel} aria-label={t("quickTerminal")}>
   <header>
     <SquareTerminal size={14} aria-hidden="true" />
     <span class="title">{t("quickTerminal")}</span>
-    <kbd>{keys.quick}</kbd>
+    {#if keys.quick}<kbd>{keys.quick}</kbd>{/if}
     <button class="icon-btn sm" onclick={hide} aria-label={t("close")} title={t("close")}>
       <X size={14} aria-hidden="true" />
     </button>

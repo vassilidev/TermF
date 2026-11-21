@@ -1,0 +1,74 @@
+import { untrack } from "svelte";
+import { invoke } from "@tauri-apps/api/core";
+import { app, ui, type ViewId } from "$lib/state.svelte";
+
+/** The project whose onboarding assistant is open. */
+export const setup = $state({ project: null as string | null });
+
+/** Projects whose analysis is running: a remounted assistant waits for it instead of paying for another. */
+export const analyzing = $state<Record<string, boolean>>({});
+const analyses = new Map<string, Promise<unknown>>();
+
+let back: ViewId = "terminals";
+
+/** `view`, or Terminals when it no longer has anything to show (its page was closed meanwhile). */
+export function usable(view: ViewId): ViewId {
+  const gone = (view === "project" && ui.editing === null) || (view === "onboarding" && setup.project === null);
+  return gone ? "terminals" : view;
+}
+
+/** Opens the assistant where the project's last visit left it; leaving goes back to the view it was opened from. */
+export function openSetup(id: string) {
+  if (ui.view !== "onboarding") back = ui.view;
+  ui.switcher = false;
+  setup.project = id;
+  ui.view = "onboarding";
+}
+
+export function closeSetup() {
+  setup.project = null;
+  if (ui.view === "onboarding") ui.view = usable(back);
+}
+
+/** The project's analysis: the one running, else a new one. */
+export function analyze<T>(project: string, lang: string): Promise<T> {
+  let run = analyses.get(project);
+  if (!run) {
+    analyzing[project] = true;
+    run = invoke<T>("onboarding_analyze", { project, lang }).finally(() => {
+      analyses.delete(project);
+      delete analyzing[project];
+    });
+    analyses.set(project, run);
+  }
+  return run as Promise<T>;
+}
+
+/** The analysis of the project running in this window, if any. */
+export function running(project: string): Promise<unknown> | undefined {
+  return analyses.get(project);
+}
+
+/**
+ * The assistant follows the current project, and opens by itself once for a project just created (the backend
+ * remembers it was shown).
+ */
+export function watchSetup() {
+  return $effect.root(() => {
+    $effect(() => {
+      const id = app.project;
+      untrack(() => {
+        if (ui.view === "onboarding") {
+          if (id === null) return closeSetup();
+          setup.project = id;
+        }
+      });
+      if (id === null) return;
+      invoke<{ autoOpen: boolean }>("onboarding_state", { project: id }).then(async (state) => {
+        if (!state.autoOpen || app.project !== id) return;
+        await invoke("onboarding_seen", { project: id });
+        openSetup(id);
+      }, () => {});
+    });
+  });
+}

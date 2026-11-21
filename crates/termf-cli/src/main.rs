@@ -135,6 +135,8 @@ usage:
   termf team rules <run> [--task <id>] <rule>=<level>...
                                         rule levels for the ticket, or one task of the plan
   termf team stop [<run>]               emergency stop of one team, or of every team at work
+  termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
+                                        worktrees): no more \"Is this a project you trust?\"; --off stops
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -227,6 +229,18 @@ fn run(args: &[&str]) -> Result<()> {
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         ["agent", rest @ ..] => agent::run(rest.to_vec())?,
         ["team", rest @ ..] => team::run(rest.to_vec())?,
+        ["project", "trust", id, rest @ ..] => {
+            let on = match rest {
+                [] => true,
+                ["--off"] => false,
+                _ => bail!(USAGE),
+            };
+            let config_dir = termf_core::default_config_dir()?;
+            for r in termf_claude::trust::set_project(&config_dir, id, on)? {
+                let state = if r.trusted { "trusted" } else { "not trusted" };
+                println!("{:<12}  {state:<11}  {}", r.name, r.root);
+            }
+        }
         [
             command @ ("run" | "runs" | "inbox" | "deliver" | "close"),
             rest @ ..,

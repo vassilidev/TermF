@@ -1,0 +1,15 @@
+[package]
+name = "termf-onboarding"
+description = "Project onboarding assistant: read-only analysis of a project's repositories, the questions only its owner can answer, and the convention their answers become"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+termf-core = { path = "../termf-core" }
+termf-library = { path = "../termf-library" }
+termf-tickets = { path = "../termf-tickets" }
+termf-worktree = { path = "../termf-worktree" }

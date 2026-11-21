@@ -3,14 +3,17 @@
   import { onMount } from "svelte";
   import AppNav from "$lib/AppNav.svelte";
   import CommandPalette from "$lib/CommandPalette.svelte";
+  import OnboardingView from "$lib/OnboardingView.svelte";
   import ProjectView from "$lib/ProjectView.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
+  import { showSettings } from "$lib/settings.svelte";
   import { app, init, ui } from "$lib/state.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
   import { watchTickets } from "$lib/tickets.svelte";
+  import { setup, watchSetup } from "$lib/onboarding.svelte";
   import { views } from "$lib/views";
 
   onMount(() => {
@@ -19,7 +22,8 @@
     const stopCi = watchCi();
     const stopSchedule = watchSchedule();
     const stopTickets = watchTickets();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets());
+    const stopSetup = watchSetup();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup());
   });
 </script>
 
@@ -37,7 +41,12 @@
           <Banner><span title={app.workspace.apiError}>{t("apiOff")}</span></Banner>
         {/if}
         {#if app.workspace?.quickTerminalError}
-          <Banner>{t("shortcutError", { error: app.workspace.quickTerminalError })}</Banner>
+          <Banner>
+            {t("shortcutError", { error: app.workspace.quickTerminalError })}
+            {#snippet action()}
+              <button class="btn sm" onclick={() => showSettings("keys")}>{t("shortcuts")}</button>
+            {/snippet}
+          </Banner>
         {/if}
         {#if app.workspace?.scanTruncated}
           <Banner>{t("truncated")}</Banner>
@@ -55,6 +64,11 @@
     {#if ui.view === "project" && ui.editing !== null}
       {#key ui.editing}
         <div class="pane"><ProjectView /></div>
+      {/key}
+    {/if}
+    {#if ui.view === "onboarding" && setup.project !== null}
+      {#key setup.project}
+        <div class="pane"><OnboardingView /></div>
       {/key}
     {/if}
   </div>
