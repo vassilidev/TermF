@@ -26,7 +26,7 @@
       <div class="thresholds">
         <label>
           <span>{t("contextResetAt")}</span>
-          <span class="field">
+          <span class="value">
             <input
               type="number"
               min="1"
@@ -39,7 +39,7 @@
         </label>
         <label>
           <span>{t("contextWarningAt")}</span>
-          <span class="field">
+          <span class="value">
             <input
               type="number"
               min="1"
@@ -104,7 +104,7 @@
     display: contents;
   }
 
-  .field {
+  .value {
     display: flex;
     align-items: center;
     gap: 2px;

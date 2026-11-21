@@ -338,8 +338,9 @@ pub fn handoff_request(percent: Option<u8>) -> String {
         "TermF, which runs this session, is about to clear its context{} and go on in a fresh \
          conversation. Your next reply is saved as the handoff that conversation starts from, so write \
          it now and do nothing else: the goal, where the work stands, the decisions made and why, what \
-         remains to do (next step first) and the files involved, in under 6000 characters. Reply with \
-         the handoff only, without calling tools.",
+         remains to do (next step first) and the files involved, in under 6000 characters. Leave out \
+         the standing instructions (system prompt, CLAUDE.md) the fresh conversation gets anyway. Reply \
+         with the handoff only, without calling tools.",
         used.unwrap_or_default()
     )
 }
