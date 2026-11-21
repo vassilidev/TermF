@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, Item, TableLike, value};
 
 /// What an export holds from the config folder. Anything else (secrets, machine-local state) stays.
-const INCLUDED: &[&str] = &["termf.toml", "layouts.toml", "projects", "library"];
+const INCLUDED: &[&str] = &["termf.toml", "layouts.toml", "schedules.toml", "projects", "library"];
 /// Far above any real config: an archive that would fill the disk is refused.
 const MAX_SIZE: u64 = 64 << 20;
 /// Hidden, so never exported; removed once the import is done.
