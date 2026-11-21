@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { files } from "$lib/files.svelte";
+import { app, ui } from "$lib/state.svelte";
 
 export type TicketRef = { provider: string; key: string; url: string };
 export type TicketSummary = TicketRef & {
@@ -57,8 +57,10 @@ export type Delivery = { run: Run; warning: string | null };
 export const tickets = $state({
   /** Loaded once first shown, then kept mounted, like the Library view. */
   loaded: false,
-  /** A project id, or "" for every ticket assigned to the user. */
-  scope: "",
+  /** The current project's id, or "" for every ticket assigned to the user. */
+  get scope(): string {
+    return app.project ?? "";
+  },
   tab: "inbox" as "inbox" | "runs",
   /** null while the first load of the scope runs. */
   inbox: null as TicketSummary[] | null,
@@ -78,7 +80,7 @@ export const tickets = $state({
 });
 
 export function showTickets() {
-  files.view = "tickets";
+  ui.view = "tickets";
   tickets.loaded = true;
   refresh();
 }

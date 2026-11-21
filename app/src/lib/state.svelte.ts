@@ -7,7 +7,10 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { t } from "$lib/i18n";
+import { projectsOf } from "$lib/nav-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
+// Each module reads the other only inside functions, so the import cycle is safe.
+import { tickets } from "$lib/tickets.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
 export type Project = { id: string; name: string; repos: Repo[] };
@@ -62,6 +65,17 @@ export type Gauge = {
   failure: ResetFailure | null;
 };
 export type ContextSettings = { on: boolean; resetAt: number; warningAt: number };
+export type ViewId = "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude";
+
+const projectKey = "termf.project";
+
+function storedProject(): string | null {
+  try {
+    return localStorage.getItem(projectKey);
+  } catch {
+    return null;
+  }
+}
 
 export const app = $state({
   workspace: null as Workspace | null,
@@ -72,17 +86,33 @@ export const app = $state({
   keepAwake: null as KeepAwakeState | null,
   sync: null as SyncStatus | null,
   contextSettings: null as ContextSettings | null,
+  /** The current project's id, read by every view; null is every project. */
+  project: storedProject(),
 });
 
-/** Overlays opened from the top bar, the shortcuts or the palette. */
+/** Remembered on this machine. */
+export function setProject(id: string | null) {
+  app.project = id;
+  try {
+    if (id === null) localStorage.removeItem(projectKey);
+    else localStorage.setItem(projectKey, id);
+  } catch {
+    // Storage off: the choice holds until the app closes.
+  }
+}
+
+/** The view shown, and the overlays opened from the navigation, the shortcuts or the palette. */
 export const ui = $state({
+  view: "terminals" as ViewId,
   palette: false,
   settings: false,
-  /** The project whose editor is open in the sidebar. */
+  switcher: false,
+  launcher: false,
+  /** The project whose editor is open, "" for a new one. */
   editing: null as string | null,
 });
 
-/** Paths of the repositories ticked in the sidebar. */
+/** Paths of the repositories ticked in the session launcher. */
 export const selected = new SvelteSet<string>();
 
 /** Ids of the sessions ticked for broadcast. */
@@ -212,9 +242,9 @@ export async function setKeepAwake(mode: KeepAwakeMode, displayOn: boolean): Pro
   }
 }
 
-/** Opens `agent` (or a login shell when null) in every ticked repository. */
-export async function openSelected(agent: string | null) {
-  for (const path of selected) await openSession(path, agent);
+/** Opens `agent` (or a login shell when null) in each repository. */
+export async function openRepos(paths: string[], agent: string | null) {
+  for (const path of paths) await openSession(path, agent);
 }
 
 export async function openSession(path: string, agent: string | null) {
@@ -229,6 +259,9 @@ export async function openSession(path: string, agent: string | null) {
         remoteControl: launch.remoteControl,
       }),
     );
+    // A session opened outside the current project would get a hidden tile: show every project instead.
+    const projects = projectsOf(path, app.workspace?.projects ?? [], tickets.runs);
+    if (app.project !== null && !projects.includes(app.project)) setProject(null);
   } catch (e) {
     app.error = String(e);
   }
@@ -240,8 +273,11 @@ export async function closeSession(id: number) {
   if (app.focused === id) app.focused = null;
 }
 
-/** Options of the Open button. `agent` is null for a shell, undefined for the first agent. Remote Control only applies to Claude Code agents. */
-export const launch = $state({ remoteControl: false, agent: undefined as string | null | undefined });
+/**
+ * Options of the Open button. `agent` is null for a shell, undefined for the first agent. Remote Control only applies
+ * to Claude Code agents. `others`: the repositories outside the current project are unfolded in the launcher.
+ */
+export const launch = $state({ remoteControl: false, agent: undefined as string | null | undefined, others: false });
 
 export function launchAgent(): string | null {
   const agents = app.workspace?.agents ?? [];

@@ -2,10 +2,12 @@
   import { invoke } from "@tauri-apps/api/core";
   import Megaphone from "@lucide/svelte/icons/megaphone";
   import { t } from "$lib/i18n";
+  import { shown } from "$lib/project.svelte";
   import { app, ticked } from "$lib/state.svelte";
 
   let text = $state("");
-  const targets = $derived(app.sessions.filter((s) => s.running && ticked.has(s.id)));
+  // Never to a tile of another project, out of sight.
+  const targets = $derived(app.sessions.filter((s) => s.running && ticked.has(s.id) && shown(s)));
   const keys = t(navigator.userAgent.includes("Mac") ? "broadcastKeysMac" : "broadcastKeys");
 
   const write = (id: number, data: string) => invoke("pty_write", { id, data }).catch(() => {});
@@ -41,7 +43,7 @@
   }}
 >
   <div class="ticks">
-    <button type="button" class="btn sm quiet" onclick={() => app.sessions.forEach((s) => ticked.add(s.id))}>
+    <button type="button" class="btn sm quiet" onclick={() => app.sessions.filter(shown).forEach((s) => ticked.add(s.id))}>
       {t("tickAll")}
     </button>
     <button type="button" class="btn sm quiet" onclick={() => ticked.clear()}>{t("tickNone")}</button>

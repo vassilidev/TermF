@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { files } from "$lib/files.svelte";
+import { ui } from "$lib/state.svelte";
 import { lang, t } from "$lib/i18n";
 
 export type Mode = "headless" | "tile";
@@ -70,7 +70,7 @@ export const schedule = $state({
 export const runsHere = (task: Task) => !task.machine || task.machine === schedule.machine;
 
 export function showScheduler() {
-  files.view = "scheduler";
+  ui.view = "scheduler";
   schedule.loaded = true;
   refresh();
 }

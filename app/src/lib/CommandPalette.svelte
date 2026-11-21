@@ -4,13 +4,33 @@
   import Search from "@lucide/svelte/icons/search";
   import { commands, rank, type Command } from "$lib/commands";
   import { t } from "$lib/i18n";
+  import { currentProject } from "$lib/files.svelte";
+  import type { Group } from "$lib/nav-logic";
   import { ui } from "$lib/state.svelte";
 
   let dialog: HTMLDialogElement;
-  let list: HTMLUListElement;
+  let list: HTMLDivElement;
   let query = $state("");
   let index = $state(0);
   const results = $derived(rank(commands(), query));
+  /** The results cut where the group changes, with each one's index among all. */
+  const sections = $derived.by(() => {
+    const out: { group: Group; items: { command: Command; i: number }[] }[] = [];
+    results.forEach((command, i) => {
+      if (out.at(-1)?.group !== command.group) out.push({ group: command.group, items: [] });
+      out.at(-1)!.items.push({ command, i });
+    });
+    return out;
+  });
+  const project = currentProject();
+  const titles: Record<Group, string> = {
+    projects: t("projects"),
+    sessions: t("navSessions"),
+    repos: project ? t("navProjectRepos", { project: project.name }) : t("repos"),
+    others: t("repos"),
+    views: t("navViews"),
+    actions: t("navActions"),
+  };
   const previous = document.activeElement as HTMLElement | null;
   let restored = false;
 
@@ -23,7 +43,7 @@
   }
 
   onMount(() => {
-    ui.settings = false;
+    Object.assign(ui, { settings: false, switcher: false, launcher: false });
     dialog.showModal();
     return restore;
   });
@@ -85,26 +105,33 @@
       {onkeydown}
     />
   </div>
-  <ul id="palette-list" role="listbox" aria-label={t("palette")} bind:this={list}>
-    {#each results as command, i (command.id)}
-      <!-- svelte-ignore a11y_click_events_have_key_events (the input drives the list with the arrow keys) -->
-      <li
-        id="palette-{i}"
-        role="option"
-        aria-selected={i === index}
-        onclick={() => run(command)}
-        onmousemove={() => (index = i)}
-      >
-        <command.icon size={16} aria-hidden="true" />
-        <span class="label">{command.label}</span>
-        {#if command.hint}<span class="hint">{command.hint}</span>{/if}
-        {#if command.checked}<Check size={14} aria-hidden="true" />{/if}
-        {#if command.keys}<kbd>{command.keys}</kbd>{/if}
-      </li>
+  <div id="palette-list" class="list" role="listbox" aria-label={t("palette")} bind:this={list}>
+    {#each sections as section (section.group)}
+      <div role="group" aria-labelledby="palette-group-{section.group}">
+        <div class="group" id="palette-group-{section.group}">{titles[section.group]}</div>
+        {#each section.items as { command, i } (command.id)}
+          <!-- svelte-ignore a11y_click_events_have_key_events (the input drives the list with the arrow keys) -->
+          <div
+            id="palette-{i}"
+            class="option"
+            role="option"
+            aria-selected={i === index}
+            tabindex="-1"
+            onclick={() => run(command)}
+            onmousemove={() => (index = i)}
+          >
+            <command.icon size={16} aria-hidden="true" />
+            <span class="label">{command.label}</span>
+            {#if command.hint}<span class="hint">{command.hint}</span>{/if}
+            {#if command.checked}<Check size={14} aria-hidden="true" />{/if}
+            {#if command.keys}<kbd>{command.keys}</kbd>{/if}
+          </div>
+        {/each}
+      </div>
     {:else}
-      <li class="none">{t("filesNoResults")}</li>
+      <div class="none">{t("filesNoResults")}</div>
     {/each}
-  </ul>
+  </div>
   <footer aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd> {t("paletteNavigate")}</span>
     <span><kbd>↵</kbd> {t("paletteRun")}</span>
@@ -163,16 +190,22 @@
     outline: none;
   }
 
-  ul {
+  .list {
     max-height: min(420px, 52vh);
-    margin: 0;
-    padding: 6px;
+    padding: 0 6px 6px;
     overflow-y: auto;
-    list-style: none;
-    scroll-padding: 6px;
+    scroll-padding: 28px 6px 6px;
   }
 
-  li {
+  .group {
+    padding: 10px 10px 4px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+
+  .option,
+  .none {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -184,7 +217,7 @@
     white-space: nowrap;
   }
 
-  li[aria-selected="true"] {
+  .option[aria-selected="true"] {
     background: var(--selected);
     color: var(--text);
   }
@@ -211,12 +244,13 @@
     margin-left: auto;
   }
 
-  li :global(svg:not(:first-child)) {
+  .option :global(svg:not(:first-child)) {
     color: var(--accent-ink);
   }
 
   .none {
     justify-content: center;
+    margin-top: 6px;
     cursor: default;
   }
 

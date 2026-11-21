@@ -11,6 +11,7 @@
   import { t } from "$lib/i18n";
   import { app, closeSession, resetContext, ticked, type Session } from "$lib/state.svelte";
 
+  /** `index`: among the tiles shown, -1 for a session of another project. */
   let { session, index }: { session: Session; index: number } = $props();
 
   const isFocused = $derived(app.focused === session.id);
@@ -24,7 +25,7 @@
   class:ticked={ticked.has(session.id)}
   class:maximized={isFocused}
   data-session={session.id}
-  hidden={app.focused !== null && !isFocused}
+  hidden={index < 0 || (app.focused !== null && !isFocused)}
   aria-label={session.title}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions (a shortcut for the maximize button) -->
@@ -46,7 +47,7 @@
     {/if}
     <!-- Over the end of the title, so a narrow tile keeps its name readable until hovered. -->
     <div class="actions">
-      {#if index < 9}<kbd aria-hidden="true">{keys.tile(index + 1)}</kbd>{/if}
+      {#if index >= 0 && index < 9}<kbd aria-hidden="true">{keys.tile(index + 1)}</kbd>{/if}
       <input
         type="checkbox"
         class="tick"
