@@ -29,17 +29,28 @@
   .tally {
     display: inline-flex;
     flex-shrink: 0;
-    gap: 3px;
+    gap: 2px;
   }
 
   .tally > span {
     display: inline-flex;
   }
 
+  /* Compact pills for a 30px row; only the amber one keeps its fill, the single signal of urgency. */
   .tally :global(.pill) {
-    gap: 3px;
+    gap: 2px;
     height: 20px;
     padding: 0 6px 0 5px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .tally :global(.pill:not(.waiting)) {
+    padding: 0 3px;
+    background: none;
+  }
+
+  .tally :global(.pill svg) {
+    width: 12px;
+    height: 12px;
   }
 </style>

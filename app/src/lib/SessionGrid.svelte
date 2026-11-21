@@ -29,6 +29,8 @@
   const shortcuts = $derived([
     [keys.palette, t("palette")],
     [keys.next, t("nextWaiting")],
+    [keys.switcher, t("navSwitchProject")],
+    [keys.launcher, t("navNewSession")],
     [`${keys.tile(1)}…9`, t("focusTiles")],
     [keys.maximize, t("maximizeActive")],
     [keys.quick, t("quickTerminal")],

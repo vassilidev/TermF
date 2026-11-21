@@ -54,7 +54,6 @@
         <button class="nav-item" aria-current={app.project === null ? "true" : undefined} onclick={() => setProject(null)}>
           <span class="mark all" aria-hidden="true"><Layers size={13} /></span>
           <span class="label">{t("ticketsAll")}</span>
-          <ProjectTally tally={counts["*"]} />
         </button>
       </li>
       {#each projects as project, i (project.id)}
@@ -226,7 +225,8 @@
     color: var(--muted);
   }
 
-  .nav :global(.nav-item:hover) {
+  .nav :global(.nav-item:hover),
+  .nav :global(.nav-item[aria-expanded="true"]) {
     background: var(--hover);
   }
 
