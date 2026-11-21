@@ -65,20 +65,21 @@ pub fn detect(repo: &Path, env: &[(String, String)]) -> RepoRecipe {
                 "pnpm install --frozen-lockfile --offline",
                 "pnpm install --frozen-lockfile",
             ],
-            ("pnpm", false) => &["pnpm install --prefer-offline"],
+            ("pnpm", false) => &["pnpm install --prefer-offline --no-lockfile"],
             // Yarn 2+ installs from its own cache, offline when it has everything.
             ("yarn", true) if has(".yarnrc.yml") => &["yarn install --immutable"],
             ("yarn", true) => &[
                 "yarn install --frozen-lockfile --offline",
                 "yarn install --frozen-lockfile",
             ],
-            ("yarn", false) => &["yarn install --prefer-offline"],
+            ("yarn", false) => &["yarn install --prefer-offline --no-lockfile"],
             ("bun", _) => &["bun install --frozen-lockfile"],
             (_, true) => &[
                 "npm ci --offline --no-audit --no-fund",
                 "npm ci --prefer-offline --no-audit --no-fund",
             ],
-            _ => &["npm install --prefer-offline --no-audit --no-fund"],
+            // Without a lockfile, none is created: it would end up in the run's pull request.
+            _ => &["npm install --prefer-offline --no-audit --no-fund --no-package-lock"],
         };
         dep("node_modules", true, install);
         if ["js", "ts", "mjs", "mts", "cjs"]

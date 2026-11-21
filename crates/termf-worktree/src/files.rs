@@ -52,14 +52,30 @@ pub(crate) fn include(
             "--directory",
         ],
     )?;
-    let (mut copied, mut present) = (Vec::new(), 0);
+    let mut entries: Vec<(String, bool)> = Vec::new();
     for entry in listing.split('\0').filter(|e| !e.is_empty()) {
         let path = entry.trim_end_matches('/');
-        let dependency = DEPENDENCY_DIRS
-            .iter()
-            .chain(skip)
-            .any(|d| !d.is_empty() && (path == *d || path.ends_with(&format!("/{d}"))));
-        if dependency || !included(patterns, path, entry.ends_with('/')) {
+        let is_dir = entry.ends_with('/');
+        // A folder ignored as a whole is listed once: walk into it when a pattern names a file inside.
+        if is_dir && !included(patterns, path, true) && names_inside(patterns, path) {
+            entries.extend(files_under(source, path).into_iter().map(|f| (f, false)));
+        } else {
+            entries.push((path.to_owned(), is_dir));
+        }
+    }
+    entries.sort();
+    entries.dedup();
+    let (mut copied, mut present) = (Vec::new(), 0);
+    for (path, is_dir) in &entries {
+        let path = path.as_str();
+        let dependency = DEPENDENCY_DIRS.iter().chain(skip).any(|d| {
+            !d.is_empty()
+                && (path == *d
+                    || path.starts_with(&format!("{d}/"))
+                    || path.ends_with(&format!("/{d}"))
+                    || path.contains(&format!("/{d}/")))
+        });
+        if dependency || !included(patterns, path, *is_dir) {
             continue;
         }
         let Some(rel) = relative(path) else { continue };
@@ -84,9 +100,33 @@ pub(crate) fn include(
     Ok((copied, present))
 }
 
+/// Whether a pattern names something inside the folder `dir`, such as `.bundle/config` for `.bundle`.
+fn names_inside(patterns: &[String], dir: &str) -> bool {
+    patterns.iter().filter(|p| !p.starts_with('!')).any(|p| {
+        let p = p.trim_start_matches('/');
+        let literal = &p[..p.find(['*', '?', '[']).unwrap_or(p.len())];
+        literal.starts_with(&format!("{dir}/"))
+    })
+}
+
+/// The files under `rel` in `root`, relative to `root`, with `/` separators.
+fn files_under(root: &Path, rel: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let Ok(entries) = fs::read_dir(root.join(rel)) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let name = format!("{rel}/{}", entry.file_name().to_string_lossy());
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => found.extend(files_under(root, &name)),
+            Ok(_) => found.push(name),
+            Err(_) => {}
+        }
+    }
+    found
+}
+
 /// Whether the patterns take `path`: the last pattern that matches it, or one of its folders, decides.
-// shortcut: a folder git ignores as a whole is matched as one entry, so `dir/*.key` does not reach inside it;
-// list `dir/` instead.
 pub(crate) fn included(patterns: &[String], path: &str, is_dir: bool) -> bool {
     let mut take = false;
     for pattern in patterns {

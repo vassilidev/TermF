@@ -566,6 +566,10 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     );
     let journal = fs::read_to_string(sb.root.join("data/runs/1/journal.md")).unwrap();
     assert!(journal.starts_with("# Fix the login button\n"));
+    assert!(
+        journal.contains("prepared the worktree with the detected recipe (not saved)"),
+        "{journal}"
+    );
 
     fs::write(worktree.join("login.txt"), "fixed\n").unwrap();
     let stopped = Cell::new(false);

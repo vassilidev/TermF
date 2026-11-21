@@ -184,7 +184,16 @@ impl Event {
                 format!("closed by force, dropping {}", dropped.join(", "))
             }
             Event::Failed { error } => format!("failed: {error}"),
-            Event::Setup { steps, .. } => format!("prepared the worktree: {}", steps_text(steps)),
+            Event::Setup { steps, saved: true } => {
+                format!("prepared the worktree: {}", steps_text(steps))
+            }
+            Event::Setup {
+                steps,
+                saved: false,
+            } => format!(
+                "prepared the worktree with the detected recipe (not saved): {}",
+                steps_text(steps)
+            ),
             Event::Teardown { steps } => format!("cleaned up the worktree: {}", steps_text(steps)),
         }
     }

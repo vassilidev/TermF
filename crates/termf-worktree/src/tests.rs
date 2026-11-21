@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use super::*;
 use crate::database::{parse_env, read, set_env, with_database};
@@ -227,7 +228,11 @@ fn detects_each_stack() {
             "declared",
             &[("package.json", r#"{"packageManager":"pnpm@9.1.0"}"#)],
             &["node:pnpm"],
-            &[("node_modules", true, "pnpm install --prefer-offline")],
+            &[(
+                "node_modules",
+                true,
+                "pnpm install --prefer-offline --no-lockfile",
+            )],
         ),
         (
             "uv",
@@ -403,6 +408,13 @@ fn reads_and_rewrites_env_files() {
     let erb =
         conn("development:\n  adapter: postgresql\n  database: <%= ENV['DB'] %>\n").unwrap_err();
     assert!(format!("{erb:#}").contains("ERB"), "{erb:#}");
+    let laravel11 =
+        conn("DB_CONNECTION=mysql\nDB_URL=mysql://u@127.0.0.1/app\nDB_DATABASE=other\n").unwrap();
+    assert_eq!(
+        (laravel11.engine, laravel11.name.as_str()),
+        (Engine::Mysql, "app"),
+        "DB_URL overrides DB_DATABASE"
+    );
     let other = conn("DB_CONNECTION=sqlsrv\n").unwrap_err();
     assert!(format!("{other:#}").contains("not supported"), "{other:#}");
 }
@@ -631,6 +643,8 @@ fn clones_or_installs_dependencies_never_copies_them() {
                     dep("target", true, &[]),
                     dep("missing", true, &[]),
                     dep("", false, &["exit 3"]),
+                    dep("build", false, &["mkdir -p build"]),
+                    dep("", false, &["touch package-lock.json"]),
                 ],
                 ..RepoRecipe::default()
             },
@@ -693,6 +707,17 @@ fn clones_or_installs_dependencies_never_copies_them() {
     let failed = find(&report, StepKind::Deps, "exit");
     assert_eq!(failed.outcome, Outcome::Failed);
     assert!(failed.detail.contains("exit 3"), "{failed:?}");
+    let build = find(&report, StepKind::Deps, "build");
+    assert_eq!(build.outcome, Outcome::Skipped, "{build:?}");
+    assert!(build.detail.contains("git does not ignore build"));
+    assert!(!path.join("build").exists(), "not installed at all");
+    let lock = find(&report, StepKind::Deps, "touch");
+    assert_eq!(lock.outcome, Outcome::Failed, "{lock:?}");
+    assert!(
+        lock.detail.contains("files git does not ignore")
+            && lock.detail.contains("package-lock.json"),
+        "{lock:?}"
+    );
     assert!(report.failed());
     assert_eq!(
         setup.last(&path),
@@ -790,6 +815,16 @@ fn copies_a_sqlite_database_per_worktree() {
         !beside.exists() && shared.exists(),
         "the copy goes, the original stays"
     );
+
+    let path = sb.worktree(&api, "three");
+    setup.run(&setup.locate(&path, Some("9".into())).unwrap());
+    let copy = shared.with_file_name("api_termf_9.sqlite");
+    assert!(copy.exists());
+    fs::remove_dir_all(&path).unwrap();
+    sb.git(&api, &["worktree", "prune"]);
+    let down = setup.teardown(&path, "9");
+    assert_eq!(one(&down, StepKind::Database).outcome, Outcome::Dropped);
+    assert!(!copy.exists(), "dropped although the worktree was gone");
 }
 
 #[test]
@@ -1257,6 +1292,7 @@ fn runs_the_setup_agent_in_the_worktree() {
         "--strict-mcp-config",
         "--disallowedTools Bash(git push:*)",
         "\"sandbox\"",
+        "\"allowWrite\"",
     ] {
         assert!(args.contains(expected), "{expected} missing in {args}");
     }
@@ -1315,4 +1351,232 @@ fn copies_a_real_mysql_database() {
     setup.teardown(&path, "1");
     assert_eq!(mysql("SHOW DATABASES LIKE 'shop_termf_1'"), "");
     mysql("DROP DATABASE shop");
+}
+
+#[test]
+fn includes_files_inside_a_folder_git_ignores_whole() {
+    let sb = Sandbox::new("inside");
+    let app = sb.repo(
+        "app",
+        &[
+            (".gitignore", ".bundle/\nstorage/\n"),
+            ("Gemfile", ""),
+            (".bundle/config", "BUNDLE_PATH: \"vendor/bundle\"\n"),
+            ("storage/oauth-private.key", "key\n"),
+            ("storage/logs/app.log", "log\n"),
+        ],
+    );
+    let detected = detect(&app, &sb.env);
+    assert!(
+        detected.include.contains(&".bundle/config".to_owned()),
+        "{detected:?}"
+    );
+    let wt = sb.worktree(&app, "one");
+    let patterns = strings(&[".bundle/config", "storage/*.key"]);
+    let (copied, _) = files::include(&sb.env, &app, &wt, &patterns, &[]).unwrap();
+    assert_eq!(
+        copied,
+        strings(&[".bundle/config", "storage/oauth-private.key"])
+    );
+    assert!(
+        !wt.join("storage/logs").exists(),
+        "only what a pattern names"
+    );
+}
+
+#[test]
+fn opens_the_agent_sandbox_to_the_local_database_only() {
+    let sb = Sandbox::new("access");
+    let access = |env: &str| {
+        let dir = sb.dir(&format!("a{}", env.len()), &[(".env", env)]);
+        database::access(&dir, ".env")
+    };
+    let tcp = access("DATABASE_URL=postgres://u@localhost:5433/app\n").unwrap();
+    assert!(tcp.local_tcp && tcp.sockets.is_empty());
+    let pg_socket = access("DATABASE_URL=postgres://u@/app?host=/var/run/postgresql\n").unwrap();
+    assert_eq!(pg_socket.sockets, ["/var/run/postgresql/.s.PGSQL.5432"]);
+    let my_default = access("DB_CONNECTION=mysql\nDB_HOST=\nDB_DATABASE=shop\n").unwrap();
+    assert!(!my_default.local_tcp && my_default.sockets.contains(&"/tmp/mysql.sock".to_owned()));
+    assert_eq!(
+        access("DB_CONNECTION=sqlite\n"),
+        None,
+        "a file needs nothing"
+    );
+    assert_eq!(
+        access("DATABASE_URL=postgres://u@db.example.com/app\n"),
+        None,
+        "refused, so never opened"
+    );
+    let settings = sandbox(Some(&tcp));
+    assert_eq!(settings["sandbox"]["network"]["allowLocalBinding"], true);
+    assert!(settings["sandbox"]["filesystem"]["allowWrite"].is_array());
+    let settings = sandbox(Some(&pg_socket));
+    assert_eq!(
+        settings["sandbox"]["network"]["allowUnixSockets"][0],
+        "/var/run/postgresql/.s.PGSQL.5432"
+    );
+    assert!(sandbox(None)["sandbox"]["network"]["allowLocalBinding"].is_null());
+}
+
+#[cfg(unix)]
+#[test]
+fn points_every_env_file_at_the_copy_and_ignores_inherited_servers() {
+    let sb = Sandbox::new("layers");
+    let log = sb.root.join("calls.log");
+    sb.fake(
+        "mysql",
+        &format!("echo \"mysql $* | $MYSQL_HOST\" >> {log:?}\ncat > /dev/null\n"),
+    );
+    sb.fake(
+        "mysqldump",
+        &format!(
+            "case \"$*\" in *--version*) echo 'mysqldump  Ver 8.4.3'; exit;; esac\n\
+             echo \"mysqldump $*\" >> {log:?}\necho '-- dump'\n"
+        ),
+    );
+    let app = sb.repo(
+        "app",
+        &[
+            (".gitignore", ".env*\n"),
+            (
+                ".env",
+                "DB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_DATABASE=shop\nDB_USERNAME=root\nANALYTICS_URL=mysql://root@127.0.0.1/stats\n",
+            ),
+            (".env.development", "DB_URL=mysql://root@127.0.0.1/shop\n"),
+            (".env.local", "DATABASE_URL=\"mysql://root@127.0.0.1:3306/shop\"\n"),
+            (".env.development.local", "DB_DATABASE=shop\n"),
+        ],
+    );
+    sb.project("acme", &[&app]);
+    let mut setup = sb.setup();
+    // Settings of the app's own environment that would pick another server.
+    setup
+        .env
+        .push(("MYSQL_HOST".into(), "db.example.com".into()));
+    let detected = detect(&app, &sb.env);
+    assert_eq!(
+        detected.database.as_deref(),
+        Some(".env.local"),
+        "the file that wins first"
+    );
+    let path = sb.worktree(&app, "one");
+    let report = setup.run(&setup.locate(&path, Some("5".into())).unwrap());
+    let db = one(&report, StepKind::Database);
+    assert_eq!(
+        (db.outcome, db.target.as_str()),
+        (Outcome::Created, "shop_termf_5"),
+        "{db:?}"
+    );
+    assert!(sb.log().starts_with(
+        "mysql --no-defaults --host=127.0.0.1 --port=3306 --user=root -e CREATE DATABASE `shop_termf_5` | \n"
+    ));
+    for file in [
+        ".env",
+        ".env.development",
+        ".env.local",
+        ".env.development.local",
+    ] {
+        let text = fs::read_to_string(path.join(file)).unwrap();
+        assert!(text.contains("shop_termf_5"), "{file}: {text}");
+        assert!(
+            !text.contains("/shop\n") && !text.contains("/shop\"") && !text.contains("=shop\n"),
+            "{file} still names the original: {text}"
+        );
+    }
+    let base = fs::read_to_string(path.join(".env")).unwrap();
+    assert!(
+        base.contains("ANALYTICS_URL=mysql://root@127.0.0.1/stats"),
+        "another database stays"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn ignores_inherited_postgres_settings() {
+    let sb = Sandbox::new("pgenv");
+    let log = sb.root.join("calls.log");
+    sb.fake(
+        "psql",
+        &format!("echo \"$PGHOST|$PGPORT|$PGSERVICE|$PGSERVICEFILE|$PGHOSTADDR\" >> {log:?}\n"),
+    );
+    let app = sb.repo(
+        "app",
+        &[
+            (".gitignore", ".env\n"),
+            (".env", "DATABASE_URL=postgres://me@/app\n"),
+        ],
+    );
+    sb.project("acme", &[&app]);
+    let mut setup = sb.setup();
+    for (key, value) in [
+        ("PGHOST", "db.example.com"),
+        ("PGPORT", "6543"),
+        ("PGSERVICE", "prod"),
+        ("PGSERVICEFILE", "/etc/pg_service.conf"),
+        ("PGHOSTADDR", "10.0.0.5"),
+    ] {
+        setup.env.push((key.into(), value.into()));
+    }
+    let path = sb.worktree(&app, "one");
+    let report = setup.run(&setup.locate(&path, Some("2".into())).unwrap());
+    assert_eq!(
+        one(&report, StepKind::Database).outcome,
+        Outcome::Created,
+        "{report:#?}"
+    );
+    assert_eq!(
+        sb.log(),
+        "||||\n",
+        "no host: the local socket, whatever the environment says"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_restore_that_stops_early_never_hangs_the_dump() {
+    let sb = Sandbox::new("pipe");
+    let log = sb.root.join("calls.log");
+    sb.fake(
+        "mysql",
+        &format!(
+            "echo \"mysql $*\" >> {log:?}\n\
+             case \"$*\" in *' -e '*) exit 0;; esac\n\
+             echo 'ERROR 1064 (42000) at line 1: syntax error' >&2; exit 1\n"
+        ),
+    );
+    // Far more than a pipe holds: with a reader left open, it would block forever.
+    sb.fake(
+        "mysqldump",
+        "case \"$*\" in *--version*) echo 'mysqldump  Ver 8.4.3'; exit;; esac\nhead -c 50000000 /dev/zero\n",
+    );
+    let shop = sb.repo(
+        "shop",
+        &[
+            (".gitignore", ".env\n"),
+            (
+                ".env",
+                "DB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_DATABASE=shop\n",
+            ),
+        ],
+    );
+    sb.project("acme", &[&shop]);
+    let setup = sb.setup();
+    let path = sb.worktree(&shop, "one");
+    let started = Instant::now();
+    let report = setup.run(&setup.locate(&path, Some("3".into())).unwrap());
+    assert!(started.elapsed() < Duration::from_secs(60), "it hung");
+    let db = one(&report, StepKind::Database);
+    assert_eq!(db.outcome, Outcome::Failed, "{db:?}");
+    assert!(db.detail.contains("restore: ERROR 1064"), "{db:?}");
+    assert!(
+        sb.log()
+            .contains("-e DROP DATABASE IF EXISTS `shop_termf_3`"),
+        "the half-made copy is dropped"
+    );
+    assert!(
+        fs::read_to_string(path.join(".env"))
+            .unwrap()
+            .contains("DB_DATABASE=shop\n"),
+        "not pointed at a copy that does not exist"
+    );
 }

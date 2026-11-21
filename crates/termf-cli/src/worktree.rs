@@ -27,7 +27,7 @@ pub fn run(args: &[&str]) -> Result<()> {
         println!("recorded in the journal of run {}", run.id);
     }
     if action == "setup" && !report.saved {
-        println!("(the project has no saved recipe: this is what detection found)");
+        println!("detected recipe (not saved): the project has no saved recipe yet");
     }
     if report.failed() {
         bail!("some steps failed");
