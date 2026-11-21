@@ -18,12 +18,12 @@
     selected,
     shortPath,
     toggleProject,
+    ui,
   } from "$lib/state.svelte";
 
   let filter = $state("");
   let sort = $state<"recent" | "name">("recent");
   let creating = $state(false);
-  let editing = $state<string | null>(null);
   const agent = $derived(launchAgent());
 
   const visibleRepos = $derived.by(() => {
@@ -64,7 +64,7 @@
         {#snippet actions()}
           <button
             class="icon-btn sm"
-            onclick={() => ((creating = true), (editing = null))}
+            onclick={() => ((creating = true), (ui.editing = null))}
             aria-label={t("newProject")}
             title={t("newProject")}
           >
@@ -78,8 +78,8 @@
           {#each app.workspace.projects as project (project.id)}
             {@const ticked = project.repos.filter((r) => selected.has(r.path)).length}
             <li>
-              {#if editing === project.id}
-                <ProjectEditor {project} onclose={() => (editing = null)} />
+              {#if ui.editing === project.id}
+                <ProjectEditor {project} onclose={() => (ui.editing = null)} />
               {:else}
                 <div class="item">
                   <label class="row">
@@ -94,7 +94,7 @@
                   </label>
                   <button
                     class="icon-btn sm reveal"
-                    onclick={() => ((editing = project.id), (creating = false))}
+                    onclick={() => ((ui.editing = project.id), (creating = false))}
                     aria-label={t("editProject", { name: project.name })}
                     title={t("editProject", { name: project.name })}
                   >

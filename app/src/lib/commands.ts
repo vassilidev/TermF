@@ -18,6 +18,7 @@ import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+import Ticket from "@lucide/svelte/icons/ticket";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -39,6 +40,7 @@ import {
   type KeepAwakeMode,
 } from "$lib/state.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
+import { launchTicket, showTickets } from "$lib/tickets.svelte";
 
 const mod = isMac ? "⌘" : "Ctrl+";
 
@@ -48,6 +50,7 @@ export const keys = {
   next: `${mod}J`,
   maximize: isMac ? "⌘↵" : "Ctrl+Enter",
   file: `${mod}P`,
+  ticket: isMac ? "⌘⇧L" : "Ctrl+Shift+L",
   tile: (n: number) => `${mod}${n}`,
 };
 
@@ -65,7 +68,7 @@ export async function focusSession(id: number) {
   await fontReady;
   document
     .querySelector<HTMLElement>(`[data-session="${id}"] .xterm-helper-textarea`)
-    ?.focus();
+    ?.focus({ preventScroll: true });
 }
 
 export function nextWaiting() {
@@ -92,6 +95,7 @@ export function onShortcut(e: KeyboardEvent) {
   if (letter === "k" && (e.shiftKey || !needsShift)) action = () => (ui.palette = !ui.palette);
   else if (ui.palette) return;
   else if (letter === "j" && (e.shiftKey || !needsShift)) action = nextWaiting;
+  else if (letter === "l" && e.shiftKey) action = launchTicket;
   else if (e.key === "Enter" && !e.shiftKey && files.view === "terminals") action = toggleMaximize;
   else if (/^Digit[1-9]$/.test(e.code)) {
     // The code, not the key: AZERTY layouts type digits with Shift.
@@ -170,6 +174,7 @@ export function commands(): Command[] {
     }
   }
   list.push({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
+  list.push({ id: "ticket-launch", label: t("ticketLaunchLong"), keys: keys.ticket, icon: Ticket, run: launchTicket });
   if (files.view !== "terminals") {
     list.push({ id: "view", label: t("showTerminals"), icon: LayoutGrid, run: () => (files.view = "terminals") });
   }
@@ -178,6 +183,9 @@ export function commands(): Command[] {
     list.push({ id: "view-library", label: t("showLibrary"), icon: LibraryBig, run: showLibrary });
   }
   if (files.view !== "ssh") list.push({ id: "view-ssh", label: t("showSsh"), icon: KeyRound, run: showSsh });
+  if (files.view !== "tickets") {
+    list.push({ id: "view-tickets", label: t("showTickets"), icon: Ticket, run: showTickets });
+  }
   list.push({
     id: "file",
     label: t("filesFind"),

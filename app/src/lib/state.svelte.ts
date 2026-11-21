@@ -75,7 +75,12 @@ export const app = $state({
 });
 
 /** Overlays opened from the top bar, the shortcuts or the palette. */
-export const ui = $state({ palette: false, settings: false });
+export const ui = $state({
+  palette: false,
+  settings: false,
+  /** The project whose editor is open in the sidebar. */
+  editing: null as string | null,
+});
 
 /** Paths of the repositories ticked in the sidebar. */
 export const selected = new SvelteSet<string>();
