@@ -246,7 +246,8 @@ pub async fn scout_run(
             &options,
             &claude(dir),
             progress,
-        )
+        )?;
+        scout::state(dir, project.as_deref())
     })
     .await
 }
