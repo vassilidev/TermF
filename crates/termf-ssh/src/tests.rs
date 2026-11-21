@@ -513,7 +513,7 @@ fn quotes_values_so_openssh_reads_them_back() {
         .unwrap();
     let resolved = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{out:?}");
-    assert!(resolved.contains("\nuser o'neil\n"), "{resolved}");
+    assert!(resolved.lines().any(|l| l == "user o'neil"), "{resolved}");
     assert!(
         resolved
             .lines()
