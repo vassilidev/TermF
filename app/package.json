@@ -10,7 +10,7 @@
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "test": "node --experimental-strip-types --test scripts/ci-logic.test.mjs scripts/nav-logic.test.mjs scripts/keymap-logic.test.mjs",
+    "test": "node --experimental-strip-types --test scripts/ci-logic.test.mjs scripts/nav-logic.test.mjs scripts/tickets-logic.test.mjs scripts/keymap-logic.test.mjs",
     "tauri": "tauri",
     "bundle": "tauri build --config src-tauri/tauri.bundle.conf.json"
   },
