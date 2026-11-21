@@ -1,13 +1,13 @@
-//! Claude Code's settings files by scope, which scope decides each key, and editing a simple key.
+//! Claude Code's settings files by scope, which scope decides each key, and editing them.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
-use crate::{Env, State, mask};
+use crate::{Env, State, mask, schema};
 
 /// From the lowest priority to the highest: managed settings win over everything (ARCHITECTURE §11.3,
 /// CLAUDE-CODE.md; `--settings` only exists for one session).
@@ -150,59 +150,35 @@ pub fn masked(mut settings: Settings) -> Settings {
     settings
 }
 
-/// The keys TermF edits, with the values the official schema accepts
-/// (https://json.schemastore.org/claude-code-settings.json).
-const EDITABLE: &[&str] = &[
-    "model",
-    "effortLevel",
-    "permissions.defaultMode",
-    "autoMemoryEnabled",
-    "cleanupPeriodDays",
-    "autoUpdatesChannel",
-];
-
-fn check(scope: Scope, key: &str, value: &Value) -> Result<()> {
-    let one_of = |allowed: &[&str]| {
-        ensure!(
-            value.as_str().is_some_and(|v| allowed.contains(&v)),
-            "{key} takes one of: {}",
-            allowed.join(", ")
-        );
-        Ok(())
-    };
-    match key {
-        "model" => ensure!(
-            value.as_str().is_some_and(|m| !m.trim().is_empty()
-                && m.len() <= 200
-                && !m.contains(char::is_control)),
-            "model takes a model name or alias"
-        ),
-        "effortLevel" => one_of(&["low", "medium", "high", "xhigh"])?,
-        "permissions.defaultMode" => {
-            one_of(&[
-                "default",
-                "acceptEdits",
-                "plan",
-                "auto",
-                "dontAsk",
-                "bypassPermissions",
-            ])?;
-            ensure!(
-                scope != Scope::Project
-                    || !matches!(value.as_str(), Some("auto" | "bypassPermissions")),
-                "Claude Code ignores {} in a project's shared settings",
-                value
-            );
-        }
-        "autoMemoryEnabled" => ensure!(value.is_boolean(), "autoMemoryEnabled takes true or false"),
-        "cleanupPeriodDays" => ensure!(
-            value.as_u64().is_some_and(|d| d >= 1),
-            "cleanupPeriodDays takes a whole number of days, at least 1"
-        ),
-        "autoUpdatesChannel" => one_of(&["stable", "latest"])?,
-        _ => bail!("TermF does not edit {key}"),
-    }
-    Ok(())
+/// One change to a settings file. Lists and hooks change item by item, by position: what the page shows is
+/// masked, so it never sends a whole value back unless you revealed it.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "op", rename_all = "camelCase")]
+pub enum Edit {
+    /// Sets a dotted key (`model`, `permissions.defaultMode`, `env.NODE_ENV`); `value: null` removes it.
+    Set { key: String, value: Option<Value> },
+    /// Appends an item to the list at `key`.
+    Add { key: String, value: Value },
+    /// Removes item `index` of the list at `key`.
+    Drop { key: String, index: usize },
+    /// Moves item `index` of the list at `key` to the end of the list at `to` (`permissions.allow` → `deny`).
+    Move {
+        key: String,
+        index: usize,
+        to: String,
+    },
+    /// Adds a command hook to `event`, in the group of the same matcher.
+    AddHook {
+        event: String,
+        matcher: Option<String>,
+        command: String,
+    },
+    /// Removes hook `index` of matcher group `group` of `event`.
+    DropHook {
+        event: String,
+        group: usize,
+        index: usize,
+    },
 }
 
 #[derive(Serialize, Debug)]
@@ -215,32 +191,38 @@ pub struct Preview {
     pub text: String,
 }
 
-/// What setting `key` (`value: None` removes it) in `scope`'s file would change. A file that is not valid JSON
-/// is never rewritten: Claude Code would reject it anyway, and its content would be lost.
-pub fn preview(env: &Env, scope: Scope, key: &str, value: Option<&Value>) -> Result<Preview> {
-    ensure!(EDITABLE.contains(&key), "TermF does not edit {key}");
-    ensure!(scope != Scope::Managed, "managed settings are read-only");
-    if let Some(value) = value {
-        check(scope, key, value)?;
+pub(crate) fn read_text(path: &Path) -> Result<String> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
     }
+}
+
+/// A file that is not valid JSON is never rewritten: Claude Code would reject it anyway, and its content
+/// would be lost.
+fn parse_root(text: &str, path: &Path) -> Result<Map<String, Value>> {
+    if text.trim().is_empty() {
+        return Ok(Map::new());
+    }
+    match serde_json::from_str(text) {
+        Ok(Value::Object(map)) => Ok(map),
+        _ => bail!(
+            "{} is not a valid JSON object: fix it first",
+            path.display()
+        ),
+    }
+}
+
+/// What `edit` would change in `scope`'s file.
+pub fn preview(env: &Env, scope: Scope, edit: &Edit) -> Result<Preview> {
+    ensure!(scope != Scope::Managed, "managed settings are read-only");
     let path = file(env, scope).context("choose a repository for the project and local scopes")?;
-    let before = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
-    };
-    let mut root = if before.trim().is_empty() {
-        Map::new()
-    } else {
-        match serde_json::from_str(&before) {
-            Ok(Value::Object(map)) => map,
-            _ => bail!(
-                "{} is not a valid JSON object: fix it first",
-                path.display()
-            ),
-        }
-    };
-    set(&mut root, key, value)?;
+    let before = read_text(&path)?;
+    let mut root = parse_root(&before, &path)?;
+    if let Some((key, value, item)) = apply(&mut root, edit)? {
+        check(scope, &key, &value, item)?;
+    }
     let text = pretty(&Value::Object(root), indent(&before))?;
     Ok(Preview {
         path: path.to_string_lossy().into_owned(),
@@ -249,10 +231,312 @@ pub fn preview(env: &Env, scope: Scope, key: &str, value: Option<&Value>) -> Res
     })
 }
 
-pub fn save(env: &Env, scope: Scope, key: &str, value: Option<&Value>) -> Result<Preview> {
-    let preview = preview(env, scope, key, value)?;
+pub fn save(env: &Env, scope: Scope, edit: &Edit) -> Result<Preview> {
+    let preview = preview(env, scope, edit)?;
     write_atomic(Path::new(&preview.path), &preview.text)?;
     Ok(preview)
+}
+
+/// The value of a dotted key in `scope`'s file, unmasked: only for a value you asked to see.
+pub fn reveal(env: &Env, scope: Scope, key: &str) -> Result<Value> {
+    let path = file(env, scope).context("choose a repository for the project and local scopes")?;
+    let root = Value::Object(parse_root(&read_text(&path)?, &path)?);
+    Ok(key
+        .split('.')
+        .try_fold(&root, |v, part| v.get(part))
+        .cloned()
+        .unwrap_or(Value::Null))
+}
+
+/// Applies `edit`; returns what it brings in, to check: the key, the value, and whether it is an item of the
+/// list at that key.
+fn apply(root: &mut Map<String, Value>, edit: &Edit) -> Result<Option<(String, Value, bool)>> {
+    Ok(match edit {
+        Edit::Set { key, value } => {
+            set(root, key, value.as_ref())?;
+            value.clone().map(|v| (key.clone(), v, false))
+        }
+        Edit::Add { key, value } => {
+            let list = list(root, key)?;
+            ensure!(!list.contains(value), "{value} is already in {key}");
+            list.push(value.clone());
+            Some((key.clone(), value.clone(), true))
+        }
+        Edit::Drop { key, index } => {
+            take(list(root, key)?, *index, key)?;
+            prune(root, key);
+            None
+        }
+        Edit::Move { key, index, to } => {
+            ensure!(key != to, "{key} is already where it goes");
+            let item = take(list(root, key)?, *index, key)?;
+            let target = list(root, to)?;
+            if !target.contains(&item) {
+                target.push(item.clone());
+            }
+            prune(root, key);
+            Some((to.clone(), item, true))
+        }
+        Edit::AddHook {
+            event,
+            matcher,
+            command,
+        } => {
+            ensure!(
+                !event.is_empty() && event.chars().all(|c| c.is_ascii_alphanumeric()),
+                "{event} is not a hook event"
+            );
+            ensure!(!command.trim().is_empty(), "a hook needs a command");
+            let key = format!("hooks.{event}");
+            let matcher = matcher.as_deref().map(str::trim).filter(|m| !m.is_empty());
+            let hook = json!({"type": "command", "command": command});
+            let groups = list(root, &key)?;
+            let same = |g: &Value| g["matcher"].as_str().filter(|m| !m.is_empty()) == matcher;
+            let group = match groups.iter_mut().find(|g| same(g)) {
+                Some(group) => {
+                    group["hooks"]
+                        .as_array_mut()
+                        .context("a hook group of this event has no list of hooks")?
+                        .push(hook);
+                    group.clone()
+                }
+                None => {
+                    let mut group = Map::new();
+                    if let Some(m) = matcher {
+                        group.insert("matcher".into(), m.into());
+                    }
+                    group.insert("hooks".into(), json!([hook]));
+                    groups.push(Value::Object(group));
+                    groups.last().cloned().unwrap_or_default()
+                }
+            };
+            Some((key, group, true))
+        }
+        Edit::DropHook {
+            event,
+            group,
+            index,
+        } => {
+            let key = format!("hooks.{event}");
+            let groups = list(root, &key)?;
+            let hooks = groups
+                .get_mut(*group)
+                .and_then(|g| g["hooks"].as_array_mut())
+                .with_context(|| {
+                    format!("{key} has no hook group {group}: refresh and try again")
+                })?;
+            take(hooks, *index, &key)?;
+            if hooks.is_empty() {
+                groups.remove(*group);
+            }
+            prune(root, &key);
+            None
+        }
+    })
+}
+
+/// The list at a dotted key, created when missing.
+fn list<'a>(root: &'a mut Map<String, Value>, key: &str) -> Result<&'a mut Vec<Value>> {
+    let mut map = root;
+    let mut parts: Vec<&str> = key.split('.').collect();
+    let last = parts.pop().unwrap_or_default();
+    for part in parts {
+        map = map
+            .entry(part.to_owned())
+            .or_insert_with(|| Value::Object(Map::new()))
+            .as_object_mut()
+            .with_context(|| format!("{part} is not an object in this file"))?;
+    }
+    map.entry(last.to_owned())
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .with_context(|| format!("{key} is not a list in this file"))
+}
+
+fn take(list: &mut Vec<Value>, index: usize, key: &str) -> Result<Value> {
+    ensure!(
+        index < list.len(),
+        "{key} has no item {index}: refresh and try again"
+    );
+    Ok(list.remove(index))
+}
+
+/// Removes the empty lists and objects a removal leaves along `key`.
+fn prune(root: &mut Map<String, Value>, key: &str) {
+    let parts: Vec<&str> = key.split('.').collect();
+    for depth in (1..=parts.len()).rev() {
+        let (path, last) = (&parts[..depth - 1], parts[depth - 1]);
+        let Some(map) = path
+            .iter()
+            .try_fold(&mut *root, |m, p| m.get_mut(*p)?.as_object_mut())
+        else {
+            return;
+        };
+        let empty = match map.get(last) {
+            Some(Value::Array(a)) => a.is_empty(),
+            Some(Value::Object(o)) => o.is_empty(),
+            _ => false,
+        };
+        if !empty {
+            return;
+        }
+        map.shift_remove(last);
+    }
+}
+
+const PERMISSION_LISTS: [&str; 3] = ["allow", "ask", "deny"];
+
+/// What an edit brings in: no value still masked, no secret in the project's shared file, what the schema
+/// accepts, permission rules Claude Code reads, and the modes it refuses from a shared file.
+fn check(scope: Scope, key: &str, value: &Value, item: bool) -> Result<()> {
+    ensure!(
+        !value.to_string().contains(mask::MASK),
+        "{key} still holds a hidden value: reveal it, or type it again"
+    );
+    let leaf = key.rsplit('.').next().unwrap_or(key);
+    ensure!(
+        scope != Scope::Project || !secret(leaf, value),
+        "{key} looks like a secret, and .claude/settings.json is shared with everyone who clones the \
+         repository: use the local scope"
+    );
+    let node = if item {
+        schema::item(key)
+    } else {
+        schema::at(key)
+    };
+    if let Some(node) = node {
+        let mut errors = Vec::new();
+        schema::check(node, value, key, &mut errors);
+        ensure!(errors.is_empty(), "{}", errors.join("; "));
+    }
+    let mode = match key {
+        "permissions" => value.get("defaultMode"),
+        "permissions.defaultMode" => Some(value),
+        _ => None,
+    };
+    ensure!(
+        scope != Scope::Project
+            || !matches!(
+                mode.and_then(Value::as_str),
+                Some("auto" | "bypassPermissions")
+            ),
+        "Claude Code ignores {} in a project's shared settings",
+        mode.unwrap_or_default()
+    );
+    let rules: Vec<(&str, &Value)> = match key.strip_prefix("permissions.") {
+        Some(list) if PERMISSION_LISTS.contains(&list) && item => vec![(list, value)],
+        Some(list) if PERMISSION_LISTS.contains(&list) => value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|r| (list, r))
+            .collect(),
+        None if key == "permissions" => PERMISSION_LISTS
+            .iter()
+            .flat_map(|list| {
+                value[*list]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|r| (*list, r))
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    for (list, r) in rules {
+        rule(list, r.as_str().unwrap_or_default())?;
+    }
+    let names: Vec<&str> = match key.strip_prefix("env.") {
+        Some(name) => vec![name],
+        None if key == "env" => value
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, _)| k.as_str())
+            .collect(),
+        None => Vec::new(),
+    };
+    for name in names {
+        ensure!(
+            name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+            "{name} is not a variable name (letters, digits and _)"
+        );
+    }
+    if key == "model" {
+        ensure!(
+            value.as_str().is_some_and(|m| !m.trim().is_empty()
+                && m.len() <= 200
+                && !m.contains(char::is_control)),
+            "model takes a model name or alias"
+        );
+    }
+    Ok(())
+}
+
+/// Whether `value`, set under `key`, holds what the masking would hide.
+pub fn secret(key: &str, value: &Value) -> bool {
+    let probe = json!({ key: value });
+    let mut masked = probe.clone();
+    mask::mask(&mut masked);
+    masked != probe
+}
+
+/// A permission rule as Claude Code reads it (https://code.claude.com/docs/en/permissions): `Tool`,
+/// `Tool(specifier)`, `mcp__server`, `mcp__server__tool` or `mcp__server__*`; a pattern in the tool name only in
+/// `deny` and `ask`, or after `mcp__server__`.
+pub fn rule(list: &str, rule: &str) -> Result<()> {
+    ensure!(
+        !rule.trim().is_empty() && rule == rule.trim() && !rule.contains(char::is_control),
+        "a rule is a tool name, with an optional specifier in parentheses: Bash(npm run *)"
+    );
+    let (name, spec) = match rule.split_once('(') {
+        Some((name, rest)) => {
+            let spec = rest.strip_suffix(')').filter(|s| !s.trim().is_empty());
+            let spec = spec.with_context(|| {
+                format!("{rule}: the specifier goes between parentheses, as in Bash(npm run *)")
+            })?;
+            (name, Some(spec))
+        }
+        None => (rule, None),
+    };
+    ensure!(
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_-*".contains(c)),
+        "{rule}: {name} is not a tool name"
+    );
+    if let Some(rest) = name.strip_prefix("mcp__") {
+        ensure!(
+            spec.is_none(),
+            "{rule}: Claude Code skips an mcp__ rule with parentheses"
+        );
+        let server = rest.split_once("__").map_or(rest, |(s, _)| s);
+        ensure!(
+            !server.is_empty(),
+            "{rule}: name the server, as in mcp__github__*"
+        );
+        ensure!(
+            list != "allow" || !server.contains('*'),
+            "{rule}: in allow, a pattern only goes after mcp__<server>__, as in mcp__github__*"
+        );
+        return Ok(());
+    }
+    if name.contains('*') {
+        ensure!(
+            list != "allow",
+            "{rule}: Claude Code skips a pattern in a tool name in allow"
+        );
+        return Ok(());
+    }
+    let tools = schema::tools();
+    ensure!(
+        tools.is_empty() || tools.iter().any(|t| t == name),
+        "{rule}: unknown tool {name} (known: {})",
+        tools.join(", ")
+    );
+    Ok(())
 }
 
 fn set(root: &mut Map<String, Value>, key: &str, value: Option<&Value>) -> Result<()> {

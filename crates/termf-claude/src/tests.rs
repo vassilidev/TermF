@@ -7,7 +7,8 @@ use crate::artifacts::{
     self, Deletion, Failure, Listed, ListingError, Outcome, Owner, Policy, Refresh, Step,
 };
 use crate::cli::{self, Health};
-use crate::settings::{self, Scope};
+use crate::manage::{self, McpAction, PluginAction};
+use crate::settings::{self, Edit, Scope};
 use crate::{Env, State, mask};
 
 fn temp(name: &str) -> PathBuf {
@@ -39,6 +40,20 @@ fn tree(name: &str) -> (PathBuf, Env) {
 }
 
 const TOKEN: &str = "ghp_0123456789abcdefghij0123456789abcd";
+
+fn set(key: &str, value: Value) -> Edit {
+    Edit::Set {
+        key: key.into(),
+        value: Some(value),
+    }
+}
+
+fn unset(key: &str) -> Edit {
+    Edit::Set {
+        key: key.into(),
+        value: None,
+    }
+}
 
 #[test]
 fn reads_each_scope_and_who_decides() {
@@ -105,7 +120,7 @@ fn edits_a_setting_atomically_in_strict_json() {
         "{\n    \"theme\": \"dark\",\n    \"model\": \"sonnet\",\n    \"env\": {\n        \"A\": \"1\"\n    }\n}\n",
     );
 
-    let preview = settings::preview(&env, Scope::User, "model", Some(&json!("opus"))).unwrap();
+    let preview = settings::preview(&env, Scope::User, &set("model", json!("opus"))).unwrap();
     assert_eq!(preview.diff.matches('-').count(), 1, "{}", preview.diff);
     assert!(preview.diff.contains("-    \"model\": \"sonnet\","));
     assert!(preview.diff.contains("+    \"model\": \"opus\","));
@@ -114,7 +129,18 @@ fn edits_a_setting_atomically_in_strict_json() {
         "a preview writes nothing"
     );
 
-    settings::save(&env, Scope::User, "model", Some(&json!("opus"))).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&user, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    settings::save(&env, Scope::User, &set("model", json!("opus"))).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&user).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the file keeps its permissions");
+    }
     let text = fs::read_to_string(&user).unwrap();
     let value: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(value["model"], "opus");
@@ -135,17 +161,16 @@ fn edits_a_setting_atomically_in_strict_json() {
     settings::save(
         &env,
         Scope::User,
-        "permissions.defaultMode",
-        Some(&json!("plan")),
+        &set("permissions.defaultMode", json!("plan")),
     )
     .unwrap();
-    settings::save(&env, Scope::User, "model", None).unwrap();
+    settings::save(&env, Scope::User, &unset("model")).unwrap();
     let value: Value = serde_json::from_str(&fs::read_to_string(&user).unwrap()).unwrap();
     assert_eq!(value["permissions"]["defaultMode"], "plan");
     assert!(value.get("model").is_none());
 
     // The project file and its folder are created.
-    settings::save(&env, Scope::Local, "autoMemoryEnabled", Some(&json!(false))).unwrap();
+    settings::save(&env, Scope::Local, &set("autoMemoryEnabled", json!(false))).unwrap();
     let local: Value = serde_json::from_str(
         &fs::read_to_string(root.join("repo/.claude/settings.local.json")).unwrap(),
     )
@@ -157,22 +182,39 @@ fn edits_a_setting_atomically_in_strict_json() {
         (Scope::User, "cleanupPeriodDays", json!(0)),
         (Scope::User, "autoUpdatesChannel", json!("nightly")),
         (Scope::User, "model", json!("")),
-        (Scope::User, "apiKeyHelper", json!("x")),
+        (Scope::User, "fallbackModel", json!(["a", "b", "c", "d"])),
+        (Scope::User, "permissions.allow", json!(["Bassh(ls)"])),
+        (Scope::User, "env.NODE ENV", json!("x")),
+        (Scope::User, "env.A", json!(mask::MASK)),
         (
             Scope::Project,
             "permissions.defaultMode",
             json!("bypassPermissions"),
         ),
+        (
+            Scope::Project,
+            "permissions",
+            json!({"defaultMode": "auto"}),
+        ),
+        (Scope::Project, "env.GITHUB_TOKEN", json!("abc")),
         (Scope::Managed, "model", json!("opus")),
     ] {
         assert!(
-            settings::preview(&env, scope, key, Some(&value)).is_err(),
+            settings::preview(&env, scope, &set(key, value.clone())).is_err(),
             "{key} = {value}"
         );
     }
+    // Any key, known to the schema or not, as long as it is JSON.
+    for (key, value) in [
+        ("apiKeyHelper", json!("~/bin/key.sh")),
+        ("someFutureKey", json!({"a": [1, 2]})),
+        ("permissions.defaultMode", json!("manual")),
+    ] {
+        settings::preview(&env, Scope::User, &set(key, value)).unwrap();
+    }
 
     write(&root.join("repo/.claude/settings.json"), "{ broken");
-    let err = settings::save(&env, Scope::Project, "model", Some(&json!("opus"))).unwrap_err();
+    let err = settings::save(&env, Scope::Project, &set("model", json!("opus"))).unwrap_err();
     assert!(err.to_string().contains("not a valid JSON object"), "{err}");
     assert_eq!(
         fs::read_to_string(root.join("repo/.claude/settings.json")).unwrap(),
@@ -189,7 +231,7 @@ fn writes_through_a_symlinked_settings_file() {
     write(&real, "{}");
     fs::create_dir_all(&env.claude_dir).unwrap();
     std::os::unix::fs::symlink(&real, env.claude_dir.join("settings.json")).unwrap();
-    settings::save(&env, Scope::User, "effortLevel", Some(&json!("high"))).unwrap();
+    settings::save(&env, Scope::User, &set("effortLevel", json!("high"))).unwrap();
     assert!(
         fs::symlink_metadata(env.claude_dir.join("settings.json"))
             .unwrap()
@@ -322,7 +364,7 @@ fn builds_the_overview_with_secrets_masked() {
 case "$*" in
   "mcp list") printf 'Checking MCP server health…\n\nsrv: /bin/srv --token {TOKEN} - ✔ Connected\n' ;;
   "mcp get srv") printf 'srv:\n  Scope: Local config (private to you in this project)\n  Type: stdio\n  Environment:\n    SRV_API_KEY=plainvalue\n\nTo remove this server, run: claude mcp remove srv -s local\n' ;;
-  "plugin list --json") echo '[{{"id":"hello@mkt","version":"1.2.0","scope":"user","enabled":true}}]' ;;
+  "plugin list --json --available") echo '{{"installed":[{{"id":"hello@mkt","version":"1.2.0","scope":"user","enabled":true}}],"available":[{{"pluginId":"lint@mkt","name":"lint","marketplaceName":"mkt","source":"./lint"}}]}}' ;;
   "plugin marketplace list --json") echo '[{{"name":"mkt","source":"github","repo":"acme/mkt"}}]' ;;
   "auth status") echo '{{"loggedIn": true, "authMethod": "claude.ai", "email": "me@example.test"}}' ;;
   "--version") echo '2.1.330 (Claude Code)' ;;
@@ -387,6 +429,7 @@ esac"#,
     );
     assert_eq!(overview.plugins.plugins[0]["id"], "hello@mkt");
     assert_eq!(overview.plugins.marketplaces[0]["name"], "mkt");
+    assert_eq!(overview.plugins.available[0]["pluginId"], "lint@mkt");
     assert_eq!(
         overview.account.auth.as_ref().unwrap()["authMethod"],
         "claude.ai"
@@ -1132,5 +1175,437 @@ fn automatic_refreshes_come_back_unless_you_must_act() {
     let r = restart();
     assert!(!r.paused);
     assert!(r.due(4010 + H, 6, listed));
+    fs::remove_dir_all(&root).unwrap();
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+#[test]
+fn edits_lists_and_hooks_item_by_item() {
+    let (root, env) = tree("lists");
+    let user = env.claude_dir.join("settings.json");
+    write(
+        &user,
+        "{\n\t\"model\": \"sonnet\",\n\t\"permissions\": {\n\t\t\"allow\": [\"Bash(npm test)\", \"Read\"]\n\t}\n}\n",
+    );
+    let save = |edit: Edit| settings::save(&env, Scope::User, &edit).unwrap();
+
+    let p = save(Edit::Add {
+        key: "permissions.deny".into(),
+        value: json!("Bash(git push *)"),
+    });
+    assert!(p.diff.contains("+\t\t\"deny\": ["), "{}", p.diff);
+    save(Edit::Move {
+        key: "permissions.allow".into(),
+        index: 1,
+        to: "permissions.ask".into(),
+    });
+    let v = read_json(&user);
+    assert_eq!(v["permissions"]["allow"], json!(["Bash(npm test)"]));
+    assert_eq!(v["permissions"]["ask"], json!(["Read"]));
+    assert_eq!(v["permissions"]["deny"], json!(["Bash(git push *)"]));
+    assert!(
+        fs::read_to_string(&user).unwrap().contains("\n\t\"model\""),
+        "tabs kept"
+    );
+
+    let twice = settings::preview(
+        &env,
+        Scope::User,
+        &Edit::Add {
+            key: "permissions.deny".into(),
+            value: json!("Bash(git push *)"),
+        },
+    );
+    assert!(twice.is_err(), "already there");
+    let wrong = settings::preview(
+        &env,
+        Scope::User,
+        &Edit::Drop {
+            key: "permissions.allow".into(),
+            index: 5,
+        },
+    );
+    assert!(wrong.unwrap_err().to_string().contains("refresh"));
+
+    // A list emptied by a removal goes, and so does its object.
+    save(Edit::Drop {
+        key: "permissions.allow".into(),
+        index: 0,
+    });
+    save(Edit::Drop {
+        key: "permissions.ask".into(),
+        index: 0,
+    });
+    save(Edit::Drop {
+        key: "permissions.deny".into(),
+        index: 0,
+    });
+    assert_eq!(read_json(&user), json!({"model": "sonnet"}));
+
+    save(set("env.NODE_ENV", json!("production")));
+    save(set("env.API_TOKEN", json!(TOKEN)));
+    assert_eq!(
+        settings::reveal(&env, Scope::User, "env.API_TOKEN").unwrap(),
+        TOKEN
+    );
+    assert_eq!(
+        settings::reveal(&env, Scope::User, "env.MISSING").unwrap(),
+        Value::Null
+    );
+
+    let hook = |matcher: Option<&str>, command: &str| Edit::AddHook {
+        event: "PostToolUse".into(),
+        matcher: matcher.map(Into::into),
+        command: command.into(),
+    };
+    save(hook(Some("Edit|Write"), "prettier --write"));
+    save(hook(Some("Edit|Write"), "eslint --fix"));
+    save(hook(None, "echo done"));
+    let v = read_json(&user);
+    let groups = v["hooks"]["PostToolUse"].as_array().unwrap();
+    assert_eq!(groups.len(), 2, "the same matcher shares its group");
+    assert_eq!(groups[0]["hooks"][1]["command"], "eslint --fix");
+    assert!(groups[1].get("matcher").is_none());
+
+    let s = settings::read(&env);
+    let hooks = crate::hooks(&s);
+    let eslint = hooks.iter().find(|h| h.run == "eslint --fix").unwrap();
+    assert_eq!((eslint.group, eslint.index), (0, 1));
+
+    for (group, index) in [(0, 1), (1, 0), (0, 0)] {
+        save(Edit::DropHook {
+            event: "PostToolUse".into(),
+            group,
+            index,
+        });
+    }
+    assert!(read_json(&user).get("hooks").is_none(), "nothing left");
+
+    for bad in [
+        hook(None, " "),
+        Edit::AddHook {
+            event: "Post Tool".into(),
+            matcher: None,
+            command: "x".into(),
+        },
+        Edit::DropHook {
+            event: "Stop".into(),
+            group: 0,
+            index: 0,
+        },
+    ] {
+        assert!(
+            settings::preview(&env, Scope::User, &bad).is_err(),
+            "{bad:?}"
+        );
+    }
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn refuses_secrets_in_the_shared_project_file() {
+    let (root, env) = tree("shared");
+    let hook = Edit::AddHook {
+        event: "Stop".into(),
+        matcher: None,
+        command: "curl -H 'Authorization: Bearer abc' https://x.test".into(),
+    };
+    let rule = Edit::Add {
+        key: "permissions.allow".into(),
+        value: json!(format!(
+            "Bash(git clone https://{TOKEN}@github.com/acme/api)"
+        )),
+    };
+    for edit in [&hook, &rule, &set("env.ANTHROPIC_API_KEY", json!("x"))] {
+        let err = settings::preview(&env, Scope::Project, edit).unwrap_err();
+        assert!(err.to_string().contains("local scope"), "{err}");
+        settings::preview(&env, Scope::Local, edit).unwrap();
+    }
+    settings::preview(&env, Scope::Project, &set("env.NODE_ENV", json!("test"))).unwrap();
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn checks_permission_rules_as_documented() {
+    for (list, rule) in [
+        ("allow", "Bash"),
+        ("allow", "Bash(npm run *)"),
+        ("allow", "Bash(ls:*)"),
+        ("allow", "Read(./.env)"),
+        ("allow", "Edit(//Users/alex/**)"),
+        ("allow", "WebFetch(domain:example.com)"),
+        ("allow", "Agent(Explore)"),
+        ("allow", "mcp__github"),
+        ("allow", "mcp__github__search_repositories"),
+        ("allow", "mcp__github__*"),
+        ("allow", "mcp__plugin_my-plugin_db__get_*"),
+        ("deny", "*"),
+        ("deny", "mcp__*"),
+        ("ask", "Agent(model:opus)"),
+        ("deny", "Bash(echo (x))"),
+    ] {
+        settings::rule(list, rule).unwrap_or_else(|e| panic!("{list} {rule}: {e}"));
+    }
+    for (list, rule) in [
+        ("allow", ""),
+        ("allow", " Bash"),
+        ("allow", "Bassh"),
+        ("allow", "Bash()"),
+        ("allow", "Bash(ls"),
+        ("allow", "Bash(ls)x"),
+        ("allow", "Bash ls"),
+        ("allow", "mcp__github__search(q:x)"),
+        ("allow", "mcp__"),
+        ("allow", "mcp__*"),
+        ("allow", "*"),
+        ("allow", "B*"),
+    ] {
+        assert!(settings::rule(list, rule).is_err(), "{list} {rule:?}");
+    }
+}
+
+#[test]
+fn checks_values_against_the_embedded_schema() {
+    use crate::schema;
+    assert!(schema::tools().iter().any(|t| t == "Bash"));
+    let errors = |key: &str, value: Value| {
+        let mut e = Vec::new();
+        schema::check(schema::at(key).unwrap(), &value, key, &mut e);
+        e
+    };
+    assert!(errors("effortLevel", json!("high")).is_empty());
+    assert!(!errors("effortLevel", json!("max")).is_empty());
+    assert!(!errors("cleanupPeriodDays", json!(0)).is_empty());
+    assert!(!errors("cleanupPeriodDays", json!("30")).is_empty());
+    assert!(errors("enabledPlugins", json!({"a@b": true})).is_empty());
+    assert!(!errors("enabledPlugins", json!({"a@b": "yes"})).is_empty());
+    let hook = schema::item("hooks.Stop").unwrap();
+    let mut e = Vec::new();
+    schema::check(
+        hook,
+        &json!({"hooks": [{"type": "command"}]}),
+        "hooks.Stop",
+        &mut e,
+    );
+    assert!(e.iter().any(|e| e.contains("command")), "{e:?}");
+    assert!(schema::at("noSuchKey").is_none());
+}
+
+/// A fake `claude` that logs its arguments and stdin, and answers like Claude Code 2.1.330.
+#[cfg(unix)]
+fn fake_claude(root: &Path) -> PathBuf {
+    let log = root.join("claude.log");
+    fake(
+        &root.join("bin"),
+        "claude",
+        &format!(
+            r#"echo "ARGS $*" >> '{log}'
+case "$*" in
+  "mcp add-json --scope"*) printf 'STDIN ' >> '{log}'; /bin/cat >> '{log}'; echo >> '{log}'; echo "Added stdio MCP server $5 to $4 config" ;;
+  "mcp remove ghost"*) echo 'No MCP server found with name: "ghost"' >&2; exit 1 ;;
+  "mcp remove"*|"mcp logout"*|"mcp reset-project-choices") echo done ;;
+  "plugin install --json --scope user risky@mkt") echo 'npx risky-installer'; echo '{{"command":"install","outcome":"failed","message":"The marketplace declares a command; it was only displayed","shownCommand":{{"command":"npx risky-installer","plugin":"risky@mkt","sha256":"{sha}"}}}}'; exit 1 ;;
+  "plugin install --json --scope user risky@mkt --accept-command {sha}") echo '{{"command":"install","outcome":"ok","message":"Successfully installed plugin: risky@mkt (scope: user)"}}' ;;
+  "plugin enable --json hello@mkt") echo '{{"command":"enable","outcome":"failed","message":"Plugin \"hello\" is already enabled","failureCode":"already_in_goal_state","alreadyInGoalState":true}}'; exit 1 ;;
+  "plugin uninstall --json --scope user nope@mkt") echo '{{"command":"uninstall","outcome":"failed","message":"Failed to uninstall plugin \"nope@mkt\": not installed"}}'; exit 1 ;;
+  "plugin marketplace remove --json mkt") echo '{{"command":"marketplace-remove","outcome":"ok","marketplace":"mkt","message":"Successfully removed marketplace: mkt"}}' ;;
+  *) echo "unexpected: $*" >&2; exit 2 ;;
+esac"#,
+            log = log.display(),
+            sha = "a".repeat(64),
+        ),
+    );
+    log
+}
+
+#[cfg(unix)]
+#[test]
+fn changes_mcp_servers_only_through_claude_mcp() {
+    let (root, env) = tree("mcp");
+    let log = fake_claude(&root);
+    let server = json!({"type": "stdio", "command": "npx", "args": ["-y", "srv"], "env": {"SRV_API_KEY": "s3cret"}});
+    let message = manage::mcp(
+        &env,
+        &McpAction::Add {
+            name: "srv".into(),
+            scope: "local".into(),
+            server: server.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(message, "Added stdio MCP server srv to local config");
+    let calls = fs::read_to_string(&log).unwrap();
+    assert!(
+        calls.contains("ARGS mcp add-json --scope local srv -\n"),
+        "{calls}"
+    );
+    assert!(
+        calls.contains(&format!("STDIN {server}")),
+        "the server, with its secret, goes on stdin only: {calls}"
+    );
+    assert_eq!(calls.matches("s3cret").count(), 1);
+
+    let refused = [
+        McpAction::Add {
+            name: "srv".into(),
+            scope: "project".into(),
+            server: server.clone(),
+        },
+        McpAction::Add {
+            name: "-x".into(),
+            scope: "user".into(),
+            server: server.clone(),
+        },
+        McpAction::Add {
+            name: "web".into(),
+            scope: "user".into(),
+            server: json!({"type": "http", "url": "ftp://x"}),
+        },
+        McpAction::Add {
+            name: "web".into(),
+            scope: "user".into(),
+            server: json!({"type": "http", "url": "https://x.test", "headers": {"Authorization": mask::MASK}}),
+        },
+        McpAction::Add {
+            name: "srv".into(),
+            scope: "global".into(),
+            server: server.clone(),
+        },
+        McpAction::Remove {
+            name: "--all".into(),
+            scope: None,
+        },
+    ];
+    let before = fs::read_to_string(&log).unwrap();
+    for action in &refused {
+        assert!(manage::mcp(&env, action).is_err(), "{action:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        before,
+        "claude never ran"
+    );
+
+    for action in [
+        McpAction::Remove {
+            name: "srv".into(),
+            scope: Some("local".into()),
+        },
+        McpAction::Logout { name: "srv".into() },
+        McpAction::Reset,
+    ] {
+        manage::mcp(&env, &action).unwrap();
+    }
+    let calls = fs::read_to_string(&log).unwrap();
+    for line in [
+        "ARGS mcp remove srv --scope local",
+        "ARGS mcp logout srv",
+        "ARGS mcp reset-project-choices",
+    ] {
+        assert!(calls.contains(line), "{line}: {calls}");
+    }
+    let err = manage::mcp(
+        &env,
+        &McpAction::Remove {
+            name: "ghost".into(),
+            scope: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("No MCP server found"),
+        "as Claude Code said it: {err}"
+    );
+
+    let no_repo = Env { repo: None, ..env };
+    assert!(manage::mcp(&no_repo, &McpAction::Reset).is_err());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn installs_a_plugin_only_once_its_command_is_accepted() {
+    let (root, env) = tree("plugins");
+    let log = fake_claude(&root);
+    let install = |accept: Option<String>| PluginAction::Install {
+        plugin: "risky@mkt".into(),
+        scope: "user".into(),
+        accept,
+    };
+    let shown = manage::plugin(&env, &install(None)).unwrap();
+    let sha = "a".repeat(64);
+    assert_eq!(shown.shown.as_ref().unwrap()["sha256"], sha.as_str());
+    assert_eq!(
+        shown.shown.as_ref().unwrap()["command"],
+        "npx risky-installer"
+    );
+    let done = manage::plugin(&env, &install(Some(sha))).unwrap();
+    assert!(done.shown.is_none());
+    assert!(done.message.contains("installed"));
+    assert!(manage::plugin(&env, &install(Some("not-a-sha".into()))).is_err());
+
+    let already = manage::plugin(
+        &env,
+        &PluginAction::Enable {
+            plugin: "hello@mkt".into(),
+            scope: None,
+        },
+    )
+    .unwrap();
+    assert!(already.message.contains("already enabled"));
+    let err = manage::plugin(
+        &env,
+        &PluginAction::Uninstall {
+            plugin: "nope@mkt".into(),
+            scope: "user".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("not installed"), "{err}");
+    manage::plugin(
+        &env,
+        &PluginAction::MarketplaceRemove {
+            name: "mkt".into(),
+            scope: None,
+        },
+    )
+    .unwrap();
+    let calls = fs::read_to_string(&log).unwrap();
+    assert!(
+        !calls.contains(" -y") && !calls.contains("--yes"),
+        "never answers for you: {calls}"
+    );
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn edits_the_repository_mcp_json_after_a_diff() {
+    let (root, env) = tree("mcpjson");
+    let file = root.join("repo/.mcp.json");
+    let (_, text) = manage::mcp_json(&env).unwrap();
+    assert_eq!(text, "", "absent");
+    write(
+        &file,
+        "{\n  \"mcpServers\": {\n    \"old\": {\"command\": \"srv\", \"env\": {\"OLD_TOKEN\": \"kept\"}}\n  }\n}\n",
+    );
+    let next = "{\n  \"mcpServers\": {\n    \"old\": {\"command\": \"srv\", \"env\": {\"OLD_TOKEN\": \"kept\"}},\n    \"web\": {\"type\": \"http\", \"url\": \"https://x.test/mcp\", \"headers\": {\"Authorization\": \"Bearer ${API_KEY}\"}}\n  }\n}";
+    let p = manage::mcp_json_preview(&env, next).unwrap();
+    assert!(p.diff.contains("+    \"web\""), "{}", p.diff);
+    assert!(fs::read_to_string(&file).unwrap().contains("kept"));
+    manage::mcp_json_save(&env, next).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), format!("{next}\n"));
+
+    for bad in [
+        "{ nope",
+        "[]",
+        "{\"mcpServers\": {\"x\": {\"type\": \"http\"}}}",
+        "{\"mcpServers\": {\"x\": {\"command\": \"srv\", \"env\": {\"API_TOKEN\": \"abc\"}}}}",
+    ] {
+        assert!(manage::mcp_json_preview(&env, bad).is_err(), "{bad}");
+    }
     fs::remove_dir_all(&root).unwrap();
 }

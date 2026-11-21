@@ -1,5 +1,6 @@
-//! The Claude view (ARCHITECTURE §11.3): the machine's whole Claude Code config, simple settings edits, and the
-//! account's claude.ai artifacts, listed by a hidden Claude session.
+//! The Claude view (ARCHITECTURE §11.3): the machine's whole Claude Code config, its settings by scope, MCP
+//! servers and plugins changed through Claude Code's own commands, and the account's claude.ai artifacts, listed
+//! by a hidden Claude session.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -10,8 +11,10 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::artifacts::{self, Artifact, Deletion, Failure, Policy, Refresh, Step};
-use termf_claude::settings::{self, Preview, Scope, Settings};
-use termf_claude::{Env, Overview};
+use termf_claude::cli::{self, Mcp, Plugins};
+use termf_claude::manage::{self, Done, McpAction, PluginAction};
+use termf_claude::settings::{self, Edit, Preview, Scope, Settings};
+use termf_claude::{Env, Hook, Overview};
 use termf_core::ipc::SessionSummary;
 
 use crate::api::{self, Task};
@@ -107,26 +110,144 @@ pub async fn claude_overview(
 pub fn claude_setting_preview(
     state: State<AppState>,
     scope: Scope,
-    key: String,
-    value: Option<Value>,
+    edit: Edit,
     repo: Option<String>,
 ) -> CmdResult<Preview> {
     let env = env(&state.config_dir, repo);
-    settings::preview(&env, scope, &key, value.as_ref()).map_err(err)
+    settings::preview(&env, scope, &edit).map_err(err)
 }
 
-/// Returns the settings read again, masked.
+#[derive(Serialize)]
+pub struct Saved {
+    settings: Settings,
+    hooks: Vec<Hook>,
+}
+
+/// Returns the settings and hooks read again, masked.
 #[tauri::command]
 pub fn claude_setting_save(
     state: State<AppState>,
     scope: Scope,
-    key: String,
-    value: Option<Value>,
+    edit: Edit,
     repo: Option<String>,
-) -> CmdResult<Settings> {
+) -> CmdResult<Saved> {
     let env = env(&state.config_dir, repo);
-    settings::save(&env, scope, &key, value.as_ref()).map_err(err)?;
-    Ok(settings::masked(settings::read(&env)))
+    settings::save(&env, scope, &edit).map_err(err)?;
+    let read = settings::read(&env);
+    Ok(Saved {
+        hooks: termf_claude::hooks(&read),
+        settings: settings::masked(read),
+    })
+}
+
+/// One value as the file has it, unmasked, because you asked to see it.
+#[tauri::command]
+pub fn claude_setting_reveal(
+    state: State<AppState>,
+    scope: Scope,
+    key: String,
+    repo: Option<String>,
+) -> CmdResult<Value> {
+    let env = env(&state.config_dir, repo);
+    settings::reveal(&env, scope, &key).map_err(err)
+}
+
+#[tauri::command]
+pub fn claude_settings_schema() -> &'static Value {
+    termf_claude::schema::schema()
+}
+
+#[derive(Serialize)]
+pub struct McpDone {
+    message: String,
+    mcp: Mcp,
+}
+
+/// Through `claude mcp …`, then the servers listed again.
+#[tauri::command]
+pub async fn claude_mcp(
+    state: State<'_, AppState>,
+    repo: Option<String>,
+    action: McpAction,
+) -> CmdResult<McpDone> {
+    let env = env(&state.config_dir, repo);
+    tauri::async_runtime::spawn_blocking(move || {
+        let message = manage::mcp(&env, &action).map_err(err)?;
+        Ok(McpDone {
+            message,
+            mcp: cli::mcp(&env),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+pub struct McpJson {
+    path: String,
+    text: String,
+}
+
+#[tauri::command]
+pub fn claude_mcp_json(state: State<AppState>, repo: Option<String>) -> CmdResult<McpJson> {
+    let env = env(&state.config_dir, repo);
+    let (path, text) = manage::mcp_json(&env).map_err(err)?;
+    Ok(McpJson {
+        path: path.to_string_lossy().into_owned(),
+        text,
+    })
+}
+
+#[tauri::command]
+pub fn claude_mcp_json_preview(
+    state: State<AppState>,
+    repo: Option<String>,
+    text: String,
+) -> CmdResult<Preview> {
+    let env = env(&state.config_dir, repo);
+    manage::mcp_json_preview(&env, &text).map_err(err)
+}
+
+/// Returns the servers listed again.
+#[tauri::command]
+pub async fn claude_mcp_json_save(
+    state: State<'_, AppState>,
+    repo: Option<String>,
+    text: String,
+) -> CmdResult<Mcp> {
+    let env = env(&state.config_dir, repo);
+    tauri::async_runtime::spawn_blocking(move || {
+        manage::mcp_json_save(&env, &text).map_err(err)?;
+        Ok(cli::mcp(&env))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+pub struct PluginDone {
+    #[serde(flatten)]
+    done: Done,
+    plugins: Plugins,
+}
+
+/// Through `claude plugin …`, then the plugins and marketplaces listed again.
+#[tauri::command]
+pub async fn claude_plugin(
+    state: State<'_, AppState>,
+    repo: Option<String>,
+    action: PluginAction,
+) -> CmdResult<PluginDone> {
+    let env = env(&state.config_dir, repo);
+    tauri::async_runtime::spawn_blocking(move || {
+        let done = manage::plugin(&env, &action).map_err(err)?;
+        Ok(PluginDone {
+            done,
+            plugins: cli::plugins(&env),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Writes an export the page built, to the path the save dialog gave, masked once more.

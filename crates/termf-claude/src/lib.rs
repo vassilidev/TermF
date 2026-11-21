@@ -11,7 +11,9 @@ use serde_json::Value;
 
 pub mod artifacts;
 pub mod cli;
+pub mod manage;
 pub mod mask;
+pub mod schema;
 pub mod settings;
 pub mod trust;
 
@@ -102,6 +104,9 @@ pub struct Hook {
     pub kind: String,
     /// The command, URL or prompt, masked.
     pub run: String,
+    /// Where it sits in its scope's file: `hooks.<event>[group].hooks[index]`.
+    pub group: usize,
+    pub index: usize,
 }
 
 #[derive(Serialize, Debug)]
@@ -192,16 +197,16 @@ pub fn overview(env: &Env) -> Overview {
     }
 }
 
-fn hooks(settings: &settings::Settings) -> Vec<Hook> {
+pub fn hooks(settings: &settings::Settings) -> Vec<Hook> {
     let mut list = Vec::new();
     for f in &settings.files {
         let Some(Value::Object(events)) = f.value.as_ref().and_then(|v| v.get("hooks")) else {
             continue;
         };
         for (event, groups) in events {
-            for group in groups.as_array().into_iter().flatten() {
+            for (g, group) in groups.as_array().into_iter().flatten().enumerate() {
                 let matcher = group["matcher"].as_str().filter(|m| !m.is_empty());
-                for hook in group["hooks"].as_array().into_iter().flatten() {
+                for (index, hook) in group["hooks"].as_array().into_iter().flatten().enumerate() {
                     let kind = hook["type"].as_str().unwrap_or("command");
                     let run = ["command", "url", "prompt", "tool"]
                         .iter()
@@ -220,6 +225,8 @@ fn hooks(settings: &settings::Settings) -> Vec<Hook> {
                         matcher: matcher.map(str::to_owned),
                         kind: kind.to_owned(),
                         run: mask::mask_text(&run),
+                        group: g,
+                        index,
                     });
                 }
             }
