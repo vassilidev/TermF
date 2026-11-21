@@ -1,11 +1,16 @@
 <script lang="ts">
   import "../app.css";
   import { onMount } from "svelte";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import X from "@lucide/svelte/icons/x";
+  import CommandPalette from "$lib/CommandPalette.svelte";
   import SessionGrid from "$lib/SessionGrid.svelte";
   import Sidebar from "$lib/Sidebar.svelte";
+  import TopBar from "$lib/TopBar.svelte";
+  import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
-  import { init } from "$lib/state.svelte";
-  import { files, showFiles } from "$lib/files.svelte";
+  import { app, init, ui } from "$lib/state.svelte";
+  import { files } from "$lib/files.svelte";
 
   onMount(() => {
     document.documentElement.lang = lang;
@@ -13,15 +18,21 @@
   });
 </script>
 
+<svelte:window onkeydowncapture={onShortcut} />
+
 <div class="app">
+  <TopBar />
   <Sidebar />
   <div class="main">
-    <nav class="views" aria-label={t("views")}>
-      <button aria-pressed={files.view === "terminals"} onclick={() => (files.view = "terminals")}>
-        {t("viewTerminals")}
-      </button>
-      <button aria-pressed={files.view === "files"} onclick={showFiles}>{t("viewFiles")}</button>
-    </nav>
+    {#if app.error}
+      <div class="notice error banner" role="alert">
+        <CircleAlert size={14} aria-hidden="true" />
+        <span>{app.error}</span>
+        <button class="icon-btn sm" onclick={() => (app.error = "")} aria-label={t("dismiss")} title={t("dismiss")}>
+          <X size={14} aria-hidden="true" />
+        </button>
+      </div>
+    {/if}
     <!-- Hidden, not unmounted: terminals keep running and keep their scrollback. -->
     <div class="pane" hidden={files.view !== "terminals"}><SessionGrid /></div>
     {#if files.loaded}
@@ -32,37 +43,39 @@
   </div>
 </div>
 
+{#if ui.palette}
+  <CommandPalette />
+{/if}
+
 <style>
   .app {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template:
+      "top top" auto
+      "side main" minmax(0, 1fr)
+      / 264px minmax(0, 1fr);
     height: 100vh;
   }
 
   .main {
+    grid-area: main;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
   }
 
-  .views {
-    display: flex;
-    gap: 2px;
-    padding: 6px 6px 0;
+  .banner {
+    align-items: center;
+    margin: 8px 8px 0;
   }
 
-  .views button {
-    padding: 3px 10px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    color: var(--muted);
+  .banner span {
+    flex: 1;
   }
 
-  .views button[aria-pressed="true"] {
-    background: var(--hover);
-    color: var(--text);
+  .banner .icon-btn {
+    color: inherit;
   }
 
   .pane {

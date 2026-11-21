@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import Regex from "@lucide/svelte/icons/regex";
   import { t } from "$lib/i18n";
   import { files, openFile } from "$lib/files.svelte";
 
@@ -46,18 +47,21 @@
   <div class="fields">
     <input
       bind:this={input}
+      class="field"
       type="search"
       placeholder={t("filesSearch")}
       aria-label={t("filesSearch")}
       bind:value={query}
     />
     <button
-      class="regex"
+      class="icon-btn regex"
       aria-pressed={regex}
       title={t("filesRegex")}
       aria-label={t("filesRegex")}
-      onclick={() => (regex = !regex)}>.*</button
+      onclick={() => (regex = !regex)}
     >
+      <Regex size={15} aria-hidden="true" />
+    </button>
   </div>
   {#if error}
     <p class="error" role="alert">{error}</p>
@@ -103,26 +107,16 @@
   input {
     flex: 1;
     min-width: 0;
-    padding: 5px 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg);
-    color: var(--text);
-    font: inherit;
   }
 
   .regex {
-    padding: 0 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: none;
-    color: var(--muted);
-    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    width: 30px;
+    height: 30px;
   }
 
   .regex[aria-pressed="true"] {
-    border-color: var(--accent);
-    color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
   }
 
   .note,
@@ -160,7 +154,7 @@
     border: 0;
     background: none;
     text-align: left;
-    font: 12px/1.5 "JetBrains Mono", Menlo, Consolas, monospace;
+    font: var(--text-sm) / 1.5 var(--font-mono);
   }
 
   .hit:hover {

@@ -40,7 +40,11 @@
   }
 </script>
 
-<form class="editor" onsubmit={save}>
+<form
+  class="editor"
+  onsubmit={save}
+  aria-label={project ? t("editProject", { name: project.name }) : t("newProject")}
+>
   <input
     class="field"
     bind:value={name}
@@ -69,33 +73,33 @@
         </label>
       </li>
     {:else}
-      <li class="muted">{t("noRepos")}</li>
+      <li class="none">{t("noRepos")}</li>
     {/each}
   </ul>
 
   {#if error}
-    <p class="error" role="alert">{error}</p>
+    <p class="notice error" role="alert">{error}</p>
   {/if}
 
   {#if confirming && project}
     <p class="confirm" role="alert">{t("confirmDeleteProject", { name: project.name })}</p>
     <div class="buttons">
-      <button type="button" onclick={() => (confirming = false)} {@attach (el) => el.focus()}>
+      <button type="button" class="btn sm" onclick={() => (confirming = false)} {@attach (el) => el.focus()}>
         {t("cancel")}
       </button>
-      <button type="button" class="danger" onclick={() => run("project_delete", { id: project.id })}>
+      <button type="button" class="btn sm danger" onclick={() => run("project_delete", { id: project.id })}>
         {t("delete")}
       </button>
     </div>
   {:else}
     <div class="buttons">
       {#if project}
-        <button type="button" class="delete" onclick={() => (confirming = true)}>
+        <button type="button" class="btn sm quiet delete" onclick={() => (confirming = true)}>
           {t("delete")}
         </button>
       {/if}
-      <button type="button" onclick={onclose}>{t("cancel")}</button>
-      <button type="submit" class="primary" disabled={!name.trim()}>{t("save")}</button>
+      <button type="button" class="btn sm" onclick={onclose}>{t("cancel")}</button>
+      <button type="submit" class="btn sm primary" disabled={!name.trim()}>{t("save")}</button>
     </div>
   {/if}
 </form>
@@ -104,22 +108,13 @@
   .editor {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     margin: 2px 0 8px;
-    padding: 8px;
+    padding: 10px;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg);
-  }
-
-  .field {
-    width: 100%;
-    padding: 6px 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-lg);
     background: var(--panel);
-    color: var(--text);
-    font: inherit;
+    box-shadow: var(--shadow-1);
   }
 
   .repos {
@@ -133,14 +128,19 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 3px 6px;
-    border-radius: 6px;
+    gap: 10px;
+    height: 28px;
+    padding: 0 6px;
+    border-radius: var(--radius);
     cursor: pointer;
   }
 
   .row:hover {
     background: var(--hover);
+  }
+
+  .row input {
+    margin: 0;
   }
 
   .name {
@@ -149,46 +149,25 @@
     white-space: nowrap;
   }
 
+  .none {
+    padding: 4px 6px;
+    color: var(--muted);
+  }
+
   .buttons {
     display: flex;
     justify-content: flex-end;
     gap: 6px;
   }
 
-  button {
-    padding: 5px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel);
-  }
-
-  .primary {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--accent-text);
-    font-weight: 600;
-  }
-
   .delete {
     margin-right: auto;
-    border-color: transparent;
-    background: none;
+    padding: 0 4px;
     color: var(--danger);
   }
 
-  .danger {
-    border-color: var(--danger);
-    color: var(--danger);
-    font-weight: 600;
-  }
-
-  .confirm,
-  .error {
+  .confirm {
     margin: 0;
     overflow-wrap: anywhere;
-  }
-
-  .error {
-    color: var(--danger);
   }
 </style>

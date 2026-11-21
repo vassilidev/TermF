@@ -27,7 +27,7 @@
   const theme = EditorView.theme(
     {
       "&": { height: "100%", backgroundColor: "var(--panel)", color: "var(--text)" },
-      ".cm-scroller": { fontFamily: '"JetBrains Mono", Menlo, Consolas, monospace', fontSize: "13px" },
+      ".cm-scroller": { fontFamily: "var(--font-mono)", fontSize: "13px", fontVariantLigatures: "none" },
       ".cm-gutters": { backgroundColor: "var(--panel)", color: "var(--muted)", border: "none" },
       ".cm-activeLine, .cm-activeLineGutter": {
         backgroundColor: "color-mix(in srgb, var(--hover) 70%, transparent)",
@@ -196,14 +196,14 @@
     <header class="toolbar">
       <span class="path" title={tab.path}>{tab.path}</span>
       {#if tab.content.kind === "text"}
-        <button aria-pressed={tab.diff} onclick={() => tab && (tab.diff = !tab.diff)}>
+        <button class="btn sm" aria-pressed={tab.diff} onclick={() => tab && (tab.diff = !tab.diff)}>
           {t("fileDiff")}
         </button>
-        <button disabled={!tab.dirty} onclick={save} title={isMac ? "⌘S" : "Ctrl+S"}>
+        <button class="btn sm" disabled={!tab.dirty} onclick={save} title={isMac ? "⌘S" : "Ctrl+S"}>
           {t("fileSave")}
         </button>
       {/if}
-      <button onclick={() => tab && openExternal(tab)}>{t("fileOpenExternal")}</button>
+      <button class="btn sm" onclick={() => tab && openExternal(tab)}>{t("fileOpenExternal")}</button>
     </header>
     {#if tab.stale}
       <p class="notice" role="status">{t("fileStale")}</p>
@@ -267,7 +267,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
+    height: 40px;
+    padding: 0 8px 0 12px;
     border-bottom: 1px solid var(--border);
   }
 
@@ -280,17 +281,10 @@
     font-size: 12px;
   }
 
-  .toolbar button {
-    padding: 2px 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel);
-    font-size: 12px;
-  }
-
   .toolbar button[aria-pressed="true"] {
     border-color: var(--accent);
-    color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
   }
 
   .notice {

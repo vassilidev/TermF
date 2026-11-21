@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { SvelteSet } from "svelte/reactivity";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FileTree from "$lib/FileTree.svelte";
   import { t } from "$lib/i18n";
   import { files, openFile, type Entry } from "$lib/files.svelte";
@@ -50,13 +51,15 @@
         aria-expanded={entry.dir ? expanded.has(entry.path) : undefined}
         onclick={() => toggle(entry)}
       >
-        <span class="chevron" aria-hidden="true"
-          >{entry.dir ? (expanded.has(entry.path) ? "▾" : "▸") : ""}</span
-        >
+        <span class="chevron" class:open={expanded.has(entry.path)} aria-hidden="true">
+          {#if entry.dir}<ChevronRight size={12} />{/if}
+        </span>
         <span class="name">{entry.name}</span>
         {#if status}
           <span class="status s-{status === '?' ? 'u' : status}" title={labels[status]}>
-            <span aria-hidden="true">{entry.dir ? "•" : status}</span>
+            {#if entry.dir}<span class="dot" aria-hidden="true"></span>{:else}<span aria-hidden="true"
+                >{status}</span
+              >{/if}
             <span class="sr-only">{labels[status]}</span>
           </span>
         {/if}
@@ -80,23 +83,41 @@
     align-items: center;
     gap: 4px;
     width: 100%;
-    padding: 2px 8px;
+    height: 26px;
+    padding: 0 8px;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: none;
     text-align: left;
   }
 
-  .row:hover,
-  .row.active {
+  .row:hover {
     background: var(--hover);
   }
 
+  .row.active {
+    background: var(--selected);
+  }
+
   .chevron {
-    width: 10px;
+    display: grid;
+    place-items: center;
+    width: 14px;
     flex-shrink: 0;
     color: var(--muted);
-    font-size: 10px;
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+
+  .dot {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
   }
 
   .name {
@@ -108,27 +129,19 @@
 
   .status {
     flex-shrink: 0;
-    font: 600 11px/1 "JetBrains Mono", Menlo, Consolas, monospace;
+    font: 600 var(--text-xs) / 1 var(--font-mono);
   }
 
   .s-M {
-    color: var(--modified);
+    color: var(--warning);
   }
 
   .s-A,
   .s-u {
-    color: var(--running);
+    color: var(--done);
   }
 
   .s-D {
     color: var(--danger);
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
   }
 </style>

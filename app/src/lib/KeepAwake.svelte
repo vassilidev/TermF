@@ -1,115 +1,104 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
+  import Coffee from "@lucide/svelte/icons/coffee";
   import { t } from "$lib/i18n";
+  import { app, setKeepAwake, type KeepAwakeMode } from "$lib/state.svelte";
 
-  type Mode = "auto" | "always" | "off";
-  type KeepAwakeState = { mode: Mode; displayOn: boolean; active: boolean; error: string | null };
-
-  let current = $state<KeepAwakeState | null>(null);
   let error = $state("");
 
-  onMount(() => {
-    invoke<KeepAwakeState>("keep_awake_state").then((s) => {
-      current = s;
-    });
-    const unlisten = listen<KeepAwakeState>("keep-awake", ({ payload }) => {
-      current = payload;
-    });
-    return () => {
-      unlisten.then((stop) => stop());
-    };
-  });
+  const modes: [KeepAwakeMode, "keepAwakeAuto" | "keepAwakeAlways" | "keepAwakeOff"][] = [
+    ["auto", "keepAwakeAuto"],
+    ["always", "keepAwakeAlways"],
+    ["off", "keepAwakeOff"],
+  ];
 
-  async function set(mode: Mode, displayOn: boolean) {
-    try {
-      current = await invoke<KeepAwakeState>("keep_awake_set", { mode, displayOn });
-      error = "";
-    } catch (e) {
-      error = String(e);
-    }
+  async function set(mode: KeepAwakeMode, displayOn: boolean) {
+    error = await setKeepAwake(mode, displayOn);
   }
 </script>
 
-{#if current}
-  {@const { mode, displayOn } = current}
-  <div class="keep-awake" title={t("keepAwakeHelp")}>
-    <label class="row">
-      <span>{t("keepAwake")}</span>
-      <select value={mode} onchange={(e) => set(e.currentTarget.value as Mode, displayOn)}>
-        <option value="auto">{t("keepAwakeAuto")}</option>
-        <option value="always">{t("keepAwakeAlways")}</option>
-        <option value="off">{t("keepAwakeOff")}</option>
-      </select>
-    </label>
-    {#if mode !== "off"}
-      <label class="row">
+{#if app.keepAwake}
+  {@const { mode, displayOn, active } = app.keepAwake}
+  <fieldset class="keep-awake">
+    <legend>{t("keepAwake")}</legend>
+    {#each modes as [value, label] (value)}
+      <label class="option">
         <input
-          type="checkbox"
-          checked={displayOn}
-          onchange={(e) => set(mode, e.currentTarget.checked)}
+          type="radio"
+          name="keep-awake"
+          {value}
+          checked={mode === value}
+          onchange={() => set(value, displayOn)}
         />
-        <span>{t("keepDisplayOn")}</span>
+        {t(label)}
+      </label>
+    {/each}
+    {#if mode !== "off"}
+      <label class="option display">
+        <input type="checkbox" checked={displayOn} onchange={(e) => set(mode, e.currentTarget.checked)} />
+        {t("keepDisplayOn")}
       </label>
     {/if}
-    {#if current.active}
-      <span class="active" role="status"
-        ><span class="dot" aria-hidden="true"></span>{t("keepAwakeActive")}</span
-      >
+    <p class="help">{t("keepAwakeHelp")}</p>
+    {#if active}
+      <p class="active" role="status"><Coffee size={14} aria-hidden="true" />{t("keepAwakeActive")}</p>
     {/if}
-    {#if error || current.error}
-      <span class="error" role="alert">{error || current.error}</span>
+    {#if error || app.keepAwake.error}
+      <p class="notice error" role="alert">{error || app.keepAwake.error}</p>
     {/if}
-  </div>
+  </fieldset>
 {/if}
 
 <style>
   .keep-awake {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--muted);
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    border: 0;
   }
 
-  .row {
+  legend {
+    margin-bottom: 6px;
+    padding: 0;
+    font-weight: 600;
+  }
+
+  .option {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
   }
 
-  select {
-    flex: 1;
-    min-width: 0;
-    padding: 2px 4px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--bg);
-    color: var(--text);
-    font: inherit;
-  }
-
-  input {
+  .option input {
     margin: 0;
+  }
+
+  .display {
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .help {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
   }
 
   .active {
     display: flex;
     align-items: center;
     gap: 6px;
-    color: var(--text);
+    margin: 8px 0 0;
+    color: var(--warning);
+    font-size: var(--text-sm);
+    font-weight: 500;
   }
 
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--waiting);
-  }
-
-  .error {
-    color: var(--danger);
-    overflow-wrap: anywhere;
+  .notice {
+    margin-top: 8px;
   }
 </style>

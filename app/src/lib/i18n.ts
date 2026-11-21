@@ -9,13 +9,10 @@ const fr = {
   open: "Ouvrir {agent} ({count})",
   openShell: "Ouvrir un shell ({count})",
   reload: "Recharger la config",
-  running: "En cours",
-  exited: "Terminé",
   exitedLabel: "terminé",
   focus: "Agrandir",
   unfocus: "Réduire",
   close: "Fermer",
-  empty: "Coche des dépôts à gauche, puis « Ouvrir ».",
   truncated:
     "Scan partiel : trop de dossiers à parcourir. Ajoute tes dossiers de code dans « roots » (termf.toml).",
   views: "Vue",
@@ -94,6 +91,32 @@ const fr = {
   keepAwakeActive: "Veille bloquée",
   keepAwakeHelp:
     "La mise en veille suspend les agents ; le verrouillage de l'écran, non. Écran rabattu : le portable se met en veille quand même.",
+  settings: "Réglages",
+  configFolder: "Dossier de configuration",
+  dismiss: "Masquer",
+  agent: "Agent",
+  shell: "shell",
+  palette: "Palette de commandes",
+  palettePlaceholder: "Rechercher une action, une session, un dépôt…",
+  paletteNavigate: "naviguer",
+  paletteRun: "lancer",
+  paletteClose: "fermer",
+  nextWaiting: "Aller à la prochaine session qui t'attend",
+  showTerminals: "Afficher les terminaux",
+  showFiles: "Afficher les fichiers",
+  openIn: "Ouvrir {agent} dans {repo}",
+  openShellIn: "Ouvrir un shell dans {repo}",
+  keepAwakeSet: "Empêcher la veille : {mode}",
+  saveLayout: "Enregistrer la disposition actuelle",
+  maximizeActive: "Agrandir ou réduire la session active",
+  focusTiles: "Aller à la session 1 à 9",
+  shortcuts: "Raccourcis",
+  emptyTitle: "Aucune session ouverte",
+  emptyStep1: "Coche des dépôts ou un projet dans la barre latérale.",
+  emptyStep2: "Choisis l'agent, puis clique sur « Ouvrir ».",
+  emptyLayouts: "Ou rouvre une disposition :",
+  noReposHelp:
+    "TermF cherche les dépôts git dans les dossiers listés sous « roots » dans termf.toml. Ajoute-y tes dossiers de code, puis recharge la config.",
 };
 
 type Key = keyof typeof fr;
@@ -109,13 +132,10 @@ const en: Record<Key, string> = {
   open: "Open {agent} ({count})",
   openShell: "Open a shell ({count})",
   reload: "Reload config",
-  running: "Running",
-  exited: "Exited",
   exitedLabel: "exited",
   focus: "Maximize",
   unfocus: "Restore",
   close: "Close",
-  empty: "Tick repositories on the left, then “Open”.",
   truncated:
     "Partial scan: too many folders. Add your code folders to “roots” (termf.toml).",
   views: "View",
@@ -193,6 +213,32 @@ const en: Record<Key, string> = {
   keepAwakeActive: "Sleep blocked",
   keepAwakeHelp:
     "Sleep suspends agents; a locked screen does not. With the lid closed, a laptop sleeps anyway.",
+  settings: "Settings",
+  configFolder: "Configuration folder",
+  dismiss: "Dismiss",
+  agent: "Agent",
+  shell: "shell",
+  palette: "Command palette",
+  palettePlaceholder: "Search actions, sessions, repositories…",
+  paletteNavigate: "navigate",
+  paletteRun: "run",
+  paletteClose: "close",
+  nextWaiting: "Go to the next session waiting for you",
+  showTerminals: "Show terminals",
+  showFiles: "Show files",
+  openIn: "Open {agent} in {repo}",
+  openShellIn: "Open a shell in {repo}",
+  keepAwakeSet: "Prevent sleep: {mode}",
+  saveLayout: "Save the current layout",
+  maximizeActive: "Maximize or restore the active session",
+  focusTiles: "Go to session 1 to 9",
+  shortcuts: "Shortcuts",
+  emptyTitle: "No session open",
+  emptyStep1: "Tick repositories or a project in the sidebar.",
+  emptyStep2: "Pick the agent, then click “Open”.",
+  emptyLayouts: "Or reopen a layout:",
+  noReposHelp:
+    "TermF looks for git repositories in the folders listed under “roots” in termf.toml. Add your code folders there, then reload the config.",
 };
 
 const messages = { fr, en };
@@ -205,7 +251,7 @@ export function t(key: Key, vars: Record<string, string | number> = {}): string 
   return messages[lang][key].replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ""));
 }
 
-const relative = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
+const relative = new Intl.RelativeTimeFormat(lang, { numeric: "auto", style: "short" });
 const units: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 31_536_000],
   ["month", 2_592_000],

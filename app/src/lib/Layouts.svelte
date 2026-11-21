@@ -1,81 +1,76 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
+  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import Plus from "@lucide/svelte/icons/plus";
+  import X from "@lucide/svelte/icons/x";
+  import Section from "$lib/Section.svelte";
   import { t } from "$lib/i18n";
-  import { app, openSession } from "$lib/state.svelte";
+  import { app, callLayouts, openLayout } from "$lib/state.svelte";
 
-  type Layout = { name: string; sessions: { path: string; agent: string | null }[] };
-
-  let layouts = $state<Layout[]>([]);
   let name = $state("");
-
-  async function call(command: string, args: Record<string, unknown> = {}): Promise<boolean> {
-    try {
-      layouts = await invoke<Layout[]>(command, args);
-      return true;
-    } catch (e) {
-      app.error = String(e);
-      return false;
-    }
-  }
-
-  onMount(() => {
-    call("layouts");
-  });
+  let saving = $state(false);
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
     const sessions = app.sessions.map((s) => ({ path: s.cwd, agent: s.agent }));
-    if (await call("layout_save", { layout: { name, sessions } })) name = "";
-  }
-
-  async function open(layout: Layout) {
-    for (const s of layout.sessions) await openSession(s.path, s.agent);
+    if (await callLayouts("layout_save", { layout: { name, sessions } })) {
+      name = "";
+      saving = false;
+    }
   }
 </script>
 
-<section>
-  <h2>{t("layouts")}</h2>
+<Section id="layouts" title={t("layouts")} count={app.layouts.length}>
+  {#snippet actions()}
+    <button
+      class="icon-btn sm"
+      disabled={!app.sessions.length}
+      aria-expanded={saving}
+      onclick={() => (saving = !saving)}
+      aria-label={t("saveLayout")}
+      title={t("saveLayout")}
+    >
+      <Plus size={14} aria-hidden="true" />
+    </button>
+  {/snippet}
+  {#if saving}
+    <form class="save" onsubmit={save}>
+      <input
+        class="field"
+        onkeydown={(e) => e.key === "Escape" && (saving = false)}
+        bind:value={name}
+        placeholder={t("layoutName")}
+        aria-label={t("layoutName")}
+        {@attach (el) => el.focus()}
+      />
+      <button type="submit" class="btn sm primary" disabled={!name.trim() || !app.sessions.length}>
+        {t("save")}
+      </button>
+    </form>
+  {/if}
   <ul>
-    {#each layouts as layout (layout.name)}
+    {#each app.layouts as layout (layout.name)}
       <li class="item">
-        <button
-          class="row"
-          onclick={() => open(layout)}
-          title={t("openLayout", { name: layout.name })}
-        >
+        <button class="row" onclick={() => openLayout(layout)} title={t("openLayout", { name: layout.name })}>
+          <LayoutGrid size={14} aria-hidden="true" />
           <span class="name">{layout.name}</span>
-          <span class="count">{layout.sessions.length}</span>
+          <span class="meta">{layout.sessions.length}</span>
         </button>
         <button
-          class="icon"
-          onclick={() => call("layout_delete", { name: layout.name })}
+          class="icon-btn sm reveal"
+          onclick={() => callLayouts("layout_delete", { name: layout.name })}
           aria-label={t("deleteLayout", { name: layout.name })}
           title={t("deleteLayout", { name: layout.name })}
         >
-          ×
+          <X size={14} aria-hidden="true" />
         </button>
       </li>
     {:else}
-      <li class="muted empty">{t("noLayouts")}</li>
+      <li class="none">{t("noLayouts")}</li>
     {/each}
   </ul>
-  <form class="save" onsubmit={save}>
-    <input bind:value={name} placeholder={t("layoutName")} aria-label={t("layoutName")} />
-    <button type="submit" disabled={!name.trim() || !app.sessions.length}>{t("save")}</button>
-  </form>
-</section>
+</Section>
 
 <style>
-  h2 {
-    margin: 12px 8px 6px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-  }
-
   ul {
     margin: 0;
     padding: 0;
@@ -85,24 +80,44 @@
   .item {
     display: flex;
     align-items: center;
+    border-radius: var(--radius);
+  }
+
+  .item:hover {
+    background: var(--hover);
+  }
+
+  .item .icon-btn {
+    margin-right: 4px;
+  }
+
+  .reveal {
+    opacity: 0;
+  }
+
+  .item:hover .reveal,
+  .reveal:focus-visible {
+    opacity: 1;
   }
 
   .row {
     display: flex;
     flex: 1;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
-    padding: 4px 8px;
+    height: 30px;
+    padding: 0 8px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: none;
+    color: var(--text);
     text-align: left;
   }
 
-  .row:hover,
-  .icon:hover {
-    background: var(--hover);
+  .row :global(svg) {
+    flex-shrink: 0;
+    color: var(--muted);
   }
 
   .name {
@@ -110,49 +125,23 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 500;
   }
 
-  .count {
+  .meta {
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
   }
 
-  .icon {
-    width: 22px;
-    height: 22px;
-    flex-shrink: 0;
-    padding: 0;
-    border: 0;
-    border-radius: 4px;
-    background: none;
-    color: var(--muted);
-  }
-
-  .empty {
+  .none {
     padding: 4px 8px;
+    color: var(--muted);
   }
 
   .save {
     display: flex;
     gap: 6px;
-    margin-top: 6px;
-  }
-
-  .save input {
-    flex: 1;
-    min-width: 0;
-    padding: 5px 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg);
-    color: var(--text);
-    font: inherit;
-  }
-
-  .save button {
-    padding: 5px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel);
+    margin-bottom: 6px;
   }
 </style>

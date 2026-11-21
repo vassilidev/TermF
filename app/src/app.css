@@ -1,32 +1,123 @@
+@import "@fontsource-variable/inter/wght.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+
 :root {
-  --bg: #f6f7f9;
+  color-scheme: light;
+
+  /* Surfaces, from the ground up: main ground, chrome (top bar, sidebar), panels (tiles, fields, editor). */
+  --bg: #eef0f3;
+  --chrome: #f8f8fa;
   --panel: #ffffff;
-  --border: #e2e5ea;
-  --text: #1b1f24;
-  --muted: #6b7280;
-  --accent: #3b6ef5;
+  --raised: #ffffff;
+  --hover: rgb(15 18 30 / 0.06);
+  --selected: rgb(15 18 30 / 0.09);
+  --border: #dfe2e7;
+  --border-strong: #c4c8d0;
+  --field-border: #8a909b;
+
+  --text: #17181c;
+  --muted: #5d626d;
+
+  --accent: #4a4ad9;
+  --accent-hover: #3d3dc8;
   --accent-text: #ffffff;
-  --hover: #eef1f6;
-  --danger: #c0392b;
-  --term-bg: #0f1115;
-  --running: #22a06b;
-  --stopped: #9aa3af;
-  --waiting: #f5a524;
-  --waiting-text: #1b1f24;
-  color-scheme: light dark;
+  --accent-ink: #4040c8;
+  --accent-soft: rgb(74 74 217 / 0.1);
+  --focus: #4a4ad9;
+
+  --working: #3d3dc4;
+  --working-soft: rgb(74 74 217 / 0.1);
+  --waiting: #f2a516;
+  --waiting-text: #2e1d00;
+  --waiting-ring: #b87300;
+  --waiting-soft: #fff4dc;
+  --done: #1a6e3a;
+  --done-soft: rgb(26 110 58 / 0.1);
+  --danger: #c42b1c;
+  --danger-soft: rgb(196 43 28 / 0.08);
+  --danger-text: #ffffff;
+  --warning: #9a6200;
+
+  /* Matches the xterm theme in Terminal.svelte, dark in both app themes. */
+  --term-bg: #111216;
+
+  --font-ui: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, Menlo, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgb(15 18 30 / 0.06);
+  --shadow-2: 0 4px 12px rgb(15 18 30 / 0.08), 0 1px 3px rgb(15 18 30 / 0.06);
+  --shadow-3: 0 16px 48px rgb(15 18 30 / 0.18), 0 2px 8px rgb(15 18 30 / 0.08);
+
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-slow: 240ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0d10;
-    --panel: #14171c;
-    --border: #252a33;
-    --text: #e6e9ef;
-    --muted: #8b93a1;
-    --accent: #5b8cff;
-    --hover: #1c2129;
-    --danger: #ff6b5e;
-    --stopped: #5d6573;
+    color-scheme: dark;
+
+    --bg: #0c0d10;
+    --chrome: #131418;
+    --panel: #18191e;
+    --raised: #1d1e24;
+    --hover: rgb(255 255 255 / 0.06);
+    --selected: rgb(255 255 255 / 0.09);
+    --border: #25272d;
+    --border-strong: #363942;
+    --field-border: #606572;
+
+    --text: #e7e8eb;
+    --muted: #9a9ea9;
+
+    --accent: #5b5de8;
+    --accent-hover: #6b6df0;
+    --accent-text: #ffffff;
+    --accent-ink: #a3a5ff;
+    --accent-soft: rgb(116 118 245 / 0.16);
+    --focus: #8a8cff;
+
+    --working: #a3a5ff;
+    --working-soft: rgb(116 118 245 / 0.14);
+    --waiting: #f2b03d;
+    --waiting-text: #2e1d00;
+    --waiting-ring: #f2b03d;
+    --waiting-soft: #2e2821;
+    --done: #62cf8e;
+    --done-soft: rgb(98 207 142 / 0.12);
+    --danger: #ff8178;
+    --danger-soft: rgb(255 129 120 / 0.12);
+    --danger-text: #2a0a07;
+    --warning: #e3b341;
+
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-2: 0 6px 16px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.3);
+    --shadow-3: 0 20px 56px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
   }
 }
 
@@ -41,12 +132,24 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: var(--text-base) / 1.45 var(--font-ui);
+  font-feature-settings: "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
 }
 
 button {
-  font: inherit;
-  color: inherit;
   cursor: pointer;
 }
 
@@ -55,11 +158,209 @@ button:disabled {
   opacity: 0.45;
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong) padding-box;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--muted);
+  font: 500 var(--text-xs) / 16px var(--font-ui);
+  text-align: center;
+  white-space: nowrap;
+}
+
 .muted {
   color: var(--muted);
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Shared controls: one vocabulary for every button, field and notice. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-fast) ease-out,
+    border-color var(--dur-fast) ease-out;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.btn.primary:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.btn.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.btn.quiet {
+  border-color: transparent;
+  background: none;
+}
+
+.btn.sm {
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--text-sm);
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  transition:
+    background-color var(--dur-fast) ease-out,
+    color var(--dur-fast) ease-out;
+}
+
+.icon-btn:hover:not(:disabled),
+.icon-btn[aria-pressed="true"],
+.icon-btn[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon-btn.sm {
+  width: 22px;
+  height: 22px;
+}
+
+.field {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.field:focus-visible {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+  outline-offset: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: var(--radius);
+  background: var(--hover);
+}
+
+.segmented button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.segmented button:hover {
+  color: var(--text);
+}
+
+.segmented button[aria-pressed="true"],
+.segmented button[aria-checked="true"] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+}
+
+.notice {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius);
+  background: var(--hover);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.notice.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.notice svg {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
