@@ -25,7 +25,7 @@
       </label>
       <div class="thresholds">
         <label>
-          {t("contextResetAt")}
+          <span>{t("contextResetAt")}</span>
           <input
             type="number"
             min="1"
@@ -34,12 +34,12 @@
             disabled={!on}
             onchange={(e) => save({ resetAt: value(e) })}
           />
-          %
+          <span>%</span>
         </label>
         <label>
-          {t("contextWarningAt")}
+          <span>{t("contextWarningAt")}</span>
           <input type="number" min="1" max="100" value={warningAt} onchange={(e) => save({ warningAt: value(e) })} />
-          %
+          <span>%</span>
         </label>
       </div>
       <p class="help">{t("contextSettingsHelp")}</p>
@@ -84,16 +84,16 @@
   }
 
   .thresholds {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 16px;
+    display: grid;
+    grid-template-columns: max-content max-content max-content;
+    align-items: center;
+    gap: 6px 8px;
     margin-top: 4px;
   }
 
+  /* Text, field and unit line up in columns across both thresholds. */
   .thresholds label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    display: contents;
   }
 
   .thresholds input {
