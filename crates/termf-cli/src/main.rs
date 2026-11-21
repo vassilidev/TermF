@@ -13,6 +13,7 @@ use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
 mod ci;
+mod scout;
 mod ssh;
 mod sync;
 mod tickets;
@@ -34,6 +35,9 @@ usage:
                                         switch an item on or off, globally or for a project
   termf library import-claude [--repo <path>] [--project <id>] [--overwrite]
                                         import skills, agents and commands from ~/.claude (or a repository's)
+  termf library scout [--item <kind>/<name>]... [--project <id>] [--model <name>] [--budget <usd>]
+                                        Claude Code, with web search only, critiques the library (or the
+                                        items named) and proposes improvements, reviewed in TermF
   termf config export [-o <file>]       write the config and the library to one archive
   termf config import <file> [--dry-run] [--replace <item>]... [--replace-all]
                                         import an archive: merge, or replace the items named
@@ -248,6 +252,9 @@ fn library(mut args: Vec<&str>) -> Result<()> {
             let file = target.map_or("termf.toml".into(), |id| format!("projects/{id}.toml"));
             let state = if item.active { "on" } else { "off" };
             println!("{} {}: {state} (written in {file})", item.kind, item.name);
+        }
+        ["scout", rest @ ..] => {
+            scout::run(&config_dir, scope()?.project.as_deref(), rest.to_vec())?
         }
         ["import-claude"] => {
             let from = match &repo {
