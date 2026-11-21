@@ -1,3 +1,4 @@
 /target/
 .DS_Store
 /app/src-tauri/gen/schemas
+/.claude/worktrees/

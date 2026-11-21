@@ -963,6 +963,12 @@ Des notifications natives uniquement pour : une question posée, une approbation
 - Les vues sont chargées à la demande (CodeMirror, revue visuelle).
 - Équipes éphémères : 0 processus résiduel après un run. Les serveurs de dev sont arrêtés après la revue visuelle.
 - Routage des modèles : Haiku pour les tâches utilitaires, effort réglé par rôle et par taille de tâche.
+- **Mode « rester éveillé »** : la mise en veille du système suspend les agents, alors que le verrouillage de l'écran ne les arrête pas. TermF empêche donc la veille avec la crate `keepawake` (IOKit sous macOS, `SetThreadExecutionState` sous Windows, D-Bus sous Linux). Trois modes :
+  - `auto`, par défaut : actif tant qu'au moins une session travaille, plus 2 minutes de marge ;
+  - `always` ;
+  - `off`.
+
+  L'option séparée « garder l'écran allumé » empêche aussi le verrouillage automatique. Elle est désactivée par défaut, pour l'énergie et parce qu'un poste déverrouillé sans surveillance est un risque. Un indicateur reste visible tant que la veille est bloquée. Un portable dont on rabat l'écran se met en veille quoi qu'il arrive, sauf branché sur secteur avec un écran externe.
 - **Mesuré** : benchmarks en CI (démarrage, RAM au repos, stress à 30 sessions), plus un panneau « Énergie » dans l'app (CPU et RAM par processus enfant).
 
 ---
@@ -986,7 +992,8 @@ Les délais sont des ordres de grandeur pour un développeur seul assisté par I
 | Phase | Contenu | Terminée quand… |
 |---|---|---|
 | **0. Socle** (~2 sem.) | Workspace Cargo, Tauri 2, Svelte 5, config TOML global/projet, découverte adaptative des dépôts (tri par activité), sessions PTY + ring buffer + xterm.js, grille de terminaux, interface FR/EN | J'ouvre 10 `claude` dans 10 dépôts en 2 clics, avec moins de 200 Mo de RAM |
-| **1. Pilotage manuel** (~2 sem.) | Projets multi-dépôts, diffusion, dispositions, statuts via hooks (plugin éphémère + `termf hook`), notifications, terminal rapide global, CLI `termf`, explorateur + fuzzy + CodeMirror + diff, interrupteur Remote Control (§6.6) | Je vois d'un coup d'œil quel agent m'attend, et je peux en reprendre un depuis mon téléphone |
+| **1. Pilotage manuel** (~2 sem.) | Projets multi-dépôts, diffusion, dispositions, statuts via hooks (plugin éphémère + `termf hook`), notifications, terminal rapide (raccourci dans l'app, global en option), CLI `termf`, explorateur + fuzzy + CodeMirror + diff, interrupteur Remote Control (§6.6), mode « rester éveillé » (§15) | Je vois d'un coup d'œil quel agent m'attend, et je peux en reprendre un depuis mon téléphone |
+| **1b. Design & UX** (~1 sem.) | Système de design (tokens, typographie embarquée, icônes), barre du haut, palette `⌘K`, raccourcis, états vides et premier lancement, accessibilité | Je trouve toute action au clavier en moins de 2 s, sans lire de doc |
 | **2. Bibliothèque & config** (~2-3 sem.) | Skills, commandes, rôles, préférences ; couches ; matrice d'activation ; import `~/.claude` ; export/import ; **conventions assistées par IA** (§11.1) | Je transfère ma config sur une autre machine en un fichier ; j'écris mes conventions et j'active le pack proposé |
 | **2b. Synchro & SSH** (~2 sem.) | Synchro chiffrée multi-remote (§5.4), gestionnaire de clés SSH (§12.7) | Ma config et mes clés me suivent d'une machine à l'autre sans export |
 | **3. Tickets** (~2 sem.) | SQLite (runs, événements) ; GitHub puis Jira, inbox, résolveur d'URL, « lancer un ticket » avec un agent + worktree + PR | Je colle une URL et j'obtiens une PR liée au ticket |
