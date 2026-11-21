@@ -205,7 +205,8 @@ fn catches_up_one_missed_run_after_a_long_stop() {
     let s = &env.scheduler;
     let id = s.save(None, env.task("Hourly", "0 * * * *"), None).unwrap();
     let task = s.task(&id).unwrap();
-    let later = now() + 3 * 86_400 + 1800;
+    // 25 min past a slot, so the last hourly run is always past the grace period whatever the clock says.
+    let later = upcoming("0 * * * *", now() + 3 * 86_400, 1).unwrap()[0] + 1500;
     let (slot, trigger) = s.due(&id, &task, later).unwrap().expect("missed runs");
     assert!(later - slot > GRACE && slot <= later);
     assert_eq!(trigger, Trigger::Catchup);
