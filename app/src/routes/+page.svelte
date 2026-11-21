@@ -13,6 +13,7 @@
   import { files } from "$lib/files.svelte";
   import { library } from "$lib/library.svelte";
   import { ssh } from "$lib/ssh.svelte";
+  import { tickets } from "$lib/tickets.svelte";
 
   onMount(() => {
     document.documentElement.lang = lang;
@@ -50,6 +51,11 @@
     {#if ssh.loaded}
       {#await import("$lib/SshView.svelte") then { default: SshView }}
         <div class="pane" hidden={files.view !== "ssh"}><SshView /></div>
+      {/await}
+    {/if}
+    {#if tickets.loaded}
+      {#await import("$lib/TicketsView.svelte") then { default: TicketsView }}
+        <div class="pane" hidden={files.view !== "tickets"}><TicketsView /></div>
       {/await}
     {/if}
   </div>

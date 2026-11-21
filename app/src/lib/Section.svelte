@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
 
   let {
@@ -7,6 +7,7 @@
     title,
     count,
     grow = false,
+    expand = false,
     actions,
     children,
   }: {
@@ -15,6 +16,8 @@
     count?: number;
     /** Takes the space left in the sidebar and scrolls inside it. */
     grow?: boolean;
+    /** Opens the section when it becomes true, as if clicked. */
+    expand?: boolean;
     actions?: Snippet;
     children: Snippet;
   } = $props();
@@ -43,6 +46,11 @@
       // Private storage off: the section just won't remember.
     }
   }
+
+  // Not tracking `open`: the user can still fold it afterwards.
+  $effect(() => {
+    if (expand && !untrack(() => open)) toggle();
+  });
 </script>
 
 <section class="section" class:grow={grow && open}>

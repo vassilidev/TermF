@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import Info from "@lucide/svelte/icons/info";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
@@ -18,13 +19,19 @@
     selected,
     shortPath,
     toggleProject,
+    ui,
   } from "$lib/state.svelte";
 
   let filter = $state("");
   let sort = $state<"recent" | "name">("recent");
   let creating = $state(false);
-  let editing = $state<string | null>(null);
   const agent = $derived(launchAgent());
+
+  // The editor can be opened from elsewhere (the Tickets view): bring it into sight once its section is open.
+  $effect(() => {
+    if (!ui.editing) return;
+    tick().then(() => document.querySelector<HTMLInputElement>(".sidebar form.editor input")?.focus());
+  });
 
   const visibleRepos = $derived.by(() => {
     const query = filter.toLowerCase();
@@ -60,11 +67,11 @@
     {/if}
 
     <div class="sections">
-      <Section id="projects" title={t("projects")} count={app.workspace.projects.length}>
+      <Section id="projects" title={t("projects")} count={app.workspace.projects.length} expand={ui.editing !== null}>
         {#snippet actions()}
           <button
             class="icon-btn sm"
-            onclick={() => ((creating = true), (editing = null))}
+            onclick={() => ((creating = true), (ui.editing = null))}
             aria-label={t("newProject")}
             title={t("newProject")}
           >
@@ -78,8 +85,8 @@
           {#each app.workspace.projects as project (project.id)}
             {@const ticked = project.repos.filter((r) => selected.has(r.path)).length}
             <li>
-              {#if editing === project.id}
-                <ProjectEditor {project} onclose={() => (editing = null)} />
+              {#if ui.editing === project.id}
+                <ProjectEditor {project} onclose={() => (ui.editing = null)} />
               {:else}
                 <div class="item">
                   <label class="row">
@@ -94,7 +101,7 @@
                   </label>
                   <button
                     class="icon-btn sm reveal"
-                    onclick={() => ((editing = project.id), (creating = false))}
+                    onclick={() => ((ui.editing = project.id), (creating = false))}
                     aria-label={t("editProject", { name: project.name })}
                     title={t("editProject", { name: project.name })}
                   >
