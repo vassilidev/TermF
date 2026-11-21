@@ -36,7 +36,7 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 
 Règles communes des agents et outillage de captures : `.claude/reviews/tools/brief-common.md` et `.claude/reviews/tools/capture/` (durables). Au plus 4 agents en parallèle. Merge : revue (`/code-review high`, `medium` pour de l'UI pure) → corrections par l'agent auteur → CI 3 OS → si `main` a bougé et conflit, l'agent fusionne `origin/main` (le force-push est refusé par l'auto mode) → squash.
 
-- `phase3/worktrees-in-repo` — **PR #28** : worktrees des runs dans `<dépôt>/.claude/worktrees/termf-<run>-…` (confiance Claude Code héritée du dépôt), `.git/info/exclude`, réglage `[tickets] worktrees = repo|data`. Revue en cours.
+- PR #28 (worktrees dans le dépôt) mergée. En revue/corrections : #29 (T3), #30 (tickets UI), #31 (T5) ; T4 en cours.
 - `ux2/t3-terminals` — T3 Terminaux (tuiles, diffusion à la demande, dispositions, états vides).
 - `ux2/t4-settings` — T4 Réglages en vue + éditeur de raccourcis (`[keys]`).
 - `ux2/t5-team-project` — T5 vue Équipe + page Projet (remplace `ProjectEditor`).
@@ -46,6 +46,14 @@ Règles communes des agents et outillage de captures : `.claude/reviews/tools/br
 - Choix de la synchro à confirmer par le propriétaire (signalés, non bloquants) : XChaCha20-Poly1305 direct plutôt que `age` ; changer le mot de passe émet une nouvelle clé de récupération ; premier raccordement avec des fichiers locaux = fusion sans base commune ; branche `main` fixe ; auteur des commits `TermF <sync@termf.invalid>` ; mot de passe ≥ 8 caractères ; fichier absent du remote = pas d'information, pas une suppression.
 
 ## 3. Reste à faire, dans l'ordre
+
+**Demandes du propriétaire du 2026-11-21 au soir, prioritaires** (« finis l'app petit à petit, refais l'UI pour vraiment focus ce que je voulais dans la doc initiale : sélection de projet, onboarding propre et complet, traiter les tickets facilement ; alléger au maximum ce qui n'a pas besoin d'être vu ; le plus de choses automatiquement, proprement ») :
+- **Assistant de mise en route (§13.7) en priorité**, complet : analyse, formulaire, propositions, application, et une étape « confiance » : **la confiance Claude Code doit être automatique** pour les projets TermF (opt-in explicite de l'utilisateur dans l'assistant/réglages, par un moyen documenté ou sûr — jamais décidé par TermF sans ce choix). Depuis #28 les worktrees héritent de la confiance du dépôt.
+- **Passe d'allègement** après T4/T5 : cacher ce qui n'est pas nécessaire, tout ce qui peut être automatique l'est (tickets en un clic, nettoyage, préparation…).
+- **Artifacts** : vue en **tableau triable et filtrable** ; **suppression simple** depuis TermF (confirmation TermF en un clic, sélection multiple, option « ne plus demander »), sans dialogue dans une session Claude.
+- Corriger l'avertissement Svelte `assignment_value_stale` dans `ClaudeView.svelte:54`.
+- Le panneau « ponytail » dans Claude Code vient du plugin ponytail de l'utilisateur (pas de TermF) : se désactive par `/plugin`.
+
 
 1. Après T3/T4/T5 : **phase 4b — l'équipe** (vue conversation sur `termf-agents`, rôles en session, chef d'orchestre plan JSON, moteur de workflows et de règles), puis **assistant de mise en route d'un projet (§13.7)**, puis le reste de la gestion de Claude Code (§11.3 b–g), phase 5 (revue visuelle dans l'app, mode swipe §8.2), phase 6 (coffre & prod), phase 7 (finition) et **le README en dernier**. Revue « swipe » du propriétaire : https://claude.ai/artifact/DJWDnJvH7KWSpP64od6veR (manifeste `.claude/reviews/tools/manifest.json`, 2 écrans par fonction, republier après chaque lot).
 1. **Passe UX/UI n° 2** (demande du propriétaire le 2026-11-21 après avoir parcouru l'app) : « propre mais pas assez propre niveau UI et UX », en particulier la sélection des projets, l'équipe, la cohérence entre vues (portée projet, navigation). Audit puis refonte, avec captures. Retours du propriétaire, à traiter tous : sélection des projets ; l'équipe ; **Réglages pas assez propres** (modifier les raccourcis clavier, etc.) ; « l'interface n'est pas assez propre » en général.
