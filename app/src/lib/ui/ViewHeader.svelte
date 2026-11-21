@@ -54,9 +54,10 @@
 
   .actions {
     display: flex;
+    flex: 1 1 auto;
     align-items: center;
+    justify-content: flex-end;
     gap: 6px;
     min-width: 0;
-    margin-left: auto;
   }
 </style>
