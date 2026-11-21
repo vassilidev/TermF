@@ -147,7 +147,7 @@
       </select>
     </label>
     <div class="tools">
-      <button class="btn sm" onclick={() => (library.panel = { kind: "claude" })}>
+      <button class="btn sm" onclick={() => { library.panel = { kind: "claude" }; }}>
         <Import size={14} aria-hidden="true" />{t("claudeImport")}
       </button>
       <button class="btn sm" onclick={exportConfig} disabled={library.busy}>
