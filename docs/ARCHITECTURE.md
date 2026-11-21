@@ -912,7 +912,8 @@ Esprit Brave : sobre, dense mais aéré, une seule couleur d'accent, Inter + Jet
 
 ### 13.4 Terminal rapide (toujours disponible)
 
-- **Raccourci global** (`` Ctrl+` `` par défaut), même quand l'app est en arrière-plan : un panneau déroulant façon Quake.
+- Un panneau déroulant façon Quake, ouvert par `` Ctrl+` `` quand TermF a le focus, ou par le bouton `>_`.
+- Le **raccourci global**, actif même quand l'app est en arrière-plan, est optionnel (`quick_terminal_shortcut` dans `termf.toml`). Un raccourci global actif par défaut volerait celui d'autres apps : `` Ctrl+` `` est le terminal de VS Code.
 - Il comprend :
   - les commandes shell, exécutées dans le dossier du dépôt ou du worktree sélectionné ;
   - les commandes `termf` ;
@@ -927,7 +928,7 @@ Esprit Brave : sobre, dense mais aéré, une seule couleur d'accent, Inter + Jet
 | Action | macOS | Windows / Linux |
 |---|---|---|
 | Palette de commandes | `⌘K` | `Ctrl+K` |
-| Terminal rapide (global) | `` ⌃` `` | `` Ctrl+` `` |
+| Terminal rapide (dans l'app ; global en option) | `` ⌃` `` | `` Ctrl+` `` |
 | Lancer un ticket (coller une URL) | `⌘⇧L` | `Ctrl+Shift+L` |
 | Fichier (fuzzy) | `⌘P` | `Ctrl+P` |
 | Recherche dans le projet | `⌘⇧F` | `Ctrl+Shift+F` |
