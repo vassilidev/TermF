@@ -179,7 +179,9 @@ fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
 /// Tauri's default macOS menu without Close Window, whose ⌘W would never reach the webview: there it closes a split.
 #[cfg(target_os = "macos")]
 fn app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
-    use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem as Item, Submenu, WINDOW_SUBMENU_ID};
+    use tauri::menu::{
+        AboutMetadata, Menu, PredefinedMenuItem as Item, Submenu, WINDOW_SUBMENU_ID,
+    };
     let info = app.package_info();
     let about = AboutMetadata {
         name: Some(info.name.clone()),

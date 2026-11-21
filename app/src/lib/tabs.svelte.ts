@@ -147,6 +147,7 @@ export async function openLayout(layout: Layout) {
   const used = saved.flatMap((tab) => (tab.root === null ? [] : split.leaves(tab.root)));
   const valid = saved.length > 0 && saved.every((tab) => tab.root !== null) && new Set(used).size === used.length;
   const plan = valid ? saved : [{ name: "", root: split.grid(layout.sessions.map((_, i) => i)) }];
+  let first = true;
   for (const { name, root } of plan) {
     if (root === null) continue;
     const opened = new Map<number, number>();
@@ -160,7 +161,8 @@ export async function openLayout(layout: Layout) {
       (ids) => {
         const tab = newTab(split.relabel(root, (i) => opened.get(i) ?? null) ?? ids[0], ids[0]);
         tab.name = name;
-        terminals.current = tab.id;
+        if (first) terminals.current = tab.id;
+        first = false;
       },
     );
   }

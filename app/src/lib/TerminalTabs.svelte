@@ -1,6 +1,7 @@
 <script lang="ts">
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
+  import { initial } from "$lib/ProjectSwitcher.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import { focusSession, keys, openLauncher } from "$lib/commands";
   import { t } from "$lib/i18n";
@@ -139,7 +140,7 @@
             {#if sessionsOf(tab).some((s) => s.running && s.status === "waiting")}
               <span class="dot" role="img" aria-label={t("statusWaiting")}></span>
             {/if}
-            {#if project}<span class="project">{project}</span>{/if}
+            {#if project}<span class="mark" title={project} aria-hidden="true">{initial(project)}</span><span class="sr-only">{project}</span>{/if}
             <span class="name">{tabName(tab)}</span>
             {#if count > 1}<span class="count" title={t("t6aSplits", { count })}>{count}</span>{/if}
             {#if i < 9}<kbd aria-hidden="true">{keys.tile(i + 1)}</kbd>{/if}
@@ -198,7 +199,7 @@
     align-self: stretch;
     min-width: 0;
     overflow-x: auto;
-    scrollbar-width: none;
+    scrollbar-width: thin;
   }
 
   .tab {
@@ -206,7 +207,7 @@
     display: flex;
     flex: 0 1 auto;
     align-items: center;
-    min-width: 72px;
+    min-width: 110px;
     max-width: 240px;
     border-right: 1px solid var(--border);
   }
@@ -216,6 +217,7 @@
   }
 
   .tab.on {
+    flex-shrink: 0;
     background: var(--panel);
   }
 
@@ -240,6 +242,11 @@
     min-width: 0;
     height: 100%;
     padding: 0 26px 0 12px;
+  }
+
+  /* The shortcut keeps the room of the close button, which takes its place on hover and on the current tab. */
+  [role="tab"]:has(kbd) {
+    padding-right: 6px;
     border: 0;
     background: none;
     color: var(--muted);
@@ -264,17 +271,17 @@
     text-overflow: ellipsis;
   }
 
-  .project {
+  .mark {
+    display: grid;
+    place-items: center;
     flex-shrink: 0;
-    max-width: 96px;
-    overflow: hidden;
-    color: var(--muted);
-    font-weight: 400;
-    text-overflow: ellipsis;
-  }
-
-  .project::after {
-    content: " ·";
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-size: 10px;
+    font-weight: 700;
   }
 
   .dot {
@@ -302,6 +309,11 @@
     flex-shrink: 0;
     border-bottom-width: 1px;
     background: none;
+  }
+
+  .tab:hover kbd,
+  .tab.on kbd {
+    visibility: hidden;
   }
 
   .close {
