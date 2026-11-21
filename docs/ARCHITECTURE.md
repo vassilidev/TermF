@@ -653,6 +653,7 @@ Elle s'applique quand la règle `visual-review` est active (§7.6) et que l'UI a
   - **Refuser** : le run s'arrête et le worktree est conservé.
   - **Demander des modifications** : les épingles, commentaires et recadrages partent vers l'agent front, qui reçoit une nouvelle session, puis une nouvelle capture donne une revue v2. L'historique v1, v2… est conservé.
 - En option, les images avant/après sont jointes à la PR en commentaire.
+- **Mode de validation rapide (obligatoire)**, par défaut quand plusieurs écrans attendent : une pile de cartes, un écran par carte, une décision par geste, façon « swipe » : → valider, ← refuser, ↑ demander une modification (commentaire, épingle), ↓ passer ; mêmes gestes au clavier (flèches), au trackpad et au toucher. Chaque carte met **les modifications en avant** (zones qui diffèrent encadrées automatiquement, zoom possible, bascule avant/après instantanée) et donne **le contexte** en tête (ticket ou PR, ce qui a changé et pourquoi, textes modifiés). Images préchargées, aucune attente entre deux cartes. **Chaque réponse est enregistrée immédiatement** ; on reprend là où on s'était arrêté, et un récapitulatif final liste les décisions et les commentaires, transmis aux agents concernés.
 
 ---
 
