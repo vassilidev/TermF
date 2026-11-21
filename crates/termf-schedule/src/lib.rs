@@ -270,9 +270,9 @@ impl Scheduler {
             .tasks;
         tasks.retain(|id, _| check_id(id).is_ok());
         for task in tasks.values_mut() {
-            task.dir = termf_core::expand_tilde(&task.dir)
-                .to_string_lossy()
-                .into_owned();
+            // Rebuilt from its parts: `~/a/b` read back on Windows gets its own separators.
+            let dir: PathBuf = termf_core::expand_tilde(&task.dir).components().collect();
+            task.dir = dir.to_string_lossy().into_owned();
         }
         Ok(tasks)
     }
