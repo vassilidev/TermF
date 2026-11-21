@@ -18,6 +18,8 @@ export type Workspace = {
   repos: Repo[];
   scanTruncated: boolean;
   quickTerminalError: string | null;
+  /** Why the local API (termf CLI, agent status) is off. */
+  apiError: string | null;
 };
 export type Status = "starting" | "working" | "waiting" | "idle" | "done";
 export type Session = {

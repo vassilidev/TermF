@@ -19,6 +19,7 @@ pub enum Output {
 pub type Sink = Box<dyn FnMut(Output) + Send>;
 
 type EnvFn = Box<dyn Fn(u32) -> Vec<(String, String)> + Send + Sync>;
+type ExitFn = Arc<dyn Fn(u32) + Send + Sync>;
 
 pub struct SpawnSpec {
     pub title: String,
@@ -82,6 +83,7 @@ pub struct Sessions {
     map: Mutex<HashMap<u32, Session>>,
     next_id: AtomicU32,
     env: Option<EnvFn>,
+    on_exit: Option<ExitFn>,
 }
 
 impl Sessions {
@@ -90,6 +92,14 @@ impl Sessions {
         Self {
             env: Some(Box::new(env)),
             ..Self::default()
+        }
+    }
+
+    /// `on_exit` runs with the session id once its process has ended, whether or not a view is attached.
+    pub fn on_exit(self, on_exit: impl Fn(u32) + Send + Sync + 'static) -> Self {
+        Self {
+            on_exit: Some(Arc::new(on_exit)),
+            ..self
         }
     }
 
@@ -124,6 +134,7 @@ impl Sessions {
         let shared = Arc::new(Mutex::new(Shared::default()));
 
         let thread_shared = shared.clone();
+        let on_exit = self.on_exit.clone();
         std::thread::Builder::new()
             .name(format!("pty-{id}"))
             .spawn(move || {
@@ -138,6 +149,9 @@ impl Sessions {
                 }
                 let code = child.wait().ok().map(|s| s.exit_code());
                 thread_shared.lock().unwrap().finish(code);
+                if let Some(on_exit) = on_exit {
+                    on_exit(id);
+                }
             })?;
 
         self.map.lock().unwrap().insert(
@@ -312,6 +326,16 @@ mod tests {
             sessions.list()[0].cwd,
             std::env::temp_dir().to_string_lossy()
         );
+    }
+
+    #[test]
+    fn reports_exit_without_a_view() {
+        let (tx, rx) = mpsc::channel();
+        let sessions = Sessions::default().on_exit(move |id| {
+            let _ = tx.send(id);
+        });
+        let id = sessions.spawn(spec("/bin/sh", &["-c", "exit 0"])).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(id));
     }
 
     #[test]

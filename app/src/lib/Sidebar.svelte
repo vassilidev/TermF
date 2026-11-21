@@ -47,6 +47,10 @@
     <p class="error" role="alert">{app.error}</p>
   {/if}
 
+  {#if app.workspace?.apiError}
+    <p class="notice api-off" title={app.workspace.apiError}>{t("apiOff")}</p>
+  {/if}
+
   {#if app.workspace}
     <div class="lists">
       {#if app.workspace.quickTerminalError}
@@ -192,6 +196,10 @@
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0;
+  }
+
+  .notice.api-off {
+    margin: 0 12px 8px;
   }
 
   .toggle {

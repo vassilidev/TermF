@@ -4108,6 +4108,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-single-instance"
+version = "2.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "726b6da0dd5bd1344f84f4108a622c07d01923baacb5c803a605189672c5352f"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "windows-sys 0.61.2",
+ "zbus 5.19.0",
+]
+
+[[package]]
 name = "tauri-runtime"
 version = "2.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4252,6 +4268,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-notification",
+ "tauri-plugin-single-instance",
  "termf-core",
  "termf-files",
  "termf-term",
@@ -4273,6 +4290,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs",
+ "libc",
  "serde",
  "serde_json",
  "toml 1.2.2+spec-1.1.0",

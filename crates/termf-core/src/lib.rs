@@ -23,6 +23,7 @@ scan_depth = 5
 # editor = "code"
 
 # Agents available in the UI: name = command run in the repository.
+# A command that starts with `claude` also reports its status (working, waiting…) to TermF.
 [agents]
 claude = "claude"
 "#;

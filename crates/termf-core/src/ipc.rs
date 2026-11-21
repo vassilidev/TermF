@@ -1,6 +1,7 @@
 //! Local API shared by the app and the `termf` CLI: one JSON object per line over a local socket.
-//! Every request carries the token; a watch request turns the connection into an event stream.
+//! Every request carries a token; a watch request turns the connection into an event stream.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const ENV_SOCKET: &str = "TERMF_SOCKET";
+/// A session's own token, which only reports that session's hooks.
 pub const ENV_TOKEN: &str = "TERMF_TOKEN";
 pub const ENV_SESSION: &str = "TERMF_SESSION_ID";
 
@@ -114,7 +116,8 @@ pub fn token_file(data_dir: &Path) -> PathBuf {
 
 /// A socket file path on Unix, a named pipe path on Windows (derived from the per-user data dir).
 pub fn socket_name(data_dir: &Path) -> String {
-    if cfg!(windows) {
+    #[cfg(windows)]
+    {
         let id: String = data_dir
             .to_string_lossy()
             .chars()
@@ -127,12 +130,49 @@ pub fn socket_name(data_dir: &Path) -> String {
             })
             .collect();
         format!(r"\\.\pipe\termf-{id}")
-    } else {
-        run_dir(data_dir)
-            .join("termf.sock")
+    }
+    #[cfg(unix)]
+    {
+        socket_path(&run_dir(data_dir), uid())
             .to_string_lossy()
             .into_owned()
     }
+}
+
+/// Longest socket path: `sun_path` holds 104 bytes on macOS (108 on Linux), the final NUL included.
+const MAX_SOCKET_PATH: usize = 103;
+
+/// The socket in the run dir, or in `/tmp/termf-<uid>` when that path is too long for a socket (long user names).
+pub fn socket_path(run_dir: &Path, uid: u32) -> PathBuf {
+    let path = run_dir.join("termf.sock");
+    if path.as_os_str().len() <= MAX_SOCKET_PATH {
+        path
+    } else {
+        PathBuf::from(format!("/tmp/termf-{uid}/termf.sock"))
+    }
+}
+
+#[cfg(unix)]
+pub fn uid() -> u32 {
+    // SAFETY: getuid has no preconditions and cannot fail.
+    unsafe { libc::getuid() }
+}
+
+/// Creates `dir` readable by the user only, refusing one that another user created first (e.g. in /tmp).
+#[cfg(unix)]
+pub fn private_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .with_context(|| format!("cannot create {}", dir.display()))?;
+    let meta = fs::symlink_metadata(dir)?;
+    if !meta.is_dir() || meta.uid() != uid() {
+        bail!("{} is not a folder owned by you", dir.display());
+    }
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    Ok(())
 }
 
 pub fn read_token(data_dir: &Path) -> Result<String> {
@@ -152,6 +192,39 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
             == 0
 }
 
+/// What a token allows: the user's token (in the token file) everything, a session's token only its own hooks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Full,
+    Session(u32),
+}
+
+impl Access {
+    pub fn allows(self, call: &Call) -> bool {
+        match (self, call) {
+            (Access::Full, _) => true,
+            (Access::Session(id), Call::Hook { session, .. }) => *session == id,
+            (Access::Session(_), _) => false,
+        }
+    }
+}
+
+/// The access `token` grants, given the user's token and each session's token.
+pub fn access(token: &str, user: &str, sessions: &HashMap<u32, String>) -> Option<Access> {
+    if token_matches(token, user) {
+        return Some(Access::Full);
+    }
+    sessions
+        .iter()
+        .find(|(_, t)| token_matches(token, t))
+        .map(|(id, _)| Access::Session(*id))
+}
+
+/// Whether terminal input can answer a prompt: escape sequences (arrows, focus and mouse reports) cannot.
+pub fn answers_prompt(input: &[u8]) -> bool {
+    input.first().is_some_and(|&b| b != 0x1b)
+}
+
 /// Status a Claude Code hook event means, or `None` when it says nothing about the state.
 pub fn hook_status(event: &str, payload: &Value) -> Option<Status> {
     let field = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
@@ -164,9 +237,11 @@ pub fn hook_status(event: &str, payload: &Value) -> Option<Status> {
             | "elicitation_url_dialog"
             | "agent_needs_input"
             | "quota_auto_resume_stale" => Some(Status::Waiting),
+            // Also the only sign of a turn interrupted with Esc, which fires no Stop.
+            "idle_prompt" => Some(Status::Idle),
             _ => None,
         },
-        "Stop" => Some(Status::Idle),
+        "Stop" | "StopFailure" => Some(Status::Idle),
         // Compaction can restart a session in the middle of a turn.
         "SessionStart" if field("source") != "compact" => Some(Status::Idle),
         // /clear and /resume end one conversation but the process goes on with another.
@@ -313,11 +388,21 @@ mod tests {
         );
         assert_eq!(
             hook_status("Notification", &json!({"notification_type": "idle_prompt"})),
-            None,
-            "already idle since Stop"
+            Some(Status::Idle)
+        );
+        assert_eq!(
+            hook_status(
+                "Notification",
+                &json!({"notification_type": "auth_success"})
+            ),
+            None
         );
         assert_eq!(hook_status("Notification", &none), None);
         assert_eq!(hook_status("Stop", &none), Some(Status::Idle));
+        assert_eq!(
+            hook_status("StopFailure", &json!({"error": "rate_limit"})),
+            Some(Status::Idle)
+        );
         assert_eq!(
             hook_status("SessionStart", &json!({"source": "startup"})),
             Some(Status::Idle)
@@ -332,6 +417,76 @@ mod tests {
         );
         assert_eq!(hook_status("SessionEnd", &json!({"reason": "clear"})), None);
         assert_eq!(hook_status("SubagentStop", &none), None);
+    }
+
+    #[test]
+    fn session_tokens_only_report_their_own_hooks() {
+        let sessions = HashMap::from([(1, "s1".to_string()), (2, "s2".to_string())]);
+        assert_eq!(access("user", "user", &sessions), Some(Access::Full));
+        assert_eq!(access("s2", "user", &sessions), Some(Access::Session(2)));
+        assert_eq!(access("nope", "user", &sessions), None);
+
+        let hook = |session| Call::Hook {
+            session,
+            event: "Stop".into(),
+            payload: Value::Null,
+        };
+        let others = [
+            Call::List,
+            Call::Watch,
+            Call::Open {
+                path: "/".into(),
+                agent: None,
+            },
+            Call::Say {
+                session: "1".into(),
+                text: "rm -rf ~".into(),
+            },
+            hook(2),
+        ];
+        let session = Access::Session(1);
+        assert!(session.allows(&hook(1)));
+        for call in &others {
+            assert!(!session.allows(call), "{call:?}");
+            assert!(Access::Full.allows(call), "{call:?}");
+        }
+    }
+
+    #[test]
+    fn only_plain_input_answers_a_prompt() {
+        assert!(answers_prompt(b"\r"));
+        assert!(answers_prompt(b"1"));
+        assert!(!answers_prompt(b"\x1b[I"), "focus report");
+        assert!(!answers_prompt(b"\x1b[B"), "arrow key");
+        assert!(!answers_prompt(b""));
+    }
+
+    #[test]
+    fn keeps_socket_paths_short_enough() {
+        let short = Path::new("/Users/me/Library/Application Support/dev.termf.app/run");
+        assert_eq!(socket_path(short, 501), short.join("termf.sock"));
+
+        let long = format!(
+            "/Users/{}/Library/Application Support/dev.termf.app/run",
+            "x".repeat(50)
+        );
+        let path = socket_path(Path::new(&long), 501);
+        assert_eq!(path, Path::new("/tmp/termf-501/termf.sock"));
+        assert!(Path::new(&long).join("termf.sock").as_os_str().len() > MAX_SOCKET_PATH);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_private_dirs() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("termf-private-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        private_dir(&dir).unwrap();
+        let mode = fs::metadata(&dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        fs::remove_dir(&dir).unwrap();
     }
 
     #[test]

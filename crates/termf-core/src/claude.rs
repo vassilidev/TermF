@@ -15,16 +15,25 @@ pub const HOOK_EVENTS: &[&str] = &[
     "PermissionRequest",
     "Notification",
     "Stop",
+    "StopFailure",
     "SessionEnd",
 ];
 
 /// Whether an agent command runs Claude Code, e.g. `claude` or `/usr/local/bin/claude --model opus`.
+/// Only a command that starts with the `claude` program gets status hooks and Remote Control.
 pub fn is_claude(command: &str) -> bool {
     command
         .split_whitespace()
         .next()
         .and_then(|program| Path::new(program).file_stem())
         .is_some_and(|stem| stem == "claude")
+}
+
+/// Inserts `args` right after the program word, so the rest of the command (pipes, redirections) is untouched.
+pub fn after_program(command: &str, args: &str) -> String {
+    let command = command.trim_start();
+    let end = command.find(char::is_whitespace).unwrap_or(command.len());
+    format!("{} {args}{}", &command[..end], &command[end..])
 }
 
 /// Writes a plugin (`.claude-plugin/plugin.json` + `hooks/hooks.json`) whose hooks run `<termf> hook <Event>`.
@@ -71,6 +80,19 @@ mod tests {
         assert!(!is_claude("codex"));
         assert!(!is_claude("claude-dev"));
         assert!(!is_claude(""));
+    }
+
+    #[test]
+    fn inserts_args_after_the_program() {
+        assert_eq!(after_program("claude", "--x 'a b'"), "claude --x 'a b'");
+        assert_eq!(
+            after_program("  claude --model opus | tee log", "--x"),
+            "claude --x --model opus | tee log"
+        );
+        assert_eq!(
+            after_program("/opt/claude\t-c", "--x"),
+            "/opt/claude --x\t-c"
+        );
     }
 
     #[test]

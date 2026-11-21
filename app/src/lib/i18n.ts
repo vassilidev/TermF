@@ -85,6 +85,7 @@ const fr = {
   remoteControlOn: "Contrôlable à distance (Remote Control)",
   notifyWaiting: "Attend ta réponse",
   notifyFinished: "A terminé",
+  apiOff: "API locale indisponible : la CLI termf et les statuts des agents sont désactivés.",
 };
 
 type Key = keyof typeof fr;
@@ -175,6 +176,7 @@ const en: Record<Key, string> = {
   remoteControlOn: "Remote Control on",
   notifyWaiting: "Waiting for you",
   notifyFinished: "Finished",
+  apiOff: "Local API unavailable: the termf CLI and agent status are off.",
 };
 
 const messages = { fr, en };

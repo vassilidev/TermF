@@ -71,6 +71,7 @@ pub fn quick_terminal(
         {
             return Ok(id);
         }
+        state.api.forget(id);
         let _ = state.sessions.kill(id);
     }
     let (program, args) = shell_command(None);

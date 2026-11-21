@@ -37,7 +37,7 @@ fn run(args: &[&str]) -> Result<()> {
     match args {
         ["ls"] => {
             let sessions: Vec<SessionSummary> =
-                serde_json::from_value(Client::connect()?.call(Call::List)?)?;
+                serde_json::from_value(Client::connect(None)?.call(Call::List)?)?;
             for s in sessions {
                 let state = match s.status {
                     Some(status) => status.as_str(),
@@ -60,17 +60,17 @@ fn run(args: &[&str]) -> Result<()> {
             };
             let path = std::path::absolute(path)?.to_string_lossy().into_owned();
             let s: SessionSummary =
-                serde_json::from_value(Client::connect()?.call(Call::Open { path, agent })?)?;
+                serde_json::from_value(Client::connect(None)?.call(Call::Open { path, agent })?)?;
             println!("{:>4}  {}", s.id, s.title);
         }
         ["say", session, text @ ..] if !text.is_empty() => {
-            Client::connect()?.call(Call::Say {
+            Client::connect(None)?.call(Call::Say {
                 session: session.to_string(),
                 text: text.join(" "),
             })?;
         }
         ["watch"] => {
-            let mut client = Client::connect()?;
+            let mut client = Client::connect(None)?;
             client.call(Call::Watch)?;
             loop {
                 match client.read()? {
@@ -106,7 +106,7 @@ fn forward_hook(event: String) -> Result<()> {
     std::io::stdin().read_to_string(&mut payload)?;
     let payload = serde_json::from_str(&payload).unwrap_or(Value::Null);
     // Waiting for the reply keeps consecutive hooks in order.
-    Client::connect()?.call(Call::Hook {
+    Client::connect(Some(env::var(ipc::ENV_TOKEN)?))?.call(Call::Hook {
         session,
         event,
         payload,
@@ -120,13 +120,13 @@ struct Client {
 }
 
 impl Client {
-    /// Sessions started by TermF get the socket and token in their environment; elsewhere they come from the data dir.
-    fn connect() -> Result<Self> {
+    /// `token: None` uses the user's token from the data dir. Sessions started by TermF get the socket in their environment.
+    fn connect(token: Option<String>) -> Result<Self> {
         let data_dir = termf_core::default_data_dir()?;
         let socket = env::var(ipc::ENV_SOCKET).unwrap_or_else(|_| ipc::socket_name(&data_dir));
-        let token = match env::var(ipc::ENV_TOKEN) {
-            Ok(token) => token,
-            Err(_) => ipc::read_token(&data_dir)?,
+        let token = match token {
+            Some(token) => token,
+            None => ipc::read_token(&data_dir)?,
         };
         let conn = Stream::connect(socket.as_str().to_fs_name::<GenericFilePath>()?)
             .with_context(|| format!("cannot reach TermF at {socket} (is it running?)"))?;

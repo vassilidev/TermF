@@ -37,6 +37,8 @@ struct Workspace {
     repos: Vec<Repo>,
     scan_truncated: bool,
     quick_terminal_error: Option<String>,
+    /// Why the local API (CLI, agent status) is off.
+    api_error: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -68,6 +70,7 @@ async fn workspace(
         repos: discovery.repos,
         scan_truncated: discovery.truncated,
         quick_terminal_error: state.quick_terminal.error.lock().unwrap().clone(),
+        api_error: state.api.error.clone(),
     })
 }
 
@@ -112,7 +115,6 @@ fn pty_attach(
                     let _ = on_data.send(InvokeResponseBody::Raw(bytes));
                 }
                 Output::Exit(exit_code) => {
-                    app.state::<AppState>().api.exited(&app, id);
                     let _ = app.emit("pty-exit", ExitEvent { id, exit_code });
                 }
             }),
@@ -122,8 +124,10 @@ fn pty_attach(
 }
 
 #[tauri::command]
-fn pty_write(state: State<AppState>, id: u32, data: String) -> CmdResult<()> {
-    state.sessions.write(id, data.as_bytes()).map_err(err)
+fn pty_write(app: AppHandle, state: State<AppState>, id: u32, data: String) -> CmdResult<()> {
+    state.sessions.write(id, data.as_bytes()).map_err(err)?;
+    state.api.input(&app, id, data.as_bytes());
+    Ok(())
 }
 
 #[tauri::command]
@@ -152,22 +156,30 @@ fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config_dir = termf_core::default_config_dir().expect("cannot locate the config directory");
-    let data_dir = termf_core::default_data_dir().expect("cannot locate the data directory");
-    let api = api::Api::new(data_dir).expect("cannot prepare the local API");
     tauri::Builder::default()
+        // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
-        .manage(AppState {
-            config_dir,
-            sessions: api.sessions(),
-            quick_terminal: Default::default(),
-            api,
-        })
         .manage(Arc::new(Files::default()))
         .plugin(quick_terminal::plugin())
         // One setup: a second call to `setup` would replace this one.
-        .setup(|app| {
-            // The UI works without the CLI, so a busy socket is not fatal.
-            if let Err(e) = api::serve(app.handle().clone()) {
+        .setup(move |app| {
+            // The UI and the terminals work without the local API.
+            let (api, listener) = api::Api::new();
+            app.manage(AppState {
+                config_dir,
+                sessions: api.sessions(app.handle().clone()),
+                quick_terminal: Default::default(),
+                api,
+            });
+            if let Some(listener) = listener
+                && let Err(e) = api::serve(app.handle().clone(), listener)
+            {
                 eprintln!("termf: local API disabled: {e:#}");
             }
             quick_terminal::register(app.handle());

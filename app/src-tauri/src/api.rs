@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::sync::{Mutex, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use interprocess::local_socket::{GenericFilePath, ListenerOptions, Stream, prelude::*};
+use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Stream, prelude::*};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::claude;
@@ -26,58 +26,71 @@ struct Meta {
     dir: Option<PathBuf>,
 }
 
-pub struct Api {
+struct Endpoint {
     data_dir: PathBuf,
     socket: String,
+    /// The user's token, also in the token file.
     token: String,
+    /// Session id → the token its hooks report with.
+    session_tokens: Arc<Mutex<HashMap<u32, String>>>,
+}
+
+impl Endpoint {
+    fn allows(&self, request: &Request) -> bool {
+        let sessions = self.session_tokens.lock().unwrap();
+        ipc::access(&request.token, &self.token, &sessions).is_some_and(|a| a.allows(&request.call))
+    }
+}
+
+pub struct Api {
+    /// `None` when the local API could not be set up: sessions still run, without the CLI or status.
+    endpoint: Option<Endpoint>,
+    /// Why the local API is off.
+    pub error: Option<String>,
     meta: Mutex<HashMap<u32, Meta>>,
     watchers: Mutex<Vec<mpsc::Sender<StatusEvent>>>,
 }
 
 impl Api {
-    /// Writes a fresh token to a file only the user can read. No session outlives the app, so old session folders go.
-    pub fn new(data_dir: PathBuf) -> Result<Self> {
-        let run = ipc::run_dir(&data_dir);
-        fs::create_dir_all(&run)?;
-        let _ = fs::remove_dir_all(data_dir.join("sessions"));
-        let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness for the API token: {e}"))?;
-        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-
-        let file = ipc::token_file(&data_dir);
-        let _ = fs::remove_file(&file);
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-            fs::set_permissions(&run, fs::Permissions::from_mode(0o700))?;
-            options.mode(0o600);
-        }
-        options
-            .open(&file)
-            .and_then(|mut f| f.write_all(token.as_bytes()))
-            .with_context(|| format!("cannot write {}", file.display()))?;
-
-        Ok(Self {
-            socket: ipc::socket_name(&data_dir),
-            data_dir,
-            token,
+    /// Sets up the local API, or one that is off (and says why) when that fails.
+    pub fn new() -> (Self, Option<Listener>) {
+        let (endpoint, listener, error) = match open() {
+            Ok((endpoint, listener)) => (Some(endpoint), Some(listener), None),
+            Err(e) => {
+                eprintln!("termf: local API disabled: {e:#}");
+                (None, None, Some(format!("{e:#}")))
+            }
+        };
+        let api = Self {
+            endpoint,
+            error,
             meta: Mutex::default(),
             watchers: Mutex::default(),
-        })
+        };
+        (api, listener)
     }
 
-    /// A session registry whose processes can reach this API.
-    pub fn sessions(&self) -> Sessions {
-        let (socket, token) = (self.socket.clone(), self.token.clone());
-        Sessions::with_env(move |id| {
-            vec![
-                (ipc::ENV_SOCKET.into(), socket.clone()),
-                (ipc::ENV_TOKEN.into(), token.clone()),
-                (ipc::ENV_SESSION.into(), id.to_string()),
-            ]
-        })
+    /// A session registry whose processes can report their own hooks, and whose exits end their status.
+    pub fn sessions(&self, app: AppHandle) -> Sessions {
+        let sessions = match &self.endpoint {
+            Some(endpoint) => {
+                let socket = endpoint.socket.clone();
+                let tokens = endpoint.session_tokens.clone();
+                Sessions::with_env(move |id| {
+                    let Ok(token) = random_token() else {
+                        return Vec::new();
+                    };
+                    tokens.lock().unwrap().insert(id, token.clone());
+                    vec![
+                        (ipc::ENV_SOCKET.into(), socket.clone()),
+                        (ipc::ENV_TOKEN.into(), token),
+                        (ipc::ENV_SESSION.into(), id.to_string()),
+                    ]
+                })
+            }
+            None => Sessions::default(),
+        };
+        sessions.on_exit(move |id| app.state::<AppState>().api.exited(&app, id))
     }
 
     pub fn list(&self, sessions: &Sessions) -> Vec<SessionSummary> {
@@ -137,8 +150,21 @@ impl Api {
         }
     }
 
+    /// Typing into a waiting session answers it (e.g. approves a tool), which no hook reports right away.
+    pub fn input(&self, app: &AppHandle, id: u32, input: &[u8]) {
+        let waiting = self
+            .meta
+            .lock()
+            .unwrap()
+            .get(&id)
+            .is_some_and(|m| m.status == Some(Status::Waiting));
+        if waiting && ipc::answers_prompt(input) {
+            self.set_status(app, id, Status::Working);
+        }
+    }
+
     /// The process ended: an agent that reports its status is done.
-    pub fn exited(&self, app: &AppHandle, id: u32) {
+    fn exited(&self, app: &AppHandle, id: u32) {
         let tracked = self
             .meta
             .lock()
@@ -151,10 +177,67 @@ impl Api {
     }
 
     pub fn forget(&self, id: u32) {
+        if let Some(endpoint) = &self.endpoint {
+            endpoint.session_tokens.lock().unwrap().remove(&id);
+        }
         if let Some(Meta { dir: Some(dir), .. }) = self.meta.lock().unwrap().remove(&id) {
             let _ = fs::remove_dir_all(dir);
         }
     }
+}
+
+/// Writes a fresh user token to a file only the user can read and listens on the socket.
+/// No session outlives the app, so old session folders go.
+fn open() -> Result<(Endpoint, Listener)> {
+    let data_dir = termf_core::default_data_dir()?;
+    let run = ipc::run_dir(&data_dir);
+    let socket = ipc::socket_name(&data_dir);
+    #[cfg(unix)]
+    for dir in [
+        run.as_path(),
+        std::path::Path::new(&socket).parent().unwrap_or(&run),
+    ] {
+        ipc::private_dir(dir)?;
+    }
+    #[cfg(not(unix))]
+    fs::create_dir_all(&run)?;
+    let _ = fs::remove_dir_all(data_dir.join("sessions"));
+    let token = random_token()?;
+    let file = ipc::token_file(&data_dir);
+    let _ = fs::remove_file(&file);
+
+    // Replaces the socket of a TermF that crashed; a second instance never gets here.
+    let listener = ListenerOptions::new()
+        .name(socket.as_str().to_fs_name::<GenericFilePath>()?)
+        .try_overwrite(true)
+        .create_sync()
+        .with_context(|| format!("cannot listen on {socket}"))?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
+        options.mode(0o600);
+    }
+    options
+        .open(&file)
+        .and_then(|mut f| f.write_all(token.as_bytes()))
+        .with_context(|| format!("cannot write {}", file.display()))?;
+
+    let endpoint = Endpoint {
+        data_dir,
+        socket,
+        token,
+        session_tokens: Arc::default(),
+    };
+    Ok((endpoint, listener))
+}
+
+fn random_token() -> Result<String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness for an API token: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Starts a session. A Claude Code agent gets an ephemeral plugin whose hooks report its status,
@@ -178,34 +261,50 @@ pub fn spawn(
     };
     let is_claude = command.as_deref().is_some_and(claude::is_claude);
     let remote_control = remote_control && is_claude;
-    let termf = is_claude.then(termf_binary).flatten();
+    // Status needs the local API and the CLI the hooks run.
+    let hooks = match &state.api.endpoint {
+        Some(endpoint) if is_claude => {
+            termf_binary().map(|termf| (endpoint.data_dir.join("sessions"), termf))
+        }
+        _ => None,
+    };
 
     let cwd_text = cwd.to_string_lossy().into_owned();
     let mut new_id = None;
     let spawned = state.sessions.spawn_with(|id| {
         new_id = Some(id);
-        let dir = state.api.data_dir.join("sessions").join(id.to_string());
+        let dir = hooks
+            .as_ref()
+            .map(|(sessions, _)| sessions.join(id.to_string()));
         state.api.meta.lock().unwrap().insert(
             id,
             Meta {
                 title: title.clone(),
-                status: termf.is_some().then_some(Status::Starting),
+                status: hooks.is_some().then_some(Status::Starting),
                 remote_control,
                 agent_session_id: None,
-                dir: termf.is_some().then(|| dir.clone()),
+                dir: dir.clone(),
             },
         );
-        let mut command = command;
-        if let (Some(command), Some(termf)) = (command.as_mut(), &termf) {
+        let mut extra = Vec::new();
+        if let (Some(dir), Some((_, termf))) = (&dir, &hooks) {
             let plugin = dir.join("plugin");
             claude::write_plugin(&plugin, termf)?;
-            command.push_str(" --plugin-dir ");
-            command.push_str(&shell_quote(&plugin.to_string_lossy()));
+            extra.push(format!(
+                "--plugin-dir {}",
+                shell_quote(&plugin.to_string_lossy())
+            ));
         }
-        if let Some(command) = command.as_mut().filter(|_| remote_control) {
-            command.push_str(" --remote-control ");
-            command.push_str(&shell_quote(&title));
+        if remote_control {
+            extra.push(format!("--remote-control {}", shell_quote(&title)));
         }
+        let command = command.as_deref().map(|c| {
+            if extra.is_empty() {
+                c.to_owned()
+            } else {
+                claude::after_program(c, &extra.join(" "))
+            }
+        });
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
             title: title.clone(),
@@ -232,27 +331,15 @@ pub fn spawn(
     }))
 }
 
-/// The CLI ships next to the app executable (both in `target/<profile>/` during development).
+/// The CLI ships next to the app executable: bundled as a sidecar, or in `target/<profile>/` during development.
 fn termf_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let path = exe.with_file_name(format!("termf{}", std::env::consts::EXE_SUFFIX));
     path.is_file().then_some(path)
 }
 
-/// Listens on the local socket, one thread per connection.
-pub fn serve(app: AppHandle) -> Result<()> {
-    let socket = app.state::<AppState>().api.socket.clone();
-    // Replaces the socket of a TermF that crashed; the newest instance wins.
-    let listener = ListenerOptions::new()
-        .name(socket.as_str().to_fs_name::<GenericFilePath>()?)
-        .try_overwrite(true)
-        .create_sync()
-        .with_context(|| format!("cannot listen on {socket}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
-    }
+/// Answers the CLI and the hooks, one thread per connection.
+pub fn serve(app: AppHandle, listener: Listener) -> Result<()> {
     std::thread::Builder::new()
         .name("api".into())
         .spawn(move || {
@@ -268,14 +355,20 @@ pub fn serve(app: AppHandle) -> Result<()> {
 
 fn handle(app: &AppHandle, conn: Stream) -> Result<()> {
     let state = app.state::<AppState>();
+    let endpoint = state.api.endpoint.as_ref().context("local API disabled")?;
     let mut conn = BufReader::new(conn);
     let mut line = String::new();
     while conn.read_line(&mut line)? > 0 {
         let request = serde_json::from_str::<Request>(&line);
         line.clear();
         let request = match request {
-            Ok(r) if ipc::token_matches(&r.token, &state.api.token) => r,
-            Ok(_) => return reply(&mut conn, &Reply::Error("invalid token".into())),
+            Ok(r) if endpoint.allows(&r) => r,
+            Ok(_) => {
+                return reply(
+                    &mut conn,
+                    &Reply::Error("token not valid for this request".into()),
+                );
+            }
             Err(e) => return reply(&mut conn, &Reply::Error(format!("invalid request: {e}"))),
         };
         if request.call == Call::Watch {
@@ -327,6 +420,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             // Sent apart so a TUI that detects pastes, like Claude Code, reads Enter as a key press.
             std::thread::sleep(Duration::from_millis(100));
             state.sessions.write(id, b"\r")?;
+            state.api.input(app, id, b"\r");
             Value::Null
         }
         Call::Hook {
