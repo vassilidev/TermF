@@ -5,7 +5,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { allRepos } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
-  import { describe, when, type Task, type TaskEntry } from "$lib/schedule.svelte";
+  import { describe, schedule, when, type Task, type TaskEntry } from "$lib/schedule.svelte";
   import { shortPath } from "$lib/state.svelte";
 
   let { entry, onclose }: { entry: TaskEntry | null; onclose: (id?: string) => void } = $props();
@@ -20,6 +20,7 @@
     effort: null,
     permissions: null,
     budget: null,
+    machine: schedule.machine || null,
     enabled: true,
     catchup: true,
   };
@@ -37,6 +38,7 @@
           effort: start.effort,
           permissions: start.permissions,
           budget: start.budget,
+          machine: start.machine,
           enabled: start.enabled,
           catchup: start.catchup,
         }
@@ -88,7 +90,8 @@
 
   async function pickDir(e: Event) {
     const select = e.currentTarget as HTMLSelectElement;
-    if (select.value !== "\0other") return;
+    if (select.value !== "\0other") return void (task.dir = select.value);
+    // Back to the current folder while the dialog is open, and for good if it is cancelled.
     select.value = task.dir;
     const dir = await open({ directory: true, multiple: false });
     if (typeof dir === "string") task.dir = dir;
@@ -120,7 +123,7 @@
 
   <label class="labelled">
     <span>{t("schedulerDir")}</span>
-    <select class="field" required bind:value={task.dir} onchange={pickDir}>
+    <select class="field" required value={task.dir} onchange={pickDir}>
       <option value="" disabled>{t("schedulerDirPick")}</option>
       {#if task.dir && !repos.some((r) => r.path === task.dir)}
         <option value={task.dir}>{shortPath(task.dir)}</option>
@@ -190,6 +193,18 @@
       {/each}
     </div>
   </fieldset>
+
+  <label class="labelled">
+    <span>{t("schedulerMachine")}</span>
+    <select class="field" bind:value={() => task.machine ?? "", (v) => (task.machine = v || null)}>
+      <option value={schedule.machine}>{t("schedulerMachineHere", { name: schedule.machine })}</option>
+      <option value="">{t("schedulerMachineAny")}</option>
+      {#if task.machine && task.machine !== schedule.machine}
+        <option value={task.machine}>{t("schedulerMachineThere", { name: task.machine })}</option>
+      {/if}
+    </select>
+    <span class="help">{t("schedulerMachineHelp")}</span>
+  </label>
 
   <div class="grid">
     <label class="labelled">

@@ -18,6 +18,8 @@ export type Task = {
   permissions: string | null;
   /** US dollars, headless only. */
   budget: number | null;
+  /** The machine it runs on; null: every machine where TermF is open. */
+  machine: string | null;
   enabled: boolean;
   catchup: boolean;
 };
@@ -59,8 +61,13 @@ export const schedule = $state({
   /** The selected task's runs, newest first. */
   history: [] as Execution[],
   desktop: null as DesktopTask[] | null,
+  /** This machine's name. */
+  machine: "",
   error: "",
 });
+
+/** Whether a task runs on this machine. */
+export const runsHere = (task: Task) => !task.machine || task.machine === schedule.machine;
 
 export function showScheduler() {
   files.view = "scheduler";
@@ -71,6 +78,7 @@ export function showScheduler() {
 export async function refresh() {
   schedule.loadError = "";
   try {
+    if (!schedule.machine) schedule.machine = await invoke<string>("schedule_machine");
     schedule.tasks = await invoke<TaskEntry[]>("schedule_tasks");
   } catch (e) {
     schedule.loadError = String(e);
@@ -89,10 +97,15 @@ export async function loadHistory() {
   }
 }
 
-/** Takes a run as `schedule-run` gives it. */
+/** Takes a run as `schedule-run` gives it; its task's next run may have changed. */
 function upsert(run: Execution) {
   const entry = schedule.tasks?.find((e) => e.id === run.task);
   if (entry && (!entry.last || entry.last.id <= run.id)) entry.last = run;
+  if (entry?.enabled && runsHere(entry)) {
+    invoke<number[]>("schedule_preview", { cron: entry.cron, count: 1 })
+      .then(([next]) => (entry.next = next ?? null))
+      .catch(() => {});
+  }
   if (run.task !== (schedule.selected ?? schedule.tasks?.[0]?.id)) return;
   const i = schedule.history.findIndex((r) => r.id === run.id);
   if (i >= 0) schedule.history[i] = run;

@@ -836,6 +836,15 @@ const fr = {
   schedulerCopyLink: "Copier le lien",
   schedulerCopied: "Lien copié",
   schedulerOpenLink: "Ouvrir dans le navigateur",
+  schedulerMachine: "Machine",
+  schedulerMachineHere: "Cette machine ({name})",
+  schedulerMachineAny: "N'importe quelle machine",
+  schedulerMachineThere: "Sur {name}",
+  schedulerMachineHelp:
+    "Tes tâches se synchronisent entre tes machines ; chacune ne tourne que sur la sienne. « N'importe quelle machine » la lance sur chacune où TermF est ouvert.",
+  schedulerRunsOn: "S'exécute sur {machine}",
+  schedulerElsewhere:
+    "Cette tâche s'exécute sur {machine} : elle ne se lance pas ici. Modifie-la pour la faire tourner sur cette machine.",
   schedulerLoopsTitle: "Boucles d'une session (/loop)",
   schedulerLoopsHelp:
     "Elles n'existent que dans la session Claude Code qui les a créées et s'arrêtent avec elle : rien à gérer de l'extérieur.",
@@ -1671,6 +1680,14 @@ const en: Record<Key, string> = {
   schedulerCopyLink: "Copy the link",
   schedulerCopied: "Link copied",
   schedulerOpenLink: "Open in the browser",
+  schedulerMachine: "Machine",
+  schedulerMachineHere: "This machine ({name})",
+  schedulerMachineAny: "Any machine",
+  schedulerMachineThere: "On {name}",
+  schedulerMachineHelp:
+    "Your tasks sync between your machines; each one only runs on its own. “Any machine” runs it on each one where TermF is open.",
+  schedulerRunsOn: "Runs on {machine}",
+  schedulerElsewhere: "This task runs on {machine}: it does not run here. Edit it to run it on this machine.",
   schedulerLoopsTitle: "Session loops (/loop)",
   schedulerLoopsHelp:
     "They only exist in the Claude Code session that made them and stop with it: nothing to manage from outside.",

@@ -5,6 +5,7 @@
   import Cloud from "@lucide/svelte/icons/cloud";
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
+  import Info from "@lucide/svelte/icons/info";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Monitor from "@lucide/svelte/icons/monitor";
   import Pencil from "@lucide/svelte/icons/pencil";
@@ -21,6 +22,7 @@
     describe,
     loadHistory,
     refresh,
+    runsHere,
     schedule,
     when,
     type DesktopTask,
@@ -109,17 +111,22 @@
       await refresh();
     });
 
-  const install = (entry: TaskEntry, on: boolean) =>
-    act("install", async () => {
-      entry.installed = await invoke<boolean>("schedule_install", { id: entry.id, on });
+  // The switch shows what is true afterwards, refused or not.
+  const install = async (entry: TaskEntry, box: HTMLInputElement) => {
+    await act("install", async () => {
+      entry.installed = await invoke<boolean>("schedule_install", { id: entry.id, on: box.checked });
     });
+    box.checked = entry.installed;
+  };
 
-  const enable = (entry: TaskEntry, enabled: boolean) =>
-    act("enable", async () => {
+  const enable = async (entry: TaskEntry, box: HTMLInputElement) => {
+    await act("enable", async () => {
       const { id, installed: _i, next: _n, last: _l, ...task } = entry;
-      await invoke("schedule_save", { id, task: { ...task, enabled } });
+      await invoke("schedule_save", { id, task: { ...task, enabled: box.checked } });
       await refresh();
     });
+    box.checked = current?.enabled ?? false;
+  };
 
   async function closeForm(id?: string) {
     schedule.editing = null;
@@ -250,14 +257,18 @@
     <div class="split">
       <ul class="list" aria-label={t("schedulerTabTasks")}>
         {#each tasks as entry (entry.id)}
-          <li class="row" class:current={entry === current && editing === undefined}>
+          <li class="row" class:current={entry === current && editing === undefined} class:elsewhere={!runsHere(entry)}>
             <button class="pick" aria-current={entry === current} onclick={() => select(entry.id)}>
               <span class="name">{entry.name}</span>
               <span class="desc">
-                {dots(describe(entry.cron) ?? entry.cron, entry.next !== null && t("schedulerNext", { when: when(entry.next) }))}
+                {#if runsHere(entry)}
+                  {dots(describe(entry.cron) ?? entry.cron, entry.next !== null && t("schedulerNext", { when: when(entry.next) }))}
+                {:else}
+                  {dots(describe(entry.cron) ?? entry.cron, t("schedulerRunsOn", { machine: entry.machine ?? "" }))}
+                {/if}
               </span>
             </button>
-            {#if !entry.enabled}
+            {#if !runsHere(entry)}{:else if !entry.enabled}
               <span class="status off">{t("schedulerOff")}</span>
             {:else if entry.last}
               {@render status(entry.last.status)}
@@ -279,8 +290,13 @@
             </p>
           </header>
 
+          {#if !runsHere(current)}
+            <p class="notice elsewhere-note">
+              <Info size={14} aria-hidden="true" />{t("schedulerElsewhere", { machine: current.machine ?? "" })}
+            </p>
+          {/if}
           <div class="actions">
-            <button class="btn sm primary" onclick={() => runNow(current)} disabled={!!busy}>
+            <button class="btn sm primary" onclick={() => runNow(current)} disabled={!!busy || !runsHere(current)}>
               {#if busy === "run"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Play
                   size={14}
                   aria-hidden="true"
@@ -315,7 +331,7 @@
                 role="switch"
                 checked={current.enabled}
                 disabled={!!busy}
-                onchange={(e) => enable(current, e.currentTarget.checked)}
+                onchange={(e) => enable(current, e.currentTarget)}
               />
               <span class="label">{t("schedulerEnabled")}</span>
             </label>
@@ -325,17 +341,25 @@
                 class="switch"
                 role="switch"
                 checked={current.installed}
-                disabled={!!busy || (current.mode === "tile" && !current.installed)}
-                onchange={(e) => install(current, e.currentTarget.checked)}
+                disabled={!!busy || ((current.mode === "tile" || !runsHere(current)) && !current.installed)}
+                onchange={(e) => install(current, e.currentTarget)}
               />
               <span>
                 <span class="label">{t("schedulerClosed")}</span>
-                <span class="help">{current.mode === "tile" ? t("schedulerClosedTile") : t("schedulerClosedHelp")}</span>
+                <span class="help">
+                  {!runsHere(current)
+                    ? t("schedulerRunsOn", { machine: current.machine ?? "" })
+                    : current.mode === "tile"
+                      ? t("schedulerClosedTile")
+                      : t("schedulerClosedHelp")}
+                </span>
               </span>
             </label>
           </div>
 
           <dl class="meta">
+            <dt>{t("schedulerMachine")}</dt>
+            <dd>{current.machine ?? t("schedulerMachineAny")}</dd>
             <dt>{t("schedulerMetaDir")}</dt>
             <dd class="mono">{shortPath(current.dir)}</dd>
             <dt>{t("schedulerMetaMode")}</dt>
@@ -557,6 +581,14 @@
 
   .row.current {
     background: var(--selected);
+  }
+
+  .row.elsewhere .pick {
+    opacity: 0.6;
+  }
+
+  .elsewhere-note {
+    margin-top: 12px;
   }
 
   .pick {

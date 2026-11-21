@@ -185,7 +185,7 @@ pub async fn schedule_tasks(app: AppHandle) -> CmdResult<Vec<TaskEntry>> {
                 Ok(TaskEntry {
                     installed: s.installed(&id),
                     next: next
-                        .filter(|_| task.enabled)
+                        .filter(|_| task.enabled && s.runs_here(&task))
                         .and_then(|n| n.first().copied()),
                     last: s.history(Some(&id), 1)?.pop(),
                     id,
