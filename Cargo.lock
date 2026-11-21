@@ -4473,6 +4473,8 @@ version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
+ "foldhash",
+ "indexmap 2.14.2",
  "itoa",
  "memchr",
  "serde",
@@ -5429,6 +5431,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
  "termf-ci",
+ "termf-claude",
  "termf-core",
  "termf-files",
  "termf-library",
@@ -5449,6 +5452,17 @@ dependencies = [
  "serde_json",
  "termf-core",
  "termf-tickets",
+ "yaml-rust2",
+]
+
+[[package]]
+name = "termf-claude"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "termf-core",
  "yaml-rust2",
 ]
 

@@ -3,6 +3,9 @@ import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
 import CalendarClock from "@lucide/svelte/icons/calendar-clock";
+import Bot from "@lucide/svelte/icons/bot";
+import Images from "@lucide/svelte/icons/images";
+import { showClaude } from "$lib/claude.svelte";
 import Coffee from "@lucide/svelte/icons/coffee";
 import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
@@ -197,6 +200,10 @@ export function commands(): Command[] {
   }
   if (files.view !== "ci") list.push({ id: "view-ci", label: t("showCi"), icon: Workflow, run: showCi });
   list.push({ id: "ci-dispatch", label: t("ciDispatchLong"), icon: Workflow, run: dispatchWorkflow });
+  list.push(
+    { id: "view-claude", label: t("claudeViewShow"), icon: Bot, run: () => showClaude("config") },
+    { id: "claude-artifacts", label: t("claudeViewShowArtifacts"), icon: Images, run: () => showClaude("artifacts") },
+  );
   list.push({
     id: "file",
     label: t("filesFind"),

@@ -13,6 +13,7 @@ use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Str
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
+use termf_claude::artifacts::Policy;
 use termf_core::claude;
 use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
@@ -29,6 +30,9 @@ struct Meta {
     dir: Option<PathBuf>,
     /// Claude Code sessions that report through hooks only.
     reset: Option<Reset>,
+    /// A session TermF runs for itself, with no tile until it needs the user.
+    hidden: bool,
+    policy: Option<Policy>,
 }
 
 /// Lets the agent get back to its prompt before TermF types in it.
@@ -119,11 +123,35 @@ impl Api {
     }
 
     pub fn list(&self, sessions: &Sessions) -> Vec<SessionSummary> {
+        let hidden: Vec<u32> = self
+            .meta
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, m)| m.hidden)
+            .map(|(id, _)| *id)
+            .collect();
         sessions
             .list()
             .into_iter()
+            .filter(|s| !hidden.contains(&s.id))
             .map(|s| self.summary(s))
             .collect()
+    }
+
+    /// What a task's session may do, set before it started.
+    pub fn policy(&self, id: u32) -> Option<Policy> {
+        self.meta.lock().unwrap().get(&id)?.policy.clone()
+    }
+
+    /// Gives a hidden session its tile.
+    pub fn reveal(&self, app: &AppHandle, sessions: &Sessions, id: u32) {
+        if let Some(m) = self.meta.lock().unwrap().get_mut(&id) {
+            m.hidden = false;
+        }
+        if let Some(info) = sessions.list().into_iter().find(|s| s.id == id) {
+            let _ = app.emit("session-opened", self.summary(info));
+        }
     }
 
     fn summary(&self, info: SessionInfo) -> SessionSummary {
@@ -169,6 +197,7 @@ impl Api {
     /// Handles a hook, or the status line `termf statusline` reports, and returns what `termf hook`
     /// prints for Claude Code to read (null: nothing).
     fn hook(&self, app: &AppHandle, id: u32, event: &str, payload: &Value) -> Value {
+        let task_reply = crate::claude::hook(app, id, event, payload);
         let text = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
         let (agent_session, handoff) = (text("session_id"), self.handoff_file(id));
         let mut current = true;
@@ -238,7 +267,7 @@ impl Api {
         if let Some((step, line)) = then {
             type_later(app.clone(), id, step, line);
         }
-        output.unwrap_or_default()
+        task_reply.unwrap_or_else(|| output.unwrap_or_default())
     }
 
     fn handoff_file(&self, id: u32) -> PathBuf {
@@ -350,6 +379,7 @@ impl Api {
 
     /// The process ended: an agent that reports its status is done.
     fn exited(&self, app: &AppHandle, id: u32) {
+        crate::claude::exited(app, id);
         let tracked = self
             .meta
             .lock()
@@ -459,6 +489,69 @@ pub fn spawn(
         }
         None => None,
     };
+    launch(
+        state,
+        agent,
+        command,
+        cwd,
+        title,
+        (cols, rows),
+        remote_control,
+        run,
+        None,
+        args,
+    )
+}
+
+/// A Claude Code session TermF starts for a task of its own: its first message, and the options it needs.
+pub struct Task {
+    /// The `[agents]` name shown on its tile.
+    pub agent: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub prompt: String,
+    /// No tile until `Api::reveal`.
+    pub hidden: bool,
+    /// What its `PreToolUse` hook lets it do, known before it starts. Such a session gets no library.
+    pub policy: Option<Policy>,
+    /// Added to the session's `--settings` file, e.g. permission rules that hold even without TermF's hooks.
+    pub settings: Option<Value>,
+}
+
+/// Starts a task's session. It needs the hooks, which tell TermF what it does.
+pub fn spawn_task(
+    state: &AppState,
+    cwd: PathBuf,
+    title: String,
+    task: Task,
+) -> Result<SessionSummary> {
+    launch(
+        state,
+        Some(&task.agent),
+        Some(task.command.clone()),
+        cwd,
+        title,
+        (120, 32),
+        false,
+        None,
+        Some(&task),
+        &[],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn launch(
+    state: &AppState,
+    agent: Option<&str>,
+    command: Option<String>,
+    cwd: PathBuf,
+    title: String,
+    (cols, rows): (u16, u16),
+    remote_control: bool,
+    run: Option<RunSession>,
+    task: Option<&Task>,
+    args: &[String],
+) -> Result<SessionSummary> {
     let is_claude = command.as_deref().is_some_and(claude::is_claude);
     let remote_control = remote_control && is_claude;
     // Session folders live with the local API, which clears them at startup.
@@ -471,6 +564,10 @@ pub fn spawn(
     ensure!(
         run.is_none() || hooks.is_some(),
         "a ticket run needs its guard hook, which this session cannot get"
+    );
+    ensure!(
+        task.is_none() || hooks.is_some(),
+        "this needs TermF's local API and the termf CLI next to TermF, whose hooks tell TermF what Claude does"
     );
 
     let cwd_text = cwd.to_string_lossy().into_owned();
@@ -487,6 +584,8 @@ pub fn spawn(
                 agent_session_id: None,
                 dir: dir.clone(),
                 reset: hooks.is_some().then(Reset::default),
+                hidden: task.is_some_and(|t| t.hidden),
+                policy: task.and_then(|t| t.policy.clone()),
             },
         );
         let mut extra = Vec::new();
@@ -496,12 +595,22 @@ pub fn spawn(
                 claude::write_plugin(&plugin, termf, run.is_some())?;
                 // The status line is what measures the context.
                 let settings = claude::write_settings(dir, termf, &cwd, &claude_dir())?;
+                if let Some(Value::Object(more)) = task.and_then(|t| t.settings.as_ref()) {
+                    let mut all: Value = serde_json::from_str(&fs::read_to_string(&settings)?)?;
+                    if let Value::Object(map) = &mut all {
+                        map.extend(more.clone());
+                    }
+                    fs::write(&settings, serde_json::to_string_pretty(&all)?)?;
+                }
                 extra.push(format!(
                     "--settings {}",
                     shell_quote(&settings.to_string_lossy())
                 ));
             }
-            let prompt = library(state, &cwd, dir, run.as_ref().map(|r| r.project));
+            let prompt = task
+                .is_none_or(|t| t.policy.is_none())
+                .then(|| library(state, &cwd, dir, run.as_ref().map(|r| r.project)))
+                .flatten();
             if plugin.is_dir() {
                 extra.push(format!(
                     "--plugin-dir {}",
@@ -533,6 +642,10 @@ pub fn spawn(
                 "--disallowedTools {}",
                 shell_quote("Bash(git push:*)")
             ));
+        }
+        if let Some(task) = task {
+            extra.extend(task.args.iter().map(|a| shell_quote(a)));
+            extra.push(shell_quote(&task.prompt));
         }
         let command = command.as_deref().map(|c| {
             let mut c = if extra.is_empty() {

@@ -16,6 +16,7 @@
   import { tickets } from "$lib/tickets.svelte";
   import { ci, watchCi } from "$lib/ci.svelte";
   import { schedule, watchSchedule } from "$lib/schedule.svelte";
+  import { claudeView } from "$lib/claude.svelte";
 
   onMount(() => {
     document.documentElement.lang = lang;
@@ -71,6 +72,11 @@
     {#if schedule.loaded}
       {#await import("$lib/SchedulerView.svelte") then { default: SchedulerView }}
         <div class="pane" hidden={files.view !== "scheduler"}><SchedulerView /></div>
+      {/await}
+    {/if}
+    {#if claudeView.loaded}
+      {#await import("$lib/ClaudeView.svelte") then { default: ClaudeView }}
+        <div class="pane" hidden={files.view !== "claude"}><ClaudeView /></div>
       {/await}
     {/if}
   </div>

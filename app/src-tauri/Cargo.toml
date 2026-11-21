@@ -26,6 +26,7 @@ termf-ssh = { path = "../../crates/termf-ssh" }
 termf-sync = { path = "../../crates/termf-sync" }
 termf-tickets = { path = "../../crates/termf-tickets" }
 termf-worktree = { path = "../../crates/termf-worktree" }
+termf-claude = { path = "../../crates/termf-claude" }
 anyhow = "1.0.104"
 tauri-plugin-global-shortcut = "2"
 getrandom = "0.3.4"
