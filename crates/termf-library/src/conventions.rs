@@ -25,7 +25,9 @@ const MAX_ITEMS: usize = 40;
 const MAX_TEXT: usize = 64 << 10;
 const MAX_REPO_FILE: usize = 256 << 10;
 const PROPOSE_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+#[cfg(target_os = "macos")]
 const CHECK_TIMEOUT: Duration = Duration::from_secs(60);
+#[cfg(target_os = "macos")]
 const FINDINGS_SHOWN: usize = 5;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -231,6 +233,7 @@ pub fn settings(config_dir: &Path) -> (String, String) {
 /// profile applies; `program` stays a separate word.
 pub fn launcher(program: &str) -> Vec<String> {
     if cfg!(windows) {
+        // shortcut: run directly, so an npm `claude.cmd` is not found; go through `cmd /c` when that matters.
         vec![program.into()]
     } else {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
@@ -1334,7 +1337,7 @@ fn measure(script: &str, repo: &Path) -> Result<Measure> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{explain, materialize, put, temp_dir};
+    use crate::{put, temp_dir};
 
     /// A config with project `acme` and its repository `api`, a git repository with a tracked `src/App.tsx`.
     fn setup(name: &str) -> (PathBuf, PathBuf) {
@@ -1371,6 +1374,7 @@ mod tests {
     }
 
     /// A stand-in for Claude Code that records its arguments and stdin, then prints `answer` as Claude Code would.
+    #[cfg(unix)]
     fn fake_claude(dir: &Path, answer: &Value) -> Vec<String> {
         let out = json!({ "type": "result", "is_error": false, "total_cost_usd": 0.25, "structured_output": answer });
         let script = dir.join("fake-claude.sh");
@@ -1385,6 +1389,7 @@ mod tests {
         vec!["/bin/sh".into(), script.to_string_lossy().into_owned()]
     }
 
+    #[cfg(unix)]
     fn item(kind: &str, name: &str, sentence: &str) -> Value {
         json!({
             "kind": kind, "name": name, "sentence": sentence, "description": format!("{name} does it"),
@@ -1393,8 +1398,10 @@ mod tests {
         })
     }
 
+    #[cfg(unix)]
     const TEXT: &str = "Pas de CSS inline. Composants en PascalCase.";
 
+    #[cfg(unix)]
     fn accept_all(config: &Path) {
         let draft = load(config, "acme", "front").unwrap().draft.unwrap();
         for i in &draft.items {
@@ -1434,8 +1441,11 @@ mod tests {
         assert_eq!(item.body, "Body\n");
     }
 
+    // The stand-in for Claude Code is a shell script.
+    #[cfg(unix)]
     #[test]
     fn proposes_validates_and_applies_into_the_project_library() {
+        use crate::{explain, materialize};
         let (config, repo) = setup("conventions-apply");
         let dir = config.parent().unwrap().to_path_buf();
         save_source(&config, "acme", "front", TEXT).unwrap();
@@ -1710,6 +1720,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn asks_before_proposing_and_keeps_the_answers() {
         let (config, _) = setup("conventions-questions");
@@ -1766,6 +1777,7 @@ mod tests {
         assert!(err.contains("Not logged in"), "{err}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn regenerating_shows_a_diff_and_replaces_only_what_it_owns() {
         let (config, repo) = setup("conventions-regenerate");
@@ -1886,6 +1898,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn revises_one_item_only() {
         let (config, _) = setup("conventions-revise");
