@@ -23,8 +23,16 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 
 ## 2. En cours au moment de la passation
 
-- **Phase 3c, sources de tickets** (demande du propriétaire : brancher les issues de chaque projet, plusieurs façons, MCP compris ; ARCHITECTURE §10) : un agent travaille sur la branche `phase3/ticket-sources` (Jira Cloud natif avec jeton au trousseau, GitHub Projects v2 via `gh api graphql`, source MCP via `claude -p` en lecture seule, plusieurs sources par projet, section « Tickets » de l'éditeur de projet ; captures `scratchpad/ticket-sources-review/`).
-- **Worktrees intelligents selon la stack** : un agent travaille sur la branche `phase3/smart-worktrees` (détection, recette + skill + agent dans la bibliothèque du projet, dépendances CoW/cache, `.env`, base clonée, Compose et ports, `termf worktree setup|teardown`, `/worktree-setup` ; captures `scratchpad/smart-worktrees-review/`).
+Une branche par tranche, un agent par branche (worktree `.claude/worktrees/agent-*`). Si un agent est interrompu (redémarrage), reprendre depuis l'état du worktree et de la PR. Règles communes des agents et outillage de captures : `.claude/reviews/tools/brief-common.md` et `.claude/reviews/tools/capture/` (durables ; le scratchpad de session est vidé au redémarrage).
+
+- `phase3/ticket-sources` — **PR #15** : Jira, GitHub Projects v2, source MCP, plusieurs sources par projet, section Tickets de l'éditeur ; corrections de revue + décisions A (sans `[trackers]`, issues GitHub implicites) et B (une source en panne n'empêche pas les autres).
+- `phase3/smart-worktrees` — **PR #17** : crate `termf-worktree` (détection, recette dans la bibliothèque du projet, CoW/cache, `.env`, base clonée, ports, Compose), onglet Worktrees de la Bibliothèque ; revue en cours.
+- `phase2/library-scout` — agent de veille (§11.2).
+- `phase11/claude-overview` — vue « Claude » : toute la config Claude de la machine, copie/export, artifacts (§11.3).
+- `phase3/ci` — CI/CD native (§13.8).
+- `phase11/scheduler` — planificateur de tâches (§11.3).
+- `phase2b/keys-v2` — clés multi-formats (OpenSSH, PEM/PKCS#8, JWK…), clé privée à la demande, tests (retour de la revue du 2026-11-21).
+- Audit UX (sans code) → `.claude/reviews/work/ux2-review/` (`index.html`, `plan.md`), puis tranches de la passe UX n° 2.
 - Choix de la synchro à confirmer par le propriétaire (signalés, non bloquants) : XChaCha20-Poly1305 direct plutôt que `age` ; changer le mot de passe émet une nouvelle clé de récupération ; premier raccordement avec des fichiers locaux = fusion sans base commune ; branche `main` fixe ; auteur des commits `TermF <sync@termf.invalid>` ; mot de passe ≥ 8 caractères ; fichier absent du remote = pas d'information, pas une suppression.
 
 ## 3. Reste à faire, dans l'ordre
