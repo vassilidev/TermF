@@ -261,7 +261,7 @@
 
   h2 {
     margin: 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
   }
@@ -291,12 +291,7 @@
   }
 
   .labelled {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     max-width: 360px;
-    font-size: var(--text-sm);
-    font-weight: 500;
   }
 
   .check {
@@ -334,8 +329,6 @@
   }
 
   .mono {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
     overflow-wrap: anywhere;
   }
 

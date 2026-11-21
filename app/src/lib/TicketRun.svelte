@@ -33,7 +33,7 @@
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import CiChecks from "$lib/CiChecks.svelte";
-  import RunStatus from "$lib/RunStatus.svelte";
+  import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { repoName, shortPath } from "$lib/state.svelte";
   import { upsert, type Delivery, type DeliveryPreview, type RunEvent } from "$lib/tickets.svelte";
@@ -180,7 +180,7 @@
 
 <header>
   <div class="title">
-    <RunStatus status={run.status} />
+    <StatusPill status={run.status} />
     <span class="mono muted">{run.ticket.key}</span>
   </div>
   <h2>{run.title}</h2>
@@ -359,7 +359,7 @@
 
   h2 {
     margin: 6px 0 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
     overflow-wrap: anywhere;
@@ -470,11 +470,6 @@
     color: var(--warning);
   }
 
-  .notice.warn {
-    background: var(--waiting-soft);
-    color: var(--warning);
-  }
-
   .link-row {
     display: inline-flex;
     align-items: center;
@@ -501,8 +496,6 @@
   }
 
   .mono {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
     overflow-wrap: anywhere;
   }
 

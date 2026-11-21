@@ -8,6 +8,7 @@
   import X from "@lucide/svelte/icons/x";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t } from "$lib/i18n";
+  import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { app } from "$lib/state.svelte";
   import {
     activate,
@@ -74,73 +75,76 @@
 <svelte:window {onkeydown} onbeforeunload={(e) => unsaved() && e.preventDefault()} />
 
 <div class="files">
-  <aside class="side">
-    <div class="bar">
-      <select class="field" bind:value={files.repo} aria-label={t("filesRepo")}>
-        {#if !files.repo}
-          <option value="">{t("noRepos")}</option>
-        {/if}
-        {#each app.workspace?.projects ?? [] as project (project.id)}
-          <optgroup label={project.name}>
-            {#each project.repos as repo (repo.path)}
+  <ViewHeader title={t("viewFiles")} />
+  <div class="body">
+    <aside class="side">
+      <div class="bar">
+        <select class="field" bind:value={files.repo} aria-label={t("filesRepo")}>
+          {#if !files.repo}
+            <option value="">{t("noRepos")}</option>
+          {/if}
+          {#each app.workspace?.projects ?? [] as project (project.id)}
+            <optgroup label={project.name}>
+              {#each project.repos as repo (repo.path)}
+                <option value={repo.path}>{repo.name}</option>
+              {/each}
+            </optgroup>
+          {/each}
+          <optgroup label={t("repos")}>
+            {#each app.workspace?.repos ?? [] as repo (repo.path)}
               <option value={repo.path}>{repo.name}</option>
             {/each}
           </optgroup>
-        {/each}
-        <optgroup label={t("repos")}>
-          {#each app.workspace?.repos ?? [] as repo (repo.path)}
-            <option value={repo.path}>{repo.name}</option>
-          {/each}
-        </optgroup>
-      </select>
-      <button class="icon-btn" onclick={refresh} aria-label={t("filesRefresh")} title={t("filesRefresh")}>
-        <RefreshCw size={14} aria-hidden="true" />
-      </button>
-    </div>
-    <div class="segmented" role="group">
-      <button aria-pressed={files.panel === "tree"} onclick={() => (files.panel = "tree")}>
-        {t("filesTree")}
-      </button>
-      <button
-        aria-pressed={files.panel === "search"}
-        onclick={() => (files.panel = "search")}
-        title={isMac ? "⌘⇧F" : "Ctrl+Shift+F"}
-      >
-        {t("filesSearchTab")}
-      </button>
-    </div>
-    {#if files.error}
-      <p class="notice error" role="alert">{files.error}</p>
-    {/if}
-    <div class="panel">
-      {#if files.repo}
-        {#key files.repo}
-          <div hidden={files.panel !== "tree"}><FileTree repo={files.repo} dir="" /></div>
-          <div hidden={files.panel !== "search"}><FileSearch bind:input={searchInput} /></div>
-        {/key}
-      {/if}
-    </div>
-  </aside>
-
-  <div class="main">
-    {#if files.tabs.length}
-      <div class="tabs">
-        {#each files.tabs as tab (tabKey(tab))}
-          <div class="tab" class:active={tab === files.active} title={tab.path}>
-            <button aria-current={tab === files.active} onclick={() => activate(tab)}>
-              {tab.name}
-            </button>
-            {#if tab.dirty}
-              <span class="dirty" role="img" aria-label={t("fileUnsavedLabel")} title={t("fileUnsavedLabel")}></span>
-            {/if}
-            <button class="icon-btn sm" onclick={() => closeTab(tab)} aria-label={t("close")} title={t("close")}>
-              <X size={13} aria-hidden="true" />
-            </button>
-          </div>
-        {/each}
+        </select>
+        <button class="icon-btn" onclick={refresh} aria-label={t("filesRefresh")} title={t("filesRefresh")}>
+          <RefreshCw size={14} aria-hidden="true" />
+        </button>
       </div>
-    {/if}
-    <FileEditor />
+      <div class="segmented" role="group">
+        <button aria-pressed={files.panel === "tree"} onclick={() => (files.panel = "tree")}>
+          {t("filesTree")}
+        </button>
+        <button
+          aria-pressed={files.panel === "search"}
+          onclick={() => (files.panel = "search")}
+          title={isMac ? "⌘⇧F" : "Ctrl+Shift+F"}
+        >
+          {t("filesSearchTab")}
+        </button>
+      </div>
+      {#if files.error}
+        <p class="notice error" role="alert">{files.error}</p>
+      {/if}
+      <div class="panel">
+        {#if files.repo}
+          {#key files.repo}
+            <div hidden={files.panel !== "tree"}><FileTree repo={files.repo} dir="" /></div>
+            <div hidden={files.panel !== "search"}><FileSearch bind:input={searchInput} /></div>
+          {/key}
+        {/if}
+      </div>
+    </aside>
+
+    <div class="main">
+      {#if files.tabs.length}
+        <div class="tabs">
+          {#each files.tabs as tab (tabKey(tab))}
+            <div class="tab" class:active={tab === files.active} title={tab.path}>
+              <button aria-current={tab === files.active} onclick={() => activate(tab)}>
+                {tab.name}
+              </button>
+              {#if tab.dirty}
+                <span class="dirty" role="img" aria-label={t("fileUnsavedLabel")} title={t("fileUnsavedLabel")}></span>
+              {/if}
+              <button class="icon-btn sm" onclick={() => closeTab(tab)} aria-label={t("close")} title={t("close")}>
+                <X size={13} aria-hidden="true" />
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <FileEditor />
+    </div>
   </div>
 </div>
 
@@ -158,9 +162,16 @@
 
 <style>
   .files {
-    display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     height: 100%;
+    min-height: 0;
+  }
+
+  .body {
+    display: grid;
+    flex: 1;
+    grid-template-columns: 260px minmax(0, 1fr);
     min-height: 0;
   }
 

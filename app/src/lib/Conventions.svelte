@@ -19,6 +19,7 @@
   import { lang, t } from "$lib/i18n";
   import { library, lineDiff, slugify } from "$lib/library.svelte";
   import type { Project } from "$lib/state.svelte";
+  import StatusPill from "$lib/ui/StatusPill.svelte";
 
   type ItemKind = "rule" | "hook" | "preference" | "skill" | "command" | "role" | "repo";
   type Level = "advise" | "warn" | "block";
@@ -415,9 +416,7 @@
                       <span class="badge flag"><FileCog size={12} aria-hidden="true" />{t("convWritesRepo", { repo: item.repo })}</span>
                     {/if}
                     {#if item.review !== "pending"}
-                      <span class="decision {item.review}">
-                        {item.review === "accepted" ? t("convAccepted") : t("convRejected")}
-                      </span>
+                      <span class="decision"><StatusPill status={item.review} /></span>
                     {/if}
                   </header>
                   <p class="description">{item.description}</p>
@@ -753,7 +752,7 @@
 
   h2 {
     margin: 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
   }
@@ -859,22 +858,6 @@
     color: var(--working);
   }
 
-  :global(.spin) {
-    animation: spin 0.9s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    :global(.spin) {
-      animation: none;
-    }
-  }
-
   .question {
     display: flex;
     flex-direction: column;
@@ -901,18 +884,12 @@
     gap: 6px;
     padding: 12px 14px;
     border: 1px solid var(--border);
-    border-left: 3px solid var(--border-strong);
     border-radius: var(--radius-lg);
     background: var(--panel);
     box-shadow: var(--shadow-1);
   }
 
-  .card.accepted {
-    border-left-color: var(--done);
-  }
-
   .card.rejected {
-    border-left-color: var(--border);
     opacity: 0.65;
   }
 
@@ -950,17 +927,8 @@
   }
 
   .decision {
+    display: inline-flex;
     margin-left: auto;
-    font-size: var(--text-xs);
-    font-weight: 600;
-  }
-
-  .decision.accepted {
-    color: var(--done);
-  }
-
-  .decision.rejected {
-    color: var(--muted);
   }
 
   .description,

@@ -12,6 +12,7 @@
   import Share2 from "@lucide/svelte/icons/share-2";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
   import { focusSession } from "$lib/commands";
   import { ago, lang, t } from "$lib/i18n";
   import { app, repoName, type Session } from "$lib/state.svelte";
@@ -129,11 +130,7 @@
   {#if !data}
     <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" /></p>
   {:else if !data.artifacts.length}
-    <div class="empty">
-      <Images size={20} aria-hidden="true" />
-      <h2>{t("claudeViewNoArtifacts")}</h2>
-      <p>{t("claudeViewNoArtifactsHelp")}</p>
-    </div>
+    <EmptyState icon={Images} title={t("claudeViewNoArtifacts")} text={t("claudeViewNoArtifactsHelp")} />
   {:else}
     <ul class="list">
       {#each data.artifacts as a (a.id)}
@@ -235,30 +232,6 @@
     margin: 40px auto;
   }
 
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    max-width: 480px;
-    margin: 40px auto 0;
-    color: var(--muted);
-    text-align: center;
-  }
-
-  .empty > :global(svg) {
-    color: var(--accent-ink);
-  }
-
-  .empty h2 {
-    margin: 8px 0 6px;
-    color: var(--text);
-    font-size: var(--text-md);
-  }
-
-  .empty p {
-    margin: 0;
-  }
-
   .list {
     margin: 0;
     padding: 0;
@@ -314,7 +287,7 @@
 
   .mono {
     overflow: hidden;
-    font-family: var(--font-mono);
+    font-size: inherit;
     text-overflow: ellipsis;
   }
 

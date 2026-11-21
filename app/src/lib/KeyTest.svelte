@@ -159,12 +159,7 @@
   }
 
   .labelled {
-    display: flex;
     flex: 0 1 300px;
-    flex-direction: column;
-    gap: 4px;
-    font-size: var(--text-sm);
-    font-weight: 500;
   }
 
   .mono-field {
@@ -212,11 +207,6 @@
   .why {
     display: block;
     color: var(--muted);
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
   }
 
   .hint {

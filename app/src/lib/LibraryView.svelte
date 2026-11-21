@@ -1,18 +1,19 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import FileDown from "@lucide/svelte/icons/file-down";
   import FileUp from "@lucide/svelte/icons/file-up";
   import Import from "@lucide/svelte/icons/import";
   import Info from "@lucide/svelte/icons/info";
   import Search from "@lucide/svelte/icons/search";
   import Telescope from "@lucide/svelte/icons/telescope";
-  import X from "@lucide/svelte/icons/x";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import Conventions from "$lib/Conventions.svelte";
   import LibraryScout from "$lib/LibraryScout.svelte";
   import SyncView from "$lib/SyncView.svelte";
   import WorktreeSetup from "$lib/WorktreeSetup.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
+  import Tabs from "$lib/ui/Tabs.svelte";
+  import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { app, shortPath } from "$lib/state.svelte";
   import {
@@ -79,6 +80,15 @@
   } as const;
 
   const visible = $derived(items.filter((i) => matches(i, query)));
+  const tabs = $derived([
+    ...kinds.map((kind) => ({ id: kind, label: t(tabLabel[kind]), count: visible.filter((i) => i.kind === kind).length })),
+    ...(library.scope
+      ? [
+          { id: "conventions", label: t("conventions"), divider: true },
+          { id: "worktrees", label: t("wtTab") },
+        ]
+      : []),
+  ]);
   const shown = $derived(library.tab === "conventions" ? [] : visible.filter((i) => i.kind === library.tab));
   const current = $derived(shown.find((i) => i.name === selected) ?? shown[0]);
   const here = $derived<Layer>(library.scope ? "project" : "global");
@@ -135,7 +145,7 @@
 </script>
 
 <div class="library">
-  <div class="toolbar">
+  <ViewHeader title={t("viewLibrary")}>
     <label class="scope">
       <span>{t("libraryScope")}</span>
       <select class="field" bind:value={library.scope} onchange={() => (library.panel = null)}>
@@ -149,7 +159,7 @@
         {/if}
       </select>
     </label>
-    <div class="tools">
+    {#snippet actions()}
       <button class="btn sm" onclick={() => { library.panel = { kind: "scout" }; }}>
         <Telescope size={14} aria-hidden="true" />{t("scoutOpen")}
       </button>
@@ -162,179 +172,154 @@
       <button class="btn sm" onclick={importConfig} disabled={library.busy}>
         <FileUp size={14} aria-hidden="true" />{t("configImport")}
       </button>
-    </div>
-  </div>
+    {/snippet}
+  </ViewHeader>
 
-  <div class="tabs" role="tablist" aria-label={t("viewLibrary")}>
-    {#each kinds as kind (kind)}
-      <button
-        role="tab"
-        aria-selected={!library.panel && library.tab === kind}
-        onclick={() => ((library.tab = kind), (library.panel = null))}
-      >
-        {t(tabLabel[kind])}<span class="count">{visible.filter((i) => i.kind === kind).length}</span>
-      </button>
-    {/each}
-    {#if library.scope}
-      <span class="divider" aria-hidden="true"></span>
-      <button
-        role="tab"
-        aria-selected={!library.panel && library.tab === "conventions"}
-        onclick={() => ((library.tab = "conventions"), (library.panel = null))}
-      >
-        {t("conventions")}
-      </button>
-      <button
-        role="tab"
-        aria-selected={!library.panel && library.tab === "worktrees"}
-        onclick={() => ((library.tab = "worktrees"), (library.panel = null))}
-      >
-        {t("wtTab")}
-      </button>
-    {/if}
-  </div>
-
-  {#if library.error}
-    <div class="notice error banner" role="alert">
-      <CircleAlert size={14} aria-hidden="true" />
-      <span>{library.error}</span>
-      <button class="icon-btn sm" onclick={() => (library.error = "")} aria-label={t("dismiss")} title={t("dismiss")}>
-        <X size={14} aria-hidden="true" />
-      </button>
-    </div>
-  {/if}
-
-  {#if library.panel?.kind === "sync"}
-    <SyncView />
-  {:else if library.panel?.kind === "scout"}
-    <LibraryScout />
-  {:else if library.panel}
-    <ConfigTransfer />
-  {:else if library.tab === "conventions" && project}
-    {#key project.id}
-      <Conventions {project} />
-    {/key}
-  {:else if library.tab === "worktrees" && project}
-    {#key project.id}
-      <WorktreeSetup {project} />
-    {/key}
-  {:else}
-    <div class="split">
-      <div class="list-pane">
-        <div class="filter">
-          <Search size={14} aria-hidden="true" />
-          <input
-            class="field"
-            type="search"
-            placeholder={t("librarySearch")}
-            aria-label={t("librarySearch")}
-            bind:value={query}
-          />
-        </div>
-        <ul class="list">
-          {#each shown as item (item.name)}
-            <li class="row" class:current={item === current}>
-              <button class="pick" aria-current={item === current} onclick={() => (selected = item.name)}>
-                <span class="name">{item.name}</span>
-                {#if item.description}<span class="desc">{item.description}</span>{/if}
-              </button>
-              <span class="badge layer-{item.layer}">{t(layerLabel[item.layer])}</span>
-              <input
-                class="switch"
-                type="checkbox"
-                role="switch"
-                checked={item.active}
-                disabled={library.busy}
-                aria-label={t("itemActive", { name: item.name })}
-                onchange={(e) => toggle(item, e.currentTarget.checked, e.currentTarget)}
-              />
-            </li>
-          {:else}
-            <li class="none">{query.trim() ? t("filesNoResults") : t("libraryEmpty")}</li>
-          {/each}
-        </ul>
+  <Tabs
+    id="library"
+    label={t("viewLibrary")}
+    {tabs}
+    selected={library.panel ? null : library.tab}
+    onselect={(tab) => ((library.tab = tab as typeof library.tab), (library.panel = null))}
+  >
+    {#if library.error}
+      <div class="banners">
+        <Banner kind="error" ondismiss={() => (library.error = "")}>{library.error}</Banner>
       </div>
+    {/if}
 
-      <section class="detail" aria-live="polite">
-        {#if current}
-          {@const item = current}
-          <header>
-            <div class="title">
-              <h2>{item.name}</h2>
-              <span class="badge layer-{item.layer}">{t(layerLabel[item.layer])}</span>
-            </div>
-            {#if item.description}<p class="description">{item.description}</p>{/if}
-          </header>
-
-          <div class="state">
-            <label class="toggle">
-              <input
-                class="switch"
-                type="checkbox"
-                role="switch"
-                checked={item.active}
-                disabled={library.busy}
-                onchange={(e) => toggle(item, e.currentTarget.checked, e.currentTarget)}
-              />
-              <span>{item.active ? t("itemOn") : t("itemOff")}</span>
-            </label>
-            {#if item.toggles[here] !== undefined}
-              <button class="btn sm quiet" onclick={() => toggle(item, null)} title={t("inheritTitle")}>
-                {t("inherit")}
-              </button>
-            {/if}
-            <ol class="why" aria-label={t("why")}>
-              {#each reasons(item) as reason, i (i)}
-                <li>{reason}</li>
-              {/each}
-            </ol>
-            {#if item.shadows.length}
-              <p class="shadows">
-                {t("whyShadows", {
-                  layers: item.shadows.map((l) => t(layerLabel[l]).toLocaleLowerCase()).join(", "),
-                })}
-              </p>
-            {/if}
+    {#if library.panel?.kind === "sync"}
+      <SyncView />
+    {:else if library.panel?.kind === "scout"}
+      <LibraryScout />
+    {:else if library.panel}
+      <ConfigTransfer />
+    {:else if library.tab === "conventions" && project}
+      {#key project.id}
+        <Conventions {project} />
+      {/key}
+    {:else if library.tab === "worktrees" && project}
+      {#key project.id}
+        <WorktreeSetup {project} />
+      {/key}
+    {:else}
+      <div class="split">
+        <div class="list-pane">
+          <div class="filter">
+            <Search size={14} aria-hidden="true" />
+            <input
+              class="field"
+              type="search"
+              placeholder={t("librarySearch")}
+              aria-label={t("librarySearch")}
+              bind:value={query}
+            />
           </div>
-
-          <dl class="meta">
-            {#if item.appliesTo.length}
-              <dt>{t("metaRoles")}</dt>
-              <dd>{item.appliesTo.join(", ")}</dd>
-            {/if}
-            {#each shownMeta as [key, label] (key)}
-              {#if item.meta[key] !== undefined && item.kind !== "workflow"}
-                <dt>{t(label)}</dt>
-                <dd>{metaText(item.meta[key])}</dd>
-              {/if}
+          <ul class="list">
+            {#each shown as item (item.name)}
+              <li class="row" class:current={item === current}>
+                <button class="pick" aria-current={item === current} onclick={() => (selected = item.name)}>
+                  <span class="name">{item.name}</span>
+                  {#if item.description}<span class="desc">{item.description}</span>{/if}
+                </button>
+                <span class="badge layer-{item.layer}">{t(layerLabel[item.layer])}</span>
+                <input
+                  class="switch"
+                  type="checkbox"
+                  role="switch"
+                  checked={item.active}
+                  disabled={library.busy}
+                  aria-label={t("itemActive", { name: item.name })}
+                  onchange={(e) => toggle(item, e.currentTarget.checked, e.currentTarget)}
+                />
+              </li>
+            {:else}
+              <li class="none">{query.trim() ? t("filesNoResults") : t("libraryEmpty")}</li>
             {/each}
-            {#if item.tags.length}
-              <dt>{t("metaTags")}</dt>
-              <dd>{item.tags.join(", ")}</dd>
-            {/if}
-            {#if item.runtime}
-              <dt>{t("metaRuntime")}</dt>
-              <dd>{item.runtime}</dd>
-            {/if}
-            <dt>{t("metaFile")}</dt>
-            <dd class="mono">{item.path ? shortPath(item.path) : t("metaBuiltIn")}</dd>
-          </dl>
+          </ul>
+        </div>
 
-          {#if item.error}
-            <p class="notice"><Info size={14} aria-hidden="true" />{t("itemError", { error: item.error })}</p>
-          {/if}
+        <section class="detail" aria-live="polite">
+          {#if current}
+            {@const item = current}
+            <header>
+              <div class="title">
+                <h2>{item.name}</h2>
+                <span class="badge layer-{item.layer}">{t(layerLabel[item.layer])}</span>
+              </div>
+              {#if item.description}<p class="description">{item.description}</p>{/if}
+            </header>
 
-          {#if item.body.trim()}
-            <pre class="body">{item.body}</pre>
+            <div class="state">
+              <label class="toggle">
+                <input
+                  class="switch"
+                  type="checkbox"
+                  role="switch"
+                  checked={item.active}
+                  disabled={library.busy}
+                  onchange={(e) => toggle(item, e.currentTarget.checked, e.currentTarget)}
+                />
+                <span>{item.active ? t("itemOn") : t("itemOff")}</span>
+              </label>
+              {#if item.toggles[here] !== undefined}
+                <button class="btn sm quiet" onclick={() => toggle(item, null)} title={t("inheritTitle")}>
+                  {t("inherit")}
+                </button>
+              {/if}
+              <ol class="why" aria-label={t("why")}>
+                {#each reasons(item) as reason, i (i)}
+                  <li>{reason}</li>
+                {/each}
+              </ol>
+              {#if item.shadows.length}
+                <p class="shadows">
+                  {t("whyShadows", {
+                    layers: item.shadows.map((l) => t(layerLabel[l]).toLocaleLowerCase()).join(", "),
+                  })}
+                </p>
+              {/if}
+            </div>
+
+            <dl class="meta">
+              {#if item.appliesTo.length}
+                <dt>{t("metaRoles")}</dt>
+                <dd>{item.appliesTo.join(", ")}</dd>
+              {/if}
+              {#each shownMeta as [key, label] (key)}
+                {#if item.meta[key] !== undefined && item.kind !== "workflow"}
+                  <dt>{t(label)}</dt>
+                  <dd>{metaText(item.meta[key])}</dd>
+                {/if}
+              {/each}
+              {#if item.tags.length}
+                <dt>{t("metaTags")}</dt>
+                <dd>{item.tags.join(", ")}</dd>
+              {/if}
+              {#if item.runtime}
+                <dt>{t("metaRuntime")}</dt>
+                <dd>{item.runtime}</dd>
+              {/if}
+              <dt>{t("metaFile")}</dt>
+              <dd class="mono">{item.path ? shortPath(item.path) : t("metaBuiltIn")}</dd>
+            </dl>
+
+            {#if item.error}
+              <p class="notice"><Info size={14} aria-hidden="true" />{t("itemError", { error: item.error })}</p>
+            {/if}
+
+            {#if item.body.trim()}
+              <pre class="body">{item.body}</pre>
+            {:else}
+              <p class="muted">{t("itemEmpty")}</p>
+            {/if}
           {:else}
-            <p class="muted">{t("itemEmpty")}</p>
+            <p class="placeholder muted">{t("libraryPick")}</p>
           {/if}
-        {:else}
-          <p class="placeholder muted">{t("libraryPick")}</p>
-        {/if}
-      </section>
-    </div>
-  {/if}
+        </section>
+      </div>
+    {/if}
+  </Tabs>
 </div>
 
 <style>
@@ -343,14 +328,6 @@
     flex-direction: column;
     min-height: 0;
     background: var(--panel);
-  }
-
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    background: var(--chrome);
   }
 
   .scope {
@@ -364,87 +341,6 @@
 
   .scope select {
     width: 220px;
-  }
-
-  .tools {
-    display: flex;
-    gap: 6px;
-    margin-left: auto;
-  }
-
-  .tabs {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 0 8px;
-    overflow-x: auto;
-    border-bottom: 1px solid var(--border);
-    background: var(--chrome);
-  }
-
-  .tabs button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-    height: 34px;
-    padding: 0 10px;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    font-weight: 500;
-    box-shadow: inset 0 -2px 0 transparent;
-    transition:
-      color var(--dur-fast) ease-out,
-      box-shadow var(--dur-fast) ease-out;
-  }
-
-  .tabs button:hover {
-    color: var(--text);
-  }
-
-  .tabs button[aria-selected="true"] {
-    color: var(--text);
-    box-shadow: inset 0 -2px 0 var(--accent);
-  }
-
-  .count {
-    min-width: 18px;
-    padding: 0 5px;
-    border-radius: var(--radius-pill);
-    background: var(--hover);
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-variant-numeric: tabular-nums;
-    line-height: 16px;
-    text-align: center;
-  }
-
-  .divider {
-    width: 1px;
-    height: 16px;
-    margin: 0 6px;
-    background: var(--border);
-  }
-
-  .banner {
-    align-items: center;
-    margin: 8px 12px 0;
-  }
-
-  .banner span {
-    flex: 1;
-  }
-
-  .banner .icon-btn {
-    color: inherit;
-  }
-
-  .split {
-    display: grid;
-    flex: 1;
-    grid-template-columns: 360px minmax(0, 1fr);
-    min-height: 0;
   }
 
   .list-pane {
@@ -481,50 +377,6 @@
     list-style: none;
   }
 
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding-right: 8px;
-    border-radius: var(--radius);
-  }
-
-  .row:hover {
-    background: var(--hover);
-  }
-
-  .row.current {
-    background: var(--selected);
-  }
-
-  .pick {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-width: 0;
-    padding: 6px 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: none;
-    text-align: left;
-  }
-
-  .name {
-    overflow: hidden;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .desc {
-    overflow: hidden;
-    color: var(--muted);
-    font-size: var(--text-xs);
-    line-height: 1.35;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .layer-project {
     border-color: transparent;
     background: var(--accent-soft);
@@ -541,17 +393,6 @@
     color: var(--muted);
   }
 
-  .detail {
-    min-width: 0;
-    min-height: 0;
-    padding: 20px 28px 32px;
-    overflow-y: auto;
-  }
-
-  .detail > * {
-    max-width: 820px;
-  }
-
   .title {
     display: flex;
     align-items: center;
@@ -560,7 +401,7 @@
 
   h2 {
     margin: 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
     overflow-wrap: anywhere;
@@ -635,11 +476,6 @@
   dd {
     margin: 0;
     overflow-wrap: anywhere;
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
   }
 
   .notice {
