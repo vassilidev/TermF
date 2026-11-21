@@ -1282,7 +1282,7 @@ const fr = {
   keysHost: "Hôte",
   keysConnect: "Tester la connexion",
   keysAgentNeeded: "Clé protégée : ajoute-la d'abord à l'agent, ssh ne peut pas demander sa phrase de passe ici.",
-  ux2CiTitle: "CI/CD",
+  viewCi: "CI/CD",
 };
 
 type Key = keyof typeof fr;
@@ -2558,7 +2558,7 @@ const en: Record<Key, string> = {
   keysHost: "Host",
   keysConnect: "Test the connection",
   keysAgentNeeded: "Protected key: add it to the agent first, ssh cannot ask for its passphrase here.",
-  ux2CiTitle: "CI/CD",
+  viewCi: "CI/CD",
 };
 
 const messages = { fr, en };

@@ -4,13 +4,13 @@
   let {
     title,
     context = "",
+    mono = false,
     children,
     actions,
   }: {
     title: string;
-    /** Discreet text after the title: what the view is about (a folder, a project). */
     context?: string;
-    /** A control after the title, such as a segmented choice or a field. */
+    mono?: boolean;
     children?: Snippet;
     actions?: Snippet;
   } = $props();
@@ -18,7 +18,7 @@
 
 <header class="view-header">
   <h1>{title}</h1>
-  {#if context}<span class="context">{context}</span>{/if}
+  {#if context}<span class="context" class:mono>{context}</span>{/if}
   {@render children?.()}
   {#if actions}<div class="actions">{@render actions()}</div>{/if}
 </header>

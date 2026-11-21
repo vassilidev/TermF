@@ -13,11 +13,9 @@
     onselect,
     children,
   }: {
-    /** Prefix of the tab and panel ids. */
     id: string;
     label: string;
     tabs: Tab[];
-    /** No tab is selected while the view shows something else in the panel. */
     selected: string | null;
     onselect: (tab: string) => void;
     children: Snippet;
@@ -47,7 +45,7 @@
       id="{id}-tab-{tab.id}"
       data-tab={tab.id}
       aria-selected={tab === active}
-      aria-controls="{id}-panel"
+      aria-controls={active ? `${id}-panel` : undefined}
       tabindex={tab.id === focusable ? 0 : -1}
       onclick={() => onselect(tab.id)}
     >

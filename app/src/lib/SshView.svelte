@@ -186,7 +186,7 @@
 {/snippet}
 
 <div class="ssh">
-  <ViewHeader title={t("viewSsh")} context={inventory ? shortPath(inventory.dir) : ""}>
+  <ViewHeader title={t("viewSsh")} context={inventory ? shortPath(inventory.dir) : ""} mono>
     {#snippet actions()}
       <button class="btn sm" onclick={refresh}>
         <RefreshCw size={14} aria-hidden="true" />{t("sshRefresh")}

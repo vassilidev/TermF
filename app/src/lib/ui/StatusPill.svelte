@@ -17,7 +17,6 @@
 
   type Tone = "" | "working" | "waiting" | "done" | "failed";
 
-  // Every status the app shows, sessions, ticket runs, scheduled runs and reviews alike.
   const statuses = {
     starting: ["statusStarting", CircleDashed, ""],
     working: ["statusWorking", LoaderCircle, "working"],

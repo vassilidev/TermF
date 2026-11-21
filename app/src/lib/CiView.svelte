@@ -270,7 +270,7 @@
 </script>
 
 <div class="ci">
-  <ViewHeader title={t("ux2CiTitle")}>
+  <ViewHeader title={t("viewCi")}>
     <label class="labelled inline">
       <span>{t("libraryScope")}</span>
       <select class="field" bind:value={ci.scope}>

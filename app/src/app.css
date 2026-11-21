@@ -379,7 +379,6 @@ kbd {
   color: var(--warning);
 }
 
-/* The stack of banners under a view's header and tabs. */
 .banners {
   display: flex;
   flex-direction: column;
@@ -417,7 +416,7 @@ kbd {
   }
 }
 
-/* A list on the left, the selected item on the right. :where() keeps these below any view's own rules. */
+/* :where() keeps these below any view's own rules. */
 .split {
   display: grid;
   flex: 1;
@@ -435,7 +434,7 @@ kbd {
   list-style: none;
 }
 
-:where(.split) .row {
+:where(.split .list) .row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -443,15 +442,15 @@ kbd {
   border-radius: var(--radius);
 }
 
-:where(.split) .row:hover {
+:where(.split .list) .row:hover {
   background: var(--hover);
 }
 
-:where(.split) .row.current {
+:where(.split .list) .row.current {
   background: var(--selected);
 }
 
-:where(.split) .pick {
+:where(.split .list) .pick {
   display: flex;
   flex: 1;
   flex-direction: column;
