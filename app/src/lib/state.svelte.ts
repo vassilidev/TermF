@@ -22,6 +22,14 @@ export type Workspace = {
   apiError: string | null;
 };
 export type Status = "starting" | "working" | "waiting" | "idle" | "done";
+export type Layout = { name: string; sessions: { path: string; agent: string | null }[] };
+export type KeepAwakeMode = "auto" | "always" | "off";
+export type KeepAwakeState = {
+  mode: KeepAwakeMode;
+  displayOn: boolean;
+  active: boolean;
+  error: string | null;
+};
 export type Session = {
   id: number;
   title: string;
@@ -39,7 +47,12 @@ export const app = $state({
   error: "",
   sessions: [] as Session[],
   focused: null as number | null,
+  layouts: [] as Layout[],
+  keepAwake: null as KeepAwakeState | null,
 });
+
+/** Overlays opened from the top bar, the shortcuts or the palette. */
+export const ui = $state({ palette: false, settings: false });
 
 /** Paths of the repositories ticked in the sidebar. */
 export const selected = new SvelteSet<string>();
@@ -62,6 +75,13 @@ export function init(): () => void {
   invoke<Session[]>("pty_list").then((list) => {
     app.sessions = list;
   });
+  callLayouts("layouts");
+  invoke<KeepAwakeState>("keep_awake_state").then((s) => {
+    app.keepAwake = s;
+  });
+  const unlistenKeepAwake = listen<KeepAwakeState>("keep-awake", ({ payload }) => {
+    app.keepAwake = payload;
+  });
   const unlisten = listen<{ id: number; exitCode: number | null }>("pty-exit", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) {
@@ -79,6 +99,7 @@ export function init(): () => void {
     unlisten.then((stop) => stop());
     unlistenStatus.then((stop) => stop());
     unlistenOpened.then((stop) => stop());
+    unlistenKeepAwake.then((stop) => stop());
   };
 }
 
@@ -90,11 +111,41 @@ export function repoName(path: string): string {
   return all.find((r) => r.path === path)?.name ?? path;
 }
 
+/** `~/code/acme/api` for a path under the home folder. */
+export function shortPath(path: string): string {
+  const home = app.workspace?.home ?? "";
+  return home && path.startsWith(home) ? "~" + path.slice(home.length) : path;
+}
+
 export function toggleProject(project: Project) {
   const all = project.repos.every((r) => selected.has(r.path));
   for (const r of project.repos) {
     if (all) selected.delete(r.path);
     else selected.add(r.path);
+  }
+}
+
+/** Runs a layout command, which answers with the saved layouts. */
+export async function callLayouts(command: string, args: Record<string, unknown> = {}): Promise<boolean> {
+  try {
+    app.layouts = await invoke<Layout[]>(command, args);
+    return true;
+  } catch (e) {
+    app.error = String(e);
+    return false;
+  }
+}
+
+export async function openLayout(layout: Layout) {
+  for (const s of layout.sessions) await openSession(s.path, s.agent);
+}
+
+export async function setKeepAwake(mode: KeepAwakeMode, displayOn: boolean): Promise<string> {
+  try {
+    app.keepAwake = await invoke<KeepAwakeState>("keep_awake_set", { mode, displayOn });
+    return "";
+  } catch (e) {
+    return String(e);
   }
 }
 
@@ -126,8 +177,14 @@ export async function closeSession(id: number) {
   if (app.focused === id) app.focused = null;
 }
 
-/** Options of the Open buttons. Remote Control only applies to Claude Code agents. */
-export const launch = $state({ remoteControl: false });
+/** Options of the Open button. `agent` is null for a shell, undefined for the first agent. Remote Control only applies to Claude Code agents. */
+export const launch = $state({ remoteControl: false, agent: undefined as string | null | undefined });
+
+export function launchAgent(): string | null {
+  const agents = app.workspace?.agents ?? [];
+  if (launch.agent === null) return null;
+  return launch.agent && agents.includes(launch.agent) ? launch.agent : (agents[0] ?? null);
+}
 
 /** Notifies, while the window is in the background, when a session needs the user or has finished. */
 async function updateStatus(id: number, status: Status) {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import Megaphone from "@lucide/svelte/icons/megaphone";
   import { t } from "$lib/i18n";
   import { app, ticked } from "$lib/state.svelte";
 
@@ -39,26 +40,30 @@
     send();
   }}
 >
-  <div class="segmented">
-    <button type="button" onclick={() => app.sessions.forEach((s) => ticked.add(s.id))}>
+  <div class="ticks">
+    <button type="button" class="btn sm quiet" onclick={() => app.sessions.forEach((s) => ticked.add(s.id))}>
       {t("tickAll")}
     </button>
-    <button type="button" onclick={() => ticked.clear()}>{t("tickNone")}</button>
+    <button type="button" class="btn sm quiet" onclick={() => ticked.clear()}>{t("tickNone")}</button>
   </div>
-  <input
-    bind:value={text}
-    placeholder={t("broadcastPlaceholder")}
-    aria-label={t("broadcastPlaceholder")}
-  />
+  <div class="input">
+    <Megaphone size={14} aria-hidden="true" />
+    <input
+      class="field"
+      bind:value={text}
+      placeholder={t("broadcastPlaceholder")}
+      aria-label={t("broadcastPlaceholder")}
+    />
+  </div>
   <span class="count" aria-live="polite">{t("recipients", { count: targets.length })}</span>
   <button
     type="submit"
-    class="primary"
+    class="btn primary"
     disabled={!text || !targets.length}
     title={keys}
     aria-keyshortcuts="Meta+Shift+Enter Control+Shift+Enter"
   >
-    {t("broadcast")}
+    {t("broadcast")}<kbd>{keys}</kbd>
   </button>
 </form>
 
@@ -67,59 +72,50 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 6px 6px;
+    padding: 0 8px 8px;
   }
 
-  .segmented {
+  .ticks {
     display: flex;
     flex-shrink: 0;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
   }
 
-  .segmented button {
-    padding: 6px 8px;
-    border: 0;
-    background: var(--panel);
+  .ticks .btn {
     color: var(--muted);
-    font-size: 12px;
   }
 
-  .segmented button + button {
-    border-left: 1px solid var(--border);
-  }
-
-  .segmented button:hover {
-    background: var(--hover);
+  .ticks .btn:hover {
     color: var(--text);
   }
 
-  input {
+  .input {
+    position: relative;
     flex: 1;
     min-width: 0;
-    padding: 7px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel);
-    color: var(--text);
-    font: inherit;
+    color: var(--muted);
+  }
+
+  .input :global(svg) {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    pointer-events: none;
+  }
+
+  .input .field {
+    padding-left: 30px;
   }
 
   .count {
     flex-shrink: 0;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
   }
 
-  .primary {
-    flex-shrink: 0;
-    padding: 7px 12px;
-    border: 1px solid var(--accent);
-    border-radius: 6px;
-    background: var(--accent);
-    color: var(--accent-text);
-    font-weight: 600;
+  .primary kbd {
+    border: 0;
+    background: rgb(255 255 255 / 0.18);
+    color: inherit;
   }
 </style>

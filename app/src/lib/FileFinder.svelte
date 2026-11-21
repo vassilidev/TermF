@@ -86,25 +86,25 @@
     margin: 12vh auto auto;
     padding: 0;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--panel);
+    border-radius: var(--radius-lg);
+    background: var(--raised);
     color: var(--text);
-    box-shadow: 0 16px 48px rgb(0 0 0 / 0.25);
+    box-shadow: var(--shadow-3);
   }
 
   .finder::backdrop {
-    background: rgb(0 0 0 / 0.2);
+    background: rgb(10 12 20 / 0.28);
   }
 
   input {
     width: 100%;
-    padding: 10px 12px;
+    height: 48px;
+    padding: 0 16px;
     border: 0;
     border-bottom: 1px solid var(--border);
     background: none;
     color: inherit;
-    font: inherit;
-    font-size: 14px;
+    font-size: var(--text-md);
   }
 
   input:focus-visible {
@@ -123,14 +123,14 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    padding: 4px 8px;
-    border-radius: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius);
     cursor: pointer;
     white-space: nowrap;
   }
 
   li[aria-selected="true"] {
-    background: var(--hover);
+    background: var(--selected);
   }
 
   .dir {

@@ -4,6 +4,8 @@
   import FileSearch from "$lib/FileSearch.svelte";
   import FileTree from "$lib/FileTree.svelte";
   import { onMount } from "svelte";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import X from "@lucide/svelte/icons/x";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
@@ -74,7 +76,7 @@
 <div class="files">
   <aside class="side">
     <div class="bar">
-      <select bind:value={files.repo} aria-label={t("filesRepo")}>
+      <select class="field" bind:value={files.repo} aria-label={t("filesRepo")}>
         {#if !files.repo}
           <option value="">{t("noRepos")}</option>
         {/if}
@@ -91,9 +93,9 @@
           {/each}
         </optgroup>
       </select>
-      <button class="icon" onclick={refresh} aria-label={t("filesRefresh")} title={t("filesRefresh")}
-        >↻</button
-      >
+      <button class="icon-btn" onclick={refresh} aria-label={t("filesRefresh")} title={t("filesRefresh")}>
+        <RefreshCw size={14} aria-hidden="true" />
+      </button>
     </div>
     <div class="segmented" role="group">
       <button aria-pressed={files.panel === "tree"} onclick={() => (files.panel = "tree")}>
@@ -108,7 +110,7 @@
       </button>
     </div>
     {#if files.error}
-      <p class="error" role="alert">{files.error}</p>
+      <p class="notice error" role="alert">{files.error}</p>
     {/if}
     <div class="panel">
       {#if files.repo}
@@ -129,11 +131,11 @@
               {tab.name}
             </button>
             {#if tab.dirty}
-              <span class="dirty" title={t("fileUnsavedLabel")}>●</span>
+              <span class="dirty" role="img" aria-label={t("fileUnsavedLabel")} title={t("fileUnsavedLabel")}></span>
             {/if}
-            <button class="close" onclick={() => closeTab(tab)} aria-label={t("close")} title={t("close")}
-              >×</button
-            >
+            <button class="icon-btn sm" onclick={() => closeTab(tab)} aria-label={t("close")} title={t("close")}>
+              <X size={13} aria-hidden="true" />
+            </button>
           </div>
         {/each}
       </div>
@@ -149,8 +151,8 @@
 <dialog bind:this={question} class="question" oncancel={() => answer(false)}>
   <p>{files.question?.message}</p>
   <div class="answers">
-    <button onclick={() => answer(false)}>{t("cancel")}</button>
-    <button class="danger" onclick={() => answer(true)}>{t("confirm")}</button>
+    <button class="btn" onclick={() => answer(false)}>{t("cancel")}</button>
+    <button class="btn danger" onclick={() => answer(true)}>{t("confirm")}</button>
   </div>
 </dialog>
 
@@ -160,23 +162,16 @@
     grid-template-columns: 260px minmax(0, 1fr);
     height: 100%;
     min-height: 0;
-    --modified: #b7791f;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .files {
-      --modified: #e3b341;
-    }
   }
 
   .side {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     min-height: 0;
-    padding-top: 6px;
+    padding-top: 8px;
     border-right: 1px solid var(--border);
-    background: var(--panel);
+    background: var(--chrome);
   }
 
   .bar {
@@ -188,47 +183,20 @@
   select {
     flex: 1;
     min-width: 0;
-    padding: 4px 6px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg);
-    color: var(--text);
-    font: inherit;
   }
 
-  .icon {
-    width: 26px;
-    border: 0;
-    border-radius: 4px;
-    background: none;
-    color: var(--muted);
-  }
-
-  .icon:hover {
-    background: var(--hover);
-    color: var(--text);
+  .bar .icon-btn {
+    width: 30px;
+    height: 30px;
   }
 
   .segmented {
     display: flex;
     margin: 0 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
   }
 
   .segmented button {
     flex: 1;
-    padding: 2px 8px;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .segmented button[aria-pressed="true"] {
-    background: var(--hover);
-    color: var(--text);
   }
 
   .panel {
@@ -240,12 +208,6 @@
 
   .error {
     margin: 0 8px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    background: var(--hover);
-    color: var(--danger);
-    font-size: 12px;
-    overflow-wrap: anywhere;
   }
 
   .main {
@@ -258,14 +220,17 @@
   .tabs {
     display: flex;
     overflow-x: auto;
-    background: var(--bg);
+    background: var(--chrome);
     border-bottom: 1px solid var(--border);
   }
 
   .tab {
     display: flex;
     align-items: center;
+    gap: 2px;
     flex-shrink: 0;
+    height: 34px;
+    padding-right: 6px;
     border-right: 1px solid var(--border);
     color: var(--muted);
   }
@@ -273,56 +238,44 @@
   .tab.active {
     background: var(--panel);
     color: var(--text);
+    box-shadow: inset 0 -2px 0 var(--accent);
   }
 
-  .tab button {
+  .tab > button:first-child {
+    height: 100%;
+    padding: 0 4px 0 12px;
     border: 0;
     background: none;
-    padding: 6px 4px 6px 10px;
-  }
-
-  .tab .close {
-    padding: 2px 8px 2px 4px;
   }
 
   .dirty {
-    color: var(--accent);
-    font-size: 10px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
   }
 
   .question {
     max-width: 420px;
-    padding: 16px;
+    padding: 20px;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--panel);
+    border-radius: var(--radius-lg);
+    background: var(--raised);
     color: var(--text);
+    box-shadow: var(--shadow-3);
   }
 
   .question::backdrop {
-    background: rgb(0 0 0 / 0.2);
+    background: rgb(10 12 20 / 0.28);
   }
 
   .question p {
-    margin: 0 0 12px;
+    margin: 0 0 16px;
   }
 
   .answers {
     display: flex;
     justify-content: flex-end;
-    gap: 6px;
-  }
-
-  .answers button {
-    padding: 5px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel);
-  }
-
-  .answers .danger {
-    border-color: var(--danger);
-    background: var(--danger);
-    color: var(--accent-text);
+    gap: 8px;
   }
 </style>
