@@ -1,0 +1,16 @@
+[package]
+name = "termf-agents"
+description = "Agent runtimes: headless Claude Code sessions driven through stream-json, their typed conversation events, and taking a session over in a terminal then handing it back"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+getrandom = "0.3.4"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+termf-core = { path = "../termf-core" }
+termf-library = { path = "../termf-library" }
+termf-term = { path = "../termf-term" }
