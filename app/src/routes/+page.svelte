@@ -14,10 +14,13 @@
   import { library } from "$lib/library.svelte";
   import { ssh } from "$lib/ssh.svelte";
   import { tickets } from "$lib/tickets.svelte";
+  import { schedule, watchSchedule } from "$lib/schedule.svelte";
 
   onMount(() => {
     document.documentElement.lang = lang;
-    return init();
+    const stopSchedule = watchSchedule();
+    const stop = init();
+    return () => (stop(), stopSchedule());
   });
 </script>
 
@@ -56,6 +59,11 @@
     {#if tickets.loaded}
       {#await import("$lib/TicketsView.svelte") then { default: TicketsView }}
         <div class="pane" hidden={files.view !== "tickets"}><TicketsView /></div>
+      {/await}
+    {/if}
+    {#if schedule.loaded}
+      {#await import("$lib/SchedulerView.svelte") then { default: SchedulerView }}
+        <div class="pane" hidden={files.view !== "scheduler"}><SchedulerView /></div>
       {/await}
     {/if}
   </div>

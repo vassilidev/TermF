@@ -2,6 +2,7 @@ import { tick, type Component } from "svelte";
 import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
+import CalendarClock from "@lucide/svelte/icons/calendar-clock";
 import Coffee from "@lucide/svelte/icons/coffee";
 import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
@@ -39,6 +40,7 @@ import {
   waitingSessions,
   type KeepAwakeMode,
 } from "$lib/state.svelte";
+import { showScheduler } from "$lib/schedule.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
 import { launchTicket, showTickets } from "$lib/tickets.svelte";
 
@@ -185,6 +187,9 @@ export function commands(): Command[] {
   if (files.view !== "ssh") list.push({ id: "view-ssh", label: t("showSsh"), icon: KeyRound, run: showSsh });
   if (files.view !== "tickets") {
     list.push({ id: "view-tickets", label: t("showTickets"), icon: Ticket, run: showTickets });
+  }
+  if (files.view !== "scheduler") {
+    list.push({ id: "view-scheduler", label: t("schedulerShow"), icon: CalendarClock, run: showScheduler });
   }
   list.push({
     id: "file",
