@@ -637,7 +637,7 @@
     align-items: center;
     gap: 8px;
     margin: 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
   }
@@ -709,13 +709,8 @@
   }
 
   .labelled {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     width: 420px;
     max-width: 100%;
-    font-size: var(--text-sm);
-    font-weight: 500;
   }
 
   .labelled .field {
@@ -817,11 +812,6 @@
 
   .step .notice {
     margin-bottom: 0;
-  }
-
-  .notice.warn {
-    background: var(--waiting-soft);
-    color: var(--warning);
   }
 
   .lines {
@@ -1003,21 +993,5 @@
 
   .stored {
     font-weight: 500;
-  }
-
-  :global(.spin) {
-    animation: spin 0.9s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    :global(.spin) {
-      animation: none;
-    }
   }
 </style>

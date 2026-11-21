@@ -289,18 +289,13 @@
 
   h2 {
     margin: 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
   }
 
   .labelled {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     min-width: 0;
-    font-size: var(--text-sm);
-    font-weight: 500;
   }
 
   .prompt {
@@ -340,7 +335,7 @@
   }
 
   .mono {
-    font-family: var(--font-mono);
+    font-size: inherit;
   }
 
   .presets {

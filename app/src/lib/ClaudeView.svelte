@@ -9,8 +9,10 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pencil from "@lucide/svelte/icons/pencil";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import X from "@lucide/svelte/icons/x";
   import ClaudeArtifacts from "$lib/ClaudeArtifacts.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
+  import Tabs from "$lib/ui/Tabs.svelte";
+  import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { allRepos } from "$lib/files.svelte";
   import {
@@ -222,15 +224,8 @@
 {/snippet}
 
 <div class="claude">
-  <div class="tabs" role="tablist" aria-label={t("claudeViewTitle")}>
-    <button role="tab" aria-selected={claudeView.tab === "config"} onclick={() => (claudeView.tab = "config")}>
-      {t("claudeViewTabConfig")}
-    </button>
-    <button role="tab" aria-selected={claudeView.tab === "artifacts"} onclick={() => (claudeView.tab = "artifacts")}>
-      {t("claudeViewTabArtifacts")}{#if claudeView.artifacts}<span class="count">{claudeView.artifacts.artifacts.length}</span>{/if}
-    </button>
+  <ViewHeader title={t("claudeViewTitle")}>
     {#if claudeView.tab === "config"}
-      <div class="spacer"></div>
       <label class="scope">
         <span>{t("claudeViewRepo")}</span>
         <select class="field" bind:value={claudeView.repo} onchange={loadOverview}>
@@ -238,335 +233,340 @@
           {#each repos as repo (repo.path)}<option value={repo.path}>{repo.name}</option>{/each}
         </select>
       </label>
-      <button class="btn sm" onclick={loadOverview} disabled={claudeView.loading}>
-        <RefreshCw size={14} aria-hidden="true" class={claudeView.loading ? "spin" : ""} />{t("claudeViewRefresh")}
-      </button>
-      <button class="btn sm" onclick={() => exportOverview("md")} disabled={!o}>
-        <FileDown size={14} aria-hidden="true" />{t("claudeViewExportMd")}
-      </button>
-      <button class="btn sm" onclick={() => exportOverview("json")} disabled={!o}>
-        <FileDown size={14} aria-hidden="true" />{t("claudeViewExportJson")}
-      </button>
     {/if}
-  </div>
-
-  {#if claudeView.error || claudeView.done}
-    <div class="notices">
-      {#if claudeView.error}
-        <div class="notice error banner" role="alert">
-          <CircleAlert size={14} aria-hidden="true" /><span>{claudeView.error}</span>
-          <button class="icon-btn sm" onclick={() => (claudeView.error = "")} aria-label={t("dismiss")} title={t("dismiss")}>
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
+    {#snippet actions()}
+      {#if claudeView.tab === "config"}
+        <button class="btn sm" onclick={loadOverview} disabled={claudeView.loading}>
+          <RefreshCw size={14} aria-hidden="true" class={claudeView.loading ? "spin" : ""} />{t("claudeViewRefresh")}
+        </button>
+        <button class="btn sm" onclick={() => exportOverview("md")} disabled={!o}>
+          <FileDown size={14} aria-hidden="true" />{t("claudeViewExportMd")}
+        </button>
+        <button class="btn sm" onclick={() => exportOverview("json")} disabled={!o}>
+          <FileDown size={14} aria-hidden="true" />{t("claudeViewExportJson")}
+        </button>
       {/if}
-      {#if claudeView.done}
-        <div class="notice ok banner" role="status">
-          <Check size={14} aria-hidden="true" /><span>{claudeView.done}</span>
-          <button class="icon-btn sm" onclick={() => (claudeView.done = "")} aria-label={t("dismiss")} title={t("dismiss")}>
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
-      {/if}
-    </div>
-  {/if}
+    {/snippet}
+  </ViewHeader>
 
-  <div class="pane">
-    {#if claudeView.tab === "artifacts"}
-      <ClaudeArtifacts />
-    {:else if !o}
-      <p class="loading muted" role="status">
-        {#if claudeView.loading}<LoaderCircle size={16} aria-hidden="true" class="spin" />{t("claudeViewLoading")}{/if}
-      </p>
-    {:else}
-      <div class="intro">
-        <p class="muted">
-          {t("claudeViewIntro", { dir: o.claudeDir })}
-        </p>
-        <nav class="jump" aria-label={t("claudeViewSections")}>
-          {#each BLOCKS as block (block)}
-            <a href="#claude-{block}">{blockTitle(block)} <span class="count">{counts(block)}</span></a>
-          {/each}
-        </nav>
+  <Tabs
+    id="claude"
+    label={t("claudeViewTitle")}
+    tabs={[
+      { id: "config", label: t("claudeViewTabConfig") },
+      { id: "artifacts", label: t("claudeViewTabArtifacts"), count: claudeView.artifacts?.artifacts.length },
+    ]}
+    selected={claudeView.tab}
+    onselect={(tab) => (claudeView.tab = tab as typeof claudeView.tab)}
+  >
+    {#if claudeView.error || claudeView.done}
+      <div class="banners">
+        {#if claudeView.error}
+          <Banner kind="error" ondismiss={() => (claudeView.error = "")}>{claudeView.error}</Banner>
+        {/if}
+        {#if claudeView.done}
+          <Banner kind="ok" ondismiss={() => (claudeView.done = "")}>{claudeView.done}</Banner>
+        {/if}
       </div>
+    {/if}
 
-      <section class="card" id="claude-settings">
-        <header>
-          <h2>{blockTitle("settings")}</h2>
-          <span class="muted desc">{t("claudeViewSettingsHelp")}</span>
-          <button class="btn sm quiet" onclick={() => startEdit("model")}>
-            <Pencil size={13} aria-hidden="true" />{t("claudeViewEdit")}
-          </button>
-          {@render copyButton("settings")}
-        </header>
-        {@render editor()}
-        <ul class="files">
-          {#each o.settings.files as f (f.scope)}
-            <li>
-              {@render scopeBadge(f.scope)}
-              <span class="mono path">{f.path}</span>
-              {@render stateBadge(f.state)}
-              {#if f.scope === "managed"}<span class="muted small">{t("claudeViewReadOnly")}</span>{/if}
-              {#if f.error}<span class="err small">{f.error}</span>{/if}
-            </li>
-          {/each}
-          {#if !claudeView.repo}<li class="muted small">{t("claudeViewPickRepo")}</li>{/if}
-        </ul>
-        {#if o.settings.effective.length}
-          <table>
-            <thead>
-              <tr>
-                <th>{t("claudeViewKey")}</th>
-                <th>{t("claudeViewValue")}</th>
-                <th>{t("claudeViewDecidedBy")}</th>
-                <th><span class="sr-only">{t("claudeViewEdit")}</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each o.settings.effective as e (e.key)}
+    <div class="pane">
+      {#if claudeView.tab === "artifacts"}
+        <ClaudeArtifacts />
+      {:else if !o}
+        <p class="loading muted" role="status">
+          {#if claudeView.loading}<LoaderCircle size={16} aria-hidden="true" class="spin" />{t("claudeViewLoading")}{/if}
+        </p>
+      {:else}
+        <div class="intro">
+          <p class="muted">
+            {t("claudeViewIntro", { dir: o.claudeDir })}
+          </p>
+          <nav class="jump" aria-label={t("claudeViewSections")}>
+            {#each BLOCKS as block (block)}
+              <a href="#claude-{block}">{blockTitle(block)} <span class="count">{counts(block)}</span></a>
+            {/each}
+          </nav>
+        </div>
+
+        <section class="card" id="claude-settings">
+          <header>
+            <h2>{blockTitle("settings")}</h2>
+            <span class="muted desc">{t("claudeViewSettingsHelp")}</span>
+            <button class="btn sm quiet" onclick={() => startEdit("model")}>
+              <Pencil size={13} aria-hidden="true" />{t("claudeViewEdit")}
+            </button>
+            {@render copyButton("settings")}
+          </header>
+          {@render editor()}
+          <ul class="files">
+            {#each o.settings.files as f (f.scope)}
+              <li>
+                {@render scopeBadge(f.scope)}
+                <span class="mono path">{f.path}</span>
+                {@render stateBadge(f.state)}
+                {#if f.scope === "managed"}<span class="muted small">{t("claudeViewReadOnly")}</span>{/if}
+                {#if f.error}<span class="err small">{f.error}</span>{/if}
+              </li>
+            {/each}
+            {#if !claudeView.repo}<li class="muted small">{t("claudeViewPickRepo")}</li>{/if}
+          </ul>
+          {#if o.settings.effective.length}
+            <table>
+              <thead>
                 <tr>
-                  <td class="mono key">{e.key}</td>
-                  <td class="mono val">{show(e.value)}</td>
-                  <td>
-                    <div class="decided">
-                      {@render scopeBadge(e.scope)}
-                      {#if e.others.length}
-                        <span class="muted small">
-                          {e.merged ? t("claudeViewMergedWith") : t("claudeViewOverrides")}
-                          {e.others.map(scopeLabel).join(", ")}
-                        </span>
-                      {/if}
-                    </div>
-                  </td>
-                  <td class="act">
-                    {#if e.key in EDITABLE}
-                      <button class="icon-btn sm" onclick={() => startEdit(e.key)} aria-label={t("claudeViewEditKey", { key: e.key })} title={t("claudeViewEditKey", { key: e.key })}>
-                        <Pencil size={13} aria-hidden="true" />
-                      </button>
-                    {/if}
-                  </td>
+                  <th>{t("claudeViewKey")}</th>
+                  <th>{t("claudeViewValue")}</th>
+                  <th>{t("claudeViewDecidedBy")}</th>
+                  <th><span class="sr-only">{t("claudeViewEdit")}</span></th>
                 </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <p class="empty-line muted">{t("claudeViewNoSettings")}</p>
-        {/if}
-      </section>
+              </thead>
+              <tbody>
+                {#each o.settings.effective as e (e.key)}
+                  <tr>
+                    <td class="mono key">{e.key}</td>
+                    <td class="mono val">{show(e.value)}</td>
+                    <td>
+                      <div class="decided">
+                        {@render scopeBadge(e.scope)}
+                        {#if e.others.length}
+                          <span class="muted small">
+                            {e.merged ? t("claudeViewMergedWith") : t("claudeViewOverrides")}
+                            {e.others.map(scopeLabel).join(", ")}
+                          </span>
+                        {/if}
+                      </div>
+                    </td>
+                    <td class="act">
+                      {#if e.key in EDITABLE}
+                        <button class="icon-btn sm" onclick={() => startEdit(e.key)} aria-label={t("claudeViewEditKey", { key: e.key })} title={t("claudeViewEditKey", { key: e.key })}>
+                          <Pencil size={13} aria-hidden="true" />
+                        </button>
+                      {/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {:else}
+            <p class="empty-line muted">{t("claudeViewNoSettings")}</p>
+          {/if}
+        </section>
 
-      <section class="card" id="claude-mcp">
-        <header>
-          <h2>{blockTitle("mcp")}</h2>
-          <span class="muted desc">{t("claudeViewMcpHelp")}</span>
-          {@render copyButton("mcp")}
-        </header>
-        {#if o.mcp.error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.mcp.error}</p>{/if}
-        {#if o.mcp.servers.length}
-          <ul class="rows">
-            {#each o.mcp.servers as s (s.name)}
-              <li>
-                <div class="what">
-                  <span class="name">{s.name}</span>
-                  <span class="mono desc">{s.target}</span>
-                  {#each Object.entries(s.details ?? {}).filter(([, v]) => typeof v === "object" && v) as [k, v] (k)}
-                    <span class="mono desc">{k}: {Object.entries(v as object).map(([a, b]) => `${a}=${b}`).join("  ")}</span>
-                  {/each}
-                </div>
-                {#if s.scope}{@render scopeBadge(s.scope)}{/if}
-                <span class="badge health-{s.health}" title={s.status}>{healthLabel(s.health)}</span>
-              </li>
-            {/each}
-          </ul>
-        {:else if !o.mcp.error}
-          <p class="empty-line muted">{t("claudeViewNoMcp")}</p>
-        {/if}
-      </section>
-
-      <section class="card" id="claude-plugins">
-        <header>
-          <h2>{blockTitle("plugins")}</h2>
-          <span class="muted desc">{t("claudeViewPluginsHelp")}</span>
-          {@render copyButton("plugins")}
-        </header>
-        {#if o.plugins.error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.plugins.error}</p>{/if}
-        <h3>{t("claudeViewPluginsInstalled")} <span class="count">{o.plugins.plugins.length}</span></h3>
-        {#if o.plugins.plugins.length}
-          <ul class="rows">
-            {#each o.plugins.plugins as p, i (i)}
-              <li>
-                <div class="what"><span class="name mono">{show(p.id)}</span></div>
-                {#if p.version}<span class="muted small mono">{show(p.version)}</span>{/if}
-                {#if typeof p.scope === "string"}{@render scopeBadge(p.scope)}{/if}
-                <span class="badge {p.enabled ? 'state-ok' : ''}">{p.enabled ? t("claudeViewOn") : t("claudeViewOff")}</span>
-              </li>
-            {/each}
-          </ul>
-        {:else}
-          <p class="empty-line muted">{t("claudeViewNone")}</p>
-        {/if}
-        <h3>{t("claudeViewMarketplaces")} <span class="count">{o.plugins.marketplaces.length}</span></h3>
-        {#if o.plugins.marketplaces.length}
-          <ul class="rows">
-            {#each o.plugins.marketplaces as m, i (i)}
-              <li>
-                <div class="what">
-                  <span class="name">{show(m.name)}</span>
-                  <span class="mono desc">{show(m.repo ?? m.url ?? m.path ?? m.source ?? "")}</span>
-                </div>
-              </li>
-            {/each}
-          </ul>
-        {:else}
-          <p class="empty-line muted">{t("claudeViewNone")}</p>
-        {/if}
-      </section>
-
-      <section class="card" id="claude-extensions">
-        <header>
-          <h2>{blockTitle("extensions")}</h2>
-          <span class="muted desc">{t("claudeViewExtensionsHelp")}</span>
-          {@render copyButton("extensions")}
-        </header>
-        {#each o.extensions as f (f.path)}
-          <h3>{kindLabel(f.kind)} <span class="count">{f.items.length}</span> {@render scopeBadge(f.scope)} <span class="mono small muted">{f.path}</span></h3>
-          {#if f.items.length}
-            <ul class="rows compact">
-              {#each f.items as item (item.path)}
+        <section class="card" id="claude-mcp">
+          <header>
+            <h2>{blockTitle("mcp")}</h2>
+            <span class="muted desc">{t("claudeViewMcpHelp")}</span>
+            {@render copyButton("mcp")}
+          </header>
+          {#if o.mcp.error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.mcp.error}</p>{/if}
+          {#if o.mcp.servers.length}
+            <ul class="rows">
+              {#each o.mcp.servers as s (s.name)}
                 <li>
-                  <span class="name mono">{item.name}</span>
-                  <span class="muted desc grow">{item.description ?? ""}</span>
+                  <div class="what">
+                    <span class="name">{s.name}</span>
+                    <span class="mono desc">{s.target}</span>
+                    {#each Object.entries(s.details ?? {}).filter(([, v]) => typeof v === "object" && v) as [k, v] (k)}
+                      <span class="mono desc">{k}: {Object.entries(v as object).map(([a, b]) => `${a}=${b}`).join("  ")}</span>
+                    {/each}
+                  </div>
+                  {#if s.scope}{@render scopeBadge(s.scope)}{/if}
+                  <span class="badge health-{s.health}" title={s.status}>{healthLabel(s.health)}</span>
+                </li>
+              {/each}
+            </ul>
+          {:else if !o.mcp.error}
+            <p class="empty-line muted">{t("claudeViewNoMcp")}</p>
+          {/if}
+        </section>
+
+        <section class="card" id="claude-plugins">
+          <header>
+            <h2>{blockTitle("plugins")}</h2>
+            <span class="muted desc">{t("claudeViewPluginsHelp")}</span>
+            {@render copyButton("plugins")}
+          </header>
+          {#if o.plugins.error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.plugins.error}</p>{/if}
+          <h3>{t("claudeViewPluginsInstalled")} <span class="count">{o.plugins.plugins.length}</span></h3>
+          {#if o.plugins.plugins.length}
+            <ul class="rows">
+              {#each o.plugins.plugins as p, i (i)}
+                <li>
+                  <div class="what"><span class="name mono">{show(p.id)}</span></div>
+                  {#if p.version}<span class="muted small mono">{show(p.version)}</span>{/if}
+                  {#if typeof p.scope === "string"}{@render scopeBadge(p.scope)}{/if}
+                  <span class="badge {p.enabled ? 'state-ok' : ''}">{p.enabled ? t("claudeViewOn") : t("claudeViewOff")}</span>
                 </li>
               {/each}
             </ul>
           {:else}
-            <p class="empty-line muted">{t("claudeViewEmptyFolder")}</p>
+            <p class="empty-line muted">{t("claudeViewNone")}</p>
           {/if}
-        {:else}
-          <p class="empty-line muted">{t("claudeViewNone")}</p>
-        {/each}
-      </section>
+          <h3>{t("claudeViewMarketplaces")} <span class="count">{o.plugins.marketplaces.length}</span></h3>
+          {#if o.plugins.marketplaces.length}
+            <ul class="rows">
+              {#each o.plugins.marketplaces as m, i (i)}
+                <li>
+                  <div class="what">
+                    <span class="name">{show(m.name)}</span>
+                    <span class="mono desc">{show(m.repo ?? m.url ?? m.path ?? m.source ?? "")}</span>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="empty-line muted">{t("claudeViewNone")}</p>
+          {/if}
+        </section>
 
-      <section class="card" id="claude-hooks">
-        <header>
-          <h2>{blockTitle("hooks")}</h2>
-          <span class="muted desc">{t("claudeViewHooksHelp")}</span>
-          {@render copyButton("hooks")}
-        </header>
-        {#if o.hooks.length}
-          <ul class="rows compact">
-            {#each o.hooks as h, i (i)}
-              <li>
-                <span class="name mono">{h.event}{h.matcher ? ` · ${h.matcher}` : ""}</span>
-                <span class="mono desc grow">{h.kind === "command" ? h.run : `${h.kind}: ${h.run}`}</span>
-                {@render scopeBadge(h.scope)}
-              </li>
-            {/each}
-          </ul>
-        {:else}
-          <p class="empty-line muted">{t("claudeViewNone")}</p>
-        {/if}
-      </section>
-
-      <section class="card" id="claude-memory">
-        <header>
-          <h2>{blockTitle("memory")}</h2>
-          <span class="muted desc">{t("claudeViewMemoryHelp")}</span>
-          {@render copyButton("memory")}
-        </header>
-        <ul class="files">
-          {#each o.memory.files as f (f.path)}
-            <li>
-              {#if f.scope}{@render scopeBadge(f.scope)}{/if}
-              <span class="mono path">{f.path}</span>
-              {@render stateBadge(f.state)}
-              {#if f.size !== null}<span class="muted small">{size(f.size)}</span>{/if}
-            </li>
+        <section class="card" id="claude-extensions">
+          <header>
+            <h2>{blockTitle("extensions")}</h2>
+            <span class="muted desc">{t("claudeViewExtensionsHelp")}</span>
+            {@render copyButton("extensions")}
+          </header>
+          {#each o.extensions as f (f.path)}
+            <h3>{kindLabel(f.kind)} <span class="count">{f.items.length}</span> {@render scopeBadge(f.scope)} <span class="mono small muted">{f.path}</span></h3>
+            {#if f.items.length}
+              <ul class="rows compact">
+                {#each f.items as item (item.path)}
+                  <li>
+                    <span class="name mono">{item.name}</span>
+                    <span class="muted desc grow">{item.description ?? ""}</span>
+                  </li>
+                {/each}
+              </ul>
+            {:else}
+              <p class="empty-line muted">{t("claudeViewEmptyFolder")}</p>
+            {/if}
+          {:else}
+            <p class="empty-line muted">{t("claudeViewNone")}</p>
           {/each}
-        </ul>
-        <h3>{t("claudeViewAutoMemory")} <span class="count">{o.memory.auto.length}</span></h3>
-        {#if o.memory.auto.length}
-          <ul class="rows compact">
-            {#each o.memory.auto as m (m.path)}
+        </section>
+
+        <section class="card" id="claude-hooks">
+          <header>
+            <h2>{blockTitle("hooks")}</h2>
+            <span class="muted desc">{t("claudeViewHooksHelp")}</span>
+            {@render copyButton("hooks")}
+          </header>
+          {#if o.hooks.length}
+            <ul class="rows compact">
+              {#each o.hooks as h, i (i)}
+                <li>
+                  <span class="name mono">{h.event}{h.matcher ? ` · ${h.matcher}` : ""}</span>
+                  <span class="mono desc grow">{h.kind === "command" ? h.run : `${h.kind}: ${h.run}`}</span>
+                  {@render scopeBadge(h.scope)}
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="empty-line muted">{t("claudeViewNone")}</p>
+          {/if}
+        </section>
+
+        <section class="card" id="claude-memory">
+          <header>
+            <h2>{blockTitle("memory")}</h2>
+            <span class="muted desc">{t("claudeViewMemoryHelp")}</span>
+            {@render copyButton("memory")}
+          </header>
+          <ul class="files">
+            {#each o.memory.files as f (f.path)}
               <li>
-                <span class="mono name">{m.project || m.path}</span>
-                <span class="muted desc grow">{m.files.map(([n]) => n).join(", ")}</span>
-                <span class="muted small">{t("claudeViewFileCount", { count: m.files.length })} · {size(m.files.reduce((s, [, b]) => s + b, 0))}</span>
+                {#if f.scope}{@render scopeBadge(f.scope)}{/if}
+                <span class="mono path">{f.path}</span>
+                {@render stateBadge(f.state)}
+                {#if f.size !== null}<span class="muted small">{size(f.size)}</span>{/if}
               </li>
             {/each}
           </ul>
-        {:else}
-          <p class="empty-line muted">{t("claudeViewNone")}</p>
-        {/if}
-      </section>
+          <h3>{t("claudeViewAutoMemory")} <span class="count">{o.memory.auto.length}</span></h3>
+          {#if o.memory.auto.length}
+            <ul class="rows compact">
+              {#each o.memory.auto as m (m.path)}
+                <li>
+                  <span class="mono name">{m.project || m.path}</span>
+                  <span class="muted desc grow">{m.files.map(([n]) => n).join(", ")}</span>
+                  <span class="muted small">{t("claudeViewFileCount", { count: m.files.length })} · {size(m.files.reduce((s, [, b]) => s + b, 0))}</span>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="empty-line muted">{t("claudeViewNone")}</p>
+          {/if}
+        </section>
 
-      <section class="card" id="claude-interface">
-        <header>
-          <h2>{blockTitle("interface")}</h2>
-          {@render copyButton("interface")}
-        </header>
-        <dl>
-          <dt>{t("claudeViewStatusLine")}</dt>
-          <dd>{#if status}<span class="mono">{show(status.value)}</span> {@render scopeBadge(status.scope)}{:else}<span class="muted">{t("claudeViewDefault")}</span>{/if}</dd>
-          <dt>{t("claudeViewTheme")}</dt>
-          <dd>{#if theme}<span class="mono">{show(theme.value)}</span> {@render scopeBadge(theme.scope)}{:else}<span class="muted">{t("claudeViewDefault")}</span>{/if}</dd>
-          <dt>{t("claudeViewCustomThemes")}</dt>
-          <dd class="mono">{o.interface.themes.join(", ") || "—"}</dd>
-          <dt>{t("claudeViewKeybindings")}</dt>
-          <dd><span class="mono">{o.interface.keybindings.path}</span> {@render stateBadge(o.interface.keybindings.state)}</dd>
-        </dl>
-      </section>
+        <section class="card" id="claude-interface">
+          <header>
+            <h2>{blockTitle("interface")}</h2>
+            {@render copyButton("interface")}
+          </header>
+          <dl>
+            <dt>{t("claudeViewStatusLine")}</dt>
+            <dd>{#if status}<span class="mono">{show(status.value)}</span> {@render scopeBadge(status.scope)}{:else}<span class="muted">{t("claudeViewDefault")}</span>{/if}</dd>
+            <dt>{t("claudeViewTheme")}</dt>
+            <dd>{#if theme}<span class="mono">{show(theme.value)}</span> {@render scopeBadge(theme.scope)}{:else}<span class="muted">{t("claudeViewDefault")}</span>{/if}</dd>
+            <dt>{t("claudeViewCustomThemes")}</dt>
+            <dd class="mono">{o.interface.themes.join(", ") || "—"}</dd>
+            <dt>{t("claudeViewKeybindings")}</dt>
+            <dd><span class="mono">{o.interface.keybindings.path}</span> {@render stateBadge(o.interface.keybindings.state)}</dd>
+          </dl>
+        </section>
 
-      <section class="card" id="claude-account">
-        <header>
-          <h2>{blockTitle("account")}</h2>
-          {@render copyButton("account")}
-        </header>
-        {#if o.account.authError}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.account.authError}</p>{/if}
-        <dl>
-          {#if o.account.auth}
-            <dt>{t("claudeViewLoggedIn")}</dt>
+        <section class="card" id="claude-account">
+          <header>
+            <h2>{blockTitle("account")}</h2>
+            {@render copyButton("account")}
+          </header>
+          {#if o.account.authError}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.account.authError}</p>{/if}
+          <dl>
+            {#if o.account.auth}
+              <dt>{t("claudeViewLoggedIn")}</dt>
+              <dd>
+                <span class="badge {o.account.auth.loggedIn ? 'state-ok' : 'state-absent'}">
+                  {o.account.auth.loggedIn ? t("claudeViewYes") : t("claudeViewNo")}
+                </span>
+              </dd>
+              {#each Object.entries(o.account.auth).filter(([k, v]) => k !== "loggedIn" && (v === null || typeof v !== "object")) as [k, v] (k)}
+                <dt class="mono">{k}</dt>
+                <dd class="mono">{show(v)}</dd>
+              {/each}
+            {/if}
+            <dt>{t("claudeViewVersion")}</dt>
+            <dd class="mono">{o.account.version ?? t("claudeViewUnknown")}</dd>
+            <dt>{t("claudeViewChannel")}</dt>
             <dd>
-              <span class="badge {o.account.auth.loggedIn ? 'state-ok' : 'state-absent'}">
-                {o.account.auth.loggedIn ? t("claudeViewYes") : t("claudeViewNo")}
-              </span>
+              {#if channel}<span class="mono">{show(channel.value)}</span> {@render scopeBadge(channel.scope)}{:else}<span class="mono">latest</span> <span class="muted">({t("claudeViewDefault")})</span>{/if}
+              <button class="icon-btn sm" onclick={() => startEdit("autoUpdatesChannel")} aria-label={t("claudeViewEditKey", { key: "autoUpdatesChannel" })} title={t("claudeViewEditKey", { key: "autoUpdatesChannel" })}>
+                <Pencil size={13} aria-hidden="true" />
+              </button>
             </dd>
-            {#each Object.entries(o.account.auth).filter(([k, v]) => k !== "loggedIn" && (v === null || typeof v !== "object")) as [k, v] (k)}
-              <dt class="mono">{k}</dt>
-              <dd class="mono">{show(v)}</dd>
-            {/each}
-          {/if}
-          <dt>{t("claudeViewVersion")}</dt>
-          <dd class="mono">{o.account.version ?? t("claudeViewUnknown")}</dd>
-          <dt>{t("claudeViewChannel")}</dt>
-          <dd>
-            {#if channel}<span class="mono">{show(channel.value)}</span> {@render scopeBadge(channel.scope)}{:else}<span class="mono">latest</span> <span class="muted">({t("claudeViewDefault")})</span>{/if}
-            <button class="icon-btn sm" onclick={() => startEdit("autoUpdatesChannel")} aria-label={t("claudeViewEditKey", { key: "autoUpdatesChannel" })} title={t("claudeViewEditKey", { key: "autoUpdatesChannel" })}>
-              <Pencil size={13} aria-hidden="true" />
-            </button>
-          </dd>
-          <dt>{t("claudeViewInstall")}</dt>
-          <dd>{o.account.install ?? t("claudeViewUnknown")} {#if o.account.path}<span class="mono muted small">{o.account.path}</span>{/if}</dd>
-        </dl>
-      </section>
+            <dt>{t("claudeViewInstall")}</dt>
+            <dd>{o.account.install ?? t("claudeViewUnknown")} {#if o.account.path}<span class="mono muted small">{o.account.path}</span>{/if}</dd>
+          </dl>
+        </section>
 
-      <section class="card" id="claude-tools">
-        <header>
-          <h2>{blockTitle("tools")}</h2>
-          <span class="muted desc">{t("claudeViewToolsHelp")}</span>
-          {@render copyButton("tools")}
-        </header>
-        <ul class="rows compact">
-          {#each o.tools as tool (tool.name)}
-            <li>
-              <span class="name mono tool">{tool.name}</span>
-              <span class="tool-version">{#if tool.version}<span class="mono">{tool.version}</span>{:else}<span class="badge state-absent">{t("claudeViewMissing")}</span>{/if}</span>
-              <span class="mono muted desc grow">{tool.path ?? ""}</span>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
-  </div>
+        <section class="card" id="claude-tools">
+          <header>
+            <h2>{blockTitle("tools")}</h2>
+            <span class="muted desc">{t("claudeViewToolsHelp")}</span>
+            {@render copyButton("tools")}
+          </header>
+          <ul class="rows compact">
+            {#each o.tools as tool (tool.name)}
+              <li>
+                <span class="name mono tool">{tool.name}</span>
+                <span class="tool-version">{#if tool.version}<span class="mono">{tool.version}</span>{:else}<span class="badge state-absent">{t("claudeViewMissing")}</span>{/if}</span>
+                <span class="mono muted desc grow">{tool.path ?? ""}</span>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+    </div>
+  </Tabs>
 </div>
 
 <style>
@@ -586,48 +586,8 @@
     font-weight: 500;
   }
 
-  .tabs .btn {
-    margin-left: 4px;
-  }
-
   .scope select {
-    height: 26px;
     width: 240px;
-  }
-
-  .spacer {
-    flex: 1;
-  }
-
-  .tabs {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 0 8px;
-    border-bottom: 1px solid var(--border);
-    background: var(--chrome);
-  }
-
-  [role="tab"] {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 34px;
-    padding: 0 10px;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    font-weight: 500;
-    box-shadow: inset 0 -2px 0 transparent;
-  }
-
-  [role="tab"]:hover {
-    color: var(--text);
-  }
-
-  [role="tab"][aria-selected="true"] {
-    color: var(--text);
-    box-shadow: inset 0 -2px 0 var(--accent);
   }
 
   .count {
@@ -641,31 +601,6 @@
     font-variant-numeric: tabular-nums;
     line-height: 16px;
     text-align: center;
-  }
-
-  .notices {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .banner {
-    align-items: center;
-  }
-
-  .banner > span {
-    flex: 1;
-  }
-
-  .banner .icon-btn {
-    color: inherit;
-  }
-
-  .notice.ok {
-    background: var(--done-soft);
-    color: var(--done);
   }
 
   .pane {
@@ -759,11 +694,6 @@
     margin: 12px 0 4px;
     font-size: var(--text-sm);
     font-weight: 600;
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
   }
 
   .small {
@@ -972,12 +902,7 @@
   }
 
   .labelled {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     width: 240px;
-    font-size: var(--text-sm);
-    font-weight: 500;
   }
 
   .labelled.value {

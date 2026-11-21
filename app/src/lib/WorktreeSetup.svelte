@@ -496,7 +496,7 @@
 
   h2 {
     margin: 0;
-    font-size: 17px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
   }
@@ -658,7 +658,6 @@
   }
 
   .mono {
-    font-family: var(--font-mono);
     font-size: var(--text-sm);
   }
 
