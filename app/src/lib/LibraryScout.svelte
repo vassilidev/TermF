@@ -69,6 +69,8 @@
   const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD" });
 
   const key = (i: ItemRef) => `${i.kind}/${i.name}`;
+  /** A confirmation holds for this exact content only, not for a later revision of it. */
+  const confirmKey = (e: Entry) => `${key(e)}\n${e.content}\n${e.script}`;
   const ref = (e: Entry): ItemRef => ({ kind: e.kind, name: e.name });
   const proposes = (e: Entry) => !!e.content || !!e.script;
 
@@ -78,7 +80,8 @@
   const draft = $derived(data?.draft ?? null);
   const pending = $derived(draft?.entries.filter((e) => e.review === "pending").length ?? 0);
   const decided = $derived((draft?.entries.length ?? 0) - pending);
-  const running = $derived(scout.running === "run");
+  /** The slow call of this scope, if any. */
+  const running = $derived(scout.runScope === library.scope ? scout.running : "");
 
   $effect(() => {
     const scope = library.scope;
@@ -94,7 +97,7 @@
 
   function elapsed(): string {
     const s = Math.max(0, Math.round((now - scout.started) / 1000));
-    return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
+    return t("scoutElapsed", { min: Math.floor(s / 60), s: String(s % 60).padStart(2, "0") });
   }
 
   function launch() {
@@ -139,6 +142,27 @@
 {#snippet kindBadge(kind: Kind)}
   {@const info = kindInfo[kind]}
   {#if info}<span class="badge kind"><info.icon size={12} aria-hidden="true" />{t(info.label)}</span>{/if}
+{/snippet}
+
+{#snippet working()}
+  <div class="working" role="status">
+    <p><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("scoutRunning", { model: data?.model ?? "", elapsed: elapsed() })}</p>
+    {#if scout.progress.length}
+      <ol class="feed">
+        {#each scout.progress.slice(-6) as p, i (i)}
+          <li>
+            {#if p.kind === "search"}
+              <Search size={12} aria-hidden="true" /><span class="what">{t("scoutSearch")}</span><span>{p.text}</span>
+            {:else}
+              <BookOpen size={12} aria-hidden="true" /><span class="what">{t("scoutFetch")}</span><span class="mono">{p.text}</span>
+            {/if}
+          </li>
+        {/each}
+      </ol>
+    {:else}
+      <p class="muted small">{t("scoutStarting")}</p>
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet sourceLine(url: string)}
@@ -216,25 +240,10 @@
         <Telescope size={14} aria-hidden="true" />{t("scoutRun")}
       </button>
     </div>
-    {#if running}
-      <div class="working" role="status">
-        <p><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("scoutRunning", { model: data?.model ?? "", elapsed: elapsed() })}</p>
-        {#if scout.progress.length}
-          <ol class="feed">
-            {#each scout.progress.slice(-6) as p, i (i)}
-              <li>
-                {#if p.kind === "search"}
-                  <Search size={12} aria-hidden="true" /><span class="what">{t("scoutSearch")}</span><span>{p.text}</span>
-                {:else}
-                  <BookOpen size={12} aria-hidden="true" /><span class="what">{t("scoutFetch")}</span><span class="mono">{p.text}</span>
-                {/if}
-              </li>
-            {/each}
-          </ol>
-        {:else}
-          <p class="muted small">{t("scoutStarting")}</p>
-        {/if}
-      </div>
+    {#if running === "run"}
+      {@render working()}
+    {:else if scout.running && !running}
+      <p class="muted small right">{t("scoutRunningElsewhere")}</p>
     {/if}
   </section>
 
@@ -254,7 +263,8 @@
 
       {#each draft.entries as e (key(e))}
         {@const k = key(e)}
-        {@const needsConfirm = e.executable && e.review !== "accepted" && !confirmed[k]}
+        {@const ck = confirmKey(e)}
+        {@const needsConfirm = e.executable && e.review !== "accepted" && !confirmed[ck]}
         <article class="card {e.review}">
           <header>
             {@render kindBadge(e.kind)}
@@ -293,7 +303,7 @@
               <p class="muted small">{target(e)}</p>
               <div class="sources">
                 <span class="muted small">{t("scoutSources")}</span>
-                {#each e.sources as url (url)}{@render sourceLine(url)}{/each}
+                {#each e.sources as url, i (i)}{@render sourceLine(url)}{/each}
               </div>
               {#if e.content}
                 {#if e.layer && !e.executable}
@@ -329,7 +339,7 @@
 
           {#if e.executable && e.review !== "accepted"}
             <label class="confirm">
-              <input type="checkbox" bind:checked={confirmed[k]} />
+              <input type="checkbox" bind:checked={confirmed[ck]} />
               {t("scoutConfirm")}
             </label>
           {/if}
@@ -339,7 +349,7 @@
               class="btn sm"
               aria-pressed={e.review === "accepted"}
               disabled={!!scout.running || needsConfirm}
-              onclick={() => decide(ref(e), e.review === "accepted" ? "pending" : "accepted", !!confirmed[k])}
+              onclick={() => decide(ref(e), e.review === "accepted" ? "pending" : "accepted", !!confirmed[ck])}
             >
               <Check size={14} aria-hidden="true" />{t("convAccept")}
             </button>
@@ -369,12 +379,12 @@
                 aria-label={t("convRequestChange")}
               ></textarea>
               <button class="btn sm primary" onclick={() => revise(e)} disabled={!comments[k]?.trim() || !!scout.running}>
-                {#if scout.running === `revise:${k}`}
-                  <LoaderCircle size={14} aria-hidden="true" class="spin" />
-                {/if}
                 {t("scoutReviseItem")}
               </button>
             </div>
+          {/if}
+          {#if running === `revise:${k}`}
+            {@render working()}
           {/if}
         </article>
       {/each}
@@ -500,6 +510,10 @@
 
   .grow {
     flex: 1;
+  }
+
+  .right {
+    text-align: right;
   }
 
   .row-end {

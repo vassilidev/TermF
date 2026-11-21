@@ -35,7 +35,7 @@ pub fn run(config_dir: &Path, project: Option<&str>, mut args: Vec<&str>) -> Res
         options.model.as_deref().unwrap_or(&model),
         options.budget.unwrap_or(budget)
     );
-    let state = scout::run(
+    let draft = scout::run(
         config_dir,
         project,
         &items,
@@ -46,7 +46,6 @@ pub fn run(config_dir: &Path, project: Option<&str>, mut args: Vec<&str>) -> Res
             Progress::Fetch(url) => eprintln!("  read    {url}"),
         },
     )?;
-    let draft = state.draft.context("no results")?;
     if draft.entries.is_empty() {
         println!("Nothing to improve.");
     }

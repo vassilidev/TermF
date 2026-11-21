@@ -254,7 +254,10 @@ fn library(mut args: Vec<&str>) -> Result<()> {
             println!("{} {}: {state} (written in {file})", item.kind, item.name);
         }
         ["scout", rest @ ..] => {
-            scout::run(&config_dir, scope()?.project.as_deref(), rest.to_vec())?
+            if kind.is_some() || repo.is_some() || overwrite {
+                bail!("termf library scout takes --item, --project, --model and --budget");
+            }
+            scout::run(&config_dir, project.as_deref(), rest.to_vec())?
         }
         ["import-claude"] => {
             let from = match &repo {

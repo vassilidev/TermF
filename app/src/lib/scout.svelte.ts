@@ -41,8 +41,9 @@ export const scout = $state({
   data: null as ScoutState | null,
   /** The scope `data` is for: a project id, or "" for the global library. */
   scope: "",
-  /** The slow call in progress: "run", "revise:<kind>/<name>", or "". */
+  /** The slow call in progress: "run", "revise:<kind>/<name>", or "", and the scope it runs for. */
   running: "",
+  runScope: "",
   started: 0,
   progress: [] as Progress[],
   error: "",
@@ -63,7 +64,7 @@ async function call(command: string, args: Record<string, unknown>, what = "") {
       scout.progress = [...scout.progress, e.payload].slice(-40);
     });
     await listening;
-    Object.assign(scout, { running: what, started: Date.now(), progress: [] });
+    Object.assign(scout, { running: what, runScope: scope, started: Date.now(), progress: [] });
   }
   try {
     const data = await invoke<ScoutState>(command, { project: scope || null, ...args });
