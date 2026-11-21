@@ -1107,11 +1107,14 @@ fn progress_of(line: &str) -> Vec<Progress> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::{explain, put, temp_dir};
 
+    #[cfg(unix)]
     const SOURCE: &str = "https://code.claude.com/docs/en/skills";
 
     /// A config with project `acme`, whose library has the preference `style`.
+    #[cfg(unix)]
     fn setup(name: &str) -> PathBuf {
         let config = temp_dir(name).join("config");
         put(&config.join("projects/acme.toml"), "name = \"Acme\"\n");
@@ -1148,6 +1151,7 @@ mod tests {
         fs::read_to_string(config.parent().unwrap().join(file)).unwrap()
     }
 
+    #[cfg(unix)]
     fn entry(kind: &str, name: &str, new: bool, content: &str) -> Value {
         json!({
             "kind": kind, "name": name, "new": new,
@@ -1158,6 +1162,7 @@ mod tests {
         })
     }
 
+    #[cfg(unix)]
     fn item(kind: Kind, name: &str) -> ItemRef {
         ItemRef {
             kind,
