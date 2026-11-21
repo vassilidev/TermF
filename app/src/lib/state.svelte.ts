@@ -11,11 +11,13 @@ export type Workspace = {
   projects: Project[];
   repos: Repo[];
   scanTruncated: boolean;
+  quickTerminalError: string | null;
 };
 export type Session = {
   id: number;
   title: string;
   cwd: string;
+  agent: string | null;
   running: boolean;
   exitCode: number | null;
 };
@@ -29,6 +31,9 @@ export const app = $state({
 
 /** Paths of the repositories ticked in the sidebar. */
 export const selected = new SvelteSet<string>();
+
+/** Ids of the sessions ticked for broadcast. */
+export const ticked = new SvelteSet<number>();
 
 export async function load() {
   try {
@@ -73,20 +78,22 @@ export function toggleProject(project: Project) {
 
 /** Opens `agent` (or a login shell when null) in every ticked repository. */
 export async function openSelected(agent: string | null) {
-  for (const path of selected) {
-    try {
-      app.sessions.push(
-        await invoke<Session>("pty_spawn", {
-          agent,
-          cwd: path,
-          title: `${repoName(path)} · ${agent ?? "shell"}`,
-          cols: 120,
-          rows: 32,
-        }),
-      );
-    } catch (e) {
-      app.error = String(e);
-    }
+  for (const path of selected) await openSession(path, agent);
+}
+
+export async function openSession(path: string, agent: string | null) {
+  try {
+    app.sessions.push(
+      await invoke<Session>("pty_spawn", {
+        agent,
+        cwd: path,
+        title: `${repoName(path)} · ${agent ?? "shell"}`,
+        cols: 120,
+        rows: 32,
+      }),
+    );
+  } catch (e) {
+    app.error = String(e);
   }
 }
 

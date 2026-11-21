@@ -1,9 +1,13 @@
 <script lang="ts">
+  import Layouts from "$lib/Layouts.svelte";
+  import ProjectEditor from "$lib/ProjectEditor.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app, load, openSelected, selected, toggleProject } from "$lib/state.svelte";
 
   let filter = $state("");
   let sort = $state<"recent" | "name">("recent");
+  let creating = $state(false);
+  let editing = $state<string | null>(null);
 
   const visibleRepos = $derived.by(() => {
     const query = filter.toLowerCase();
@@ -29,27 +33,57 @@
 
   {#if app.workspace}
     <div class="lists">
-      {#if app.workspace.projects.length}
-        <section>
-          <h2>{t("projects")}</h2>
-          <ul>
-            {#each app.workspace.projects as project (project.id)}
-              <li>
-                <label class="row">
-                  <input
-                    type="checkbox"
-                    checked={project.repos.length > 0 &&
-                      project.repos.every((r) => selected.has(r.path))}
-                    onchange={() => toggleProject(project)}
-                  />
-                  <span class="name">{project.name}</span>
-                  <span class="count">{project.repos.length}</span>
-                </label>
-              </li>
-            {/each}
-          </ul>
-        </section>
+      {#if app.workspace.quickTerminalError}
+        <p class="notice">{t("shortcutError", { error: app.workspace.quickTerminalError })}</p>
       {/if}
+      <section>
+        <div class="heading">
+          <h2>{t("projects")}</h2>
+          <button
+            class="icon"
+            onclick={() => ((creating = true), (editing = null))}
+            aria-label={t("newProject")}
+            title={t("newProject")}
+          >
+            +
+          </button>
+        </div>
+        {#if creating}
+          <ProjectEditor onclose={() => (creating = false)} />
+        {/if}
+        <ul>
+          {#each app.workspace.projects as project (project.id)}
+            <li>
+              {#if editing === project.id}
+                <ProjectEditor {project} onclose={() => (editing = null)} />
+              {:else}
+                <div class="item">
+                  <label class="row">
+                    <input
+                      type="checkbox"
+                      checked={project.repos.length > 0 &&
+                        project.repos.every((r) => selected.has(r.path))}
+                      onchange={() => toggleProject(project)}
+                    />
+                    <span class="name">{project.name}</span>
+                    <span class="count">{project.repos.length}</span>
+                  </label>
+                  <button
+                    class="icon edit"
+                    onclick={() => ((editing = project.id), (creating = false))}
+                    aria-label={t("editProject", { name: project.name })}
+                    title={t("editProject", { name: project.name })}
+                  >
+                    ✎
+                  </button>
+                </div>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+
+      <Layouts />
 
       <section>
         <div class="heading">
@@ -184,6 +218,41 @@
 
   .row:hover {
     background: var(--hover);
+  }
+
+  .item {
+    display: flex;
+    align-items: center;
+  }
+
+  .item .row {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .icon {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+  }
+
+  .icon:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .edit {
+    opacity: 0;
+  }
+
+  .item:hover .edit,
+  .edit:focus-visible {
+    opacity: 1;
   }
 
   .stack {
