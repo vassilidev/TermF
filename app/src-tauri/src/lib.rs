@@ -1,3 +1,4 @@
+mod agents;
 mod api;
 mod browser;
 mod ci;
@@ -197,6 +198,11 @@ pub fn run() {
             let (api, listener) = api::Api::new();
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(claude::ClaudeState::new(&data_dir));
+            app.manage(agents::state(
+                app.handle(),
+                config_dir.clone(),
+                data_dir.clone(),
+            ));
             app.manage(tickets::TicketsState::new(
                 config_dir.clone(),
                 data_dir.clone(),
@@ -373,7 +379,21 @@ pub fn run() {
             claude::artifacts_auto,
             claude::artifacts_delete,
             claude::artifacts_edit,
+            agents::agent_start,
+            agents::agent_send,
+            agents::agent_interrupt,
+            agents::agent_answer,
+            agents::agent_stop,
+            agents::agent_takeover,
+            agents::agent_handback,
+            agents::agent_sessions,
+            agents::agent_events,
         ]))
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                agents::shutdown(app);
+            }
+        });
 }

@@ -217,6 +217,14 @@ impl Sessions {
         Ok(())
     }
 
+    /// Ends the session's process but keeps the session, as when it exits by itself.
+    pub fn terminate(&self, id: u32) -> Result<()> {
+        let mut killer = self.with(id, |s| s.killer.clone_killer())?;
+        // Already exited is fine.
+        let _ = killer.kill();
+        Ok(())
+    }
+
     pub fn list(&self) -> Vec<SessionInfo> {
         let mut list: Vec<_> = self
             .map
@@ -438,5 +446,16 @@ mod tests {
         }
         sessions.kill(id).unwrap();
         assert!(sessions.list().is_empty());
+    }
+
+    #[test]
+    fn terminates_and_keeps_the_session() {
+        let sessions = Sessions::default();
+        let id = sessions.spawn(spec("/bin/cat", &[])).unwrap();
+        sessions.terminate(id).unwrap();
+        collect(&sessions, id);
+        assert!(!sessions.list()[0].running);
+        sessions.terminate(id).unwrap();
+        assert!(sessions.terminate(id + 1).is_err());
     }
 }

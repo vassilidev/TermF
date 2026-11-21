@@ -19,7 +19,7 @@ use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
-use crate::{AppState, schedule, tickets};
+use crate::{AppState, agents, schedule, tickets};
 
 struct Meta {
     title: String,
@@ -383,6 +383,7 @@ impl Api {
     /// The process ended: an agent that reports its status is done.
     fn exited(&self, app: &AppHandle, id: u32) {
         crate::claude::exited(app, id);
+        agents::tile_exited(app, id);
         let tracked = self
             .meta
             .lock()
@@ -846,6 +847,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         Call::Schedule { task, scheduled } => {
             serde_json::to_value(schedule::run(app, &task, scheduled)?)?
         }
+        Call::Agent(call) => agents::call(app, call)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }

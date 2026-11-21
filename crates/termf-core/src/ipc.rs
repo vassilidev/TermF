@@ -68,6 +68,41 @@ pub enum Call {
         task: String,
         scheduled: bool,
     },
+    /// Drives a headless agent session (crate `termf-agents`).
+    Agent(AgentCall),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum AgentCall {
+    /// `spec`: a `termf_agents::SessionSpec`.
+    Start {
+        spec: Value,
+        prompt: Option<String>,
+    },
+    Send {
+        session: i64,
+        text: String,
+    },
+    Interrupt {
+        session: i64,
+    },
+    /// Answers a permission request.
+    Answer {
+        session: i64,
+        request: String,
+        allow: bool,
+        message: Option<String>,
+    },
+    Stop {
+        session: i64,
+    },
+    Takeover {
+        session: i64,
+    },
+    Handback {
+        session: i64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -407,6 +442,15 @@ mod tests {
                     event: "Stop".into(),
                     payload: json!({"session_id": "abc"}),
                 },
+            },
+            Request {
+                token: "t".into(),
+                call: Call::Agent(AgentCall::Answer {
+                    session: 4,
+                    request: "r1".into(),
+                    allow: false,
+                    message: Some("not\nnow".into()),
+                }),
             },
         ];
         for request in requests {
