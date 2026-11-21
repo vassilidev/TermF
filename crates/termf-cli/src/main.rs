@@ -117,6 +117,8 @@ usage:
   termf agent stop <id>                 end its process
   termf agent takeover <id>             go on with the conversation in a tile, between two turns
   termf agent handback <id>             close that tile and go on headless
+  termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
+                                        worktrees): no more \"Is this a project you trust?\"; --off stops
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -208,6 +210,18 @@ fn run(args: &[&str]) -> Result<()> {
         ["worktree", rest @ ..] => worktree::run(rest)?,
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         ["agent", rest @ ..] => agent::run(rest.to_vec())?,
+        ["project", "trust", id, rest @ ..] => {
+            let on = match rest {
+                [] => true,
+                ["--off"] => false,
+                _ => bail!(USAGE),
+            };
+            let config_dir = termf_core::default_config_dir()?;
+            for r in termf_claude::trust::set_project(&config_dir, id, on)? {
+                let state = if r.trusted { "trusted" } else { "not trusted" };
+                println!("{:<12}  {state:<11}  {}", r.name, r.root);
+            }
+        }
         [
             command @ ("run" | "runs" | "inbox" | "deliver" | "close"),
             rest @ ..,

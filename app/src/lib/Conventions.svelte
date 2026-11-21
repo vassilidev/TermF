@@ -50,6 +50,8 @@
     dropped: string[];
     answers: { question: string; answer: string }[];
     items: Proposal[];
+    /** The text it was proposed from (absent before TermF recorded it). */
+    from?: string;
   };
   type Diff = { name: string; change: "added" | "changed" | "unchanged" | "removed"; previous: Proposal | null };
   type Convention = {
@@ -66,7 +68,8 @@
     | { status: "failed"; message: string }
   );
 
-  let { project }: { project: Project } = $props();
+  /** `only`: that convention alone, its text written elsewhere (the onboarding assistant); proposed on arrival. */
+  let { project, only }: { project: Project; only?: string } = $props();
 
   let model = $state("");
   let effort = $state("");
@@ -118,6 +121,13 @@
         project: project.id,
       });
       ({ model, effort, list } = data);
+      if (only) {
+        select(only);
+        // Nothing proposed yet, or proposed from a text the assistant has rewritten since.
+        const last = current?.draft ?? current?.pack;
+        if (current?.source.trim() && (!last || (last.from && last.from !== current.source))) await propose();
+        return;
+      }
       select(list[0]?.slug ?? "");
       creating = !list.length;
     } catch (e) {
@@ -268,7 +278,7 @@
 </span>{/each}</pre>
 {/snippet}
 
-<div class="conventions">
+<div class="conventions" class:only>
   <aside class="docs">
     <ul>
       {#each list as c (c.slug)}
@@ -331,19 +341,28 @@
       </header>
 
       <section class="step">
-        <h3>{t("convWrite")}</h3>
-        <textarea
-          class="field text"
-          bind:value={text}
-          rows="7"
-          placeholder={t("convPlaceholder")}
-          aria-label={t("convWrite")}
-          disabled={running === "propose"}
-        ></textarea>
+        {#if !only}
+          <h3>{t("convWrite")}</h3>
+          <textarea
+            class="field text"
+            bind:value={text}
+            rows="7"
+            placeholder={t("convPlaceholder")}
+            aria-label={t("convWrite")}
+            disabled={running === "propose"}
+          ></textarea>
+        {/if}
         <div class="row-end">
-          <span class="muted saved">{dirty ? t("convUnsaved") : ""}</span>
-          <button class="btn" onclick={save} disabled={!dirty || !!running}>{t("save")}</button>
-          <button class="btn primary" onclick={() => propose()} disabled={!text.trim() || !!running}>
+          {#if only}
+            <p class="model grow">
+              <Sparkles size={13} aria-hidden="true" />
+              {t("convModel", { model, effort })}
+            </p>
+          {:else}
+            <span class="muted saved">{dirty ? t("convUnsaved") : ""}</span>
+            <button class="btn" onclick={save} disabled={!dirty || !!running}>{t("save")}</button>
+          {/if}
+          <button class="btn" class:primary={!only || !(pack || draft)} onclick={() => propose()} disabled={!text.trim() || !!running}>
             <Sparkles size={14} aria-hidden="true" />{pack || draft ? t("convRegenerate") : t("convPropose")}
           </button>
         </div>
@@ -654,6 +673,24 @@
     flex: 1;
     grid-template-columns: 240px minmax(0, 1fr);
     min-height: 0;
+  }
+
+  .only {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .only .docs,
+  .only .doc-head {
+    display: none;
+  }
+
+  .only .doc-pane {
+    padding: 0;
+    overflow: visible;
+  }
+
+  .only .model {
+    margin: 0;
   }
 
   .docs {

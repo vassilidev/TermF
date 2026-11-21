@@ -13,6 +13,7 @@ pub mod artifacts;
 pub mod cli;
 pub mod mask;
 pub mod settings;
+pub mod trust;
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

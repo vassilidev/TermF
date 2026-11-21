@@ -79,7 +79,8 @@ export type ViewId =
   | "claude"
   | "team"
   | "project"
-  | "settings";
+  | "settings"
+  | "onboarding";
 
 const projectKey = "termf.project";
 

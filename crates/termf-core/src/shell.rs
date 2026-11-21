@@ -1,4 +1,5 @@
-//! The PATH of the user's login shell, which an app launched from the Finder or a desktop menu lacks.
+//! The PATH (and other variables) of the user's login shell, which an app launched from the Finder or a desktop
+//! menu lacks.
 
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
@@ -15,14 +16,23 @@ pub fn login_path() -> Option<&'static OsStr> {
         if cfg!(windows) {
             return None;
         }
-        path_from(Path::new(&std::env::var_os("SHELL")?))
+        login_var("PATH")
     })
     .as_deref()
 }
 
-fn path_from(shell: &Path) -> Option<OsString> {
+/// A variable as the login shell sets it, so as the sessions TermF opens see it; `None` when it is unset there,
+/// on Windows, or without a usable shell. `name` is TermF's own, never the user's: it goes into a command line.
+pub fn login_var(name: &str) -> Option<OsString> {
+    if cfg!(windows) {
+        return None;
+    }
+    var_from(Path::new(&std::env::var_os("SHELL")?), name)
+}
+
+fn var_from(shell: &Path, name: &str) -> Option<OsString> {
     let mut child = Command::new(shell)
-        .args(["-l", "-c", "printenv PATH"])
+        .args(["-l", "-c", &format!("printenv {name}")])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -35,17 +45,17 @@ fn path_from(shell: &Path) -> Option<OsString> {
         let _ = stdout.read_to_string(&mut text);
         let _ = tx.send(text);
     });
-    // A profile waiting for input must not block the action that needed the PATH.
+    // A profile waiting for input must not block the action that needed the variable.
     let text = rx.recv_timeout(Duration::from_secs(10)).ok();
     let _ = child.kill();
     let _ = child.wait();
     // Profiles may print their own lines first.
-    let path = text?
+    let value = text?
         .lines()
         .map(str::trim)
         .rfind(|l| !l.is_empty())?
         .to_owned();
-    path.contains('/').then(|| path.into())
+    value.contains('/').then(|| value.into())
 }
 
 #[cfg(all(test, unix))]
@@ -69,8 +79,12 @@ mod tests {
             "fish",
             "[ \"$1 $2 $3\" = '-l -c printenv PATH' ] || exit 3\necho 'Welcome to fish'\necho /opt/fake/bin:/usr/bin",
         );
-        assert_eq!(path_from(&fish), Some("/opt/fake/bin:/usr/bin".into()));
-        assert_eq!(path_from(&shell("broken", "exit 1")), None);
-        assert_eq!(path_from(&dir.join("missing")), None);
+        assert_eq!(
+            var_from(&fish, "PATH"),
+            Some("/opt/fake/bin:/usr/bin".into())
+        );
+        assert_eq!(var_from(&fish, "HOME"), None);
+        assert_eq!(var_from(&shell("broken", "exit 1"), "PATH"), None);
+        assert_eq!(var_from(&dir.join("missing"), "PATH"), None);
     }
 }

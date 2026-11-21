@@ -1,6 +1,7 @@
 import { allRepos, currentProject, scopeRepos } from "$lib/files.svelte";
 import { projectsOf, tally, type Tally } from "$lib/nav-logic";
 import { app, grid, launch, selected, ui, type Repo, type Session, type ViewId } from "$lib/state.svelte";
+import { usable } from "$lib/onboarding.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 const projects = () => app.workspace?.projects ?? [];
@@ -43,5 +44,5 @@ export function editProject(id: string) {
 
 export function closeProject() {
   ui.editing = null;
-  if (ui.view === "project") ui.view = back;
+  if (ui.view === "project") ui.view = usable(back);
 }

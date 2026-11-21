@@ -24,6 +24,7 @@ import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Telescope from "@lucide/svelte/icons/telescope";
+import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
 import { showClaude } from "$lib/claude.svelte";
@@ -35,6 +36,7 @@ import { keys, pressed } from "$lib/keymap.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { type Command } from "$lib/nav-logic";
 import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
+import { openSetup } from "$lib/onboarding.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
 import {
   app,
@@ -194,6 +196,8 @@ export function commands(): Command[] {
   if (app.project !== null) {
     const id = app.project;
     list.push({ id: "project-edit", label: t("ticketsEditProject"), icon: Pencil, group: "projects", run: () => editProject(id) });
+    const name = app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
+    list.push({ id: "project-setup", label: t("obPalette", { project: name }), icon: WandSparkles, group: "projects", run: () => openSetup(id) });
   }
 
   if (waitingSessions().length) {
