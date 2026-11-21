@@ -5495,6 +5495,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-schedule"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "jiff 1.0.1",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "termf-core",
+ "termf-library",
+ "toml 1.2.2+spec-1.1.0",
+ "toml_edit 0.25.20+spec-1.1.0",
+]
+
+[[package]]
 name = "termf-ssh"
 version = "0.1.0"
 dependencies = [

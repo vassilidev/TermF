@@ -469,6 +469,11 @@ fn frontmatter(text: &str) -> (Option<&str>, &str) {
     (None, text)
 }
 
+/// A Markdown file's YAML frontmatter, as JSON, and its body.
+pub fn parse_markdown(text: &str) -> Result<(Map<String, Value>, &str)> {
+    Ok((metadata(Kind::Skill, text)?, frontmatter(text).1))
+}
+
 fn metadata(kind: Kind, text: &str) -> Result<Map<String, Value>> {
     let value = match (kind, frontmatter(text).0) {
         (Kind::Workflow, _) => serde_json::to_value(toml::from_str::<toml::Table>(text)?)?,
