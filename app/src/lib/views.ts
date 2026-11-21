@@ -5,11 +5,13 @@ import FolderTree from "@lucide/svelte/icons/folder-tree";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LibraryBig from "@lucide/svelte/icons/library-big";
+import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import SettingsIcon from "@lucide/svelte/icons/settings";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Users from "@lucide/svelte/icons/users";
 import Workflow from "@lucide/svelte/icons/workflow";
 import type { t } from "$lib/i18n";
+import { agents, showConversations, waitingAgents } from "$lib/agents.svelte";
 import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
 import { files, showFiles } from "$lib/files.svelte";
@@ -56,6 +58,18 @@ export const views: View[] = [
     loaded: () => true,
     load: () => import("$lib/SessionGrid.svelte"),
     count: () => waitingSessions().length || undefined,
+    hot: true,
+  },
+  {
+    id: "conversations",
+    label: "chatView",
+    command: "chatShow",
+    icon: MessagesSquare,
+    group: "work",
+    show: showConversations,
+    loaded: () => agents.loaded,
+    load: () => import("$lib/ConversationsView.svelte"),
+    count: () => waitingAgents().length || undefined,
     hot: true,
   },
   {

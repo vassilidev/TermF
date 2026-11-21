@@ -1,34 +1,20 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import LibraryBig from "@lucide/svelte/icons/library-big";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { agents, inScope, showConversation } from "$lib/agents.svelte";
   import { focusSession } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { currentProject } from "$lib/files.svelte";
   import { library, showLibrary, type Item, type Layer } from "$lib/library.svelte";
-  import { projectsOf } from "$lib/nav-logic";
   import { sessionProjects } from "$lib/project.svelte";
-  import { app, shortPath, ui, type Gauge } from "$lib/state.svelte";
+  import { app, shortPath, ui } from "$lib/state.svelte";
   import { access, initials } from "$lib/team-logic";
   import { team } from "$lib/team.svelte";
-  import { tickets } from "$lib/tickets.svelte";
 
-  /** What the view reads of a headless session (`agent_sessions`). */
-  type AgentSession = {
-    id: number;
-    title: string;
-    cwd: string;
-    project: string | null;
-    state: "working" | "waiting" | "idle" | "interactive" | "stopped" | "error" | "budget";
-    context: Gauge | null;
-  };
-
-  let agents = $state<AgentSession[]>([]);
   let busy = $state(false);
   let error = $state("");
 
@@ -45,13 +31,7 @@
     ),
   );
   const headless = $derived(
-    agents.filter(
-      (a) =>
-        (a.state === "working" || a.state === "waiting" || a.state === "idle") &&
-        (app.project === null ||
-          a.project === app.project ||
-          projectsOf(a.cwd, app.workspace?.projects ?? [], tickets.runs).includes(app.project)),
-    ),
+    agents.sessions.filter((a) => (a.state === "working" || a.state === "waiting" || a.state === "idle") && inScope(a)),
   );
 
   const layerLabel: Record<Layer, Parameters<typeof t>[0]> = {
@@ -86,19 +66,6 @@
     void library.version;
     void visible;
     refresh();
-  });
-
-  onMount(() => {
-    invoke<AgentSession[]>("agent_sessions").then(
-      (list) => (agents = list),
-      (e) => (error = String(e)),
-    );
-    const off = listen<AgentSession>("agent-updated", ({ payload }) => {
-      const i = agents.findIndex((a) => a.id === payload.id);
-      if (i >= 0) agents[i] = payload;
-      else agents.unshift(payload);
-    });
-    return () => off.then((stop) => stop());
   });
 
   /** As in the Library: `enabled` null inherits; a refused toggle puts the switch back. */
@@ -161,7 +128,7 @@
           {/each}
           {#each headless as agent (agent.id)}
             <li>
-              <div class="agent" class:waiting={agent.state === "waiting"}>
+              <button class="agent" class:waiting={agent.state === "waiting"} onclick={() => showConversation(agent.id)}>
                 <span class="top">
                   <b>{agent.title}</b>
                   <StatusPill status={agent.state as "working" | "waiting" | "idle"} />
@@ -170,7 +137,7 @@
                   <span class="mono">{shortPath(agent.cwd)}</span>
                   {#if agent.context}<ContextGauge gauge={agent.context} />{/if}
                 </span>
-              </div>
+              </button>
             </li>
           {/each}
         </ul>

@@ -70,6 +70,7 @@ export type Gauge = {
 export type ContextSettings = { on: boolean; resetAt: number; warningAt: number };
 export type ViewId =
   | "terminals"
+  | "conversations"
   | "files"
   | "library"
   | "ssh"
