@@ -1,6 +1,7 @@
 mod api;
 mod browser;
 mod ci;
+mod claude;
 mod config;
 mod context;
 mod files;
@@ -194,6 +195,7 @@ pub fn run() {
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new();
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
+            app.manage(claude::ClaudeState::new(&data_dir));
             app.manage(tickets::TicketsState::new(
                 config_dir.clone(),
                 data_dir.clone(),
@@ -219,6 +221,7 @@ pub fn run() {
                 eprintln!("termf: local API disabled: {e:#}");
             }
             quick_terminal::register(app.handle());
+            claude::watch(app.handle());
             let sync = sync::start(app.handle(), app.state::<AppState>().config_dir.clone());
             app.manage(sync);
             Ok(())
@@ -349,6 +352,16 @@ pub fn run() {
             ci::ci_poll,
             ci::ci_notify,
             ci::ci_notify_set,
+            claude::claude_overview,
+            claude::claude_setting_preview,
+            claude::claude_setting_save,
+            claude::claude_export,
+            claude::artifacts_list,
+            claude::artifacts_refresh,
+            claude::artifacts_cancel,
+            claude::artifacts_auto,
+            claude::artifacts_delete,
+            claude::artifacts_edit,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

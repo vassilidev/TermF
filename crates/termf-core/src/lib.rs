@@ -82,6 +82,7 @@ pub struct Settings {
     pub context_warning_at: u8,
     pub tickets: TicketSettings,
     pub ci: CiSettings,
+    pub artifacts: ArtifactSettings,
 }
 
 /// `[tickets]` in `termf.toml`.
@@ -89,6 +90,21 @@ pub struct Settings {
 pub struct TicketSettings {
     /// The `[agents]` entry a ticket's session runs; without it, the one named `claude`.
     pub agent: Option<String>,
+}
+
+/// `[artifacts]` in `termf.toml`.
+#[derive(Deserialize, Debug)]
+#[serde(default)]
+pub struct ArtifactSettings {
+    /// A hidden Claude session lists the account's claude.ai artifacts at startup and every so many hours;
+    /// 0: only when asked.
+    pub refresh_hours: u32,
+}
+
+impl Default for ArtifactSettings {
+    fn default() -> Self {
+        Self { refresh_hours: 6 }
+    }
 }
 
 impl Settings {
@@ -135,6 +151,7 @@ impl Default for Settings {
             context_warning_at: 50,
             tickets: TicketSettings::default(),
             ci: CiSettings::default(),
+            artifacts: ArtifactSettings::default(),
         }
     }
 }
@@ -267,6 +284,14 @@ pub fn save_ci_notify(config_dir: &Path, notify: CiNotify) -> Result<()> {
     edit_settings(config_dir, |doc| {
         // A `[ci]` section at the end, not an inline table above the user's comments.
         doc.entry("ci").or_insert(toml_edit::table())["notify"] = value(notify);
+    })
+}
+
+/// Saves how often the account's artifacts are listed (0: only when asked), like `save_keep_awake`.
+pub fn save_artifacts_refresh(config_dir: &Path, hours: u32) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        doc.entry("artifacts").or_insert(toml_edit::table())["refresh_hours"] =
+            value(i64::from(hours));
     })
 }
 
@@ -694,6 +719,21 @@ mod tests {
         let settings = load_settings(&dir).unwrap();
         assert_eq!(settings.ci.notify, CiNotify::All);
         assert_eq!(settings.agents["claude"], "claude");
+    }
+
+    #[test]
+    fn saves_the_artifacts_refresh() {
+        let dir = temp_dir("artifacts-refresh");
+        fs::write(
+            dir.join("termf.toml"),
+            "# mine\n[agents]\nclaude = \"claude\"\n",
+        )
+        .unwrap();
+        assert_eq!(load_settings(&dir).unwrap().artifacts.refresh_hours, 6);
+        save_artifacts_refresh(&dir, 0).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\n"), "comments kept: {text}");
+        assert_eq!(load_settings(&dir).unwrap().artifacts.refresh_hours, 0);
     }
 
     #[test]
