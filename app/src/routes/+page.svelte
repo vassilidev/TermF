@@ -4,6 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import AppNav from "$lib/AppNav.svelte";
   import CommandPalette from "$lib/CommandPalette.svelte";
+  import ProjectView from "$lib/ProjectView.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
@@ -54,6 +55,11 @@
         {/await}
       {/if}
     {/each}
+    {#if ui.view === "project" && ui.editing !== null}
+      {#key ui.editing}
+        <div class="pane"><ProjectView /></div>
+      {/key}
+    {/if}
   </div>
 </div>
 

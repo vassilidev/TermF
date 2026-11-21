@@ -1,6 +1,6 @@
 import { allRepos, currentProject, scopeRepos } from "$lib/files.svelte";
 import { projectsOf, tally, type Tally } from "$lib/nav-logic";
-import { app, launch, selected, type Repo, type Session } from "$lib/state.svelte";
+import { app, launch, selected, ui, type Repo, type Session, type ViewId } from "$lib/state.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 const projects = () => app.workspace?.projects ?? [];
@@ -29,4 +29,19 @@ export function otherRepos(): Repo[] {
 export function launchable(): string[] {
   const repos = [...scopeRepos(), ...(launch.others ? otherRepos() : [])];
   return repos.filter((r) => selected.has(r.path)).map((r) => r.path);
+}
+
+let back: ViewId = "terminals";
+
+/** Opens the Project page of a project, "" for a new one; leaving it goes back to the view it was opened from. */
+export function editProject(id: string) {
+  if (ui.view !== "project") back = ui.view;
+  ui.switcher = false;
+  ui.editing = id;
+  ui.view = "project";
+}
+
+export function closeProject() {
+  ui.editing = null;
+  if (ui.view === "project") ui.view = back;
 }

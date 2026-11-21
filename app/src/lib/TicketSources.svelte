@@ -234,7 +234,7 @@
 {/snippet}
 
 <section class="sources" aria-labelledby="tickets-{project}">
-  <h4 id="tickets-{project}">{t("ticketsTitle")}</h4>
+  <h2 id="tickets-{project}">{t("ticketsTitle")}</h2>
   <p class="help">{t("ticketsHelp")}</p>
 
   {#if trackers}
@@ -489,14 +489,12 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
   }
 
-  h4 {
+  h2 {
     margin: 0;
-    font-size: var(--text-base);
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: 650;
   }
 
   .help {
