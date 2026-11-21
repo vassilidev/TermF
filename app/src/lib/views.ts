@@ -5,6 +5,7 @@ import FolderTree from "@lucide/svelte/icons/folder-tree";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LibraryBig from "@lucide/svelte/icons/library-big";
+import SettingsIcon from "@lucide/svelte/icons/settings";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
 import type { t } from "$lib/i18n";
@@ -13,6 +14,7 @@ import { claudeView, showClaude } from "$lib/claude.svelte";
 import { files, showFiles } from "$lib/files.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { schedule, showScheduler } from "$lib/schedule.svelte";
+import { settings, showSettings } from "$lib/settings.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
 import { ui, waitingSessions, type ViewId } from "$lib/state.svelte";
 import { showTickets, tickets } from "$lib/tickets.svelte";
@@ -25,7 +27,8 @@ export type View = {
   /** The palette's command that shows it. */
   command: Key;
   icon: Component;
-  group: "work" | "project" | "machine";
+  /** "foot": at the bottom of the navigation, out of the groups. */
+  group: "work" | "project" | "machine" | "foot";
   show: () => void;
   /** Mounted once first shown, then kept: terminals keep their scrollback, views their state. */
   loaded: () => boolean;
@@ -123,6 +126,16 @@ export const views: View[] = [
     show: showSsh,
     loaded: () => ssh.loaded,
     load: () => import("$lib/SshView.svelte"),
+  },
+  {
+    id: "settings",
+    label: "settings",
+    command: "settings",
+    icon: SettingsIcon,
+    group: "foot",
+    show: () => showSettings(),
+    loaded: () => settings.loaded,
+    load: () => import("$lib/SettingsView.svelte"),
   },
 ];
 

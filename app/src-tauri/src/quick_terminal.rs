@@ -27,15 +27,32 @@ pub fn plugin() -> TauriPlugin<Wry> {
 pub fn register(app: &AppHandle) {
     let state = app.state::<AppState>();
     let accelerator = termf_core::load_settings(&state.config_dir)
-        .map(|s| s.quick_terminal_shortcut)
+        .map(|s| s.global_shortcut())
         .unwrap_or_default();
-    let accelerator = accelerator.trim();
     if accelerator.is_empty() {
         return;
     }
-    if let Err(e) = app.global_shortcut().register(accelerator) {
+    if let Err(e) = app.global_shortcut().register(accelerator.as_str()) {
         *state.quick_terminal.error.lock().unwrap() = Some(format!("{accelerator}: {e}"));
     }
+}
+
+/// Swaps the system-wide shortcut (empty: none). When the new one cannot be registered, the old one stays.
+pub fn replace(app: &AppHandle, old: &str, new: &str) -> anyhow::Result<()> {
+    let shortcuts = app.global_shortcut();
+    if !old.is_empty() {
+        let _ = shortcuts.unregister(old);
+    }
+    if !new.is_empty()
+        && let Err(e) = shortcuts.register(new)
+    {
+        if !old.is_empty() {
+            let _ = shortcuts.register(old);
+        }
+        anyhow::bail!("{new}: {e}");
+    }
+    *app.state::<AppState>().quick_terminal.error.lock().unwrap() = None;
+    Ok(())
 }
 
 fn on_shortcut(app: &AppHandle, _: &Shortcut, event: ShortcutEvent) {

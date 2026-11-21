@@ -2,13 +2,13 @@
   import { invoke } from "@tauri-apps/api/core";
   import Megaphone from "@lucide/svelte/icons/megaphone";
   import { t } from "$lib/i18n";
+  import { aria, keys, pressed } from "$lib/keymap.svelte";
   import { shown } from "$lib/project.svelte";
   import { app, ticked } from "$lib/state.svelte";
 
   let text = $state("");
   // Never to a tile of another project, out of sight.
   const targets = $derived(app.sessions.filter((s) => s.running && ticked.has(s.id) && shown(s)));
-  const keys = t(navigator.userAgent.includes("Mac") ? "broadcastKeysMac" : "broadcastKeys");
 
   const write = (id: number, data: string) => invoke("pty_write", { id, data }).catch(() => {});
 
@@ -25,7 +25,7 @@
 
   // Capture phase, so a focused terminal does not also receive the keystroke; with nothing to send it gets it.
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) && text && targets.length) {
+    if (pressed(e)?.id === "broadcast" && text && targets.length) {
       e.preventDefault();
       e.stopPropagation();
       send();
@@ -62,10 +62,10 @@
     type="submit"
     class="btn primary"
     disabled={!text || !targets.length}
-    title={keys}
-    aria-keyshortcuts="Meta+Shift+Enter Control+Shift+Enter"
+    title={keys.broadcast}
+    aria-keyshortcuts={aria("broadcast")}
   >
-    {t("broadcast")}<kbd>{keys}</kbd>
+    {t("broadcast")}{#if keys.broadcast}<kbd>{keys.broadcast}</kbd>{/if}
   </button>
 </form>
 

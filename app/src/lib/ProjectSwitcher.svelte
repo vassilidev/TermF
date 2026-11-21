@@ -15,7 +15,7 @@
   import Popover from "$lib/ui/Popover.svelte";
   import { keys } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { isMac } from "$lib/files.svelte";
+  import { aria } from "$lib/keymap.svelte";
   import { tallies } from "$lib/project.svelte";
   import { app, setProject, ui } from "$lib/state.svelte";
 
@@ -75,8 +75,8 @@
   class="switcher"
   aria-haspopup="dialog"
   aria-expanded={ui.switcher}
-  aria-keyshortcuts={isMac ? "Meta+O" : "Control+O"}
-  title="{t('navSwitchProject')} ({keys.switcher})"
+  aria-keyshortcuts={aria("switch_project")}
+  title={keys.switcher ? `${t("navSwitchProject")} (${keys.switcher})` : t("navSwitchProject")}
   onclick={() => (ui.switcher = !ui.switcher)}
 >
   {#if current}
@@ -105,7 +105,7 @@
       bind:value={query}
       {onkeydown}
     />
-    <kbd>{keys.switcher}</kbd>
+    {#if keys.switcher}<kbd>{keys.switcher}</kbd>{/if}
   </div>
   <ul id="switcher-list" role="listbox" aria-label={t("projects")} bind:this={list}>
     {#each options as option, i (option.id)}
@@ -129,7 +129,7 @@
           {#if option.repos.length}<small>{option.repos.map((r) => r.name).join(", ")}</small>{/if}
         </span>
         <ProjectTally tally={counts[option.id ?? "*"]} />
-        {#if n > 0 && n <= 9}<kbd>{keys.project(n)}</kbd>{/if}
+        {#if n > 0 && n <= 9 && keys.project(n)}<kbd>{keys.project(n)}</kbd>{/if}
         {#if option.id === app.project}
           <Check size={14} class="current" aria-label={t("navCurrent")} />
         {/if}

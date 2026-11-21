@@ -83,6 +83,25 @@ pub struct Settings {
     pub tickets: TicketSettings,
     pub ci: CiSettings,
     pub artifacts: ArtifactSettings,
+    /// `[keys]`: shortcut id → combination, only those changed in the UI; "" is none. A value that is
+    /// not a string is ignored rather than making the whole file invalid.
+    #[serde(deserialize_with = "string_table")]
+    pub keys: BTreeMap<String, String>,
+}
+
+/// The id of the system-wide quick terminal shortcut in `[keys]`.
+pub const QUICK_TERMINAL_GLOBAL: &str = "quick_terminal_global";
+
+fn string_table<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<BTreeMap<String, String>, D::Error> {
+    Ok(match toml::Value::deserialize(deserializer)? {
+        toml::Value::Table(table) => table
+            .into_iter()
+            .filter_map(|(id, combo)| Some((id, combo.as_str()?.to_owned())))
+            .collect(),
+        _ => BTreeMap::new(),
+    })
 }
 
 /// `[tickets]` in `termf.toml`.
@@ -163,6 +182,25 @@ impl Settings {
             .and_then(|c| c.split_whitespace().next());
         program.unwrap_or("claude").to_owned()
     }
+
+    /// `[keys]`, with the older `quick_terminal_shortcut` as the system-wide shortcut until `[keys]` holds it.
+    pub fn key_overrides(&self) -> BTreeMap<String, String> {
+        let mut keys = self.keys.clone();
+        let legacy = self.quick_terminal_shortcut.trim();
+        if !legacy.is_empty() {
+            keys.entry(QUICK_TERMINAL_GLOBAL.into())
+                .or_insert_with(|| legacy.into());
+        }
+        keys
+    }
+
+    /// The system-wide quick terminal shortcut; empty when none.
+    pub fn global_shortcut(&self) -> String {
+        self.key_overrides()
+            .remove(QUICK_TERMINAL_GLOBAL)
+            .map(|s| s.trim().to_owned())
+            .unwrap_or_default()
+    }
 }
 
 // Must stay in sync with DEFAULT_SETTINGS (checked by a test); parsing it here would recurse through serde(default).
@@ -182,6 +220,7 @@ impl Default for Settings {
             tickets: TicketSettings::default(),
             ci: CiSettings::default(),
             artifacts: ArtifactSettings::default(),
+            keys: BTreeMap::new(),
         }
     }
 }
@@ -322,6 +361,29 @@ pub fn save_artifacts_refresh(config_dir: &Path, hours: u32) -> Result<()> {
     edit_settings(config_dir, |doc| {
         doc.entry("artifacts").or_insert(toml_edit::table())["refresh_hours"] =
             value(i64::from(hours));
+    })
+}
+
+/// Saves the shortcuts changed in the UI as `[keys]`, like `save_keep_awake`: `keys` holds only those that
+/// differ from the defaults. `quick_terminal_shortcut` moves into `[keys]`, which the UI sends it in.
+pub fn save_keys(config_dir: &Path, keys: &BTreeMap<String, String>) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        doc.remove("quick_terminal_shortcut");
+        if keys.is_empty() {
+            doc.remove("keys");
+            return;
+        }
+        let item = doc.entry("keys").or_insert(toml_edit::table());
+        if !item.is_table() {
+            *item = toml_edit::table();
+        }
+        let table = item.as_table_mut().expect("just made a table");
+        table.retain(|id, _| keys.contains_key(id));
+        for (id, combo) in keys {
+            if table.get(id).and_then(Item::as_str) != Some(combo) {
+                table.insert(id, value(combo));
+            }
+        }
     })
 }
 
@@ -770,6 +832,78 @@ mod tests {
         let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
         assert!(text.starts_with("# mine\n"), "comments kept: {text}");
         assert_eq!(load_settings(&dir).unwrap().artifacts.refresh_hours, 0);
+    }
+
+    #[test]
+    fn saves_keys_and_keeps_the_rest() {
+        let dir = temp_dir("keys");
+        fs::write(
+            dir.join("termf.toml"),
+            "# mine\nroots = [\"/src\"]\n# global\nquick_terminal_shortcut = \"Alt+Space\"\n\n[agents]\nclaude = \"claude\"\n",
+        )
+        .unwrap();
+        let settings = load_settings(&dir).unwrap();
+        assert_eq!(settings.global_shortcut(), "Alt+Space");
+        assert_eq!(
+            settings.key_overrides(),
+            BTreeMap::from([(QUICK_TERMINAL_GLOBAL.into(), "Alt+Space".into())])
+        );
+
+        let keys = BTreeMap::from([
+            (QUICK_TERMINAL_GLOBAL.to_owned(), "Alt+Space".to_owned()),
+            ("maximize".to_owned(), "Cmd+Shift+M".to_owned()),
+            ("tile".to_owned(), String::new()),
+        ]);
+        save_keys(&dir, &keys).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\nroots"), "comments kept: {text}");
+        assert!(
+            !text.contains("quick_terminal_shortcut"),
+            "migrated: {text}"
+        );
+        let settings = load_settings(&dir).unwrap();
+        assert_eq!(settings.keys, keys);
+        assert_eq!(settings.key_overrides(), keys);
+        assert_eq!(settings.global_shortcut(), "Alt+Space");
+        assert_eq!(settings.roots, ["/src"]);
+        assert_eq!(settings.agents["claude"], "claude");
+
+        // Back to a default: only the overrides stay, and the user's own lines in [keys] keep their place.
+        let text = text.replace("[keys]\n", "[keys]\n# by hand\n");
+        fs::write(dir.join("termf.toml"), text).unwrap();
+        let keys = BTreeMap::from([("maximize".to_owned(), "Cmd+Shift+M".to_owned())]);
+        save_keys(&dir, &keys).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.contains("[keys]\n# by hand\n"), "{text}");
+        let settings = load_settings(&dir).unwrap();
+        assert_eq!(settings.keys, keys);
+        assert_eq!(settings.global_shortcut(), "");
+        save_keys(&dir, &BTreeMap::new()).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(!text.contains("[keys]"), "{text}");
+        assert!(load_settings(&dir).unwrap().keys.is_empty());
+    }
+
+    #[test]
+    fn ignores_keys_that_are_not_combinations() {
+        let settings = |text: &str| toml::from_str::<Settings>(text).unwrap();
+        let read = settings("[keys]\npalette = \"Cmd+P\"\nbroken = 3\nnested = { a = \"b\" }\n");
+        assert_eq!(
+            read.keys,
+            BTreeMap::from([("palette".into(), "Cmd+P".into())])
+        );
+        assert!(settings("keys = 3\n").keys.is_empty());
+        // [keys] wins over the older setting, even to say "none".
+        let read = settings(
+            "quick_terminal_shortcut = \"Alt+Space\"\n[keys]\nquick_terminal_global = \"\"\n",
+        );
+        assert_eq!(read.global_shortcut(), "");
+
+        let dir = temp_dir("keys-replaced");
+        fs::write(dir.join("termf.toml"), "keys = \"odd\"\n").unwrap();
+        let keys = BTreeMap::from([("palette".to_owned(), "Cmd+P".to_owned())]);
+        save_keys(&dir, &keys).unwrap();
+        assert_eq!(load_settings(&dir).unwrap().keys, keys);
     }
 
     #[test]

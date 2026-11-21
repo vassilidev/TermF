@@ -65,7 +65,7 @@ export type Gauge = {
   failure: ResetFailure | null;
 };
 export type ContextSettings = { on: boolean; resetAt: number; warningAt: number };
-export type ViewId = "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude";
+export type ViewId = "terminals" | "files" | "library" | "ssh" | "tickets" | "ci" | "scheduler" | "claude" | "settings";
 
 const projectKey = "termf.project";
 
@@ -105,7 +105,6 @@ export function setProject(id: string | null) {
 export const ui = $state({
   view: "terminals" as ViewId,
   palette: false,
-  settings: false,
   switcher: false,
   launcher: false,
   /** The project whose editor is open, "" for a new one. */
