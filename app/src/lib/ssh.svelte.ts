@@ -134,13 +134,21 @@ export async function copySecret(text: string) {
     return;
   }
   ssh.done = t("keysCopied", { seconds: CLEAR_AFTER });
-  const sum = await digest(text);
+  const kept = (e: unknown) => {
+    ssh.done = "";
+    ssh.error = t("keysClipboardKept", { error: String(e) });
+  };
+  let sum = "";
+  try {
+    sum = await digest(text);
+  } catch (e) {
+    return kept(e);
+  }
   setTimeout(async () => {
     try {
       if (await invoke<boolean>("keys_clipboard_clear", { digest: sum })) ssh.done = t("keysClipboardCleared");
     } catch (e) {
-      ssh.done = "";
-      ssh.error = t("keysClipboardKept", { error: String(e) });
+      kept(e);
     }
   }, CLEAR_AFTER * 1000);
 }

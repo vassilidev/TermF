@@ -41,7 +41,7 @@
         if (--left <= 0) hide();
       }, 1000);
     } catch (e) {
-      error = String(e);
+      error = /wrong passphrase/.test(String(e)) ? t("keysCheckPassphraseFailed") : String(e);
     } finally {
       passphrase = "";
       busy = false;

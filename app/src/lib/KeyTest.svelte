@@ -95,7 +95,7 @@
           {#if check.ok}<Check size={14} aria-hidden="true" />{:else}<X size={14} aria-hidden="true" />{/if}
           <span>
             {t(labels[check.kind][check.ok ? 0 : 1], { detail: check.detail ?? "", file: check.detail ?? "" })}
-            {#if check.error}<span class="mono why">{check.error}</span>{/if}
+            {#if check.error && check.kind !== "passphrase"}<span class="mono why">{check.error}</span>{/if}
           </span>
         </li>
       {/each}

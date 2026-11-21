@@ -135,10 +135,14 @@ impl Ssh {
         self.export(&Secret::random(algorithm)?, spec)
     }
 
-    /// The key at `path`, in another format.
+    /// The key at `path`, in another format; an empty comment keeps the key's own.
     pub fn convert(&self, path: &str, passphrase: Option<&str>, spec: &Spec) -> Result<Generated> {
         let parsed = formats::parse(&read_key(path)?, passphrase)?;
-        self.export(&parsed.secret, spec)
+        let mut spec = spec.clone();
+        if spec.comment.trim().is_empty() {
+            spec.comment = parsed.comment;
+        }
+        self.export(&parsed.secret, &spec)
     }
 
     /// The private key in clear, on an explicit request: the file as it is, or decrypted with

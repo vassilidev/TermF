@@ -367,13 +367,13 @@
             {:else if toSsh}
               <span class="hint">{t("sshKeyFiles", { path: `${sshDir}/${fileName}` })}</span>
             {:else}
-              <span class="hint mono">{t("keysFiles", { files: files.join(", ") })}</span>
+              <span class="hint">{t("keysFiles", { files: files.join(", ") })}</span>
             {/if}
           </label>
           {#if chosen === "openssh" || chosen === "ppk"}
             <label class="labelled grow">
               <span>{t("sshComment")}</span>
-              <input class="field" bind:value={comment} placeholder={t("sshCommentPlaceholder")} autocomplete="off" spellcheck="false" />
+              <input class="field" bind:value={comment} placeholder={mode === "convert" && sourceKey?.comment ? sourceKey.comment : t("sshCommentPlaceholder")} autocomplete="off" spellcheck="false" />
             </label>
           {/if}
         </div>
@@ -484,6 +484,7 @@
 
   .grow {
     flex: 1 1 260px;
+    max-width: 420px;
   }
 
   .usages {

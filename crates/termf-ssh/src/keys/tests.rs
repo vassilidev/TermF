@@ -468,11 +468,22 @@ fn converts_reveals_and_tests_a_key() {
         .convert(
             &key,
             Some("pw"),
-            &spec(Usage::Ssh, Format::Ppk, "laptop", None, Some(&out)),
+            &Spec {
+                comment: String::new(),
+                ..spec(Usage::Ssh, Format::Ppk, "laptop", None, Some(&out))
+            },
         )
         .unwrap();
     let ppk = made.files[0].path.clone().unwrap();
     assert!(ppk.ends_with("laptop.ppk"));
+    assert!(
+        made.files[1]
+            .text
+            .as_ref()
+            .unwrap()
+            .ends_with(" alex@laptop\n"),
+        "the key's comment is kept"
+    );
     let unencrypted = ssh.reveal(&ppk, None).unwrap();
     assert_eq!(
         *unencrypted,
