@@ -193,7 +193,7 @@
   {:else if item.type === "denied"}
     <p class="sys failed">
       <ShieldX size={14} aria-hidden="true" />
-      <span>{t("chatDenied", { tool: item.tool })}<span class="muted"> · {item.message}</span></span>
+      <span>{t("chatDenied", { tool: item.tool })}<span class="muted">{" · "}{item.message}</span></span>
     </p>
   {:else if item.type === "error"}
     <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{t("chatProcessError", { message: item.message })}</span></p>
@@ -245,14 +245,26 @@
 {/snippet}
 
 {#snippet ask(item: Permission)}
-  {@const pending = !item.answer && session.state === "waiting"}
-  <div class="ask" class:pending>
-    <p class="ask-title">
-      <ShieldQuestionMark size={16} aria-hidden="true" />{t("chatPermission", { tool: item.tool })}
+  {#if item.answer || session.state !== "waiting"}
+    <p class="sys" class:failed={item.answer && !item.answer.allow}>
+      {#if item.answer?.allow}<ShieldCheck size={14} aria-hidden="true" />{:else if item.answer}<ShieldX
+          size={14}
+          aria-hidden="true"
+        />{:else}<ShieldQuestionMark size={14} aria-hidden="true" />{/if}
+      <span>
+        {t("chatPermission", { tool: item.tool })} ·
+        {#if item.answer?.allow}{t("chatAllowed")}{:else if item.answer?.message}{t("chatRefusedWhy", {
+            message: item.answer.message,
+          })}{:else if item.answer}{t("chatRefused")}{:else}{t("chatUnanswered")}{/if}
+      </span>
     </p>
-    {#if item.description}<p class="ask-text">{item.description}</p>{/if}
-    <pre class="mono code">{pretty(item.input)}</pre>
-    {#if pending}
+  {:else}
+    <div class="ask" role="group" aria-label={t("chatPermission", { tool: item.tool })}>
+      <p class="ask-title">
+        <ShieldQuestionMark size={16} aria-hidden="true" />{t("chatPermission", { tool: item.tool })}
+      </p>
+      {#if item.description}<p class="ask-text">{item.description}</p>{/if}
+      <pre class="mono code">{pretty(item.input)}</pre>
       <div class="answer">
         <input
           class="field"
@@ -267,18 +279,8 @@
           <ShieldCheck size={14} aria-hidden="true" />{t("chatAllow")}
         </button>
       </div>
-    {:else if item.answer?.allow}
-      <p class="answered"><ShieldCheck size={14} aria-hidden="true" />{t("chatAllowed")}</p>
-    {:else if item.answer}
-      <p class="answered">
-        <ShieldX size={14} aria-hidden="true" />{item.answer.message
-          ? t("chatRefusedWhy", { message: item.answer.message })
-          : t("chatRefused")}
-      </p>
-    {:else}
-      <p class="answered muted">{t("chatUnanswered")}</p>
-    {/if}
-  </div>
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet ending(end: End)}
@@ -638,12 +640,8 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--waiting-ring);
     border-radius: var(--radius-lg);
-  }
-
-  .ask.pending {
-    border-color: var(--waiting-ring);
     background: var(--waiting-soft);
   }
 
@@ -655,7 +653,7 @@
     font-weight: 600;
   }
 
-  .ask.pending .ask-title :global(svg) {
+  .ask-title :global(svg) {
     color: var(--waiting-ring);
   }
 
@@ -674,14 +672,6 @@
     flex: 1;
     min-width: 0;
     height: 26px;
-  }
-
-  .answered {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0;
-    font-size: var(--text-sm);
   }
 
   .end {

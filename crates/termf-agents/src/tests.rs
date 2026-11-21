@@ -864,7 +864,10 @@ fn a_tool_call_keeps_the_event_id_on_the_wire() {
     let line = serde_json::to_string(&stored).unwrap();
     assert_eq!(line.matches("\"id\"").count(), 1, "{line}");
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((value["id"].clone(), value["call"].clone()), (json!(7), json!("toolu_1")));
+    assert_eq!(
+        (value["id"].clone(), value["call"].clone()),
+        (json!(7), json!("toolu_1"))
+    );
     assert_eq!(serde_json::from_str::<StoredEvent>(&line).unwrap(), stored);
     let before: AgentEvent = serde_json::from_value(
         json!({"kind": "tool_result", "id": "toolu_1", "output": "ok", "isError": false, "truncated": false}),

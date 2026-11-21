@@ -113,7 +113,7 @@
         <li class="row" class:current={session === current && !creating}>
           <button class="pick" aria-current={session === current && !creating} onclick={() => select(session.id)}>
             <span class="name">
-              {session.title}
+              <span class="title">{session.title}</span>
               {#if session.role}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
             </span>
             <span class="desc">{usd(session.cost)} · {ago(session.updated)}</span>
@@ -242,6 +242,11 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .title {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .role {
