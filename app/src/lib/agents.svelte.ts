@@ -20,6 +20,8 @@ export type AgentSession = {
   effort: string | null;
   permissionMode: string | null;
   budget: number | null;
+  /** The library role it plays. */
+  role?: string | null;
   state: AgentState;
   cost: number;
   context: Gauge | null;
