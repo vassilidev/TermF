@@ -18,6 +18,7 @@ mod jira;
 mod mcp;
 mod run;
 mod secrets;
+mod setup;
 mod sources;
 mod store;
 #[cfg(test)]

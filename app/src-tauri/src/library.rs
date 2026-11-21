@@ -89,14 +89,14 @@ pub async fn config_import_apply(
 
 /// The program of the first Claude Code agent in the settings, else `claude`. It runs directly, with the login
 /// shell's PATH (see `conventions::propose`).
-fn claude(config_dir: &Path) -> Vec<String> {
+pub(crate) fn claude(config_dir: &Path) -> Vec<String> {
     let settings = termf_core::load_settings(config_dir).unwrap_or_default();
     // shortcut: on Windows an npm `claude.cmd` is not found this way; go through `cmd /c` when that matters.
     vec![settings.claude_program()]
 }
 
 /// Runs a slow call (Claude Code, check scripts) off the async runtime.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     state: &AppState,
     call: impl FnOnce(&Path) -> anyhow::Result<T> + Send + 'static,
 ) -> CmdResult<T> {

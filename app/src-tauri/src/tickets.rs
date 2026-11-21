@@ -30,7 +30,7 @@ impl TicketsState {
     }
 }
 
-fn tickets(app: &AppHandle) -> Arc<Tickets> {
+pub(crate) fn tickets(app: &AppHandle) -> Arc<Tickets> {
     app.state::<TicketsState>().tickets.clone()
 }
 
@@ -59,7 +59,7 @@ fn with_session(app: &AppHandle, mut run: Run) -> Run {
     run
 }
 
-fn updated(app: &AppHandle, run: &Run) {
+pub(crate) fn updated(app: &AppHandle, run: &Run) {
     let _ = app.emit("run-updated", with_session(app, run.clone()));
 }
 
@@ -90,6 +90,7 @@ pub fn start(
         Some(api::RunSession {
             project: &run.project,
             brief: &launch.brief,
+            env: &launch.env,
         }),
     );
     let session = match session {

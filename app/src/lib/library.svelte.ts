@@ -52,7 +52,7 @@ export const library = $state({
   loaded: false,
   /** A project id, or "" for the global library. */
   scope: "",
-  tab: "skill" as Kind | "conventions",
+  tab: "skill" as Kind | "conventions" | "worktrees",
   panel: null as Panel,
   /** Bumped when the library changed on disk, to reload it. */
   version: 0,

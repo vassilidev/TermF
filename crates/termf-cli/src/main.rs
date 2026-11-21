@@ -15,6 +15,7 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 mod ssh;
 mod sync;
 mod tickets;
+mod worktree;
 
 const USAGE: &str = "\
 usage:
@@ -67,6 +68,9 @@ usage:
   termf close <run> [--force]           remove the run's worktree (--force drops work not pushed)
   termf guard                           refuse pushes and tracker writes in a run's session
                                         (Claude Code PreToolUse hook, JSON on stdin)
+  termf worktree setup [<path>]         prepare a worktree (default: here) with its project's recipe:
+                                        dependencies, local files, its database copy, ports
+  termf worktree teardown [<path>]      drop the worktree's database copy and give its ports back
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -154,6 +158,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["config", rest @ ..] => config(rest.to_vec())?,
         ["ssh", rest @ ..] => ssh::run(rest)?,
         ["sync", rest @ ..] => sync::run(rest)?,
+        ["worktree", rest @ ..] => worktree::run(rest)?,
         [
             command @ ("run" | "runs" | "inbox" | "deliver" | "close"),
             rest @ ..,

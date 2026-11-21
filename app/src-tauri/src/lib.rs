@@ -9,6 +9,7 @@ mod quick_terminal;
 mod ssh;
 mod sync;
 mod tickets;
+mod worktree;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -291,6 +292,12 @@ pub fn run() {
             tickets::tickets_deliver_preview,
             tickets::tickets_deliver,
             tickets::tickets_close,
+            worktree::worktree_recipe,
+            worktree::worktree_recipe_save,
+            worktree::worktree_recipe_propose,
+            worktree::worktree_recipe_discard,
+            worktree::worktree_runs,
+            worktree::worktree_setup,
             context::context_settings,
             context::context_settings_set,
             context::context_reset,

@@ -44,6 +44,8 @@ export type RunEvent = { id: number; run: number; at: number } & (
   | { kind: "ticket_commented"; url: string }
   | { kind: "closed"; dropped: string[] }
   | { kind: "failed"; error: string }
+  | { kind: "setup"; steps: { outcome: string }[]; saved: boolean }
+  | { kind: "teardown"; steps: { outcome: string }[] }
 );
 export type DeliveryPreview = {
   files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; from: string | null }[];
