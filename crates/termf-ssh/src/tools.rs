@@ -470,7 +470,9 @@ fn repo_keys(repo: &Path, hosts: &[Host], home: &Path) -> Option<RepoKeys> {
             .map(|f| config::expand(f, home).to_string_lossy().into_owned())
             .collect()
     };
-    identity_files.dedup();
+    // Two remotes, or two blocks matching one host, can name the same key apart from each other.
+    let mut seen = std::collections::HashSet::new();
+    identity_files.retain(|f| seen.insert(f.clone()));
     Some(RepoKeys {
         path: repo.to_string_lossy().into_owned(),
         remotes,

@@ -26,7 +26,7 @@ export type Tab = {
 };
 
 export const files = $state({
-  view: "terminals" as "terminals" | "files" | "library",
+  view: "terminals" as "terminals" | "files" | "library" | "ssh",
   /** The Files view is only loaded once first shown, then kept mounted. */
   loaded: false,
   repo: "",

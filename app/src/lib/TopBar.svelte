@@ -9,6 +9,7 @@
   import { t } from "$lib/i18n";
   import { files, isMac, showFiles } from "$lib/files.svelte";
   import { showLibrary } from "$lib/library.svelte";
+  import { showSsh } from "$lib/ssh.svelte";
   import { app, ui, waitingSessions } from "$lib/state.svelte";
 
   const waiting = $derived(waitingSessions().length);
@@ -22,6 +23,7 @@
     </button>
     <button aria-pressed={files.view === "files"} onclick={showFiles}>{t("viewFiles")}</button>
     <button aria-pressed={files.view === "library"} onclick={showLibrary}>{t("viewLibrary")}</button>
+    <button aria-pressed={files.view === "ssh"} onclick={showSsh}>{t("viewSsh")}</button>
   </nav>
 
   <button
