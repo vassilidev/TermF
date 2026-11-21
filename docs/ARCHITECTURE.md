@@ -977,6 +977,19 @@ Des notifications natives uniquement pour : une question posée, une approbation
 
 ---
 
+### 13.7 Mise en route d'un projet : assistant de configuration (obligatoire)
+
+La première fois qu'un projet est ouvert dans TermF (et à la demande ensuite, bouton « Configurer le projet »), un assistant le prépare proprement, puis la configuration évolue petit à petit (conventions §11.1, veille §11.2) :
+
+1. **Analyse** en lecture seule des dépôts du projet (stack, outils, CI, conventions existantes, `CLAUDE.md`, trackers probables), déterministe d'abord puis Claude en headless.
+2. **Questions dans un formulaire propre** : seulement ce que l'analyse ne peut pas deviner, avec des réponses proposées par défaut (choix, cases, texte court), regroupées par thème ; jamais un mur de texte.
+3. **Propositions** à partir des réponses : skills, commandes, workflow, rôles, règles et leur niveau, conventions, sources de tickets (§10), recette de préparation des worktrees (§9), CI/CD suivie (§13.8). Chaque proposition se valide, se refuse ou se modifie, comme les conventions.
+4. **Application** journalisée dans la couche projet de la bibliothèque ; rien n'est écrit dans les dépôts sans diff explicite.
+
+### 13.8 CI/CD natif (obligatoire)
+
+La CI/CD de chaque projet se voit et se pilote dans TermF, sans ouvrir le navigateur : exécutions par dépôt, branche et PR (statut, durée, jobs, étapes), journaux d'un job avec recherche, relancer / annuler / relancer seulement les jobs en échec, déclenchement manuel d'un workflow, notification quand une exécution qui me concerne échoue ou passe. Les runs de tickets (§7.4) affichent les checks de leur PR et peuvent renvoyer un échec à l'agent. GitHub Actions d'abord via `gh run …` / `gh api` ; GitLab CI ensuite.
+
 ## 14. Persistance et observabilité
 
 - **SQLite** : runs, étapes, sessions, événements typés (payload JSON), approbations, revues visuelles, coûts, audit chaîné. Mode WAL, rétention réglable (par exemple 90 jours d'événements).
@@ -1036,7 +1049,7 @@ Les délais sont des ordres de grandeur pour un développeur seul assisté par I
 | **4. Équipe & orchestration** (~3-4 sem.) | Headless stream-json, vue conversation, prendre/rendre la main ; rôles, chef d'orchestre (plan JSON), moteur de workflow, gates, ordonnanceur, budgets ; MCP Termf ; jauge, canari, passation ; moteur de règles (projet / ticket / tâche) et contrôles périmètre et texte | Deux tickets multi-rôles tournent en parallèle sans interférence |
 | **5. Revue visuelle** (~2 sem.) | Ports, serveurs de dev, captures CDP, diff, page de revue avec épingles, boucle de retour | Je valide ou refuse chaque écran modifié avant la PR |
 | **6. Coffre & Ops** (~3 sem.) | Coffre, biométrie, connexions SSH/DB/logs, recettes, masquage, approbations, audit chaîné, console SQL en lecture seule | Je récupère logs, SQL et `.env` de prod, avec ou sans IA, sans qu'aucun secret ne sorte |
-| **7. Finition** (continu) | Paquets signés pour les 3 OS, updater, budgets de perf en CI, accessibilité, onboarding, adaptateurs Codex et Gemini | — |
+| **7. Finition** (continu) | Paquets signés pour les 3 OS, updater, budgets de perf en CI, accessibilité, onboarding, adaptateurs Codex et Gemini, **et à la toute fin le meilleur README possible** (captures, démarrage en 2 minutes, chaque fonction expliquée) | — |
 
 Logique de l'ordre : de la valeur quotidienne dès les phases 0-1, puis la partie la plus risquée (l'orchestration) une fois les fondations en place, et la prod en dernier parce que c'est là que l'exigence de sécurité est la plus haute.
 

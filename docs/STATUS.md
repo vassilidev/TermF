@@ -29,6 +29,9 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 
 ## 3. Reste à faire, dans l'ordre
 
+1. **Passe UX/UI n° 2** (demande du propriétaire le 2026-11-21 après avoir parcouru l'app) : « propre mais pas assez propre niveau UI et UX », en particulier la sélection des projets, l'équipe, la cohérence entre vues (portée projet, navigation). Audit puis refonte, avec captures.
+1. **Assistant de mise en route d'un projet** (obligation, ARCHITECTURE §13.7) : analyse, formulaire de questions, propositions de skills / commandes / workflow / règles / conventions / sources de tickets / recette de worktree, application.
+1. **CI/CD natif** (obligation, ARCHITECTURE §13.8) : exécutions GitHub Actions par dépôt / branche / PR, jobs, journaux, relancer / annuler, notifications, checks dans les runs de tickets.
 1. **Agent de veille** (obligation demandée par le propriétaire le 2026-11-21, ARCHITECTURE §11.2) : parcourt le web, critique et propose d'améliorer prompts des rôles, préférences, règles, skills et commandes, avec sources, revue élément par élément comme les conventions ; lancé à la demande seulement (bibliothèque entière ou éléments choisis). À lancer dès qu'un worktree Rust se libère (disque), branche `phase2/library-scout`, avec page de captures.
 1. **Gestion complète de Claude Code** (obligation demandée par le propriétaire le 2026-11-21, ARCHITECTURE §11.3), inventaire vérifié dans [CLAUDE-CODE.md](CLAUDE-CODE.md). Tranches, dans l'ordre : (a) **planificateur de tâches de TermF** (cron, headless ou tuile, app fermée via le planificateur de l'OS, historique) ; (b) réglages / permissions / hooks / variables / modèle par portée ; (c) MCP et plugins via la CLI ; (d) skills, agents, commandes, styles, règles et mémoire natifs ; (e) sessions (reprendre, dupliquer, renommer, purger, sessions de fond) ; (f) usage et quotas via la statusline ; (g) compte, version, mises à jour, doctor. Chaque tranche avec page de captures.
 2. Synchro, plus tard : remotes S3 / WebDAV / HTTPS, coffre et clés SSH synchronisés, oublier un appareil, cloner un dépôt manquant, recharger les réglages après un pull.
@@ -36,7 +39,7 @@ La release brouillon `v0.1.0` a été construite **avant** la passe design : la 
 4. **Phase 4 — l'équipe d'agents** : mode headless stream-json + vue conversation + prendre/rendre la main, rôles (déjà livrés dans `library/roles`), chef d'orchestre (plan JSON), moteur de workflows et de règles (contrôles `scope`, `text-changes`), MCP `termf`, jauge de contexte, canari, passation.
 5. **Phase 5 — revue visuelle avant/après** dans l'app.
 6. **Phase 6 — coffre & accès prod**.
-7. **Phase 7 — finition** : signature/notarisation, mises à jour automatiques, budgets de perf et `cargo audit` en CI.
+7. **Phase 7 — finition** : signature/notarisation, mises à jour automatiques, budgets de perf et `cargo audit` en CI ; **en tout dernier, le meilleur README possible** (demande du propriétaire).
 
 ### Contrats des commandes SSH pour l'interface
 
