@@ -17,7 +17,8 @@
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
-  import { app, repoName, ui } from "$lib/state.svelte";
+  import { editProject } from "$lib/project.svelte";
+  import { app, repoName } from "$lib/state.svelte";
   import { readyToClean } from "$lib/tickets-logic";
   import {
     loadInbox,
@@ -255,7 +256,7 @@
                 : t("ticketsEmptyAll")}
           >
             {#if project}
-              <button class="btn" onclick={() => (ui.editing = project.id)}>
+              <button class="btn" onclick={() => editProject(project.id)}>
                 <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
               </button>
             {/if}

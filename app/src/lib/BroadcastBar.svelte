@@ -4,19 +4,24 @@
   import { t } from "$lib/i18n";
   import { aria, keys, pressed } from "$lib/keymap.svelte";
   import { shown } from "$lib/project.svelte";
-  import { app, ticked } from "$lib/state.svelte";
+  import { app, grid, ticked } from "$lib/state.svelte";
 
-  let text = $state("");
+  /** `onexit`: Escape in the message leaves the broadcast mode. */
+  let { onexit }: { onexit: () => void } = $props();
+
+  let input = $state<HTMLInputElement>();
+  // Turning the mode on is asking to type the message.
+  $effect(() => input?.focus());
   // Never to a tile of another project, out of sight.
   const targets = $derived(app.sessions.filter((s) => s.running && ticked.has(s.id) && shown(s)));
 
   const write = (id: number, data: string) => invoke("pty_write", { id, data }).catch(() => {});
 
   async function send() {
-    if (!text || !targets.length) return;
+    if (!grid.draft || !targets.length) return;
     const ids = targets.map((s) => s.id);
-    const data = text;
-    text = "";
+    const data = grid.draft;
+    grid.draft = "";
     await Promise.all(ids.map((id) => write(id, data)));
     // Agent TUIs treat text and Enter arriving in one chunk as a paste, so Enter goes on its own.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -25,7 +30,7 @@
 
   // Capture phase, so a focused terminal does not also receive the keystroke; with nothing to send it gets it.
   function onkeydown(e: KeyboardEvent) {
-    if (pressed(e)?.id === "broadcast" && text && targets.length) {
+    if (pressed(e)?.id === "broadcast" && grid.draft && targets.length) {
       e.preventDefault();
       e.stopPropagation();
       send();
@@ -43,7 +48,11 @@
   }}
 >
   <div class="ticks">
-    <button type="button" class="btn sm quiet" onclick={() => app.sessions.filter(shown).forEach((s) => ticked.add(s.id))}>
+    <button
+      type="button"
+      class="btn sm quiet"
+      onclick={() => app.sessions.filter((s) => s.running && shown(s)).forEach((s) => ticked.add(s.id))}
+    >
       {t("tickAll")}
     </button>
     <button type="button" class="btn sm quiet" onclick={() => ticked.clear()}>{t("tickNone")}</button>
@@ -52,7 +61,9 @@
     <Megaphone size={14} aria-hidden="true" />
     <input
       class="field"
-      bind:value={text}
+      bind:this={input}
+      bind:value={grid.draft}
+      onkeydown={(e) => e.key === "Escape" && (e.preventDefault(), onexit())}
       placeholder={t("broadcastPlaceholder")}
       aria-label={t("broadcastPlaceholder")}
     />
@@ -60,8 +71,9 @@
   <span class="count" aria-live="polite">{t("recipients", { count: targets.length })}</span>
   <button
     type="submit"
-    class="btn primary"
-    disabled={!text || !targets.length}
+    class="btn"
+    class:primary={!!grid.draft && targets.length > 0}
+    disabled={!grid.draft || !targets.length}
     title={keys.broadcast}
     aria-keyshortcuts={aria("broadcast")}
   >

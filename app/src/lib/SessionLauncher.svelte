@@ -2,6 +2,7 @@
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Search from "@lucide/svelte/icons/search";
   import Smartphone from "@lucide/svelte/icons/smartphone";
+  import { focusSession } from "$lib/commands";
   import { ago, t } from "$lib/i18n";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
   import { launchable, otherRepos } from "$lib/project.svelte";
@@ -36,10 +37,12 @@
     return short.slice(0, Math.max(short.lastIndexOf("/"), short.lastIndexOf("\\")));
   }
 
-  function open() {
+  async function open() {
     const paths = launchable();
     onopen?.();
-    openRepos(paths, agent);
+    // The keyboard goes to the last tile opened, ready to type.
+    const last = (await openRepos(paths, agent)).at(-1);
+    if (last !== undefined) focusSession(last);
   }
 </script>
 

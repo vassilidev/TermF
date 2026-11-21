@@ -78,9 +78,14 @@
     error = String(e);
   });
 
+  /** Whether the form changed since the sources were read or saved. */
+  export function dirty() {
+    return !!trackers && JSON.stringify(trackers) !== saved;
+  }
+
   /** Called by the project editor's Save; writes only what changed. */
   export async function save() {
-    if (trackers && JSON.stringify(trackers) !== saved) {
+    if (dirty()) {
       load(await invoke<Sources>("tickets_sources_save", { project, trackers }));
     }
   }
@@ -234,7 +239,7 @@
 {/snippet}
 
 <section class="sources" aria-labelledby="tickets-{project}">
-  <h4 id="tickets-{project}">{t("ticketsTitle")}</h4>
+  <h2 id="tickets-{project}">{t("ticketsTitle")}</h2>
   <p class="help">{t("ticketsHelp")}</p>
 
   {#if trackers}
@@ -489,20 +494,18 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
   }
 
-  h4 {
+  h2 {
     margin: 0;
-    font-size: var(--text-base);
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: 650;
   }
 
   .help {
     margin: 0;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.4;
   }
 
@@ -600,7 +603,7 @@
     padding: 4px 8px;
     border-radius: var(--radius);
     background: var(--hover);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.4;
   }
 

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import FolderSearch from "@lucide/svelte/icons/folder-search";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import Megaphone from "@lucide/svelte/icons/megaphone";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import BroadcastBar from "$lib/BroadcastBar.svelte";
@@ -13,27 +15,37 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { keys } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { allRepos, currentProject, isMac } from "$lib/files.svelte";
-  import { shown } from "$lib/project.svelte";
-  import { app, load, openLayout, ticked, ui } from "$lib/state.svelte";
+  import { allRepos, currentProject } from "$lib/files.svelte";
+  import { aria } from "$lib/keymap.svelte";
+  import { shown, tallies } from "$lib/project.svelte";
+  import { app, grid, load, openLayout, ticked, ui } from "$lib/state.svelte";
 
   let launcher = $state<HTMLButtonElement>();
+  let broadcast = $state<HTMLButtonElement>();
   const visible = $derived(app.sessions.filter(shown));
+  const project = $derived(currentProject());
+  const counts = $derived(tallies());
   const cols = $derived(Math.max(1, Math.ceil(Math.sqrt(app.focused === null ? visible.length : 1))));
   const firstRun = $derived(app.workspace !== null && !allRepos().length);
 
-  // Tiles another project hides: none stays maximized or ticked for broadcast, and no launcher stays without its button.
+  // Tiles another project hides: none stays maximized or ticked for broadcast, and no launcher or broadcast mode
+  // stays without its button.
   $effect(() => {
     const ids = new Set(visible.map((s) => s.id));
     if (app.focused !== null && !ids.has(app.focused)) app.focused = null;
     untrack(() => ticked.forEach((id) => !ids.has(id) && ticked.delete(id)));
-    if (!ids.size) ui.launcher = false;
+    if (!ids.size) ui.launcher = grid.broadcast = false;
   });
 
-  // The launcher was opened for the previous project.
+  // Leaving the broadcast mode forgets its recipients.
+  $effect(() => {
+    if (!grid.broadcast) untrack(() => ticked.clear());
+  });
+
+  // The launcher was opened, and every project's tiles asked for, under the previous project.
   $effect(() => {
     void app.project;
-    ui.launcher = false;
+    ui.launcher = grid.all = false;
   });
 
   const shortcuts = $derived([
@@ -48,19 +60,37 @@
 </script>
 
 <main class="main">
-  <ViewHeader title={t("viewTerminals")} context={currentProject()?.name ?? t("ticketsAll")}>
+  <ViewHeader title={t("viewTerminals")} context={project && app.sessions.length ? "" : (project?.name ?? t("ticketsAll"))}>
+    {#if project && app.sessions.length}
+      <div class="segmented" role="group" aria-label={t("terminalsShown")}>
+        {#each [false, true] as all (all)}
+          <button aria-pressed={grid.all === all} onclick={() => (grid.all = all)}>
+            {all ? t("ticketsAll") : project.name} · {counts[all ? "*" : project.id]?.total ?? 0}
+          </button>
+        {/each}
+      </div>
+    {/if}
     {#snippet actions()}
-      <Layouts />
+      {#if !firstRun || app.layouts.length}<Layouts />{/if}
       {#if visible.length}
         <button
+          bind:this={broadcast}
+          class="btn sm quiet toggle"
+          aria-pressed={grid.broadcast}
+          onclick={() => (grid.broadcast = !grid.broadcast)}
+        >
+          <Megaphone size={14} aria-hidden="true" />{t("broadcast")}
+        </button>
+        <button
           bind:this={launcher}
-          class="btn sm primary"
+          class="btn sm"
+          class:primary={!grid.broadcast}
           aria-haspopup="dialog"
           aria-expanded={ui.launcher}
-          aria-keyshortcuts={isMac ? "Meta+T" : "Control+Shift+T"}
+          aria-keyshortcuts={aria("new_session")}
           onclick={() => (ui.launcher = !ui.launcher)}
         >
-          <Plus size={14} aria-hidden="true" />{t("navNewSession")}<kbd>{keys.launcher}</kbd>
+          <Plus size={14} aria-hidden="true" />{t("navNewSession")}{#if keys.launcher}<kbd>{keys.launcher}</kbd>{/if}
         </button>
       {/if}
     {/snippet}
@@ -71,20 +101,15 @@
   <div class="body">
     <QuickTerminal />
     <!-- Every tile stays mounted, those of other projects hidden: their terminals keep running and their scrollback. -->
-    <div
-      class="grid"
-      class:broadcasting={visible.some((s) => ticked.has(s.id))}
-      style:--cols={cols}
-      hidden={!visible.length}
-    >
+    <div class="grid" style:--cols={cols} hidden={!visible.length}>
       {#each app.sessions as session (session.id)}
         <SessionTile {session} index={visible.indexOf(session)} />
       {/each}
     </div>
     {#if visible.length}
-      <BroadcastBar />
+      {#if grid.broadcast}<BroadcastBar onexit={() => ((grid.broadcast = false), broadcast?.focus())} />{/if}
     {:else if firstRun}
-      <EmptyState title={t("noRepos")} text={t("noReposHelp")}>
+      <EmptyState icon={FolderSearch} title={t("noRepos")} text={t("noReposHelp")}>
         <code class="config">{app.workspace?.configDir}/termf.toml</code>
         <button class="btn" onclick={load}><RefreshCw size={14} aria-hidden="true" />{t("reload")}</button>
       </EmptyState>
@@ -142,6 +167,11 @@
 
   .grid[hidden] {
     display: none;
+  }
+
+  .toggle[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
   }
 
   .main :global(.view-header .primary kbd) {

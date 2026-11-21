@@ -15,6 +15,8 @@ import KeyRound from "@lucide/svelte/icons/key-round";
 import Layers from "@lucide/svelte/icons/layers";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
+import Megaphone from "@lucide/svelte/icons/megaphone";
+import Pencil from "@lucide/svelte/icons/pencil";
 import Play from "@lucide/svelte/icons/play";
 import Plus from "@lucide/svelte/icons/plus";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -32,10 +34,11 @@ import { allRepos, files, scopeRepos, showFiles } from "$lib/files.svelte";
 import { keys, pressed } from "$lib/keymap.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { type Command } from "$lib/nav-logic";
-import { launchable, sessionProjects, shown } from "$lib/project.svelte";
+import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
 import {
   app,
+  grid,
   load,
   openLayout,
   openRepos,
@@ -187,6 +190,11 @@ export function commands(): Command[] {
       },
     });
   });
+  list.push({ id: "project-new", label: t("newProject"), icon: Plus, group: "projects", run: () => editProject("") });
+  if (app.project !== null) {
+    const id = app.project;
+    list.push({ id: "project-edit", label: t("ticketsEditProject"), icon: Pencil, group: "projects", run: () => editProject(id) });
+  }
 
   if (waitingSessions().length) {
     list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, group: "sessions", run: nextWaiting });
@@ -212,6 +220,14 @@ export function commands(): Command[] {
       icon: Maximize2,
       group: "sessions",
       run: () => toggleMaximize(),
+    });
+    list.push({
+      id: "broadcast",
+      label: t("broadcast"),
+      icon: Megaphone,
+      group: "sessions",
+      checked: grid.broadcast,
+      run: () => ((ui.view = "terminals"), (grid.broadcast = !grid.broadcast)),
     });
   }
   for (const s of app.sessions) {
