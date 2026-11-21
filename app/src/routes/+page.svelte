@@ -11,6 +11,7 @@
   import { lang, t } from "$lib/i18n";
   import { app, init, ui } from "$lib/state.svelte";
   import { files } from "$lib/files.svelte";
+  import { library } from "$lib/library.svelte";
 
   onMount(() => {
     document.documentElement.lang = lang;
@@ -38,6 +39,11 @@
     {#if files.loaded}
       {#await import("$lib/FilesView.svelte") then { default: FilesView }}
         <div class="pane" hidden={files.view !== "files"}><FilesView /></div>
+      {/await}
+    {/if}
+    {#if library.loaded}
+      {#await import("$lib/LibraryView.svelte") then { default: LibraryView }}
+        <div class="pane" hidden={files.view !== "library"}><LibraryView /></div>
       {/await}
     {/if}
   </div>

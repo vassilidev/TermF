@@ -2,17 +2,23 @@ import { tick, type Component } from "svelte";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
 import Coffee from "@lucide/svelte/icons/coffee";
+import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
+import FileUp from "@lucide/svelte/icons/file-up";
 import FolderTree from "@lucide/svelte/icons/folder-tree";
+import Import from "@lucide/svelte/icons/import";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+import LibraryBig from "@lucide/svelte/icons/library-big";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Play from "@lucide/svelte/icons/play";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
 import { files, isMac, showFiles } from "$lib/files.svelte";
+import { exportConfig, importConfig, library, showLibrary } from "$lib/library.svelte";
 import {
   app,
   load,
@@ -147,11 +153,13 @@ export function commands(): Command[] {
     list.push({ id: "maximize", label: t("maximizeActive"), keys: keys.maximize, icon: Maximize2, run: () => toggleMaximize() });
   }
   list.push({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
-  list.push(
-    files.view === "files"
-      ? { id: "view", label: t("showTerminals"), icon: LayoutGrid, run: () => (files.view = "terminals") }
-      : { id: "view", label: t("showFiles"), icon: FolderTree, run: showFiles },
-  );
+  if (files.view !== "terminals") {
+    list.push({ id: "view", label: t("showTerminals"), icon: LayoutGrid, run: () => (files.view = "terminals") });
+  }
+  if (files.view !== "files") list.push({ id: "view-files", label: t("showFiles"), icon: FolderTree, run: showFiles });
+  if (files.view !== "library") {
+    list.push({ id: "view-library", label: t("showLibrary"), icon: LibraryBig, run: showLibrary });
+  }
   list.push({
     id: "file",
     label: t("filesFind"),
@@ -206,6 +214,30 @@ export function commands(): Command[] {
       });
     }
   }
+  for (const project of app.workspace?.projects ?? []) {
+    list.push({
+      id: `conventions-${project.id}`,
+      label: t("projectConventions", { project: project.name }),
+      icon: Sparkles,
+      run: () => {
+        showLibrary();
+        Object.assign(library, { scope: project.id, tab: "conventions", panel: null });
+      },
+    });
+  }
+  list.push(
+    {
+      id: "claude-import",
+      label: t("claudeImport"),
+      icon: Import,
+      run: () => {
+        showLibrary();
+        library.panel = { kind: "claude" };
+      },
+    },
+    { id: "config-export", label: t("configExportLong"), icon: FileDown, run: exportConfig },
+    { id: "config-import", label: t("configImportLong"), icon: FileUp, run: importConfig },
+  );
   list.push({ id: "reload", label: t("reload"), icon: RefreshCw, run: load });
   return list;
 }
