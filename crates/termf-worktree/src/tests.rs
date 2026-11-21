@@ -1391,6 +1391,7 @@ fn never_copies_the_repository_worktrees_into_a_new_one() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn says_when_the_repository_may_hide_a_failed_install() {
     let sb = Sandbox::new("hidden");
