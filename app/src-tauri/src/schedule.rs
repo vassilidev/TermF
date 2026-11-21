@@ -83,6 +83,8 @@ fn launch(
     trigger: Trigger,
     slot: Option<i64>,
 ) -> Result<Option<Execution>> {
+    // Read first: a run claimed and never started would show as running until the next launch.
+    let settings = termf_core::load_settings(&app.state::<AppState>().config_dir)?;
     let Some(run) = s.claim(id, task, trigger, slot, Host::App)? else {
         return Ok(None);
     };
@@ -101,7 +103,6 @@ fn launch(
         updated(app, &run);
         return Ok(Some(run));
     }
-    let settings = termf_core::load_settings(&app.state::<AppState>().config_dir)?;
     let claude = termf_schedule::claude_program(&settings);
     let (app, s, task, started) = (app.clone(), scheduler(app), task.clone(), run.clone());
     thread::spawn(move || {
