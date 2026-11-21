@@ -7,11 +7,11 @@
 //! `projects/<id>.toml`), the refused proposals never to make again (`rejected.toml`) and `journal.jsonl`.
 
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write as _};
+use std::fs::{self, OpenOptions};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -1050,61 +1050,36 @@ fn ask(
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(Value, Option<f64>)> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
-    let scratch = scratch_dir()?;
-    let result = (|| {
-        let cwd = scratch.join("cwd");
-        fs::create_dir_all(&cwd)?;
-        let mut cmd = Command::new(program);
-        cmd.args(lead)
-            .args(["-p", "--output-format", "stream-json", "--verbose"])
-            .arg("--json-schema")
-            .arg(schema().to_string())
-            .args(["--model", model, "--max-budget-usd", &budget.to_string()])
-            .args(["--tools", TOOLS, "--allowedTools", TOOLS])
-            .args([
-                "--permission-mode",
-                "dontAsk",
-                "--permission-prompts",
-                "none",
-            ])
-            .args(["--restricted", "--safe-mode", "--strict-mcp-config"])
-            .args(["--settings", r#"{"disableAllHooks":true}"#])
-            .args(["--disable-slash-commands", "--no-session-persistence"])
-            .current_dir(&cwd);
-        // An app started from the Finder lacks the PATH that finds `claude` (and the `node` it may need).
-        if let Some(path) = termf_core::shell::login_path() {
-            cmd.env("PATH", path);
+    let cwd = termf_core::process::scratch_dir()?;
+    let mut cmd = Command::new(program);
+    cmd.args(lead)
+        .args(["-p", "--output-format", "stream-json", "--verbose"])
+        .arg("--json-schema")
+        .arg(schema().to_string())
+        .args(["--model", model, "--max-budget-usd", &budget.to_string()])
+        .args(["--tools", TOOLS, "--allowedTools", TOOLS])
+        .args([
+            "--permission-mode",
+            "dontAsk",
+            "--permission-prompts",
+            "none",
+        ])
+        .args(["--restricted", "--safe-mode", "--strict-mcp-config"])
+        .args(["--settings", r#"{"disableAllHooks":true}"#])
+        .args(["--disable-slash-commands", "--no-session-persistence"])
+        .current_dir(&cwd);
+    // An app started from the Finder lacks the PATH that finds `claude` (and the `node` it may need).
+    if let Some(path) = termf_core::shell::login_path() {
+        cmd.env("PATH", path);
+    }
+    let ran = termf_core::process::stream(cmd, prompt.as_bytes(), TIMEOUT, &mut |line| {
+        for p in progress_of(line) {
+            progress(p);
         }
-        let (status, stdout, stderr) = stream(cmd, &scratch, prompt.as_bytes(), &mut |line| {
-            for p in progress_of(line) {
-                progress(p);
-            }
-        })
-        .context("cannot run Claude Code")?;
-        // Its answer is the last JSON line, whatever a wrapper printed before.
-        let Some(result) = stdout.lines().rev().find_map(|l| {
-            serde_json::from_str::<Value>(l.trim())
-                .ok()
-                .filter(Value::is_object)
-        }) else {
-            bail!("Claude Code gave no answer ({status}): {}", tail(&stderr));
-        };
-        let cost = result["total_cost_usd"].as_f64();
-        match result.get("structured_output") {
-            Some(answer) if result["is_error"] != true && answer.is_object() => {
-                Ok((answer.clone(), cost))
-            }
-            _ => bail!(
-                "Claude Code: {}",
-                result["result"]
-                    .as_str()
-                    .or(result["subtype"].as_str())
-                    .unwrap_or("no structured answer")
-            ),
-        }
-    })();
-    let _ = fs::remove_dir_all(&scratch);
-    result
+    });
+    let _ = fs::remove_dir_all(&cwd);
+    let (status, stdout, stderr) = ran.context("cannot run Claude Code")?;
+    termf_core::claude::structured_output(status, &stdout, &stderr)
 }
 
 /// The searches and pages of a `stream-json` line.
@@ -1127,78 +1102,6 @@ fn progress_of(line: &str) -> Vec<Progress> {
             }
         })
         .collect()
-}
-
-/// Runs `cmd` with `input` on stdin and hands each line it prints to `line` as it comes. Output goes through files
-/// in `scratch`, so a chatty child never blocks; after the timeout the child and what it started are killed.
-fn stream(
-    mut cmd: Command,
-    scratch: &Path,
-    input: &[u8],
-    line: &mut dyn FnMut(&str),
-) -> Result<(ExitStatus, String, String)> {
-    let (stdin, stdout, stderr) = (scratch.join("in"), scratch.join("out"), scratch.join("err"));
-    fs::write(&stdin, input)?;
-    cmd.stdin(File::open(&stdin)?)
-        .stdout(File::create(&stdout)?)
-        .stderr(File::create(&stderr)?);
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-    let mut child = cmd.spawn()?;
-    let mut reader = BufReader::new(File::open(&stdout)?);
-    let (mut all, mut partial) = (Vec::new(), Vec::new());
-    let deadline = Instant::now() + TIMEOUT;
-    let status = loop {
-        let exited = child.try_wait()?;
-        // Bytes, not text: the file may end in the middle of a character.
-        while reader.read_until(b'\n', &mut partial)? > 0 && partial.ends_with(b"\n") {
-            line(String::from_utf8_lossy(&partial).trim_end());
-            all.append(&mut partial);
-        }
-        if let Some(status) = exited {
-            break status;
-        }
-        if Instant::now() > deadline {
-            kill_group(&mut child);
-            bail!("timed out after {} s", TIMEOUT.as_secs());
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    };
-    all.append(&mut partial);
-    let stderr = fs::read(&stderr)?;
-    Ok((
-        status,
-        String::from_utf8_lossy(&all).into_owned(),
-        String::from_utf8_lossy(&stderr).into_owned(),
-    ))
-}
-
-fn kill_group(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    let _ = Command::new("kill")
-        .args(["-KILL", &format!("-{}", child.id())])
-        .status();
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn scratch_dir() -> Result<PathBuf> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "termf-scout-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
-fn tail(text: &str) -> String {
-    let text = text.trim();
-    let start = text.char_indices().rev().nth(500).map_or(0, |(i, _)| i);
-    text[start..].into()
 }
 
 #[cfg(test)]

@@ -142,7 +142,9 @@
 {/snippet}
 
 {#snippet sourceLine(url: string)}
-  <span class="source" title={url}><Globe size={12} aria-hidden="true" /><span class="host">{host(url)}</span><span class="url">{url}</span></span>
+  <button class="source" title={url} onclick={() => invoke("open_url", { url }).catch((e) => (scout.error = String(e)))}>
+    <Globe size={12} aria-hidden="true" /><span class="host">{host(url)}</span><span class="url">{url}</span>
+  </button>
 {/snippet}
 
 <section class="scout">
@@ -765,11 +767,20 @@
     display: flex;
     align-items: center;
     gap: 5px;
+    max-width: 100%;
     min-width: 0;
     margin-top: 2px;
+    padding: 0;
+    border: 0;
+    background: none;
     color: var(--muted);
     font-size: var(--text-xs);
-    user-select: text;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .source:hover .host {
+    text-decoration: underline;
   }
 
   .source :global(svg) {
