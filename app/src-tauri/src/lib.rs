@@ -6,6 +6,7 @@ mod files;
 mod keep_awake;
 mod library;
 mod quick_terminal;
+mod schedule;
 mod ssh;
 mod sync;
 mod tickets;
@@ -105,6 +106,7 @@ fn pty_spawn(
         rows,
         remote_control,
         None,
+        &[],
     )
     .map_err(err)?;
     state.keep_awake.update(&app);
@@ -189,7 +191,10 @@ pub fn run() {
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new();
-            app.manage(tickets::TicketsState::new(config_dir.clone(), data_dir));
+            app.manage(tickets::TicketsState::new(
+                config_dir.clone(),
+                data_dir.clone(),
+            ));
             app.manage(AppState {
                 config_dir,
                 sessions: api.sessions(app.handle().clone()),
@@ -207,6 +212,9 @@ pub fn run() {
             {
                 eprintln!("termf: local API disabled: {e:#}");
             }
+            let config = app.state::<AppState>().config_dir.clone();
+            let schedule = schedule::start(app.handle(), config, data_dir);
+            app.manage(schedule);
             quick_terminal::register(app.handle());
             let sync = sync::start(app.handle(), app.state::<AppState>().config_dir.clone());
             app.manage(sync);
@@ -303,6 +311,14 @@ pub fn run() {
             tickets::tickets_mcp_servers,
             tickets::tickets_configured,
             browser::open_url,
+            schedule::schedule_tasks,
+            schedule::schedule_save,
+            schedule::schedule_delete,
+            schedule::schedule_preview,
+            schedule::schedule_run,
+            schedule::schedule_history,
+            schedule::schedule_install,
+            schedule::schedule_desktop,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

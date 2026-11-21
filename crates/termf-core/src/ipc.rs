@@ -59,6 +59,11 @@ pub enum Call {
         run: i64,
         force: bool,
     },
+    /// Runs a scheduled task now; `scheduled`: only if one of its times is due and not run yet.
+    Schedule {
+        task: String,
+        scheduled: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
