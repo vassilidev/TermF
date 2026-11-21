@@ -8,6 +8,7 @@ mod context;
 mod files;
 mod keep_awake;
 mod library;
+mod onboarding;
 mod quick_terminal;
 mod schedule;
 mod ssh;
@@ -388,6 +389,14 @@ pub fn run() {
             agents::agent_handback,
             agents::agent_sessions,
             agents::agent_events,
+            onboarding::onboarding_state,
+            onboarding::onboarding_analyze,
+            onboarding::onboarding_answer,
+            onboarding::onboarding_step,
+            onboarding::onboarding_seen,
+            onboarding::onboarding_decide,
+            onboarding::claude_trust,
+            onboarding::claude_trust_set,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

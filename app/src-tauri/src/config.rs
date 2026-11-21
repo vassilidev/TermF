@@ -11,7 +11,11 @@ pub fn project_save(
     name: String,
     repos: Vec<String>,
 ) -> CmdResult<Vec<Project>> {
-    termf_core::save_project(&state.config_dir, id.as_deref(), &name, &repos).map_err(err)?;
+    let saved =
+        termf_core::save_project(&state.config_dir, id.as_deref(), &name, &repos).map_err(err)?;
+    if id.is_none() {
+        crate::onboarding::created(&state.config_dir, &saved);
+    }
     termf_core::load_projects(&state.config_dir).map_err(err)
 }
 

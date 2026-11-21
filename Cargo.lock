@@ -5535,6 +5535,7 @@ dependencies = [
  "serde_json",
  "termf-agents",
  "termf-ci",
+ "termf-claude",
  "termf-core",
  "termf-library",
  "termf-schedule",
@@ -5584,6 +5585,19 @@ dependencies = [
  "toml 1.2.2+spec-1.1.0",
  "toml_edit 0.25.20+spec-1.1.0",
  "yaml-rust2",
+]
+
+[[package]]
+name = "termf-onboarding"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "termf-core",
+ "termf-library",
+ "termf-tickets",
+ "termf-worktree",
 ]
 
 [[package]]
