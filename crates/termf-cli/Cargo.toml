@@ -12,10 +12,13 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.104"
 interprocess = "2.4.9"
+# Says when a scheduled task run while TermF is closed ends; already built for the app's notifications.
+notify-rust = "4.19.0"
 rpassword = "7.5.5"
 serde_json = "1.0.154"
 termf-core = { path = "../termf-core" }
 termf-library = { path = "../termf-library" }
+termf-schedule = { path = "../termf-schedule" }
 termf-ssh = { path = "../termf-ssh" }
 termf-sync = { path = "../termf-sync" }
 termf-tickets = { path = "../termf-tickets" }

@@ -122,6 +122,17 @@ pub fn upcoming(expr: &str, now: i64, count: usize) -> Result<Vec<i64>> {
     Ok(runs.iter().map(|t| t.as_second()).collect())
 }
 
+/// `2026-11-23 09:00`, in the computer's time zone.
+pub fn local(secs: i64) -> String {
+    Timestamp::from_second(secs)
+        .map(|t| {
+            t.to_zoned_datetime(TimeZone::system())
+                .strftime("%Y-%m-%d %H:%M")
+                .to_string()
+        })
+        .unwrap_or_default()
+}
+
 /// Claude Code's own folder, which `$CLAUDE_CONFIG_DIR` moves.
 pub fn claude_dir() -> PathBuf {
     std::env::var_os("CLAUDE_CONFIG_DIR")

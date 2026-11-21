@@ -73,6 +73,7 @@ pub fn start(
             project: &run.project,
             brief: &launch.brief,
         }),
+        &[],
     );
     let session = match session {
         Ok(session) => session,
