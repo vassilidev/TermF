@@ -1420,6 +1420,9 @@ const fr = {
   obDoneHelp: "Tu peux relancer l'assistant à tout moment depuis la page du projet ou la palette.",
   obJournal: "Journal",
   obLogAnswers: "Réponses enregistrées ({count} questions)",
+  obEdited:
+    "La convention « onboarding » a été modifiée à la main dans la Bibliothèque depuis : continuer la remplace par tes réponses.",
+  obReplace: "Remplacer et continuer",
 };
 
 type Key = keyof typeof fr;
@@ -2832,6 +2835,8 @@ const en: Record<Key, string> = {
   obDoneHelp: "You can run the assistant again anytime from the project page or the palette.",
   obJournal: "Journal",
   obLogAnswers: "Answers saved ({count} questions)",
+  obEdited: "The “onboarding” convention was edited by hand in the Library since: going on replaces it with your answers.",
+  obReplace: "Replace and continue",
 };
 
 const messages = { fr, en };

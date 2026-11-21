@@ -155,15 +155,15 @@ fn keeps_only_the_well_formed_part_of_claude_s_answer() {
 
 #[cfg(unix)]
 #[test]
-fn keeps_the_survey_when_claude_code_fails() {
+fn keeps_the_survey_when_claude_code_fails_and_a_failed_rerun_keeps_the_last_analysis() {
     let (dir, config, data) = setup("fails");
     let script = dir.join("broken.sh");
     put(
         &script,
         "#!/bin/sh\ncat > /dev/null\necho '{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error_max_budget_usd\"}'\n",
     );
-    let claude = vec!["/bin/sh".into(), script.to_string_lossy().into_owned()];
-    let error = analyze(&config, &data, "acme", "en", &claude).unwrap_err();
+    let broken = vec!["/bin/sh".into(), script.to_string_lossy().into_owned()];
+    let error = analyze(&config, &data, "acme", "en", &broken).unwrap_err();
     assert!(
         format!("{error:#}").contains("error_max_budget_usd"),
         "{error:#}"
@@ -172,6 +172,30 @@ fn keeps_the_survey_when_claude_code_fails() {
     let analysis = state.analysis.unwrap();
     assert!(!analysis.asked && analysis.repos.len() == 2);
     assert_eq!(state.step, Step::Analysis);
+    assert!(!state.analyzing);
+
+    let answer =
+        json!({ "findings": [], "questions": [question("tests-required", "bool", &[], &["yes"])] });
+    let asked = analyze(&config, &data, "acme", "en", &fake_claude(&dir, &answer)).unwrap();
+    assert!(analyze(&config, &data, "acme", "en", &broken).is_err());
+    let state = load(&config, &data, "acme").unwrap();
+    assert_eq!(state.analysis, asked.analysis);
+    assert_eq!(state.answers, asked.answers);
+    assert!(answer_(&config, &data, BTreeMap::new()).is_ok());
+}
+
+#[test]
+fn refuses_a_second_analysis_of_a_project_while_one_runs() {
+    let (_, config, data) = setup("running");
+    let key = || file(&config, &data, "acme").unwrap();
+    let first = Running::start(key()).unwrap();
+    assert!(load(&config, &data, "acme").unwrap().analyzing);
+    assert!(Running::start(key()).is_err());
+    let other = Running::start(data.join("onboarding/docs.json")).unwrap();
+    drop(first);
+    assert!(!load(&config, &data, "acme").unwrap().analyzing);
+    assert!(Running::start(key()).is_ok());
+    drop(other);
 }
 
 #[cfg(unix)]
@@ -219,11 +243,27 @@ fn answers_become_the_onboarding_convention() {
          - api: node:pnpm\n- api: Tests: pnpm test\n\nWhat the owner decided:\n\
          - tests-required ? yes\n- checks ? lint, types\n- notes ? Small PRs only.\n"
     );
+    assert!(!state.edited);
+
+    // Edited by hand in the library: new answers replace it only once asked to.
+    conventions::save_source(&config, "acme", SLUG, "Small PRs, always.\n").unwrap();
+    assert!(load(&config, &data, "acme").unwrap().edited);
+    assert!(answer_(&config, &data, BTreeMap::new()).is_err());
+    assert_eq!(
+        conventions::load(&config, "acme", SLUG).unwrap().source,
+        "Small PRs, always.\n"
+    );
+    let state = super::answer(&config, &data, "acme", BTreeMap::new(), true).unwrap();
+    assert!(!state.edited);
+    assert_eq!(
+        conventions::load(&config, "acme", SLUG).unwrap().source,
+        state.source
+    );
 }
 
 #[cfg(unix)]
 fn answer_(config: &Path, data: &Path, answers: BTreeMap<String, Vec<String>>) -> Result<State> {
-    answer(config, data, "acme", answers)
+    answer(config, data, "acme", answers, false)
 }
 
 #[test]

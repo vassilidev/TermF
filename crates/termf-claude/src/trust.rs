@@ -6,9 +6,12 @@
 //! keeps everything else as written, never rewrites a file it cannot parse, and gives up rather than overwrite a
 //! write that happened since it read the file.
 
+use std::ffi::OsString;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -27,15 +30,22 @@ pub struct RepoTrust {
     /// The folder Claude Code keys the trust on: the main checkout's root.
     pub root: String,
     pub trusted: bool,
-    /// What trusting it loads: `permissions.allow` rules and additional directories of its shared settings.
+    /// What trusting it loads: `permissions.allow` rules and additional directories of the shared settings at
+    /// `root` and at `path`.
     pub allow: usize,
-    /// Servers of its `.mcp.json`, connected without asking once trusted.
+    /// Servers of the `.mcp.json` at `root` and at `path`, connected without asking once trusted.
     pub mcp: usize,
 }
 
-/// `$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`.
+/// `$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`, with `$CLAUDE_CONFIG_DIR` as the sessions see it: an
+/// app opened from the Dock lacks the variables of the shell profile, which the sessions it opens do get.
 pub fn file() -> PathBuf {
-    match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
+    static DIR: OnceLock<Option<OsString>> = OnceLock::new();
+    let dir = DIR.get_or_init(|| {
+        termf_core::shell::login_var("CLAUDE_CONFIG_DIR")
+            .or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR"))
+    });
+    match dir.clone().filter(|d| !d.is_empty()) {
         Some(dir) => PathBuf::from(dir).join(".claude.json"),
         None => termf_core::expand_tilde("~/.claude.json"),
     }
@@ -102,16 +112,24 @@ fn trusted(config: &Map<String, Value>, root: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn count(file: &Path, pointers: &[&str]) -> usize {
-    let Ok(text) = fs::read_to_string(file) else {
-        return 0;
+/// The entries `pointers` name in `rel` (a JSON file) under each of `dirs`, a folder counted once.
+fn count(dirs: [&Path; 2], rel: &str, pointers: &[&str]) -> usize {
+    let one = |dir: &Path| {
+        let Ok(text) = fs::read_to_string(dir.join(rel)) else {
+            return 0;
+        };
+        let value: Value = serde_json::from_str(&text).unwrap_or_default();
+        pointers
+            .iter()
+            .filter_map(|p| value.pointer(p))
+            .map(|v| v.as_array().map_or(0, Vec::len) + v.as_object().map_or(0, Map::len))
+            .sum()
     };
-    let value: Value = serde_json::from_str(&text).unwrap_or_default();
-    pointers
-        .iter()
-        .filter_map(|p| value.pointer(p))
-        .map(|v| v.as_array().map_or(0, Vec::len) + v.as_object().map_or(0, Map::len))
-        .sum()
+    let same = dirs[0] == dirs[1]
+        || fs::canonicalize(dirs[0])
+            .ok()
+            .is_some_and(|a| fs::canonicalize(dirs[1]).ok() == Some(a));
+    one(dirs[0]) + if same { 0 } else { one(dirs[1]) }
 }
 
 /// Each repository's trust as `file` holds it.
@@ -121,16 +139,18 @@ pub fn state(file: &Path, repos: &[(String, PathBuf)]) -> Result<Vec<RepoTrust>>
         .iter()
         .map(|(name, path)| {
             let root = root(path);
+            let dirs = [root.as_path(), path.as_path()];
             RepoTrust {
                 name: name.clone(),
                 path: path.to_string_lossy().into_owned(),
                 trusted: trusted(&config, &root),
-                root: root.to_string_lossy().into_owned(),
                 allow: count(
-                    &path.join(".claude/settings.json"),
+                    dirs,
+                    ".claude/settings.json",
                     &["/permissions/allow", "/permissions/additionalDirectories"],
                 ),
-                mcp: count(&path.join(".mcp.json"), &["/mcpServers"]),
+                mcp: count(dirs, ".mcp.json", &["/mcpServers"]),
+                root: root.to_string_lossy().into_owned(),
             }
         })
         .collect())
@@ -195,11 +215,8 @@ fn set_with(
             indent(before.as_deref().unwrap_or("")),
         )?;
         fs::create_dir_all(dir)?;
-        fs::write(&tmp, &text).with_context(|| format!("cannot write {}", tmp.display()))?;
-        match fs::metadata(&file) {
-            Ok(meta) => fs::set_permissions(&tmp, meta.permissions())?,
-            Err(_) => private(&tmp)?,
-        }
+        write_private(&tmp, &text, fs::metadata(&file).ok())
+            .with_context(|| format!("cannot write {}", tmp.display()))?;
         before_replace();
         // Claude Code rewrites the file while it runs: what it wrote since the read wins, and TermF reads again.
         if read(&file)? != before {
@@ -214,17 +231,29 @@ fn set_with(
     )
 }
 
-#[cfg(unix)]
-fn private(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    Ok(fs::set_permissions(
-        path,
-        fs::Permissions::from_mode(0o600),
-    )?)
-}
-
-#[cfg(not(unix))]
-fn private(_: &Path) -> Result<()> {
+/// Writes `text` to a new `path` that is never readable by others, even for an instant (the file holds account
+/// details): created with the original's mode, else 0600.
+fn write_private(path: &Path, text: &str, original: Option<fs::Metadata>) -> Result<()> {
+    let _ = fs::remove_file(path);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mode = original
+            .as_ref()
+            .map_or(0o600, |m| m.permissions().mode() & 0o777);
+        options.mode(mode & 0o600);
+        let mut out = options.open(path)?;
+        out.write_all(text.as_bytes())?;
+        // The umask may have taken bits off the original's mode: give it back exactly.
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = original;
+        options.open(path)?.write_all(text.as_bytes())?;
+    }
     Ok(())
 }
 
@@ -435,6 +464,15 @@ mod tests {
                 mcp: 1,
             }]
         );
+        // A project folder inside the repository: what the root brings counts too.
+        fs::create_dir_all(repo.join("sub/.claude")).unwrap();
+        fs::write(
+            repo.join("sub/.claude/settings.json"),
+            "{\"permissions\": {\"allow\": [\"Read\"]}}",
+        )
+        .unwrap();
+        let sub = state(&file, &[("sub".into(), repo.join("sub"))]).unwrap();
+        assert_eq!((sub[0].trusted, sub[0].allow, sub[0].mcp), (true, 4, 1));
     }
 
     /// The terminal's text without escape sequences, spaces collapsed.

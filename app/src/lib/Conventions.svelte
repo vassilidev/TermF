@@ -50,6 +50,8 @@
     dropped: string[];
     answers: { question: string; answer: string }[];
     items: Proposal[];
+    /** The text it was proposed from (absent before TermF recorded it). */
+    from?: string;
   };
   type Diff = { name: string; change: "added" | "changed" | "unchanged" | "removed"; previous: Proposal | null };
   type Convention = {
@@ -121,7 +123,9 @@
       ({ model, effort, list } = data);
       if (only) {
         select(only);
-        if (current?.source.trim() && !current.draft && !current.pack) await propose();
+        // Nothing proposed yet, or proposed from a text the assistant has rewritten since.
+        const last = current?.draft ?? current?.pack;
+        if (current?.source.trim() && (!last || (last.from && last.from !== current.source))) await propose();
         return;
       }
       select(list[0]?.slug ?? "");

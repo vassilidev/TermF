@@ -19,7 +19,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { library, showLibrary } from "$lib/library.svelte";
-  import { closeSetup, setup } from "$lib/onboarding.svelte";
+  import { analyze as runAnalysis, analyzing, closeSetup, running, setup } from "$lib/onboarding.svelte";
   import {
     byTheme,
     githubIssues,
@@ -61,6 +61,8 @@
     answers: Record<string, string[]>;
     decisions: Record<string, Decision>;
     log: { at: number; what: string; decision?: Decision; detail: string }[];
+    edited: boolean;
+    analyzing: boolean;
   };
   type Recipe = { agent: boolean; notes: string; repos: Record<string, RepoRecipe> };
   type RecipeView = {
@@ -88,6 +90,7 @@
   let notify = $state<Notify>("mine");
 
   const analysis = $derived(ob?.analysis ?? null);
+  const inProgress = $derived(!!project && (!!analyzing[project.id] || !!ob?.analyzing));
   const proposedRecipe = $derived(recipe?.draft?.recipe ?? recipe?.detected ?? null);
   const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD" });
 
@@ -118,7 +121,19 @@
     } catch (e) {
       error = String(e);
     }
+    // Started before the assistant was left: follow it instead of starting another.
+    running(project.id)?.then(
+      () => reload(true),
+      (e) => ((error = String(e)), reload(false)),
+    );
   });
+
+  async function reload(done: boolean) {
+    ob = await invoke<Onboarding>("onboarding_state", { project: project!.id }).catch(() => ob);
+    if (!ob) return;
+    answers = { ...ob.answers };
+    if (done) shown = ob.step;
+  }
 
   $effect(() => {
     if (shown === "proposals") untrack(loadProposals);
@@ -137,14 +152,14 @@
   }
 
   async function analyze() {
-    const next = await call<Onboarding>("analyze", "onboarding_analyze", { lang });
-    if (next) {
-      ob = next;
-      answers = { ...next.answers };
-      shown = "questions";
-    } else {
-      // The survey stays even when Claude Code failed: the owner may go on without questions.
-      ob = await invoke<Onboarding>("onboarding_state", { project: project!.id }).catch(() => ob);
+    error = "";
+    try {
+      await runAnalysis(project!.id, lang);
+      await reload(true);
+    } catch (e) {
+      error = String(e);
+      // A first analysis keeps the survey, a new one the last analysis: the owner may go on.
+      await reload(false);
     }
   }
 
@@ -157,7 +172,7 @@
   }
 
   async function submitAnswers() {
-    const next = await call<Onboarding>("answer", "onboarding_answer", { answers });
+    const next = await call<Onboarding>("answer", "onboarding_answer", { answers, replace: ob?.edited ?? false });
     if (next) {
       ob = next;
       shown = "proposals";
@@ -192,6 +207,8 @@
   }
 
   async function saveSources() {
+    // Unchanged sources write nothing, so nothing is decided.
+    const changed = !!sourcesEditor?.dirty();
     busy = "tickets";
     error = "";
     try {
@@ -203,7 +220,7 @@
     } finally {
       busy = "";
     }
-    if (!error) await decide("tickets", "accepted");
+    if (changed && !error) await decide("tickets", "accepted");
   }
 
   async function acceptRecipe() {
@@ -372,20 +389,22 @@
         <section class="panel">
           <h2><ScanSearch size={16} aria-hidden="true" />{t("obAnalysisTitle")}</h2>
           <p class="lead">{t("obAnalysisIntro", { budget: money.format(2) })}</p>
-          {#if busy === "analyze"}
+          {#if inProgress}
             <p class="notice" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("obAnalyzing")}</p>
           {:else if analysis}
             {@render facts(analysis)}
           {/if}
           <footer class="actions">
-            {#if analysis && !analysis.asked && busy !== "analyze"}
+            {#if analysis && !analysis.asked && !inProgress}
               <button class="btn" onclick={() => go("questions")}>{t("obContinueWithout")}</button>
             {/if}
-            <button class="btn" class:primary={!analysis?.asked} disabled={!!busy} onclick={analyze}>
+            <button class="btn" class:primary={!analysis?.asked} disabled={!!busy || inProgress} onclick={analyze}>
               {analysis ? t("obReanalyze") : t("obAnalyze")}
             </button>
             {#if analysis?.asked}
-              <button class="btn primary" disabled={!!busy} onclick={() => (shown = "questions")}>{t("obContinue")}</button>
+              <button class="btn primary" disabled={!!busy || inProgress} onclick={() => (shown = "questions")}>
+                {t("obContinue")}
+              </button>
             {/if}
           </footer>
         </section>
@@ -406,11 +425,14 @@
                 {/each}
               </fieldset>
             {/each}
+            {#if ob.edited}
+              <p class="notice warn" role="status">{t("obEdited")}</p>
+            {/if}
             <footer class="actions">
               <button class="btn" onclick={() => (shown = "analysis")}>{t("obBack")}</button>
               <button class="btn primary" disabled={!!busy} onclick={submitAnswers}>
                 {#if busy === "answer"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
-                {t("obContinue")}
+                {ob.edited ? t("obReplace") : t("obContinue")}
               </button>
             </footer>
           </section>

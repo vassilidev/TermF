@@ -40,17 +40,20 @@ pub async fn onboarding_analyze(
     .await
 }
 
+/// `replace`: the onboarding convention was edited in the library since, and the owner chose to replace it.
 #[tauri::command]
 pub async fn onboarding_answer(
     state: State<'_, AppState>,
     project: String,
     answers: BTreeMap<String, Vec<String>>,
+    replace: Option<bool>,
 ) -> CmdResult<onboarding::State> {
     onboarding::answer(
         &state.config_dir,
         &data_dir().map_err(err)?,
         &project,
         answers,
+        replace.unwrap_or(false),
     )
     .map_err(err)
 }

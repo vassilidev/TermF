@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
@@ -152,6 +153,51 @@ pub struct State {
     pub decisions: BTreeMap<String, Decision>,
     /// What the assistant applied, oldest first.
     pub log: Vec<Logged>,
+    /// The convention text the answers last became.
+    pub source: String,
+    /// The `onboarding` convention's text is no longer the one the assistant wrote: someone edited it in the
+    /// library, and new answers would replace it.
+    #[serde(skip_deserializing)]
+    pub edited: bool,
+    /// An analysis of the project is running.
+    #[serde(skip_deserializing)]
+    pub analyzing: bool,
+}
+
+/// The projects (by state file) whose analysis is running in this process: a second one would pay twice for
+/// the same answers.
+static RUNNING: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+
+struct Running(PathBuf);
+
+impl Running {
+    fn start(file: PathBuf) -> Result<Running> {
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        ensure!(
+            running.insert(file.clone()),
+            "an analysis of this project is already running"
+        );
+        Ok(Running(file))
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        RUNNING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
+fn convention_text(config_dir: &Path, project: &str) -> String {
+    let file = config_dir
+        .join("projects")
+        .join(project)
+        .join("conventions")
+        .join(SLUG)
+        .join("source.md");
+    fs::read_to_string(file).unwrap_or_default()
 }
 
 fn now() -> u64 {
@@ -167,13 +213,20 @@ fn file(config_dir: &Path, data_dir: &Path, project: &str) -> Result<PathBuf> {
 
 pub fn load(config_dir: &Path, data_dir: &Path, project: &str) -> Result<State> {
     let file = file(config_dir, data_dir, project)?;
-    match fs::read_to_string(&file) {
+    let mut state: State = match fs::read_to_string(&file) {
         Ok(text) => {
-            serde_json::from_str(&text).with_context(|| format!("invalid {}", file.display()))
+            serde_json::from_str(&text).with_context(|| format!("invalid {}", file.display()))?
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State::default()),
-        Err(e) => Err(e).with_context(|| format!("cannot read {}", file.display())),
-    }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::default(),
+        Err(e) => return Err(e).with_context(|| format!("cannot read {}", file.display())),
+    };
+    let text = convention_text(config_dir, project);
+    state.edited = !text.trim().is_empty() && text != state.source;
+    state.analyzing = RUNNING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&file);
+    Ok(state)
 }
 
 fn save(config_dir: &Path, data_dir: &Path, project: &str, state: &State) -> Result<()> {
@@ -191,7 +244,8 @@ fn change(
     let mut state = load(config_dir, data_dir, project)?;
     edit(&mut state)?;
     save(config_dir, data_dir, project, &state)?;
-    Ok(state)
+    // What the edit changed decides `edited` and `analyzing` too.
+    load(config_dir, data_dir, project)
 }
 
 /// A new project opens the assistant once, from scratch: a deleted project of the same id leaves nothing behind.
@@ -331,7 +385,8 @@ pub fn survey(config_dir: &Path, data_dir: &Path, project: &str) -> Result<Analy
 }
 
 /// The deterministic survey, then Claude Code, read-only in the repositories, for its findings and questions.
-/// The survey is kept even when Claude Code fails, so the assistant can go on without questions.
+/// When Claude Code fails, a first analysis keeps the survey alone, so the assistant can go on without
+/// questions; an analysis run again keeps the last one and its answers.
 pub fn analyze(
     config_dir: &Path,
     data_dir: &Path,
@@ -339,12 +394,16 @@ pub fn analyze(
     lang: &str,
     claude: &[String],
 ) -> Result<State> {
+    let running = Running::start(file(config_dir, data_dir, project)?)?;
     let mut analysis = survey(config_dir, data_dir, project)?;
     analysis.lang = if lang == "fr" { "fr" } else { "en" }.into();
     let (model, effort) = conventions::settings(config_dir);
     analysis.model = model.clone();
     change(config_dir, data_dir, project, |s| {
-        s.analysis = Some(analysis.clone());
+        if s.analysis.is_none() {
+            s.analysis = Some(analysis.clone());
+            s.answers.clear();
+        }
         Ok(())
     })?;
     let repos: Vec<(String, PathBuf)> = analysis
@@ -370,6 +429,7 @@ pub fn analyze(
     analysis.findings = findings;
     analysis.dropped = dropped;
     analysis.questions = questions;
+    drop(running);
     change(config_dir, data_dir, project, |s| {
         s.answers = analysis
             .questions
@@ -573,12 +633,14 @@ fn validate(answer: &Value, repos: &[String]) -> (Vec<Finding>, Vec<Question>, V
 }
 
 /// Saves the answers (a question left out keeps its proposed answer) and writes them, with the analysis, as the
-/// source of the `onboarding` convention, ready for `conventions::propose`.
+/// source of the `onboarding` convention, ready for `conventions::propose`. A convention edited in the library
+/// since is only replaced with `replace`.
 pub fn answer(
     config_dir: &Path,
     data_dir: &Path,
     project: &str,
     answers: BTreeMap<String, Vec<String>>,
+    replace: bool,
 ) -> Result<State> {
     let state = load(config_dir, data_dir, project)?;
     let analysis = state.analysis.context("analyze the project first")?;
@@ -604,8 +666,16 @@ pub fn answer(
             .entry(q.id.clone())
             .or_insert_with(|| q.default.clone());
     }
-    conventions::save_source(config_dir, project, SLUG, &source(&analysis, &given))?;
+    ensure!(
+        replace || !state.edited,
+        "the onboarding convention was edited in the library since: replace it to go on"
+    );
+    let text = source(&analysis, &given);
+    if convention_text(config_dir, project) != text {
+        conventions::save_source(config_dir, project, SLUG, &text)?;
+    }
     change(config_dir, data_dir, project, |s| {
+        s.source = text;
         s.answers = given;
         s.step = Step::Proposals;
         s.log.push(Logged {
