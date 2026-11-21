@@ -1,10 +1,12 @@
 import { tick, type Component } from "svelte";
+import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
 import Coffee from "@lucide/svelte/icons/coffee";
 import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
 import FileUp from "@lucide/svelte/icons/file-up";
+import FolderSync from "@lucide/svelte/icons/folder-sync";
 import FolderTree from "@lucide/svelte/icons/folder-tree";
 import Import from "@lucide/svelte/icons/import";
 import KeyRound from "@lucide/svelte/icons/key-round";
@@ -34,6 +36,7 @@ import {
   waitingSessions,
   type KeepAwakeMode,
 } from "$lib/state.svelte";
+import { showSync, summary, syncNow } from "$lib/sync.svelte";
 
 const mod = isMac ? "⌘" : "Ctrl+";
 
@@ -215,6 +218,12 @@ export function commands(): Command[] {
         checked: awake.mode === mode,
         run: () => setKeepAwake(mode, awake.displayOn).then((error) => error && (app.error = error)),
       });
+    }
+  }
+  if (app.sync) {
+    list.push({ id: "sync", label: t("syncTitle"), hint: summary(app.sync).text, icon: FolderSync, run: showSync });
+    if (app.sync.enabled && app.sync.unlocked) {
+      list.push({ id: "sync-now", label: t("syncNow"), icon: ArrowDownUp, run: () => (showSync(), syncNow()) });
     }
   }
   for (const project of app.workspace?.projects ?? []) {

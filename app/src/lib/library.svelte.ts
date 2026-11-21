@@ -44,7 +44,8 @@ type Panel =
   | null
   | { kind: "claude" }
   | { kind: "exported"; files: number; skippedLinks: string[] }
-  | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean };
+  | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean }
+  | { kind: "sync" };
 
 export const library = $state({
   /** Loaded once first shown, then kept mounted, like the Files view. */
