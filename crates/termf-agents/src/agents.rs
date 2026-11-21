@@ -197,7 +197,10 @@ impl Agents {
             if matches!(session.state, State::Working | State::Waiting) {
                 let _ = inner.write(entry, &inner.runtime.interrupt());
             }
-            if matches!(session.state, State::Working | State::Waiting | State::Idle) {
+            if matches!(
+                session.state,
+                State::Working | State::Waiting | State::Idle | State::Error
+            ) {
                 inner.set_state(&store, id, entry, State::Stopped)?;
             }
             let Some(process) = entry.process.as_mut() else {
