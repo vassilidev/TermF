@@ -41,6 +41,22 @@ pub enum Call {
         event: String,
         payload: Value,
     },
+    /// Starts a run on a ticket (its URL, `owner/repo#42`, `repo#42` or `#42`): a worktree and a Claude Code session.
+    Run {
+        ticket: String,
+        project: Option<String>,
+        /// A repository name or path, when the project has several.
+        repo: Option<String>,
+    },
+    /// Commits, pushes and opens the pull request of a run.
+    Deliver {
+        run: i64,
+    },
+    /// Removes a run's worktree; `force` drops the work that is not pushed.
+    Close {
+        run: i64,
+        force: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -483,6 +499,7 @@ mod tests {
                 session: "1".into(),
                 text: "rm -rf ~".into(),
             },
+            Call::Deliver { run: 1 },
             hook(2),
         ];
         let session = Access::Session(1);

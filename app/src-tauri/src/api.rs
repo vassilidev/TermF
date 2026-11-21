@@ -15,7 +15,7 @@ use termf_core::claude;
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
-use crate::AppState;
+use crate::{AppState, tickets};
 
 struct Meta {
     title: String,
@@ -244,8 +244,15 @@ fn random_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// What a ticket run adds to its Claude Code session: the project whose library applies, and the first message.
+pub struct RunSession<'a> {
+    pub project: &'a str,
+    pub prompt: &'a str,
+}
+
 /// Starts a session. A Claude Code agent gets an ephemeral plugin whose hooks report its status,
 /// and Remote Control when asked; other agents and shells get neither.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(
     state: &AppState,
     agent: Option<&str>,
@@ -254,6 +261,7 @@ pub fn spawn(
     cols: u16,
     rows: u16,
     remote_control: bool,
+    run: Option<RunSession>,
 ) -> Result<SessionSummary> {
     let command = match agent {
         Some(name) => {
@@ -294,7 +302,7 @@ pub fn spawn(
             if let Some(termf) = &hooks {
                 claude::write_plugin(&plugin, termf)?;
             }
-            let prompt = library(state, &cwd, dir);
+            let prompt = library(state, &cwd, dir, run.as_ref().map(|r| r.project));
             if plugin.is_dir() {
                 extra.push(format!(
                     "--plugin-dir {}",
@@ -310,6 +318,22 @@ pub fn spawn(
         }
         if remote_control {
             extra.push(format!("--remote-control {}", shell_quote(&title)));
+        }
+        if let Some(run) = &run {
+            // shortcut: cmd.exe ends a command at a line break, so on Windows the prompt is one line; spawn
+            // claude without cmd.exe to keep its lines.
+            let prompt = if cfg!(windows) {
+                run.prompt.replace(['\r', '\n'], " ")
+            } else {
+                run.prompt.to_owned()
+            };
+            // Before the variadic option, which would take it as a tool name.
+            extra.push(shell_quote(&prompt));
+            // TermF pushes, once the user delivers the run.
+            extra.push(format!(
+                "--disallowedTools {}",
+                shell_quote("Bash(git push:*)")
+            ));
         }
         let command = command.as_deref().map(|c| {
             if extra.is_empty() {
@@ -346,8 +370,8 @@ pub fn spawn(
 
 /// Writes the repository's library into the session folder and returns the system prompt file, if any.
 /// A library that cannot be read never keeps the agent from starting.
-fn library(state: &AppState, cwd: &Path, dir: &Path) -> Option<PathBuf> {
-    termf_library::Scope::new(&state.config_dir, Some(cwd), None)
+fn library(state: &AppState, cwd: &Path, dir: &Path, project: Option<&str>) -> Option<PathBuf> {
+    termf_library::Scope::new(&state.config_dir, Some(cwd), project.map(str::to_owned))
         .and_then(|scope| termf_library::materialize(&state.config_dir, &scope, dir))
         .unwrap_or_else(|e| {
             eprintln!("termf: library not loaded: {e:#}");
@@ -434,7 +458,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             }
             let name = cwd.file_name().unwrap_or(cwd.as_os_str()).to_string_lossy();
             let title = format!("{name} · {}", agent.as_deref().unwrap_or("shell"));
-            let session = spawn(state, agent.as_deref(), cwd, title, 120, 32, false)?;
+            let session = spawn(state, agent.as_deref(), cwd, title, 120, 32, false, None)?;
             state.keep_awake.update(app);
             app.emit("session-opened", &session)?;
             serde_json::to_value(session)?
@@ -456,6 +480,16 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             state.api.hook(app, session, &event, &payload);
             Value::Null
         }
+        Call::Run {
+            ticket,
+            project,
+            repo,
+        } => {
+            let run = tickets::start(app, &ticket, project.as_deref(), repo.as_deref(), 120, 32)?;
+            serde_json::to_value(run)?
+        }
+        Call::Deliver { run } => serde_json::to_value(tickets::deliver(app, run)?)?,
+        Call::Close { run, force } => serde_json::to_value(tickets::close(app, run, force)?)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }
