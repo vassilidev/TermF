@@ -23,6 +23,8 @@ pub struct SpawnSpec {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    /// Agent name the UI launched, `None` for a plain shell.
+    pub agent: Option<String>,
     pub cols: u16,
     pub rows: u16,
 }
@@ -33,6 +35,7 @@ pub struct SessionInfo {
     pub id: u32,
     pub title: String,
     pub cwd: String,
+    pub agent: Option<String>,
     pub running: bool,
     pub exit_code: Option<u32>,
 }
@@ -65,6 +68,7 @@ impl Shared {
 struct Session {
     title: String,
     cwd: PathBuf,
+    agent: Option<String>,
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
@@ -121,6 +125,7 @@ impl Sessions {
             Session {
                 title: spec.title,
                 cwd: spec.cwd,
+                agent: spec.agent,
                 master: pair.master,
                 writer: Arc::new(Mutex::new(writer)),
                 killer,
@@ -178,6 +183,7 @@ impl Sessions {
                     id: *id,
                     title: s.title.clone(),
                     cwd: s.cwd.to_string_lossy().into_owned(),
+                    agent: s.agent.clone(),
                     running: exit.is_none(),
                     exit_code: exit.flatten(),
                 }
@@ -256,6 +262,7 @@ mod tests {
             program: program.into(),
             args: args.iter().map(|a| a.to_string()).collect(),
             cwd: std::env::temp_dir(),
+            agent: None,
             cols: 80,
             rows: 24,
         }
@@ -271,6 +278,10 @@ mod tests {
         assert!(text.contains("hello"), "got {text:?}");
         assert_eq!(code, Some(3));
         assert!(!sessions.list()[0].running);
+        assert_eq!(
+            sessions.list()[0].cwd,
+            std::env::temp_dir().to_string_lossy()
+        );
     }
 
     #[test]

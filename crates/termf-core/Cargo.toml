@@ -9,3 +9,4 @@ anyhow = "1.0.104"
 dirs = "7.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.2"
+toml_edit = "0.25"

@@ -1,4 +1,6 @@
+mod config;
 mod files;
+mod quick_terminal;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,6 +15,7 @@ use termf_term::{Output, SessionInfo, Sessions, SpawnSpec, shell_command};
 struct AppState {
     config_dir: PathBuf,
     sessions: Sessions,
+    quick_terminal: quick_terminal::QuickTerminal,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -30,6 +33,7 @@ struct Workspace {
     projects: Vec<Project>,
     repos: Vec<Repo>,
     scan_truncated: bool,
+    quick_terminal_error: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -60,6 +64,7 @@ async fn workspace(
         projects,
         repos: discovery.repos,
         scan_truncated: discovery.truncated,
+        quick_terminal_error: state.quick_terminal.error.lock().unwrap().clone(),
     })
 }
 
@@ -94,6 +99,7 @@ fn pty_spawn(
             program,
             args,
             cwd: cwd.clone().into(),
+            agent: agent.clone(),
             cols,
             rows,
         })
@@ -102,6 +108,7 @@ fn pty_spawn(
         id,
         title,
         cwd,
+        agent,
         running: true,
         exit_code: None,
     })
@@ -149,7 +156,14 @@ fn pty_kill(state: State<AppState>, id: u32) -> CmdResult<()> {
 
 #[tauri::command]
 fn pty_list(state: State<AppState>) -> Vec<SessionInfo> {
-    state.sessions.list()
+    // The quick terminal has its own panel, never a tile.
+    let quick = *state.quick_terminal.session.lock().unwrap();
+    state
+        .sessions
+        .list()
+        .into_iter()
+        .filter(|s| Some(s.id) != quick)
+        .collect()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -159,8 +173,14 @@ pub fn run() {
         .manage(AppState {
             config_dir,
             sessions: Sessions::default(),
+            quick_terminal: Default::default(),
         })
         .manage(Arc::new(Files::default()))
+        .plugin(quick_terminal::plugin())
+        .setup(|app| {
+            quick_terminal::register(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             workspace,
             pty_spawn,
@@ -178,6 +198,12 @@ pub fn run() {
             files::files_write,
             files::files_head,
             files::files_open_external,
+            config::project_save,
+            config::project_delete,
+            config::layouts,
+            config::layout_save,
+            config::layout_delete,
+            quick_terminal::quick_terminal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
