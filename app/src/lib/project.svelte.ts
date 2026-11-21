@@ -1,6 +1,6 @@
 import { allRepos, currentProject, scopeRepos } from "$lib/files.svelte";
 import { projectsOf, tally, type Tally } from "$lib/nav-logic";
-import { app, launch, selected, type Repo, type Session } from "$lib/state.svelte";
+import { app, grid, launch, selected, type Repo, type Session } from "$lib/state.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 const projects = () => app.workspace?.projects ?? [];
@@ -9,9 +9,9 @@ export function sessionProjects(session: Session): string[] {
   return projectsOf(session.cwd, projects(), tickets.runs);
 }
 
-/** Whether the session's tile shows under the current project. */
+/** Whether the session's tile shows under the current project, or under every project's tiles. */
 export function shown(session: Session): boolean {
-  return app.project === null || sessionProjects(session).includes(app.project);
+  return grid.all || app.project === null || sessionProjects(session).includes(app.project);
 }
 
 /** Agent states per project id, "" outside every project, "*" for all. */

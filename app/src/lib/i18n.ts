@@ -1324,6 +1324,8 @@ const fr = {
   navWorking: "Au travail : {count}",
   navWaiting: "En attente : {count}",
   navFailed: "En erreur : {count}",
+  // UX pass 2 · T3: terminals.
+  terminalsShown: "Sessions affichées",
 };
 
 type Key = keyof typeof fr;
@@ -2641,6 +2643,8 @@ const en: Record<Key, string> = {
   navWorking: "Working: {count}",
   navWaiting: "Waiting: {count}",
   navFailed: "Failed: {count}",
+  // UX pass 2 · T3: terminals.
+  terminalsShown: "Sessions shown",
 };
 
 const messages = { fr, en };
