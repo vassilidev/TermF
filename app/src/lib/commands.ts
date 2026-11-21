@@ -199,7 +199,7 @@ export function commands(): Command[] {
         label: t("keepAwakeSet", { mode: t(label) }),
         icon: Coffee,
         checked: awake.mode === mode,
-        run: () => setKeepAwake(mode, awake.displayOn),
+        run: () => setKeepAwake(mode, awake.displayOn).then((error) => error && (app.error = error)),
       });
     }
   }
