@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { neighbour, tileTitle } from "../src/lib/tile-logic.ts";
+import { neighbour, tileName } from "../src/lib/tile-logic.ts";
 
-test("a tile title splits into the folder and the tool it was opened with", () => {
-  assert.deepEqual(tileTitle("api · claude", "claude"), { name: "api", tool: "claude" });
-  assert.deepEqual(tileTitle("web · dashboard · shell", "shell"), { name: "web · dashboard", tool: "shell" });
+test("a tile title loses the tool it was opened with", () => {
+  assert.equal(tileName("api · claude", "claude"), "api");
+  assert.equal(tileName("web · dashboard · shell", "shell"), "web · dashboard");
   // A ticket run's title, or one given by the CLI, stays whole.
-  assert.deepEqual(tileTitle("acme/api#42 · Fix login", "claude"), { name: "acme/api#42 · Fix login", tool: "claude" });
-  assert.deepEqual(tileTitle(" · claude", "claude"), { name: " · claude", tool: "claude" });
-  assert.deepEqual(tileTitle("api · claude", "codex"), { name: "api · claude", tool: "codex" });
+  assert.equal(tileName("acme/api#42 · Fix login", "claude"), "acme/api#42 · Fix login");
+  assert.equal(tileName(" · claude", "claude"), " · claude");
+  assert.equal(tileName("api · claude", "codex"), "api · claude");
 });
 
 test("closing a tile hands the keyboard to the next one, else the previous one", () => {

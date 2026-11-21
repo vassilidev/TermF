@@ -11,7 +11,7 @@
   import { focusSession, keys, toggleMaximize } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { shown } from "$lib/project.svelte";
-  import { neighbour, tileTitle } from "$lib/tile-logic";
+  import { neighbour, tileName } from "$lib/tile-logic";
   import { app, closeSession, grid, resetContext, ticked, type Session } from "$lib/state.svelte";
 
   /** `index`: among the tiles shown, -1 for a session of another project. */
@@ -19,7 +19,7 @@
 
   const isFocused = $derived(app.focused === session.id);
   const failed = $derived(!!session.exitCode);
-  const title = $derived(tileTitle(session.title, session.agent ?? t("shell")));
+  const name = $derived(tileName(session.title, session.agent ?? "shell"));
 
   async function close() {
     const next = neighbour(app.sessions.filter(shown).map((s) => s.id), session.id);
@@ -31,7 +31,7 @@
 <section
   class="tile"
   class:waiting={session.running && session.status === "waiting"}
-  class:ticked={grid.broadcast && ticked.has(session.id)}
+  class:ticked={ticked.has(session.id)}
   class:maximized={isFocused}
   data-session={session.id}
   hidden={index < 0 || (app.focused !== null && !isFocused)}
@@ -61,7 +61,7 @@
     {#if session.role}
       <span class="role"><UserRound size={12} aria-hidden="true" />{session.role}</span>
     {/if}
-    <span class="title" title={session.cwd}><b>{title.name}</b><span class="tool">{title.tool}</span></span>
+    <span class="title" title={session.cwd}><b>{name}</b><span class="tool">{session.agent ?? t("shell")}</span></span>
     {#if session.context && session.running}<ContextGauge gauge={session.context} />{/if}
     {#if session.remoteControl}
       <span class="rc" role="img" aria-label={t("remoteControlOn")} title={t("remoteControlOn")}>

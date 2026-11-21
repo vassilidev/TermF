@@ -1,10 +1,9 @@
 // No imports, so `pnpm test` runs it in plain Node.
 
-/** "api · claude" opened with claude → api and claude; a title that does not end with its tool stays whole. */
-export function tileTitle(title: string, tool: string): { name: string; tool: string } {
+/** "api · claude" opened with claude → api; a title that does not end with its tool stays whole. */
+export function tileName(title: string, tool: string): string {
   const suffix = ` · ${tool}`;
-  const named = title.endsWith(suffix) && title.length > suffix.length;
-  return { name: named ? title.slice(0, -suffix.length) : title, tool };
+  return title.endsWith(suffix) && title.length > suffix.length ? title.slice(0, -suffix.length) : title;
 }
 
 /** The tile that takes the keyboard once `id` closes: the next one shown, else the previous one. */

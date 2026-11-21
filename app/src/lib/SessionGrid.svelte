@@ -36,6 +36,11 @@
     if (!ids.size) ui.launcher = grid.broadcast = false;
   });
 
+  // Leaving the broadcast mode forgets its recipients.
+  $effect(() => {
+    if (!grid.broadcast) untrack(() => ticked.clear());
+  });
+
   // The launcher was opened, and every project's tiles asked for, under the previous project.
   $effect(() => {
     void app.project;
@@ -65,7 +70,7 @@
       </div>
     {/if}
     {#snippet actions()}
-      {#if !firstRun}<Layouts />{/if}
+      {#if !firstRun || app.layouts.length}<Layouts />{/if}
       {#if visible.length}
         <button
           bind:this={broadcast}

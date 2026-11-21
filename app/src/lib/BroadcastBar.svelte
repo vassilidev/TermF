@@ -3,12 +3,11 @@
   import Megaphone from "@lucide/svelte/icons/megaphone";
   import { t } from "$lib/i18n";
   import { shown } from "$lib/project.svelte";
-  import { app, ticked } from "$lib/state.svelte";
+  import { app, grid, ticked } from "$lib/state.svelte";
 
   /** `onexit`: Escape in the message leaves the broadcast mode. */
   let { onexit }: { onexit: () => void } = $props();
 
-  let text = $state("");
   let input = $state<HTMLInputElement>();
   // Turning the mode on is asking to type the message.
   $effect(() => input?.focus());
@@ -19,10 +18,10 @@
   const write = (id: number, data: string) => invoke("pty_write", { id, data }).catch(() => {});
 
   async function send() {
-    if (!text || !targets.length) return;
+    if (!grid.draft || !targets.length) return;
     const ids = targets.map((s) => s.id);
-    const data = text;
-    text = "";
+    const data = grid.draft;
+    grid.draft = "";
     await Promise.all(ids.map((id) => write(id, data)));
     // Agent TUIs treat text and Enter arriving in one chunk as a paste, so Enter goes on its own.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -31,7 +30,7 @@
 
   // Capture phase, so a focused terminal does not also receive the keystroke; with nothing to send it gets it.
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) && text && targets.length) {
+    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) && grid.draft && targets.length) {
       e.preventDefault();
       e.stopPropagation();
       send();
@@ -63,7 +62,7 @@
     <input
       class="field"
       bind:this={input}
-      bind:value={text}
+      bind:value={grid.draft}
       onkeydown={(e) => e.key === "Escape" && (e.preventDefault(), onexit())}
       placeholder={t("broadcastPlaceholder")}
       aria-label={t("broadcastPlaceholder")}
@@ -73,8 +72,8 @@
   <button
     type="submit"
     class="btn"
-    class:primary={!!text && targets.length > 0}
-    disabled={!text || !targets.length}
+    class:primary={!!grid.draft && targets.length > 0}
+    disabled={!grid.draft || !targets.length}
     title={keys}
     aria-keyshortcuts="Meta+Shift+Enter Control+Shift+Enter"
   >

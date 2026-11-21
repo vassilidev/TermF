@@ -120,8 +120,17 @@ export const selected = new SvelteSet<string>();
 /** Ids of the sessions ticked for broadcast. */
 export const ticked = new SvelteSet<number>();
 
-/** Terminals: `all` shows every project's tiles under the current project; `broadcast` shows the ticks and the bar. */
-export const grid = $state({ all: false, broadcast: false });
+/**
+ * Terminals: `all` shows every project's tiles under the current project; `broadcast` shows the ticks and the bar,
+ * whose unsent message is `draft`.
+ */
+export const grid = $state({ all: false, broadcast: false, draft: "" });
+
+/** A session opened outside the current project would get a hidden tile: show every project's tiles instead. */
+function reveal(path: string) {
+  const projects = projectsOf(path, app.workspace?.projects ?? [], tickets.runs);
+  if (app.project !== null && !projects.includes(app.project)) grid.all = true;
+}
 
 export async function load() {
   try {
@@ -160,12 +169,16 @@ export function init(): () => void {
       session.running = false;
       session.exitCode = payload.exitCode;
     }
+    ticked.delete(payload.id);
   });
   const unlistenStatus = listen<{ id: number; status: Status }>("session-status", ({ payload }) =>
     updateStatus(payload.id, payload.status),
   );
   const unlistenOpened = listen<Session>("session-opened", ({ payload }) => {
-    if (!app.sessions.some((s) => s.id === payload.id)) app.sessions.push(payload);
+    if (!app.sessions.some((s) => s.id === payload.id)) {
+      app.sessions.push(payload);
+      reveal(payload.cwd);
+    }
   });
   invoke<ContextSettings>("context_settings").then((s) => { app.contextSettings = s; }, () => {});
   const unlistenContext = listen<{ id: number; context: Gauge }>("session-context", ({ payload }) => {
@@ -247,28 +260,33 @@ export async function setKeepAwake(mode: KeepAwakeMode, displayOn: boolean): Pro
   }
 }
 
-/** Opens `agent` (or a login shell when null) in each repository. */
-export async function openRepos(paths: string[], agent: string | null) {
-  for (const path of paths) await openSession(path, agent);
+/** Opens `agent` (or a login shell when null) in each repository. Returns the ids of the sessions opened. */
+export async function openRepos(paths: string[], agent: string | null): Promise<number[]> {
+  const ids = [];
+  for (const path of paths) {
+    const id = await openSession(path, agent);
+    if (id !== null) ids.push(id);
+  }
+  return ids;
 }
 
-export async function openSession(path: string, agent: string | null) {
+/** Returns the session's id, null when it could not open. */
+export async function openSession(path: string, agent: string | null): Promise<number | null> {
   try {
-    app.sessions.push(
-      await invoke<Session>("pty_spawn", {
-        agent,
-        cwd: path,
-        title: `${repoName(path)} · ${agent ?? "shell"}`,
-        cols: 120,
-        rows: 32,
-        remoteControl: launch.remoteControl,
-      }),
-    );
-    // A session opened outside the current project would get a hidden tile: show every project's tiles instead.
-    const projects = projectsOf(path, app.workspace?.projects ?? [], tickets.runs);
-    if (app.project !== null && !projects.includes(app.project)) grid.all = true;
+    const session = await invoke<Session>("pty_spawn", {
+      agent,
+      cwd: path,
+      title: `${repoName(path)} · ${agent ?? "shell"}`,
+      cols: 120,
+      rows: 32,
+      remoteControl: launch.remoteControl,
+    });
+    app.sessions.push(session);
+    reveal(path);
+    return session.id;
   } catch (e) {
     app.error = String(e);
+    return null;
   }
 }
 

@@ -39,12 +39,10 @@
 
   async function open() {
     const paths = launchable();
-    const before = app.sessions.length;
     onopen?.();
-    await openRepos(paths, agent);
     // The keyboard goes to the last tile opened, ready to type.
-    const last = app.sessions.at(-1);
-    if (last && app.sessions.length > before) focusSession(last.id);
+    const last = (await openRepos(paths, agent)).at(-1);
+    if (last !== undefined) focusSession(last);
   }
 </script>
 
