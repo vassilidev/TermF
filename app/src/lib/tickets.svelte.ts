@@ -62,6 +62,8 @@ export const tickets = $state({
   runs: [] as Run[],
   /** The run shown in the detail pane, by id. */
   selected: null as number | null,
+  /** Run → its session, for the runs launched from this window: session ids start over with the app. */
+  sessions: {} as Record<number, number>,
   /** Asks the paste field for the keyboard. */
   paste: false,
   error: "",
@@ -83,17 +85,20 @@ export function refresh() {
   return Promise.all([loadInbox(), loadRuns()]);
 }
 
+let inboxRequest = 0;
+
+/** Only the latest request updates the inbox: an older answer may come last. */
 export async function loadInbox() {
-  const scope = tickets.scope;
+  const request = ++inboxRequest;
   tickets.inboxError = "";
   tickets.loading = true;
   try {
-    const list = await invoke<TicketSummary[]>("tickets_inbox", { project: scope || null });
-    if (scope === tickets.scope) tickets.inbox = list;
+    const list = await invoke<TicketSummary[]>("tickets_inbox", { project: tickets.scope || null });
+    if (request === inboxRequest) tickets.inbox = list;
   } catch (e) {
-    if (scope === tickets.scope) tickets.inboxError = String(e);
+    if (request === inboxRequest) tickets.inboxError = String(e);
   } finally {
-    if (scope === tickets.scope) tickets.loading = false;
+    if (request === inboxRequest) tickets.loading = false;
   }
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import Info from "@lucide/svelte/icons/info";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
@@ -25,6 +26,12 @@
   let sort = $state<"recent" | "name">("recent");
   let creating = $state(false);
   const agent = $derived(launchAgent());
+
+  // The editor can be opened from elsewhere (the Tickets view): bring it into sight once its section is open.
+  $effect(() => {
+    if (!ui.editing) return;
+    tick().then(() => document.querySelector<HTMLInputElement>(".sidebar form.editor input")?.focus());
+  });
 
   const visibleRepos = $derived.by(() => {
     const query = filter.toLowerCase();
@@ -60,7 +67,7 @@
     {/if}
 
     <div class="sections">
-      <Section id="projects" title={t("projects")} count={app.workspace.projects.length}>
+      <Section id="projects" title={t("projects")} count={app.workspace.projects.length} expand={ui.editing !== null}>
         {#snippet actions()}
           <button
             class="icon-btn sm"

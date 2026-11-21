@@ -2,11 +2,13 @@
   import { invoke } from "@tauri-apps/api/core";
   import { focusSession } from "$lib/commands";
   import { app, type Session } from "$lib/state.svelte";
-  import type { Run } from "$lib/tickets.svelte";
+  import { tickets, type Run } from "$lib/tickets.svelte";
 
-  /** A run's session is the one opened in its worktree. */
   export function runSession(run: Run): Session | undefined {
-    return app.sessions.find((s) => s.running && s.cwd === run.worktree);
+    const id = tickets.sessions[run.id];
+    if (id !== undefined) return app.sessions.find((s) => s.id === id && s.running);
+    // shortcut: a run launched elsewhere (CLI, earlier launch) is found by its folder, among Claude Code sessions only; use Run's session once phase3/ticket-sources gives it.
+    return app.sessions.find((s) => s.running && s.context && s.cwd === run.worktree);
   }
 
   /** Shows the run's tile. `session-opened` may come after the answer that started the run: then the list is asked. */
@@ -33,14 +35,14 @@
   import RunStatus from "$lib/RunStatus.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { repoName, shortPath } from "$lib/state.svelte";
-  import { tickets, upsert, type Delivery, type DeliveryPreview, type RunEvent } from "$lib/tickets.svelte";
+  import { upsert, type Delivery, type DeliveryPreview, type RunEvent } from "$lib/tickets.svelte";
 
   let { run }: { run: Run } = $props();
 
   type Step =
     | null
     | { kind: "preview"; preview: DeliveryPreview }
-    | { kind: "delivered"; warning: string | null }
+    | { kind: "delivered"; warning: string | null; again: boolean }
     | { kind: "close" }
     | { kind: "refused"; detail: string }
     | { kind: "force" };
@@ -55,11 +57,19 @@
   const open = $derived(run.status === "running" || run.status === "delivered");
   const project = $derived(app.workspace?.projects.find((p) => p.id === run.project)?.name ?? run.project);
 
+  let eventsRequest = 0;
+
+  // Only the latest request fills the log: an older answer may come last.
   $effect(() => {
     void run.updated;
+    const request = ++eventsRequest;
     invoke<RunEvent[]>("tickets_events", { id: run.id }).then(
-      (list) => (events = list),
-      (e) => (tickets.error = String(e)),
+      (list) => {
+        if (request === eventsRequest) events = list;
+      },
+      (e) => {
+        if (request === eventsRequest) tickets.error = String(e);
+      },
     );
   });
 
@@ -114,9 +124,10 @@
 
   const deliver = (preview: DeliveryPreview) =>
     act("deliver", async () => {
+      const again = !!run.prUrl;
       const delivery = await invoke<Delivery>("tickets_deliver", { id: run.id, confirm: preview.fingerprint });
       upsert(delivery.run);
-      step = { kind: "delivered", warning: delivery.warning };
+      step = { kind: "delivered", warning: delivery.warning, again };
     });
 
   const close = (force: boolean) =>
@@ -125,7 +136,7 @@
         upsert(await invoke<Run>("tickets_close", { id: run.id, force }));
       } catch (e) {
         const error = String(e);
-        // shortcut: the refusal is told apart by the backend's English message, until it gives a structured one.
+        // shortcut: the refusal is told apart by the backend's English message, until phase3/ticket-sources gives a structured one.
         if (force || !error.includes("not pushed")) throw e;
         step = { kind: "refused", detail: error };
         return;
@@ -244,7 +255,7 @@
   </section>
 {:else if step?.kind === "delivered"}
   <section class="ask done" role="status">
-    <p class="ok"><Check size={14} aria-hidden="true" />{t("delivered")}</p>
+    <p class="ok"><Check size={14} aria-hidden="true" />{t(step.again ? "deliveredAgain" : "delivered")}</p>
     {#if run.prUrl}{@render link(run.prUrl)}{/if}
     {#if step.warning}
       <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{step.warning}</p>

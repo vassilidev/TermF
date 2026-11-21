@@ -23,6 +23,7 @@
     upsert,
     type Resolution,
     type Run,
+    type RunEvent,
     type TicketSummary,
   } from "$lib/tickets.svelte";
 
@@ -36,6 +37,7 @@
   const projects = $derived(app.workspace?.projects ?? []);
   const project = $derived(projects.find((p) => p.id === tickets.scope));
   const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
+  const providers: Record<string, Parameters<typeof t>[0]> = { github: "providerGithub" };
   const runs = $derived(tickets.scope ? tickets.runs.filter((r) => r.project === tickets.scope) : tickets.runs);
   const current = $derived(runs.find((r) => r.id === tickets.selected) ?? runs[0]);
 
@@ -98,6 +100,9 @@
         rows: 32,
       });
       upsert(run);
+      // The run's log names the session it just opened: its id holds for this launch of the app.
+      const events = await invoke<RunEvent[]>("tickets_events", { id: run.id }).catch(() => []);
+      for (const e of events) if (e.kind === "session_opened") tickets.sessions[run.id] = e.session;
       if (pending?.from === "paste") input = "";
       pending = null;
       Object.assign(tickets, { tab: "runs", selected: run.id });
@@ -246,15 +251,6 @@
         <p class="loading muted" role="status">
           <LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ticketsLoading")}
         </p>
-      {:else if !tickets.inbox.length && project && !project.repos.length}
-        <div class="empty">
-          <Inbox size={20} aria-hidden="true" />
-          <h2>{t("ticketsNoSource", { project: project.name })}</h2>
-          <p>{t("ticketsNoSourceHelp")}</p>
-          <button class="btn primary" onclick={() => (ui.editing = project.id)}>
-            <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
-          </button>
-        </div>
       {:else if !tickets.inbox.length}
         <div class="empty">
           <Inbox size={20} aria-hidden="true" />
@@ -273,7 +269,9 @@
               <div class="what">
                 <span class="name">{ticket.title}</span>
                 <span class="desc">
-                  <span class="mono">{ticket.key}</span> · {ticket.provider === "github" ? "GitHub" : ticket.provider}
+                  <span class="mono">{ticket.key}</span> · {ticket.provider in providers
+                    ? t(providers[ticket.provider])
+                    : ticket.provider}
                   · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
                   {#if !tickets.scope && ticket.project} · {projectName(ticket.project)}{/if}
                 </span>
