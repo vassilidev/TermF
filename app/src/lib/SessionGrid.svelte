@@ -10,29 +10,40 @@
   import QuickTerminal from "$lib/QuickTerminal.svelte";
   import SessionLauncher from "$lib/SessionLauncher.svelte";
   import SessionTile from "$lib/SessionTile.svelte";
+  import TerminalTabs from "$lib/TerminalTabs.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { keys } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { allRepos, currentProject } from "$lib/files.svelte";
-  import { aria } from "$lib/keymap.svelte";
+  import { aria, display } from "$lib/keymap.svelte";
   import { shown, tallies } from "$lib/project.svelte";
-  import { app, grid, load, openLayout, ticked, ui } from "$lib/state.svelte";
+  import { dividers, rects, resizeAt, type Divider } from "$lib/split-logic";
+  import { currentTab, openLayout, reconcile, tabOf } from "$lib/tabs.svelte";
+  import { app, grid, load, ticked, ui } from "$lib/state.svelte";
 
   let launcher = $state<HTMLButtonElement>();
   let broadcast = $state<HTMLButtonElement>();
+  let panes = $state<HTMLElement>();
   const visible = $derived(app.sessions.filter(shown));
   const project = $derived(currentProject());
   const counts = $derived(tallies());
-  const cols = $derived(Math.max(1, Math.ceil(Math.sqrt(app.focused === null ? visible.length : 1))));
+  const tab = $derived(currentTab());
+  const placed = $derived(tab ? (tab.zoom ? new Map([[tab.active, { x: 0, y: 0, w: 1, h: 1 }]]) : rects(tab.root)) : new Map());
+  const borders = $derived(tab && !tab.zoom ? dividers(tab.root) : []);
   const firstRun = $derived(app.workspace !== null && !allRepos().length);
 
-  // Tiles another project hides: none stays maximized or ticked for broadcast, and no launcher or broadcast mode
-  // stays without its button.
+  // Every session in one tab, whoever opened it.
+  $effect(() => {
+    void app.sessions.map((s) => s.id);
+    untrack(reconcile);
+  });
+
+  // Tiles another project hides: none stays ticked for broadcast, and no launcher or broadcast mode stays without its
+  // button.
   $effect(() => {
     const ids = new Set(visible.map((s) => s.id));
-    if (app.focused !== null && !ids.has(app.focused)) app.focused = null;
     untrack(() => ticked.forEach((id) => !ids.has(id) && ticked.delete(id)));
     if (!ids.size) ui.launcher = grid.broadcast = false;
   });
@@ -53,10 +64,36 @@
     [keys.next, t("nextWaiting")],
     [keys.switcher, t("navSwitchProject")],
     [keys.launcher, t("navNewSession")],
-    [`${keys.tile(1)}…9`, t("focusTiles")],
+    [display("split_right"), t("t6aSplitRight")],
+    [display("split_down"), t("t6aSplitDown")],
+    [`${keys.tile(1)}…9`, t("t6aTab")],
     [keys.maximize, t("maximizeActive")],
     [keys.quick, t("quickTerminal")],
   ]);
+
+  /** Drags a border between splits; it follows the pointer from where it started, within the splits' minimum. */
+  function drag(e: PointerEvent, d: Divider) {
+    const target = tab;
+    if (!target || !panes || e.button !== 0) return;
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    const start = target.root;
+    const from = d.dir === "row" ? e.clientX : e.clientY;
+    const size = d.dir === "row" ? panes.clientWidth * d.box.w : panes.clientHeight * d.box.h;
+    const move = (m: PointerEvent) => {
+      target.root = resizeAt(start, d.path, d.i, ((d.dir === "row" ? m.clientX : m.clientY) - from) / size);
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  }
+
+  const pct = (n: number) => `${n * 100}%`;
 </script>
 
 <main class="main">
@@ -100,10 +137,29 @@
   </Popover>
   <div class="body">
     <QuickTerminal />
-    <!-- Every tile stays mounted, those of other projects hidden: their terminals keep running and their scrollback. -->
-    <div class="grid" style:--cols={cols} hidden={!visible.length}>
+    {#if visible.length}<TerminalTabs />{/if}
+    <!-- Every split stays mounted, in one place, those of other tabs hidden: their terminals keep running and their
+         scrollback, and moving a split only moves its box. -->
+    <div class="panes" bind:this={panes} hidden={!visible.length}>
       {#each app.sessions as session (session.id)}
-        <SessionTile {session} index={visible.indexOf(session)} />
+        <SessionTile
+          {session}
+          rect={placed.get(session.id)}
+          zoomed={!!tab?.zoom && tab.active === session.id}
+          alone={typeof tabOf(session.id)?.root !== "object"}
+        />
+      {/each}
+      {#each borders as d (`${d.path.join(".")}:${d.i}`)}
+        <!-- svelte-ignore a11y_no_static_element_interactions (the keyboard resizes with its shortcuts) -->
+        <div
+          class="divider {d.dir}"
+          title={t("t6aResizeHandle")}
+          style:left={d.dir === "row" ? `calc(${pct(d.at)} - 4px)` : `calc(${pct(d.box.x)} + 4px)`}
+          style:top={d.dir === "row" ? `calc(${pct(d.box.y)} + 4px)` : `calc(${pct(d.at)} - 4px)`}
+          style:width={d.dir === "row" ? "8px" : `calc(${pct(d.box.w)} - 8px)`}
+          style:height={d.dir === "row" ? `calc(${pct(d.box.h)} - 8px)` : "8px"}
+          onpointerdown={(e) => drag(e, d)}
+        ></div>
       {/each}
     </div>
     {#if visible.length}
@@ -154,19 +210,43 @@
     flex: 1;
   }
 
-  .grid {
+  .panes {
+    position: relative;
     flex: 1;
-    display: grid;
-    grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
-    grid-auto-rows: minmax(0, 1fr);
-    gap: 8px;
-    padding: 8px;
     min-height: 0;
+    margin: 4px;
     overflow: hidden;
   }
 
-  .grid[hidden] {
+  .panes[hidden] {
     display: none;
+  }
+
+  .divider {
+    position: absolute;
+    z-index: 1;
+    touch-action: none;
+  }
+
+  .divider.row {
+    cursor: col-resize;
+  }
+
+  .divider.col {
+    cursor: row-resize;
+  }
+
+  .divider::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: 1px;
+    transition: background var(--dur-fast) ease-out;
+  }
+
+  .divider:hover::after,
+  .divider:active::after {
+    background: var(--accent);
   }
 
   .toggle[aria-pressed="true"] {

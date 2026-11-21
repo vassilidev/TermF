@@ -176,11 +176,71 @@ fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
         .collect()
 }
 
+/// Tauri's default macOS menu without Close Window, whose ⌘W would never reach the webview: there it closes a split.
+#[cfg(target_os = "macos")]
+fn app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem as Item, Submenu, WINDOW_SUBMENU_ID};
+    let info = app.package_info();
+    let about = AboutMetadata {
+        name: Some(info.name.clone()),
+        version: Some(info.version.to_string()),
+        copyright: app.config().bundle.copyright.clone(),
+        authors: app.config().bundle.publisher.clone().map(|p| vec![p]),
+        ..Default::default()
+    };
+    let separator = || Item::separator(app);
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                &info.name,
+                true,
+                &[
+                    &Item::about(app, None, Some(about))?,
+                    &separator()?,
+                    &Item::services(app, None)?,
+                    &separator()?,
+                    &Item::hide(app, None)?,
+                    &Item::hide_others(app, None)?,
+                    &separator()?,
+                    &Item::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &Item::undo(app, None)?,
+                    &Item::redo(app, None)?,
+                    &separator()?,
+                    &Item::cut(app, None)?,
+                    &Item::copy(app, None)?,
+                    &Item::paste(app, None)?,
+                    &Item::select_all(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(app, "View", true, &[&Item::fullscreen(app, None)?])?,
+            &Submenu::with_id_and_items(
+                app,
+                WINDOW_SUBMENU_ID,
+                "Window",
+                true,
+                &[&Item::minimize(app, None)?, &Item::maximize(app, None)?],
+            )?,
+        ],
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config_dir = termf_core::default_config_dir().expect("cannot locate the config directory");
     let data_dir = termf_core::default_data_dir().expect("cannot locate the data directory");
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu);
+    builder
         // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {

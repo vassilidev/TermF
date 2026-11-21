@@ -1,21 +1,42 @@
 <script lang="ts">
+  import AppWindow from "@lucide/svelte/icons/app-window";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Columns2 from "@lucide/svelte/icons/columns-2";
+  import Equal from "@lucide/svelte/icons/equal";
+  import Grid2x2 from "@lucide/svelte/icons/grid-2x2";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import LayoutPanelLeft from "@lucide/svelte/icons/layout-panel-left";
   import X from "@lucide/svelte/icons/x";
   import Popover from "$lib/ui/Popover.svelte";
   import { t } from "$lib/i18n";
+  import { display } from "$lib/keymap.svelte";
   import { shown } from "$lib/project.svelte";
-  import { app, callLayouts, openLayout } from "$lib/state.svelte";
+  import { leaves } from "$lib/split-logic";
+  import { arrange, currentTab, equalize, layoutOf, openLayout, type Arrangement } from "$lib/tabs.svelte";
+  import { app, callLayouts } from "$lib/state.svelte";
 
   let trigger = $state<HTMLButtonElement>();
   let open = $state(false);
   let name = $state("");
 
-  /** The layout on screen: the tiles of the current project. */
+  const tab = $derived(currentTab());
+  const arrangements = [
+    ["tabs", "t6aOnePerTab", AppWindow],
+    ["row", "t6aSideBySide", Columns2],
+    ["two", "t6aTwoByTwo", Grid2x2],
+    ["grid", "t6aAutoGrid", LayoutGrid],
+    ["focus", "t6aFocusLayout", LayoutPanelLeft],
+  ] as const;
+
+  /** The layout on screen: the tabs of the current project and their splits. */
   async function save(e: SubmitEvent) {
     e.preventDefault();
-    const sessions = app.sessions.filter(shown).map((s) => ({ path: s.cwd, agent: s.agent }));
-    if (await callLayouts("layout_save", { layout: { name, sessions } })) name = "";
+    if (await callLayouts("layout_save", { layout: layoutOf(name) })) name = "";
+  }
+
+  function lay(how: Arrangement) {
+    open = false;
+    arrange(how);
   }
 </script>
 
@@ -24,6 +45,27 @@
 </button>
 
 <Popover bind:open {trigger} label={t("layouts")} align="end" width={300}>
+  {#if tab && leaves(tab.root).length > 1}
+    <h3>{t("t6aArrange")}</h3>
+    <ul class="arrange">
+      {#each arrangements as [how, label, Icon] (how)}
+        <li class="item">
+          <button class="row" onclick={() => lay(how)}>
+            <Icon size={14} aria-hidden="true" />
+            <span class="name">{t(label)}</span>
+          </button>
+        </li>
+      {/each}
+      <li class="item">
+        <button class="row" onclick={() => ((open = false), equalize())}>
+          <Equal size={14} aria-hidden="true" />
+          <span class="name">{t("t6aEqualize")}</span>
+          {#if display("equalize_splits")}<kbd>{display("equalize_splits")}</kbd>{/if}
+        </button>
+      </li>
+    </ul>
+    <h3>{t("t6aSaved")}</h3>
+  {/if}
   <ul>
     {#each app.layouts as layout (layout.name)}
       <li class="item">
@@ -62,6 +104,20 @@
     margin: 0;
     padding: 6px;
     list-style: none;
+  }
+
+  .arrange {
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 {
+    margin: 0;
+    padding: 10px 14px 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
   .item {

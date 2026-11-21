@@ -6,6 +6,8 @@ import BellRing from "@lucide/svelte/icons/bell-ring";
 import Images from "@lucide/svelte/icons/images";
 import Keyboard from "@lucide/svelte/icons/keyboard";
 import Coffee from "@lucide/svelte/icons/coffee";
+import Columns2 from "@lucide/svelte/icons/columns-2";
+import Equal from "@lucide/svelte/icons/equal";
 import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
 import FileUp from "@lucide/svelte/icons/file-up";
@@ -21,6 +23,7 @@ import Play from "@lucide/svelte/icons/play";
 import Plus from "@lucide/svelte/icons/plus";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+import Rows2 from "@lucide/svelte/icons/rows-2";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Telescope from "@lucide/svelte/icons/telescope";
@@ -32,18 +35,19 @@ import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
 import { allRepos, files, scopeRepos, showFiles } from "$lib/files.svelte";
-import { keys, pressed } from "$lib/keymap.svelte";
+import { display, keys, pressed } from "$lib/keymap.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { type Command } from "$lib/nav-logic";
 import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { openSetup } from "$lib/onboarding.svelte";
+import type { Side } from "$lib/split-logic";
+import * as tabs from "$lib/tabs.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
 import {
   app,
   grid,
+  launch,
   load,
-  openLayout,
-  openRepos,
   openSession,
   resetContext,
   setKeepAwake,
@@ -63,18 +67,18 @@ import { views } from "$lib/views";
 export { rank, type Command } from "$lib/nav-logic";
 export { keys } from "$lib/keymap.svelte";
 
-/** The session whose tile holds the keyboard focus, else the maximized one. */
+/** The session whose split holds the keyboard focus, else the current tab's active one. */
 function activeSession(): number | null {
   const tile = document.activeElement?.closest<HTMLElement>("[data-session]");
-  return tile ? Number(tile.dataset.session) : app.focused;
+  return tile ? Number(tile.dataset.session) : (tabs.currentTab()?.active ?? null);
 }
 
-/** Shows a session's tile (switching the maximized one, or the project, if needed) and gives its terminal the keyboard. */
+/** Shows a session's split (switching the tab or the project if needed) and gives its terminal the keyboard. */
 export async function focusSession(id: number) {
   const session = app.sessions.find((s) => s.id === id);
   if (session && !shown(session)) setProject(sessionProjects(session)[0] ?? null);
   ui.view = "terminals";
-  if (app.focused !== null) app.focused = id;
+  tabs.showSession(id);
   await tick();
   await fontReady;
   document
@@ -92,24 +96,49 @@ export function nextWaiting() {
 
 export function toggleMaximize(id = activeSession()) {
   if (id === null) return;
-  app.focused = app.focused === id ? null : id;
+  tabs.toggleZoom(id);
   focusSession(id);
 }
 
-/** In Terminals: the launcher of the header, or the one in place of the empty grid. */
-export async function openLauncher() {
+/** Closes a split, asking first while its session runs, and hands the keyboard to the next one. */
+export async function closeSplit(id = activeSession(), sure = false) {
+  if (id === null) return;
+  const next = await tabs.close(id, sure);
+  if (next !== null) focusSession(next);
+}
+
+/**
+ * In Terminals: the launcher of the header, or the one in place of the empty grid. `side`: what it opens goes beside
+ * the active split instead of in a new tab.
+ */
+export async function openLauncher(side: Side | null = null) {
+  const same = ui.launcher && launch.side === side;
   ui.view = "terminals";
+  launch.side = side;
   await tick();
   const inline = document.querySelector<HTMLInputElement>(".empty .launcher input");
   if (inline) inline.focus();
-  else if (app.sessions.some(shown)) ui.launcher = !ui.launcher;
+  else if (app.sessions.some(shown)) ui.launcher = !same;
+}
+
+const goTo = (tab: tabs.Tab | undefined) => tab && focusSession(tab.active);
+
+function moveFocus(side: Side) {
+  const id = activeSession();
+  const next = id === null ? null : tabs.neighbourOf(id, side);
+  if (next !== null) focusSession(next);
+}
+
+function resize(side: Side) {
+  const id = activeSession();
+  if (id !== null) tabs.resizeSplit(id, side);
 }
 
 /** App-wide shortcuts, in the capture phase so a focused terminal does not also get them. */
 export function onShortcut(e: KeyboardEvent) {
-  const tiles = app.sessions.filter(shown);
+  const shownTabs = tabs.visibleTabs();
   const projects = app.workspace?.projects ?? [];
-  const asked = pressed(e, { tile: tiles.length, project: projects.length });
+  const asked = pressed(e, { tile: shownTabs.length, project: projects.length });
   if (!asked || (ui.palette && asked.id !== "palette" && asked.id !== "quick_terminal")) return;
   const n = asked.n ?? 0;
   const actions: Record<string, () => void> = {
@@ -118,10 +147,24 @@ export function onShortcut(e: KeyboardEvent) {
     next_waiting: nextWaiting,
     launch_ticket: launchTicket,
     switch_project: () => (ui.switcher = !ui.switcher),
-    new_session: openLauncher,
+    new_session: () => openLauncher(),
     maximize: () => toggleMaximize(),
-    tile: () => focusSession(tiles[n - 1].id),
+    tile: () => goTo(shownTabs[n - 1]),
     project: () => setProject(projects[n - 1].id),
+    prev_tab: () => goTo(tabs.stepTab(-1)),
+    next_tab: () => goTo(tabs.stepTab(1)),
+    split_right: () => openLauncher("right"),
+    split_down: () => openLauncher("down"),
+    close_split: () => closeSplit(),
+    equalize_splits: () => tabs.equalize(),
+    focus_left: () => moveFocus("left"),
+    focus_right: () => moveFocus("right"),
+    focus_up: () => moveFocus("up"),
+    focus_down: () => moveFocus("down"),
+    resize_left: () => resize("left"),
+    resize_right: () => resize("right"),
+    resize_up: () => resize("up"),
+    resize_down: () => resize("down"),
   };
   const action = actions[asked.id];
   if (!action) return;
@@ -173,9 +216,10 @@ export function commands(): Command[] {
         run: () => {
           setProject(project.id);
           ui.view = "terminals";
-          openRepos(
+          tabs.openFrom(
             project.repos.map((r) => r.path),
             agent,
+            null,
           );
         },
       });
@@ -204,8 +248,10 @@ export function commands(): Command[] {
     list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, group: "sessions", run: nextWaiting });
   }
   const visible = app.sessions.filter(shown);
+  const shownTabs = tabs.visibleTabs();
   for (const s of app.sessions) {
-    const i = visible.indexOf(s);
+    const tab = tabs.tabOf(s.id);
+    const i = tab ? shownTabs.indexOf(tab) : -1;
     list.push({
       id: `session-${s.id}`,
       label: s.title,
@@ -224,6 +270,27 @@ export function commands(): Command[] {
       icon: Maximize2,
       group: "sessions",
       run: () => toggleMaximize(),
+    });
+    for (const [side, label, icon] of [
+      ["right", "t6aSplitRight", Columns2],
+      ["down", "t6aSplitDown", Rows2],
+    ] as const) {
+      list.push({
+        id: `split-${side}`,
+        label: t(label),
+        keys: display(`split_${side}`),
+        icon,
+        group: "sessions",
+        run: () => openLauncher(side),
+      });
+    }
+    list.push({
+      id: "equalize",
+      label: t("t6aEqualize"),
+      keys: display("equalize_splits"),
+      icon: Equal,
+      group: "sessions",
+      run: () => tabs.equalize(),
     });
     list.push({
       id: "broadcast",
@@ -254,7 +321,7 @@ export function commands(): Command[] {
         label: t("open", { agent, count: ticked.length }),
         icon: Play,
         group: "repos",
-        run: () => openRepos(ticked, agent),
+        run: () => tabs.openFrom(ticked, agent, null),
       });
     }
     list.push({
@@ -262,7 +329,7 @@ export function commands(): Command[] {
       label: t("openShell", { count: ticked.length }),
       icon: SquareTerminal,
       group: "repos",
-      run: () => openRepos(ticked, null),
+      run: () => tabs.openFrom(ticked, null, null),
     });
   }
   const own = new Set(scopeRepos().map((r) => r.path));
@@ -327,7 +394,7 @@ export function commands(): Command[] {
       id: `layout-${layout.name}`,
       label: t("openLayout", { name: layout.name }),
       icon: LayoutGrid,
-      run: () => openLayout(layout),
+      run: () => tabs.openLayout(layout),
     });
   }
   const awake = app.keepAwake;
