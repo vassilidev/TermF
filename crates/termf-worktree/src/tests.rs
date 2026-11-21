@@ -112,11 +112,13 @@ impl Sandbox {
         fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    #[cfg(unix)]
     fn log(&self) -> String {
         fs::read_to_string(self.root.join("calls.log")).unwrap_or_default()
     }
 }
 
+#[cfg(unix)]
 fn find<'a>(report: &'a Report, kind: StepKind, target: &str) -> &'a Step {
     report
         .steps
@@ -133,6 +135,7 @@ fn one(report: &Report, kind: StepKind) -> &Step {
         .unwrap_or_else(|| panic!("no {kind:?} step in {:#?}", report.steps))
 }
 
+#[cfg(unix)]
 /// Whether this file system clones copy-on-write.
 fn cow_here(sb: &Sandbox) -> bool {
     let probe = sb.root.join("probe");
