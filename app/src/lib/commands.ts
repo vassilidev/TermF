@@ -7,6 +7,7 @@ import FileSearch from "@lucide/svelte/icons/file-search";
 import FileUp from "@lucide/svelte/icons/file-up";
 import FolderTree from "@lucide/svelte/icons/folder-tree";
 import Import from "@lucide/svelte/icons/import";
+import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
@@ -19,6 +20,7 @@ import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
 import { files, isMac, showFiles } from "$lib/files.svelte";
 import { exportConfig, importConfig, library, showLibrary } from "$lib/library.svelte";
+import { generateKey, showSsh } from "$lib/ssh.svelte";
 import {
   app,
   load,
@@ -160,6 +162,7 @@ export function commands(): Command[] {
   if (files.view !== "library") {
     list.push({ id: "view-library", label: t("showLibrary"), icon: LibraryBig, run: showLibrary });
   }
+  if (files.view !== "ssh") list.push({ id: "view-ssh", label: t("showSsh"), icon: KeyRound, run: showSsh });
   list.push({
     id: "file",
     label: t("filesFind"),
@@ -237,6 +240,7 @@ export function commands(): Command[] {
     },
     { id: "config-export", label: t("configExportLong"), icon: FileDown, run: exportConfig },
     { id: "config-import", label: t("configImportLong"), icon: FileUp, run: importConfig },
+    { id: "ssh-generate", label: t("sshGenerateLong"), icon: KeyRound, run: generateKey },
   );
   list.push({ id: "reload", label: t("reload"), icon: RefreshCw, run: load });
   return list;
