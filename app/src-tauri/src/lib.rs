@@ -12,6 +12,7 @@ mod quick_terminal;
 mod schedule;
 mod ssh;
 mod sync;
+mod team;
 mod tickets;
 mod worktree;
 
@@ -198,10 +199,18 @@ pub fn run() {
             let (api, listener) = api::Api::new();
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(claude::ClaudeState::new(&data_dir));
+            let (notifier, inbox) = termf_team::channel();
             app.manage(agents::state(
                 app.handle(),
                 config_dir.clone(),
                 data_dir.clone(),
+                notifier,
+            ));
+            app.manage(team::state(
+                app.handle(),
+                config_dir.clone(),
+                data_dir.clone(),
+                inbox,
             ));
             app.manage(tickets::TicketsState::new(
                 config_dir.clone(),
@@ -388,11 +397,20 @@ pub fn run() {
             agents::agent_handback,
             agents::agent_sessions,
             agents::agent_events,
+            team::team_start,
+            team::team_approve,
+            team::team_revise,
+            team::team_stop,
+            team::team_rules,
+            team::team_runs,
+            team::team_run,
+            team::team_events,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                team::shutdown(app);
                 agents::shutdown(app);
             }
         });

@@ -335,6 +335,8 @@ pub struct StoredEvent {
 }
 
 /// What the UI hears about.
+// A few a second, each sent on at once: boxing would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum Update {
     Event(StoredEvent),

@@ -125,8 +125,6 @@ pub enum RunState {
     /// The run's budget is spent: `start` with a bigger one goes on.
     Budget,
     Done,
-    /// Refused by the user, or it cannot go on.
-    Failed,
 }
 
 impl RunState {
@@ -138,7 +136,6 @@ impl RunState {
             RunState::Stopped => "stopped",
             RunState::Budget => "budget",
             RunState::Done => "done",
-            RunState::Failed => "failed",
         }
     }
 
@@ -288,7 +285,7 @@ pub struct TeamEvent {
     pub at: i64,
     pub step: Option<String>,
     /// `started`, `step_started`, `step_done`, `step_waiting`, `step_blocked`, `step_skipped`, `retry`,
-    /// `plan`, `violation`, `approved`, `revised`, `rules`, `paused`, `stopped`, `budget`, `done`, `failed`.
+    /// `plan`, `violation`, `approved`, `revised`, `rules`, `resumed`, `paused`, `stopped`, `budget`, `done`.
     pub kind: String,
     pub message: String,
 }
@@ -427,7 +424,7 @@ impl Team {
             Some(run) if run.state == RunState::Done => {
                 bail!("the team of run {} is done", run.run)
             }
-            Some(mut run) if run.state != RunState::Failed => {
+            Some(mut run) => {
                 run.plan_only = options.plan_only;
                 run.rules.extend(options.rules);
                 if let Some(budget) = options.budget {
@@ -450,7 +447,7 @@ impl Team {
                 }
                 run
             }
-            _ => inner.create(&store, target, options)?,
+            None => inner.create(&store, target, options)?,
         };
         inner.tick(&store, &mut run)?;
         Ok(run)
@@ -463,7 +460,7 @@ impl Team {
         let store = inner.store()?;
         let mut run = inner.get(&store, id)?;
         ensure!(
-            !matches!(run.state, RunState::Done | RunState::Failed),
+            run.state != RunState::Done,
             "the team of run {id} is {}",
             run.state.as_str()
         );
@@ -506,7 +503,7 @@ impl Team {
         let store = inner.store()?;
         let mut run = inner.get(&store, id)?;
         ensure!(
-            !matches!(run.state, RunState::Done | RunState::Failed),
+            run.state != RunState::Done,
             "the team of run {id} is {}",
             run.state.as_str()
         );
@@ -1482,8 +1479,8 @@ impl Inner {
 
     /// The agent step a gate decides on: the nearest one among what it needs.
     fn agent_before(&self, run: &TeamRun, i: usize) -> Option<usize> {
-        let mut queue: Vec<&String> = run.steps[i].needs.iter().collect();
-        while let Some(key) = queue.pop() {
+        let mut queue: std::collections::VecDeque<&String> = run.steps[i].needs.iter().collect();
+        while let Some(key) = queue.pop_front() {
             let j = run.index(key).ok()?;
             if run.steps[j].agent() {
                 return Some(j);

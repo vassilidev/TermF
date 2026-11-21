@@ -70,6 +70,37 @@ pub enum Call {
     },
     /// Drives a headless agent session (crate `termf-agents`).
     Agent(AgentCall),
+    /// Drives the agent team of a ticket run (crate `termf-team`).
+    Team(TeamCall),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum TeamCall {
+    /// Starts the team, or goes on with it; `options`: a `termf_team::Options`.
+    Start {
+        run: i64,
+        options: Value,
+    },
+    Approve {
+        run: i64,
+        step: String,
+    },
+    Revise {
+        run: i64,
+        step: String,
+        feedback: String,
+    },
+    /// Every team at work without `run`.
+    Stop {
+        run: Option<i64>,
+    },
+    /// Rule levels by name, for the ticket or one task of the plan.
+    Rules {
+        run: i64,
+        task: Option<String>,
+        rules: HashMap<String, String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

@@ -19,7 +19,7 @@ use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
-use crate::{AppState, agents, schedule, tickets};
+use crate::{AppState, agents, schedule, team, tickets};
 
 struct Meta {
     title: String,
@@ -848,6 +848,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             serde_json::to_value(schedule::run(app, &task, scheduled)?)?
         }
         Call::Agent(call) => agents::call(app, call)?,
+        Call::Team(call) => team::call(app, call)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }

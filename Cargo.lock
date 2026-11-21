@@ -5495,6 +5495,7 @@ dependencies = [
  "termf-schedule",
  "termf-ssh",
  "termf-sync",
+ "termf-team",
  "termf-term",
  "termf-tickets",
  "termf-worktree",
@@ -5539,6 +5540,7 @@ dependencies = [
  "termf-schedule",
  "termf-ssh",
  "termf-sync",
+ "termf-team",
  "termf-tickets",
  "termf-worktree",
 ]

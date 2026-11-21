@@ -18,6 +18,7 @@ mod schedule;
 mod scout;
 mod ssh;
 mod sync;
+mod team;
 mod tickets;
 mod worktree;
 
@@ -106,9 +107,11 @@ usage:
                                         start a workflow by hand (workflow_dispatch)
   termf agent ls                        headless agent sessions: state, cost, context
   termf agent start [--prompt <text|->] [--dir <path>] [--title <t>] [--project <id>] [--agent <name>]
-                    [--model <m>] [--effort <e>] [--permission-mode <p>] [--budget <usd>]
+                    [--role <name>] [--model <m>] [--effort <e>] [--permission-mode <p>] [--budget <usd>]
                                         a headless Claude Code session in a folder (default: here),
-                                        driven by TermF; --budget covers the whole session
+                                        driven by TermF; --budget covers the whole session; --role plays
+                                        a library role (its prompt, model, effort, tools, and only the
+                                        preferences and rules that apply to it)
   termf agent send <id> <text>...       its next message, once its turn is over (resumes a stopped one)
   termf agent events <id> [--after <n>] what it said and did
   termf agent interrupt <id>            stop its turn
@@ -117,6 +120,21 @@ usage:
   termf agent stop <id>                 end its process
   termf agent takeover <id>             go on with the conversation in a tile, between two turns
   termf agent handback <id>             close that tile and go on headless
+  termf team ls                         the agent teams of ticket runs: state, workflow, cost, what waits
+  termf team plan <run> [--workflow <name>] [--rule <rule>=<level>]... [--budget <usd>]
+                                        start the run's team and stop once its plan is made
+  termf team run <run> [--workflow <name>] [--rule <rule>=<level>]... [--budget <usd>]
+                                        start the run's team, or go on with it (paused, stopped,
+                                        out of budget); levels: off, advise, warn, block
+  termf team status <run>               its plan, its steps, what waits for you, what the rules found
+  termf team events <run> [--after <n>] what happened, step by step
+  termf team approve <run> <step>       let a gate pass, or accept a blocked step as it is
+  termf team revise <run> <step> <feedback>...
+                                        run a blocked step again, or the step a gate waits on, with
+                                        your feedback (your answers to the plan's questions)
+  termf team rules <run> [--task <id>] <rule>=<level>...
+                                        rule levels for the ticket, or one task of the plan
+  termf team stop [<run>]               emergency stop of one team, or of every team at work
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -208,6 +226,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["worktree", rest @ ..] => worktree::run(rest)?,
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         ["agent", rest @ ..] => agent::run(rest.to_vec())?,
+        ["team", rest @ ..] => team::run(rest.to_vec())?,
         [
             command @ ("run" | "runs" | "inbox" | "deliver" | "close"),
             rest @ ..,
