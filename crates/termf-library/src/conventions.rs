@@ -15,7 +15,9 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use termf_core::process::{run, scratch_dir, tail};
+use termf_core::process::run;
+#[cfg(target_os = "macos")]
+use termf_core::process::{scratch_dir, tail};
 
 use crate::{
     Item, Kind, Layer, Scope, library_dir, read_toggles, resolve, set_toggle, toggle,
