@@ -166,6 +166,9 @@ pub struct Pack {
     pub answers: Vec<Answer>,
     #[serde(default)]
     pub items: Vec<Proposal>,
+    /// The text it was proposed from, so a proposal older than the text shows as such; empty before this field.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub from: String,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -473,6 +476,7 @@ pub fn propose(
         effort,
         cost,
         answers: given,
+        from: source.clone(),
         ..Pack::default()
     };
     let questions = answer
@@ -1552,6 +1556,7 @@ mod tests {
 
         let draft = convention.draft.unwrap();
         assert_eq!(draft.cost, Some(0.25));
+        assert_eq!(draft.from, TEXT);
         let names: Vec<_> = draft.items.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(
             names,

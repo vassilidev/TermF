@@ -282,7 +282,7 @@ fn set(root: &mut Map<String, Value>, key: &str, value: Option<&Value>) -> Resul
 }
 
 /// The file's own indentation, so saving one key does not re-indent the rest.
-fn indent(text: &str) -> String {
+pub(crate) fn indent(text: &str) -> String {
     text.lines()
         .find_map(|l| {
             let ws: String = l.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
@@ -291,7 +291,7 @@ fn indent(text: &str) -> String {
         .unwrap_or_else(|| "  ".into())
 }
 
-fn pretty(value: &Value, indent: String) -> Result<String> {
+pub(crate) fn pretty(value: &Value, indent: String) -> Result<String> {
     let mut out = Vec::new();
     let formatter = serde_json::ser::PrettyFormatter::with_indent(indent.as_bytes());
     let mut ser = serde_json::Serializer::with_formatter(&mut out, formatter);

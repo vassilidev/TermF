@@ -512,6 +512,31 @@ esac
     fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
+/// A body larger than a pipe's buffer makes the write fail every time, not only when gh happens to exit first.
+#[cfg(unix)]
+#[test]
+fn a_gh_that_exits_without_reading_its_input_says_why() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new("broken-pipe");
+    let gh = sb.root.join("gh");
+    fs::write(
+        &gh,
+        "#!/bin/sh\necho 'HTTP 403: Resource not accessible' >&2\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    let github = GitHub {
+        program: gh,
+        env: vec![],
+        board: None,
+        etags: Default::default(),
+    };
+    let error = github
+        .comment(&reference("acme/front", 42), &"x".repeat(1 << 20))
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("HTTP 403"), "{error:#}");
+}
+
 /// A clone of `acme/front` whose GitHub address leads to a local bare repository, and git may reach nothing
 /// else (GIT_ALLOW_PROTOCOL). Returns the clone and the bare repository.
 #[cfg(unix)]
