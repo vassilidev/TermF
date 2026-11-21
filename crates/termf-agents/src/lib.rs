@@ -188,7 +188,10 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent: Option<String>,
     },
+    /// The tool call's id goes out as `call`: as `id`, it would clash with the stored event's own once flattened
+    /// (`alias`: events stored before).
     ToolUse {
+        #[serde(rename = "call", alias = "id")]
         id: String,
         name: String,
         input: Value,
@@ -197,6 +200,7 @@ pub enum AgentEvent {
     },
     /// `output` keeps the first [`TOOL_OUTPUT`] characters when `truncated`.
     ToolResult {
+        #[serde(rename = "call", alias = "id")]
         id: String,
         output: String,
         is_error: bool,
