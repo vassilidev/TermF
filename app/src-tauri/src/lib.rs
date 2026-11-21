@@ -5,6 +5,7 @@ mod keep_awake;
 mod library;
 mod quick_terminal;
 mod ssh;
+mod sync;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -200,9 +201,16 @@ pub fn run() {
                 eprintln!("termf: local API disabled: {e:#}");
             }
             quick_terminal::register(app.handle());
+            let sync = sync::start(app.handle(), app.state::<AppState>().config_dir.clone());
+            app.manage(sync);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(true) = event {
+                sync::focused(window.app_handle());
+            }
+        })
+        .invoke_handler(sync::hook(tauri::generate_handler![
             workspace,
             pty_spawn,
             pty_attach,
@@ -246,7 +254,19 @@ pub fn run() {
             ssh::ssh_fix_permissions,
             ssh::ssh_rotate,
             ssh::ssh_trash,
-        ])
+            sync::sync_status,
+            sync::sync_probe,
+            sync::sync_setup,
+            sync::sync_unlock,
+            sync::sync_recover,
+            sync::sync_push,
+            sync::sync_pull,
+            sync::sync_resolve,
+            sync::sync_devices,
+            sync::sync_change_password,
+            sync::sync_scopes,
+            sync::sync_disable,
+        ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

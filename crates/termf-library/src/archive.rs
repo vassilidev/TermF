@@ -9,7 +9,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, Item, TableLike, value};
 
 /// What an export holds from the config folder. Anything else (secrets, machine-local state) stays.
@@ -20,7 +20,7 @@ const MAX_SIZE: u64 = 64 << 20;
 const STAGING: &str = ".import";
 
 /// `/`-separated path relative to the config folder → content.
-type Files = BTreeMap<String, Vec<u8>>;
+pub type Files = BTreeMap<String, Vec<u8>>;
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -68,7 +68,7 @@ impl Change {
     }
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MissingRepo {
     pub project: String,
@@ -281,7 +281,7 @@ fn compare(incoming: &Files, config_dir: &Path) -> Result<Preview> {
 }
 
 /// Whether the item, or a folder on its way, is a symbolic link.
-fn through_link(config_dir: &Path, item: &str) -> bool {
+pub fn through_link(config_dir: &Path, item: &str) -> bool {
     let mut path = config_dir.to_path_buf();
     item.split('/').any(|part| {
         path.push(part);
@@ -340,7 +340,7 @@ fn merge(mine: &mut dyn TableLike, theirs: &dyn TableLike) {
     }
 }
 
-fn missing_repos(incoming: &Files) -> Result<Vec<MissingRepo>> {
+pub fn missing_repos(incoming: &Files) -> Result<Vec<MissingRepo>> {
     let mut missing = Vec::new();
     for (path, bytes) in incoming {
         let Some(project) = path
@@ -371,7 +371,7 @@ fn missing_repos(incoming: &Files) -> Result<Vec<MissingRepo>> {
 
 /// The files an export takes from the config folder (or only under `item`), made portable, and the links
 /// it skipped.
-fn local_files(config_dir: &Path, item: Option<&str>) -> Result<(Files, Vec<String>)> {
+pub fn local_files(config_dir: &Path, item: Option<&str>) -> Result<(Files, Vec<String>)> {
     let mut files = Files::new();
     let mut links = Vec::new();
     for top in item.map_or(INCLUDED.to_vec(), |item| vec![item]) {
@@ -414,7 +414,7 @@ fn walk(config_dir: &Path, path: &Path, files: &mut Files, links: &mut Vec<Strin
     Ok(())
 }
 
-fn allowed(path: &str) -> bool {
+pub fn allowed(path: &str) -> bool {
     INCLUDED.contains(&path.split('/').next().unwrap_or_default())
         && path.split('/').all(|name| !private(name))
 }
