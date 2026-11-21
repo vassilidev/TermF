@@ -275,7 +275,22 @@ impl Setup {
             );
         }
         for dep in &repo.deps {
-            steps.push(self.dep(wt, dep));
+            let mut step = self.dep(wt, dep);
+            // Node and the tools that look up the folders would quietly take the main checkout's instead.
+            let missing = step.outcome == Outcome::Failed || !wt.path.join(&dep.dir).exists();
+            let named = !dep.dir.is_empty() && wt.source.join(&dep.dir).is_dir();
+            if missing && named && wt.path.starts_with(&wt.source) {
+                let note = format!(
+                    "the worktree is inside the repository: tools that look up the folders, as Node does, may \
+                     use the repository's own {} instead",
+                    dep.dir
+                );
+                step.detail = match step.detail.is_empty() {
+                    true => note,
+                    false => format!("{}; {note}", step.detail),
+                };
+            }
+            steps.push(step);
         }
         if let Some(from) = &repo.database {
             let started = step(wt, StepKind::Database, from, Instant::now());
@@ -521,7 +536,7 @@ impl Setup {
         ));
         let _ = fs::remove_dir_all(&scratch);
         let plugin = scratch.join("plugin");
-        files::copy_tree(&skill, &plugin.join("skills").join(recipe::NAME))?;
+        files::copy_tree(&skill, &plugin.join("skills").join(recipe::NAME), None)?;
         fs::create_dir_all(plugin.join(".claude-plugin"))?;
         fs::write(
             plugin.join(".claude-plugin/plugin.json"),

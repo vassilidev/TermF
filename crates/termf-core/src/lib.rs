@@ -104,7 +104,8 @@ pub enum TicketWorktrees {
     /// repository instead of asking for a folder nobody approved.
     #[default]
     Repo,
-    /// `<data>/worktrees/<project>/<run>/<repo>`.
+    /// TermF's data folder: nothing in the repository, for tools that look up the folders or skip git's
+    /// ignores and would see the worktrees, or the main checkout from them.
     Data,
 }
 

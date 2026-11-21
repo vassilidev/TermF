@@ -59,12 +59,8 @@ pub(crate) fn include(
     for entry in listing.split('\0').filter(|e| !e.is_empty()) {
         let path = entry.trim_end_matches('/');
         let is_dir = entry.ends_with('/');
-        // A folder ignored as a whole is listed once: walk into it when a pattern names a file inside, or when it
-        // holds the worktrees.
-        let holds_worktrees = WORKTREES.starts_with(&format!("{path}/"));
-        if is_dir
-            && (holds_worktrees || !included(patterns, path, true) && names_inside(patterns, path))
-        {
+        // A folder ignored as a whole is listed once: walk into it when a pattern names a file inside.
+        if is_dir && !included(patterns, path, true) && names_inside(patterns, path) {
             entries.extend(files_under(source, path).into_iter().map(|f| (f, false)));
         } else {
             entries.push((path.to_owned(), is_dir));
@@ -97,7 +93,7 @@ pub(crate) fn include(
         }
         let from = source.join(&rel);
         if from.is_dir() {
-            copy_tree(&from, &dest)?;
+            copy_tree(&from, &dest, Some(&source.join(WORKTREES)))?;
         } else {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)?;
@@ -189,18 +185,21 @@ fn glob(pattern: &[u8], text: &[u8]) -> bool {
 }
 
 /// Copies a folder of data (local config, a SQLite file), cloning each file when the file system can. Links
-/// are copied as links.
-pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<()> {
-    if cow::clone(from, to).is_ok() {
+/// are copied as links. `except`, a folder inside, is left out.
+pub(crate) fn copy_tree(from: &Path, to: &Path, except: Option<&Path>) -> Result<()> {
+    if !except.is_some_and(|e| e.starts_with(from)) && cow::clone(from, to).is_ok() {
         return Ok(());
     }
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
         let (src, dest) = (entry.path(), to.join(entry.file_name()));
+        if except == Some(src.as_path()) {
+            continue;
+        }
         let kind = entry.file_type()?;
         if kind.is_dir() {
-            copy_tree(&src, &dest)?;
+            copy_tree(&src, &dest, except)?;
         } else if kind.is_symlink() {
             copy_link(&src, &dest)?;
         } else {

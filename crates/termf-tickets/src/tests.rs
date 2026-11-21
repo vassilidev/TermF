@@ -1144,6 +1144,21 @@ fn keeps_worktrees_in_the_data_folder_when_asked_and_closes_both_kinds() {
         "a folder removed by hand is pruned"
     );
     assert_eq!(sb.git(&front, &["status", "--porcelain"]), "");
+    assert!(!front.join(".claude").exists(), "emptied, then removed");
+
+    // A project may name a folder of the repository: the pattern is anchored at the repository's root.
+    let web = front.join("web");
+    fs::create_dir_all(&web).unwrap();
+    let project = format!("name = \"Acme\"\n[[repos]]\npath = {web:?}\n");
+    sb.project("acme", &project);
+    let url = "https://github.com/acme/front/issues/42";
+    let run = t.start(url, None, None).unwrap().run;
+    let tree = PathBuf::from(run.worktree.unwrap());
+    assert!(tree.starts_with(web.join(".claude/worktrees")), "{tree:?}");
+    assert!(exclude().ends_with("\n/web/.claude/worktrees/\n"));
+    assert_eq!(sb.git(&front, &["status", "--porcelain"]), "");
+    t.close(run.id, false, || {}).unwrap();
+    assert!(!tree.exists() && !web.join(".claude").exists());
 }
 
 #[test]
