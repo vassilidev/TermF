@@ -375,7 +375,7 @@
         </section>
       {/if}
 
-      {#if draft?.items.length}
+      {#if draft && !draft.questions.length && (draft.items.length || draft.dropped.length)}
         {@const removed = current.diff.filter((d) => d.change === "removed")}
         <section class="step">
           <div class="step-head">
@@ -560,7 +560,7 @@
             <button
               class="btn primary"
               onclick={() => update("conventions_apply")}
-              disabled={!!running || pending > 0}
+              disabled={!!running || pending > 0 || !draft.items.length}
               title={pending ? t("convDecideFirst") : undefined}
             >
               {t("convApply", { count: accepted })}
