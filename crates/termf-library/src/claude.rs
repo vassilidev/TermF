@@ -5,16 +5,17 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::{Kind, Scope, copy_item, copy_path, resolve, write_file};
+use crate::{Item, Kind, Scope, copy_item, copy_path, resolve, write_file};
 
 const FIRST_NAME: &str = "{{ user.first_name }}";
 
 /// Writes what a Claude Code session in `scope` gets into its folder: the active skills, commands and roles
 /// (as agents, the role format being Claude Code's agent format) in `plugin/`, for `--plugin-dir`, and the
-/// active preferences and rule instructions in `system-prompt.md`, for `--append-system-prompt-file`.
-/// Adds to a plugin already there (the status hooks) and returns the prompt file when it has content.
+/// active preferences and rule instructions in `system-prompt.md`, for `--append-system-prompt-file`. A rule with
+/// a `hook` also becomes a hook of the plugin. Adds to a plugin already there (the status hooks) and returns the
+/// prompt file when it has content.
 pub fn materialize(
     config_dir: &Path,
     scope: &Scope,
@@ -22,6 +23,7 @@ pub fn materialize(
 ) -> Result<Option<PathBuf>> {
     let plugin = session_dir.join("plugin");
     let mut prompt = String::new();
+    let mut hooks = Vec::new();
     for item in resolve(config_dir, scope)? {
         if !item.active || item.runtime.as_deref().is_some_and(|r| r != "claude-code") {
             continue;
@@ -35,9 +37,15 @@ pub fn materialize(
                 if item.meta.get("level").and_then(Value::as_str) != Some("off") =>
             {
                 prompt.push_str(&format!("## {}\n\n{}\n\n", item.name, item.body.trim()));
+                if item.kind == Kind::Rule && item.meta.contains_key("hook") {
+                    hooks.push(item);
+                }
             }
             _ => {}
         }
+    }
+    if !hooks.is_empty() {
+        add_hooks(&plugin, &hooks)?;
     }
     let manifest = plugin.join(".claude-plugin/plugin.json");
     if plugin.is_dir() && !manifest.exists() {
@@ -52,6 +60,41 @@ pub fn materialize(
     let file = session_dir.join("system-prompt.md");
     write_file(&file, prompt.trim_end().as_bytes())?;
     Ok(Some(file))
+}
+
+/// Copies each rule into the plugin and registers its script, `hook: { event, matcher, run }`, in
+/// `hooks/hooks.json` next to the hooks already there.
+fn add_hooks(plugin: &Path, rules: &[Item]) -> Result<()> {
+    let file = plugin.join("hooks/hooks.json");
+    let mut root: Value = fs::read_to_string(&file)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!({}));
+    for rule in rules {
+        let hook = &rule.meta["hook"];
+        let (Some(event), Some(run)) = (hook["event"].as_str(), hook["run"].as_str()) else {
+            continue;
+        };
+        // The script must be the rule's own file.
+        if run.is_empty() || run.starts_with('.') || run.contains(['/', '\\']) {
+            continue;
+        }
+        let dir = plugin.join("rules").join(&rule.name);
+        copy_item(rule, &dir)?;
+        // shortcut: hook scripts are POSIX sh, so they do not run on Windows until TermF picks a shell there.
+        let mut entry = json!({
+            "hooks": [{ "type": "command", "command": "/bin/sh", "args": [dir.join(run)] }],
+        });
+        if let Some(matcher) = hook["matcher"].as_str().filter(|m| !m.is_empty()) {
+            entry["matcher"] = matcher.into();
+        }
+        let list = &mut root["hooks"][event];
+        if !list.is_array() {
+            *list = json!([]);
+        }
+        list.as_array_mut().unwrap().push(entry);
+    }
+    write_file(&file, serde_json::to_string_pretty(&root)?.as_bytes())
 }
 
 /// `[user] first_name` in `termf.toml`, else the login name.

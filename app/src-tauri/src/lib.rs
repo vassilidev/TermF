@@ -175,6 +175,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(Files::default()))
         .plugin(quick_terminal::plugin())
         // One setup: a second call to `setup` would replace this one.
@@ -234,6 +235,16 @@ pub fn run() {
             library::config_export,
             library::config_import_preview,
             library::config_import_apply,
+            library::conventions_list,
+            library::conventions_save,
+            library::conventions_delete,
+            library::conventions_propose,
+            library::conventions_revise,
+            library::conventions_review,
+            library::conventions_discard,
+            library::conventions_apply,
+            library::conventions_switch,
+            library::conventions_impact,
             ssh::ssh_inventory,
             ssh::ssh_generate,
             ssh::ssh_agent_add,
