@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     state TEXT NOT NULL,
     cost REAL NOT NULL,
     context TEXT,
+    -- The process group of its headless process, until it ends.
+    pid INTEGER,
     created INTEGER NOT NULL,
     updated INTEGER NOT NULL
 );
@@ -124,13 +126,49 @@ impl Store {
         Ok(())
     }
 
-    /// No process outlives the app that started it.
+    /// The app starts: no session has a process it can talk to.
     pub(crate) fn stop_all(&self) -> Result<()> {
         self.conn.execute(
             "UPDATE agent_sessions SET state = 'stopped' WHERE state IN ('working', 'waiting', 'idle', 'interactive')",
             [],
         )?;
         Ok(())
+    }
+
+    pub(crate) fn set_pid(&self, id: i64, pid: Option<u32>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE agent_sessions SET pid = ?2 WHERE id = ?1",
+            params![id, pid],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets `pid` once it ended, unless a newer process of the session replaced it.
+    pub(crate) fn clear_pid(&self, id: i64, pid: u32) -> Result<()> {
+        self.conn.execute(
+            "UPDATE agent_sessions SET pid = NULL WHERE id = ?1 AND pid = ?2",
+            params![id, pid],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn pid(&self, id: i64) -> Result<Option<u32>> {
+        Ok(self
+            .conn
+            .query_row("SELECT pid FROM agent_sessions WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .optional()?
+            .flatten())
+    }
+
+    /// Each session with a process, and its conversation id.
+    pub(crate) fn pids(&self) -> Result<Vec<(i64, u32, String)>> {
+        let mut query = self
+            .conn
+            .prepare("SELECT id, pid, session_id FROM agent_sessions WHERE pid IS NOT NULL")?;
+        let rows = query.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Whether the agent took a message, so its conversation exists and can be resumed.

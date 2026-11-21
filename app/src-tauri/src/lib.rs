@@ -385,6 +385,11 @@ pub fn run() {
             agents::agent_sessions,
             agents::agent_events,
         ]))
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                agents::shutdown(app);
+            }
+        });
 }

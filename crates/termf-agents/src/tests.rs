@@ -278,6 +278,7 @@ fn runs_several_turns_on_one_process() {
         id: "t1".into(),
         name: "Bash".into(),
         input: json!({"command": "ls"}),
+        parent: None,
     }));
     let output = events.iter().find_map(|e| match e {
         AgentEvent::ToolResult {
@@ -570,15 +571,16 @@ fn takes_over_and_hands_back_without_two_processes() {
         "the headless process ended first"
     );
     assert_eq!(env.session(id).state, State::Interactive);
-    assert!(
+    // Until the terminal is attached, nothing may start a process next to the one it is about to run.
+    let busy = |e: anyhow::Error| e.to_string().contains("being stopped, taken over");
+    assert!(busy(
         env.agents
-            .send(id, "hi")
+            .handback(id, |_| panic!("no terminal"))
             .unwrap_err()
-            .to_string()
-            .contains("hand it back")
-    );
-    assert!(env.agents.stop(id).is_err());
-    assert!(env.agents.takeover(id).is_err());
+    ));
+    assert!(busy(env.agents.send(id, "hi").unwrap_err()));
+    assert!(busy(env.agents.stop(id).unwrap_err()));
+    assert!(busy(env.agents.takeover(id).unwrap_err()));
 
     let note = |text: &str| {
         let file = format!("{}.events", env.fake.display());
@@ -590,6 +592,10 @@ fn takes_over_and_hands_back_without_two_processes() {
     note("tile 7 open");
     env.agents.attach_tile(id, Some(7)).unwrap();
     assert_eq!(env.session(id).tile, Some(7));
+    let refused = env.agents.send(id, "hi").unwrap_err().to_string();
+    assert!(refused.contains("hand it back"), "{refused}");
+    assert!(env.agents.stop(id).is_err());
+    assert!(env.agents.takeover(id).is_err());
     let (agents, note) = (&env.agents, &note);
     let session = std::thread::scope(|s| {
         agents
@@ -660,6 +666,137 @@ fn takes_over_and_hands_back_without_two_processes() {
     assert_eq!(env.session(id).state, State::Stopped);
     env.agents.send(id, "hello").unwrap();
     env.settle(id, 2, State::Idle);
+}
+
+fn running(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// A process holding `args` on its command line, in its own group, as an agent's.
+fn process(args: &[&str]) -> std::process::Child {
+    use std::os::unix::process::CommandExt;
+    std::process::Command::new("sh")
+        // Two commands, so the shell does not exec `sleep` and keeps its own command line.
+        .args(["-c", "sleep 60; exit 0", "sh"])
+        .args(args)
+        .process_group(0)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap()
+}
+
+fn end(mut process: std::process::Child) {
+    let group = format!("-{}", process.id());
+    let _ = std::process::Command::new("kill")
+        .args(["-KILL", &group])
+        .status();
+    let _ = process.wait();
+}
+
+#[test]
+fn never_leaves_a_process_behind() {
+    let env = Env::new("orphans");
+    let id = env.agents.start(env.spec(), Some("hello")).unwrap().id;
+    let session = env.settle(id, 1, State::Idle);
+    let pid: u32 = env
+        .log("events")
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(running(pid));
+    // The app quits.
+    env.agents.shutdown();
+    env.until("the process killed", || !running(pid));
+    env.until("its end seen", || env.session(id).state != State::Idle);
+
+    // A process the last launch left behind, and a pid the system gave since to another program.
+    let mut orphan = process(&[&session.session_id]);
+    let mut stranger = process(&["unrelated"]);
+    let other = env.agents.start(env.spec(), None).unwrap().id;
+    env.agents.stop(other).unwrap();
+    // And the live process of an app that crashed, as TermF started it.
+    let crashed = env.agents.start(env.spec(), Some("hello")).unwrap().id;
+    env.settle(crashed, 1, State::Idle);
+    let last = env.log("events").lines().last().unwrap().to_owned();
+    let crashed_pid: u32 = last.strip_prefix("start ").unwrap().parse().unwrap();
+    let store = crate::store::Store::open(&env.root.join("data")).unwrap();
+    store.set_pid(id, Some(orphan.id())).unwrap();
+    store.set_pid(other, Some(stranger.id())).unwrap();
+    // The app quit in the middle of a turn.
+    let mut mid_turn = store.session(id).unwrap();
+    mid_turn.state = State::Working;
+    store.update(&mut mid_turn).unwrap();
+    let again = Agents::build(
+        env.root.join("config"),
+        env.root.join("data"),
+        Vec::new(),
+        |_| {},
+    );
+    env.until("the crashed app's process killed", || !running(crashed_pid));
+    let killed = orphan.wait().unwrap();
+    assert!(!killed.success(), "the orphan is killed");
+    assert!(
+        stranger.try_wait().unwrap().is_none(),
+        "the stranger is left alone"
+    );
+    assert_eq!(
+        (store.pid(id).unwrap(), store.pid(other).unwrap()),
+        (None, None)
+    );
+    let listed = again.sessions().unwrap();
+    let state = listed.iter().find(|s| s.id == id).unwrap().state;
+    assert_eq!(
+        state,
+        State::Stopped,
+        "no process left: the next message resumes"
+    );
+
+    // Never a second process while one of the conversation still runs.
+    let late = process(&[&session.session_id]);
+    store.set_pid(id, Some(late.id())).unwrap();
+    let refused = again.send(id, "hello").unwrap_err().to_string();
+    assert!(refused.contains("still runs"), "{refused}");
+    end(late);
+    end(stranger);
+    let starts = || {
+        env.log("events")
+            .lines()
+            .filter(|l| l.starts_with("start"))
+            .count()
+    };
+    let before = starts();
+    again.send(id, "hello").unwrap();
+    env.until("a new process", || starts() == before + 1);
+    assert_eq!(env.args().last().unwrap()[9], "--resume");
+    again.shutdown();
+}
+
+#[test]
+fn keeps_the_state_when_an_event_cannot_be_saved() {
+    let env = Env::new("unsaved");
+    let id = env.agents.start(env.spec(), None).unwrap().id;
+    let db = rusqlite::Connection::open(env.root.join("data/termf.db")).unwrap();
+    db.execute_batch(
+        "CREATE TRIGGER full BEFORE INSERT ON agent_events WHEN NEW.kind = 'turn_end'
+         BEGIN SELECT RAISE(FAIL, 'database or disk is full'); END;",
+    )
+    .unwrap();
+    env.agents.send(id, "hello").unwrap();
+    env.until("the end of the turn", || {
+        let s = env.session(id);
+        s.state == State::Idle && s.cost > 0.0
+    });
+    let session = env.session(id);
+    assert_eq!(round(session.cost), 0.01);
+    assert!(session.context.is_some());
+    assert!(!env.kinds(id).contains(&"turn_end".to_owned()));
 }
 
 #[test]
@@ -751,6 +888,11 @@ fn real_claude() {
         )
         .unwrap();
     let second = wait(2);
+    let pid = crate::store::Store::open(&root.join("data"))
+        .unwrap()
+        .pid(id)
+        .unwrap();
+    let recognized = pid.is_some_and(|pid| crate::agents::ours(pid, &session.session_id));
     let events: Vec<AgentEvent> = agents
         .events(id, 0)
         .unwrap()
@@ -764,11 +906,12 @@ fn real_claude() {
     let _ = fs::remove_dir_all(&root);
 
     assert_eq!(first.state, State::Idle, "{events:#?}");
+    assert!(recognized, "its process is known by its command line");
     assert!(events.iter().any(|e| matches!(e, AgentEvent::Init { session_id, model, .. } if *session_id == session.session_id && model.contains("haiku"))), "{events:#?}");
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, AgentEvent::Text { text } if text.contains("pineapple"))),
+            .any(|e| matches!(e, AgentEvent::Text { text, .. } if text.contains("pineapple"))),
         "{events:#?}"
     );
     assert!(

@@ -182,13 +182,18 @@ pub enum AgentEvent {
     Delta {
         text: String,
     },
+    /// `parent`, here and in tool events: the tool call of the subagent that said it, none for the agent itself.
     Text {
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
     },
     ToolUse {
         id: String,
         name: String,
         input: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
     },
     /// `output` keeps the first [`TOOL_OUTPUT`] characters when `truncated`.
     ToolResult {
@@ -196,6 +201,8 @@ pub enum AgentEvent {
         output: String,
         is_error: bool,
         truncated: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
     },
     /// A tool waits for an approval: answer with `request`.
     Permission {
@@ -251,7 +258,7 @@ impl AgentEvent {
                 ..
             } => format!("{model}, permission mode {permission_mode}"),
             AgentEvent::User { text } => format!("you: {text}"),
-            AgentEvent::Delta { text } | AgentEvent::Text { text } => text.clone(),
+            AgentEvent::Delta { text } | AgentEvent::Text { text, .. } => text.clone(),
             AgentEvent::ToolUse { name, input, .. } => format!("{name} {input}"),
             AgentEvent::ToolResult {
                 output, is_error, ..

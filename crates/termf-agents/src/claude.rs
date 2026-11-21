@@ -124,7 +124,8 @@ impl Parser for Stream {
         };
         let text = |v: &Value| v.as_str().unwrap_or_default().to_owned();
         // Subagents' messages carry the tool call that started them.
-        let main = msg["parent_tool_use_id"].is_null();
+        let parent = msg["parent_tool_use_id"].as_str().map(str::to_owned);
+        let main = parent.is_none();
         match msg["type"].as_str().unwrap_or_default() {
             "system" => match msg["subtype"].as_str() {
                 Some("init") if !self.init => {
@@ -173,12 +174,14 @@ impl Parser for Stream {
                         "text" if block["text"].as_str().is_some_and(|t| !t.is_empty()) => {
                             Some(AgentEvent::Text {
                                 text: text(&block["text"]),
+                                parent: parent.clone(),
                             })
                         }
                         "tool_use" => Some(AgentEvent::ToolUse {
                             id: text(&block["id"]),
                             name: text(&block["name"]),
                             input: block["input"].clone(),
+                            parent: parent.clone(),
                         }),
                         _ => None,
                     })
@@ -193,6 +196,7 @@ impl Parser for Stream {
                         output,
                         is_error: block["is_error"] == true,
                         truncated,
+                        parent: parent.clone(),
                     }
                 })
                 .collect(),
@@ -388,6 +392,52 @@ mod tests {
             (context.window, context.percent),
             (Some(1_000_000), Some(4))
         );
+    }
+
+    #[test]
+    fn tags_what_subagents_say() {
+        let mut parser = ClaudeCode.parser();
+        let mut parse = |line: Value| parser.parse(line.to_string().as_bytes());
+        let main = json!({"type": "assistant", "parent_tool_use_id": null, "message": {"model": "m", "content": [{"type": "tool_use", "id": "task_1", "name": "Agent", "input": {}}], "usage": {"input_tokens": 100}}});
+        assert_eq!(
+            parse(main),
+            [AgentEvent::ToolUse {
+                id: "task_1".into(),
+                name: "Agent".into(),
+                input: json!({}),
+                parent: None,
+            }]
+        );
+        let sub = json!({"type": "assistant", "parent_tool_use_id": "task_1", "message": {"model": "m", "content": [{"type": "text", "text": "looking"}], "usage": {"input_tokens": 9}}});
+        assert_eq!(
+            parse(sub),
+            [AgentEvent::Text {
+                text: "looking".into(),
+                parent: Some("task_1".into()),
+            }]
+        );
+        let result = json!({"type": "user", "parent_tool_use_id": "task_1", "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}});
+        let [AgentEvent::ToolResult { parent, .. }] = &parse(result)[..] else {
+            panic!()
+        };
+        assert_eq!(parent.as_deref(), Some("task_1"));
+        let end = parse(
+            json!({"type": "result", "subtype": "success", "modelUsage": {"m": {"contextWindow": 1000}}}),
+        );
+        let [AgentEvent::TurnEnd { context, .. }] = &end[..] else {
+            panic!()
+        };
+        assert_eq!(
+            context.as_ref().unwrap().tokens,
+            Some(100),
+            "the main agent's context"
+        );
+        let text = serde_json::to_value(AgentEvent::Text {
+            text: "hi".into(),
+            parent: None,
+        })
+        .unwrap();
+        assert_eq!(text, json!({"kind": "text", "text": "hi"}));
     }
 
     #[test]

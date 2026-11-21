@@ -51,7 +51,7 @@ struct Live {
     /// Permission requests waiting for an answer, with the tool input each asks about.
     pending: HashMap<String, Value>,
     interrupting: bool,
-    /// A stop, a takeover or a hand-back waits for a process to end: nothing may start one meanwhile.
+    /// A stop, a takeover until its terminal is attached, or a hand-back: nothing may start a process meanwhile.
     busy: bool,
     generation: u64,
 }
@@ -94,10 +94,7 @@ impl Agents {
         env: Vec<(String, String)>,
         sink: impl Fn(Update) + Send + Sync + 'static,
     ) -> Self {
-        if let Err(e) = Store::open(&data_dir).and_then(|s| s.stop_all()) {
-            eprintln!("termf: agent sessions left as they were: {e:#}");
-        }
-        Self {
+        let agents = Self {
             inner: Arc::new(Inner {
                 config_dir,
                 data_dir,
@@ -107,6 +104,18 @@ impl Agents {
                 sink: Box::new(sink),
                 env,
             }),
+        };
+        if let Err(e) = agents.inner.store().and_then(|s| agents.inner.reap(&s)) {
+            eprintln!("termf: agent sessions left as they were: {e:#}");
+        }
+        agents
+    }
+
+    /// Kills every headless process: none may outlive the app, the only one that can talk to it.
+    pub fn shutdown(&self) {
+        let live = self.inner.live.lock().unwrap();
+        for process in live.values().filter_map(|e| e.process.as_ref()) {
+            kill_group(process.pid);
         }
     }
 
@@ -174,7 +183,7 @@ impl Agents {
                 allow,
                 message: message.map(str::to_owned),
             },
-        )?;
+        );
         if entry.pending.is_empty() && store.session(id)?.state == State::Waiting {
             inner.set_state(&store, id, entry, State::Working)?;
         }
@@ -214,6 +223,11 @@ impl Agents {
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         entry.busy = false;
+        if ended.is_err() {
+            // Its pid stays saved: no new process starts while it runs.
+            entry.process = None;
+            inner.set_state(&store, id, entry, State::Error)?;
+        }
         ended?;
         inner.view(&store, id, entry)
     }
@@ -233,6 +247,8 @@ impl Agents {
                     bail!("the agent is working: wait for the end of its turn, or interrupt it")
                 }
                 State::Interactive => bail!("the session is already taken over"),
+                // A terminal has no budget to keep to.
+                State::Budget => bail!("the session's budget is spent"),
                 _ => {}
             }
             ensure!(
@@ -243,20 +259,21 @@ impl Agents {
                 p.stdin = None;
                 p.pid
             });
-            entry.busy = pid.is_some();
             session.state = State::Interactive;
             inner.save(&store, &mut session, entry)?;
+            // Until `attach_tile`: a hand-back now would start a process next to the terminal's.
+            entry.busy = true;
             (session, pid)
         };
-        if let Some(pid) = pid {
-            let ended = inner.wait_end(id, pid);
+        if let Some(pid) = pid
+            && let Err(e) = inner.wait_end(id, pid)
+        {
             let mut live = inner.live.lock().unwrap();
             let entry = live.entry(id).or_default();
             entry.busy = false;
-            if let Err(e) = ended {
-                inner.set_state(&store, id, entry, State::Error)?;
-                return Err(e);
-            }
+            entry.process = None;
+            inner.set_state(&store, id, entry, State::Error)?;
+            return Err(e);
         }
         let spec = &session.spec;
         Ok(Takeover {
@@ -270,16 +287,14 @@ impl Agents {
     /// The terminal the conversation went on in, or `None` when it could not open: the session is stopped.
     pub fn attach_tile(&self, id: i64, tile: Option<u32>) -> Result<()> {
         let inner = &self.inner;
-        let store = inner.store()?;
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
+        entry.busy = false;
+        entry.tile = tile.map(|id| Tile { id, running: true });
+        let store = inner.store()?;
         match tile {
             Some(tile) => {
-                entry.tile = Some(Tile {
-                    id: tile,
-                    running: true,
-                });
-                inner.record(&store, id, AgentEvent::TakenOver { tile })?;
+                inner.record(&store, id, AgentEvent::TakenOver { tile });
                 inner
                     .view(&store, id, entry)
                     .map(|s| (inner.sink)(Update::Session(s)))
@@ -339,7 +354,7 @@ impl Agents {
         let entry = live.entry(id).or_default();
         entry.busy = false;
         entry.tile = None;
-        inner.record(&store, id, AgentEvent::HandedBack)?;
+        inner.record(&store, id, AgentEvent::HandedBack);
         inner.set_state(&store, id, entry, State::Stopped)?;
         inner.launch(&store, id, entry)?;
         inner.view(&store, id, entry)
@@ -389,9 +404,33 @@ impl Inner {
         self.save(store, &mut session, entry)
     }
 
-    fn record(&self, store: &Store, id: i64, event: AgentEvent) -> Result<()> {
-        let stored = store.record(id, &event)?;
-        (self.sink)(Update::Event(stored));
+    /// An event that cannot be saved is lost, never the change of state that comes with it.
+    fn record(&self, store: &Store, id: i64, event: AgentEvent) {
+        match store.record(id, &event) {
+            Ok(stored) => (self.sink)(Update::Event(stored)),
+            Err(e) => eprintln!("termf: agent session {id}: event not saved: {e:#}"),
+        }
+    }
+
+    /// Kills what the last launch of the app left running, and frees the sessions whose process is gone.
+    fn reap(&self, store: &Store) -> Result<()> {
+        store.stop_all()?;
+        for (id, pid, session_id) in store.pids()? {
+            if ours(pid, &session_id) {
+                kill_group(pid);
+                let deadline = std::time::Instant::now() + KILL_WAIT;
+                while ours(pid, &session_id) && std::time::Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+            if ours(pid, &session_id) {
+                let message = format!("its process {pid} from the last launch still runs");
+                self.record(store, id, AgentEvent::Error { message });
+                self.set_state(store, id, &Live::default(), State::Error)?;
+            } else {
+                store.clear_pid(id, pid)?;
+            }
+        }
         Ok(())
     }
 
@@ -429,7 +468,7 @@ impl Inner {
         }
         self.write(entry, &self.runtime.message(text))?;
         entry.interrupting = false;
-        self.record(store, id, AgentEvent::User { text: text.into() })?;
+        self.record(store, id, AgentEvent::User { text: text.into() });
         self.set_state(store, id, entry, State::Working)
     }
 
@@ -441,6 +480,11 @@ impl Inner {
         if budget.is_some_and(|left| left < 0.0001) {
             self.set_state(store, id, entry, State::Budget)?;
             bail!("the session's budget is spent");
+        }
+        if let Some(pid) = store.pid(id)?
+            && ours(pid, &session.session_id)
+        {
+            bail!("a process of this session still runs (pid {pid}): it must end first");
         }
         let settings = termf_core::load_settings(&self.config_dir)?;
         let agent = session.spec.agent.as_deref().unwrap_or_default();
@@ -489,11 +533,12 @@ impl Inner {
         else {
             bail!("the agent's process has no pipes");
         };
+        let pid = child.id();
         entry.generation += 1;
         let generation = entry.generation;
         entry.process = Some(Process {
             stdin: Some(stdin),
-            pid: child.id(),
+            pid,
             generation,
         });
         entry.pending.clear();
@@ -501,7 +546,8 @@ impl Inner {
         let said = std::thread::spawn(move || tail(stderr));
         let inner = self.clone();
         std::thread::spawn(move || inner.read(id, generation, child, stdout, said));
-        self.record(store, id, AgentEvent::Started { resumed: resume })?;
+        store.set_pid(id, Some(pid))?;
+        self.record(store, id, AgentEvent::Started { resumed: resume });
         self.set_state(store, id, entry, State::Idle)
     }
 
@@ -513,12 +559,18 @@ impl Inner {
         stdout: ChildStdout,
         said: JoinHandle<String>,
     ) {
+        let pid = child.id();
         let mut parser = self.runtime.parser();
         let mut reader = BufReader::new(stdout);
         let mut line = Vec::new();
+        // Opened again only after a failure.
+        let mut store = None;
         while matches!(reader.read_until(b'\n', &mut line), Ok(n) if n > 0) {
             for event in parser.parse(&line) {
-                if let Err(e) = self.handle(id, generation, event) {
+                let handled = self
+                    .opened(&mut store)
+                    .and_then(|s| self.handle(s, id, generation, event));
+                if let Err(e) = handled {
                     eprintln!("termf: agent session {id}: {e:#}");
                 }
             }
@@ -526,32 +578,40 @@ impl Inner {
         }
         let code = child.wait().ok().and_then(|s| s.code());
         let said = said.join().unwrap_or_default();
-        if let Err(e) = self.exited(id, generation, code, &said) {
+        if let Err(e) = self.exited(&mut store, id, generation, pid, code, &said) {
             eprintln!("termf: agent session {id}: {e:#}");
         }
     }
 
-    fn handle(&self, id: i64, generation: u64, mut event: AgentEvent) -> Result<()> {
-        if let AgentEvent::Delta { .. } = event {
-            let at = now();
-            (self.sink)(Update::Event(StoredEvent {
-                id: 0,
-                session: id,
-                at,
-                event,
-            }));
-            return Ok(());
+    fn opened<'a>(&self, store: &'a mut Option<Store>) -> Result<&'a Store> {
+        if store.is_none() {
+            *store = Some(self.store()?);
         }
-        let store = self.store()?;
+        Ok(store.as_ref().expect("just opened"))
+    }
+
+    fn handle(&self, store: &Store, id: i64, generation: u64, mut event: AgentEvent) -> Result<()> {
         let mut live = self.live.lock().unwrap();
         let entry = live.entry(id).or_default();
-        let mut session = store.session(id)?;
-        let before = session.clone();
         // A process being stopped still reports, e.g. the end of its interrupted turn: the state is already set.
         let current = entry
             .process
             .as_ref()
             .is_some_and(|p| p.generation == generation);
+        if let AgentEvent::Delta { .. } = event {
+            if current {
+                let (session, at) = (id, now());
+                (self.sink)(Update::Event(StoredEvent {
+                    id: 0,
+                    session,
+                    at,
+                    event,
+                }));
+            }
+            return Ok(());
+        }
+        let mut session = store.session(id)?;
+        let before = session.clone();
         let moves = current
             && matches!(
                 session.state,
@@ -595,17 +655,25 @@ impl Inner {
             }
             _ => {}
         }
-        self.record(&store, id, event)?;
+        self.record(store, id, event);
         if moves || (state == State::Budget && session.state != State::Interactive) {
             session.state = state;
         }
         if session != before {
-            self.save(&store, &mut session, entry)?;
+            self.save(store, &mut session, entry)?;
         }
         Ok(())
     }
 
-    fn exited(&self, id: i64, generation: u64, code: Option<i32>, said: &str) -> Result<()> {
+    fn exited(
+        &self,
+        store: &mut Option<Store>,
+        id: i64,
+        generation: u64,
+        pid: u32,
+        code: Option<i32>,
+        said: &str,
+    ) -> Result<()> {
         let mut live = self.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         let current = entry
@@ -618,8 +686,9 @@ impl Inner {
             entry.interrupting = false;
         }
         self.ended.notify_all();
-        let store = self.store()?;
-        self.record(&store, id, AgentEvent::Exited { code })?;
+        let store = self.opened(store)?;
+        store.clear_pid(id, pid)?;
+        self.record(store, id, AgentEvent::Exited { code });
         if !current {
             return Ok(());
         }
@@ -631,12 +700,12 @@ impl Inner {
                 "" => "the agent's process ended during its turn".into(),
                 said => said.to_owned(),
             };
-            self.record(&store, id, AgentEvent::Error { message })?;
+            self.record(store, id, AgentEvent::Error { message });
             session.state = State::Error;
         } else if session.state == State::Idle {
             session.state = State::Stopped;
         }
-        self.save(&store, &mut session, entry)
+        self.save(store, &mut session, entry)
     }
 
     /// Waits for the session's process to end, and kills it when it takes too long.
@@ -740,6 +809,25 @@ fn tail(mut stderr: impl Read) -> String {
         kept.drain(..extra);
     }
     termf_core::process::tail(&String::from_utf8_lossy(&kept))
+}
+
+/// Whether `pid` still runs this conversation's agent: its command line names the conversation, so a pid the
+/// system has given to another program since is never taken for it.
+pub(crate) fn ours(pid: u32, session_id: &str) -> bool {
+    #[cfg(unix)]
+    let out = Command::new("ps")
+        .args(["-ww", "-o", "args=", "-p", &pid.to_string()])
+        .output();
+    // shortcut: PowerShell takes a second; it is only asked when a process may have been left behind.
+    #[cfg(windows)]
+    let out = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"),
+        ])
+        .output();
+    out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(session_id))
 }
 
 fn kill_group(pid: u32) {

@@ -11,7 +11,7 @@ use termf_agents::{AgentSession, Agents, SessionSpec, StoredEvent, Update};
 use termf_core::ipc::{AgentCall, SessionSummary};
 
 use crate::tickets::blocking;
-use crate::{AppState, CmdResult, api, err};
+use crate::{AppState, CmdResult, api};
 
 pub struct AgentsState(Agents);
 
@@ -27,6 +27,13 @@ pub fn state(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf) -> AgentsS
 
 fn agents(app: &AppHandle) -> &Agents {
     &app.state::<AgentsState>().inner().0
+}
+
+/// The app quits: no headless process may outlive it.
+pub fn shutdown(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AgentsState>() {
+        state.0.shutdown();
+    }
 }
 
 /// A terminal session ended: it may hold a conversation taken over.
@@ -109,7 +116,7 @@ pub fn call(app: &AppHandle, call: AgentCall) -> Result<Value> {
     })
 }
 
-// Starting a process goes through the login shell, and stopping one waits for it: off the UI thread.
+// The database, the login shell that starts a process and the wait for one to end: off the UI thread.
 
 #[tauri::command]
 pub async fn agent_start(
@@ -126,21 +133,22 @@ pub async fn agent_send(app: AppHandle, id: i64, text: String) -> CmdResult<()> 
 }
 
 #[tauri::command]
-pub fn agent_interrupt(app: AppHandle, id: i64) -> CmdResult<()> {
-    agents(&app).interrupt(id).map_err(err)
+pub async fn agent_interrupt(app: AppHandle, id: i64) -> CmdResult<()> {
+    blocking(app, move |app| agents(app).interrupt(id)).await
 }
 
 #[tauri::command]
-pub fn agent_answer(
+pub async fn agent_answer(
     app: AppHandle,
     id: i64,
     request: String,
     allow: bool,
     message: Option<String>,
 ) -> CmdResult<()> {
-    agents(&app)
-        .answer(id, &request, allow, message.as_deref())
-        .map_err(err)
+    blocking(app, move |app| {
+        agents(app).answer(id, &request, allow, message.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -167,11 +175,15 @@ pub async fn agent_handback(app: AppHandle, id: i64) -> CmdResult<AgentSession> 
 }
 
 #[tauri::command]
-pub fn agent_sessions(app: AppHandle) -> CmdResult<Vec<AgentSession>> {
-    agents(&app).sessions().map_err(err)
+pub async fn agent_sessions(app: AppHandle) -> CmdResult<Vec<AgentSession>> {
+    blocking(app, |app| agents(app).sessions()).await
 }
 
 #[tauri::command]
-pub fn agent_events(app: AppHandle, id: i64, after: Option<i64>) -> CmdResult<Vec<StoredEvent>> {
-    agents(&app).events(id, after.unwrap_or(0)).map_err(err)
+pub async fn agent_events(
+    app: AppHandle,
+    id: i64,
+    after: Option<i64>,
+) -> CmdResult<Vec<StoredEvent>> {
+    blocking(app, move |app| agents(app).events(id, after.unwrap_or(0))).await
 }
