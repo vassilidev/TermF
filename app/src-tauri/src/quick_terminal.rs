@@ -22,13 +22,18 @@ pub fn plugin() -> TauriPlugin<Wry> {
         .build()
 }
 
-/// Registers the shortcut set in `termf.toml`. A bad or taken shortcut is reported in the UI rather than stopping the app.
+/// Registers the system-wide shortcut set in `termf.toml`, if any. A bad or taken shortcut is reported
+/// in the UI rather than stopping the app.
 pub fn register(app: &AppHandle) {
     let state = app.state::<AppState>();
     let accelerator = termf_core::load_settings(&state.config_dir)
         .map(|s| s.quick_terminal_shortcut)
-        .unwrap_or_else(|_| termf_core::Settings::default().quick_terminal_shortcut);
-    if let Err(e) = app.global_shortcut().register(accelerator.as_str()) {
+        .unwrap_or_default();
+    let accelerator = accelerator.trim();
+    if accelerator.is_empty() {
+        return;
+    }
+    if let Err(e) = app.global_shortcut().register(accelerator) {
         *state.quick_terminal.error.lock().unwrap() = Some(format!("{accelerator}: {e}"));
     }
 }
@@ -92,15 +97,15 @@ mod tests {
 
     #[test]
     fn parses_shortcut_settings() {
-        let default: Shortcut = termf_core::Settings::default()
-            .quick_terminal_shortcut
-            .parse()
-            .unwrap();
+        // The example given in the default termf.toml.
         assert_eq!(
-            default,
+            "Alt+Shift+Space".parse::<Shortcut>().unwrap(),
+            Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::Space)
+        );
+        assert_eq!(
+            "Ctrl+`".parse::<Shortcut>().unwrap(),
             Shortcut::new(Some(Modifiers::CONTROL), Code::Backquote)
         );
-        assert!("Alt+Shift+Space".parse::<Shortcut>().is_ok());
         assert!("Ctrl+".parse::<Shortcut>().is_err());
         assert!("Ctrl+Nope".parse::<Shortcut>().is_err());
     }

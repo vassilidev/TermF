@@ -1,3 +1,9 @@
+<script module lang="ts">
+  let toggle = () => {};
+  /** Shows or hides the quick terminal, from the sidebar button. */
+  export const toggleQuickTerminal = () => toggle();
+</script>
+
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
@@ -38,12 +44,24 @@
     previousFocus?.focus();
   }
 
+  toggle = () => (open ? hide() : show());
+
+  // In-app only, so Ctrl+` stays free for other apps (VS Code…) while TermF is in the background.
+  // Not Cmd+` on macOS: the system uses it to cycle windows. Capture phase, so a focused terminal does not see it.
+  function onkeydown(e: KeyboardEvent) {
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "Backquote") {
+      e.preventDefault();
+      e.stopPropagation();
+      toggle();
+    }
+  }
+
   onMount(() => {
     const toggled = listen<boolean>("quick-terminal", ({ payload: wasFocused }) =>
       open && wasFocused ? hide() : show(),
     );
     const exited = listen<{ id: number }>("pty-exit", ({ payload }) => {
-      if (payload.id === id) hide();
+      if (payload.id === id && open) hide();
     });
     return () => {
       toggled.then((stop) => stop());
@@ -51,6 +69,8 @@
     };
   });
 </script>
+
+<svelte:window onkeydowncapture={onkeydown} />
 
 <section class="quick" class:open bind:this={panel} aria-label={t("quickTerminal")}>
   {#if id !== null}

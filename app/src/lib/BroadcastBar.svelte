@@ -5,7 +5,7 @@
 
   let text = $state("");
   const targets = $derived(app.sessions.filter((s) => s.running && ticked.has(s.id)));
-  const keys = navigator.userAgent.includes("Mac") ? "⌘⇧↵" : "Ctrl+Shift+↵";
+  const keys = t(navigator.userAgent.includes("Mac") ? "broadcastKeysMac" : "broadcastKeys");
 
   const write = (id: number, data: string) => invoke("pty_write", { id, data }).catch(() => {});
 
@@ -20,9 +20,9 @@
     await Promise.all(ids.map((id) => write(id, "\r")));
   }
 
-  // Capture phase, so a focused terminal does not also receive the keystroke.
+  // Capture phase, so a focused terminal does not also receive the keystroke; with nothing to send it gets it.
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) && text && targets.length) {
       e.preventDefault();
       e.stopPropagation();
       send();

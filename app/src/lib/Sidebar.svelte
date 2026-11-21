@@ -1,6 +1,7 @@
 <script lang="ts">
   import Layouts from "$lib/Layouts.svelte";
   import ProjectEditor from "$lib/ProjectEditor.svelte";
+  import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app, load, openSelected, selected, toggleProject } from "$lib/state.svelte";
 
@@ -25,7 +26,18 @@
 </script>
 
 <aside class="sidebar">
-  <header class="brand">TermF</header>
+  <header class="brand">
+    TermF
+    <button
+      class="icon quick"
+      onclick={toggleQuickTerminal}
+      aria-label={t("quickTerminal")}
+      aria-keyshortcuts="Control+`"
+      title={t("quickTerminalTitle")}
+    >
+      &gt;_
+    </button>
+  </header>
 
   {#if app.error}
     <p class="error" role="alert">{app.error}</p>
@@ -154,7 +166,10 @@
   }
 
   .brand {
-    padding: 14px 16px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 12px 8px 16px;
     font-weight: 650;
     letter-spacing: 0.02em;
   }
@@ -248,6 +263,12 @@
 
   .edit {
     opacity: 0;
+  }
+
+  .quick {
+    width: 28px;
+    font: 600 12px ui-monospace, monospace;
+    letter-spacing: 0;
   }
 
   .item:hover .edit,

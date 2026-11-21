@@ -13,8 +13,9 @@ const DEFAULT_SETTINGS: &str = r#"# TermF — global settings
 roots = ["~"]
 # How many folder levels below each root are searched.
 scan_depth = 5
-# Global shortcut that shows or hides the quick terminal (read at startup).
-quick_terminal_shortcut = "Ctrl+`"
+# Inside TermF, Ctrl+` shows or hides the quick terminal. To also reach it when TermF is in the
+# background, set a system-wide shortcut (read at startup), for example:
+# quick_terminal_shortcut = "Alt+Shift+Space"
 # Command for "Open in external editor" (e.g. "code", "zed"). Unset: the system's default app.
 # editor = "code"
 
@@ -51,6 +52,7 @@ const SCAN_BUDGET: usize = 50_000;
 pub struct Settings {
     pub roots: Vec<String>,
     pub scan_depth: usize,
+    /// System-wide quick terminal shortcut; empty means none.
     pub quick_terminal_shortcut: String,
     pub agents: BTreeMap<String, String>,
     pub editor: Option<String>,
@@ -62,7 +64,7 @@ impl Default for Settings {
         Self {
             roots: vec!["~".into()],
             scan_depth: 5,
-            quick_terminal_shortcut: "Ctrl+`".into(),
+            quick_terminal_shortcut: String::new(),
             agents: BTreeMap::from([("claude".into(), "claude".into())]),
             editor: None,
         }
@@ -164,10 +166,6 @@ pub fn save_project(
 ) -> Result<String> {
     let name = name.trim();
     ensure!(!name.is_empty(), "a project needs a name");
-    ensure!(
-        repos.iter().all(|r| Path::new(r).is_absolute()),
-        "repository paths must be absolute"
-    );
     let (id, file, mut doc) = match id {
         Some(id) => {
             let file = project_file(config_dir, id)?;
@@ -205,6 +203,11 @@ pub fn save_project(
     let mut listed: Vec<PathBuf> = list.iter().filter_map(path_of).collect();
     for repo in repos {
         if !listed.iter().any(|p| p == Path::new(repo)) {
+            // Only new entries are checked: hand-written relative paths already in the file stay as they are.
+            ensure!(
+                Path::new(repo).is_absolute(),
+                "repository paths must be absolute"
+            );
             let mut table = Table::new();
             table["path"] = value(portable(repo));
             list.push(table);
@@ -237,11 +240,20 @@ fn slugify(name: &str) -> String {
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    if slug.is_empty() {
-        "project".into()
-    } else {
-        slug
+    match slug.as_str() {
+        "" => "project".into(),
+        s if reserved_on_windows(s) => format!("{s}-project"),
+        _ => slug,
     }
+}
+
+/// Device names Windows refuses as file names, whatever the extension.
+fn reserved_on_windows(name: &str) -> bool {
+    matches!(name, "con" | "prn" | "aux" | "nul")
+        || ["com", "lpt"].iter().any(|device| {
+            name.strip_prefix(device)
+                .is_some_and(|n| n.chars().count() == 1 && "0123456789¹²³".contains(n))
+        })
 }
 
 /// A saved set of sessions, reopened in one click.
@@ -454,6 +466,10 @@ mod tests {
             settings.quick_terminal_shortcut,
             defaults.quick_terminal_shortcut
         );
+        assert!(
+            settings.quick_terminal_shortcut.is_empty(),
+            "no system-wide shortcut by default"
+        );
         assert!(dir.join("termf.toml").exists());
 
         fs::write(
@@ -546,6 +562,12 @@ mod tests {
         assert_eq!(slugify("Acme Corp!"), "acme-corp");
         assert_eq!(slugify("  Été 2026 "), "été-2026");
         assert_eq!(slugify("!!!"), "project");
+        assert_eq!(slugify("CON"), "con-project");
+        assert_eq!(slugify("Nul"), "nul-project");
+        assert_eq!(slugify("lpt9"), "lpt9-project");
+        assert_eq!(slugify("COM¹"), "com¹-project");
+        assert_eq!(slugify("console"), "console");
+        assert_eq!(slugify("com10"), "com10");
 
         let dir = temp_dir("validation");
         assert!(save_project(&dir, None, "  ", &[]).is_err());
@@ -578,14 +600,20 @@ mod tests {
         fs::write(
             dir.join("projects/acme-corp.toml"),
             format!(
-                "# Acme notes\nname = \"Acme\"\n\n[[repos]]\npath = {api:?}\nname = \"backend\" # renamed\nroles = [\"back\"]\n\n[[repos]]\npath = {web:?}\n"
+                "# Acme notes\nname = \"Acme\"\n\n[[repos]]\npath = {api:?}\nname = \"backend\" # renamed\nroles = [\"back\"]\n\n[[repos]]\npath = {web:?}\n\n[[repos]]\npath = \"code/legacy\"\n"
             ),
         )
         .unwrap();
-        save_project(&dir, Some("acme-corp"), " Acme Inc ", &[api, docs]).unwrap();
+        let legacy = "code/legacy".to_string();
+        save_project(&dir, Some("acme-corp"), " Acme Inc ", &[api, legacy, docs]).unwrap();
+        assert!(
+            save_project(&dir, Some("acme-corp"), "Acme Inc", &["code/new".into()]).is_err(),
+            "a relative path added from the UI is still rejected"
+        );
         let text = fs::read_to_string(dir.join("projects/acme-corp.toml")).unwrap();
         for kept in [
             "# Acme notes",
+            "path = \"code/legacy\"",
             "name = \"backend\" # renamed",
             "roles = [\"back\"]",
         ] {
@@ -597,7 +625,7 @@ mod tests {
         let acme = projects.iter().find(|p| p.id == "acme-corp").unwrap();
         assert_eq!(acme.name, "Acme Inc");
         let names: Vec<_> = acme.repos.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["backend", "docs"]);
+        assert_eq!(names, ["backend", "legacy", "docs"]);
 
         delete_project(&dir, "acme-corp").unwrap();
         let ids: Vec<_> = load_projects(&dir)

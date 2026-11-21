@@ -47,7 +47,9 @@ export async function load() {
 /** Loads the workspace and re-attaches to sessions that outlived a webview reload. Returns a cleanup. */
 export function init(): () => void {
   load();
-  invoke<Session[]>("pty_list").then((list) => (app.sessions = list));
+  invoke<Session[]>("pty_list").then((list) => {
+    app.sessions = list;
+  });
   const unlisten = listen<{ id: number; exitCode: number | null }>("pty-exit", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) {

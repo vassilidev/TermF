@@ -66,10 +66,13 @@ const fr = {
   broadcastTo: "Diffuser vers cette session",
   broadcastPlaceholder: "Message pour les sessions cochées…",
   broadcast: "Diffuser",
+  broadcastKeys: "Ctrl+Shift+↵",
+  broadcastKeysMac: "⌘⇧↵",
   recipients: "Destinataires : {count}",
   tickAll: "Tout cocher",
   tickNone: "Tout décocher",
   quickTerminal: "Terminal rapide",
+  quickTerminalTitle: "Terminal rapide (Ctrl+`)",
   shortcutError:
     "Raccourci du terminal rapide indisponible ({error}). Modifie « quick_terminal_shortcut » (termf.toml) puis relance TermF.",
 };
@@ -143,10 +146,13 @@ const en: Record<Key, string> = {
   broadcastTo: "Broadcast to this session",
   broadcastPlaceholder: "Message for the ticked sessions…",
   broadcast: "Broadcast",
+  broadcastKeys: "Ctrl+Shift+↵",
+  broadcastKeysMac: "⌘⇧↵",
   recipients: "Recipients: {count}",
   tickAll: "Tick all",
   tickNone: "Untick all",
   quickTerminal: "Quick terminal",
+  quickTerminalTitle: "Quick terminal (Ctrl+`)",
   shortcutError:
     "Quick terminal shortcut unavailable ({error}). Change “quick_terminal_shortcut” (termf.toml), then restart TermF.",
 };
