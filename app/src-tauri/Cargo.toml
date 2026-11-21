@@ -21,3 +21,7 @@ termf-term = { path = "../../crates/termf-term" }
 termf-files = { path = "../../crates/termf-files" }
 anyhow = "1.0.104"
 tauri-plugin-global-shortcut = "2"
+getrandom = "0.3.4"
+interprocess = "2.4.9"
+serde_json = "1.0.154"
+tauri-plugin-notification = "2.8.1"

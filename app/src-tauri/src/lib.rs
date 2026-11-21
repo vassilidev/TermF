@@ -1,3 +1,4 @@
+mod api;
 mod config;
 mod files;
 mod quick_terminal;
@@ -7,15 +8,17 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody, Response};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use termf_core::ipc::SessionSummary;
 use termf_core::{Project, Repo};
 use termf_files::Files;
-use termf_term::{Output, SessionInfo, Sessions, SpawnSpec, shell_command};
+use termf_term::{Output, Sessions};
 
 struct AppState {
     config_dir: PathBuf,
     sessions: Sessions,
     quick_terminal: quick_terminal::QuickTerminal,
+    api: api::Api,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -77,41 +80,19 @@ fn pty_spawn(
     title: String,
     cols: u16,
     rows: u16,
-) -> CmdResult<SessionInfo> {
-    let command = match &agent {
-        Some(name) => {
-            let settings = termf_core::load_settings(&state.config_dir).map_err(err)?;
-            Some(
-                settings
-                    .agents
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| format!("unknown agent {name}"))?,
-            )
-        }
-        None => None,
-    };
-    let (program, args) = shell_command(command.as_deref());
-    let id = state
-        .sessions
-        .spawn(SpawnSpec {
-            title: title.clone(),
-            program,
-            args,
-            cwd: cwd.clone().into(),
-            agent: agent.clone(),
-            cols,
-            rows,
-        })
-        .map_err(err)?;
-    Ok(SessionInfo {
-        id,
+    remote_control: Option<bool>,
+) -> CmdResult<SessionSummary> {
+    let remote_control = remote_control.unwrap_or(false);
+    api::spawn(
+        &state,
+        agent.as_deref(),
+        cwd.into(),
         title,
-        cwd,
-        agent,
-        running: true,
-        exit_code: None,
-    })
+        cols,
+        rows,
+        remote_control,
+    )
+    .map_err(err)
 }
 
 #[tauri::command]
@@ -131,6 +112,7 @@ fn pty_attach(
                     let _ = on_data.send(InvokeResponseBody::Raw(bytes));
                 }
                 Output::Exit(exit_code) => {
+                    app.state::<AppState>().api.exited(&app, id);
                     let _ = app.emit("pty-exit", ExitEvent { id, exit_code });
                 }
             }),
@@ -151,16 +133,17 @@ fn pty_resize(state: State<AppState>, id: u32, cols: u16, rows: u16) -> CmdResul
 
 #[tauri::command]
 fn pty_kill(state: State<AppState>, id: u32) -> CmdResult<()> {
+    state.api.forget(id);
     state.sessions.kill(id).map_err(err)
 }
 
 #[tauri::command]
-fn pty_list(state: State<AppState>) -> Vec<SessionInfo> {
+fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
     // The quick terminal has its own panel, never a tile.
     let quick = *state.quick_terminal.session.lock().unwrap();
     state
-        .sessions
-        .list()
+        .api
+        .list(&state.sessions)
         .into_iter()
         .filter(|s| Some(s.id) != quick)
         .collect()
@@ -169,15 +152,24 @@ fn pty_list(state: State<AppState>) -> Vec<SessionInfo> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config_dir = termf_core::default_config_dir().expect("cannot locate the config directory");
+    let data_dir = termf_core::default_data_dir().expect("cannot locate the data directory");
+    let api = api::Api::new(data_dir).expect("cannot prepare the local API");
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             config_dir,
-            sessions: Sessions::default(),
+            sessions: api.sessions(),
             quick_terminal: Default::default(),
+            api,
         })
         .manage(Arc::new(Files::default()))
         .plugin(quick_terminal::plugin())
+        // One setup: a second call to `setup` would replace this one.
         .setup(|app| {
+            // The UI works without the CLI, so a busy socket is not fatal.
+            if let Err(e) = api::serve(app.handle().clone()) {
+                eprintln!("termf: local API disabled: {e:#}");
+            }
             quick_terminal::register(app.handle());
             Ok(())
         })
