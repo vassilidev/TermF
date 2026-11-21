@@ -18,7 +18,7 @@ use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
-use crate::{AppState, tickets};
+use crate::{AppState, schedule, tickets};
 
 struct Meta {
     title: String,
@@ -448,6 +448,8 @@ pub fn spawn(
     rows: u16,
     remote_control: bool,
     run: Option<RunSession>,
+    // Added at the end of the agent's command.
+    args: &[String],
 ) -> Result<SessionSummary> {
     let command = match agent {
         Some(name) => {
@@ -533,11 +535,16 @@ pub fn spawn(
             ));
         }
         let command = command.as_deref().map(|c| {
-            if extra.is_empty() {
+            let mut c = if extra.is_empty() {
                 c.to_owned()
             } else {
                 claude::after_program(c, &extra.join(" "))
+            };
+            // Last, so they win over the agent's own options and may end with `-- <prompt>`.
+            for arg in args {
+                c = format!("{c} {}", shell_quote(arg));
             }
+            c
         });
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
@@ -679,7 +686,17 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             }
             let name = cwd.file_name().unwrap_or(cwd.as_os_str()).to_string_lossy();
             let title = format!("{name} · {}", agent.as_deref().unwrap_or("shell"));
-            let session = spawn(state, agent.as_deref(), cwd, title, 120, 32, false, None)?;
+            let session = spawn(
+                state,
+                agent.as_deref(),
+                cwd,
+                title,
+                120,
+                32,
+                false,
+                None,
+                &[],
+            )?;
             state.keep_awake.update(app);
             app.emit("session-opened", &session)?;
             serde_json::to_value(session)?
@@ -707,6 +724,9 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             serde_json::to_value(tickets::deliver(app, run, &confirm)?)?
         }
         Call::Close { run, force } => serde_json::to_value(tickets::close(app, run, force)?)?,
+        Call::Schedule { task, scheduled } => {
+            serde_json::to_value(schedule::run(app, &task, scheduled)?)?
+        }
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }

@@ -92,6 +92,7 @@ pub fn start(
             brief: &launch.brief,
             env: &launch.env,
         }),
+        &[],
     );
     let session = match session {
         Ok(session) => session,

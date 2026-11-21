@@ -13,6 +13,7 @@ use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
 mod ci;
+mod schedule;
 mod scout;
 mod ssh;
 mod sync;
@@ -73,6 +74,20 @@ usage:
   termf close <run> [--force]           remove the run's worktree (--force drops work not pushed)
   termf guard                           refuse pushes and tracker writes in a run's session
                                         (Claude Code PreToolUse hook, JSON on stdin)
+  termf schedule list                   scheduled tasks, their schedule and next run
+  termf schedule add <name> --cron '<min hour day month weekday>' --prompt <text|-> [--dir <path>]
+                     [--tile] [--model <m>] [--effort <e>] [--permission-mode <p>] [--budget <usd>]
+                     [--no-catchup] [--disable] [--machine <name>|any]
+                                        a Claude Code task run on a schedule (local time) in a folder
+                                        (default: here), headless or in a tile (--tile), on this machine
+                                        only unless --machine says otherwise
+  termf schedule edit <id> [--name <n>] [same options] [--headless] [--enable] [--catchup]
+  termf schedule rm <id>                delete a task (its history stays)
+  termf schedule run <id> [--scheduled] run it now (--scheduled: only if one of its times is due)
+  termf schedule history [<id>] [--limit <n>] [--run <run>]
+                                        past runs, or one run and its output
+  termf schedule install|uninstall <id> also run a headless task while TermF is closed, through the
+                                        system's scheduler (launchd, systemd, Task Scheduler)
   termf worktree setup [<path>]         prepare a worktree (default: here) with its project's recipe:
                                         dependencies, local files, its database copy, ports
   termf worktree teardown [<path>]      drop the worktree's database copy and give its ports back
@@ -173,6 +188,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["config", rest @ ..] => config(rest.to_vec())?,
         ["ssh", rest @ ..] => ssh::run(rest)?,
         ["sync", rest @ ..] => sync::run(rest)?,
+        ["schedule", rest @ ..] => schedule::run(rest.to_vec())?,
         ["worktree", rest @ ..] => worktree::run(rest)?,
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         [

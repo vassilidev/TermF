@@ -7,6 +7,7 @@ mod files;
 mod keep_awake;
 mod library;
 mod quick_terminal;
+mod schedule;
 mod ssh;
 mod sync;
 mod tickets;
@@ -107,6 +108,7 @@ fn pty_spawn(
         rows,
         remote_control,
         None,
+        &[],
     )
     .map_err(err)?;
     state.keep_awake.update(&app);
@@ -192,7 +194,10 @@ pub fn run() {
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new();
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
-            app.manage(tickets::TicketsState::new(config_dir.clone(), data_dir));
+            app.manage(tickets::TicketsState::new(
+                config_dir.clone(),
+                data_dir.clone(),
+            ));
             app.manage(AppState {
                 config_dir,
                 sessions: api.sessions(app.handle().clone()),
@@ -205,6 +210,9 @@ pub fn run() {
                 settings.keep_awake,
                 settings.keep_display_on,
             );
+            // After the state its runs use, before the local API that can ask it to run a task.
+            let config = app.state::<AppState>().config_dir.clone();
+            schedule::start(app.handle(), config, data_dir);
             if let Some(listener) = listener
                 && let Err(e) = api::serve(app.handle().clone(), listener)
             {
@@ -318,6 +326,15 @@ pub fn run() {
             tickets::tickets_mcp_servers,
             tickets::tickets_configured,
             browser::open_url,
+            schedule::schedule_tasks,
+            schedule::schedule_save,
+            schedule::schedule_delete,
+            schedule::schedule_preview,
+            schedule::schedule_run,
+            schedule::schedule_history,
+            schedule::schedule_install,
+            schedule::schedule_desktop,
+            schedule::schedule_machine,
             ci::ci_runs,
             ci::ci_run,
             ci::ci_log,

@@ -15,12 +15,14 @@
   import { ssh } from "$lib/ssh.svelte";
   import { tickets } from "$lib/tickets.svelte";
   import { ci, watchCi } from "$lib/ci.svelte";
+  import { schedule, watchSchedule } from "$lib/schedule.svelte";
 
   onMount(() => {
     document.documentElement.lang = lang;
     const stop = init();
     const stopCi = watchCi();
-    return () => (stop(), stopCi());
+    const stopSchedule = watchSchedule();
+    return () => (stop(), stopCi(), stopSchedule());
   });
 </script>
 
@@ -64,6 +66,11 @@
     {#if ci.loaded}
       {#await import("$lib/CiView.svelte") then { default: CiView }}
         <div class="pane" hidden={files.view !== "ci"}><CiView /></div>
+      {/await}
+    {/if}
+    {#if schedule.loaded}
+      {#await import("$lib/SchedulerView.svelte") then { default: SchedulerView }}
+        <div class="pane" hidden={files.view !== "scheduler"}><SchedulerView /></div>
       {/await}
     {/if}
   </div>
