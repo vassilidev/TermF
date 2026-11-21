@@ -74,8 +74,10 @@
     loadHistory();
   }
 
+  const dots = (...parts: (string | false)[]) => parts.filter(Boolean).join(" · ");
+
   function duration(run: Execution): string {
-    if (run.finished === null) return "";
+    if (run.finished === null || run.status === "opened") return "";
     const s = run.finished - run.started;
     return s < 120 ? t("schedulerSeconds", { n: s }) : t("schedulerMinutes", { n: Math.round(s / 60) });
   }
@@ -152,7 +154,7 @@
       {t("schedulerTabTasks")}{#if schedule.tasks}<span class="count">{tasks.length}</span>{/if}
     </button>
     <button role="tab" aria-selected={schedule.tab === "others"} onclick={showOthers}>{t("schedulerTabOthers")}</button>
-    {#if schedule.tab === "tasks" && tasks.length}
+    {#if schedule.tab === "tasks" && tasks.length && editing === undefined}
       <button class="btn sm primary new" onclick={() => (schedule.editing = "")}>
         <Plus size={14} aria-hidden="true" />{t("schedulerNew")}
       </button>
@@ -243,7 +245,7 @@
             <button class="pick" aria-current={entry === current} onclick={() => select(entry.id)}>
               <span class="name">{entry.name}</span>
               <span class="desc">
-                {describe(entry.cron) ?? entry.cron}{#if entry.next !== null} · {t("schedulerNext", { when: when(entry.next) })}{/if}
+                {dots(describe(entry.cron) ?? entry.cron, entry.next !== null && t("schedulerNext", { when: when(entry.next) }))}
               </span>
             </button>
             {#if !entry.enabled}
@@ -263,9 +265,8 @@
           <header>
             <h2>{current.name}</h2>
             <p class="muted">
-              {describe(current.cron) ?? ""}
-              <span class="mono">{current.cron}</span>
-              {#if current.next !== null} · {t("schedulerNext", { when: when(current.next) })}{/if}
+              {#if describe(current.cron)}{describe(current.cron)}{" · "}{/if}<span class="mono">{current.cron}</span
+              >{#if current.next !== null}{" · "}{t("schedulerNext", { when: when(current.next) })}{/if}
             </p>
           </header>
 
@@ -359,7 +360,7 @@
                     <time datetime={new Date(run.started * 1000).toISOString()}>{when(run.started)}</time>
                     <span class="muted">{t(triggers[run.trigger])}</span>
                     <span class="facts muted">
-                      {duration(run)}{#if run.cost !== null} · {cost(run.cost)}{/if}
+                      {dots(duration(run), run.cost !== null && cost(run.cost))}
                     </span>
                   </summary>
                   {#if run.error}

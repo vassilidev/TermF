@@ -159,17 +159,19 @@
       </div>
     </div>
     <p class="help" id="cron-help">{t("schedulerCronHelp")}</p>
-    <div class="preview" aria-live="polite">
+    <div aria-live="polite">
       {#if cronError}
         <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{t("schedulerCronInvalid", { error: cronError })}</p>
-      {:else}
-        {#if words}<p class="words">{words}</p>{/if}
-        {#if runs.length}
-          <p class="help">{t("schedulerNextRuns")}</p>
-          <ul class="runs">
-            {#each runs as run (run)}<li>{when(run)}</li>{/each}
-          </ul>
-        {/if}
+      {:else if words || runs.length}
+        <div class="preview">
+          {#if words}<p class="words">{words}</p>{/if}
+          {#if runs.length}
+            <p class="help">{t("schedulerNextRuns")}</p>
+            <ul class="runs">
+              {#each runs as run (run)}<li>{when(run)}</li>{/each}
+            </ul>
+          {/if}
+        </div>
       {/if}
     </div>
   </fieldset>
@@ -372,10 +374,6 @@
     padding: 10px 12px;
     border-radius: var(--radius-lg);
     background: var(--hover);
-  }
-
-  .preview:empty {
-    display: none;
   }
 
   .words {
