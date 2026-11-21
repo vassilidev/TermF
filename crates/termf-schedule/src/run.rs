@@ -97,8 +97,8 @@ fn failed(error: String) -> Outcome {
 /// Kills the run's process group once its runner (the app or the CLI) is gone or its time is up, so it never
 /// outlives them. Its own process group: Ctrl+C on the CLI does not reach it.
 #[cfg(unix)]
-const WATCHDOG: &str = r#"while kill -0 -"$1" 2>/dev/null; do
-  if ! kill -0 "$2" 2>/dev/null || [ "$(date +%s)" -ge "$3" ]; then kill -KILL -"$1" 2>/dev/null; exit 0; fi
+const WATCHDOG: &str = r#"while kill -s 0 -- -"$1" 2>/dev/null; do
+  if ! kill -0 "$2" 2>/dev/null || [ "$(date +%s)" -ge "$3" ]; then kill -s KILL -- -"$1" 2>/dev/null; exit 0; fi
   sleep 1
 done"#;
 
@@ -171,9 +171,7 @@ fn execute(
             }
             if Instant::now() > deadline {
                 #[cfg(unix)]
-                let _ = Command::new("kill")
-                    .args(["-KILL", &format!("-{}", child.id())])
-                    .status();
+                termf_core::process::kill_group(child.id());
                 let _ = child.kill();
                 let _ = child.wait();
                 break None;

@@ -424,13 +424,37 @@ fn runs_headless_with_a_fake_claude() {
     assert_eq!(failed.status, Status::Failed);
     assert!(failed.error.unwrap().ends_with("Error: not logged in"));
 
-    fake_claude(&tilde, "sleep 30");
+    let started = env.root.join("started");
+    fake_claude(
+        &tilde,
+        &format!("sleep 30 & echo $! > '{}'; wait", started.display()),
+    );
     let mut cmd = headless_command("~/bin/claude", &task);
     cmd.env("HOME", &home);
-    let slow = run::headless(cmd, &task, std::time::Duration::from_millis(500), |_| {});
+    let slow = run::headless(cmd, &task, std::time::Duration::from_secs(2), |_| {});
     assert_eq!(slow.status, Status::Failed);
     let error = slow.error.unwrap();
     assert!(error.starts_with("stopped after"), "{error}");
+    let pid = fs::read_to_string(&started).unwrap();
+    assert!(gone(pid.trim()), "what it started is stopped with it");
+}
+
+/// Within 5 s: dead, or a zombie its new parent has not reaped yet.
+#[cfg(unix)]
+fn gone(pid: &str) -> bool {
+    (0..50).any(|_| {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", pid])
+            .output();
+        let stat = String::from_utf8_lossy(&out.unwrap().stdout)
+            .trim()
+            .to_owned();
+        let gone = stat.is_empty() || stat.starts_with('Z');
+        if !gone {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        gone
+    })
 }
 
 #[test]
@@ -496,13 +520,22 @@ fn fails_only_the_runs_whose_process_is_gone() {
 #[test]
 fn a_run_never_outlives_its_runner() {
     use std::os::unix::process::CommandExt;
-    let group = || {
-        std::process::Command::new("sleep")
-            .arg("30")
+    let env = Env::new("watchdog");
+    // A group with a process of its own in the background, whose pid goes in `file`.
+    let group = |file: &str| {
+        let file = env.root.join(file);
+        let child = std::process::Command::new("sh")
+            .args(["-c", "sleep 30 & echo $! > \"$1\"; wait", "sh"])
+            .arg(&file)
             .process_group(0)
             .spawn()
-            .unwrap()
+            .unwrap();
+        while !fs::read_to_string(&file).is_ok_and(|p| p.ends_with('\n')) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        (child, file)
     };
+    let background = |file: &PathBuf| fs::read_to_string(file).unwrap().trim().to_owned();
     let ended = |child: &mut std::process::Child| {
         (0..50).any(|_| {
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -512,14 +545,16 @@ fn a_run_never_outlives_its_runner() {
     let mut quick = std::process::Command::new("true").spawn().unwrap();
     let gone_runner = quick.id();
     quick.wait().unwrap();
-    let mut orphan = group();
+    let (mut orphan, file) = group("orphan");
     let mut dog = run::watchdog(orphan.id(), gone_runner, now() + 3600).unwrap();
     assert!(ended(&mut orphan), "its runner is gone");
+    assert!(gone(&background(&file)), "the whole group");
     dog.wait().unwrap();
 
-    let mut late = group();
+    let (mut late, file) = group("late");
     let mut dog = run::watchdog(late.id(), std::process::id(), now() - 1).unwrap();
     assert!(ended(&mut late), "its time is up");
+    assert!(gone(&background(&file)), "the whole group");
     dog.wait().unwrap();
 }
 

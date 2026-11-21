@@ -50,7 +50,7 @@ pub fn stream(
                 break status;
             }
             if Instant::now() > deadline {
-                kill_group(&mut child);
+                end(&mut child);
                 bail!("timed out after {} s", timeout.as_secs());
             }
             std::thread::sleep(Duration::from_millis(50));
@@ -62,13 +62,21 @@ pub fn stream(
     result
 }
 
-fn kill_group(child: &mut Child) {
+fn end(child: &mut Child) {
     #[cfg(unix)]
-    let _ = Command::new("kill")
-        .args(["-KILL", &format!("-{}", child.id())])
-        .status();
+    kill_group(child.id());
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Kills the process group `leader` started (spawned with `process_group(0)`). A signal, not the `kill`
+/// program: Linux's reads `-<pid>` as a signal.
+#[cfg(unix)]
+pub fn kill_group(leader: u32) {
+    if let Ok(group) = i32::try_from(leader) {
+        // SAFETY: only sends a signal; a group already gone gives an error, ignored.
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    }
 }
 
 /// A fresh private folder in the system's temporary folder.
@@ -90,4 +98,38 @@ pub fn tail(text: &str) -> String {
     let text = text.trim();
     let start = text.char_indices().rev().nth(500).map_or(0, |(i, _)| i);
     text[start..].into()
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// Within 5 s: dead, or a zombie its new parent has not reaped yet.
+    fn gone(pid: &str) -> bool {
+        (0..50).any(|_| {
+            let out = Command::new("ps").args(["-o", "stat=", "-p", pid]).output();
+            let stat = String::from_utf8_lossy(&out.unwrap().stdout)
+                .trim()
+                .to_owned();
+            let gone = stat.is_empty() || stat.starts_with('Z');
+            if !gone {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            gone
+        })
+    }
+
+    #[test]
+    fn a_timeout_kills_what_the_program_started() {
+        let dir = scratch_dir().unwrap();
+        let file = dir.join("pid");
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 30 & echo $! > \"$1\"; wait", "sh"])
+            .arg(&file);
+        let error = run(cmd, b"", Duration::from_millis(500)).unwrap_err();
+        assert!(error.to_string().contains("timed out"), "{error}");
+        let pid = fs::read_to_string(&file).unwrap();
+        assert!(gone(pid.trim()), "its background sleep outlived it");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

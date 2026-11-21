@@ -831,12 +831,8 @@ pub(crate) fn ours(pid: u32, session_id: &str) -> bool {
 }
 
 pub(crate) fn kill_group(pid: u32) {
-    // Not the `kill` program: Linux's reads `-<pid>` as a signal.
     #[cfg(unix)]
-    if let Ok(group) = i32::try_from(pid) {
-        // SAFETY: only sends a signal; a group that is gone already gives an error, ignored.
-        unsafe { libc::kill(-group, libc::SIGKILL) };
-    }
+    termf_core::process::kill_group(pid);
     #[cfg(windows)]
     let _ = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
