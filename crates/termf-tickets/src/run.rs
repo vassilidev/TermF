@@ -21,6 +21,20 @@ pub struct Launch {
     pub brief: PathBuf,
     /// What the worktree's setup gives the session: its ports, its Compose project name.
     pub env: BTreeMap<String, String>,
+    /// What Claude Code takes first: `--session-id <id>` and the first message for a new run, `--resume <id>`
+    /// for one taken up again.
+    pub args: Vec<String>,
+}
+
+/// A run whose pull request was merged or closed.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Cleanup {
+    pub run: Run,
+    /// TermF closed it (`[tickets] cleanup = "auto"`); otherwise the user does.
+    pub cleaned: bool,
+    /// Why TermF could not close it.
+    pub error: Option<String>,
 }
 
 /// What delivering a run would send, for the user to check first.
@@ -248,6 +262,11 @@ fn unpushed(
     })
 }
 
+/// A conversation id as Claude Code makes them, a UUID: nothing a path could be built from.
+fn conversation_id(text: &str) -> bool {
+    text.len() == 36 && text.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+}
+
 /// The commit last pushed by a delivery of the run.
 fn last_push(store: &Store, id: i64) -> Result<Option<String>> {
     let mut events = store.events(id)?.into_iter().rev();
@@ -312,6 +331,7 @@ impl Tickets {
             .fetch(&resolution.ticket)?;
         let store = Store::open(&self.data_dir)?;
         let mut run = store.create(&resolution.project, &ticket, &chosen.path)?;
+        let conversation = uuid::Uuid::new_v4().to_string();
         let (path, branch, base) = match self.worktree(&run, &chosen.name, &ticket) {
             Ok(created) => created,
             Err(e) => {
@@ -322,6 +342,7 @@ impl Tickets {
         run.worktree = Some(path.clone());
         run.branch = Some(branch.clone());
         run.base = Some(base.clone());
+        run.claude_session = Some(conversation.clone());
         store.update(&mut run)?;
         // Its own folder: the session may read it, nothing else of the run.
         let brief = store.run_dir(run.id).join("brief").join("prompt.md");
@@ -343,11 +364,85 @@ impl Tickets {
                 saved: report.saved,
             },
         )?;
+        let kickoff = crate::kickoff(&brief);
         Ok(Launch {
             run,
             brief,
             env: report.env,
+            args: vec!["--session-id".into(), conversation, kickoff],
         })
+    }
+
+    /// Takes a run's Claude Code conversation up again in a new session, once TermF restarted or the session
+    /// ended: the worktree as its setup left it, the same brief, the conversation resumed. Refused when the run
+    /// is over, its worktree gone, or Claude Code no longer has the conversation.
+    pub fn resume(&self, id: i64) -> Result<Launch> {
+        let store = Store::open(&self.data_dir)?;
+        let run = store.run(id)?;
+        ensure!(
+            matches!(run.status, RunStatus::Running | RunStatus::Delivered),
+            "run {id} is {}: there is nothing to resume",
+            run.status.as_str()
+        );
+        let worktree = run.worktree.clone().unwrap_or_default();
+        ensure!(
+            !worktree.is_empty() && Path::new(&worktree).is_dir(),
+            "the worktree of run {id} is gone: close the run"
+        );
+        let conversation = run.claude_session.clone().with_context(|| {
+            format!("run {id} started before TermF kept its Claude Code conversation: it cannot be resumed")
+        })?;
+        ensure!(
+            self.transcript(&conversation).is_some(),
+            "Claude Code no longer has the conversation of run {id} ({conversation}): it may have been cleaned up \
+             (cleanupPeriodDays). Close the run, or open a session in its worktree"
+        );
+        Ok(Launch {
+            env: self.setup().env(Path::new(&worktree)),
+            brief: store.run_dir(id).join("brief").join("prompt.md"),
+            args: vec!["--resume".into(), conversation],
+            run,
+        })
+    }
+
+    /// Claude Code's file of a conversation: `<claude dir>/projects/<folder>/<id>.jsonl`.
+    fn transcript(&self, conversation: &str) -> Option<PathBuf> {
+        if !conversation_id(conversation) {
+            return None;
+        }
+        let folders = fs::read_dir(self.claude_dir.join("projects")).ok()?;
+        folders
+            .flatten()
+            .map(|f| f.path().join(format!("{conversation}.jsonl")))
+            .find(|file| file.is_file())
+    }
+
+    /// The conversation the run's session is now in: `/clear` starts a new one, which `resume` must take.
+    pub fn conversation(&self, id: i64, conversation: &str) -> Result<()> {
+        ensure!(
+            conversation_id(conversation),
+            "{conversation:?} is not a Claude Code conversation"
+        );
+        let store = Store::open(&self.data_dir)?;
+        let mut run = store.run(id)?;
+        if run.claude_session.as_deref() != Some(conversation) {
+            run.claude_session = Some(conversation.to_owned());
+            store.update(&mut run)?;
+        }
+        Ok(())
+    }
+
+    pub fn session_resumed(&self, id: i64, session: u32, conversation: &str) -> Result<Run> {
+        let store = Store::open(&self.data_dir)?;
+        let conversation = conversation.to_owned();
+        store.record(
+            id,
+            &Event::SessionResumed {
+                session,
+                conversation,
+            },
+        )?;
+        store.run(id)
     }
 
     /// Creates `<data>/worktrees/<project>/<run>/<repo>` and returns its path, its branch and its base.
@@ -631,6 +726,77 @@ impl Tickets {
             run: run.clone(),
             warning,
         })
+    }
+
+    /// Asks GitHub about the pull request of each delivered run whose fate is not known yet, and records those
+    /// merged or closed. With `auto`, closes them too, unless their worktree holds work that is not pushed;
+    /// `stop_session` ends the session of the run it closes first. A pull request GitHub cannot tell about is
+    /// asked again next time.
+    pub fn after_merge(&self, auto: bool, stop_session: impl Fn(i64)) -> Result<Vec<Cleanup>> {
+        let store = Store::open(&self.data_dir)?;
+        let mut found = Vec::new();
+        for run in store.runs()? {
+            let Ok(Some(run)) = self.record_pr(&store, run) else {
+                continue;
+            };
+            let (run, cleaned, error) = match auto {
+                false => (run, false, None),
+                true => match self.close(run.id, false, || stop_session(run.id)) {
+                    Ok(closed) => (closed, true, None),
+                    Err(e) => (run, false, Some(format!("{e:#}"))),
+                },
+            };
+            found.push(Cleanup {
+                run,
+                cleaned,
+                error,
+            });
+        }
+        Ok(found)
+    }
+
+    /// The run, once GitHub says its pull request was merged or closed and the journal has it; `None` while it
+    /// is open, or when that is already known.
+    fn record_pr(&self, store: &Store, mut run: Run) -> Result<Option<Run>> {
+        let (RunStatus::Delivered, Some(url), None) = (run.status, &run.pr_url, &run.pr_state)
+        else {
+            return Ok(None);
+        };
+        let url = url.clone();
+        let Some(state) = self.github().pr_state(&url)? else {
+            return Ok(None);
+        };
+        run.pr_state = Some(state.to_owned());
+        store.update(&mut run)?;
+        store.record(
+            run.id,
+            &match state {
+                "merged" => Event::PrMerged { url },
+                _ => Event::PrClosed { url },
+            },
+        )?;
+        Ok(Some(run))
+    }
+
+    /// Closes a run whose pull request was merged or closed, as `close` does without force: refused while its
+    /// worktree holds work that is not pushed, or while its pull request is open.
+    pub fn cleanup(&self, id: i64, stop_session: impl FnOnce()) -> Result<Run> {
+        let store = Store::open(&self.data_dir)?;
+        let run = store.run(id)?;
+        ensure!(
+            run.status == RunStatus::Delivered,
+            "run {id} is {}: only a delivered run is cleaned up",
+            run.status.as_str()
+        );
+        if run.pr_state.is_none() {
+            let url = run.pr_url.clone();
+            let url = url.with_context(|| format!("run {id} has no pull request to wait for"))?;
+            ensure!(
+                self.record_pr(&store, run)?.is_some(),
+                "the pull request of run {id} is still open: {url}"
+            );
+        }
+        self.close(id, false, stop_session)
     }
 
     /// Removes the run's worktree. Refused while it holds work that is not pushed, unless `force`: then the

@@ -39,6 +39,14 @@ pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
     };
     let call = |call: Call| Client::connect(None)?.call(call);
     match (command, args.as_slice()) {
+        ("run", ["resume", id]) => {
+            let run: Run = serde_json::from_value(call(Call::Resume { run: id.parse()? })?)?;
+            println!(
+                "run {}: resumed in {}",
+                run.id,
+                run.worktree.unwrap_or_default()
+            );
+        }
         ("run", [ticket]) => {
             let run: Run = serde_json::from_value(call(Call::Run {
                 ticket: ticket.to_string(),

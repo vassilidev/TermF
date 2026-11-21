@@ -90,6 +90,21 @@ pub struct Settings {
 pub struct TicketSettings {
     /// The `[agents]` entry a ticket's session runs; without it, the one named `claude`.
     pub agent: Option<String>,
+    #[serde(default)]
+    pub cleanup: TicketCleanup,
+}
+
+/// What TermF does once the pull request of a delivered run is merged or closed.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TicketCleanup {
+    /// Closes the run, unless its worktree holds work that is not pushed.
+    Auto,
+    /// Tells the user, who closes it.
+    #[default]
+    Ask,
+    /// Does not look.
+    Off,
 }
 
 /// `[artifacts]` in `termf.toml`.
@@ -672,6 +687,9 @@ mod tests {
         assert_eq!(settings("").ticket_agent().unwrap(), "claude");
         let chosen = "[agents]\nclaude = \"claude\"\nopus = \"claude --model opus\"\n[tickets]\nagent = \"opus\"\n";
         assert_eq!(settings(chosen).ticket_agent().unwrap(), "opus");
+        assert_eq!(settings("").tickets.cleanup, TicketCleanup::Ask);
+        let auto = settings("[tickets]\ncleanup = \"auto\"\n");
+        assert_eq!(auto.tickets.cleanup, TicketCleanup::Auto);
         for (text, error) in [
             (
                 "[agents]\nsonnet = \"claude --model sonnet\"\n",

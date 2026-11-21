@@ -65,6 +65,8 @@ usage:
   termf run <ticket> [--project <id>] [--repo <name>]
                                         work on a ticket (URL, owner/repo#42, repo#42, #42, ACME-123)
                                         in a new worktree, with a Claude Code session
+  termf run resume <run>                open a new session that resumes the run's Claude Code
+                                        conversation (after TermF restarted, or once its session ended)
   termf runs [<run>]                    list runs, or show one run and its events
   termf inbox [--project <id> [--refresh]]
                                         open GitHub issues assigned to you, or what the project's

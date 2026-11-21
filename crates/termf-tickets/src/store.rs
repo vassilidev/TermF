@@ -29,7 +29,9 @@ CREATE TABLE IF NOT EXISTS runs (
     status TEXT NOT NULL,
     pr_url TEXT,
     created INTEGER NOT NULL,
-    updated INTEGER NOT NULL
+    updated INTEGER NOT NULL,
+    claude_session TEXT,
+    pr_state TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
@@ -46,10 +48,13 @@ CREATE TABLE IF NOT EXISTS listed (
     fetched INTEGER NOT NULL,
     PRIMARY KEY (project, source)
 );
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 ";
 
-const RUN_COLUMNS: &str = "id, project, provider, ticket_key, ticket_url, title, repo, worktree, branch, base, status, pr_url, created, updated";
+const RUN_COLUMNS: &str = "id, project, provider, ticket_key, ticket_url, title, repo, worktree, branch, base, status, pr_url, created, updated, claude_session, pr_state";
+
+/// Columns added since the table first shipped: a database made before gets them when opened.
+const ADDED_COLUMNS: [&str; 2] = ["claude_session", "pr_state"];
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -105,6 +110,13 @@ pub struct Run {
     /// Seconds since the Unix epoch.
     pub created: i64,
     pub updated: i64,
+    /// The Claude Code conversation of the run's session (`--session-id`, then whatever `/clear` started),
+    /// which `--resume` takes up again.
+    #[serde(default)]
+    pub claude_session: Option<String>,
+    /// `merged` or `closed` once its pull request is; then the run may be cleaned up.
+    #[serde(default)]
+    pub pr_state: Option<String>,
     /// The terminal session of the run, while the app that opened it runs: never stored.
     #[serde(default)]
     pub session_id: Option<u32>,
@@ -125,6 +137,11 @@ pub enum Event {
     SessionOpened {
         session: u32,
     },
+    /// A new session that took the run's Claude Code conversation up again.
+    SessionResumed {
+        session: u32,
+        conversation: String,
+    },
     Committed {
         commit: String,
         message: String,
@@ -134,6 +151,13 @@ pub enum Event {
         commit: String,
     },
     PrOpened {
+        url: String,
+    },
+    PrMerged {
+        url: String,
+    },
+    /// Closed without being merged.
+    PrClosed {
         url: String,
     },
     TicketCommented {
@@ -170,6 +194,12 @@ impl Event {
                 format!("worktree {path} on {branch}, from {base}")
             }
             Event::SessionOpened { session } => format!("Claude Code session {session} opened"),
+            Event::SessionResumed {
+                session,
+                conversation,
+            } => format!(
+                "Claude Code session {session} opened, resuming conversation {conversation}"
+            ),
             Event::Committed { commit, message } => format!(
                 "committed {}: {}",
                 short(commit),
@@ -177,6 +207,8 @@ impl Event {
             ),
             Event::Pushed { branch, commit } => format!("pushed {branch} at {}", short(commit)),
             Event::PrOpened { url } => format!("pull request opened: {url}"),
+            Event::PrMerged { url } => format!("pull request merged: {url}"),
+            Event::PrClosed { url } => format!("pull request closed without being merged: {url}"),
             Event::TicketCommented { url } => format!("commented {url} on the ticket"),
             Event::TicketMoved { to } => format!("ticket moved to {to}"),
             Event::Closed { dropped } if dropped.is_empty() => "closed, worktree removed".into(),
@@ -236,6 +268,24 @@ impl Store {
         conn.busy_timeout(Duration::from_secs(5))?;
         let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
         conn.execute_batch(SCHEMA)?;
+        let has = |column: &str| -> rusqlite::Result<bool> {
+            conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = ?1",
+                [column],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n > 0)
+        };
+        for column in ADDED_COLUMNS {
+            // The app and the CLI may both add it: the one that loses finds it there.
+            if !has(column)?
+                && let Err(e) =
+                    conn.execute(&format!("ALTER TABLE runs ADD COLUMN {column} TEXT"), [])
+                && !has(column)?
+            {
+                return Err(e.into());
+            }
+        }
         Ok(Self {
             conn,
             data_dir: data_dir.into(),
@@ -267,8 +317,8 @@ impl Store {
     pub(crate) fn update(&self, run: &mut Run) -> Result<()> {
         run.updated = now();
         self.conn.execute(
-            "UPDATE runs SET worktree = ?2, branch = ?3, base = ?4, status = ?5, pr_url = ?6, updated = ?7 WHERE id = ?1",
-            params![run.id, run.worktree, run.branch, run.base, run.status.as_str(), run.pr_url, run.updated],
+            "UPDATE runs SET worktree = ?2, branch = ?3, base = ?4, status = ?5, pr_url = ?6, updated = ?7, claude_session = ?8, pr_state = ?9 WHERE id = ?1",
+            params![run.id, run.worktree, run.branch, run.base, run.status.as_str(), run.pr_url, run.updated, run.claude_session, run.pr_state],
         )?;
         Ok(())
     }
@@ -405,6 +455,8 @@ fn read_run(row: &Row) -> rusqlite::Result<Run> {
         pr_url: row.get(11)?,
         created: row.get(12)?,
         updated: row.get(13)?,
+        claude_session: row.get(14)?,
+        pr_state: row.get(15)?,
         session_id: None,
     })
 }

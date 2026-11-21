@@ -4,21 +4,32 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
+use termf_core::TicketCleanup;
+use termf_core::ipc::SessionSummary;
 use termf_tickets::{
-    Configured, Delivery, DeliveryPreview, Inbox, McpServer, Resolution, Run, RunEvent, Sources,
-    TicketSummary, Tickets, Trackers, Unpushed,
+    Cleanup, Configured, Delivery, DeliveryPreview, Inbox, McpServer, Resolution, Run, RunEvent,
+    Sources, TicketSummary, Tickets, Trackers, Unpushed,
 };
 
 use crate::{AppState, CmdResult, api, err};
+
+/// How often the pull requests of delivered runs are asked about.
+const CHECK_EVERY: Duration = Duration::from_secs(15 * 60);
+/// The first time, once the window listens.
+const FIRST_CHECK: Duration = Duration::from_secs(30);
 
 pub struct TicketsState {
     tickets: Arc<Tickets>,
     /// Run → its session, for this launch only: session ids start over with the app.
     sessions: Mutex<HashMap<i64, u32>>,
+    /// Held while pull requests are checked, so a merge is announced once.
+    checking: Mutex<()>,
 }
 
 impl TicketsState {
@@ -26,6 +37,7 @@ impl TicketsState {
         Self {
             tickets: Arc::new(Tickets::new(config_dir, data_dir)),
             sessions: Mutex::default(),
+            checking: Mutex::default(),
         }
     }
 }
@@ -91,6 +103,7 @@ pub fn start(
             project: &run.project,
             brief: &launch.brief,
             env: &launch.env,
+            args: &launch.args,
         }),
         &[],
     );
@@ -122,23 +135,155 @@ pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
     Ok(delivered)
 }
 
-/// Closes the run; its session ends first, so no agent is left working in a deleted folder.
+/// Opens a new session in the run's worktree that resumes its Claude Code conversation, with what its first
+/// session had (setup, guard, library). Refused while a session of TermF is already in that conversation:
+/// two processes on one conversation may lose messages.
+pub fn resume(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<Run> {
+    let state = app.state::<AppState>();
+    let agent = termf_core::load_settings(&state.config_dir)?.ticket_agent()?;
+    api::run_guard(&state)?;
+    let tickets = tickets(app);
+    // Held until the new session is known, so two resumes cannot both start one.
+    let ticket_state = app.state::<TicketsState>();
+    let mut sessions = ticket_state.sessions.lock().unwrap();
+    let launch = tickets.resume(id)?;
+    let run = &launch.run;
+    let conversation = run.claude_session.clone().unwrap_or_default();
+    let live = state.api.list(&state.sessions);
+    if let Some(open) = in_conversation(&live, sessions.get(&id).copied(), &conversation) {
+        bail!(
+            "run {id} already has a session in its conversation: {}",
+            open.title
+        );
+    }
+    let worktree = run.worktree.clone().context("the run has no worktree")?;
+    let session = api::spawn(
+        &state,
+        Some(&agent),
+        worktree.into(),
+        format!("{} · {}", run.ticket.key, run.title),
+        cols,
+        rows,
+        false,
+        Some(api::RunSession {
+            project: &run.project,
+            brief: &launch.brief,
+            env: &launch.env,
+            args: &launch.args,
+        }),
+        &[],
+    )?;
+    sessions.insert(id, session.id);
+    drop(sessions);
+    state.keep_awake.update(app);
+    let _ = app.emit("session-opened", &session);
+    let run = with_session(app, tickets.session_resumed(id, session.id, &conversation)?);
+    updated(app, &run);
+    Ok(run)
+}
+
+/// A session still running in the run's conversation: the run's own (`mine`), or any whose hooks say they are
+/// in it, such as a tile where the user resumed it by hand.
+fn in_conversation<'a>(
+    live: &'a [SessionSummary],
+    mine: Option<u32>,
+    conversation: &str,
+) -> Option<&'a SessionSummary> {
+    live.iter().find(|s| {
+        s.running && (Some(s.id) == mine || s.agent_session_id.as_deref() == Some(conversation))
+    })
+}
+
+/// Keeps the conversation of a run's session, which `/clear` changes, for `resume`.
+pub(crate) fn conversation(app: &AppHandle, session: u32, conversation: &str) {
+    let run = {
+        let state = app.state::<TicketsState>();
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .find(|(_, s)| **s == session)
+            .map(|(r, _)| *r)
+    };
+    if let Some(run) = run
+        && let Err(e) = tickets(app).conversation(run, conversation)
+    {
+        eprintln!("termf: conversation of run {run} not kept: {e:#}");
+    }
+}
+
+/// Ends the run's session, so no agent is left working in a deleted folder.
+fn stop_session(app: &AppHandle, id: i64) {
+    let sessions = &app.state::<TicketsState>().sessions;
+    let session = sessions.lock().unwrap().remove(&id);
+    if let Some(session) = session {
+        let state = app.state::<AppState>();
+        state.api.forget(session);
+        let _ = state.sessions.kill(session);
+        state.keep_awake.update(app);
+    }
+}
+
+/// Closes the run; its session ends first.
 pub fn close(app: &AppHandle, id: i64, force: bool) -> Result<Run> {
-    let run = tickets(app).close(id, force, || {
-        let sessions = &app.state::<TicketsState>().sessions;
-        let session = sessions.lock().unwrap().remove(&id);
-        if let Some(session) = session {
-            let state = app.state::<AppState>();
-            state.api.forget(session);
-            let _ = state.sessions.kill(session);
-            state.keep_awake.update(app);
-        }
-    })?;
+    let run = tickets(app).close(id, force, || stop_session(app, id))?;
     updated(app, &run);
     Ok(with_session(app, run))
 }
 
-/// `refresh` asks the project's MCP sources again instead of reading their last answer.
+/// Closes a run whose pull request was merged or closed, if nothing would be lost.
+pub fn cleanup(app: &AppHandle, id: i64) -> Result<Run> {
+    let tickets = tickets(app);
+    let cleaned = tickets.cleanup(id, || stop_session(app, id));
+    // Even a refused cleanup may have learnt that the pull request was merged.
+    if let Ok(run) = tickets.run(id) {
+        updated(app, &run);
+    }
+    Ok(with_session(app, cleaned?))
+}
+
+/// Asks GitHub about the pull requests of delivered runs, as `[tickets] cleanup` says (`off`: not at all),
+/// and emits `run-cleanup` for each one merged or closed since the last check.
+pub fn check(app: &AppHandle) -> Result<Vec<Cleanup>> {
+    let mode = termf_core::load_settings(&app.state::<AppState>().config_dir)?
+        .tickets
+        .cleanup;
+    if mode == TicketCleanup::Off {
+        return Ok(Vec::new());
+    }
+    let ticket_state = app.state::<TicketsState>();
+    let _checking = ticket_state.checking.lock().unwrap();
+    let auto = mode == TicketCleanup::Auto;
+    let found = tickets(app).after_merge(auto, |id| stop_session(app, id))?;
+    Ok(found
+        .into_iter()
+        .map(|mut cleanup| {
+            cleanup.run = with_session(app, cleanup.run);
+            updated(app, &cleanup.run);
+            let _ = app.emit("run-cleanup", &cleanup);
+            cleanup
+        })
+        .collect())
+}
+
+/// Checks the pull requests of delivered runs soon after startup, then every 15 minutes. Without a delivered
+/// run whose pull request is open, a check reads the run database only.
+pub fn watch(app: &AppHandle) {
+    let app = app.clone();
+    let _ = thread::Builder::new()
+        .name("tickets-merged".into())
+        .spawn(move || {
+            thread::sleep(FIRST_CHECK);
+            loop {
+                if let Err(e) = check(&app) {
+                    eprintln!("termf: pull requests not checked: {e:#}");
+                }
+                thread::sleep(CHECK_EVERY);
+            }
+        });
+}
+
+/// `refresh` asks the project's MCP sources again instead of reading their last answer, and GitHub Issues
+/// without the ETag of its last answer.
 #[tauri::command]
 pub async fn tickets_inbox(
     app: AppHandle,
@@ -285,18 +430,8 @@ pub struct CloseError {
     commits: u32,
 }
 
-#[tauri::command]
-pub async fn tickets_close(
-    app: AppHandle,
-    id: i64,
-    force: Option<bool>,
-) -> Result<Run, CloseError> {
-    let closed =
-        tauri::async_runtime::spawn_blocking(move || close(&app, id, force.unwrap_or(false)))
-            .await
-            .map_err(anyhow::Error::from)
-            .and_then(|closed| closed);
-    closed.map_err(|e| match e.downcast_ref::<Unpushed>() {
+fn close_error(e: anyhow::Error) -> CloseError {
+    match e.downcast_ref::<Unpushed>() {
         Some(left) => CloseError {
             kind: if left.uncommitted {
                 "uncommitted"
@@ -313,7 +448,51 @@ pub async fn tickets_close(
             uncommitted: false,
             commits: 0,
         },
+    }
+}
+
+#[tauri::command]
+pub async fn tickets_close(
+    app: AppHandle,
+    id: i64,
+    force: Option<bool>,
+) -> Result<Run, CloseError> {
+    let closed =
+        tauri::async_runtime::spawn_blocking(move || close(&app, id, force.unwrap_or(false)))
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(|closed| closed);
+    closed.map_err(close_error)
+}
+
+/// Closes a run whose pull request was merged or closed; refused, as `tickets_close` without force, while
+/// work is not pushed, and while the pull request is open.
+#[tauri::command]
+pub async fn tickets_cleanup(app: AppHandle, id: i64) -> Result<Run, CloseError> {
+    let cleaned = tauri::async_runtime::spawn_blocking(move || cleanup(&app, id))
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|cleaned| cleaned);
+    cleaned.map_err(close_error)
+}
+
+/// The runs whose pull request was merged or closed since the last check (also `run-cleanup` events).
+#[tauri::command]
+pub async fn tickets_check(app: AppHandle) -> CmdResult<Vec<Cleanup>> {
+    blocking(app, check).await
+}
+
+#[tauri::command]
+pub async fn tickets_resume(
+    app: AppHandle,
+    id: i64,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> CmdResult<Run> {
+    blocking(app, move |app| {
+        resume(app, id, cols.unwrap_or(120), rows.unwrap_or(32))
     })
+    .await
 }
 
 /// For each project (or only `project`), whether its inbox has a source, and which.
@@ -323,4 +502,39 @@ pub async fn tickets_configured(
     project: Option<String>,
 ) -> CmdResult<Vec<Configured>> {
     blocking(app, move |app| tickets(app).configured(project.as_deref())).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_session_per_conversation() {
+        let session = |id, running, conversation: Option<&str>| SessionSummary {
+            id,
+            title: format!("tile {id}"),
+            cwd: "/w".into(),
+            agent: Some("claude".into()),
+            running,
+            exit_code: None,
+            status: None,
+            remote_control: false,
+            agent_session_id: conversation.map(Into::into),
+            context: None,
+        };
+        let c = "0b9c3c1e-5f0a-4d6b-9a57-3f1d2c4e8a10";
+        let live = [
+            session(1, false, Some(c)),
+            session(2, true, None),
+            session(3, true, Some("other")),
+        ];
+        assert!(
+            in_conversation(&live, Some(1), c).is_none(),
+            "an ended session leaves room"
+        );
+        assert_eq!(in_conversation(&live, Some(2), c).unwrap().id, 2);
+        let by_hand = [session(4, true, Some(c))];
+        assert_eq!(in_conversation(&by_hand, None, c).unwrap().id, 4);
+        assert!(in_conversation(&live, None, c).is_none());
+    }
 }
