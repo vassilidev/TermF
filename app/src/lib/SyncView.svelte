@@ -26,6 +26,7 @@
   import { app } from "$lib/state.svelte";
   import {
     currentReport,
+    keepReport,
     remoteText,
     scopes,
     summary,
@@ -42,6 +43,7 @@
   const ready = $derived(!!status?.enabled && status.unlocked);
   const report = $derived(currentReport());
   const info = $derived(summary(status));
+  const syncedAt = $derived(status?.lastSync);
 
   let kind = $state<"git" | "folder">("git");
   let url = $state("");
@@ -70,15 +72,16 @@
   const openConflict = $derived(status?.conflicts.find((c) => c.path === conflict));
   const osLabel: Record<string, Parameters<typeof t>[0]> = { macos: "osMacos", linux: "osLinux", windows: "osWindows" };
 
+  // After each sync, manual or not: the devices' last syncs moved.
   $effect(() => {
+    void syncedAt;
     if (ready) loadDevices();
   });
 
   async function loadDevices() {
-    devices = null;
-    devicesError = "";
     try {
       devices = await invoke<Device[]>("sync_devices");
+      devicesError = "";
     } catch (e) {
       devicesError = String(e);
     }
@@ -87,6 +90,7 @@
   function setMode(next: typeof mode) {
     mode = next;
     password = confirm = current = recoveryKey = "";
+    sync.error = "";
   }
 
   function setKind(next: typeof kind) {
@@ -118,7 +122,7 @@
     setMode("");
     joining = null;
     // A failed first sync leaves an empty report: the status's lastError tells it instead.
-    if (!result.error) sync.report = { ...result.report, at: app.sync?.lastSync ?? null };
+    if (!result.error) keepReport(result.report);
     if (result.recoveryKey) sync.recoveryKey = { key: result.recoveryKey, reason: "setup" };
   }
 
@@ -132,6 +136,7 @@
     if (!key) return;
     setMode("");
     sync.recoveryKey = { key, reason };
+    if (ready) loadDevices();
   }
 
   function choose(scope: Scope, on: boolean) {
@@ -281,7 +286,7 @@
   </header>
 
   {#if sync.error}
-    <p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{sync.error}</p>
+    <p class="notice error lines" role="alert"><CircleAlert size={14} aria-hidden="true" />{sync.error}</p>
   {/if}
 
   {#if !status}
@@ -471,7 +476,7 @@
             : t("syncUpToDate")}
         </p>
       {/if}
-      {#if status.lastError && !report?.skipped.length}
+      {#if status.lastError && status.lastError !== sync.error && !report?.skipped.length}
         <p class="notice error lines"><CircleAlert size={14} aria-hidden="true" />{status.lastError}</p>
       {/if}
 

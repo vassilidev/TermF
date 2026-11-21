@@ -83,9 +83,13 @@ export function init(): () => void {
   const unlistenKeepAwake = listen<KeepAwakeState>("keep-awake", ({ payload }) => {
     app.keepAwake = payload;
   });
-  invoke<SyncStatus>("sync_status").then((s) => {
-    app.sync = s;
-  });
+  invoke<SyncStatus>("sync_status")
+    .then((s) => {
+      app.sync ??= s;
+    })
+    .catch((e) => {
+      app.error = String(e);
+    });
   const unlistenSync = listen<SyncStatus>("sync-status", ({ payload }) => {
     app.sync = payload;
   });

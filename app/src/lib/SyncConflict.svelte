@@ -4,8 +4,7 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import { t } from "$lib/i18n";
   import { lineDiff } from "$lib/library.svelte";
-  import { app } from "$lib/state.svelte";
-  import { sync, syncCall, type Conflict, type Report } from "$lib/sync.svelte";
+  import { keepReport, sync, syncCall, type Conflict, type Report } from "$lib/sync.svelte";
 
   let { conflict, onback }: { conflict: Conflict; onback: () => void } = $props();
 
@@ -16,7 +15,7 @@
   async function keep(resolution: { keep: "local" | "remote" } | { keep: "merged"; text: string }) {
     const report = await syncCall<Report>("sync_resolve", { path: conflict.path, resolution });
     if (!report) return;
-    sync.report = { ...report, at: app.sync?.lastSync ?? null };
+    keepReport(report);
     onback();
   }
 </script>

@@ -1,9 +1,15 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { t } from "$lib/i18n";
   import { app, ui } from "$lib/state.svelte";
   import { remoteText, showSync, summary, sync, syncNow } from "$lib/sync.svelte";
+
+  // An error from an earlier command is stale once the panel is reopened.
+  onMount(() => {
+    if (!sync.busy) sync.error = "";
+  });
 
   const info = $derived(summary(app.sync));
   const status = $derived(app.sync);

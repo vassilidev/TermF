@@ -39,8 +39,8 @@ export const scopes: [Scope, Parameters<typeof t>[0], Parameters<typeof t>[0]][]
 export const sync = $state({
   /** Shown once, kept only in memory until the owner says it is stored. */
   recoveryKey: null as { key: string; reason: "setup" | "changed" | "recovered" } | null,
-  /** The last manual sync, with the `lastSync` it produced: a later background sync makes it stale. */
-  report: null as (Report & { at: number | null }) | null,
+  /** The last manual sync, with the `lastSync` and `lastError` it left: any later sync, even a failed one, makes it stale. */
+  report: null as (Report & { at: number | null; error: string | null }) | null,
   /** The command in progress, or "". */
   busy: "",
   error: "",
@@ -49,6 +49,7 @@ export const sync = $state({
 export function showSync() {
   showLibrary();
   library.panel = { kind: "sync" };
+  sync.error = "";
 }
 
 export async function refreshSync() {
@@ -60,24 +61,29 @@ export async function syncCall<T>(command: string, args: Record<string, unknown>
   sync.busy = command;
   sync.error = "";
   try {
-    const result = await invoke<T>(command, args);
-    await refreshSync();
-    return result;
+    return await invoke<T>(command, args);
   } catch (e) {
     sync.error = String(e);
-    await refreshSync().catch(() => {});
   } finally {
+    // A failed refresh must not lose the result, which may be a recovery key shown only once.
+    await refreshSync().catch(() => {});
     sync.busy = "";
   }
 }
 
 export async function syncNow(publish = true) {
+  if (sync.busy) return;
   const report = await syncCall<Report>(publish ? "sync_push" : "sync_pull");
-  if (report) sync.report = { ...report, at: app.sync?.lastSync ?? null };
+  if (report) keepReport(report);
+}
+
+export function keepReport(report: Report) {
+  sync.report = { ...report, at: app.sync?.lastSync ?? null, error: app.sync?.lastError ?? null };
 }
 
 export function currentReport(): Report | null {
-  return sync.report && sync.report.at === app.sync?.lastSync ? sync.report : null;
+  const r = sync.report;
+  return r && r.at === app.sync?.lastSync && r.error === app.sync?.lastError ? r : null;
 }
 
 /** One line for the status, worst first; `tone` other than "ok" puts a dot on the settings button. */
