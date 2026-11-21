@@ -16,6 +16,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 pub mod archive;
 mod claude;
 pub mod conventions;
+pub mod scout;
 
 pub use claude::{Imported, Outcome, import_claude, materialize};
 
@@ -77,7 +78,7 @@ impl fmt::Display for Kind {
 }
 
 /// From the least to the most specific.
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum Layer {
     /// Built into TermF, from the `library/` folder of its repository.
@@ -513,6 +514,17 @@ fn json(yaml: Yaml) -> Value {
             .collect::<Map<_, _>>()
             .into(),
         _ => Value::Null,
+    }
+}
+
+/// The item's main file (`file: None`) or another file of its folder, as it is now.
+fn item_file(item: &Item, file: Option<&str>) -> Option<String> {
+    let file = file.or(item.kind.main_file());
+    match &item.path {
+        None => {
+            Source::Shipped.read(&file.map_or(item.rel.clone(), |f| format!("{}/{f}", item.rel)))
+        }
+        Some(path) => fs::read_to_string(file.map_or(path.clone(), |f| path.join(f))).ok(),
     }
 }
 

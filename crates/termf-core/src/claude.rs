@@ -60,9 +60,13 @@ pub fn structured_output(
         Some(answer) if result["is_error"] != true && answer.is_object() => {
             Ok((answer.clone(), cost))
         }
+        // A run stopped by `--max-budget-usd` only has its `subtype` to say so.
         _ => bail!(
             "Claude Code: {}",
-            result["result"].as_str().unwrap_or("no structured answer")
+            result["result"]
+                .as_str()
+                .or(result["subtype"].as_str())
+                .unwrap_or("no structured answer")
         ),
     }
 }

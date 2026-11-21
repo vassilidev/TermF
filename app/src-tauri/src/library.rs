@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use termf_library::archive::{self, Exported, Preview};
 use termf_library::conventions::{self, Answer, Convention, Conventions, Impact, Level, Review};
+use termf_library::scout::{self, ItemRef, Scout};
 use termf_library::{Imported, Item, Kind, Scope};
 
 use crate::{AppState, CmdResult, err};
@@ -218,4 +219,91 @@ pub async fn conventions_impact(
     slug: String,
 ) -> CmdResult<Vec<Impact>> {
     blocking(&state, move |dir| conventions::impact(dir, &project, &slug)).await
+}
+
+#[tauri::command]
+pub async fn scout_state(state: State<'_, AppState>, project: Option<String>) -> CmdResult<Scout> {
+    scout::state(&state.config_dir, project.as_deref()).map_err(err)
+}
+
+/// `items` empty: the whole library. What Claude Code searches and reads comes as `scout-progress` events.
+#[tauri::command]
+pub async fn scout_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: Option<String>,
+    items: Vec<ItemRef>,
+) -> CmdResult<Scout> {
+    blocking(&state, move |dir| {
+        let options = scout::Options::default();
+        let progress = &mut |p: scout::Progress| {
+            let _ = app.emit("scout-progress", p);
+        };
+        scout::run(
+            dir,
+            project.as_deref(),
+            &items,
+            &options,
+            &claude(dir),
+            progress,
+        )?;
+        scout::state(dir, project.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn scout_revise(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: Option<String>,
+    item: ItemRef,
+    comment: String,
+) -> CmdResult<Scout> {
+    blocking(&state, move |dir| {
+        let progress = &mut |p: scout::Progress| {
+            let _ = app.emit("scout-progress", p);
+        };
+        scout::revise(
+            dir,
+            project.as_deref(),
+            &item,
+            &comment,
+            &claude(dir),
+            progress,
+        )
+    })
+    .await
+}
+
+/// `confirm`: the owner read the script or hook of the entry and accepts it.
+#[tauri::command]
+pub async fn scout_review(
+    state: State<'_, AppState>,
+    project: Option<String>,
+    item: ItemRef,
+    review: Review,
+    confirm: bool,
+) -> CmdResult<Scout> {
+    scout::review(
+        &state.config_dir,
+        project.as_deref(),
+        &item,
+        review,
+        confirm,
+    )
+    .map_err(err)
+}
+
+#[tauri::command]
+pub async fn scout_apply(state: State<'_, AppState>, project: Option<String>) -> CmdResult<Scout> {
+    scout::apply(&state.config_dir, project.as_deref()).map_err(err)
+}
+
+#[tauri::command]
+pub async fn scout_discard(
+    state: State<'_, AppState>,
+    project: Option<String>,
+) -> CmdResult<Scout> {
+    scout::discard(&state.config_dir, project.as_deref()).map_err(err)
 }

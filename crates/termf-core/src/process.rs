@@ -1,6 +1,7 @@
 //! Running a helper program (Claude Code, a check script) with a deadline.
 
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
 use std::time::{Duration, Instant};
@@ -10,9 +11,19 @@ use anyhow::{Result, bail};
 /// Runs `cmd` with `input` on stdin. Output goes to files so a chatty child never blocks; after `timeout` the
 /// child and what it started are killed.
 pub fn run(
+    cmd: Command,
+    input: &[u8],
+    timeout: Duration,
+) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    stream(cmd, input, timeout, &mut |_| {})
+}
+
+/// [`run`], handing each line the child prints to `line` as it comes.
+pub fn stream(
     mut cmd: Command,
     input: &[u8],
     timeout: Duration,
+    line: &mut dyn FnMut(&str),
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
     let scratch = scratch_dir()?;
     let result = (|| {
@@ -25,9 +36,17 @@ pub fn run(
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
         let mut child = cmd.spawn()?;
+        let mut reader = BufReader::new(fs::File::open(&stdout)?);
+        let (mut out, mut partial) = (Vec::new(), Vec::new());
         let deadline = Instant::now() + timeout;
         let status = loop {
-            if let Some(status) = child.try_wait()? {
+            let exited = child.try_wait()?;
+            // Bytes, not text: the file may end in the middle of a character.
+            while reader.read_until(b'\n', &mut partial)? > 0 && partial.ends_with(b"\n") {
+                line(String::from_utf8_lossy(&partial).trim_end());
+                out.append(&mut partial);
+            }
+            if let Some(status) = exited {
                 break status;
             }
             if Instant::now() > deadline {
@@ -36,7 +55,8 @@ pub fn run(
             }
             std::thread::sleep(Duration::from_millis(50));
         };
-        Ok((status, fs::read(&stdout)?, fs::read(&stderr)?))
+        out.append(&mut partial);
+        Ok((status, out, fs::read(&stderr)?))
     })();
     let _ = fs::remove_dir_all(&scratch);
     result

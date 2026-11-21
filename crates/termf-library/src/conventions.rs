@@ -242,7 +242,7 @@ pub fn settings(config_dir: &Path) -> (String, String) {
     (get("model", DEFAULT_MODEL), get("effort", DEFAULT_EFFORT))
 }
 
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && !name.starts_with('-')
@@ -1213,7 +1213,7 @@ fn read_text(path: &Path) -> Result<Option<String>> {
 }
 
 #[cfg(unix)]
-fn make_executable(path: &Path) -> Result<()> {
+pub(crate) fn make_executable(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     Ok(fs::set_permissions(
         path,
@@ -1222,7 +1222,7 @@ fn make_executable(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn make_executable(_: &Path) -> Result<()> {
+pub(crate) fn make_executable(_: &Path) -> Result<()> {
     Ok(())
 }
 
