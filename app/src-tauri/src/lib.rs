@@ -1,4 +1,5 @@
 mod api;
+mod browser;
 mod config;
 mod context;
 mod files;
@@ -293,6 +294,15 @@ pub fn run() {
             context::context_settings,
             context::context_settings_set,
             context::context_reset,
+            tickets::tickets_sources,
+            tickets::tickets_sources_save,
+            tickets::tickets_source_test,
+            tickets::tickets_jira_token_save,
+            tickets::tickets_jira_token,
+            tickets::tickets_jira_token_forget,
+            tickets::tickets_mcp_servers,
+            tickets::tickets_configured,
+            browser::open_url,
         ]))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

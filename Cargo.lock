@@ -5540,12 +5540,14 @@ name = "termf-tickets"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "keyring",
  "rusqlite",
  "serde",
  "serde_json",
  "termf-core",
  "termf-ssh",
  "toml 1.2.2+spec-1.1.0",
+ "toml_edit 0.25.20+spec-1.1.0",
 ]
 
 [[package]]

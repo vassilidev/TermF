@@ -10,6 +10,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 pub mod claude;
 pub mod context;
 pub mod ipc;
+pub mod process;
 pub mod shell;
 
 const DEFAULT_SETTINGS: &str = r#"# TermF — global settings
@@ -104,6 +105,16 @@ impl Settings {
             "the agent {name} does not run Claude Code, which ticket runs need"
         );
         Ok(name.to_owned())
+    }
+
+    /// The program of the first Claude Code agent, else `claude`, for headless runs (`claude -p`).
+    pub fn claude_program(&self) -> String {
+        let program = self
+            .agents
+            .values()
+            .find(|c| claude::is_claude(c))
+            .and_then(|c| c.split_whitespace().next());
+        program.unwrap_or("claude").to_owned()
     }
 }
 

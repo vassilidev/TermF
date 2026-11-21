@@ -148,6 +148,26 @@ pub(crate) fn slug(text: &str) -> String {
     slug.trim_end_matches('-').to_owned()
 }
 
+/// `termf/<ticket>-<title>`. An MCP source's key comes from any tracker: only what a branch name always takes
+/// stays of it, and the run's id stands in when nothing does.
+pub(crate) fn branch_stem(key: &str, title: &str, run: i64) -> String {
+    let id: String = key
+        .rsplit('#')
+        .next()
+        .unwrap_or(key)
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let id = match id.trim_matches(['-', '_']) {
+        "" => run.to_string(),
+        id => id.to_owned(),
+    };
+    match slug(title) {
+        s if s.is_empty() => format!("termf/{id}"),
+        s => format!("termf/{id}-{s}"),
+    }
+}
+
 /// The branch runs start from: the remote's default branch, else the usual names.
 fn base_ref(git: &Git, repo: &Path) -> Result<String> {
     if let Ok(head) = git.run(
@@ -163,27 +183,66 @@ fn base_ref(git: &Git, repo: &Path) -> Result<String> {
         .with_context(|| format!("cannot tell the base branch of {}", repo.display()))
 }
 
-/// What closing would lose: changes not committed in the worktree, commits not pushed on the branch.
-fn unpushed(
-    git: &Git,
-    repo: &Path,
-    worktree: &Path,
-    branch: &str,
-    since: &str,
-) -> Result<Vec<String>> {
-    let mut lost = Vec::new();
-    if worktree.exists() && !git.run(worktree, &["status", "--porcelain"])?.is_empty() {
-        lost.push("changes not committed".to_owned());
-    }
-    let branch = format!("refs/heads/{branch}");
-    if git.has(repo, &branch) {
-        match git.count(repo, &format!("{since}..{branch}"))? {
+/// Why a run was not closed: work that closing would lose. The UI reads it as an error of its own.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Unpushed {
+    pub run: i64,
+    /// Changes not committed in the worktree.
+    pub uncommitted: bool,
+    /// Commits on the run's branch that no delivery pushed.
+    pub commits: u32,
+}
+
+impl Unpushed {
+    fn lost(&self) -> Vec<String> {
+        let mut lost = Vec::new();
+        if self.uncommitted {
+            lost.push("changes not committed".to_owned());
+        }
+        match self.commits {
             0 => {}
             1 => lost.push("1 commit not pushed".to_owned()),
             n => lost.push(format!("{n} commits not pushed")),
         }
+        lost
     }
-    Ok(lost)
+}
+
+impl std::fmt::Display for Unpushed {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "run {} holds work that is not pushed ({}): deliver it, or close it by force",
+            self.run,
+            self.lost().join(", ")
+        )
+    }
+}
+
+impl std::error::Error for Unpushed {}
+
+/// What closing would lose: changes not committed in the worktree, commits not pushed on the branch.
+fn unpushed(
+    git: &Git,
+    run: i64,
+    repo: &Path,
+    worktree: &Path,
+    branch: &str,
+    since: &str,
+) -> Result<Unpushed> {
+    let uncommitted =
+        worktree.exists() && !git.run(worktree, &["status", "--porcelain"])?.is_empty();
+    let branch = format!("refs/heads/{branch}");
+    let commits = match git.has(repo, &branch) {
+        true => git.count(repo, &format!("{since}..{branch}"))?,
+        false => 0,
+    };
+    Ok(Unpushed {
+        run,
+        uncommitted,
+        commits,
+    })
 }
 
 /// The commit last pushed by a delivery of the run.
@@ -246,7 +305,7 @@ impl Tickets {
             }
         };
         let ticket = self
-            .provider(&resolution.ticket.provider)?
+            .provider(&resolution.project, &resolution.ticket.provider)?
             .fetch(&resolution.ticket)?;
         let store = Store::open(&self.data_dir)?;
         let mut run = store.create(&resolution.project, &ticket, &chosen.path)?;
@@ -276,12 +335,7 @@ impl Tickets {
         // Offline, the run starts from what was last fetched.
         let _ = git.output(repo, &["fetch", "-q", "origin"]);
         let base = base_ref(&git, repo)?;
-        let key = &ticket.reference.key;
-        let id = key.rsplit('#').next().unwrap_or(key);
-        let stem = match slug(&ticket.title) {
-            s if s.is_empty() => format!("termf/{id}"),
-            s => format!("termf/{id}-{s}"),
-        };
+        let stem = branch_stem(&ticket.reference.key, &ticket.title, run.id);
         let branch = (1..)
             .map(|n| match n {
                 1 => stem.clone(),
@@ -499,29 +553,45 @@ impl Tickets {
             store.update(run)?;
             store.record(id, &Event::PrOpened { url })?;
         }
-        let mut warning = None;
-        let commented = store
-            .events(id)?
+        let mut warnings = Vec::new();
+        let events = store.events(id)?;
+        let commented = events
             .iter()
             .any(|e| matches!(e.event, Event::TicketCommented { .. }));
+        let moved = events
+            .iter()
+            .any(|e| matches!(e.event, Event::TicketMoved { .. }));
+        let (comment, transition) = self.writes(&run.project, &run.ticket.provider);
         if let Some(url) = run.pr_url.clone()
+            && comment
             && !commented
-            && self.comments_on(&run.project)
         {
-            match self
-                .provider(&run.ticket.provider)?
-                .link_pr(&run.ticket, &url)
-            {
+            let linked = self
+                .provider(&run.project, &run.ticket.provider)
+                .and_then(|p| p.link_pr(&run.ticket, &url));
+            match linked {
                 Ok(()) => {
                     store.record(id, &Event::TicketCommented { url })?;
                 }
-                Err(e) => {
-                    warning = Some(format!(
-                        "the pull request is open, but commenting on the ticket failed (tried again at the next delivery): {e:#}"
-                    ))
-                }
+                Err(e) => warnings.push(format!(
+                    "the pull request is open, but commenting on the ticket failed (tried again at the next delivery): {e:#}"
+                )),
             }
         }
+        if let Some(to) = transition.filter(|_| run.pr_url.is_some() && !moved) {
+            let done = self
+                .provider(&run.project, &run.ticket.provider)
+                .and_then(|p| p.transition(&run.ticket, &to));
+            match done {
+                Ok(()) => {
+                    store.record(id, &Event::TicketMoved { to })?;
+                }
+                Err(e) => warnings.push(format!(
+                    "the pull request is open, but moving the ticket to {to} failed (tried again at the next delivery): {e:#}"
+                )),
+            }
+        }
+        let warning = (!warnings.is_empty()).then(|| warnings.join("\n"));
         store.update(run)?;
         Ok(Delivery {
             run: run.clone(),
@@ -546,12 +616,11 @@ impl Tickets {
         if let (Some(worktree), Some(branch), Some(base)) = &parts {
             let pushed = last_push(&store, id)?;
             let since = pushed.as_deref().unwrap_or(base);
-            dropped = unpushed(&git, repo, Path::new(worktree), branch, since)?;
-            ensure!(
-                force || dropped.is_empty(),
-                "run {id} holds work that is not pushed ({}): deliver it, or close it by force",
-                dropped.join(", ")
-            );
+            let left = unpushed(&git, id, repo, Path::new(worktree), branch, since)?;
+            dropped = left.lost();
+            if !force && !dropped.is_empty() {
+                return Err(left.into());
+            }
         }
         stop_session();
         if let (Some(worktree), Some(branch), Some(_)) = &parts {

@@ -9,12 +9,15 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, ExitStatus};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use termf_core::process::run;
+#[cfg(target_os = "macos")]
+use termf_core::process::{scratch_dir, tail};
 
 use crate::{
     Item, Kind, Layer, Scope, library_dir, read_toggles, resolve, set_toggle, toggle,
@@ -1272,91 +1275,7 @@ fn ask(
     }
     let (status, stdout, stderr) =
         run(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT).context("cannot run Claude Code")?;
-    let text = String::from_utf8_lossy(&stdout);
-    // Its answer is the last JSON line, whatever a wrapper printed before.
-    let Some(result) = text.lines().rev().find_map(|l| {
-        serde_json::from_str::<Value>(l.trim())
-            .ok()
-            .filter(Value::is_object)
-    }) else {
-        bail!(
-            "Claude Code gave no answer ({status}): {}",
-            tail(&String::from_utf8_lossy(&stderr))
-        );
-    };
-    let cost = result["total_cost_usd"].as_f64();
-    match result.get("structured_output") {
-        Some(answer) if result["is_error"] != true && answer.is_object() => {
-            Ok((answer.clone(), cost))
-        }
-        _ => bail!(
-            "Claude Code: {}",
-            result["result"].as_str().unwrap_or("no structured answer")
-        ),
-    }
-}
-
-fn tail(text: &str) -> String {
-    let text = text.trim();
-    let start = text.char_indices().rev().nth(500).map_or(0, |(i, _)| i);
-    text[start..].into()
-}
-
-/// Runs `cmd` with `input` on stdin. Output goes to files so a chatty child never blocks; after `timeout` the
-/// child and what it started are killed.
-fn run(
-    mut cmd: Command,
-    input: &[u8],
-    timeout: Duration,
-) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-    let scratch = scratch_dir()?;
-    let result = (|| {
-        let (stdin, stdout, stderr) =
-            (scratch.join("in"), scratch.join("out"), scratch.join("err"));
-        fs::write(&stdin, input)?;
-        cmd.stdin(fs::File::open(&stdin)?)
-            .stdout(fs::File::create(&stdout)?)
-            .stderr(fs::File::create(&stderr)?);
-        #[cfg(unix)]
-        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-        let mut child = cmd.spawn()?;
-        let deadline = Instant::now() + timeout;
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break status;
-            }
-            if Instant::now() > deadline {
-                kill_group(&mut child);
-                bail!("timed out after {} s", timeout.as_secs());
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        };
-        Ok((status, fs::read(&stdout)?, fs::read(&stderr)?))
-    })();
-    let _ = fs::remove_dir_all(&scratch);
-    result
-}
-
-fn kill_group(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    let _ = Command::new("kill")
-        .args(["-KILL", &format!("-{}", child.id())])
-        .status();
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn scratch_dir() -> Result<PathBuf> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "termf-conventions-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
+    termf_core::claude::structured_output(status, &stdout, &stderr)
 }
 
 /// Everything is denied but what a check needs: reading files, running programs, writing to a private temporary

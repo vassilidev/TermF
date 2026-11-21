@@ -11,7 +11,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{Ticket, TicketRef};
+use crate::{Ticket, TicketRef, TicketSummary};
 
 const SCHEMA: &str = "
 PRAGMA foreign_keys = ON;
@@ -39,7 +39,14 @@ CREATE TABLE IF NOT EXISTS events (
     data TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_by_run ON events(run, id);
-PRAGMA user_version = 1;
+CREATE TABLE IF NOT EXISTS listed (
+    project TEXT NOT NULL,
+    source TEXT NOT NULL,
+    tickets TEXT NOT NULL,
+    fetched INTEGER NOT NULL,
+    PRIMARY KEY (project, source)
+);
+PRAGMA user_version = 2;
 ";
 
 const RUN_COLUMNS: &str = "id, project, provider, ticket_key, ticket_url, title, repo, worktree, branch, base, status, pr_url, created, updated";
@@ -98,6 +105,9 @@ pub struct Run {
     /// Seconds since the Unix epoch.
     pub created: i64,
     pub updated: i64,
+    /// The terminal session of the run, while the app that opened it runs: never stored.
+    #[serde(default)]
+    pub session_id: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -129,6 +139,10 @@ pub enum Event {
     TicketCommented {
         url: String,
     },
+    /// The delivered run moved its ticket to the state `to`.
+    TicketMoved {
+        to: String,
+    },
     /// `dropped`: what a forced close threw away.
     Closed {
         dropped: Vec<String>,
@@ -155,6 +169,7 @@ impl Event {
             Event::Pushed { branch, commit } => format!("pushed {branch} at {}", short(commit)),
             Event::PrOpened { url } => format!("pull request opened: {url}"),
             Event::TicketCommented { url } => format!("commented {url} on the ticket"),
+            Event::TicketMoved { to } => format!("ticket moved to {to}"),
             Event::Closed { dropped } if dropped.is_empty() => "closed, worktree removed".into(),
             Event::Closed { dropped } => {
                 format!("closed by force, dropping {}", dropped.join(", "))
@@ -293,6 +308,40 @@ impl Store {
         .collect()
     }
 
+    /// What an MCP source of the project listed last time.
+    pub(crate) fn cached(&self, project: &str, source: &str) -> Result<Option<Vec<TicketSummary>>> {
+        let text: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT tickets FROM listed WHERE project = ?1 AND source = ?2",
+                params![project, source],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(text.map(|t| serde_json::from_str(&t)).transpose()?)
+    }
+
+    pub(crate) fn cache(
+        &self,
+        project: &str,
+        source: &str,
+        tickets: &[TicketSummary],
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO listed (project, source, tickets, fetched) VALUES (?1, ?2, ?3, ?4)",
+            params![project, source, serde_json::to_string(tickets)?, now()],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn forget_cache(&self, project: &str, source: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM listed WHERE project = ?1 AND source = ?2",
+            [project, source],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn fail(&self, id: i64, error: &str) -> Result<Run> {
         let mut run = self.run(id)?;
         run.status = RunStatus::Failed;
@@ -325,6 +374,7 @@ fn read_run(row: &Row) -> rusqlite::Result<Run> {
         pr_url: row.get(11)?,
         created: row.get(12)?,
         updated: row.get(13)?,
+        session_id: None,
     })
 }
 
@@ -345,8 +395,17 @@ fn now() -> i64 {
 
 /// `2026-11-21 09:30 UTC`.
 pub fn utc(secs: i64) -> String {
-    // Howard Hinnant's days-to-civil conversion.
-    let (days, rest) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let (year, month, day) = civil(secs.div_euclid(86_400));
+    let rest = secs.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
+        rest / 3600,
+        rest % 3600 / 60
+    )
+}
+
+/// The date `days` after 1970-01-01, by Howard Hinnant's days-to-civil conversion.
+fn civil(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -355,10 +414,67 @@ pub fn utc(secs: i64) -> String {
     let mp = (5 * doy + 2) / 153;
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
-        rest / 3600,
-        rest % 3600 / 60
-    )
+    (yoe + era * 400 + i64::from(month <= 2), month, day)
+}
+
+/// The inverse of [`civil`].
+fn days(year: i64, month: i64, day: i64) -> i64 {
+    let year = year - i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let yoe = year.rem_euclid(400);
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// A tracker's ISO 8601 date, such as Jira's `2026-11-20T10:00:00.000+0100`, as `2026-11-20T09:00:00Z`, so the
+/// dates of every source sort as text. What does not read as such a date is kept as it is.
+pub(crate) fn iso_utc(text: &str) -> String {
+    let parsed = || -> Option<i64> {
+        let (date, time) = text.trim().split_once('T')?;
+        let mut parts = date.splitn(3, '-').map(|p| p.parse::<i64>().ok());
+        let (year, month, day) = (parts.next()??, parts.next()??, parts.next()??);
+        let clock: Vec<i64> = time
+            .get(..8)?
+            .split(':')
+            .map(|p| p.parse().ok())
+            .collect::<Option<_>>()?;
+        let [hour, minute, second] = clock[..] else {
+            return None;
+        };
+        let zone = time[8..].trim_start_matches(|c: char| c == '.' || c.is_ascii_digit());
+        let offset = match zone {
+            "Z" | "" => 0,
+            _ => {
+                let sign = match zone.as_bytes()[0] {
+                    b'+' => 1,
+                    b'-' => -1,
+                    _ => return None,
+                };
+                let digits = zone[1..].replace(':', "");
+                let hours: i64 = digits.get(..2)?.parse().ok()?;
+                let minutes: i64 = digits.get(2..4)?.parse().ok()?;
+                sign * (hours * 3600 + minutes * 60)
+            }
+        };
+        let valid = (1..=12).contains(&month)
+            && (1..=31).contains(&day)
+            && hour < 24
+            && minute < 60
+            && second < 61;
+        valid.then(|| days(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second - offset)
+    };
+    match parsed() {
+        Some(secs) => {
+            let (year, month, day) = civil(secs.div_euclid(86_400));
+            let rest = secs.rem_euclid(86_400);
+            format!(
+                "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+                rest / 3600,
+                rest % 3600 / 60,
+                rest % 60
+            )
+        }
+        None => text.to_owned(),
+    }
 }

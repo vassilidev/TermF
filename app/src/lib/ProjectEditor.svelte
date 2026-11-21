@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { SvelteSet } from "svelte/reactivity";
+  import TicketSources from "$lib/TicketSources.svelte";
   import { lang, t } from "$lib/i18n";
   import { app, type Project } from "$lib/state.svelte";
 
@@ -14,6 +15,7 @@
   let filter = $state("");
   let confirming = $state(false);
   let error = $state("");
+  let sources = $state<TicketSources>();
 
   // The project's own repositories first, even if discovery no longer finds them.
   const candidates = $derived.by(() => {
@@ -34,8 +36,14 @@
     }
   }
 
-  function save(e: SubmitEvent) {
+  async function save(e: SubmitEvent) {
     e.preventDefault();
+    try {
+      await sources?.save();
+    } catch (e) {
+      error = String(e);
+      return;
+    }
     run("project_save", { id: project?.id ?? null, name, repos: [...chosen] });
   }
 </script>
@@ -76,6 +84,10 @@
       <li class="none">{t("noRepos")}</li>
     {/each}
   </ul>
+
+  {#if project}
+    <TicketSources project={project.id} bind:this={sources} />
+  {/if}
 
   {#if error}
     <p class="notice error" role="alert">{error}</p>
