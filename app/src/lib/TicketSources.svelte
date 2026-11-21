@@ -78,9 +78,14 @@
     error = String(e);
   });
 
+  /** Whether the form changed since the sources were read or saved. */
+  export function dirty() {
+    return !!trackers && JSON.stringify(trackers) !== saved;
+  }
+
   /** Called by the project editor's Save; writes only what changed. */
   export async function save() {
-    if (trackers && JSON.stringify(trackers) !== saved) {
+    if (dirty()) {
       load(await invoke<Sources>("tickets_sources_save", { project, trackers }));
     }
   }

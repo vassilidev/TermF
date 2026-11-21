@@ -57,12 +57,21 @@
     run: "layerRun",
   };
 
+  /** The scope `team.roles` belongs to: another project's roles are never shown, nor counted, under this one. */
+  let rolesOf: string | null = null;
+
   async function refresh() {
     const asked = scope;
+    if (asked !== rolesOf) team.roles = [];
     try {
       const roles = await invoke<Item[]>("library_list", { kind: "role", project: asked || null });
-      if (asked === scope) team.roles = roles;
+      if (asked !== scope) return;
+      team.roles = roles;
+      rolesOf = asked;
     } catch (e) {
+      if (asked !== scope) return;
+      team.roles = [];
+      rolesOf = null;
       error = String(e);
     }
   }
@@ -107,7 +116,7 @@
     showLibrary();
   }
 
-  const text = (value: unknown) => (typeof value === "string" && value ? value : "—");
+  const text = (value: unknown) => (typeof value === "string" && value ? value : t("t5None"));
 </script>
 
 <div class="team">
@@ -201,7 +210,7 @@
                 <td><span class="tag">{text(role.meta.model)}</span></td>
                 <td class="muted">{text(role.meta.effort)}</td>
                 <td class="muted" class:mono={Array.isArray(writes)}>
-                  {Array.isArray(writes) ? writes.join(", ") : writes ? t("t5ReadOnly") : "—"}
+                  {Array.isArray(writes) ? writes.join(", ") : writes ? t("t5ReadOnly") : t("t5None")}
                 </td>
                 <td><span class="badge layer-{role.layer}">{t(layerLabel[role.layer])}</span></td>
                 <td>

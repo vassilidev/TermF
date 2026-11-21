@@ -1289,6 +1289,8 @@ const fr = {
   t5RemoveRepo: "Retirer {name}",
   t5DeleteProject: "Supprimer le projet",
   t5RecipeEdit: "Modifier la recette",
+  t5None: "—",
+  t5UnsavedSwitch: "« {name} » a des modifications non enregistrées. Changer de projet quand même ?",
   // UX pass 2 · T2: navigation and current project.
   navLabel: "Navigation",
   navWork: "Travail",
@@ -2593,6 +2595,8 @@ const en: Record<Key, string> = {
   t5RemoveRepo: "Remove {name}",
   t5DeleteProject: "Delete the project",
   t5RecipeEdit: "Edit the recipe",
+  t5None: "—",
+  t5UnsavedSwitch: "“{name}” has unsaved changes. Switch project anyway?",
   // UX pass 2 · T2: navigation and current project.
   navLabel: "Navigation",
   navWork: "Work",
