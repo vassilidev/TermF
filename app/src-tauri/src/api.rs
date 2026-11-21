@@ -244,10 +244,11 @@ fn random_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// What a ticket run adds to its Claude Code session: the project whose library applies, and the first message.
+/// What a ticket run adds to its Claude Code session: the project whose library applies, and the file that
+/// holds its task.
 pub struct RunSession<'a> {
     pub project: &'a str,
-    pub prompt: &'a str,
+    pub brief: &'a Path,
 }
 
 /// Starts a session. A Claude Code agent gets an ephemeral plugin whose hooks report its status,
@@ -300,7 +301,7 @@ pub fn spawn(
         if let Some(dir) = &dir {
             let plugin = dir.join("plugin");
             if let Some(termf) = &hooks {
-                claude::write_plugin(&plugin, termf)?;
+                claude::write_plugin(&plugin, termf, run.is_some())?;
             }
             let prompt = library(state, &cwd, dir, run.as_ref().map(|r| r.project));
             if plugin.is_dir() {
@@ -320,16 +321,16 @@ pub fn spawn(
             extra.push(format!("--remote-control {}", shell_quote(&title)));
         }
         if let Some(run) = &run {
-            // shortcut: cmd.exe ends a command at a line break, so on Windows the prompt is one line; spawn
-            // claude without cmd.exe to keep its lines.
-            let prompt = if cfg!(windows) {
-                run.prompt.replace(['\r', '\n'], " ")
-            } else {
-                run.prompt.to_owned()
-            };
-            // Before the variadic option, which would take it as a tool name.
-            extra.push(shell_quote(&prompt));
-            // TermF pushes, once the user delivers the run.
+            // Before the variadic options, which would take it as one of their values.
+            extra.push(shell_quote(&termf_tickets::kickoff(run.brief)));
+            if let Some(folder) = run.brief.parent() {
+                extra.push(format!(
+                    "--add-dir {}",
+                    shell_quote(&folder.to_string_lossy())
+                ));
+            }
+            // Defense in depth with the `termf guard` hook, not a guarantee: TermF pushes once the user
+            // delivers the run.
             extra.push(format!(
                 "--disallowedTools {}",
                 shell_quote("Bash(git push:*)")
@@ -488,7 +489,9 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
             let run = tickets::start(app, &ticket, project.as_deref(), repo.as_deref(), 120, 32)?;
             serde_json::to_value(run)?
         }
-        Call::Deliver { run } => serde_json::to_value(tickets::deliver(app, run)?)?,
+        Call::Deliver { run, confirm } => {
+            serde_json::to_value(tickets::deliver(app, run, &confirm)?)?
+        }
         Call::Close { run, force } => serde_json::to_value(tickets::close(app, run, force)?)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })

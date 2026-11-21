@@ -164,6 +164,15 @@ impl Ssh {
         self.dir.join("config")
     }
 
+    /// The server `host` reaches: the first `HostName` the config gives it (an alias), else `host` itself.
+    pub fn host_name(&self, host: &str) -> String {
+        config::hosts(&self.dir, &self.home)
+            .into_iter()
+            .filter(|h| h.matches(host))
+            .find_map(|h| h.host_name)
+            .unwrap_or_else(|| host.to_owned())
+    }
+
     /// `repos`: the known repositories, whose remotes are mapped to keys.
     pub fn inventory(&self, repos: &[PathBuf]) -> Inventory {
         self.collect(repos, tools::agent())

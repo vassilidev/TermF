@@ -58,8 +58,11 @@ usage:
                                         worktree, with a Claude Code session
   termf runs [<run>]                    list runs, or show one run and its events
   termf inbox [--project <id>]          open GitHub issues assigned to you
-  termf deliver <run>                   commit, push and open the run's pull request
+  termf deliver <run> [--yes]           show what the run would send, then (once you agree, or with
+                                        --yes) commit it, push and open the pull request
   termf close <run> [--force]           remove the run's worktree (--force drops work not pushed)
+  termf guard                           refuse pushes and tracker writes in a run's session
+                                        (Claude Code PreToolUse hook, JSON on stdin)
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -75,6 +78,9 @@ fn main() -> ExitCode {
     if let ["hook", event] = args.as_slice() {
         hook(event);
         return ExitCode::SUCCESS;
+    }
+    if let ["guard"] = args.as_slice() {
+        return tickets::guard();
     }
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,

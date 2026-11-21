@@ -37,9 +37,11 @@ pub fn after_program(command: &str, args: &str) -> String {
 }
 
 /// Writes a plugin (`.claude-plugin/plugin.json` + `hooks/hooks.json`) whose hooks run `<termf> hook <Event>`.
-pub fn write_plugin(dir: &Path, termf: &Path) -> Result<()> {
+/// `guard`, for a ticket run's session: Bash commands also go through `<termf> guard`, which refuses pushes
+/// and tracker writes (defense in depth: a script the agent writes can still push).
+pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
     let termf = termf.to_string_lossy();
-    let hooks: Map<String, Value> = HOOK_EVENTS
+    let mut hooks: Map<String, Value> = HOOK_EVENTS
         .iter()
         .map(|event| {
             // Exec form (`args`): no shell, so the path needs no quoting.
@@ -52,6 +54,12 @@ pub fn write_plugin(dir: &Path, termf: &Path) -> Result<()> {
             (event.to_string(), json!([{ "hooks": [hook] }]))
         })
         .collect();
+    if guard && let Some(Value::Array(pre)) = hooks.get_mut("PreToolUse") {
+        pre.push(json!({
+            "matcher": "Bash",
+            "hooks": [{ "type": "command", "command": termf, "args": ["guard"], "timeout": 5 }],
+        }));
+    }
     fs::create_dir_all(dir.join(".claude-plugin"))?;
     fs::create_dir_all(dir.join("hooks"))?;
     fs::write(
@@ -100,7 +108,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("termf-plugin-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let termf = Path::new("/opt/Term F/termf");
-        write_plugin(&dir, termf).unwrap();
+        write_plugin(&dir, termf, false).unwrap();
 
         let manifest: Value = serde_json::from_str(
             &fs::read_to_string(dir.join(".claude-plugin/plugin.json")).unwrap(),
@@ -108,15 +116,24 @@ mod tests {
         .unwrap();
         assert_eq!(manifest["name"], "termf");
 
-        let hooks: Value =
+        let read = || -> Value {
             serde_json::from_str(&fs::read_to_string(dir.join("hooks/hooks.json")).unwrap())
-                .unwrap();
+                .unwrap()
+        };
+        let hooks = read();
         for event in HOOK_EVENTS {
             let hook = &hooks["hooks"][event][0]["hooks"][0];
             assert_eq!(hook["type"], "command");
             assert_eq!(hook["command"], "/opt/Term F/termf");
             assert_eq!(hook["args"], json!(["hook", event]));
         }
+        assert_eq!(hooks["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+
+        write_plugin(&dir, termf, true).unwrap();
+        let guard = &read()["hooks"]["PreToolUse"][1];
+        assert_eq!(guard["matcher"], "Bash");
+        assert_eq!(guard["hooks"][0]["command"], "/opt/Term F/termf");
+        assert_eq!(guard["hooks"][0]["args"], json!(["guard"]));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

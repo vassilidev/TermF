@@ -4,8 +4,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
+use termf_ssh::Ssh;
 
 use crate::{Comment, Ticket, TicketProvider, TicketRef, TicketSummary};
 
@@ -51,15 +52,46 @@ fn valid_slug(slug: &str) -> bool {
     part(parts.next()) && part(parts.next()) && parts.next().is_none()
 }
 
-/// The `owner/name` (lowercased) a git remote points to, whatever its form: HTTPS, SSH, an SSH alias of
-/// `~/.ssh/config`, a local path.
-pub(crate) fn remote_slug(url: &str) -> Option<String> {
-    let url = url.trim().trim_end_matches('/');
-    let url = url.strip_suffix(".git").unwrap_or(url);
-    let mut parts = url.rsplit(['/', ':', '\\']);
-    let name = parts.next()?;
-    let slug = format!("{}/{name}", parts.next()?);
-    valid_slug(&slug).then(|| slug.to_ascii_lowercase())
+const GITHUB_HOSTS: &[&str] = &["github.com", "www.github.com", "ssh.github.com"];
+
+/// The `owner/name` (lowercased) of a remote on github.com, over HTTPS, SSH or an SSH alias whose `HostName`
+/// is GitHub. Other hosts and local paths are refused.
+pub(crate) fn remote_slug(url: &str, ssh: &Ssh) -> Result<String> {
+    let url = url.trim();
+    let local = || anyhow!("{url} is a local path, not a GitHub repository");
+    let unhost = |authority: &'_ str| -> String {
+        let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+        host.split(':').next().unwrap_or(host).to_ascii_lowercase()
+    };
+    let (host, path) = match url.split_once("://") {
+        Some((_, rest)) => {
+            let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+            (unhost(authority), path)
+        }
+        // scp-like `[user@]host:path`, as git reads it: a colon before any slash. One letter is a Windows drive.
+        None => match url.split_once(':') {
+            Some((authority, path)) if !authority.contains(['/', '\\']) => {
+                (unhost(authority), path)
+            }
+            _ => return Err(local()),
+        },
+    };
+    if host.len() < 2 {
+        return Err(local());
+    }
+    let server = if GITHUB_HOSTS.contains(&host.as_str()) {
+        host.clone()
+    } else {
+        ssh.host_name(&host).to_ascii_lowercase()
+    };
+    ensure!(
+        GITHUB_HOSTS.contains(&server.as_str()),
+        "{url} is on {host}, not github.com: other hosts (GitHub Enterprise, GitLab…) are not supported yet"
+    );
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    ensure!(valid_slug(path), "{url} names no GitHub repository");
+    Ok(path.to_ascii_lowercase())
 }
 
 /// Builds a ticket from the REST API's issue and comments.
@@ -220,18 +252,22 @@ impl TicketProvider for GitHub {
         ticket_from(ticket.clone(), &issue, &comments)
     }
 
+    /// Every page; GitHub stops at 1000 results.
     fn search(&self, query: &str) -> Result<Vec<TicketSummary>> {
-        let found = self.json(&[
+        let pages = self.json(&[
             "api",
+            "--paginate",
+            "--slurp",
             "--method",
             "GET",
             "search/issues",
             "-f",
             &format!("q={query}"),
             "-f",
-            "per_page=50",
+            "per_page=100",
         ])?;
-        let items = found["items"].as_array().into_iter().flatten();
+        let pages = pages.as_array().into_iter().flatten();
+        let items = pages.flat_map(|page| page["items"].as_array().into_iter().flatten());
         Ok(items
             .filter_map(|item| {
                 let labels = item["labels"].as_array().into_iter().flatten();

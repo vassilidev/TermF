@@ -7,8 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use tauri::{AppHandle, Emitter, Manager};
-use termf_core::claude;
-use termf_tickets::{Resolution, Run, RunEvent, TicketSummary, Tickets};
+use termf_tickets::{Delivery, DeliveryPreview, Resolution, Run, RunEvent, TicketSummary, Tickets};
 
 use crate::{AppState, CmdResult, api, err};
 
@@ -46,7 +45,7 @@ fn updated(app: &AppHandle, run: &Run) {
     let _ = app.emit("run-updated", run);
 }
 
-/// Resolves and prepares the run, then opens its Claude Code session with the ticket as first message.
+/// Resolves and prepares the run, then opens its Claude Code session, pointed at the file with its task.
 pub fn start(
     app: &AppHandle,
     input: &str,
@@ -56,13 +55,7 @@ pub fn start(
     rows: u16,
 ) -> Result<Run> {
     let state = app.state::<AppState>();
-    let settings = termf_core::load_settings(&state.config_dir)?;
-    let agent = settings
-        .agents
-        .iter()
-        .find(|(_, command)| claude::is_claude(command))
-        .map(|(name, _)| name.clone())
-        .context("no agent of termf.toml [agents] runs Claude Code")?;
+    let agent = termf_core::load_settings(&state.config_dir)?.ticket_agent()?;
     let tickets = tickets(app);
     let launch = tickets.start(input, project, repo)?;
     let run = &launch.run;
@@ -77,7 +70,7 @@ pub fn start(
         false,
         Some(api::RunSession {
             project: &run.project,
-            prompt: &launch.prompt,
+            brief: &launch.brief,
         }),
     );
     let session = match session {
@@ -96,9 +89,9 @@ pub fn start(
     Ok(run)
 }
 
-pub fn deliver(app: &AppHandle, id: i64) -> Result<Run> {
+pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
     let tickets = tickets(app);
-    let delivered = tickets.deliver(id);
+    let delivered = tickets.deliver(id, confirm);
     // Even a failed delivery may have pushed or opened the pull request.
     if let Ok(run) = tickets.run(id) {
         updated(app, &run);
@@ -106,21 +99,18 @@ pub fn deliver(app: &AppHandle, id: i64) -> Result<Run> {
     delivered
 }
 
-/// Closes the run, then ends its session, whose folder is gone.
+/// Closes the run; its session ends first, so no agent is left working in a deleted folder.
 pub fn close(app: &AppHandle, id: i64, force: bool) -> Result<Run> {
-    let run = tickets(app).close(id, force)?;
-    let session = app
-        .state::<TicketsState>()
-        .sessions
-        .lock()
-        .unwrap()
-        .remove(&id);
-    if let Some(session) = session {
-        let state = app.state::<AppState>();
-        state.api.forget(session);
-        let _ = state.sessions.kill(session);
-        state.keep_awake.update(app);
-    }
+    let run = tickets(app).close(id, force, || {
+        let sessions = &app.state::<TicketsState>().sessions;
+        let session = sessions.lock().unwrap().remove(&id);
+        if let Some(session) = session {
+            let state = app.state::<AppState>();
+            state.api.forget(session);
+            let _ = state.sessions.kill(session);
+            state.keep_awake.update(app);
+        }
+    })?;
     updated(app, &run);
     Ok(run)
 }
@@ -172,8 +162,13 @@ pub async fn tickets_events(app: AppHandle, id: i64) -> CmdResult<Vec<RunEvent>>
 }
 
 #[tauri::command]
-pub async fn tickets_deliver(app: AppHandle, id: i64) -> CmdResult<Run> {
-    blocking(app, move |app| deliver(app, id)).await
+pub async fn tickets_deliver_preview(app: AppHandle, id: i64) -> CmdResult<DeliveryPreview> {
+    blocking(app, move |app| tickets(app).deliver_preview(id)).await
+}
+
+#[tauri::command]
+pub async fn tickets_deliver(app: AppHandle, id: i64, confirm: String) -> CmdResult<Delivery> {
+    blocking(app, move |app| deliver(app, id, &confirm)).await
 }
 
 #[tauri::command]

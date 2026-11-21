@@ -5,20 +5,22 @@
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 mod github;
+mod guard;
 mod run;
 mod store;
 #[cfg(test)]
 mod tests;
 
 pub use github::GitHub;
-pub use run::Launch;
+pub use guard::guard;
+pub use run::{Change, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch};
 pub use store::{Event, Run, RunEvent, RunStatus, utc};
 
 /// A ticket as its tracker names it.
@@ -181,6 +183,8 @@ pub struct Tickets {
     pub gh: PathBuf,
     /// Added to every git and gh command; tests keep them away from the user's config.
     pub env: Vec<(String, String)>,
+    /// Whose `.ssh/config` tells which SSH aliases reach GitHub.
+    pub home: PathBuf,
 }
 
 /// Where a pasted ticket goes.
@@ -287,6 +291,7 @@ impl Tickets {
             data_dir,
             gh: "gh".into(),
             env: Vec::new(),
+            home: termf_core::expand_tilde("~"),
         }
     }
 
@@ -318,6 +323,7 @@ impl Tickets {
     }
 
     fn projects(&self, only: Option<&str>) -> Result<Vec<ProjectInfo>> {
+        let ssh = termf_ssh::Ssh::new(self.home.clone());
         let mut found = Vec::new();
         for project in termf_core::load_projects(&self.config_dir)? {
             if only.is_some_and(|id| id != project.id) {
@@ -327,7 +333,7 @@ impl Tickets {
                 .repos
                 .into_iter()
                 .map(|r| RepoInfo {
-                    slugs: run::remote_slugs(&r.path, &self.env),
+                    slugs: run::remote_slugs(&r.path, &self.env, &ssh),
                     name: r.name,
                     path: r.path,
                 })
@@ -428,19 +434,20 @@ impl Tickets {
     /// The open issues assigned to the user, on all of GitHub or, for a project, in its repositories.
     pub fn inbox(&self, project: Option<&str>) -> Result<Vec<TicketSummary>> {
         let projects = self.projects(project)?;
-        let mut query = String::from("is:issue is:open archived:false assignee:@me");
-        if project.is_some() {
-            let mut slugs: Vec<String> = projects.iter().flat_map(ProjectInfo::slugs).collect();
-            slugs.sort();
-            slugs.dedup();
-            if slugs.is_empty() {
-                return Ok(Vec::new());
+        let base = "is:issue is:open archived:false assignee:@me";
+        let queries = match project {
+            Some(_) => {
+                let mut slugs: Vec<String> = projects.iter().flat_map(ProjectInfo::slugs).collect();
+                slugs.sort();
+                slugs.dedup();
+                search_queries(base, &slugs)
             }
-            for slug in slugs {
-                let _ = write!(query, " repo:{slug}");
-            }
+            None => vec![base.to_owned()],
+        };
+        let mut found = Vec::new();
+        for query in queries {
+            found.extend(self.github().search(&query)?);
         }
-        let mut found = self.github().search(&query)?;
         for ticket in &mut found {
             let slug = github::split(&ticket.reference.key)?.0;
             ticket.project = projects
@@ -448,8 +455,38 @@ impl Tickets {
                 .find(|p| p.holds(slug))
                 .map(|p| p.id.clone());
         }
+        // ISO 8601 dates sort as text.
+        found.sort_by(|a, b| b.updated.cmp(&a.updated));
         Ok(found)
     }
+}
+
+/// GitHub refuses search queries over 256 characters, so the repositories are spread over as many queries as
+/// they need. No repository, no query.
+fn search_queries(base: &str, slugs: &[String]) -> Vec<String> {
+    let mut queries = Vec::new();
+    let mut query = base.to_owned();
+    for slug in slugs {
+        let filter = format!(" repo:{slug}");
+        if query.len() + filter.len() > 256 && query.len() > base.len() {
+            queries.push(std::mem::replace(&mut query, base.to_owned()));
+        }
+        query.push_str(&filter);
+    }
+    if query.len() > base.len() {
+        queries.push(query);
+    }
+    queries
+}
+
+/// The session's first message: where its task is. The task stays in a file, so the ticket never meets a
+/// shell or a command line limit.
+pub fn kickoff(brief: &Path) -> String {
+    format!(
+        "Read {} now: it is your task in this session, a ticket to work on in this worktree, and the rules \
+         that come with it.",
+        brief.display()
+    )
 }
 
 /// A command that opens no console window on Windows.

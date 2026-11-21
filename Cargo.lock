@@ -5544,6 +5544,7 @@ dependencies = [
  "serde",
  "serde_json",
  "termf-core",
+ "termf-ssh",
  "toml 1.2.2+spec-1.1.0",
 ]
 

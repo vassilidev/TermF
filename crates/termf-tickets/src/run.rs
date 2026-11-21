@@ -1,11 +1,13 @@
 //! A run's git side: its worktree and branch, its delivery as a pull request, and its cleanup. Agents never
-//! push: only `deliver`, which the user triggers, does.
+//! push: only `deliver`, which the user confirms after seeing what it sends, does.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
 use anyhow::{Context, Result, bail, ensure};
+use serde::{Deserialize, Serialize};
+use termf_ssh::Ssh;
 
 use crate::github;
 use crate::store::{Event, Run, RunEvent, RunStatus, Store};
@@ -14,8 +16,59 @@ use crate::{Ticket, Tickets};
 /// A run ready for its session.
 pub struct Launch {
     pub run: Run,
-    /// The session's first message, with the ticket framed in it.
-    pub prompt: String,
+    /// The file that holds the session's task: the rules, then the ticket framed as data.
+    pub brief: PathBuf,
+}
+
+/// What delivering a run would send, for the user to check first.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryPreview {
+    /// The worktree's changes, committed by the delivery.
+    pub files: Vec<FileChange>,
+    /// Commits already made in the worktree and not pushed yet.
+    pub commits: Vec<CommitSummary>,
+    /// Given back to `deliver`, which refuses if the worktree changed since.
+    pub fingerprint: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChange {
+    pub path: String,
+    pub change: Change,
+    /// The former path of a renamed file.
+    pub from: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Change {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitSummary {
+    pub commit: String,
+    pub subject: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Delivery {
+    pub run: Run,
+    /// Something that failed once the pull request was open, such as commenting on the ticket.
+    pub warning: Option<String>,
+}
+
+/// A delivery's preview, and the index that holds exactly what it would commit.
+struct Snapshot {
+    preview: DeliveryPreview,
+    index: PathBuf,
 }
 
 struct Git<'a>(&'a [(String, String)]);
@@ -33,7 +86,8 @@ impl Git<'_> {
             .context("cannot run git: is it installed?")
     }
 
-    fn run(&self, dir: &Path, args: &[&str]) -> Result<String> {
+    /// The output as is, for `-z` listings whose names may start or end with spaces.
+    fn raw(&self, dir: &Path, args: &[&str]) -> Result<String> {
         let out = self.output(dir, args)?;
         ensure!(
             out.status.success(),
@@ -41,7 +95,11 @@ impl Git<'_> {
             args[0],
             String::from_utf8_lossy(&out.stderr).trim()
         );
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    fn run(&self, dir: &Path, args: &[&str]) -> Result<String> {
+        Ok(self.raw(dir, args)?.trim().to_owned())
     }
 
     fn ok(&self, dir: &Path, args: &[&str]) -> bool {
@@ -58,19 +116,21 @@ impl Git<'_> {
     }
 }
 
-/// The `owner/name` of each remote of a repository, lowercased.
-pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)]) -> Vec<String> {
+/// The `owner/name` of each GitHub remote of a repository, lowercased.
+pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)], ssh: &Ssh) -> Vec<String> {
     let urls = Git(env).run(
         Path::new(repo),
         &["config", "--get-regexp", r"^remote\..*\.url$"],
     );
     let urls = urls.unwrap_or_default();
     let mut slugs: Vec<String> = Vec::new();
-    for slug in urls
-        .lines()
-        .filter_map(|line| github::remote_slug(line.split_once(' ')?.1))
-    {
-        if !slugs.contains(&slug) {
+    for line in urls.lines() {
+        let Some((_, url)) = line.split_once(' ') else {
+            continue;
+        };
+        if let Ok(slug) = github::remote_slug(url, ssh)
+            && !slugs.contains(&slug)
+        {
             slugs.push(slug);
         }
     }
@@ -126,10 +186,44 @@ fn unpushed(
     Ok(lost)
 }
 
+/// The commit last pushed by a delivery of the run.
+fn last_push(store: &Store, id: i64) -> Result<Option<String>> {
+    let mut events = store.events(id)?.into_iter().rev();
+    Ok(events.find_map(|e| match e.event {
+        Event::Pushed { commit, .. } => Some(commit),
+        _ => None,
+    }))
+}
+
+/// `git diff --name-status -z` lines.
+fn file_changes(listing: &str) -> Vec<FileChange> {
+    let mut fields = listing.split('\0').filter(|f| !f.is_empty());
+    let mut files = Vec::new();
+    while let Some(status) = fields.next() {
+        let (change, two_paths) = match status.chars().next() {
+            Some('A') => (Change::Added, false),
+            Some('C') => (Change::Added, true),
+            Some('D') => (Change::Deleted, false),
+            Some('R') => (Change::Renamed, true),
+            _ => (Change::Modified, false),
+        };
+        let from = two_paths.then(|| fields.next()).flatten();
+        let Some(path) = fields.next() else { break };
+        files.push(FileChange {
+            path: path.to_owned(),
+            change,
+            from: from
+                .filter(|_| change == Change::Renamed)
+                .map(str::to_owned),
+        });
+    }
+    files
+}
+
 impl Tickets {
     /// Resolves the ticket, reads it, and prepares its run: a worktree on a new branch `termf/<ticket>-<slug>`
-    /// from the repository's base branch. `repo` (a name or a path) picks the repository when the project has
-    /// several.
+    /// from the repository's base branch, and the brief of its session. `repo` (a name or a path) picks the
+    /// repository when the project has several.
     pub fn start(&self, input: &str, project: Option<&str>, repo: Option<&str>) -> Result<Launch> {
         let resolution = self.resolve(input, project)?;
         let chosen = match repo.or(resolution.repo.as_deref()) {
@@ -167,9 +261,12 @@ impl Tickets {
         run.branch = Some(branch.clone());
         run.base = Some(base.clone());
         store.update(&mut run)?;
-        let prompt = crate::prompt(&ticket, &branch, &base);
+        // Its own folder: the session may read it, nothing else of the run.
+        let brief = store.run_dir(run.id).join("brief").join("prompt.md");
+        fs::create_dir_all(brief.parent().context("no parent folder")?)?;
+        fs::write(&brief, crate::prompt(&ticket, &branch, &base))?;
         store.record(run.id, &Event::WorktreeCreated { path, branch, base })?;
-        Ok(Launch { run, prompt })
+        Ok(Launch { run, brief })
     }
 
     /// Creates `<data>/worktrees/<project>/<run>/<repo>` and returns its path, its branch and its base.
@@ -249,15 +346,103 @@ impl Tickets {
         Store::open(&self.data_dir)?.fail(id, error)
     }
 
-    /// The gate of a run, which only the user opens: commits what is left, pushes the branch and opens the
-    /// pull request, linked to the ticket. Delivering again pushes what changed since.
-    pub fn deliver(&self, id: i64) -> Result<Run> {
+    /// What `deliver` would commit and push, and the fingerprint that confirms it.
+    pub fn deliver_preview(&self, id: i64) -> Result<DeliveryPreview> {
         let store = Store::open(&self.data_dir)?;
-        let mut run = store.run(id)?;
+        let snapshot = self.snapshot(&store, &store.run(id)?)?;
+        let _ = fs::remove_file(&snapshot.index);
+        Ok(snapshot.preview)
+    }
+
+    /// Takes the worktree as `git add -A` would, in an index of its own: the real one is left alone until the
+    /// user confirms.
+    fn snapshot(&self, store: &Store, run: &Run) -> Result<Snapshot> {
+        let id = run.id;
         ensure!(
             matches!(run.status, RunStatus::Running | RunStatus::Delivered),
             "run {id} is {}: there is nothing to deliver",
             run.status.as_str()
+        );
+        let (Some(worktree), Some(branch), Some(base)) = (&run.worktree, &run.branch, &run.base)
+        else {
+            bail!("run {id} has no worktree");
+        };
+        let (git, dir) = (Git(&self.env), Path::new(worktree));
+        let head = git
+            .run(dir, &["symbolic-ref", "-q", "HEAD"])
+            .unwrap_or_default();
+        if head != format!("refs/heads/{branch}") {
+            let now = match head.strip_prefix("refs/heads/") {
+                Some(other) => format!("on {other}"),
+                None => "detached".to_owned(),
+            };
+            bail!(
+                "the worktree of run {id} is {now}, not on its branch {branch}: `git switch {branch}` there first"
+            );
+        }
+        let index = store.run_dir(id).join("delivery.index");
+        fs::create_dir_all(index.parent().context("no parent folder")?)?;
+        let real = git.run(
+            dir,
+            &["rev-parse", "--path-format=absolute", "--git-path", "index"],
+        )?;
+        fs::copy(&real, &index).with_context(|| format!("cannot copy {real}"))?;
+        let mut env = self.env.clone();
+        env.push(("GIT_INDEX_FILE".into(), index.to_string_lossy().into()));
+        let staged = Git(&env);
+        staged.run(dir, &["add", "-A"])?;
+        let tree = staged.run(dir, &["write-tree"])?;
+        let files = file_changes(&staged.raw(
+            dir,
+            &["diff", "--cached", "--name-status", "-z", "-M", "HEAD"],
+        )?);
+        let since = last_push(store, id)?.unwrap_or_else(|| base.clone());
+        let log = git.run(
+            dir,
+            &["log", "--format=%H%x1f%s", &format!("{since}..HEAD")],
+        )?;
+        let commits = log
+            .lines()
+            .filter_map(|line| line.split_once('\x1f'))
+            .map(|(commit, subject)| CommitSummary {
+                commit: commit.into(),
+                subject: subject.into(),
+            })
+            .collect();
+        let head = git.run(dir, &["rev-parse", "HEAD"])?;
+        Ok(Snapshot {
+            preview: DeliveryPreview {
+                files,
+                commits,
+                fingerprint: format!("{head}:{tree}"),
+            },
+            index,
+        })
+    }
+
+    /// The gate of a run, which only the user opens, with the fingerprint of the preview they saw: commits
+    /// exactly what it listed, pushes the branch and opens the pull request, linked to the ticket. Refused if
+    /// the worktree changed since. Delivering again pushes what changed and retries what failed.
+    pub fn deliver(&self, id: i64, confirm: &str) -> Result<Delivery> {
+        let store = Store::open(&self.data_dir)?;
+        let mut run = store.run(id)?;
+        let snapshot = self.snapshot(&store, &run)?;
+        let delivered = self.send(&store, &mut run, &snapshot, confirm);
+        let _ = fs::remove_file(&snapshot.index);
+        delivered
+    }
+
+    fn send(
+        &self,
+        store: &Store,
+        run: &mut Run,
+        snapshot: &Snapshot,
+        confirm: &str,
+    ) -> Result<Delivery> {
+        let id = run.id;
+        ensure!(
+            snapshot.preview.fingerprint == confirm,
+            "the worktree of run {id} changed since its preview: preview the delivery again"
         );
         let (Some(worktree), Some(branch), Some(base)) =
             (run.worktree.clone(), run.branch.clone(), run.base.clone())
@@ -265,10 +450,16 @@ impl Tickets {
             bail!("run {id} has no worktree");
         };
         let (git, dir) = (Git(&self.env), Path::new(&worktree));
-        git.run(dir, &["add", "-A"])?;
-        if !git.ok(dir, &["diff", "--cached", "--quiet"]) {
+        if !snapshot.preview.files.is_empty() {
             let message = format!("{}\n\n{}", run.title, run.ticket.url);
-            git.run(dir, &["commit", "-q", "-m", &message])?;
+            let mut env = self.env.clone();
+            env.push((
+                "GIT_INDEX_FILE".into(),
+                snapshot.index.to_string_lossy().into(),
+            ));
+            Git(&env).run(dir, &["commit", "-q", "-m", &message])?;
+            // The real index catches up with the commit; the files themselves are untouched.
+            git.run(dir, &["reset", "-q"])?;
             let commit = git.run(dir, &["rev-parse", "HEAD"])?;
             store.record(id, &Event::Committed { commit, message })?;
         }
@@ -276,8 +467,10 @@ impl Tickets {
             git.count(dir, &format!("{base}..HEAD"))? > 0,
             "nothing to deliver: no change since {base}"
         );
-        git.run(dir, &["push", "-q", "-u", "origin", &branch])?;
-        let commit = git.run(dir, &["rev-parse", "HEAD"])?;
+        // The commit itself is pushed, so the one recorded is the one sent.
+        let commit = git.run(dir, &["rev-parse", &format!("refs/heads/{branch}")])?;
+        let refspec = format!("{commit}:refs/heads/{branch}");
+        git.run(dir, &["push", "-q", "origin", &refspec])?;
         store.record(
             id,
             &Event::Pushed {
@@ -287,9 +480,9 @@ impl Tickets {
         )?;
         run.status = RunStatus::Delivered;
         if run.pr_url.is_none() {
-            let origin = git.run(dir, &["remote", "get-url", "origin"])?;
-            let repo = github::remote_slug(&origin)
-                .with_context(|| format!("origin ({origin}) is not a GitHub repository"))?;
+            let origin = git.run(dir, &["config", "--get", "remote.origin.url"])?;
+            let repo = github::remote_slug(&origin, &termf_ssh::Ssh::new(self.home.clone()))
+                .context("the pull request goes to origin")?;
             let body = match github::split(&run.ticket.key) {
                 Ok((slug, number))
                     if run.ticket.provider == "github" && slug.eq_ignore_ascii_case(&repo) =>
@@ -303,52 +496,66 @@ impl Tickets {
                 .github()
                 .create_pr(dir, &repo, target, &branch, &run.title, &body)?;
             run.pr_url = Some(url.clone());
-            store.update(&mut run)?;
-            store.record(id, &Event::PrOpened { url: url.clone() })?;
-            if self.comments_on(&run.project) {
-                self.provider(&run.ticket.provider)?
-                    .link_pr(&run.ticket, &url)
-                    .context("the pull request is open, but commenting on the ticket failed")?;
-                store.record(id, &Event::TicketCommented { url })?;
+            store.update(run)?;
+            store.record(id, &Event::PrOpened { url })?;
+        }
+        let mut warning = None;
+        let commented = store
+            .events(id)?
+            .iter()
+            .any(|e| matches!(e.event, Event::TicketCommented { .. }));
+        if let Some(url) = run.pr_url.clone()
+            && !commented
+            && self.comments_on(&run.project)
+        {
+            match self
+                .provider(&run.ticket.provider)?
+                .link_pr(&run.ticket, &url)
+            {
+                Ok(()) => {
+                    store.record(id, &Event::TicketCommented { url })?;
+                }
+                Err(e) => {
+                    warning = Some(format!(
+                        "the pull request is open, but commenting on the ticket failed (tried again at the next delivery): {e:#}"
+                    ))
+                }
             }
         }
-        store.update(&mut run)?;
-        Ok(run)
+        store.update(run)?;
+        Ok(Delivery {
+            run: run.clone(),
+            warning,
+        })
     }
 
     /// Removes the run's worktree. Refused while it holds work that is not pushed, unless `force`: then the
-    /// branch stays, so the commits it drops from the worktree can still be found.
-    pub fn close(&self, id: i64, force: bool) -> Result<Run> {
+    /// branch stays, so the commits it drops from the worktree can still be found. `stop_session` runs once
+    /// the checks pass, before anything is removed, so no agent is left working in a deleted folder.
+    pub fn close(&self, id: i64, force: bool, stop_session: impl FnOnce()) -> Result<Run> {
         let store = Store::open(&self.data_dir)?;
         let mut run = store.run(id)?;
         ensure!(
             run.status != RunStatus::Closed,
             "run {id} is already closed"
         );
+        let git = Git(&self.env);
+        let repo = Path::new(&run.repo);
+        let parts = (run.worktree.clone(), run.branch.clone(), run.base.clone());
         let mut dropped = Vec::new();
-        if let (Some(worktree), Some(branch), Some(base)) = (&run.worktree, &run.branch, &run.base)
-        {
-            let (git, repo, worktree) = (Git(&self.env), Path::new(&run.repo), Path::new(worktree));
-            let pushed = store
-                .events(id)?
-                .into_iter()
-                .rev()
-                .find_map(|e| match e.event {
-                    Event::Pushed { commit, .. } => Some(commit),
-                    _ => None,
-                });
-            dropped = unpushed(
-                &git,
-                repo,
-                worktree,
-                branch,
-                pushed.as_deref().unwrap_or(base),
-            )?;
+        if let (Some(worktree), Some(branch), Some(base)) = &parts {
+            let pushed = last_push(&store, id)?;
+            let since = pushed.as_deref().unwrap_or(base);
+            dropped = unpushed(&git, repo, Path::new(worktree), branch, since)?;
             ensure!(
                 force || dropped.is_empty(),
                 "run {id} holds work that is not pushed ({}): deliver it, or close it by force",
                 dropped.join(", ")
             );
+        }
+        stop_session();
+        if let (Some(worktree), Some(branch), Some(_)) = &parts {
+            let worktree = Path::new(worktree);
             if worktree.exists() {
                 let path = worktree.to_string_lossy();
                 let mut args = vec!["worktree", "remove"];
@@ -372,5 +579,31 @@ impl Tickets {
         store.update(&mut run)?;
         store.record(id, &Event::Closed { dropped })?;
         Ok(run)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_name_status_listings() {
+        let files =
+            file_changes("M\0src/a b.rs\0A\0 new\0D\0old.txt\0R087\0x.md\0y.md\0C100\0p\0q\0");
+        let change = |path: &str, change, from: Option<&str>| FileChange {
+            path: path.into(),
+            change,
+            from: from.map(Into::into),
+        };
+        assert_eq!(
+            files,
+            [
+                change("src/a b.rs", Change::Modified, None),
+                change(" new", Change::Added, None),
+                change("old.txt", Change::Deleted, None),
+                change("y.md", Change::Renamed, Some("x.md")),
+                change("q", Change::Added, None),
+            ]
+        );
     }
 }

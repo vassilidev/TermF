@@ -286,6 +286,7 @@ pub fn run() {
             tickets::tickets_run,
             tickets::tickets_runs,
             tickets::tickets_events,
+            tickets::tickets_deliver_preview,
             tickets::tickets_deliver,
             tickets::tickets_close,
         ]))

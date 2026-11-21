@@ -8,7 +8,8 @@ use super::*;
 use crate::github::{reference, remote_slug, ticket_from};
 use crate::store::Store;
 
-/// Throwaway config, data and repositories, and a git that reads none of the user's config.
+/// Throwaway config, data, home and repositories, and a git that reads none of the user's config and only
+/// reaches local paths.
 struct Sandbox {
     root: PathBuf,
     env: Vec<(String, String)>,
@@ -20,12 +21,16 @@ impl Sandbox {
             std::env::temp_dir().join(format!("termf-tickets-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("config/projects")).unwrap();
+        fs::create_dir_all(root.join("home/.ssh")).unwrap();
+        let ssh_config = "Host gh-work\n  HostName github.com\n  User git\n";
+        fs::write(root.join("home/.ssh/config"), ssh_config).unwrap();
         let gitconfig = root.join("gitconfig");
         fs::write(&gitconfig, "").unwrap();
         let gitconfig = gitconfig.to_string_lossy();
         let env = [
             ("GIT_CONFIG_GLOBAL", gitconfig.as_ref()),
             ("GIT_CONFIG_NOSYSTEM", "1"),
+            ("GIT_ALLOW_PROTOCOL", "file"),
             ("GIT_AUTHOR_NAME", "t"),
             ("GIT_AUTHOR_EMAIL", "t@t"),
             ("GIT_COMMITTER_NAME", "t"),
@@ -44,6 +49,7 @@ impl Sandbox {
             data_dir: self.root.join("data"),
             gh: self.root.join("gh"),
             env: self.env.clone(),
+            home: self.root.join("home"),
         }
     }
 
@@ -101,6 +107,7 @@ fn resolves_every_form() {
     let api = sb.repo("api", "git@github.com:acme/api.git");
     let front = sb.repo("front", "https://github.com/Acme/Front");
     let tool = sb.repo("tool", "gh-work:me/tool.git");
+    let mirror = sb.repo("mirror", "git@gitlab.com:acme/front.git");
     sb.project(
         "acme",
         &format!(
@@ -109,7 +116,7 @@ fn resolves_every_form() {
     );
     sb.project(
         "solo",
-        &format!("name = \"Solo\"\n[[repos]]\npath = {tool:?}\n"),
+        &format!("name = \"Solo\"\n[[repos]]\npath = {tool:?}\n[[repos]]\npath = {mirror:?}\n"),
     );
     let t = sb.tickets();
     let ok = |input: &str, project: Option<&str>| {
@@ -121,6 +128,10 @@ fn resolves_every_form() {
     let url = "https://github.com/acme/front/issues/42#issuecomment-1";
     let full = t.resolve(url, None).unwrap();
     assert_eq!(full.ticket, reference("acme/front", 42));
+    assert_eq!(
+        full.project, "acme",
+        "a GitLab remote with the same name is not the ticket's"
+    );
     assert_eq!(
         full.repo,
         Some(front.clone()),
@@ -182,16 +193,34 @@ fn resolves_every_form() {
 
 #[test]
 fn reads_remotes_and_names_branches() {
-    for (url, slug) in [
-        ("git@github.com:acme/front.git", Some("acme/front")),
-        ("https://github.com/Acme/Front/", Some("acme/front")),
-        ("ssh://git@github.com:22/acme/front.git", Some("acme/front")),
-        ("gh-work:acme/front.git", Some("acme/front")),
-        ("/srv/git/acme/front.git", Some("acme/front")),
-        (r"C:\git\acme\front.git", Some("acme/front")),
-        ("git@host:front.git", None),
+    let sb = Sandbox::new("remotes");
+    let ssh = termf_ssh::Ssh::new(sb.root.join("home"));
+    for url in [
+        "git@github.com:acme/front.git",
+        "https://github.com/Acme/Front/",
+        "ssh://git@ssh.github.com:443/acme/front.git",
+        "git@gh-work:acme/front.git",
+        "gh-work:acme/front",
     ] {
-        assert_eq!(remote_slug(url).as_deref(), slug, "{url}");
+        assert_eq!(remote_slug(url, &ssh).unwrap(), "acme/front", "{url}");
+    }
+    for (url, error) in [
+        (
+            "git@gitlab.com:acme/front.git",
+            "is on gitlab.com, not github.com",
+        ),
+        (
+            "https://github.example.com/acme/front",
+            "is on github.example.com",
+        ),
+        ("other-alias:acme/front.git", "is on other-alias"),
+        ("/srv/git/acme/front.git", "is a local path"),
+        (r"C:\git\acme\front.git", "is a local path"),
+        ("file:///srv/acme/front.git", "is a local path"),
+        ("git@github.com:front.git", "names no GitHub repository"),
+    ] {
+        let found = format!("{:#}", remote_slug(url, &ssh).unwrap_err());
+        assert!(found.contains(error), "{url}: {found}");
     }
     assert_eq!(
         run::slug("Fix: the *login* button!"),
@@ -348,31 +377,54 @@ fn formats_utc_dates() {
     assert_eq!(utc(1_798_761_599), "2026-12-31 23:59 UTC");
 }
 
-/// A `gh` that answers from fixtures and writes each call (and what it reads on stdin) to `gh.log`.
+#[test]
+fn spreads_long_searches() {
+    let base = "is:issue is:open archived:false assignee:@me";
+    let slugs: Vec<String> = (0..30)
+        .map(|i| format!("some-organization/repository-{i:02}"))
+        .collect();
+    let queries = search_queries(base, &slugs);
+    assert!(queries.len() > 1);
+    assert!(
+        queries
+            .iter()
+            .all(|q| q.len() <= 256 && q.starts_with(base))
+    );
+    let listed: Vec<&str> = queries
+        .iter()
+        .flat_map(|q| q.split(" repo:").skip(1))
+        .collect();
+    assert_eq!(listed, slugs);
+    assert!(search_queries(base, &[]).is_empty());
+}
+
+/// A `gh` that answers from fixtures and writes each call (and what it reads on stdin) to `gh.log`. While a
+/// `fail-comments` file exists, commenting fails.
 #[cfg(unix)]
 fn fake_gh(sb: &Sandbox) {
     use std::os::unix::fs::PermissionsExt;
-    let log = sb.root.join("gh.log");
     let script = format!(
         r#"#!/bin/sh
-log='{}'
+root='{}'
+log="$root/gh.log"
 printf '%s\n' "$*" >> "$log"
 case "$*" in
 "api repos/acme/front/issues/42")
   echo '{{"title":"Fix the login button","body":"Nothing happens on Safari.","state":"open","user":{{"login":"alice"}},"labels":[{{"name":"bug"}}],"assignees":[]}}' ;;
 "api --paginate --slurp repos/acme/front/issues/42/comments?per_page=100")
   echo '[[{{"user":{{"login":"bob"}},"created_at":"2026-11-20T10:00:00Z","body":"Also on mobile"}}]]' ;;
-"api --method GET search/issues -f q="*)
-  echo '{{"items":[{{"html_url":"https://github.com/acme/front/issues/42","title":"Fix the login button","state":"open","labels":[{{"name":"bug"}}],"updated_at":"2026-11-20T10:00:00Z"}},{{"html_url":"https://github.com/other/x/issues/1","title":"Elsewhere","state":"open","labels":[],"updated_at":"2026-11-19T10:00:00Z"}},{{"html_url":"https://github.com/acme/front/pull/9","title":"A pull request","state":"open","labels":[],"updated_at":""}}]}}' ;;
+"api --paginate --slurp --method GET search/issues -f q="*)
+  echo '[{{"items":[{{"html_url":"https://github.com/other/x/issues/1","title":"Elsewhere","state":"open","labels":[],"updated_at":"2026-11-19T10:00:00Z"}},{{"html_url":"https://github.com/acme/front/pull/9","title":"A pull request","state":"open","labels":[],"updated_at":""}}]}},{{"items":[{{"html_url":"https://github.com/acme/front/issues/42","title":"Fix the login button","state":"open","labels":[{{"name":"bug"}}],"updated_at":"2026-11-20T10:00:00Z"}}]}}]' ;;
 "pr create "*)
   echo 'https://github.com/acme/front/pull/7' ;;
 "api --method POST repos/acme/front/issues/42/comments --input -")
-  cat >> "$log"; echo; echo '{{}}' ;;
+  [ -e "$root/fail-comments" ] && {{ echo 'HTTP 403: Resource not accessible' >&2; exit 1; }}
+  cat >> "$log"; echo >> "$log"; echo '{{}}' ;;
 *)
   echo "unexpected gh call: $*" >&2; exit 1 ;;
 esac
 "#,
-        log.display()
+        sb.root.display()
     );
     let gh = sb.root.join("gh");
     fs::write(&gh, script).unwrap();
@@ -382,31 +434,39 @@ esac
 #[cfg(unix)]
 #[test]
 fn runs_a_ticket_from_worktree_to_pull_request() {
+    use std::cell::Cell;
+
     let sb = Sandbox::new("run");
     fake_gh(&sb);
-    // The remote is a local bare repository: nothing ever leaves the machine.
-    let bare = sb.root.join("remotes/acme/front.git");
+    // GitHub URLs lead to local bare repositories, and git may reach nothing else (GIT_ALLOW_PROTOCOL).
+    let remotes = sb.root.join("remotes");
+    let rewrite = format!(
+        "[url \"{}/\"]\n\tinsteadOf = https://github.com/\n",
+        remotes.display()
+    );
+    fs::write(sb.root.join("gitconfig"), rewrite).unwrap();
+    let bare = remotes.join("acme/front.git");
     fs::create_dir_all(&bare).unwrap();
     sb.git(&bare, &["init", "-q", "--bare", "-b", "main"]);
     let seed = sb.repo("seed", &path(&bare));
     sb.git(&seed, &["push", "-q", "origin", "main"]);
     let front = sb.root.join("repos/front");
-    sb.git(&sb.root, &["clone", "-q", &path(&bare), &path(&front)]);
+    let github_url = "https://github.com/acme/front.git";
+    sb.git(&sb.root, &["clone", "-q", github_url, &path(&front)]);
     let project = format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n");
     sb.project("acme", &project);
     let t = sb.tickets();
     let log = || fs::read_to_string(sb.root.join("gh.log")).unwrap_or_default();
     let kinds = |id| -> Vec<String> {
-        let events = t.events(id).unwrap();
-        events
-            .iter()
-            .map(|e| {
-                serde_json::to_value(e).unwrap()["kind"]
-                    .as_str()
-                    .unwrap()
-                    .into()
-            })
-            .collect()
+        let kind = |e: &RunEvent| {
+            let value = serde_json::to_value(e).unwrap();
+            value["kind"].as_str().unwrap().to_owned()
+        };
+        t.events(id).unwrap().iter().map(kind).collect()
+    };
+    let deliver = |id| {
+        let preview = t.deliver_preview(id).unwrap();
+        t.deliver(id, &preview.fingerprint).unwrap()
     };
 
     let inbox = t.inbox(None).unwrap();
@@ -417,12 +477,10 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     assert_eq!(
         found,
         [("acme/front#42", Some("acme")), ("other/x#1", None)],
-        "pull requests left out"
+        "every page, newest first, pull requests left out"
     );
     t.inbox(Some("acme")).unwrap();
-    assert!(log().contains(
-        "q=is:issue is:open archived:false assignee:@me repo:acme/front -f per_page=50\n"
-    ));
+    assert!(log().contains("assignee:@me repo:acme/front -f per_page=100\n"));
 
     assert!(t.start("front#42", None, Some("nope")).is_err());
     assert!(
@@ -442,40 +500,90 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         (Some(branch), Some("origin/main"))
     );
     assert_eq!(sb.git(&worktree, &["branch", "--show-current"]), branch);
+    assert_eq!(launch.brief, sb.root.join("data/runs/1/brief/prompt.md"));
+    let brief = fs::read_to_string(&launch.brief).unwrap();
+    assert!(brief.contains("<ticket source=\"https://github.com/acme/front/issues/42\">"));
     assert!(
-        launch
-            .prompt
-            .contains("<ticket source=\"https://github.com/acme/front/issues/42\">")
-    );
-    assert!(
-        launch
-            .prompt
-            .contains("### bob (2026-11-20T10:00:00Z)\n\nAlso on mobile"),
+        brief.contains("### bob (2026-11-20T10:00:00Z)\n\nAlso on mobile"),
         "comments are read"
     );
+    assert!(kickoff(&launch.brief).contains(&path(&launch.brief)));
     let journal = fs::read_to_string(sb.root.join("data/runs/1/journal.md")).unwrap();
     assert!(journal.starts_with("# Fix the login button\n"));
 
     fs::write(worktree.join("login.txt"), "fixed\n").unwrap();
-    let refused = format!("{:#}", t.close(1, false).unwrap_err());
+    let stopped = Cell::new(false);
+    let refused = format!("{:#}", t.close(1, false, || stopped.set(true)).unwrap_err());
     assert!(refused.contains("changes not committed"), "{refused}");
-    assert!(worktree.exists());
+    assert!(
+        worktree.exists() && !stopped.get(),
+        "a refused close leaves the session alone"
+    );
 
-    let delivered = t.deliver(1).unwrap();
-    assert_eq!(delivered.status, RunStatus::Delivered);
+    // Delivery sends what the user saw, and from the run's branch only.
+    let preview = t.deliver_preview(1).unwrap();
+    let added = FileChange {
+        path: "login.txt".into(),
+        change: Change::Added,
+        from: None,
+    };
+    assert_eq!(preview.files, [added]);
+    assert!(preview.commits.is_empty());
     assert_eq!(
-        delivered.pr_url.as_deref(),
+        sb.git(&worktree, &["status", "--porcelain"]),
+        "?? login.txt",
+        "the preview stages nothing"
+    );
+    fs::write(worktree.join("login.txt"), "fixed, then changed\n").unwrap();
+    let stale = format!("{:#}", t.deliver(1, &preview.fingerprint).unwrap_err());
+    assert!(stale.contains("changed since its preview"), "{stale}");
+    sb.git(&worktree, &["switch", "-q", "-c", "elsewhere"]);
+    let elsewhere = format!("{:#}", t.deliver_preview(1).unwrap_err());
+    assert!(
+        elsewhere.contains("is on elsewhere, not on its branch"),
+        "{elsewhere}"
+    );
+    sb.git(&worktree, &["switch", "-q", branch]);
+    assert_eq!(
+        t.run(1).unwrap().status,
+        RunStatus::Running,
+        "nothing sent yet"
+    );
+
+    let delivered = deliver(1);
+    assert_eq!(delivered.warning, None);
+    let run = delivered.run;
+    assert_eq!(run.status, RunStatus::Delivered);
+    assert_eq!(
+        run.pr_url.as_deref(),
         Some("https://github.com/acme/front/pull/7")
     );
-    sb.git(
-        &bare,
-        &["rev-parse", "--verify", &format!("refs/heads/{branch}")],
+    assert_eq!(
+        sb.git(&worktree, &["status", "--porcelain"]),
+        "",
+        "the real index follows the commit"
+    );
+    let on_remote = sb.git(&bare, &["rev-parse", &format!("refs/heads/{branch}")]);
+    let recorded = t
+        .events(1)
+        .unwrap()
+        .into_iter()
+        .find_map(|e| match e.event {
+            Event::Pushed { commit, .. } => Some(commit),
+            _ => None,
+        });
+    assert_eq!(
+        recorded,
+        Some(on_remote),
+        "the commit recorded is the one sent"
     );
     let message = sb.git(&bare, &["log", "-1", "--format=%B", branch]);
     assert_eq!(
         message,
         "Fix the login button\n\nhttps://github.com/acme/front/issues/42"
     );
+    let sent = sb.git(&bare, &["show", &format!("{branch}:login.txt")]);
+    assert_eq!(sent, "fixed, then changed");
     let logged = log();
     let pr = logged.lines().find(|l| l.starts_with("pr create")).unwrap();
     for arg in [
@@ -496,7 +604,11 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         ["worktree_created", "committed", "pushed", "pr_opened"]
     );
 
-    t.close(1, false).unwrap();
+    t.close(1, false, || stopped.set(true)).unwrap();
+    assert!(
+        stopped.get(),
+        "the session is stopped before its folder goes"
+    );
     assert!(!worktree.exists());
     assert!(!sb.root.join("data/worktrees/acme/1").exists());
     assert_eq!(
@@ -505,8 +617,8 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         "a pushed branch goes with its run"
     );
     assert_eq!(t.run(1).unwrap().status, RunStatus::Closed);
-    assert!(t.close(1, false).is_err(), "already closed");
-    assert!(t.deliver(1).is_err());
+    assert!(t.close(1, false, || {}).is_err(), "already closed");
+    assert!(t.deliver_preview(1).is_err());
 
     // The same ticket again: the name its first branch had on the remote is taken.
     let second = t.start("front#42", None, None).unwrap().run;
@@ -518,9 +630,13 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
     fs::write(w2.join("agent.txt"), "work\n").unwrap();
     sb.git(&w2, &["add", "-A"]);
     sb.git(&w2, &["commit", "-q", "-m", "agent work"]);
-    let refused = format!("{:#}", t.close(2, false).unwrap_err());
+    let preview = t.deliver_preview(2).unwrap();
+    assert!(preview.files.is_empty());
+    let subjects: Vec<&str> = preview.commits.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(subjects, ["agent work"]);
+    let refused = format!("{:#}", t.close(2, false, || {}).unwrap_err());
     assert!(refused.contains("1 commit not pushed"), "{refused}");
-    let forced = t.close(2, true).unwrap();
+    let forced = t.close(2, true, || {}).unwrap();
     assert_eq!(forced.status, RunStatus::Closed);
     assert!(!w2.exists());
     assert_eq!(
@@ -539,20 +655,30 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
         }
     );
 
-    // With comments allowed by the project, delivering also comments the pull request on the ticket.
-    sb.project(
-        "acme",
-        &format!("{project}\n[trackers.github]\nrepo = \"acme/front\"\ncomment = true\n"),
-    );
+    // With comments allowed by the project, a failed comment is a warning, tried again at the next delivery.
+    let comments = "\n[trackers.github]\nrepo = \"acme/front\"\ncomment = true\n";
+    sb.project("acme", &format!("{project}{comments}"));
     let third = t.start("#42", Some("acme"), Some("front")).unwrap().run;
     assert_eq!(
         third.branch.as_deref(),
         Some("termf/42-fix-the-login-button-3")
     );
-    let nothing = format!("{:#}", t.deliver(3).unwrap_err());
+    let empty = t.deliver_preview(3).unwrap();
+    assert!(empty.files.is_empty() && empty.commits.is_empty());
+    let nothing = format!("{:#}", t.deliver(3, &empty.fingerprint).unwrap_err());
     assert!(nothing.contains("nothing to deliver"), "{nothing}");
     fs::write(PathBuf::from(third.worktree.unwrap()).join("x.txt"), "x\n").unwrap();
-    t.deliver(3).unwrap();
+    fs::write(sb.root.join("fail-comments"), "").unwrap();
+    let warned = deliver(3);
+    let warning = warned.warning.clone().unwrap_or_default();
+    assert!(warning.contains("HTTP 403"), "{warned:?}");
+    assert_eq!(warned.run.status, RunStatus::Delivered);
+    assert_eq!(
+        kinds(3),
+        ["worktree_created", "committed", "pushed", "pr_opened"]
+    );
+    fs::remove_file(sb.root.join("fail-comments")).unwrap();
+    assert_eq!(deliver(3).warning, None);
     assert!(log().contains(
         "api --method POST repos/acme/front/issues/42/comments --input -\n{\"body\":\"Pull request: https://github.com/acme/front/pull/7\"}"
     ));
@@ -563,7 +689,13 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
             "committed",
             "pushed",
             "pr_opened",
+            "pushed",
             "ticket_commented"
         ]
+    );
+    assert_eq!(
+        log().matches("pr create").count(),
+        2,
+        "one pull request per run"
     );
 }

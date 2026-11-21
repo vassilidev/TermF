@@ -48,9 +48,11 @@ pub enum Call {
         /// A repository name or path, when the project has several.
         repo: Option<String>,
     },
-    /// Commits, pushes and opens the pull request of a run.
+    /// Commits, pushes and opens the pull request of a run. `confirm`: the fingerprint of the delivery preview
+    /// the user approved; refused if the worktree changed since.
     Deliver {
         run: i64,
+        confirm: String,
     },
     /// Removes a run's worktree; `force` drops the work that is not pushed.
     Close {
@@ -499,7 +501,10 @@ mod tests {
                 session: "1".into(),
                 text: "rm -rf ~".into(),
             },
-            Call::Deliver { run: 1 },
+            Call::Deliver {
+                run: 1,
+                confirm: String::new(),
+            },
             hook(2),
         ];
         let session = Access::Session(1);
