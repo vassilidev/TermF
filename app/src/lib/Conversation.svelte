@@ -506,7 +506,7 @@
     onkeydown={enter}
   ></textarea>
   <div class="send">
-    {#if to && repos.length > 1}
+    {#if to && to.role !== "expert" && repos.length > 1}
       <select class="field" aria-label={t("ctoRepo")} title={t("ctoRepo")} bind:value={repo}>
         {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
       </select>
