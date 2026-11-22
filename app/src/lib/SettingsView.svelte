@@ -8,7 +8,7 @@
   import Folder from "@lucide/svelte/icons/folder";
   import FolderSync from "@lucide/svelte/icons/folder-sync";
   import Keyboard from "@lucide/svelte/icons/keyboard";
-  import KeySquare from "@lucide/svelte/icons/key-square";
+  import Variable from "@lucide/svelte/icons/variable";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Search from "@lucide/svelte/icons/search";
@@ -66,7 +66,7 @@
     {
       id: "agentenv",
       label: "agentenvSettings",
-      icon: KeySquare,
+      icon: Variable,
       words: ["agentenvSettingsHelp", "agentenvAllow", "agentenvBase", "agentenvAllowHelp"],
     },
     {

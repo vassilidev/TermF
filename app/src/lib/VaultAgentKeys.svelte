@@ -40,11 +40,13 @@
           <span class="what">
             <span class="line">
               <Bot size={13} aria-hidden="true" />
-              <span class="name mono">{g.variable}</span>
+              <span class="name mono" title={g.variable}>{g.variable}</span>
+            </span>
+            <span class="line desc">
+              <span class="mono to">→ {g.secret} · {g.scope}</span>
               {#if !g.project}<span class="badge">{t("agentenvGlobal")}</span>{/if}
               {#if g.found === false}<span class="badge missing">{t("agentenvMissing")}</span>{/if}
             </span>
-            <span class="desc mono">→ {g.secret} · {g.scope}</span>
           </span>
           <button class="btn sm" aria-label={t("agentenvRemoveLabel", { variable: g.variable })} onclick={() => remove(g)}>
             {t("agentenvRemove")}
@@ -117,12 +119,18 @@
   }
 
   .desc {
-    overflow: hidden;
     padding-left: 19px;
-    color: var(--muted);
     font-size: var(--text-xs);
+  }
+
+  .to {
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .badge {
+    flex-shrink: 0;
   }
 
   .mono {
