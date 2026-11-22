@@ -400,6 +400,34 @@ fn starts_and_stops_a_dev_server() {
     .unwrap();
     let err = ended.wait(Duration::from_secs(10)).unwrap_err().to_string();
     assert!(err.contains("ended") && err.contains("broken"), "{err}");
+    // What the server started goes with it, through the login shell.
+    let pid = dir.join("pid");
+    let line = format!("sleep 300 & echo $! > '{}'; wait", pid.display());
+    let server = Server::start(&line, &dir, &BTreeMap::new(), port, &dir.join("y.log")).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while fs::read_to_string(&pid)
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
+        assert!(Instant::now() < deadline, "the server never started");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(server);
+    let pid = fs::read_to_string(&pid).unwrap();
+    let gone = (0..50).any(|_| {
+        let out = Command::new("ps")
+            .args(["-o", "stat=", "-p", pid.trim()])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        let gone = stat.is_empty() || stat.starts_with('Z');
+        if !gone {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        gone
+    });
+    assert!(gone, "its background sleep outlived it");
     let _ = fs::remove_dir_all(&dir);
 }
 
