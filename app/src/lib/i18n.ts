@@ -2633,6 +2633,10 @@ const fr = {
   gitRenamed: "Branche renommée en {name}.",
   gitDeleted: "Branche {name} supprimée.",
   gitRemoteDeleted: "{name} supprimée sur {remote}.",
+  // Roles brand, copy and motion: the natures of a request the CTO routes to them.
+  rolesKindBrand: "Marque",
+  rolesKindCopy: "Textes",
+  rolesKindMotion: "Vidéo et animation",
 };
 
 type Key = keyof typeof fr;
@@ -5253,6 +5257,10 @@ const en: Record<Key, string> = {
   gitRenamed: "Branch renamed to {name}.",
   gitDeleted: "Branch {name} deleted.",
   gitRemoteDeleted: "{name} deleted on {remote}.",
+  // Roles brand, copy and motion: the natures of a request the CTO routes to them.
+  rolesKindBrand: "Brand",
+  rolesKindCopy: "Copy",
+  rolesKindMotion: "Video and motion",
 };
 
 const messages = { fr, en };

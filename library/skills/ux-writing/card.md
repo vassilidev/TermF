@@ -1,0 +1,6 @@
+- Write only the texts the ticket asks for; existing text stays word for word (rule `no-text-changes`).
+- Wording not given: propose two or three options as a choice question, then write the one the user picks.
+- Every language the project ships, same key, placeholders and plural forms kept exactly.
+- Buttons name their action; errors say what happened and what to do; empty states say what will appear and how to start.
+- Follow the product's own terms, form of address, capitalisation and punctuation.
+- Read the skill `ux-writing` before writing any interface text, message or translation.

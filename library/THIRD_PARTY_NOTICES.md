@@ -79,3 +79,33 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Roles — creative
+
+The `motion` role and the `motion-video` skill adapt a few short passages from the MIT-licensed work below, rewritten and shortened (every frame a function of time, inactive scenes hidden with `display: none`, stills taken at each transition's timed midpoint, the band of a vertical video that platforms leave free); each lists it in its `credits`. The `motion-video` skill also offers to import brag itself from its repository: nothing of it is redistributed.
+
+| Source | Commit | License | Files adapted | Used in |
+|---|---|---|---|---|
+| https://github.com/latent-spaces/brag | 06379432a9243c951dfcc051153be18d2d261044 | MIT | `skills/brag-slim/SKILL.md` | `roles/motion.md`, `skills/motion-video/SKILL.md` |
+
+### MIT License
+
+Copyright (c) 2026 Shunit Haviv Hakimi (latent-spaces/brag)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -541,6 +541,63 @@ fn reads_w3c_design_tokens_merged_with_their_generated_css() {
     );
 }
 
+/// What the `brand` role writes (`brand-identity` skill): `design/tokens.json`, `design/tokens.dark.json` and the
+/// `design/tokens.css` its `tokens-to-css.mjs` makes of them.
+#[test]
+fn reads_the_tokens_the_brand_role_writes() {
+    let d = scan(&repo(
+        "brand-role",
+        &[
+            (
+                "design/tokens.json",
+                r##"{
+  "color": {
+    "$type": "color",
+    "accent": { "$root": { "$value": { "colorSpace": "oklch", "components": [0.55, 0.2, 275], "hex": "#5145e5" } }, "soft": { "$value": { "colorSpace": "srgb", "components": [0.32, 0.27, 0.9], "alpha": 0.1, "hex": "#5145e5" } } }
+  },
+  "font": { "sizeBody": { "$type": "dimension", "$value": { "value": 1, "unit": "rem" } } }
+}"##,
+            ),
+            (
+                "design/tokens.dark.json",
+                r##"{ "color": { "$type": "color", "accent": { "$root": { "$value": { "colorSpace": "srgb", "components": [0.5, 0.55, 1], "hex": "#808cff" } } } } }"##,
+            ),
+            (
+                "design/tokens.css",
+                "/* Generated from design/tokens.json by tokens-to-css.mjs: edit the tokens, then run it again. */\n:root {\n  --color-accent: #5145e5;\n  --color-accent-soft: rgb(82 69 230 / 0.1);\n  --font-size-body: 1rem;\n}\n@media (prefers-color-scheme: dark) {\n  :root {\n    --color-accent: #808cff;\n  }\n}\n.x { color: #123123; }\n",
+            ),
+            (
+                "src/a.css",
+                ".b { color: var(--color-accent); background: var(--color-accent-soft); font-size: var(--font-size-body); }\n",
+            ),
+        ],
+    ));
+    let accent = token(&d, "--color-accent");
+    assert_eq!(
+        (accent.path.as_deref(), accent.format, accent.file.as_str()),
+        (Some("color.accent"), Format::Dtcg, "design/tokens.json")
+    );
+    assert_eq!(
+        accent.dark.as_ref().unwrap().file,
+        "design/tokens.dark.json"
+    );
+    assert_eq!(accent.dark_color.as_deref(), Some("#808cff"));
+    assert_eq!(
+        token(&d, "--color-accent-soft").color.as_deref(),
+        Some("#5245e61a")
+    );
+    assert_eq!(token(&d, "--font-size-body").px, Some(16.0));
+    assert!(
+        of(&d, Kind::Unused).is_empty(),
+        "{:?}",
+        of(&d, Kind::Unused)
+    );
+    assert!(
+        !has(&d, Kind::Hardcoded, "#123123"),
+        "the generated CSS is not checked"
+    );
+}
+
 #[test]
 fn reads_components_of_react_and_vue_with_their_stories() {
     let d = scan(&repo(

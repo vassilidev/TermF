@@ -32,7 +32,7 @@ fn walk(
         return;
     };
     let kind = map.get("$type").and_then(Value::as_str).or(kind);
-    if let Some(value) = map.get("$value") {
+    let mut push = |value: &Value, kind: Option<&str>| {
         if let Some(value) = css(value) {
             out.push(Token {
                 path: path.join("."),
@@ -41,7 +41,16 @@ fn walk(
                 line: line_of(text, path),
             });
         }
+    };
+    if let Some(value) = map.get("$value") {
+        push(value, kind);
         return;
+    }
+    // A group's own token (format 2025.10).
+    if let Some(Value::Object(own)) = map.get("$root")
+        && let Some(value) = own.get("$value")
+    {
+        push(value, own.get("$type").and_then(Value::as_str).or(kind));
     }
     for (key, child) in map {
         if key.starts_with('$') {
@@ -69,23 +78,41 @@ fn css(value: &Value) -> Option<String> {
             }
         }
         Value::Object(map) => {
-            if let Some(hex) = map.get("hex").and_then(Value::as_str) {
+            let alpha = map.get("alpha").and_then(Value::as_f64).unwrap_or(1.0);
+            if let Some(hex) = map
+                .get("hex")
+                .and_then(Value::as_str)
+                .filter(|_| alpha >= 1.0)
+            {
                 return Some(hex.to_owned());
             }
-            if let (Some(Value::Array(c)), Some("srgb")) = (
+            if let (Some(Value::Array(c)), Some(space)) = (
                 map.get("components"),
                 map.get("colorSpace").and_then(Value::as_str),
             ) {
-                let c: Vec<f64> = c.iter().filter_map(Value::as_f64).collect();
-                let alpha = map.get("alpha").and_then(Value::as_f64).unwrap_or(1.0);
-                return (c.len() == 3).then(|| {
-                    format!(
-                        "rgb({} {} {} / {alpha})",
+                // `none` is a missing component, which CSS reads as zero.
+                let c: Vec<f64> = c.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect();
+                if c.len() != 3 {
+                    return None;
+                }
+                let a = if alpha >= 1.0 {
+                    String::new()
+                } else {
+                    format!(" / {alpha}")
+                };
+                return match space {
+                    "srgb" => Some(format!(
+                        "rgb({} {} {}{a})",
                         (c[0] * 255.0).round(),
                         (c[1] * 255.0).round(),
                         (c[2] * 255.0).round()
-                    )
-                });
+                    )),
+                    "oklch" | "oklab" => {
+                        Some(format!("{space}({}% {} {}{a})", c[0] * 100.0, c[1], c[2]))
+                    }
+                    "hsl" => Some(format!("hsl({} {}% {}%{a})", c[0], c[1], c[2])),
+                    _ => None,
+                };
             }
             if let (Some(v), Some(unit)) =
                 (map.get("value"), map.get("unit").and_then(Value::as_str))

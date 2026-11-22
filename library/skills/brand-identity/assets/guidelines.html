@@ -1,0 +1,482 @@
+<!doctype html>
+<!--
+  Brand guidelines template (TermF skill brand-identity). Copy it to brand/guidelines.html, then:
+  1. Set the tokens in :root (colours as hex: the page measures and prints them), the fonts (@font-face with
+     files beside the page or data: URIs, never a font CDN) and the product's name.
+  2. Replace the two symbols #mark and #wordmark with the real paths of brand/logo/*.svg.
+  3. Rewrite every page with the product's content; delete a page the brand does not need.
+  Print: headless Chrome, A4 landscape (see the skill). Everything stays in this file: no network.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Acme — Brand guidelines</title>
+<style>
+  /* @font-face { font-family: "Brand Sans"; src: url("fonts/brand-sans.woff2") format("woff2"); font-weight: 100 900; } */
+  :root {
+    --brand: #2B4CE0;
+    --brand-deep: #1A2C8F;
+    --brand-soft: #E8ECFD;
+    --accent: #FF6B3D;
+    --accent-text: #B83A12;
+    --ink: #121826;
+    --ink-2: #4A5468;
+    --ink-3: #8A93A6;
+    --line: #DDE1EA;
+    --paper: #FFFFFF;
+    --paper-2: #F5F6F9;
+    --night: #0B1433;
+    --night-text: #E9ECF4;
+    --font-display: ui-serif, "Iowan Old Style", Georgia, serif;
+    --font-text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --product: "Acme";
+  }
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font: 9.5pt/1.45 var(--font-text); color: var(--ink); background: #C9CDD6; counter-reset: page; }
+  .page { width: 297mm; height: 210mm; padding: 15mm 17mm 14mm; position: relative; overflow: hidden; background: var(--paper);
+    break-after: page; page-break-after: always; counter-increment: page; display: flex; flex-direction: column; }
+  .page:last-child { break-after: auto; page-break-after: auto; }
+  @media screen { .page { margin: 10mm auto; box-shadow: 0 2mm 8mm rgb(0 0 0 / .18); } }
+  .top { display: flex; justify-content: space-between; align-items: baseline; font-size: 7.5pt; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 9mm; }
+  .top b { color: var(--brand); font-weight: 600; }
+  .foot { position: absolute; left: 17mm; right: 17mm; bottom: 8mm; display: flex; justify-content: space-between; font-size: 7pt; color: var(--ink-3); }
+  .foot::after { content: counter(page, decimal-leading-zero); font-variant-numeric: tabular-nums; }
+  h1 { font: 400 30pt/1.05 var(--font-display); letter-spacing: -.01em; margin: 0 0 4mm; }
+  h2 { font: 600 11pt/1.3 var(--font-text); margin: 0 0 2mm; }
+  h3 { font: 600 7.5pt/1.3 var(--font-text); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 2mm; }
+  p { margin: 0 0 2.5mm; max-width: 120mm; }
+  .lead { font-size: 12pt; line-height: 1.4; color: var(--ink-2); max-width: 150mm; }
+  .muted { color: var(--ink-2); }
+  .small { font-size: 7.5pt; color: var(--ink-2); }
+  .mono { font-family: var(--font-mono); font-size: 7.5pt; }
+  .grid { display: grid; gap: 6mm; flex: 1; min-height: 0; }
+  .g2 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: repeat(3, 1fr); } .g4 { grid-template-columns: repeat(4, 1fr); }
+  .split { display: grid; grid-template-columns: 78mm 1fr; gap: 12mm; flex: 1; min-height: 0; }
+  .tile { border-radius: 3mm; display: flex; align-items: center; justify-content: center; position: relative; min-height: 0; }
+  .tile.light { background: var(--paper-2); } .tile.dark { background: var(--night); color: var(--night-text); } .tile.brand { background: var(--brand); color: #fff; }
+  .cap { position: absolute; left: 4mm; bottom: 3mm; font-size: 7pt; color: var(--ink-2); }
+  .dark .cap, .brand .cap { color: rgb(255 255 255 / .72); }
+  .logo { display: inline-flex; align-items: center; gap: .32em; color: var(--brand); --cut: var(--paper); }
+  .logo svg { display: block; }
+  .logo .m { width: 1em; height: 1em; } .logo .w { height: .5em; width: 2.09em; color: var(--ink); }
+  .dark .logo, .brand .logo { color: #fff; } .dark .logo .w, .brand .logo .w { color: #fff; }
+  .mono-black .logo, .mono-black .logo .w { color: #000; }
+  ul.rules { margin: 0; padding: 0; list-style: none; }
+  ul.rules li { padding: 1.6mm 0 1.6mm 6mm; border-top: .2mm solid var(--line); position: relative; max-width: 120mm; }
+  ul.rules li::before { content: ""; position: absolute; left: 0; top: 3.1mm; width: 2.2mm; height: 2.2mm; border-radius: 50%; background: var(--brand); }
+  /* Cover */
+  .cover { background: var(--night); color: var(--night-text); padding: 18mm 20mm; }
+  .cover .logo { font-size: 30mm; color: #fff; } .cover .logo .w { color: #fff; }
+  .cover h1 { font-size: 44pt; margin-top: auto; color: #fff; }
+  .cover .meta { display: flex; gap: 12mm; font-size: 8pt; color: rgb(233 236 244 / .7); text-transform: uppercase; letter-spacing: .08em; }
+  .cover .band { position: absolute; right: 0; top: 0; bottom: 0; width: 64mm; background: var(--brand); }
+  .cover .band::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 42mm; background: var(--accent); }
+  /* Contents */
+  ol.toc { counter-reset: toc; list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 14mm; }
+  ol.toc li { counter-increment: toc; display: flex; gap: 4mm; padding: 2.4mm 0; border-top: .2mm solid var(--line); break-inside: avoid; }
+  ol.toc li::before { content: counter(toc, decimal-leading-zero); color: var(--brand); font-variant-numeric: tabular-nums; width: 7mm; }
+  ol.toc span { margin-left: auto; color: var(--ink-3); }
+  /* Traits */
+  .trait { border-top: .6mm solid var(--brand); padding-top: 3mm; }
+  .trait b { display: block; font: 400 17pt/1.1 var(--font-display); margin-bottom: 2mm; }
+  /* Clear space */
+  .clear { position: relative; padding: 14mm; border: .3mm dashed var(--brand); background: repeating-linear-gradient(45deg, var(--brand-soft) 0 1.2mm, transparent 1.2mm 2.4mm); }
+  .clear .inner { background: var(--paper); padding: 0; }
+  .clear .x { position: absolute; font: 600 8pt var(--font-mono); color: var(--brand); }
+  .sizes { display: flex; align-items: flex-end; gap: 8mm; }
+  .sizes figure { margin: 0; text-align: center; font-size: 7pt; color: var(--ink-2); }
+  .sizes figure .logo { --cut: var(--paper); }
+  table { border-collapse: collapse; width: 100%; font-size: 8pt; }
+  th { text-align: left; font-weight: 600; font-size: 7pt; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); padding: 0 3mm 2mm 0; border-bottom: .3mm solid var(--ink); }
+  td { padding: 2.1mm 3mm 2.1mm 0; border-bottom: .2mm solid var(--line); vertical-align: middle; }
+  /* Misuse */
+  .dont { background: var(--paper-2); }
+  .dont::after { content: "✕"; position: absolute; top: 3mm; right: 3.5mm; width: 6mm; height: 6mm; border-radius: 50%; background: #C8202F; color: #fff; font: 700 8pt/6mm var(--font-text); text-align: center; }
+  .dont .logo { font-size: 18mm; }
+  /* Colour */
+  .swatch { border-radius: 3mm; padding: 4mm; display: flex; flex-direction: column; justify-content: space-between; background: var(--c); color: #fff; min-height: 0; }
+  .swatch .name { font: 400 15pt/1.1 var(--font-display); }
+  .swatch dl { margin: 0; display: grid; grid-template-columns: 13mm 1fr; row-gap: .6mm; font: 7.5pt/1.3 var(--font-mono); }
+  .swatch dt { opacity: .7; } .swatch dd { margin: 0; }
+  .ratio-bar { display: flex; height: 9mm; border-radius: 2mm; overflow: hidden; margin-top: 4mm; }
+  .ratio-bar i { background: var(--c); }
+  .pass, .fail { display: inline-block; padding: .4mm 2mm; border-radius: 4mm; font-weight: 600; font-size: 7pt; }
+  .pass { background: #DCF3E4; color: #11592C; } .fail { background: #FBE0E2; color: #8E1420; }
+  .aa { display: inline-flex; align-items: center; justify-content: center; width: 14mm; height: 8mm; border-radius: 1.5mm; font: 600 10pt var(--font-text); }
+  /* Type */
+  .face { border-top: .3mm solid var(--ink); padding-top: 3mm; }
+  .face .big { font-size: 64pt; line-height: 1; margin: 3mm 0 4mm; }
+  .face .para { margin-top: 5mm; max-width: 110mm; }
+  .face .set { font-size: 10pt; line-height: 1.5; color: var(--ink-2); word-break: break-all; }
+  .scale td:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120mm; }
+  .spacing { display: flex; align-items: flex-end; gap: 3mm; height: 18mm; margin-bottom: 2mm; }
+  .spacing i { display: block; height: 100%; background: var(--brand); border-radius: 1px; }
+  .spacing i:nth-child(odd) { background: var(--brand-deep); }
+  .radii { display: flex; gap: 4mm; margin-bottom: 2mm; }
+  .radii i { display: block; width: 18mm; height: 18mm; background: var(--brand-soft); box-shadow: inset 0 0 0 .4mm var(--brand); }
+  /* Icons */
+  .icons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4mm; }
+  .keyline svg { width: 92mm; height: 92mm; display: block; background: var(--paper-2); border-radius: 3mm; }
+  .icons figure { margin: 0; background: var(--paper-2); border-radius: 2.5mm; aspect-ratio: 1; display: grid; place-items: center; }
+  .icons svg { width: 12mm; height: 12mm; stroke: var(--ink); fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  /* Applications */
+  .appicon { border-radius: 22.5%; background: linear-gradient(160deg, var(--brand), var(--brand-deep)); display: grid; place-items: center; color: #fff; --cut: var(--brand-deep); }
+  .tab { background: var(--paper-2); border-radius: 2.5mm 2.5mm 0 0; padding: 2.5mm 4mm; display: flex; align-items: center; gap: 2.5mm; font-size: 8pt; width: 70mm; }
+  .og { width: 120mm; aspect-ratio: 1200 / 630; border-radius: 2mm; background: var(--night); color: #fff; padding: 8mm 9mm; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden; }
+  .og::after { content: ""; position: absolute; right: -14mm; bottom: -14mm; width: 52mm; height: 52mm; border-radius: 50%; background: var(--brand); opacity: .9; }
+  .og .t { font: 400 17pt/1.1 var(--font-display); position: relative; z-index: 1; max-width: 80mm; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <mask id="mark-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="#fff"/>
+      <path d="M21 29.5l7.5 7.5L43.5 22" fill="none" stroke="#000" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+    <!-- The mark: a message bubble with a check knocked out. Replace with the paths of brand/logo/mark.svg. -->
+    <symbol id="mark" viewBox="0 0 64 64">
+      <path mask="url(#mark-cut)" fill="currentColor" d="M14 6h36a10 10 0 0 1 10 10v24a10 10 0 0 1-10 10H30L17.5 59.5a1.5 1.5 0 0 1-2.5-1.1V50h-1A10 10 0 0 1 4 40V16A10 10 0 0 1 14 6z"/>
+    </symbol>
+    <!-- The wordmark, drawn as strokes rather than set in a font. Replace with brand/logo/wordmark.svg. -->
+    <symbol id="wordmark" viewBox="0 7 104 25">
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="20.5" r="8.5"/><path d="M20.5 12v17"/>
+        <path d="M42 14.5A8.5 8.5 0 1 0 42 26.5"/>
+        <path d="M49 29V12M49 18.5a6 6 0 0 1 12 0V29M61 18.5a6 6 0 0 1 12 0V29"/>
+        <path d="M81.5 20.5h17A8.5 8.5 0 1 0 96 26.5"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- 1. Cover -->
+<section class="page cover">
+  <span class="band" aria-hidden="true"></span>
+  <span class="logo"><svg class="m" role="img" aria-label="Acme"><use href="#mark"/></svg><svg class="w" aria-hidden="true"><use href="#wordmark"/></svg></span>
+  <h1>Brand guidelines</h1>
+  <div class="meta"><span>Version 1.0</span><span>November 2026</span><span>For everyone who makes Acme</span></div>
+</section>
+
+<!-- 2. Contents -->
+<section class="page">
+  <div class="top"><span><b>00</b> · Contents</span><span>Acme brand guidelines</span></div>
+  <h1>How to use this guide</h1>
+  <p class="lead">Everything you need to show Acme the same way everywhere: the logo and its rules, colours, type, icons and examples in use. The source files sit beside this document.</p>
+  <div class="split" style="margin-top:8mm">
+    <div>
+      <h3>Files</h3>
+      <ul class="rules">
+        <li><span class="mono">brand/logo/</span> — every logo variant as SVG</li>
+        <li><span class="mono">brand/exports/</span> — PNG, favicon, app icons, social image</li>
+        <li><span class="mono">design/tokens.json</span> — colours, type and spacing as tokens</li>
+        <li><span class="mono">DESIGN.md</span> — the design system in the code</li>
+      </ul>
+    </div>
+    <ol class="toc">
+      <li>The brand<span>03</span></li><li>Logo<span>04</span></li><li>Logo variants<span>05</span></li>
+      <li>Clear space and sizes<span>06</span></li><li>Misuse<span>07</span></li><li>Colour<span>08</span></li>
+      <li>Contrast<span>09</span></li><li>Typefaces<span>10</span></li><li>Type scale<span>11</span></li>
+      <li>Icons and imagery<span>12</span></li><li>In use<span>13</span></li><li>Exports<span>14</span></li>
+    </ol>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 3. The brand -->
+<section class="page">
+  <div class="top"><span><b>01</b> · The brand</span><span>Acme brand guidelines</span></div>
+  <h1>A shared inbox that closes the loop</h1>
+  <p class="lead">Acme helps small support teams answer every customer once, on time, without stepping on each other. The identity says that: a message, settled.</p>
+  <div class="grid g3" style="margin-top:10mm; align-content:start">
+    <div class="trait"><b>Calm</b><p class="muted">Quiet surfaces, generous space, one strong colour. The work is busy; the product is not.</p></div>
+    <div class="trait"><b>Certain</b><p class="muted">Clear states and plain words. Every message ends with a check, and so does the mark.</p></div>
+    <div class="trait"><b>Warm</b><p class="muted">A human accent of orange, rounded corners, a serif for the big moments.</p></div>
+  </div>
+  <div class="grid g4" style="margin-top:8mm">
+    <div class="tile" style="box-shadow:inset 0 0 0 .3mm var(--line);justify-content:flex-start;align-items:flex-start;padding:5mm"><span class="small">Space first: most of a page stays white.</span></div>
+    <div class="tile brand" style="align-items:flex-end;justify-content:flex-start;padding:5mm"><span class="small" style="color:#fff">One strong colour</span></div>
+    <div class="tile light" style="overflow:hidden"><span class="logo" style="font-size:44mm;margin-right:-30mm"><svg class="w" style="color:var(--ink)"><use href="#wordmark"/></svg></span><span class="cap">Round strokes and terminals</span></div>
+    <div class="tile dark"><span style="font:400 30mm/1 var(--font-display);color:#fff">Aa</span><span class="cap">A serif for the big moments</span></div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 4. Logo -->
+<section class="page">
+  <div class="top"><span><b>02</b> · Logo</span><span>Acme brand guidelines</span></div>
+  <div class="split">
+    <div>
+      <h1>The logo</h1>
+      <p>The mark is a message bubble with a check cut out of it: a conversation, resolved. The wordmark is drawn, not typeset, with the same round strokes and terminals.</p>
+      <p>Use the full logo by default. Use the mark alone where space is square or tiny: the app icon, the favicon, an avatar.</p>
+      <h3 style="margin-top:6mm">Source files</h3>
+      <p class="mono">brand/logo/logo.svg<br>brand/logo/mark.svg<br>brand/logo/wordmark.svg</p>
+    </div>
+    <div class="tile" style="box-shadow:inset 0 0 0 .3mm var(--line)"><span class="logo" style="font-size:36mm"><svg class="m" role="img" aria-label="Acme"><use href="#mark"/></svg><svg class="w" aria-hidden="true"><use href="#wordmark"/></svg></span><span class="cap">Primary logo · Acme Blue on white</span></div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 5. Variants -->
+<section class="page">
+  <div class="top"><span><b>03</b> · Logo variants</span><span>Acme brand guidelines</span></div>
+  <h1>Variants</h1>
+  <div class="grid g3" style="grid-template-rows:1fr 1fr">
+    <div class="tile light"><span class="logo" style="font-size:16mm"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">Primary · on light</span></div>
+    <div class="tile dark"><span class="logo" style="font-size:16mm;--cut:var(--night)"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">Reversed · on dark</span></div>
+    <div class="tile brand"><span class="logo" style="font-size:16mm"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">White · on Acme Blue</span></div>
+    <div class="tile light mono-black"><span class="logo" style="font-size:16mm"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">One colour · black, for print and engraving</span></div>
+    <div class="tile light"><span class="logo" style="font-size:26mm"><svg class="m"><use href="#mark"/></svg></span><span class="cap">Mark alone · square and small spaces</span></div>
+    <div class="tile dark"><span class="logo" style="font-size:16mm;flex-direction:column;gap:.18em"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">Stacked · narrow spaces</span></div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 6. Clear space and minimum sizes -->
+<section class="page">
+  <div class="top"><span><b>04</b> · Clear space and sizes</span><span>Acme brand guidelines</span></div>
+  <div class="split">
+    <div>
+      <h1>Room to breathe</h1>
+      <p>Keep a clear space of <b>x</b> on every side, where x is half the height of the mark. No text, edge or other logo enters it.</p>
+      <h3 style="margin-top:6mm">Minimum sizes</h3>
+      <table>
+        <tr><th>Version</th><th>Screen</th><th>Print</th></tr>
+        <tr><td>Full logo</td><td>96 px wide</td><td>25 mm wide</td></tr>
+        <tr><td>Stacked logo</td><td>48 px wide</td><td>14 mm wide</td></tr>
+        <tr><td>Mark alone</td><td>16 px</td><td>5 mm</td></tr>
+      </table>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10mm;justify-content:center">
+      <div style="display:flex;justify-content:center">
+        <div class="clear"><span class="x" style="top:4mm;left:50%">x</span><span class="x" style="left:4mm;top:50%">x</span><span class="x" style="right:4mm;top:50%">x</span><span class="x" style="bottom:3mm;left:50%">x</span>
+          <div class="inner"><span class="logo" style="font-size:28mm"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span></div></div>
+      </div>
+      <div class="sizes" style="justify-content:center">
+        <figure><span class="logo" style="font-size:48px"><svg class="m"><use href="#mark"/></svg></span><br>48 px</figure>
+        <figure><span class="logo" style="font-size:32px"><svg class="m"><use href="#mark"/></svg></span><br>32 px</figure>
+        <figure><span class="logo" style="font-size:24px"><svg class="m"><use href="#mark"/></svg></span><br>24 px</figure>
+        <figure><span class="logo" style="font-size:16px"><svg class="m"><use href="#mark"/></svg></span><br>16 px</figure>
+        <figure><span class="logo" style="font-size:7.33mm"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><br>Full logo at its minimum print width</figure>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 7. Misuse -->
+<section class="page">
+  <div class="top"><span><b>05</b> · Misuse</span><span>Acme brand guidelines</span></div>
+  <h1>Please don't</h1>
+  <div class="grid g3" style="grid-template-rows:1fr 1fr">
+    <div class="tile dont"><span class="logo" style="transform:scaleX(1.45)"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">Stretch or squash it</span></div>
+    <div class="tile dont"><span class="logo" style="color:#3BB273"><svg class="m"><use href="#mark"/></svg><svg class="w" style="color:#E0457B"><use href="#wordmark"/></svg></span><span class="cap">Change its colours</span></div>
+    <div class="tile dont"><span class="logo" style="transform:rotate(-14deg)"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">Rotate or tilt it</span></div>
+    <div class="tile dont"><span class="logo" style="filter:drop-shadow(1.5mm 1.5mm 1.2mm rgb(0 0 0 / .45))"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap">Add shadows, glows or effects</span></div>
+    <div class="tile dont" style="background:linear-gradient(120deg,#7EA4F2,#2B4CE0 45%,#FF9A76)"><span class="logo"><svg class="m"><use href="#mark"/></svg><svg class="w"><use href="#wordmark"/></svg></span><span class="cap" style="color:#fff">Place it on a busy or low-contrast ground</span></div>
+    <div class="tile dont"><span class="logo"><svg class="m"><use href="#mark"/></svg><span style="font:700 9mm/1 Georgia,serif;color:var(--ink)">ACME</span></span><span class="cap">Retype the name in another font</span></div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 8. Colour -->
+<section class="page">
+  <div class="top"><span><b>06</b> · Colour</span><span>Acme brand guidelines</span></div>
+  <h1>Colour</h1>
+  <div class="grid g4" style="grid-template-rows:1.25fr 1fr">
+    <div class="swatch" style="--c:var(--brand);grid-row:span 2" data-var="--brand"><div class="name">Acme Blue</div><dl><dt>Token</dt><dd>color.brand</dd><dt>Use</dt><dd>Logo, links, primary actions</dd></dl></div>
+    <div class="swatch" style="--c:var(--ink)" data-var="--ink"><div class="name">Ink</div><dl><dt>Token</dt><dd>color.ink</dd><dt>Use</dt><dd>Text, icons</dd></dl></div>
+    <div class="swatch" style="--c:var(--accent)" data-var="--accent"><div class="name">Signal Orange</div><dl><dt>Token</dt><dd>color.accent</dd><dt>Use</dt><dd>Highlights, never text</dd></dl></div>
+    <div class="swatch" style="--c:var(--brand-deep)" data-var="--brand-deep"><div class="name">Deep Blue</div><dl><dt>Token</dt><dd>color.brand-deep</dd><dt>Use</dt><dd>Pressed states, depth</dd></dl></div>
+    <div class="swatch" style="--c:var(--night)" data-var="--night"><div class="name">Night</div><dl><dt>Token</dt><dd>color.night</dd><dt>Use</dt><dd>Dark backgrounds</dd></dl></div>
+    <div class="swatch" style="--c:var(--paper-2)" data-var="--paper-2"><div class="name">Mist</div><dl><dt>Token</dt><dd>color.paper-2</dd><dt>Use</dt><dd>Surfaces, cards</dd></dl></div>
+    <div class="swatch" style="--c:var(--accent-text)" data-var="--accent-text"><div class="name">Ember</div><dl><dt>Token</dt><dd>color.accent-text</dd><dt>Use</dt><dd>Orange text on white</dd></dl></div>
+  </div>
+  <div class="ratio-bar" aria-label="Proportions"><i style="--c:var(--paper);flex:58;box-shadow:inset 0 0 0 .2mm var(--line)"></i><i style="--c:var(--ink);flex:22"></i><i style="--c:var(--brand);flex:14"></i><i style="--c:var(--accent);flex:6"></i></div>
+  <p class="small" style="margin-top:2mm">In a typical layout: mostly white and Mist, Ink for text, Acme Blue for what matters, Signal Orange as a spark. Print colours (CMYK, spot) come from a printer's proof, not from a conversion of these values.</p>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 9. Contrast -->
+<section class="page">
+  <div class="top"><span><b>07</b> · Contrast</span><span>Acme brand guidelines</span></div>
+  <h1>Readable by everyone</h1>
+  <p>Every pair below is measured on this page (WCAG 2.2 contrast ratio). Body text needs 4.5:1; large text (24 px, or 18.7 px bold) and interface parts need 3:1.</p>
+  <table class="contrast" style="margin-top:4mm">
+    <tr><th>Sample</th><th>Text on background</th><th>Ratio</th><th>Body text · 4.5</th><th>Large text and UI · 3</th></tr>
+    <tr data-fg="--ink" data-bg="--paper"><td></td><td>Ink on white</td><td></td><td></td><td></td></tr>
+    <tr data-fg="--ink-2" data-bg="--paper"><td></td><td>Ink 2 on white · secondary text</td><td></td><td></td><td></td></tr>
+    <tr data-fg="--brand" data-bg="--paper"><td></td><td>Acme Blue on white · links</td><td></td><td></td><td></td></tr>
+    <tr data-fg="--paper" data-bg="--brand"><td></td><td>White on Acme Blue · buttons</td><td></td><td></td><td></td></tr>
+    <tr data-fg="--accent-text" data-bg="--paper"><td></td><td>Ember on white · orange text</td><td></td><td></td><td></td></tr>
+    <tr data-fg="--night-text" data-bg="--night"><td></td><td>Night text on Night · dark theme</td><td></td><td></td><td></td></tr>
+    <tr data-fg="--ink-3" data-bg="--paper"><td></td><td>Ink 3 on white · large captions only</td><td></td><td></td><td></td></tr>
+  </table>
+  <p class="small" style="margin-top:4mm">Signal Orange stays a shape colour: on white it is under 3:1, so it never carries text or an icon on its own. Use Ember for orange text.</p>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 10. Typefaces -->
+<section class="page">
+  <div class="top"><span><b>08</b> · Typefaces</span><span>Acme brand guidelines</span></div>
+  <h1>Two voices</h1>
+  <div class="grid g2" style="margin-top:4mm;align-content:start">
+    <div class="face" style="font-family:var(--font-display)"><h3>Display · headings and big moments</h3><div class="big">Aa Gg 24</div><div style="font-size:15pt">Serif · Regular</div><div class="set">ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 &amp;?!</div><p class="para" style="font-size:17pt;line-height:1.2">Every customer, answered once and on time.</p></div>
+    <div class="face" style="font-family:var(--font-text)"><h3>Text · interface and reading</h3><div class="big">Aa Gg 24</div><div style="font-size:15pt">Sans · Regular, Semibold</div><div class="set">ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 &amp;?!</div><p class="para" style="font-size:10pt">Reply from the conversation and Acme marks it done for the whole team. Nobody answers twice, nobody waits.</p></div>
+  </div>
+  <p class="small" style="margin-top:6mm">Name each family, its licence and where its files live in the project. A family loaded from a font service needs the network: ship the files with the product instead.</p>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 11. Type scale -->
+<section class="page">
+  <div class="top"><span><b>09</b> · Type scale</span><span>Acme brand guidelines</span></div>
+  <h1>Type scale</h1>
+  <table class="scale" style="margin-top:2mm">
+    <tr><th>Token</th><th>Size / line</th><th>Weight</th><th>Sample</th></tr>
+    <tr><td class="mono">font.display</td><td>40 / 44</td><td>400 serif</td><td style="font:400 40px/44px var(--font-display)">Every customer, once</td></tr>
+    <tr><td class="mono">font.title</td><td>28 / 34</td><td>400 serif</td><td style="font:400 28px/34px var(--font-display)">Inbox zero, together</td></tr>
+    <tr><td class="mono">font.heading</td><td>20 / 28</td><td>600</td><td style="font:600 20px/28px var(--font-text)">Assigned to you</td></tr>
+    <tr><td class="mono">font.body</td><td>15 / 22</td><td>400</td><td style="font:400 15px/22px var(--font-text)">Reply from the conversation; Acme marks it done for the whole team.</td></tr>
+    <tr><td class="mono">font.small</td><td>13 / 18</td><td>400</td><td style="font:400 13px/18px var(--font-text)">Last reply 4 minutes ago</td></tr>
+    <tr><td class="mono">font.mono</td><td>13 / 18</td><td>400 mono</td><td style="font:400 13px/18px var(--font-mono)">ACME-1042</td></tr>
+  </table>
+  <div class="grid g2" style="margin-top:8mm;flex:0 0 auto">
+    <div><h3>Spacing · space.1 to space.8</h3><div class="spacing">
+      <i style="width:4px"></i><i style="width:8px"></i><i style="width:12px"></i><i style="width:16px"></i><i style="width:24px"></i><i style="width:32px"></i><i style="width:48px"></i><i style="width:64px"></i>
+    </div><p class="small">4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 px. Every gap and padding comes from this scale.</p></div>
+    <div><h3>Corners · radius.sm, md, lg, full</h3><div class="radii"><i style="border-radius:4px"></i><i style="border-radius:8px"></i><i style="border-radius:12px"></i><i style="border-radius:999px"></i></div>
+    <p class="small">4 · 8 · 12 px and round. Buttons and fields take md, cards lg, avatars full.</p></div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 12. Icons and imagery -->
+<section class="page">
+  <div class="top"><span><b>10</b> · Icons and imagery</span><span>Acme brand guidelines</span></div>
+  <h1>Icons and images</h1>
+  <div class="split" style="grid-template-columns:1fr 92mm">
+    <div style="display:flex;flex-direction:column;gap:8mm">
+      <div class="icons">
+        <figure><svg viewBox="0 0 24 24"><path d="M4 6h16v10H9l-5 4z"/></svg></figure>
+        <figure><svg viewBox="0 0 24 24"><path d="M5 12l4.5 4.5L19 7"/></svg></figure>
+        <figure><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-4 4-5.5 7-5.5s6 1.5 7 5.5"/></svg></figure>
+        <figure><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></figure>
+        <figure><svg viewBox="0 0 24 24"><path d="M12 7v5l3.5 2"/><circle cx="12" cy="12" r="8.5"/></svg></figure>
+        <figure><svg viewBox="0 0 24 24"><path d="M4 7l8 6 8-6M4 6h16v12H4z"/></svg></figure>
+      </div>
+      <ul class="rules">
+        <li>Outline icons on a 24 px grid with 2 px of padding, 1.75 px stroke, round caps and joins.</li>
+        <li>One colour: Ink, or Acme Blue for the active state. Never two colours in one icon.</li>
+        <li>Photos show real teams at work, in daylight; no staged handshakes, no stock in the logo.</li>
+        <li>Every outside image has a licence that allows the use, credited in <span class="mono">CREDITS.md</span>.</li>
+      </ul>
+    </div>
+    <figure class="keyline" style="margin:0">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <defs><pattern id="px" width="1" height="1" patternUnits="userSpaceOnUse"><path d="M1 0H0V1" fill="none" stroke="#DDE1EA" stroke-width=".04"/></pattern></defs>
+        <rect width="24" height="24" fill="url(#px)"/>
+        <rect x="2" y="2" width="20" height="20" fill="none" stroke="#2B4CE0" stroke-width=".06" stroke-dasharray=".3 .2"/>
+        <circle cx="12" cy="12" r="10" fill="none" stroke="#FF6B3D" stroke-width=".05"/>
+        <path d="M4 6h16v10H9l-5 4z" fill="none" stroke="#121826" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <figcaption class="small">The 24 px grid: live area inside the dashed square, curves up to the circle.</figcaption>
+    </figure>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 13. In use -->
+<section class="page">
+  <div class="top"><span><b>11</b> · In use</span><span>Acme brand guidelines</span></div>
+  <h1>In use</h1>
+  <div class="grid g2" style="grid-template-rows:1fr 1fr">
+    <div class="tile light" style="gap:8mm">
+      <div class="appicon" style="width:28mm;height:28mm"><span class="logo" style="font-size:17mm;color:#fff;--cut:var(--brand-deep)"><svg class="m"><use href="#mark"/></svg></span></div>
+      <div class="appicon" style="width:16mm;height:16mm"><span class="logo" style="font-size:10mm;color:#fff"><svg class="m"><use href="#mark"/></svg></span></div>
+      <div class="appicon" style="width:9mm;height:9mm"><span class="logo" style="font-size:5.6mm;color:#fff"><svg class="m"><use href="#mark"/></svg></span></div>
+      <span class="cap">App icon · the mark on Acme Blue, safe zone 80 %</span>
+    </div>
+    <div class="tile light" style="flex-direction:column;gap:0">
+      <div class="tab"><span class="logo" style="font-size:16px"><svg class="m"><use href="#mark"/></svg></span>Inbox · Acme</div>
+      <div style="width:70mm;height:14mm;background:var(--paper);border-radius:0 0 2.5mm 2.5mm"></div>
+      <span class="cap">Favicon · mark alone, 16 px</span>
+    </div>
+    <div class="tile light" style="grid-column:span 2">
+      <div class="og"><span class="logo" style="font-size:11mm;--cut:var(--night)"><svg class="m"><use href="#mark"/></svg><svg class="w" style="color:#fff"><use href="#wordmark"/></svg></span><div class="t">Every customer answered once, on time.</div></div>
+      <span class="cap">Social image · 1200 × 630, safe margins 60 px</span>
+    </div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<!-- 14. Exports -->
+<section class="page">
+  <div class="top"><span><b>12</b> · Exports</span><span>Acme brand guidelines</span></div>
+  <h1>Files</h1>
+  <table style="margin-top:2mm">
+    <tr><th>File</th><th>Size</th><th>Use</th></tr>
+    <tr><td class="mono">brand/logo/logo.svg</td><td>vector</td><td>Default logo, light grounds</td></tr>
+    <tr><td class="mono">brand/logo/logo-reversed.svg</td><td>vector</td><td>Dark grounds</td></tr>
+    <tr><td class="mono">brand/logo/logo-mono.svg</td><td>vector</td><td>One-colour print</td></tr>
+    <tr><td class="mono">brand/logo/mark.svg</td><td>vector</td><td>Square and small spaces</td></tr>
+    <tr><td class="mono">brand/exports/logo-1024.png</td><td>1024 × 280</td><td>Documents, slides</td></tr>
+    <tr><td class="mono">brand/exports/favicon.ico · icon.svg</td><td>16, 32, 48</td><td>Browser tabs</td></tr>
+    <tr><td class="mono">brand/exports/apple-touch-icon.png</td><td>180 × 180</td><td>iOS home screen</td></tr>
+    <tr><td class="mono">brand/exports/icon-192.png · icon-512.png</td><td>192, 512</td><td>Web app manifest</td></tr>
+    <tr><td class="mono">brand/exports/og.png</td><td>1200 × 630</td><td>Link previews</td></tr>
+  </table>
+  <div class="grid g2" style="margin-top:8mm;flex:0 0 auto">
+    <div><h3>Versions</h3><table><tr><th>Version</th><th>Date</th><th>Change</th></tr><tr><td>1.0</td><td>November 2026</td><td>First edition</td></tr></table></div>
+    <div><h3>Questions</h3><p class="small">Ask the owner of this repository before you change the logo or a colour. This document is printed from <span class="mono">brand/guidelines.html</span>; edit that file, never the PDF.</p></div>
+  </div>
+  <div class="foot"><span>Acme · Brand guidelines 1.0</span></div>
+</section>
+
+<script>
+  // Measures and prints the colour values and contrast ratios from the tokens above, so the numbers never drift.
+  const css = getComputedStyle(document.documentElement);
+  const hex = (name) => css.getPropertyValue(name).trim();
+  const rgb = (h) => { h = h.replace("#", ""); if (h.length === 3) h = [...h].map((c) => c + c).join(""); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); };
+  const lin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = (h) => { const [r, g, b] = rgb(h).map(lin); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const oklch = (h) => {
+    const [r, g, b] = rgb(h).map(lin);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+    const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+    const C = Math.hypot(A, B);
+    const H = C < 0.0005 ? 0 : (Math.atan2(B, A) * 180 / Math.PI + 360) % 360;
+    return `${(L * 100).toFixed(1)}% ${C.toFixed(3)} ${H.toFixed(1)}`;
+  };
+  // WCAG compares the exact ratio: 4.49 fails 4.5, so the printed value is cut, never rounded up.
+  const shown = (r) => `${Math.floor(r * 100) / 100}:1`;
+  for (const el of document.querySelectorAll(".swatch[data-var]")) {
+    const h = hex(el.dataset.var).toUpperCase();
+    const [r, g, b] = rgb(h);
+    el.style.color = ratio(h, "#FFFFFF") >= ratio(h, hex("--ink")) ? "#FFFFFF" : hex("--ink");
+    el.querySelector("dl").insertAdjacentHTML("afterbegin", `<dt>HEX</dt><dd>${h}</dd><dt>RGB</dt><dd>${r} ${g} ${b}</dd><dt>OKLCH</dt><dd>${oklch(h)}</dd>`);
+  }
+  for (const row of document.querySelectorAll("tr[data-fg]")) {
+    const [fg, bg] = [hex(row.dataset.fg), hex(row.dataset.bg)];
+    const r = ratio(fg, bg);
+    const cells = row.cells;
+    cells[0].innerHTML = `<span class="aa" style="color:${fg};background:${bg};box-shadow:inset 0 0 0 .2mm var(--line)">Aa</span>`;
+    cells[1].insertAdjacentHTML("beforeend", ` <span class="mono muted">${fg.toUpperCase()} / ${bg.toUpperCase()}</span>`);
+    cells[2].innerHTML = `<b>${shown(r)}</b>`;
+    cells[3].innerHTML = r >= 4.5 ? '<span class="pass">Pass</span>' : '<span class="fail">Fail</span>';
+    cells[4].innerHTML = r >= 3 ? '<span class="pass">Pass</span>' : '<span class="fail">Fail</span>';
+  }
+</script>
+</body>
+</html>
