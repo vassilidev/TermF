@@ -287,6 +287,9 @@ fn main() -> ExitCode {
     if let ["guard"] = args.as_slice() {
         return tickets::guard();
     }
+    if let Ok(config_dir) = termf_core::default_config_dir() {
+        termf_core::agent_env::configure(config_dir, env::current_exe().ok());
+    }
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -298,6 +301,8 @@ fn main() -> ExitCode {
 
 fn run(args: &[&str]) -> Result<()> {
     match args {
+        // What TermF runs an agent through, after a login shell's profile: only what it keeps of the environment.
+        ["agent-env", command] => termf_core::agent_env::exec(command)?,
         ["ls"] => {
             let sessions: Vec<SessionSummary> =
                 serde_json::from_value(Client::connect(None)?.call(Call::List)?)?;

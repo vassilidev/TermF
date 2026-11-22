@@ -13,7 +13,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use termf_core::claude::Tool;
-use termf_core::{Settings, claude, cli_agents, ipc};
+use termf_core::{Settings, agent_env, claude, cli_agents, ipc};
 use termf_term::{shell_command, shell_quote};
 
 use crate::store::{self, Store};
@@ -35,6 +35,8 @@ const KILL_WAIT: Duration = Duration::from_secs(5);
 /// How long a terminal may take to close when its session is handed back.
 const TILE_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 });
 const CONSULT_POLL: Duration = Duration::from_millis(if cfg!(test) { 50 } else { 500 });
+/// As the vault masks its values everywhere else.
+const MASK: &str = "••••••";
 const BUSY: &str = "the session is being stopped, taken over or handed back";
 const NO_GUARD: &str = "this session needs TermF's guard, the hook that keeps it from pushing: the termf CLI next to TermF (`pnpm bundle`, or `cargo build -p termf-cli` in development)";
 
@@ -54,8 +56,23 @@ struct Inner {
     /// Added to every process's environment.
     env: Vec<(String, String)>,
     mcp: OnceLock<McpServer>,
-    /// The `termf` CLI, for the sessions whose Bash commands go through its `guard`.
+    /// The `termf` CLI, for the sessions whose Bash commands go through its `guard`, and for `agent-env`.
     guard: OnceLock<PathBuf>,
+    secrets: OnceLock<Secrets>,
+    /// By session, the vault's values its process got: masked in what it reports.
+    hidden: Mutex<HashMap<i64, Vec<String>>>,
+    /// By session, the end of the streamed text not sent yet: it may be the start of one of those values.
+    held: Mutex<HashMap<i64, String>>,
+}
+
+/// What the vault gives a process of a session (its id, its project): `[agents.secrets]`.
+type Secrets = Box<dyn Fn(i64, Option<&str>) -> Given + Send + Sync>;
+
+/// The variables a session's process gets from the vault, and what to tell it when some are missing.
+#[derive(Default)]
+pub struct Given {
+    pub vars: Vec<(String, String)>,
+    pub note: Option<String>,
 }
 
 #[derive(Default)]
@@ -131,6 +148,9 @@ impl Agents {
                 env,
                 mcp: OnceLock::new(),
                 guard: OnceLock::new(),
+                secrets: OnceLock::new(),
+                hidden: Mutex::default(),
+                held: Mutex::default(),
             }),
         };
         if let Err(e) = agents.inner.store().and_then(|s| agents.inner.reap(&s)) {
@@ -164,6 +184,15 @@ impl Agents {
     /// start.
     pub fn serve_guard(&self, termf: PathBuf) {
         let _ = self.inner.guard.set(termf);
+    }
+
+    /// What gives each process of a session the vault's values for its project (`[agents.secrets]`). Set once;
+    /// without it, none. A CTO or expert conversation never gets them.
+    pub fn serve_secrets(
+        &self,
+        given: impl Fn(i64, Option<&str>) -> Given + Send + Sync + 'static,
+    ) {
+        let _ = self.inner.secrets.set(Box::new(given));
     }
 
     /// A new session with no process yet: its first message starts one.
@@ -605,7 +634,37 @@ impl Inner {
     }
 
     /// An event that cannot be saved is lost, never the change of state that comes with it.
+    fn hide(&self, id: i64, event: AgentEvent) -> AgentEvent {
+        match self.hidden.lock().unwrap().get(&id) {
+            Some(values) if !values.is_empty() => hide(event, values),
+            _ => event,
+        }
+    }
+
+    /// What may go out of a streamed piece of text: masked with what came before it, less its last characters, which
+    /// could start a value the next piece ends.
+    fn stream(&self, id: i64, text: String) -> Option<String> {
+        let hidden = self.hidden.lock().unwrap();
+        let Some(values) = hidden.get(&id).filter(|v| !v.is_empty()) else {
+            return Some(text);
+        };
+        let mut held = self.held.lock().unwrap();
+        let mut all = held.remove(&id).unwrap_or_default() + &text;
+        for value in values {
+            all = all.replace(value.as_str(), MASK);
+        }
+        let longest = values.iter().map(|v| v.chars().count()).max().unwrap_or(1);
+        let chars = all.chars().count();
+        let cut = all
+            .char_indices()
+            .nth(chars.saturating_sub(longest - 1))
+            .map_or(all.len(), |(i, _)| i);
+        held.insert(id, all.split_off(cut));
+        (!all.is_empty()).then_some(all)
+    }
+
     fn record(&self, store: &Store, id: i64, event: AgentEvent) {
+        let event = self.hide(id, event);
         match store.record(id, &event) {
             Ok(stored) => (self.sink)(Update::Event(stored)),
             Err(e) => eprintln!("termf: agent session {id}: event not saved: {e:#}"),
@@ -786,8 +845,45 @@ impl Inner {
             },
         );
         let args: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();
+        let mut line = format!("{command} {}", args.join(" "));
+        let tool = Tool::of(&command);
+        let project = session.spec.project.clone().or_else(|| {
+            termf_core::project_of(&self.config_dir, &session.spec.cwd)
+                .ok()
+                .flatten()
+        });
+        let policy = agent_env::load(&self.config_dir, project.as_deref());
+        let given = match (self.secrets.get(), session.spec.mcp) {
+            (Some(secrets), false) => secrets(id, project.as_deref()),
+            _ => Given::default(),
+        };
+        let mut set: Vec<(String, String)> = self.env.clone();
+        set.extend(
+            mcp.as_ref()
+                .and_then(|(.., token)| token.clone())
+                .map(|t| (ipc::ENV_MCP_TOKEN.into(), t)),
+        );
+        if gemini && let Some((_, server, _)) = &mcp {
+            let settings = cli_agents::gemini_settings(&dir, None, None, Some(server))?;
+            set.push((
+                cli_agents::GEMINI_SETTINGS_ENV.into(),
+                settings.to_string_lossy().into_owned(),
+            ));
+        }
+        set.extend(given.vars.iter().cloned());
+        let names: Vec<String> = set.iter().map(|(k, _)| k.clone()).collect();
+        let wrapped = policy.wrap(
+            &line,
+            tool,
+            self.guard.get().map(PathBuf::as_path),
+            &names,
+            shell_quote,
+        );
+        if let Some((wrapped, _)) = &wrapped {
+            line = wrapped.clone();
+        }
         // Through the login shell, as a tile: `~`, quotes and the shell's PATH work the same.
-        let (program, shell_args) = shell_command(Some(&format!("{command} {}", args.join(" "))));
+        let (program, shell_args) = shell_command(Some(&line));
         let mut cmd = Command::new(program);
         cmd.args(shell_args)
             .current_dir(&session.spec.cwd)
@@ -798,14 +894,17 @@ impl Inner {
         for var in [ipc::ENV_SOCKET, ipc::ENV_TOKEN, ipc::ENV_SESSION] {
             cmd.env_remove(var);
         }
-        cmd.envs(self.env.iter().map(|(k, v)| (k, v)));
-        if let Some((.., Some(token))) = &mcp {
-            cmd.env(ipc::ENV_MCP_TOKEN, token);
+        cmd.envs(set);
+        if let Some((_, spec)) = wrapped {
+            cmd.env(agent_env::SPEC, spec);
         }
-        if gemini && let Some((_, server, _)) = &mcp {
-            let settings = cli_agents::gemini_settings(&dir, None, None, Some(server))?;
-            cmd.env(cli_agents::GEMINI_SETTINGS_ENV, settings);
+        policy.apply(&mut cmd, tool);
+        if let Some(note) = given.note {
+            self.record(store, id, AgentEvent::Error { message: note });
         }
+        let hidden = given.vars.into_iter().map(|(_, v)| v);
+        let hidden = hidden.filter(|v| v.chars().count() >= 4).collect();
+        self.hidden.lock().unwrap().insert(id, hidden);
         // Its own process group, so stopping it also stops what it started.
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
@@ -903,18 +1002,20 @@ impl Inner {
             .process
             .as_ref()
             .is_some_and(|p| p.generation == generation);
-        if let AgentEvent::Delta { .. } = event {
-            if current {
+        if let AgentEvent::Delta { text } = event {
+            if current && let Some(text) = self.stream(id, text) {
                 let (session, at) = (id, now());
                 (self.sink)(Update::Event(StoredEvent {
                     id: 0,
                     session,
                     at,
-                    event,
+                    event: AgentEvent::Delta { text },
                 }));
             }
             return Ok(());
         }
+        // The text event that follows holds the whole text, masked.
+        self.held.lock().unwrap().remove(&id);
         let mut session = store.session(id)?;
         let before = session.clone();
         let moves = current
@@ -1342,6 +1443,32 @@ fn other_repos(config_dir: &Path, spec: &SessionSpec) -> Result<Vec<PathBuf>> {
         .map(|r| PathBuf::from(r.path))
         .filter(|p| *p != spec.cwd && p.is_dir())
         .collect())
+}
+
+/// The vault's values a session's process got, masked in what it reports.
+fn hide(event: AgentEvent, values: &[String]) -> AgentEvent {
+    fn walk(value: &mut Value, values: &[String]) {
+        match value {
+            Value::String(text) => {
+                for secret in values {
+                    if text.contains(secret.as_str()) {
+                        *text = text.replace(secret.as_str(), MASK);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(|v| walk(v, values)),
+            Value::Object(fields) => fields.values_mut().for_each(|v| walk(v, values)),
+            _ => {}
+        }
+    }
+    // Never the event as it was: what could not be masked is not kept.
+    let masked = serde_json::to_value(&event).and_then(|mut value| {
+        walk(&mut value, values);
+        serde_json::from_value(value)
+    });
+    masked.unwrap_or_else(|_| AgentEvent::Error {
+        message: MASK.into(),
+    })
 }
 
 /// What the process wrote on stderr, for an error message: its start, where the error is, and its end.

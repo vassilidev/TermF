@@ -16,12 +16,12 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::artifacts::Policy;
 use termf_core::claude::{self, Tool};
-use termf_core::cli_agents;
 use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{
     self, AgentCall, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent,
 };
 use termf_core::remote;
+use termf_core::{agent_env, cli_agents};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
 use crate::remote::{Relaunch, Restart, Step, Tile};
@@ -697,7 +697,19 @@ impl Api {
         if let Some(settings) = &relaunch.settings {
             crate::remote::block(settings, connect.is_none())?;
         }
-        let line = relaunch.line(Some(&conversation), connect.as_deref())?;
+        let mut line = relaunch.line(Some(&conversation), connect.as_deref())?;
+        let mut env = relaunch.env.clone();
+        if let Some(allowlist) = &relaunch.allowlist {
+            let names: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
+            let cli = termf_binary();
+            let tool = Some(Tool::Claude);
+            if let Some((wrapped, spec)) =
+                allowlist.wrap(&line, tool, cli.as_deref(), &names, shell_quote)
+            {
+                line = wrapped;
+                env.push((agent_env::SPEC.into(), spec));
+            }
+        }
         let (program, args) = shell_command(Some(&line));
         let info = live.expect("checked above");
         // The process replaced may still fire hooks (its SessionEnd, with its old connection): none counts.
@@ -711,7 +723,8 @@ impl Api {
                 agent: info.agent,
                 cols: 120,
                 rows: 32,
-                env: relaunch.env.clone(),
+                env,
+                base_env: relaunch.base_env.clone(),
             })
         })?;
         if let Some(tile) = self
@@ -1156,6 +1169,7 @@ pub fn spawn_command(
             cols: 120,
             rows: 32,
             env: Vec::new(),
+            base_env: None,
         })
     });
     if spawned.is_err()
@@ -1278,6 +1292,21 @@ fn launch(
             .map(|r| r.env.clone().into_iter().collect())
             .unwrap_or_default();
         let mut warnings: Vec<String> = old.iter().cloned().collect();
+        // An agent starts with the allowlist and what TermF gives it: a shell keeps all of TermF's environment.
+        let allowlist = command.as_ref().map(|_| {
+            let run_project = run.as_ref().map(|r| r.project);
+            let project = project_for(&state.config_dir, remote.project, run_project, &cwd);
+            let actor = termf_vault::Actor::agent(None, Some(format!("terminal {id}")));
+            let project = project.as_deref();
+            let given = crate::agentenv::given(&state.vault, &state.config_dir, project, &actor);
+            env.extend(given.vars);
+            warnings.extend(given.note);
+            agent_env::load(&state.config_dir, project)
+        });
+        let base_env = allowlist
+            .as_ref()
+            .filter(|p| !p.inherit)
+            .map(|p| p.keep(tool, std::env::vars_os()));
         if let (Some(tool), None) = (codex_or_gemini, &old) {
             let prompt = dir.as_ref().and_then(|dir| library(state, &cwd, dir, None));
             let tile = cli_agents::tile(
@@ -1395,6 +1424,8 @@ fn launch(
                     env: env.clone(),
                     settings: settings_file,
                     conversation: conversation.map(str::to_owned),
+                    base_env: base_env.clone(),
+                    allowlist: allowlist.clone(),
                 },
                 ..Tile::default()
             });
@@ -1422,6 +1453,18 @@ fn launch(
             }
             other => other,
         };
+        // Before the lines it prints first: the program the wrapper resolves is the agent's.
+        let mut command = command;
+        if let (Some(allowlist), Some(c)) = (&allowlist, &command) {
+            let names: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
+            let cli = termf_binary();
+            if let Some((wrapped, spec)) =
+                allowlist.wrap(c, tool, cli.as_deref(), &names, shell_quote)
+            {
+                command = Some(wrapped);
+                env.push((agent_env::SPEC.into(), spec));
+            }
+        }
         let command = command.map(|c| cli_agents::after_lines(&c, &warnings, shell_quote));
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
@@ -1433,6 +1476,7 @@ fn launch(
             cols,
             rows,
             env,
+            base_env,
         })
     });
     if spawned.is_err()
@@ -1448,6 +1492,17 @@ fn launch(
         running: true,
         exit_code: None,
     }))
+}
+
+/// An agent's project: the caller's (a step's worktree does not say it), else its run's, else its folder's.
+fn project_for(
+    config_dir: &Path,
+    given: Option<&str>,
+    run: Option<&str>,
+    cwd: &Path,
+) -> Option<String> {
+    let known = given.or(run).map(str::to_owned);
+    known.or_else(|| termf_core::project_of(config_dir, cwd).ok().flatten())
 }
 
 /// Writes the repository's library into the session folder and returns the system prompt file, if any.
@@ -1708,6 +1763,36 @@ fn type_later(app: AppHandle, id: u32, step: u64, line: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_step_taken_over_keeps_its_project_whatever_its_folder() {
+        let root = std::env::temp_dir().join(format!("termf-api-project-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let repo = root.join("acme-api");
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::create_dir_all(root.join("config/projects")).unwrap();
+        let file = format!("name = \"Acme\"\n[[repos]]\npath = '{}'\n", repo.display());
+        fs::write(root.join("config/projects/acme.toml"), file).unwrap();
+        let config = root.join("config");
+        // A team step's worktree lives in TermF's data folder, which no project lists.
+        let worktree = root.join("data/team/12/back");
+        fs::create_dir_all(&worktree).unwrap();
+        let project = |given, run, cwd: &Path| project_for(&config, given, run, cwd);
+        assert_eq!(
+            project(Some("acme"), None, &worktree).as_deref(),
+            Some("acme")
+        );
+        assert_eq!(
+            project(None, Some("acme"), &worktree).as_deref(),
+            Some("acme")
+        );
+        assert_eq!(
+            project(None, None, &repo.join("src")).as_deref(),
+            Some("acme")
+        );
+        assert_eq!(project(None, None, &worktree), None);
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn a_run_needs_its_guard() {

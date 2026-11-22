@@ -79,6 +79,10 @@ pub struct DeliveryPreview {
     pub commits: Vec<CommitSummary>,
     /// Given back to `deliver`, which refuses if the worktree changed since.
     pub fingerprint: String,
+    /// The repository has no `origin`: the delivery merges the branch into this one, in the repository itself,
+    /// rather than pushing it and opening a pull request.
+    #[serde(default)]
+    pub local: Option<String>,
     /// The repository's origin is on a GitLab: the delivery opens a merge request.
     #[serde(default)]
     pub merge_request: bool,
@@ -401,9 +405,47 @@ fn conversation_id(text: &str) -> bool {
 fn last_push(store: &Store, id: i64) -> Result<Option<String>> {
     let mut events = store.events(id)?.into_iter().rev();
     Ok(events.find_map(|e| match e.event {
-        Event::Pushed { commit, .. } => Some(commit),
+        Event::Pushed { commit, .. } | Event::Merged { commit, .. } => Some(commit),
         _ => None,
     }))
+}
+
+/// Delivers to a repository without `origin`: the run's branch merged into `into` in the repository itself, a
+/// fast-forward when it can, else a merge commit; never over changes not committed there. Gives the commit
+/// `into` is at once done.
+fn merge_locally(git: &Git, repo: &Path, branch: &str, into: &str) -> Result<String> {
+    let checked_out = git
+        .run(repo, &["symbolic-ref", "-q", "--short", "HEAD"])
+        .unwrap_or_default();
+    if checked_out == into {
+        ensure!(
+            git.run(repo, &["status", "--porcelain", "--untracked-files=no"])?
+                .is_empty(),
+            "{} has changes not committed on {into}: commit or stash them there, then deliver again",
+            repo.display()
+        );
+        if !git.ok(repo, &["merge", "-q", "--ff-only", branch]) {
+            let merged = git.run(repo, &["merge", "-q", "--no-edit", branch]);
+            if let Err(e) = merged {
+                let _ = git.run(repo, &["merge", "--abort"]);
+                return Err(e.context(format!(
+                    "{branch} does not merge cleanly into {into}: merge it by hand in {}",
+                    repo.display()
+                )));
+            }
+        }
+    } else {
+        // Not checked out: only a fast-forward, which touches no file.
+        git.run(repo, &["fetch", "-q", ".", &format!("{branch}:{into}")])
+            .with_context(|| {
+                format!(
+                    "{into} moved since the run started and is not checked out in {}: switch to {into} there, then \
+                     deliver again",
+                    repo.display()
+                )
+            })?;
+    }
+    git.run(repo, &["rev-parse", &format!("refs/heads/{into}")])
 }
 
 /// What the request of `ticket` in repository `slug` says of it: `Closes …` when merging it closes the ticket (a
@@ -922,6 +964,8 @@ impl Tickets {
             })
             .collect();
         let head = git.run(dir, &["rev-parse", "HEAD"])?;
+        let repo = Path::new(&run.repo);
+        let local = (!git.ok(repo, &["remote", "get-url", "origin"])).then(|| base.clone());
         let origin = git.run(dir, &["config", "--get", "remote.origin.url"]);
         let merge_request =
             origin.is_ok_and(|o| matches!(self.forge(&run.project, &o), Ok(Forge::GitLab(..))));
@@ -930,6 +974,7 @@ impl Tickets {
                 files,
                 commits,
                 fingerprint: format!("{head}:{tree}"),
+                local,
                 merge_request,
             },
             index,
@@ -1034,6 +1079,16 @@ impl Tickets {
                     others.join(", ")
                 ),
             }
+        }
+        if let Some(into) = snapshot.preview.local.clone() {
+            let commit = merge_locally(&git, Path::new(&run.repo), &branch, &into)?;
+            store.record(id, &Event::Merged { into, commit })?;
+            run.status = RunStatus::Delivered;
+            store.update(run)?;
+            return Ok(Delivery {
+                run: run.clone(),
+                warning: None,
+            });
         }
         // The commit itself is pushed, so the one recorded is the one sent.
         let commit = git.run(dir, &["rev-parse", &format!("refs/heads/{branch}")])?;

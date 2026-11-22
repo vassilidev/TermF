@@ -15,6 +15,7 @@
   import VaultIcon from "@lucide/svelte/icons/lock-keyhole";
   import { invoke } from "@tauri-apps/api/core";
   import { getContext } from "svelte";
+  import VaultAgentKeys from "$lib/VaultAgentKeys.svelte";
   import VaultEntry from "$lib/VaultEntry.svelte";
   import VaultForm from "$lib/VaultForm.svelte";
   import VaultRecoveryKey from "$lib/VaultRecoveryKey.svelte";
@@ -385,6 +386,7 @@
               {/each}
             </ul>
           {/each}
+          {#if scope}<VaultAgentKeys project={scope} />{/if}
         </div>
         <label class="autolock muted">
           <Timer size={13} aria-hidden="true" />

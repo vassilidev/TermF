@@ -73,6 +73,7 @@
   const lastReview = $derived(review?.versions.at(-1));
   // The review takes the gate while it captures or waits; failed or settled, the gate's own buttons are back.
   const reviewDecides = $derived(lastReview?.state === "capturing" || lastReview?.state === "ready");
+  const noteOf = (gate: Step) => run.steps.find((s) => gate.needs.includes(s.key) && s.report?.summary)?.report?.summary ?? "";
   const reviewLine = $derived.by(() => {
     if (!review || !lastReview) return "";
     const left = lastReview.screens.filter((s) => s.decision === "pending").length;
@@ -342,6 +343,9 @@
               {#if reviewLine}<p class="muted">{reviewLine}</p>{/if}
             {:else if ask.kind === "visual"}
               <p class="help">{t("teamRunsAskVisualHelp")}</p>
+            {:else if ask.kind === "gate" && noteOf(ask.step)}
+              <!-- What the gate decides on: the report of the step before it, such as kickoff's decision note. -->
+              <div class="box note-text">{noteOf(ask.step)}</div>
             {/if}
             {#if changing === key}
               {@render feedback(ask, t("teamRunsFeedback"), t("chatSend"))}
@@ -465,6 +469,13 @@
     padding: 12px 14px;
     border-radius: var(--radius);
     background: var(--panel);
+  }
+
+  .note-text {
+    max-height: 360px;
+    overflow-y: auto;
+    line-height: 1.55;
+    white-space: pre-wrap;
   }
 
   .summed {

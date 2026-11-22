@@ -130,7 +130,9 @@
         <p class="notice"><Info size={14} aria-hidden="true" />{t("deliverNothing")}</p>
       {/if}
       <p class="how">
-        {run.prUrl
+        {p.local
+          ? t("greenfieldDeliverLocal", { branch: run.branch ?? "", target: p.local })
+          : run.prUrl
           ? t(p.mergeRequest ? "tickets2DeliverHowAgainMr" : "deliverHowAgain", { branch: run.branch ?? "" })
           : t(p.mergeRequest ? "tickets2DeliverHowMr" : "deliverHow", {
               branch: run.branch ?? "",
