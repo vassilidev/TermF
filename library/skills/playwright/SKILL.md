@@ -7,7 +7,7 @@ description: >-
   playwright.config, a page object, or a flaky or failing Playwright test. Not for unit or component
   tests run by Vitest or Jest (testing-js), nor for deciding what deserves a test
   (tests-from-criteria).
-paths: "playwright.config.*, **/e2e/**, **/playwright/**, **/*.spec.ts, **/*.spec.js"
+paths: "**/playwright.config.*, **/e2e/**, **/playwright/**, **/*.spec.ts, **/*.spec.js"
 license: MIT
 metadata:
   termf-stacks: "playwright"

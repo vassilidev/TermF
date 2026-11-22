@@ -8,7 +8,7 @@ description: >-
   vitest.config.* or jest.config.*, or runs the test suite. Not for browser end-to-end tests
   (playwright), not for deciding what deserves a test (tests-from-criteria), not for Python or PHP
   tests.
-paths: "**/*.test.*, **/*.spec.*, **/__tests__/**, **/vitest.config.*, **/vitest.workspace.*, **/jest.config.*, **/vite.config.*"
+paths: "**/*.test.*, **/__tests__/**, **/vitest.config.*, **/vitest.workspace.*, **/jest.config.*"
 license: MIT
 metadata:
   termf-stacks: "vitest jest"

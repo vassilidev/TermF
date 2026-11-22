@@ -6,7 +6,7 @@ description: >-
   pages, layouts, server routes, data fetching with useFetch and useAsyncData, runtime config, and type
   checking with vue-tsc or nuxt typecheck. Use when a task touches .vue files, nuxt.config, app/ or server/
   of a Nuxt project, or a Vue + Vite app. Not for React, Svelte or Angular, nor for Vue 2 code.
-paths: "**/*.vue, **/nuxt.config.*, **/app.config.*, **/app/**, **/server/**, **/shared/**, **/composables/**, **/stores/**"
+paths: "**/*.vue, **/nuxt.config.*"
 license: MIT
 metadata:
   termf-stacks: "vue nuxt"

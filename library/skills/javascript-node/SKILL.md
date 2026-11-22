@@ -48,7 +48,7 @@ metadata:
 ## Security
 
 - Run processes with `execFile` or `spawn` and an argument array; `exec`, `execSync` or `shell: true` with any interpolated value is command injection. Validate an executable name against an allowlist when it comes from input.
-- Resolve user-supplied paths against a base folder and check the result stays inside it (`const p = path.resolve(base, input); if (!p.startsWith(base + path.sep)) refuse`); reject absolute paths and NUL bytes before touching the filesystem.
+- Resolve user-supplied paths against a base folder and check the result stays inside it (`const root = path.resolve(base); const p = path.resolve(root, input); if (p !== root && !p.startsWith(root + path.sep)) refuse`); reject absolute paths and NUL bytes before touching the filesystem.
 - Merging untrusted JSON into objects (`Object.assign`, deep-merge helpers, `obj[key] = value` with keys from input) can set `__proto__` or `constructor.prototype`; use `Map`, `Object.create(null)` or schema validation that rejects unknown keys.
 - `eval`, `new Function` and the `node:vm` module are not sandboxes: the Node docs state `node:vm` is not a security mechanism. Untrusted code goes in a separate process with the permission model (`--permission`, stable since 22.13 / 23.5) or not at all.
 - Read secrets from the environment (`process.env`, `--env-file` for local runs); keep `.env` files out of git and out of logs, error messages and responses.

@@ -6,7 +6,6 @@ description: >-
   Effects, React Compiler, View Transitions and the APIs added in React 19.2 and 19.3. Use when a
   task adds or changes .jsx or .tsx components, hooks or React state in a web app. Not for Next.js
   routing, caching or config, not for React Native, and not for styling alone.
-paths: "**/*.jsx, **/*.tsx"
 license: MIT
 metadata:
   termf-stacks: "react"

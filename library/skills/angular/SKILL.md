@@ -6,7 +6,7 @@ description: >-
   models, templates with @if/@for, services and inject(), Signal Forms, routing, HttpClient, tests with
   ng test. Use when a task touches an Angular workspace (angular.json, src/app). Not for AngularJS (1.x),
   NestJS, React, Vue or Svelte code.
-paths: "**/angular.json, **/*.component.ts, **/*.component.html, **/src/app/**/*.ts, **/src/app/**/*.html"
+paths: "**/angular.json, **/*.component.ts, **/*.component.html"
 license: MIT
 metadata:
   termf-stacks: "angular"

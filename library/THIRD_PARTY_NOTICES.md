@@ -1,6 +1,6 @@
 # Third-party notices
 
-Some role prompts in `library/roles/` adapt short passages from the MIT-licensed works below, rewritten and shortened. Each role that does lists its sources in the `credits` key of its frontmatter; TermF reads that key but never puts it in a prompt.
+Some role prompts in `library/roles/` and some skills in `library/skills/` adapt short passages from the MIT-licensed works below, rewritten and shortened. Each role that does lists its sources in the `credits` key of its frontmatter, each skill in `metadata.credits`; TermF reads that key but never puts it in a prompt.
 
 | Source | Commit | License | Files adapted | Used in |
 |---|---|---|---|---|

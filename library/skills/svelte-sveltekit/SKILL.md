@@ -6,7 +6,7 @@ description: >-
   upgrade ($lib to #lib, $app/stores to $app/state, svelte.config.js moved into vite.config). Use when a task
   touches .svelte or .svelte.ts files, src/routes, or a SvelteKit config. Not for React, Vue or Angular
   components, nor for plain Vite apps without Svelte.
-paths: "**/*.svelte, **/*.svelte.ts, **/*.svelte.js, **/src/routes/**, **/src/hooks*, **/vite.config.*, **/svelte.config.*"
+paths: "**/*.svelte, **/*.svelte.ts, **/*.svelte.js, **/+page.*, **/+layout.*, **/+server.*, **/+error.svelte, **/hooks.server.*, **/hooks.client.*, **/svelte.config.*"
 license: MIT
 metadata:
   termf-stacks: "svelte sveltekit"
@@ -21,7 +21,7 @@ metadata:
 2. Open the docs of those versions before writing code. The packages ship no docs; the official agent resources are the Svelte MCP server (`list-sections`, then `get-documentation` for every section whose `use_cases` match the task), the same commands from the shell (`npx -y @sveltejs/mcp list-sections`, `npx -y @sveltejs/mcp get-documentation '<section>'`), and https://svelte.dev/docs/kit/llms.txt and https://svelte.dev/docs/svelte/llms.txt. When the session has the Svelte MCP tools or the `svelte` plugin skills (`svelte-code-writer`, `svelte-core-bestpractices`), follow them first. Done when the page for every API you will touch is open.
 3. Use the tools the project already has (package manager from the lockfile, `svelte-check`, Vitest or Playwright, its UI kit and CSS approach), because a second tool splits the project. Done when every command you plan to run comes from the project.
 4. Find a route or component that already does something close (data loading in `+page.server.ts` `load`, form actions, remote functions, `.svelte.ts` state classes) and copy its shape. Done when you can name the file you are modelling on.
-5. Write the change. Route files: `+page.svelte`, `+page.ts` (universal `load`), `+page.server.ts` (server `load`, `actions`), `+layout*`, `+server.ts` (endpoint), `+error.svelte`; hooks in `src/hooks.server.ts` and `src/hooks.client.ts`. Server-only code goes in a file or folder whose name has a `server` segment. Lib imports use the project's form (`$lib/...` on Kit 2, `#lib/....js` on Kit 3). Done when every import resolves to a module of the installed versions.
+5. Write the change. Route files: `+page.svelte`, `+page.ts` (universal `load`), `+page.server.ts` (server `load`, `actions`), `+layout*`, `+server.ts` (endpoint), `+error.svelte`; hooks in `src/hooks.server.ts` and `src/hooks.client.ts`. Server-only code goes in a file or folder whose name has a `server` segment. Lib imports use the project's form (`$lib/<path>` on Kit 2, `#lib/<path>.js` on Kit 3). Done when every import resolves to a module of the installed versions.
 6. Run the autofixer on every changed `.svelte` file: `npx -y @sveltejs/mcp svelte-autofixer <file> --svelte-version <svelte version from step 1>` (add `--async` when the project turned on experimental async), fix, and run it again until it returns no issues and no suggestions. Done when it is clean, or, offline, when the report says it could not run.
 7. When the task upgrades Kit 2 to 3, follow `references/kit-3-migration.md`. Done when its "Done when" holds.
 8. Run the commands of `## Verify` and put each one with its result in your report. Done when they pass, or when the failure is reported with its output.

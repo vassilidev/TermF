@@ -7,7 +7,7 @@ description: >-
   the version 16 pitfalls that agents trained on older releases get wrong. Use when a task touches a
   Next.js project (next.config.*, app/, pages/, proxy.ts, middleware.ts). Not for React code outside
   Next.js, nor for styling alone.
-paths: "**/next.config.*, **/app/**, **/pages/**, **/proxy.*, **/middleware.*"
+paths: "**/next.config.*, **/app/**/page.*, **/app/**/layout.*, **/app/**/route.*, **/pages/_app.*, **/pages/_document.*, **/proxy.*, **/middleware.*"
 license: MIT
 metadata:
   termf-stacks: "nextjs"
