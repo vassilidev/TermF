@@ -2226,6 +2226,11 @@ const fr = {
   reviewLoopAcceptTitle: "Accepter la revue telle quelle ?",
   reviewLoopAcceptText:
     "Les constats de ce tour restent tels quels, même ceux qui devaient être renvoyés à une tâche : rien n'est corrigé et le run continue.",
+
+  // UX pass 3 · T3: one Configuration page per project.
+  ux3t3Config: "Configuration",
+  ux3t3Setup: "Mise en route",
+  ux3t3AllProjects: "S'applique à tous les projets.",
 };
 
 type Key = keyof typeof fr;
@@ -4440,6 +4445,11 @@ const en: Record<Key, string> = {
   reviewLoopAcceptTitle: "Accept the review as it is?",
   reviewLoopAcceptText:
     "This round's findings stay as they are, even those to be sent back to a task: nothing gets fixed and the run goes on.",
+
+  // UX pass 3 · T3: one Configuration page per project.
+  ux3t3Config: "Configuration",
+  ux3t3Setup: "Setup",
+  ux3t3AllProjects: "Applies to every project.",
 };
 
 const messages = { fr, en };

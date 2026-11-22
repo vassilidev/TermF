@@ -100,6 +100,7 @@
     />
     {t("expertMemoryOn")}
   </label>
+  <p class="help">{t("ux3t3AllProjects")}</p>
   {#if !status.enabled}
     <p class="help">{t("expertMemoryOff")}</p>
   {/if}

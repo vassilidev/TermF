@@ -24,7 +24,6 @@ import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Megaphone from "@lucide/svelte/icons/megaphone";
 import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
 import MessageSquareText from "@lucide/svelte/icons/message-square-text";
-import Pencil from "@lucide/svelte/icons/pencil";
 import Play from "@lucide/svelte/icons/play";
 import Plus from "@lucide/svelte/icons/plus";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -46,7 +45,7 @@ import { display, keys, pressed } from "$lib/keymap.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { nextAfter } from "$lib/conversation-logic";
 import { type Command } from "$lib/nav-logic";
-import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
+import { configSections, editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { openSetup } from "$lib/onboarding.svelte";
 import { openBeside, otherPanel, toggleSplit } from "$lib/panes.svelte";
 import type { Side } from "$lib/split-logic";
@@ -278,7 +277,17 @@ export function commands(): Command[] {
   list.push({ id: "project-new", label: t("newProject"), icon: Plus, group: "projects", run: () => editProject("") });
   if (app.project !== null) {
     const id = app.project;
-    list.push({ id: "project-edit", label: t("ticketsEditProject"), icon: Pencil, group: "projects", run: () => editProject(id) });
+    for (const section of configSections) {
+      list.push({
+        id: `config-${section.id}`,
+        label: t(section.label),
+        hint: t("ux3t3Config"),
+        icon: section.icon,
+        group: "projects",
+        searchOnly: true,
+        run: () => editProject(id, section.id),
+      });
+    }
     const name = app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
     list.push({ id: "project-setup", label: t("obPalette", { project: name }), icon: WandSparkles, group: "projects", run: () => openSetup(id) });
     list.push({ id: "cto", label: t("ctoTalkTo", { project: name }), keys: keys.cto, icon: MessageSquareText, group: "projects", run: showCto });

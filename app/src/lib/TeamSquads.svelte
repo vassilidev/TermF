@@ -4,7 +4,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import { t } from "$lib/i18n";
   import { library, type Layer } from "$lib/library.svelte";
-  import { app, shortPath, ui } from "$lib/state.svelte";
+  import { app, onScreen, shortPath } from "$lib/state.svelte";
   import { shown, source } from "$lib/team-logic";
 
   /** `team_squads`: a project's squads and staff, each role with its settings as the layers make them. */
@@ -70,7 +70,7 @@
   // Again on coming back: the project's file or the library may have changed meanwhile.
   $effect(() => {
     void library.version;
-    if (ui.view !== "team") return;
+    if (!onScreen("team") && !onScreen("project")) return;
     if (!project) {
       view = null;
       return;

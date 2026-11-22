@@ -13,6 +13,7 @@
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import Conventions from "$lib/Conventions.svelte";
+  import OnboardingJournal from "$lib/OnboardingJournal.svelte";
   import OnboardingTeam from "$lib/OnboardingTeam.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
   import StackOffers from "$lib/StackOffers.svelte";
@@ -21,7 +22,7 @@
   import QuestionInput from "$lib/ui/QuestionInput.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { ago, lang, t } from "$lib/i18n";
+  import { lang, t } from "$lib/i18n";
   import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
   import { analyze as runAnalysis, analyzing, closeSetup, running, setup } from "$lib/onboarding.svelte";
   import {
@@ -124,15 +125,6 @@
   };
   const notifyLabel = { mine: "ciNotifyMine", all: "ciNotifyAll", off: "ciNotifyOff" } as const;
   const notifyOptions: Notify[] = ["mine", "all", "off"];
-  const logLabel = {
-    tickets: "obTicketsTitle",
-    worktree: "obRecipeTitle",
-    ci: "obCiTitle",
-    trust: "obTrustTitle",
-    team: "obTeamTitle",
-    skills: "stackSkillsTitle",
-    mcp: "stackMcpTitle",
-  } as const;
 
   onMount(async () => {
     if (!project) return closeSetup();
@@ -597,20 +589,7 @@
           <p class="lead">{t("obDoneHelp")}</p>
           {#if ob.log.length}
             <h3>{t("obJournal")}</h3>
-            <ul class="journal">
-              {#each ob.log as entry, i (i)}
-                <li>
-                  <span class="muted">{ago(entry.at)}</span>
-                  {#if entry.what === "answers"}
-                    {t("obLogAnswers", { count: entry.detail })}
-                  {:else}
-                    <b>{t(logLabel[entry.what as keyof typeof logLabel] ?? "obConfigure")}</b>
-                    {#if entry.decision}<StatusPill status={entry.decision} />{/if}
-                    {#if entry.detail}<span class="mono detail">{entry.detail}</span>{/if}
-                  {/if}
-                </li>
-              {/each}
-            </ul>
+            <OnboardingJournal log={ob.log} />
           {/if}
           <footer class="actions">
             <button class="btn" onclick={() => (shown = "trust")}>{t("obBack")}</button>
@@ -881,8 +860,7 @@
     flex: 1;
   }
 
-  .lines,
-  .journal {
+  .lines {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -890,23 +868,6 @@
     padding: 0;
     list-style: none;
     font-size: var(--text-sm);
-  }
-
-  .journal li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .journal b {
-    font-weight: 500;
-  }
-
-  .journal .detail {
-    color: var(--muted);
-    font-size: var(--text-xs);
-    overflow-wrap: anywhere;
   }
 
   .lines li {

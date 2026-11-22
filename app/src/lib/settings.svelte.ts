@@ -3,7 +3,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Preview } from "$lib/library.svelte";
 import { load, ui } from "$lib/state.svelte";
 
-export type Section = "awake" | "context" | "keys" | "ci" | "claude" | "memory" | "config" | "sync";
+export type Section = "awake" | "context" | "keys" | "ci" | "claude" | "config" | "sync";
 export type Transfer =
   | { kind: "exported"; files: number; skippedLinks: string[] }
   | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean };

@@ -88,7 +88,7 @@ export function watchPanes(): () => void {
       if (!ready || dragging.on) return;
       try {
         if (text) localStorage.setItem(stored, text);
-        // A project's page beside a view is not kept, and does not forget the panels kept before.
+        // The onboarding assistant beside a view is not kept, and does not forget the panels kept before.
         else if (single) localStorage.removeItem(stored);
       } catch {
         // Storage off: the panels hold until the app closes.

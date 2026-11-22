@@ -11,6 +11,8 @@
     count?: number | null;
     /** A rule above it. */
     apart?: boolean;
+    /** It leads to something that cannot be undone. */
+    danger?: boolean;
   };
 
   let {
@@ -30,7 +32,7 @@
     {#each items as item (item.id)}
       <li>
         {#if item.apart}<hr />{/if}
-        <button class="item" aria-current={current === item.id ? "page" : undefined} onclick={() => onselect(item.id)}>
+        <button class="item" class:danger={item.danger} aria-current={current === item.id ? "page" : undefined} onclick={() => onselect(item.id)}>
           <item.icon size={16} aria-hidden="true" />
           <span class="label">{item.label}</span>
           {#if item.dot && item.dotLabel}
@@ -104,6 +106,11 @@
 
   .item[aria-current] > :global(svg) {
     color: var(--accent-ink);
+  }
+
+  .item.danger,
+  .item.danger > :global(svg) {
+    color: var(--danger);
   }
 
   .label {
