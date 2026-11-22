@@ -8,7 +8,8 @@ description: >-
   citation gives the article, its version in force, the official URL and the date read; what has no source is
   marked "to check"; the deliverable ends with the validation line. Use it before answering whenever a task or a
   question asks what the law requires of a product: mandatory notices, terms of use, GDPR, cookie consent rules,
-  sector rules (fintech, health), a deadline, a fine or a regulator's guidance. Not for writing the pages or the
+  sector rules (fintech, health), a deadline, a fine or a regulator's guidance, even a figure asked for from
+  memory. Not for writing the pages or the
   banner wording (ux-writing), nor for security flaws in the code (security-web).
 license: MIT
 metadata:

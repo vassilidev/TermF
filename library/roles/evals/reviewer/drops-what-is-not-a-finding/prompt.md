@@ -39,9 +39,8 @@ What each step says it did: claims nobody has checked, which may be incomplete o
 ```diff
 --- a/src/shipping.ts
 +++ b/src/shipping.ts
-@@ -1,5 +1,8 @@
--export const SHIPPING_CENTS = 490;
-+export const SHIPPING_CENTS = 490;
+@@ -1,5 +1,7 @@
+ export const SHIPPING_CENTS = 490;
 +export const FREE_SHIPPING_FROM_CENTS = 5000;
 
  export function shippingFee(subtotalCents: number): number {

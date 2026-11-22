@@ -3,7 +3,8 @@
 // repository: the skills every session gets and the skill under test, with the role's prompt (for a role) and the
 // skills' cards appended to the system prompt, as TermF gives them to a session.
 //
-//   pnpm evals                     the key suites (KEY), Haiku, one run per case, $3 at most in all
+//   pnpm evals                     the key suites (KEY), played by Haiku and judged by Sonnet, one run per case,
+//                                  $3 at most in all
 //   pnpm evals git cto             only these suites
 //   pnpm evals --all               every skill and role that has evals
 //   pnpm evals --budget 5 -- --runs 3 --ablation with-without
@@ -114,7 +115,9 @@ export function build(suite, dir, library = LIBRARY) {
 
 /** The `claude plugin eval` arguments of one suite: the defaults, then `extra`, which win. */
 export function command(dir, out, { grants, scaffold }, budget, extra) {
-  const args = ["plugin", "eval", dir, "--trust-plugin", "--no-publish", "--model", "haiku", "--runs", "1"];
+  // Haiku is enough to play the cases; as a judge it failed correct answers in our runs.
+  const args = ["plugin", "eval", dir, "--trust-plugin", "--no-publish", "--model", "haiku", "--judge-model", "sonnet"];
+  args.push("--runs", "1");
   args.push("--ablation", "none", "--max-cost-usd", budget.toFixed(2), "--output-dir", out);
   if (grants.length) args.push("--allow-tools", ...grants);
   if (scaffold) args.push("--scaffold");
