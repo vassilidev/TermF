@@ -12,11 +12,17 @@ use termf_team::{Level, Options, RunState, Team, TeamUpdate};
 use super::*;
 use crate::diff::Image;
 
-/// Each test has its own data folder, so its own port allocations: the ones that start dev servers take turns.
-static SERIAL: Mutex<()> = Mutex::new(());
-
-fn serial() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+/// Each test has its own data folder, so its own port allocations: the ones that start dev servers take turns,
+/// with those of the other test runs on the machine too (two `cargo test` at once).
+fn serial() -> fs::File {
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(std::env::temp_dir().join("termf-visual-tests.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    lock
 }
 
 /// A dev server for tests, serving the files of the folder it runs in. Not `python3 -m http.server`: it looks
@@ -482,6 +488,104 @@ fn a_dev_server_that_does_not_answer_fails_the_version() {
         .decide(review.id, "all", Decision::Approved, None, None)
         .unwrap_err();
     assert!(err.to_string().contains("failed"), "{err}");
+    let _ = fs::remove_dir_all(&env.root);
+}
+
+#[test]
+fn a_capture_of_another_programs_server_fails_the_version() {
+    let _serial = serial();
+    let env = Env::new("foreign", "[visual]\nroutes = [\"/\"]\n");
+    // Ours never listens and ends once another program does on its port, as one that could not take it.
+    let (started, up) = (env.root.join("started"), env.root.join("foreign-up"));
+    let file = env.config.join("projects/acme.toml");
+    let ours = format!(
+        "echo $$ {{{{ port }}}} > '{}'; while [ ! -e '{}' ]; do sleep 0.05; done; exit 1",
+        started.display(),
+        up.display()
+    );
+    let text = fs::read_to_string(&file)
+        .unwrap()
+        .replace(&dev(&env.root), &ours);
+    fs::write(&file, text).unwrap();
+    let head = env.commit(PAGE_AFTER);
+    let other = env.root.join("other");
+    fs::create_dir_all(&other).unwrap();
+    fs::write(other.join("index.html"), "<h1>Someone else</h1>\n").unwrap();
+    let ours_of = |started: &Path| -> Option<(String, u16)> {
+        let text = fs::read_to_string(started).ok()?;
+        let (pid, port) = text.trim().split_once(' ')?;
+        Some((pid.to_owned(), port.parse().ok()?))
+    };
+    let foreign = {
+        let (started, up, other) = (started.clone(), up.clone(), other.clone());
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let port = loop {
+                if let Some((_, port)) = ours_of(&started) {
+                    break port;
+                }
+                assert!(Instant::now() < deadline, "our dev server never started");
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            let mut server = Server::start(
+                &dev(&other),
+                &other,
+                &BTreeMap::new(),
+                port,
+                &other.join("log"),
+            )
+            .unwrap();
+            server.wait(Duration::from_secs(60)).unwrap();
+            fs::write(&up, "").unwrap();
+            server
+        })
+    };
+    // The screens are taken once ours has ended.
+    let shooter = {
+        let started = started.clone();
+        move |target: &Target| {
+            let (pid, _) = ours_of(&started).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(60);
+            loop {
+                let out = Command::new("ps")
+                    .args(["-o", "stat=", "-p", &pid])
+                    .output()
+                    .unwrap();
+                let stat = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                if stat.is_empty() || stat.starts_with('Z') {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "our dev server never ended");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            shoot(target)
+        }
+    };
+    let visual = Visual::build(
+        env.config.clone(),
+        env.data.clone(),
+        env.env.clone(),
+        Some(Arc::new(shooter)),
+        |_| {},
+    );
+    let review = visual
+        .start(Request {
+            repo: Some(env.repo.clone()),
+            base: Some("HEAD~1".into()),
+            head: Some(head),
+            ..Request::default()
+        })
+        .unwrap();
+    let v = captured(&visual, review.id);
+    let _foreign = foreign.join().unwrap();
+    assert_eq!(v.state, VersionState::Failed, "{v:#?}");
+    let error = v.error.unwrap();
+    assert!(
+        error.starts_with(
+            "before: the dev server ended during the capture, and another server answered on its port"
+        ),
+        "{error}"
+    );
     let _ = fs::remove_dir_all(&env.root);
 }
 

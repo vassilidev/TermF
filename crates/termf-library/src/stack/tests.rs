@@ -912,6 +912,7 @@ fn probes_rust_analyzer_in_the_repository_once_a_minute_and_never_waits_long() {
     // Like rustup's proxy: it works only where the repository's toolchain file says so.
     let bin = temp_dir("stack-lsp-probe-bin");
     script(&bin, "[ -f rust-toolchain.toml ]");
+    crate::first_run(&bin.join("rust-analyzer"));
     let repo = temp_dir("stack-lsp-probe-repo");
     let other = temp_dir("stack-lsp-probe-other");
     put(&repo.join("rust-toolchain.toml"), "[toolchain]\n");

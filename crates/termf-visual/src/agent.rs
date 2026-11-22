@@ -1179,25 +1179,25 @@ mod tests {
             ),
         )
         .unwrap();
+        // Two free ports, not fixed ones another test run at the same time would also take.
+        let [one, two] = [0, 0]
+            .map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap())
+            .map(|l| l.local_addr().unwrap().port());
         fs::write(
             data.join("ports.json"),
-            json!({ repo.to_string_lossy(): { "browser": 5343, "browser-2": 5344 } }).to_string(),
+            json!({ repo.to_string_lossy(): { "browser": one, "browser-2": two } }).to_string(),
         )
         .unwrap();
         let pilot =
             || Pilot::new(repo.clone(), config.clone(), data.clone(), Box::new(|_| {})).unwrap();
         let mut first = pilot();
-        assert_eq!(first.dev().unwrap(), 5343);
+        assert_eq!(first.dev().unwrap(), one);
         let mut second = pilot();
-        assert_eq!(
-            second.dev().unwrap(),
-            5344,
-            "not the first session's server"
-        );
+        assert_eq!(second.dev().unwrap(), two, "not the first session's server");
         drop(first);
-        assert!(!crate::env::answers(5343));
+        assert!(!crate::env::answers(one));
         assert!(
-            crate::env::answers(5344),
+            crate::env::answers(two),
             "the second session still has its server"
         );
         drop(second);
