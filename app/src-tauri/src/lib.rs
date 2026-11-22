@@ -641,6 +641,8 @@ pub fn run() {
             onboarding::setup_detect,
             onboarding::setup_draft,
             onboarding::setup_preview,
+            onboarding::greenfield_plan,
+            onboarding::greenfield_create,
             vault::vault_status,
             vault::vault_init,
             vault::vault_unlock,
