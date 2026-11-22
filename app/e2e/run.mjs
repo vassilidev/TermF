@@ -80,7 +80,7 @@ async function attempt(scenario) {
 }
 
 rmSync(outDir, { recursive: true, force: true });
-const chosen = scenarios.filter((s) => (!s.only || s.only === platform) && (!filter || s.name.includes(filter)));
+const chosen = scenarios.filter((s) => (!s.only || [s.only].flat().includes(platform)) && (!filter || s.name.includes(filter)));
 if (filter && filter !== "perf" && !chosen.length) {
   console.error(`No scenario matches "${filter}" on ${platform}.`);
   process.exit(1);

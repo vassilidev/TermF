@@ -305,7 +305,13 @@ fn artifacts_state(app: &AppHandle) -> Artifacts {
 
 fn changed(app: &AppHandle) {
     let _ = app.emit("artifacts", artifacts_state(app));
+    // A listing or a deletion that starts, or a new `refresh_hours`, is seen by `watch` now, not in 10 minutes.
+    if let Some(watcher) = WATCHER.get() {
+        watcher.unpark();
+    }
 }
+
+static WATCHER: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
 
 #[tauri::command]
 pub fn artifacts_list(app: AppHandle) -> Artifacts {
@@ -340,6 +346,7 @@ pub fn artifacts_auto(app: AppHandle, on: bool) -> CmdResult<Artifacts> {
         (true, hours) => hours,
     };
     termf_core::save_artifacts_refresh(config_dir, hours).map_err(err)?;
+    changed(&app);
     Ok(artifacts_state(&app))
 }
 
@@ -621,7 +628,7 @@ pub fn exited(app: &AppHandle, id: u32) {
 /// Times the listing out, and lists the account at startup then every `[artifacts] refresh_hours`.
 pub fn watch(app: &AppHandle) {
     let app = app.clone();
-    std::thread::spawn(move || {
+    let watcher = std::thread::spawn(move || {
         // Leaves the app time to start before a first automatic listing.
         std::thread::sleep(Duration::from_secs(30));
         loop {
@@ -651,9 +658,17 @@ pub fn watch(app: &AppHandle) {
             if due && let Err(e) = start(&app, false) {
                 eprintln!("termf: artifacts not listed: {e:#}");
             }
-            std::thread::sleep(Duration::from_secs(5));
+            let busy =
+                claude.refresh.lock().unwrap().running || claude.deletion.lock().unwrap().running;
+            // At rest, only the next automatic listing is waited for, hours away; `changed` wakes it sooner.
+            if busy {
+                std::thread::sleep(Duration::from_secs(5));
+            } else {
+                std::thread::park_timeout(Duration::from_secs(600));
+            }
         }
     });
+    let _ = WATCHER.set(watcher.thread().clone());
 }
 
 #[cfg(test)]

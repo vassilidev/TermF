@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { t } from "$lib/i18n";
-import { app, ui } from "$lib/state.svelte";
-import { cleanupNotice } from "$lib/tickets-logic";
+import { app, ui, type Session } from "$lib/state.svelte";
+import { cleanupNotice, liveSession } from "$lib/tickets-logic";
 import type { Done } from "$lib/team-run-logic";
 
 export type TicketRef = { provider: string; key: string; url: string };
@@ -164,6 +164,21 @@ export async function loadRuns() {
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch((e) => (tickets.error = String(e)));
+}
+
+export function runSession(run: Run): Session | undefined {
+  return liveSession(run, app.sessions);
+}
+
+/** Shows the run's tile. `session-opened` may come after the answer that started the run: then the list is asked. */
+export async function openTile(run: Run) {
+  if (!runSession(run)) {
+    const list = await invoke<Session[]>("pty_list").catch(() => []);
+    for (const s of list) if (!app.sessions.some((o) => o.id === s.id)) app.sessions.push(s);
+  }
+  const session = runSession(run);
+  // Not imported up top: commands imports this module.
+  if (session) await (await import("$lib/commands")).focusSession(session.id);
 }
 
 /** Takes a run as `run-updated` or a command gives it, newest first. */

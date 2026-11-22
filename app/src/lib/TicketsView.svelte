@@ -15,7 +15,7 @@
   import Ticket from "@lucide/svelte/icons/ticket";
   import Users from "@lucide/svelte/icons/users";
   import TeamOptions from "$lib/TeamOptions.svelte";
-  import { openTile } from "$lib/RunView.svelte";
+  import { openTile } from "$lib/tickets.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";

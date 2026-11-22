@@ -98,6 +98,49 @@ jobs:
           path: app/e2e/out/
           if-no-files-found: ignore
 
+  # The performance budgets on the product itself: the release build, measured like the debug one in the e2e job.
+  perf-release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: perf-release
+      - name: Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+          sudo locale-gen en_US.UTF-8 fr_FR.UTF-8
+      - name: tauri-driver
+        run: cargo install tauri-driver --locked
+      - name: Build the app (release)
+        working-directory: app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm tauri build --no-bundle
+      - name: Performance
+        working-directory: app
+        env:
+          TERMF_E2E_APP: ${{ github.workspace }}/target/release/termf-app
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" pnpm e2e perf
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-release-linux
+          path: app/e2e/out/
+          if-no-files-found: ignore
+
   # The same scenarios on macOS, where no WebDriver exists: the app's e2e build drives its window through its bridge.
   e2e-macos:
     if: github.event_name == 'push'
