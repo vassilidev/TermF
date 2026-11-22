@@ -17,8 +17,9 @@ const FIRST_NAME: &str = "{{ user.first_name }}";
 /// (as agents, the role format being Claude Code's agent format) in `plugin/`, for `--plugin-dir`, and the
 /// prompt of the role it plays then the active preferences and rule instructions that apply to it in
 /// `system-prompt.md`, for `--append-system-prompt-file`. A hook rule that one of the project's conventions
-/// generated also becomes a hook of the plugin. Adds to a plugin already there (the status hooks) and returns
-/// the prompt file when it has content.
+/// generated also becomes a hook of the plugin, and the installed language servers of the stack its `.lsp.json`
+/// (unless the project turns them off). Adds to a plugin already there (the status hooks) and returns the prompt
+/// file when it has content.
 pub fn materialize(
     config_dir: &Path,
     scope: &Scope,
@@ -110,6 +111,14 @@ pub fn materialize(
     }
     if !hooks.is_empty() {
         add_hooks(&plugin, &hooks)?;
+    }
+    let servers: Vec<_> = scope.stack.iter().flat_map(|r| r.servers.clone()).collect();
+    let lsp = crate::stack::lsp_json(&servers);
+    if !lsp.is_empty() && crate::language_servers_on(config_dir, scope.project.as_deref()) {
+        write_file(
+            &plugin.join(".lsp.json"),
+            serde_json::to_string_pretty(&lsp)?.as_bytes(),
+        )?;
     }
     let manifest = plugin.join(".claude-plugin/plugin.json");
     if plugin.is_dir() && !manifest.exists() {
@@ -692,6 +701,7 @@ mod tests {
                 path: "node_modules/next/dist/docs".into(),
             }],
             trusted,
+            servers: Vec::new(),
         };
         let session_for = |role: Option<&str>, trusted: bool| {
             let _ = fs::remove_dir_all(&session);
@@ -927,6 +937,50 @@ mod tests {
             fs::read_to_string(session.join("plugin/.claude-plugin/plugin.json")).unwrap();
         assert!(manifest.contains("hooks"));
         assert!(session.join("plugin/agents/po.md").is_file());
+    }
+
+    #[test]
+    fn declares_the_installed_language_servers_unless_the_project_turns_them_off() {
+        let dir = temp_dir("materialize-lsp");
+        let session = dir.join("session");
+        let bin = dir.join("bin");
+        crate::fake_bin(&bin, "rust-analyzer", true);
+        put(&dir.join("projects/acme.toml"), "name = \"Acme\"\n");
+        let tags: Vec<crate::stack::Tag> = ["rust", "python"]
+            .iter()
+            .map(|t| crate::stack::Tag {
+                name: (*t).into(),
+                version: None,
+                source: "Cargo.toml".into(),
+            })
+            .collect();
+        let scope = Scope {
+            project: Some("acme".into()),
+            stack: vec![RepoStack {
+                servers: crate::stack::language_servers(&tags, bin.as_os_str(), &dir),
+                ..RepoStack::default()
+            }],
+            ..own_skills_only()
+        };
+        let lsp = || fs::read_to_string(session.join("plugin/.lsp.json")).ok();
+
+        materialize(&dir, &scope, &session).unwrap();
+        let declared: Value = serde_json::from_str(&lsp().unwrap()).unwrap();
+        assert_eq!(
+            declared,
+            json!({ "rust-analyzer": { "command": "rust-analyzer", "extensionToLanguage": { ".rs": "rust" } } }),
+            "pyright is not installed, so it is not declared"
+        );
+        assert!(session.join("plugin/.claude-plugin/plugin.json").is_file());
+
+        crate::set_language_servers(&dir, "acme", false).unwrap();
+        assert!(!crate::language_servers_on(&dir, Some("acme")));
+        assert!(crate::language_servers_on(&dir, None));
+        let other = dir.join("other");
+        materialize(&dir, &scope, &other).unwrap();
+        assert!(!other.join("plugin/.lsp.json").exists());
+        let file = fs::read_to_string(dir.join("projects/acme.toml")).unwrap();
+        assert!(file.starts_with("name = \"Acme\"\n"), "{file}");
     }
 
     #[test]

@@ -159,7 +159,7 @@
   }
 
   .palette::backdrop {
-    background: rgb(10 12 20 / 0.28);
+    background: var(--scrim, rgb(10 12 20 / 0.3));
   }
 
   @keyframes rise {

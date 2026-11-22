@@ -1,12 +1,13 @@
 ---
 name: tests-from-criteria
 description: >-
-  Decides what to test and at which level, then proves each new test can fail: tests come from the
-  acceptance criteria and the real user flows, at the highest level the project can run, and never
-  restate the implementation. Use when adding or changing behaviour that needs tests, fixing a bug,
-  writing a regression test, or judging whether existing or proposed tests are useful, in any
-  language or framework. Not for setting up or configuring a test runner (see the framework skill:
-  testing-js, playwright, pytest, pest…), nor for changes with no behaviour (docs, formatting, config).
+  Decides what to test and at which level, then proves each new test can fail: tests come from the acceptance
+  criteria and the real user flows, at the highest level the project can run, and never restate the
+  implementation. Use it before answering whenever a task adds or changes behaviour that needs tests, fixes a
+  bug, writes a regression test, or asks which tests to write, at which level, or whether existing or proposed
+  tests are useful, in any language or framework. Not for setting up or configuring a test runner (see the
+  framework skill: testing-js, playwright, pytest, pest…), nor for changes with no behaviour (docs, formatting,
+  config).
 license: MIT
 metadata:
   termf-stacks: "*"
