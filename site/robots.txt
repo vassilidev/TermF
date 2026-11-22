@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vassilidev.github.io/TermF/sitemap.xml

@@ -1,0 +1,50 @@
+name: Website
+
+# Publishes site/ to GitHub Pages with every page minified (inline CSS and JS through esbuild); the repo keeps the readable sources.
+# Needs Settings > Pages > Source: GitHub Actions. Until then the build job stops at "configure-pages", before anything
+# is uploaded or deployed; once it is set, rerun with `gh workflow run pages.yml`.
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/scripts/minify.py', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - name: Minify the pages
+        run: |
+          cp -R site _site
+          for page in site/*.html; do
+            python3 .github/scripts/minify.py "$page" "_site/${page#site/}"
+            printf '%s: %s → %s bytes\n' "$page" "$(wc -c < "$page")" "$(wc -c < "_site/${page#site/}")"
+          done
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # A job of its own, so the github-pages environment is only used once the site is built
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
