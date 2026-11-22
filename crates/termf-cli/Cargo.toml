@@ -27,4 +27,5 @@ termf-sync = { path = "../termf-sync" }
 termf-team = { path = "../termf-team" }
 termf-tickets = { path = "../termf-tickets" }
 termf-vault = { path = "../termf-vault" }
+termf-visual = { path = "../termf-visual" }
 termf-worktree = { path = "../termf-worktree" }

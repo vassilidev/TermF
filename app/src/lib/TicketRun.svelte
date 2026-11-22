@@ -36,11 +36,15 @@
   import ShieldQuestionMark from "@lucide/svelte/icons/shield-question-mark";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import Users from "@lucide/svelte/icons/users";
+  import TeamOptions from "$lib/TeamOptions.svelte";
   import CiChecks from "$lib/CiChecks.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { repoName, shortPath } from "$lib/state.svelte";
+  import { budgetError, type TeamRun } from "$lib/team-run-logic";
+  import { showTeamRun, team, upsertRun } from "$lib/team.svelte";
   import { readyToClean, refusal, resumable } from "$lib/tickets-logic";
   import {
     openUrl,
@@ -60,11 +64,16 @@
     | { kind: "resumed"; warning: string }
     | { kind: "close" }
     | { kind: "refused"; detail: string; cleanup: boolean; uncommitted: boolean }
-    | { kind: "force" };
+    | { kind: "force" }
+    | { kind: "team" };
 
   let step = $state<Step>(null);
   /** The action under way. */
-  let busy = $state<"" | "preview" | "deliver" | "close" | "resume" | "cleanup">("");
+  let busy = $state<"" | "preview" | "deliver" | "close" | "resume" | "cleanup" | "team">("");
+  let teamWorkflow = $state("");
+  let teamBudget = $state<number | null>(null);
+  /** A run with a team is the team's: its own session is not resumed beside it. */
+  const teamRun = $derived(team.runs.find((r) => r.run === run.id));
   let stepError = $state("");
   let events = $state<RunEvent[]>([]);
 
@@ -197,6 +206,14 @@
       else await openTile(resumed.run);
     });
 
+  const startTeam = () =>
+    act("team", async () => {
+      const options = { workflow: teamWorkflow || undefined, budget: teamBudget ?? undefined };
+      upsertRun(await invoke<TeamRun>("team_start", { run: run.id, options }));
+      step = null;
+      showTeamRun(run.id);
+    });
+
   async function copy(url: string) {
     try {
       await navigator.clipboard.writeText(url);
@@ -261,13 +278,20 @@
     <button class="btn sm" onclick={() => openTile(run)}>
       <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
     </button>
-  {:else if resumable(run)}
+  {:else if resumable(run) && !teamRun}
     <button class="btn sm" onclick={resume} disabled={!!busy}>
       {#if busy === "resume"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<RotateCcw
           size={14}
           aria-hidden="true"
         />{/if}
       {t("ticketsUiResume")}
+    </button>
+  {/if}
+  {#if teamRun}
+    <button class="btn sm" onclick={() => showTeamRun(run.id)}><Users size={14} aria-hidden="true" />{t("teamRunsShow")}</button>
+  {:else if run.status === "running" && run.worktree}
+    <button class="btn sm" aria-expanded={step?.kind === "team"} onclick={() => ((step = { kind: "team" }), (stepError = ""))}>
+      <Users size={14} aria-hidden="true" />{t("teamRunsLaunchLong")}
     </button>
   {/if}
   {#if open}
@@ -410,6 +434,23 @@
       <button class="btn sm danger" onclick={() => close(true)} disabled={!!busy}>
         {#if busy === "close"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
         {t("closeForceRun")}
+      </button>
+    </div>
+  </section>
+{:else if step?.kind === "team"}
+  <section class="ask" aria-labelledby="team-title">
+    <h3 id="team-title">{t("teamRunsLaunchLong")}</h3>
+    <p class="how">{t("teamRunsHow")}</p>
+    <TeamOptions project={run.project} bind:workflow={teamWorkflow} bind:budget={teamBudget} />
+    {#if session}
+      <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{t("teamRunsSessionOpen")}</p>
+    {/if}
+    {@render failure()}
+    <div class="buttons">
+      <button class="btn sm" onclick={() => (step = null)}>{t("cancel")}</button>
+      <button class="btn sm primary" onclick={startTeam} disabled={!!busy || !!budgetError(teamBudget)}>
+        {#if busy === "team"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Users size={14} aria-hidden="true" />{/if}
+        {t("teamRunsLaunch")}
       </button>
     </div>
   </section>
