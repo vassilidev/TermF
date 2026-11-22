@@ -1,0 +1,5 @@
+- Scripts run on macOS (BSD sed, one-true-awk) and Linux (GNU sed, gawk or mawk): write the form both read.
+- In place: `sed -i.bak -e '…' "$f" && rm "$f.bak"`; `sed -i '…'` fails on macOS and `sed -i '' '…'` on Linux.
+- `-E` with `[[:space:]]`, `[[:alnum:]_]`; BSD sed reads `\s`, `\w`, `\+` as the letters `s`, `w` and `+`.
+- awk: raw values through `ENVIRON["NAME"]`, since `-v` turns `\t` and `\\` into other characters.
+- For one or two files, the editor tool is safer than sed. Read the skill `sed-awk` before a bulk edit or a portable script.

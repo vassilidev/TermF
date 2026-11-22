@@ -1,0 +1,5 @@
+- Shell values go in with `--arg name "$v"` (string) or `--argjson` and are read as `$name` in a single-quoted filter.
+- `-e` makes a missing field exit 1; without it, `-r` prints `null` and exits 0. `//` also replaces `false`.
+- No in-place edit: write to a temporary file then `mv`; `jq … f > f` empties `f`.
+- macOS ships jq 1.7.1, without `trim`, `trimstr`, `add(f)` or `skip` (added in 1.8): check `jq --version`.
+- Read the skill `jq` before building JSON or parsing it in a script.
