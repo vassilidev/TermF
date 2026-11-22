@@ -244,7 +244,8 @@ fn json_list(env: &Env, args: &[&str]) -> Result<Vec<Value>> {
 fn installed_and_available(env: &Env) -> Result<(Vec<Value>, Vec<Value>)> {
     let out = claude(env, &["plugin", "list", "--json", "--available"], QUICK)?;
     if !out.ok {
-        bail!("{}", failure(&out));
+        // A Claude Code without --available still lists what is installed.
+        return Ok((json_list(env, &["plugin", "list", "--json"])?, Vec::new()));
     }
     let mut value: Value = serde_json::from_str(out.stdout.trim())?;
     mask::mask(&mut value);

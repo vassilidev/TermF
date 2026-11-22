@@ -206,7 +206,9 @@
     if (!edit || !o) return;
     discard();
     editError = "";
-    const v = fileValue(o, edit.scope, edit.key) ?? effective(o, edit.key)?.value;
+    // Another scope's value is a handy start, unless it is masked: it could not be revealed from this file.
+    const other = effective(o, edit.key)?.value;
+    const v = fileValue(o, edit.scope, edit.key) ?? (JSON.stringify(other ?? "").includes("••••••") ? undefined : other);
     edit.value = v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v, null, 2);
   }
 
@@ -302,7 +304,15 @@
       <div class="editor-row">
         <label class="labelled">
           <span>{t("claudeViewKey")}</span>
-          <input class="field mono" list="claude-setting-keys" bind:value={edit.key} onchange={load} spellcheck="false" autocomplete="off" required />
+          <input
+            class="field mono"
+            list="claude-setting-keys"
+            bind:value={edit.key}
+            onchange={() => edit && startEdit(edit.key)}
+            spellcheck="false"
+            autocomplete="off"
+            required
+          />
           <datalist id="claude-setting-keys">{#each schemaKeys as key (key)}<option value={key}></option>{/each}</datalist>
         </label>
         <label class="labelled">
@@ -332,7 +342,7 @@
       </div>
       {#if spec?.description}<p class="muted describe">{spec.description}</p>{/if}
       {#if kind === "json"}
-        <label class="labelled">
+        <label class="labelled full">
           <span>{t("claudeMgmtJsonValue")}</span>
           <textarea class="field mono json" bind:value={edit.value} disabled={edit.remove} rows="6" spellcheck="false"></textarea>
         </label>
@@ -1432,6 +1442,10 @@
     max-width: 80ch;
     margin: 0;
     font-size: var(--text-xs);
+  }
+
+  .editor .labelled.full {
+    width: 100%;
   }
 
   .editor .json {

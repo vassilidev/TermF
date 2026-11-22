@@ -141,6 +141,7 @@
           <li class:mine={r.scope === scope}>
             <span class="mono rule" title={r.item}>{r.item}</span>
             <span class="badge scope">{scopeLabel(r.scope)}</span>
+            <span class="tools" class:two={move}>
             {#if move && r.scope === scope}
               <label class="move" title={t("claudeMgmtMoveRule", { rule: r.item })}>
                 <ArrowRightLeft size={12} aria-hidden="true" />
@@ -160,6 +161,7 @@
               </label>
             {/if}
             {@render remove(r.scope, r.item, { op: "drop", key, index: r.index }, "permissions")}
+            </span>
           </li>
         {/each}
       </ul>
@@ -218,7 +220,7 @@
         <span>{t("claudeRedesignModel")}</span>
         <input class="field mono" bind:value={model} placeholder="opus, sonnet, haiku…" spellcheck="false" autocomplete="off" />
       </label>
-      <button class="btn sm">{t("claudeViewPreview")}</button>
+      <button class="btn">{t("claudeViewPreview")}</button>
       <span class="muted small">{decided("model")}</span>
     </form>
     <div class="pair">
@@ -274,6 +276,7 @@
         {@const id = `${v.scope}:${v.name}`}
         <li class:mine={v.scope === scope}>
           <span class="mono var">{v.name}</span>
+          <span class="value">
           <span class="mono rule" class:hidden={!(id in revealed) && v.value.includes("••••••")}>{revealed[id] ?? v.value}</span>
           {#if v.value.includes("••••••")}
             <button
@@ -286,8 +289,9 @@
               {#if id in revealed}<EyeOff size={13} aria-hidden="true" />{:else}<Eye size={13} aria-hidden="true" />{/if}
             </button>
           {/if}
+          </span>
           <span class="badge scope">{scopeLabel(v.scope)}</span>
-          {@render remove(v.scope, v.name, { op: "set", key: `env.${v.name}`, value: null }, "env")}
+          <span class="tools">{@render remove(v.scope, v.name, { op: "set", key: `env.${v.name}`, value: null }, "env")}</span>
         </li>
       {/each}
     </ul>
@@ -472,6 +476,18 @@
     white-space: nowrap;
   }
 
+  .value {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .value .rule {
+    flex: 0 1 auto;
+  }
+
   .rule.hidden {
     color: var(--muted);
     letter-spacing: 0.1em;
@@ -487,6 +503,19 @@
   .badge.scope {
     min-width: 64px;
     justify-content: center;
+  }
+
+  /* Same width with or without buttons, so the scope badges line up. */
+  .tools {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    gap: 4px;
+    width: 22px;
+  }
+
+  .tools.two {
+    width: 48px;
   }
 
   .move {

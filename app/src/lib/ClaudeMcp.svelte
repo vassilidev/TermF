@@ -211,17 +211,22 @@
   let pluginScope = $state("user");
   const picked = $derived(o.plugins.available.find((p) => p.pluginId === pick));
 
-  /** Where a plugin comes from: its marketplace's source, and its own entry's. */
+  /** The marketplace a plugin comes from, with where that marketplace is fetched from. */
+  function market(entry: Record<string, unknown>): string {
+    const m = o.plugins.marketplaces.find((m) => m.name === entry.marketplaceName);
+    const from = m ? show(m.repo ?? m.url ?? m.path ?? m.source ?? "") : "";
+    return [show(entry.marketplaceName ?? ""), from].filter(Boolean).join(" · ");
+  }
+
+  /** Where the plugin's own code comes from: a folder of its marketplace, or its own source (npm, git, URL…). */
   function source(entry: Record<string, unknown>): string {
-    const market = o.plugins.marketplaces.find((m) => m.name === entry.marketplaceName);
-    const from = market ? show(market.repo ?? market.url ?? market.path ?? market.source ?? "") : show(entry.marketplaceName ?? "");
     const own = entry.source;
-    if (typeof own === "string") return `${from} · ${own}`;
     if (own && typeof own === "object") {
-      const o = own as Record<string, unknown>;
-      return show(o.repo ?? o.url ?? o.package ?? o.path ?? JSON.stringify(own));
+      const s = own as Record<string, unknown>;
+      const where = s.repo ?? s.url ?? s.package ?? s.path;
+      return where === undefined ? JSON.stringify(own) : `${show(s.source ?? "")} ${show(where)}`.trim();
     }
-    return from;
+    return show(own ?? "");
   }
 
   let marketSource = $state("");
@@ -389,7 +394,7 @@
           ><Plus size={13} aria-hidden="true" />{t("claudeMgmtAddRow")}</button
         >
       </div>
-      {#if form.scope === "project"}<Banner kind="warn">{t("claudeMgmtSharedMcp")}</Banner>{/if}
+      {#if form.scope === "project"}<Banner kind="warn">{t("claudeMgmtSharedMcp", { reference: "${VARIABLE}" })}</Banner>{/if}
       <div class="buttons">
         <span class="muted hint">{t("claudeMgmtMcpHint")}</span>
         <button type="button" class="btn sm" onclick={resetForm}>{t("cancel")}</button>
@@ -415,7 +420,7 @@
           jsonError = "";
         }}
       ></textarea>
-      <p class="muted hint">{t("claudeMgmtMcpJsonHint")}</p>
+      <p class="muted hint">{t("claudeMgmtMcpJsonHint", { reference: "${VARIABLE}" })}</p>
       {#if jsonPreview || jsonError}
         <ClaudeChange
           preview={jsonPreview}
@@ -537,6 +542,8 @@
         {#if picked}
           <dl class="pairs">
             {#if picked.description}<dt>{t("claudeViewDescription")}</dt><dd>{show(picked.description)}</dd>{/if}
+            <dt>{t("claudeViewMarketplaces")}</dt>
+            <dd class="mono">{market(picked)}</dd>
             <dt>{t("claudeViewSource")}</dt>
             <dd class="mono">{source(picked)}</dd>
           </dl>
@@ -621,6 +628,8 @@
       <p>{t("claudeMgmtRemoveServerText")}</p>
     {:else if ask.kind === "install"}
       <dl class="pairs">
+        <dt>{t("claudeViewMarketplaces")}</dt>
+        <dd class="mono">{market(ask.entry)}</dd>
         <dt>{t("claudeViewSource")}</dt>
         <dd class="mono">{source(ask.entry)}</dd>
         <dt>{t("claudeViewScope")}</dt>

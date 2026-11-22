@@ -1314,7 +1314,7 @@ const fr = {
   claudeMgmtAddRow: "Ajouter une ligne",
   claudeMgmtRemoveRow: "Retirer cette ligne",
   claudeMgmtSharedMcp:
-    "Portée projet : le serveur va dans le .mcp.json du dépôt, partagé avec tous ceux qui le clonent. Pas de secret : écris ${VARIABLE} à la place.",
+    "Portée projet : le serveur va dans le .mcp.json du dépôt, partagé avec tous ceux qui le clonent. Pas de secret : écris {reference} à la place.",
   claudeMgmtMcpHint: "Ajouté par claude mcp add-json ; les valeurs passent par l'entrée standard, jamais sur la ligne de commande.",
   claudeMgmtMcpAdded: "Serveur MCP {name} ajouté.",
   claudeMgmtMcpRemoved: "Serveur MCP {name} retiré.",
@@ -1328,7 +1328,7 @@ const fr = {
   claudeMgmtRemoveServerText:
     "Claude Code oublie sa configuration et ses jetons de connexion. Le jeton n'est pas révoqué chez le service : déconnecte-toi d'abord pour ça.",
   claudeMgmtEditMcpJson: "Modifier .mcp.json",
-  claudeMgmtMcpJsonHint: "Un fichier du dépôt : tu vois le diff avant qu'il soit écrit. Pas de secret, écris ${VARIABLE} à la place.",
+  claudeMgmtMcpJsonHint: "Un fichier du dépôt : tu vois le diff avant qu'il soit écrit. Pas de secret, écris {reference} à la place.",
   claudeMgmtReset: "Réinitialiser les choix du projet",
   claudeMgmtResetHelp: "Oublie les serveurs du .mcp.json que tu as approuvés ou refusés dans ce dépôt : Claude Code redemandera.",
   claudeMgmtResetDone: "Choix du projet réinitialisés : Claude Code redemandera pour les serveurs du .mcp.json.",
@@ -2892,7 +2892,7 @@ const en: Record<Key, string> = {
   claudeMgmtAddRow: "Add a line",
   claudeMgmtRemoveRow: "Remove this line",
   claudeMgmtSharedMcp:
-    "Project scope: the server goes to the repository's .mcp.json, shared with everyone who clones it. No secret: write ${VARIABLE} instead.",
+    "Project scope: the server goes to the repository's .mcp.json, shared with everyone who clones it. No secret: write {reference} instead.",
   claudeMgmtMcpHint: "Added by claude mcp add-json; the values go through standard input, never on the command line.",
   claudeMgmtMcpAdded: "MCP server {name} added.",
   claudeMgmtMcpRemoved: "MCP server {name} removed.",
@@ -2906,7 +2906,7 @@ const en: Record<Key, string> = {
   claudeMgmtRemoveServerText:
     "Claude Code forgets its configuration and its sign-in tokens. The token is not revoked by the service: sign out first for that.",
   claudeMgmtEditMcpJson: "Edit .mcp.json",
-  claudeMgmtMcpJsonHint: "A file of the repository: you see the diff before it is written. No secret, write ${VARIABLE} instead.",
+  claudeMgmtMcpJsonHint: "A file of the repository: you see the diff before it is written. No secret, write {reference} instead.",
   claudeMgmtReset: "Reset the project's choices",
   claudeMgmtResetHelp: "Forgets the .mcp.json servers you approved or rejected in this repository: Claude Code asks again.",
   claudeMgmtResetDone: "Project choices reset: Claude Code asks again about the .mcp.json servers.",
