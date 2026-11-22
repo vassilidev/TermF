@@ -33,6 +33,7 @@
     type TeamEdit,
     type Trackers,
   } from "$lib/onboarding-logic";
+  import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { derive, githubSlugs, projectId, unique, type Card } from "$lib/setup-logic";
   import { app, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
   import { added } from "$lib/team-logic";
@@ -306,8 +307,7 @@
 {/snippet}
 
 <div class="new-project">
-  <header class="head">
-    <h1>{t("newProject")}</h1>
+  <ViewHeader title={t("newProject")}>
     <ol class="stepper" aria-label={t("setupSteps")}>
       {#each steps as s, i (s.id)}
         {@const done = i < index}
@@ -325,10 +325,12 @@
         </li>
       {/each}
     </ol>
-    <button type="button" class="btn sm quiet cancel" onclick={closeNewProject} disabled={busy}>
-      {t("cancel")}<kbd>Esc</kbd>
-    </button>
-  </header>
+    {#snippet actions()}
+      <button type="button" class="btn sm quiet cancel" onclick={closeNewProject} disabled={busy}>
+        {t("cancel")}<kbd>Esc</kbd>
+      </button>
+    {/snippet}
+  </ViewHeader>
 
   <div class="body">
     <main class="main" bind:this={main}>
@@ -454,7 +456,7 @@
                           {[r.allow ? t("obTrustRules", { count: r.allow }) : "", r.mcp ? t("obTrustMcp", { count: r.mcp }) : ""].filter(Boolean).join(" · ")}
                         {:else}{t("setupTrustNothing")}{/if}
                       </span>
-                      <span class="pill" class:on={r.trusted}>{t(r.trusted ? "obTrusted" : "obUntrusted")}</span>
+                      <span class="badge" class:ok={r.trusted}>{t(r.trusted ? "obTrusted" : "obUntrusted")}</span>
                     </li>
                   {/each}
                 </ul>
@@ -631,24 +633,6 @@
     background: var(--bg);
   }
 
-  .head {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    gap: 12px;
-    min-height: 52px;
-    padding: 8px 12px 8px 20px;
-    border-bottom: 1px solid var(--border);
-    background: var(--chrome);
-  }
-
-  h1 {
-    margin: 0;
-    font-size: var(--text-lg);
-    font-weight: 650;
-    letter-spacing: -0.01em;
-  }
-
   .stepper {
     display: flex;
     align-items: center;
@@ -729,7 +713,6 @@
   }
 
   .cancel {
-    justify-self: end;
     gap: 8px;
     color: var(--muted);
   }
@@ -765,7 +748,7 @@
 
   h2 {
     margin: 0;
-    font-size: 22px;
+    font-size: var(--text-xl);
     font-weight: 650;
     letter-spacing: -0.02em;
     line-height: 1.25;
@@ -855,7 +838,7 @@
   }
 
   .blocks li.off .what > :not(h3, .aside-note) {
-    opacity: 0.55;
+    color: var(--muted);
   }
 
   .what {
@@ -1036,21 +1019,6 @@
     color: var(--muted);
     font-size: var(--text-sm);
     white-space: nowrap;
-  }
-
-  .pill {
-    padding: 1px 8px;
-    border-radius: var(--radius-pill);
-    background: var(--hover);
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .pill.on {
-    background: var(--done-soft);
-    color: var(--done);
   }
 
   .agree {
@@ -1239,7 +1207,7 @@
     padding: 0 8px;
     border: 1px solid transparent;
     border-radius: var(--radius);
-    font-size: 20px;
+    font-size: var(--text-xl);
     font-weight: 650;
     letter-spacing: -0.015em;
   }

@@ -105,7 +105,7 @@
                 </div>
               </div>
             </td>
-            <td><span class="tag">{text(role.meta.model)}</span></td>
+            <td><span class="badge">{text(role.meta.model)}</span></td>
             <td class="muted" class:mono={Array.isArray(writes)}>
               {Array.isArray(writes) ? writes.join(", ") : writes ? t("t5ReadOnly") : t("t5None")}
             </td>
@@ -219,9 +219,14 @@
     border-bottom: 0;
   }
 
+  /* The model of a role in use reads as text; a role switched off keeps it muted. */
+  td .badge {
+    color: var(--text);
+  }
+
   .off .who b,
-  .off .tag {
-    opacity: 0.6;
+  .off .badge {
+    color: var(--muted);
   }
 
   .who {
@@ -265,17 +270,6 @@
     color: var(--text);
     font-size: var(--text-xs);
     font-weight: 700;
-  }
-
-  .tag {
-    display: inline-flex;
-    align-items: center;
-    height: 20px;
-    padding: 0 7px;
-    border-radius: var(--radius-sm);
-    background: var(--hover);
-    font-size: var(--text-xs);
-    font-weight: 600;
   }
 
   .layer-project {

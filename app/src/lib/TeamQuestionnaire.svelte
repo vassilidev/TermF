@@ -107,7 +107,7 @@
 {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
 <div class="buttons">
   {@render children?.()}
-  <button class="btn sm" class:primary disabled={busy || missing.length > 0} onclick={send}>
+  <button class="btn" class:sm={!primary} class:primary disabled={busy || missing.length > 0} onclick={send}>
     {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
     {t("ctoEntrySend")}
   </button>
