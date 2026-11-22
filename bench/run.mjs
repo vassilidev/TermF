@@ -292,7 +292,7 @@ function measureSuite(ticket, final, files) {
     const r = sh("sh", ["-c", `${command} --log-junit .bench-junit.xml`], { cwd, env: gitEnv, timeout: 900_000 });
     const text = existsSync(xml) ? readFileSync(xml, "utf8") : "";
     rmSync(xml, { force: true });
-    const top = /<testsuite[^>]*>/.exec(text)?.[0] ?? "";
+    const top = /<testsuite\s[^>]*>/.exec(text)?.[0] ?? "";
     const n = (k) => Number(new RegExp(`${k}="(\\d+)"`).exec(top)?.[1] ?? 0);
     const failed = [...text.matchAll(/<testcase name="([^"]*)"[^>]*>\s*<(failure|error)/g)].map((m) => m[1]);
     const tests = n("tests");
