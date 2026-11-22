@@ -18,8 +18,12 @@
 
   $effect(() => {
     if (resume) return;
-    invoke<Item[]>("library_list", { kind: "workflow", project }).then(
-      (items) => (names = [...new Set(items.map((i) => i.name))]),
+    // The shipped `squads` workflow only for a project that declares squads.
+    Promise.all([
+      invoke<Item[]>("library_list", { kind: "workflow", project }),
+      invoke<{ declared: boolean }>("team_squads", { project }).catch(() => ({ declared: false })),
+    ]).then(
+      ([items, squads]) => (names = [...new Set(items.map((i) => i.name))].filter((n) => n !== "squads" || squads.declared)),
       () => (names = []),
     );
   });

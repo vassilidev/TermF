@@ -80,7 +80,7 @@
   const top = $derived(run.steps.filter((s) => s.kind !== "task"));
   const tasksOf = (foreach: Step) => run.steps.filter((s) => s.kind === "task" && s.key.startsWith(`${foreach.key}:`));
   const taskStep = (id: string) => run.steps.find((s) => s.kind === "task" && s.task === id);
-  const goal = (step: Step) => run.plan?.tasks.find((task) => task.id === step.task)?.goal;
+  const taskOf = (step: Step) => (step.task === null ? undefined : run.plan?.tasks.find((task) => task.id === step.task));
 
   async function act(name: string, command: string, args: Record<string, unknown>): Promise<boolean> {
     busy = name;
@@ -171,12 +171,14 @@
 {#snippet stepRow(step: Step)}
   {@const [status, label] = stepPill(step)}
   {@const report = step.report}
+  {@const task = taskOf(step)}
   <div class="step-head">
     <StatusPill {status} {label} />
     <span class="step-name">
       <b>{stepName(step)}</b>
-      {#if goal(step)}<span class="goal">{goal(step)}</span>{/if}
+      {#if task}<span class="goal">{task.goal}</span>{/if}
     </span>
+    {#if task?.squad}<span class="badge">{t("teamRunsSquad", { name: task.squad })}</span>{/if}
     {#if step.role}<span class="badge">{step.role}</span>{/if}
     {#if step.attempt > 1}<span class="muted small">{t("teamRunsAttempt", { n: step.attempt })}</span>{/if}
     <span class="cost">{step.cost ? usd(step.cost) : ""}</span>

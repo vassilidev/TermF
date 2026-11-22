@@ -15,7 +15,7 @@ export type Task = {
   files_hint: string[];
   depends_on: string[];
   ui_impact: boolean;
-  /** Once the project has squads. */
+  /** Empty: the only squad, or the staff; absent from a plan made before squads. */
   squad?: string;
 };
 export type Plan = {
