@@ -22,6 +22,7 @@
   import Wrench from "@lucide/svelte/icons/wrench";
   import ClaudeArtifacts from "$lib/ClaudeArtifacts.svelte";
   import ClaudeAccount from "$lib/ClaudeAccount.svelte";
+  import ClaudeBinary from "$lib/ClaudeBinary.svelte";
   import ClaudeMemory from "$lib/ClaudeMemory.svelte";
   import ClaudeNative from "$lib/ClaudeNative.svelte";
   import ClaudeSessions from "$lib/ClaudeSessions.svelte";
@@ -52,6 +53,7 @@
     exportOverview,
     fileValue,
     healthLabel,
+    binaryOrigin,
     kindLabel,
     loadOverview,
     propose,
@@ -164,6 +166,12 @@
     if ("server" in a) return t("claudeRedesignAlertMcp", { name: a.server, state: healthLabel(a.health as Health) });
     if ("file" in a) return t("claudeRedesignAlertFile", { path: a.file }) + (a.error ? ` (${a.error})` : "");
     if ("loggedOut" in a) return t("claudeRedesignLoggedOut");
+    if ("binary" in a) {
+      const version = o?.account.binary.install?.version ?? "";
+      return a.binary === "old"
+        ? t("claudebinAlertOld", { version, minimum: o?.account.binary.minimum ?? "" })
+        : t("claudebinAlertSeveral");
+    }
     return a.text;
   }
 
@@ -586,6 +594,7 @@
   {#snippet actions()}{@render copyButton("account")}{/snippet}
   {@render head(blockTitle("account"), "", actions)}
   {#if o.account.authError}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.account.authError}</p>{/if}
+  <ClaudeBinary b={o.account.binary} />
   <dl class="pairs panel padded">
     {#if o.account.auth}
       <dt>{t("claudeViewLoggedIn")}</dt>
@@ -610,6 +619,8 @@
     </dd>
     <dt>{t("claudeViewInstall")}</dt>
     <dd>{o.account.install ?? t("claudeViewUnknown")} {#if o.account.path}<span class="mono muted small">{o.account.path}</span>{/if}</dd>
+    <dt>{t("claudebinOrigin")}</dt>
+    <dd>{binaryOrigin(o.account.binary.install)}</dd>
   </dl>
   <ClaudeAccount {o} />
 {/snippet}
