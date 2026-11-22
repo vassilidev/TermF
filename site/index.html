@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TermF · Talk to the CTO, a team of Claude Code agents ships it</title>
+<title>TermF · Stop using Claude Code alone</title>
 <meta name="description" content="TermF is a free, open source desktop app for developers who use Claude Code. Describe a ticket to the CTO; a team of agents sized to it works in parallel, and you approve the pull request. macOS, Windows, Linux.">
 <link rel="canonical" href="https://vassilidev.github.io/TermF/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="TermF">
-<meta property="og:title" content="TermF · Talk to the CTO, a team ships it">
+<meta property="og:title" content="TermF · Stop using Claude Code alone">
 <meta property="og:description" content="A desktop app for Claude Code. Describe a ticket to the CTO; a team of agents sized to it takes it to a pull request you approve. Free, open source, runs on your machine.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
@@ -17,19 +17,18 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="TermF · Talk to the CTO, a team ships it">
+<meta name="twitter:title" content="TermF · Stop using Claude Code alone">
 <meta name="twitter:description" content="A desktop app for Claude Code. Describe a ticket to the CTO; a team of agents sized to it takes it to a pull request you approve.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
-<meta name="theme-color" content="#f6f7f5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0b0f0d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b12" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
-<link rel="preload" href="fonts/archivo-condensed.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
 <script>try{const t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}</script>
 <script type="application/ld+json">
@@ -66,153 +65,161 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="nav" id="nav">
-  <a class="brand" href="./"><img src="icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
-  <nav class="nav-links" aria-label="Main">
-    <a href="docs/">Docs</a>
-    <a href="#team">The team</a>
-    <a href="docs/team-vs-solo.html">Team or solo?</a>
-    <a class="gh" href="https://github.com/vassilidev/TermF"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg><span class="vh">GitHub</span></a>
-  </nav>
-  <button class="theme" type="button" aria-label="Switch to dark theme"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.79 9.8Z"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
-  <a class="btn small" href="download.html">Download</a>
+  <div class="nav-in">
+    <a class="brand" href="./"><img src="icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="docs/">Docs</a>
+      <a href="#team">The team</a>
+      <a class="gh" href="https://github.com/vassilidev/TermF"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg><span class="vh">GitHub</span></a>
+    </nav>
+    <button class="theme" type="button" aria-label="Switch to dark theme"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.79 9.8Z"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
+    <a class="btn small" href="download.html">Download</a>
+  </div>
 </header>
 
 <main id="main">
-<section class="hero" aria-labelledby="hero-h">
-  <div class="wrap hero-top">
-    <h1 id="hero-h">Talk to the CTO.<br> A team of Claude&nbsp;Code agents ships&nbsp;it.</h1>
-    <div class="hero-side">
-      <p class="lead">TermF is a free desktop app for developers who use Claude Code. Describe a ticket; the CTO sizes a team to it, the agents work in parallel, each in its own worktree, and you approve the pull request.</p>
-      <div class="hero-cta">
-        <a class="btn" id="get" href="download.html">Download for macOS<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m-5-5 5 5 5-5M5 20h14"/></svg></a>
-        <script>
-          // Name the visitor's system before the first paint; iPads report a Mac platform, touch tells them apart
-          (() => {
-            const ua = navigator.userAgent, p = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
-            const os = /android|iphone|ipad|ipod/i.test(ua) || (p.includes('mac') && navigator.maxTouchPoints > 1) ? null
-              : p.includes('win') ? 'Windows' : p.includes('linux') || /linux|x11|cros/i.test(ua) ? 'Linux' : 'macOS';
-            document.getElementById('get').firstChild.textContent = os ? 'Download for ' + os : 'Download TermF';
-          })();
-        </script>
-        <div class="cmd link" id="install"><code><a href="download.html">Every file for your system, on the download page</a></code></div>
-      </div>
-      <p class="hero-note">Free and open source (MIT). No account, no telemetry: it runs on your machine. Needs Claude Code. Early version, not signed by Apple or Microsoft yet.</p>
+<div class="rail">
+  <section class="hero" aria-labelledby="hero-h">
+    <img class="app-icon" src="icon.svg" alt="" width="84" height="84">
+    <h1 id="hero-h"><span class="grad">Stop using Claude&nbsp;Code alone.</span></h1>
+    <p class="sub">TermF is a free desktop app that gives your Claude Code a CTO and a team of agents. You describe the ticket, they ship the pull request, you approve it.</p>
+    <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+    <div class="ctas">
+      <a class="btn" id="get" href="download.html">Download for macOS</a>
+      <a class="btn ghost" href="docs/">Read the docs</a>
     </div>
-  </div>
-  <div class="pitch">
-    <div class="lines" aria-hidden="true"><span class="box t"></span><span class="box b"></span></div>
-    <figure class="stage">
-      <div class="frame" id="reel" data-video>
-        <picture>
-          <source media="(prefers-color-scheme: dark)" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="(max-width: 1240px) 100vw, 1180px">
-          <img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="(max-width: 1240px) 100vw, 1180px" width="1600" height="1000" fetchpriority="high" alt="TermF's project Home: the conversation with the CTO, with a plan waiting for approval, and on the right what waits for you and the agents at work">
-        </picture>
-      </div>
-      <figcaption>A project's Home: your conversation with the CTO, and beside it what waits for you and who is at work.</figcaption>
+    <script>
+      // Name the visitor's system before the first paint; iPads report a Mac platform, touch tells them apart
+      (() => {
+        const ua = navigator.userAgent, p = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
+        const os = /android|iphone|ipad|ipod/i.test(ua) || (p.includes('mac') && navigator.maxTouchPoints > 1) ? null
+          : p.includes('win') ? 'Windows' : p.includes('linux') || /linux|x11|cros/i.test(ua) ? 'Linux' : 'macOS';
+        document.getElementById('get').textContent = os ? 'Download for ' + os : 'Download TermF';
+        if (os === 'Windows') document.querySelector('#install code').textContent = 'irm https://vassilidev.github.io/TermF/install.ps1 | iex';
+      })();
+    </script>
+    <p class="meta">Free and open source, for macOS, Windows and Linux. Runs on your machine.</p>
+  </section>
+
+  <div class="show">
+    <figure class="app-frame" id="reel" data-video>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="(max-width: 1200px) 100vw, 1120px">
+        <img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="(max-width: 1200px) 100vw, 1120px" width="1600" height="1000" fetchpriority="high" alt="TermF's project Home: the conversation with the CTO, a plan waiting for approval, and what waits for you and the agents at work">
+      </picture>
+      <button class="film-btn" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i><span>Watch TermF</span></button>
     </figure>
+    <div class="float a agent" aria-hidden="true"><span class="ini">BA</span><b>Back-end developer</b><span class="state working">Working</span><code>runs pytest tests/test_export.py</code></div>
+    <div class="float b agent" aria-hidden="true"><span class="ini">RE</span><b>Code reviewer</b><span class="state done">Done</span><code>no finding, 1 round</code></div>
   </div>
-</section>
 
-<section aria-labelledby="what-h">
-  <div class="wrap">
-    <div class="sec-head">
-      <h2 id="what-h">What it does best</h2>
-      <p>Six highlights, each a real screen of the app. Everything else, from SSH keys to the scheduler, is in <a href="docs/">the docs</a>.</p>
+  <p class="row log"><span>1</span><b>THE WORK</b><span>cto · start the team on #57 · export invoices to CSV</span></p>
+  <section class="row" aria-labelledby="work-h">
+    <div class="head">
+      <h2 id="work-h">One window for the whole job.</h2>
+      <p>From the ticket to the pull request, without leaving the app.</p>
     </div>
-    <div class="hl">
-      <div class="hl-item on">
-        <button type="button" aria-expanded="true" aria-controls="hl-run"><b>Ask the CTO, approve the pull request</b><span><span>Describe the work in your own words or pick a ticket. The CTO sizes a team to it, asks only what matters with proposed answers, and the run goes from the plan to a pull request you approve.</span></span></button>
-        <figure id="hl-run"><div class="shot-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/run-dark-800.webp 800w, shots/run-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 700px"><img src="shots/run-light-800.webp" srcset="shots/run-light-800.webp 800w, shots/run-light.webp 1600w" sizes="(max-width: 980px) 100vw, 700px" width="1600" height="1000" loading="lazy" decoding="async" alt="A run's page: the plan's questions with proposed answers, the steps of the run, its budget and its log"></picture></div></figure>
-      </div>
-      <div class="hl-item">
-        <button type="button" aria-expanded="false" aria-controls="hl-term"><b>Every terminal and Claude session, one window</b><span><span>Claude Code, Codex, Gemini or a shell, in tabs and free splits. Each session shows whether it works, waits for you or is done, and how full its context is.</span></span></button>
-        <figure id="hl-term"><div class="shot-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/terminals-dark-800.webp 800w, shots/terminals-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 700px"><img src="shots/terminals-light-800.webp" srcset="shots/terminals-light-800.webp 800w, shots/terminals-light.webp 1600w" sizes="(max-width: 980px) 100vw, 700px" width="1600" height="1000" loading="lazy" decoding="async" alt="Terminals in TermF: tabs, and two Claude Code sessions side by side above a shell, one of them waiting for an answer"></picture></div></figure>
-      </div>
-      <div class="hl-item">
-        <button type="button" aria-expanded="false" aria-controls="hl-review"><b>Git, tickets and a visual review, built in</b><span><span>The branch graph and everyday git; tickets from GitHub, GitLab, Jira, Linear and more; and before and after captures of each changed screen, to approve side by side.</span></span></button>
-        <figure id="hl-review"><div class="shot-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/review-dark-800.webp 800w, shots/review-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 700px"><img src="shots/review-light-800.webp" srcset="shots/review-light-800.webp 800w, shots/review-light.webp 1600w" sizes="(max-width: 980px) 100vw, 700px" width="1600" height="1000" loading="lazy" decoding="async" alt="The visual review page: the before and after slider on a changed screen, a pin, the comment for the agent and the decision buttons"></picture></div></figure>
-      </div>
-      <div class="hl-item">
-        <button type="button" aria-expanded="false" aria-controls="hl-ci"><b>CI failures go back to the agent</b><span><span>GitHub Actions runs and logs without leaving the app, the errors pointed out, and a failure sent back to the agent that caused it.</span></span></button>
-        <figure id="hl-ci"><div class="shot-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/ci-dark-800.webp 800w, shots/ci-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 700px"><img src="shots/ci-light-800.webp" srcset="shots/ci-light-800.webp 800w, shots/ci-light.webp 1600w" sizes="(max-width: 980px) 100vw, 700px" width="1600" height="1000" loading="lazy" decoding="async" alt="CI/CD: the runs of a repository, and a failed job's log stopped on its first error"></picture></div></figure>
-      </div>
-      <div class="hl-item">
-        <button type="button" aria-expanded="false" aria-controls="hl-vault"><b>A vault, and production behind your approval</b><span><span>Secrets, logins and two-factor codes encrypted per project, never revealed to an agent. Servers, databases and logs open to agents one approved command at a time.</span></span></button>
-        <figure id="hl-vault"><div class="shot-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/vault-dark-800.webp 800w, shots/vault-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 700px"><img src="shots/vault-light-800.webp" srcset="shots/vault-light-800.webp 800w, shots/vault-light.webp 1600w" sizes="(max-width: 980px) 100vw, 700px" width="1600" height="1000" loading="lazy" decoding="async" alt="The vault: the project's logins, notes and secrets, with a GitHub login open on its two-factor code"></picture></div></figure>
-      </div>
-      <div class="hl-item">
-        <button type="button" aria-expanded="false" aria-controls="hl-claude"><b>Everything Claude Code knows, in one view</b><span><span>Its version, account, model, permission mode and all it has installed, by scope; and with a subscription, your 5-hour and weekly limits in view.</span></span></button>
-        <figure id="hl-claude"><div class="shot-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/claude-dark-800.webp 800w, shots/claude-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 700px"><img src="shots/claude-light-800.webp" srcset="shots/claude-light-800.webp 800w, shots/claude-light.webp 1600w" sizes="(max-width: 980px) 100vw, 700px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Claude view: version, account, model, permission mode and everything installed"></picture></div></figure>
-      </div>
-      <p class="hl-foot"><a class="more" href="docs/"><span>Every feature, in the docs</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></p>
-    </div>
-  </div>
-</section>
-
-<section id="team" aria-labelledby="team-h">
-  <div class="wrap">
-    <div class="sec-head">
-      <h2 id="team-h"><!-- gen:count -->29<!-- /gen:count --> agents. The CTO picks who plays.</h2>
-      <p>Each agent is a Claude Code session with one job, its own model and its own permissions. The CTO sizes the team to the ticket: a small fix gets one developer and a short review, the whole lineup plays only on large or sensitive work.</p>
-    </div>
-    <div class="pitch team-board">
-      <div class="lines" aria-hidden="true"></div>
-      <div class="board-top">
-        <div class="tickets" role="group" aria-label="Pick a ticket">
-          <button type="button" aria-pressed="false" data-lineup="front reviewer" data-ticket="#311 The date filter does not reset." data-line="A small fix: one developer and a short review.">Small fix</button>
-          <button type="button" aria-pressed="true" data-lineup="po lead back front qa reviewer" data-ticket="#57 Export invoices to CSV." data-line="Medium: framing, a plan, two developers, QA and a review.">Feature</button>
-          <button type="button" aria-pressed="false" data-lineup="pm po architect ux lead back front qa reviewer secops" data-ticket="#64 Sign in with SSO." data-line="Large and sensitive: the full team, and you approve the path and the plan first.">Large or sensitive</button>
+    <div class="bento">
+      <div class="cell w3">
+        <h3>Talk to the CTO</h3>
+        <p>Ask in your own words. It sizes the team and asks before anything starts.</p>
+        <div class="frag" aria-hidden="true">
+          <div class="bubble">Start the team on #57</div>
+          <div class="ask"><p>Start a team run</p><code>acme/platform#57 · export invoices to CSV</code><div class="acts"><span class="mini">Deny</span><span class="mini go">Allow</span></div></div>
         </div>
-        <p class="board-note">An example. Every agent is a link to its card.</p>
       </div>
-      <div class="coach">
-        <span class="you">You</span><span class="arrow" aria-hidden="true"></span><a class="cto" href="docs/team.html#role-cto">CTO</a>
-        <p><b>#57 Export invoices to CSV.</b> Medium: framing, a plan, two developers, QA and a review.</p>
+      <div class="cell w3">
+        <h3>Every session in one window</h3>
+        <p>Claude Code, Codex, Gemini or a shell, each with its state and its context.</p>
+        <div class="frag" aria-hidden="true">
+          <div class="sess"><span class="gauge" style="--g:42%"></span><span class="t">api <small>· claude</small></span><span class="state working">Working</span></div>
+          <div class="sess"><span class="gauge" style="--g:68%"></span><span class="t">web-dashboard <small>· claude</small></span><span class="state waiting">Waiting for you</span></div>
+          <div class="sess"><span class="gauge" style="--g:21%"></span><span class="t">billing <small>· codex</small></span><span class="state done">Done</span></div>
+        </div>
       </div>
-      <div class="field" role="group" aria-label="On the ticket"></div>
-      <div class="bench"><p class="bench-l">On the bench</p><!-- gen:roster --><a class="tok c-cto" href="docs/team.html#role-expert" data-role="expert"><i aria-hidden="true">EX</i><span>Project expert</span></a><a class="tok c-product" href="docs/team.html#role-pm" data-role="pm"><i aria-hidden="true">PM</i><span>Product manager</span></a><a class="tok c-product" href="docs/team.html#role-po" data-role="po"><i aria-hidden="true">PO</i><span>Product owner</span></a><a class="tok c-product" href="docs/team.html#role-ux" data-role="ux"><i aria-hidden="true">UX</i><span>UX designer</span></a><a class="tok c-product" href="docs/team.html#role-architect" data-role="architect"><i aria-hidden="true">AR</i><span>Architect</span></a><a class="tok c-product" href="docs/team.html#role-researcher" data-role="researcher"><i aria-hidden="true">RES</i><span>Researcher</span></a><a class="tok c-product" href="docs/team.html#role-competitive-analyst" data-role="competitive-analyst"><i aria-hidden="true">CMP</i><span>Competitive analyst</span></a><a class="tok c-product" href="docs/team.html#role-reverse-engineer" data-role="reverse-engineer"><i aria-hidden="true">REV</i><span>Reverse engineer</span></a><a class="tok c-build" href="docs/team.html#role-lead" data-role="lead"><i aria-hidden="true">LE</i><span>Tech lead</span></a><a class="tok c-build" href="docs/team.html#role-front" data-role="front"><i aria-hidden="true">FR</i><span>Front-end developer</span></a><a class="tok c-build" href="docs/team.html#role-back" data-role="back"><i aria-hidden="true">BA</i><span>Back-end developer</span></a><a class="tok c-build" href="docs/team.html#role-devops" data-role="devops"><i aria-hidden="true">DE</i><span>DevOps engineer</span></a><a class="tok c-build" href="docs/team.html#role-seo" data-role="seo"><i aria-hidden="true">SEO</i><span>SEO engineer</span></a><a class="tok c-quality" href="docs/team.html#role-qa" data-role="qa"><i aria-hidden="true">QA</i><span>QA engineer</span></a><a class="tok c-quality" href="docs/team.html#role-reviewer" data-role="reviewer"><i aria-hidden="true">RE</i><span>Code reviewer</span></a><a class="tok c-quality" href="docs/team.html#role-secops" data-role="secops"><i aria-hidden="true">SEC</i><span>Security reviewer</span></a><a class="tok c-quality" href="docs/team.html#role-integrator" data-role="integrator"><i aria-hidden="true">IN</i><span>Merge integrator</span></a><a class="tok c-creative" href="docs/team.html#role-brand" data-role="brand"><i aria-hidden="true">BR</i><span>Brand designer</span></a><a class="tok c-creative" href="docs/team.html#role-copy" data-role="copy"><i aria-hidden="true">CO</i><span>UX writer</span></a><a class="tok c-creative" href="docs/team.html#role-motion" data-role="motion"><i aria-hidden="true">MO</i><span>Motion designer</span></a><a class="tok c-specialists" href="docs/team.html#role-dba" data-role="dba"><i aria-hidden="true">DBA</i><span>Database engineer</span></a><a class="tok c-specialists" href="docs/team.html#role-docs" data-role="docs"><i aria-hidden="true">DOC</i><span>Technical writer</span></a><a class="tok c-specialists" href="docs/team.html#role-integrations" data-role="integrations"><i aria-hidden="true">INT</i><span>Integration engineer</span></a><a class="tok c-specialists" href="docs/team.html#role-sre" data-role="sre"><i aria-hidden="true">SRE</i><span>Site reliability engineer</span></a><a class="tok c-specialists" href="docs/team.html#role-a11y" data-role="a11y"><i aria-hidden="true">A11Y</i><span>Accessibility auditor</span></a><a class="tok c-specialists" href="docs/team.html#role-ai" data-role="ai"><i aria-hidden="true">AI</i><span>AI engineer</span></a><a class="tok c-specialists" href="docs/team.html#role-analytics" data-role="analytics"><i aria-hidden="true">AN</i><span>Product analyst</span></a><a class="tok c-specialists" href="docs/team.html#role-legal" data-role="legal"><i aria-hidden="true">LAW</i><span>Compliance analyst</span></a><!-- /gen:roster --></div>
-      <div class="board-foot"><span>Blue: at work. Mint: done. Amber: waiting for you.</span><a href="docs/team.html">Every agent: what it does, and what it never does</a></div>
+      <div class="cell w2">
+        <h3>See every change</h3>
+        <p>The diff, the checks and the reviews, before you approve.</p>
+        <div class="frag" aria-hidden="true">
+          <div class="diff"><div class="f">src/export/csv.ts <span><span class="p">+42</span> −3</span></div><div class="del">− return json(rows)</div><div class="add">+ return toCsv(rows, format)</div><div class="add">+ export function toCsv(rows, f) {</div><div class="end"><span class="mini go">Approve</span></div></div>
+        </div>
+      </div>
+      <div class="cell w2">
+        <h3>Secrets stay yours</h3>
+        <p>A vault per project. An agent never sees a value.</p>
+        <div class="frag" aria-hidden="true">
+          <div class="kv"><span>STRIPE_SECRET_KEY</span><span class="dots">••••••••</span><span class="tag">prod</span></div>
+          <div class="kv"><span>DATABASE_URL</span><span class="dots">••••••••</span><span class="tag">dev</span></div>
+          <div class="safe"><svg class="i" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>Never given to agents</div>
+        </div>
+      </div>
+      <div class="cell w2">
+        <h3>Failures go back</h3>
+        <p>A failed check returns to the agent that caused it.</p>
+        <div class="frag" aria-hidden="true">
+          <div class="ci"><span class="ok">✓</span><span>lint</span><small>12 s</small></div>
+          <div class="ci"><span class="ko">✕</span><span>test (ubuntu)</span><small>3 min</small></div>
+          <span class="back"><span class="state working">Working</span>back-end fixes it</span>
+        </div>
+      </div>
     </div>
+  </section>
+</div>
+
+<section class="band" id="team" aria-labelledby="team-h">
+  <div class="rail">
+    <p class="row log"><span>2</span><b>THE TEAM</b><span>cto · triage: medium · po, lead, back, front, qa, reviewer</span></p>
+    <div class="head">
+      <h2 id="team-h"><!-- gen:count -->29<!-- /gen:count --> agents. The CTO picks who&nbsp;works.</h2>
+      <p>Each agent is a Claude Code session with one job. Only the ones your ticket needs join, and you watch them work, live.</p>
+    </div>
+    <div class="crew-live" aria-label="An example run, live">
+      <div class="agent" data-run="0"><span class="ini c-product">PO</span><b>Product owner</b><span class="state">Queued</span><code>writes the acceptance criteria</code></div>
+      <div class="agent" data-run="1"><span class="ini c-build">LE</span><b>Tech lead</b><span class="state">Queued</span><code>plan: 3 tasks, you approved</code></div>
+      <div class="agent" data-run="2"><span class="ini c-build">BA</span><b>Back-end developer</b><span class="state">Queued</span><code>runs pytest tests/test_export.py</code></div>
+      <div class="agent" data-run="2"><span class="ini c-build">FR</span><b>Front-end developer</b><span class="state">Queued</span><code>runs pnpm test --filter invoices</code></div>
+      <div class="agent" data-run="3"><span class="ini c-quality">QA</span><b>QA engineer</b><span class="state">Queued</span><code>proves AC1, AC2 and AC3</code></div>
+      <div class="agent" data-run="4"><span class="ini c-quality">RE</span><b>Code reviewer</b><span class="state">Queued</span><code>reads the whole diff</code></div>
+    </div>
+    <div class="deliver"><p>Pull request <code>Closes #57</code><span class="state">Queued</span></p><span class="mini go">Deliver</span></div>
+    <p class="band-foot"><a class="more" href="docs/team.html"><span>Meet all <!-- gen:count -->29<!-- /gen:count --> agents</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a><a class="quiet" href="docs/team-vs-solo.html">Team or one session? The numbers</a></p>
   </div>
 </section>
 
-<section aria-labelledby="start-h">
-  <div class="wrap">
-    <div class="sec-head">
-      <h2 id="start-h">How it works</h2>
-      <p>You need Claude Code installed and signed in, and git. Nothing else to set up.</p>
+<div class="rail">
+  <p class="row log"><span>3</span><b>WORKS WITH</b><span>agents · tickets · pull requests · ci</span></p>
+  <section aria-labelledby="tools-h">
+    <div class="head">
+      <h2 id="tools-h">Works with the tools you already use.</h2>
     </div>
-    <ol class="steps3">
-      <li><h3>Install and open a project</h3><p>One command, or the installer for your system. Pick your repositories, or start from an idea: TermF reads your stack and proposes a team, ticket sources and skills.</p><a class="more" href="docs/installation.html"><span>Installation</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></li>
-      <li><h3>Ask the CTO</h3><p>In your own words on the project's Home, or from a ticket. It sizes the team and asks only what it must, with proposed answers.</p><a class="more" href="docs/first-task.html"><span>Your first task</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></li>
-      <li><h3>Approve the pull request</h3><p>You see the diff, the checks and the reviews before anything leaves your machine. One click pushes the branch and opens the pull request.</p><a class="more" href="docs/runs.html"><span>Runs and their steps</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></li>
-    </ol>
-  </div>
-</section>
-
-<section aria-label="Read more">
-  <div class="wrap doors">
-    <div class="door">
-      <h2>The team or one session?</h2>
-      <p>On a small, clear ticket, one Claude Code session is enough: same quality, and the team, even sized down, costs about 3.4 times more. On complex tickets, the team met more of the unwritten criteria, 90 % against 72 %, for 4.8 times the cost. Small samples, one model: a first look, not a verdict.</p>
-      <a class="more" href="docs/team-vs-solo.html"><span>The numbers, and when to use which</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+    <div class="tools">
+      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg><b>Claude Code</b><span>the CTO and the team</span></div>
+      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg><b>Codex</b><span>terminals, any role</span></div>
+      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg><b>Gemini</b><span>terminals, any role</span></div>
+      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg><b>GitHub</b><span>tickets, PRs, CI</span></div>
+      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><b>GitLab</b><span>tickets</span></div>
+      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg><b>Jira</b><span>tickets</span></div>
+      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z"/></svg><b>Linear</b><span>tickets</span></div>
+      <div class="tool"><span class="mcp" aria-hidden="true">MCP</span><b>MCP</b><span>any ticket server</span></div>
     </div>
-    <div class="door">
-      <h2>Documentation</h2>
-      <ul>
-        <li><a href="docs/installation.html">Installation<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></li>
-        <li><a href="docs/team.html">The CTO and the team<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></li>
-        <li><a href="docs/git.html">Git and worktrees<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></li>
-        <li><a href="docs/security.html">Security and privacy<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></li>
-      </ul>
-      <a class="more" href="docs/"><span>All the docs</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-    </div>
-  </div>
-</section>
+  </section>
+  <p class="row log"><span>4</span><b>INSTALL</b><span>one command · macos · windows · linux</span></p>
+  <section class="last" aria-labelledby="last-h">
+    <h2 id="last-h"><span class="grad">Install in one command.</span></h2>
+    <div class="cmd"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+    <div class="ctas"><a class="btn" href="download.html">Every file, on the download page</a></div>
+    <p>Needs Claude Code. Early version: the builds are not signed by Apple or Microsoft yet, the one-line install avoids their warning.</p>
+  </section>
+</div>
 </main>
 
+<dialog class="film" aria-label="TermF, the film">
+  <form method="dialog"><button aria-label="Close the film"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></form>
+  <video controls playsinline preload="none" poster="media/launch-poster.webp"><source src="media/launch.webm" type="video/webm"><source src="media/launch.mp4" type="video/mp4"></video>
+</dialog>
+
 <footer class="foot">
-  <div class="wrap foot-in">
+  <div class="foot-in">
     <a class="brand" href="./"><img src="icon.svg" alt="" width="24" height="24"><span>TermF</span></a>
     <nav aria-label="Footer"><a href="docs/">Docs</a><a href="download.html">Download</a><a href="https://github.com/vassilidev/TermF">GitHub</a><a href="https://github.com/vassilidev/TermF/releases">Releases</a><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></nav>
     <p>© 2026 TermF contributors</p>
@@ -221,8 +228,6 @@
 
 <script>
 const root = document.documentElement, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const nav = document.getElementById('nav');
-addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), {passive: true});
 
 // The theme switch: the screenshots follow it too
 const themeBtn = document.querySelector('.theme');
@@ -234,104 +239,61 @@ const syncTheme = () => {
 themeBtn.addEventListener('click', () => { root.dataset.theme = dark() ? 'light' : 'dark'; try { localStorage.setItem('theme', root.dataset.theme); } catch {} syncTheme(); });
 syncTheme();
 
-// The install scripts take GitHub's latest release (the newest that is not a pre-release, else the newest one) and
-// refuse one without SHA256SUMS: the command shows only when that release has them, the link to the files otherwise
-const box = document.getElementById('install');
-const plat = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
-const desktop = !/android|iphone|ipad|ipod/i.test(navigator.userAgent) && !(plat.includes('mac') && navigator.maxTouchPoints > 1);
-if (desktop) fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
+// Copy the install command
+for (const b of document.querySelectorAll('.cmd .copy')) b.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(b.previousElementSibling.textContent); } catch { return; }
+  b.classList.add('ok'); b.lastChild.textContent = 'Copied';
+  setTimeout(() => { b.classList.remove('ok'); b.lastChild.textContent = 'Copy'; }, 1600);
+});
+// The install scripts refuse a release without SHA256SUMS: when GitHub says the latest one has none, the command
+// gives way to the download page
+fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
   .then(r => r.ok ? r.json() : Promise.reject())
   .then(list => {
     const shown = list.filter(r => !r.draft), latest = shown.find(r => !r.prerelease) ?? shown[0];
-    if (!latest?.assets?.some(a => a.name === 'SHA256SUMS')) return;
-    const text = plat.includes('win') ? 'irm https://vassilidev.github.io/TermF/install.ps1 | iex' : 'curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh';
-    box.classList.remove('link');
-    box.querySelector('code').textContent = text;
-    const b = Object.assign(document.createElement('button'), {className: 'copy', type: 'button', innerHTML: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span>'});
-    b.setAttribute('aria-label', 'Copy the install command');
-    b.onclick = async () => {
-      try { await navigator.clipboard.writeText(text); } catch { return; }
-      b.classList.add('ok'); b.lastChild.textContent = 'Copied';
-      setTimeout(() => { b.classList.remove('ok'); b.lastChild.textContent = 'Copy'; }, 1600);
-    };
-    box.append(b);
+    if (latest?.assets?.some(a => a.name === 'SHA256SUMS')) return;
+    for (const c of document.querySelectorAll('.cmd')) { c.classList.add('link'); c.innerHTML = '<code><a href="download.html">Every file for your system, on the download page</a></code>'; }
   })
   .catch(() => {});
 
-// The launch video, once site/media/ has it (the build then marks the frame): a silent loop over the screenshot, with
-// a pause button, or only its poster when motion is reduced; without it, the screenshot stays
-addEventListener('load', () => {
-  const frame = document.getElementById('reel');
-  if (!('video' in frame.dataset)) return;
-  const v = document.createElement('video');
-  Object.assign(v, {muted: true, loop: true, playsInline: true, preload: reduce ? 'metadata' : 'auto', poster: 'media/launch-poster.webp'});
-  v.setAttribute('aria-label', 'A team run in TermF, from the request to the pull request. Sample data, no sound.');
-  v.innerHTML = '<source src="media/launch.webm" type="video/webm"><source src="media/launch.mp4" type="video/mp4">';
-  v.lastChild.addEventListener('error', () => v.remove());
-  v.addEventListener(reduce ? 'loadedmetadata' : 'loadeddata', () => {
-    frame.classList.add('playing');
-    frame.nextElementSibling.textContent = 'A team run, from your request to the pull request, in 12 seconds. Sample data.';
-    const b = Object.assign(document.createElement('button'), {type: 'button', className: 'watch'});
-    const show = () => { b.innerHTML = v.paused ? '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>Play' : '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>Pause'; };
-    b.onclick = () => v.paused ? v.play() : v.pause();
-    v.addEventListener('play', show);
-    v.addEventListener('pause', show);
-    show();
-    frame.append(b);
-    if (!reduce) v.play().catch(() => {});
-  }, {once: true});
-  frame.append(v);
-});
-
-// The highlights: the screen of the one in focus
-const items = [...document.querySelectorAll('.hl-item')];
-for (const it of items) {
-  const go = () => items.forEach(x => { x.classList.toggle('on', x === it); x.firstElementChild.setAttribute('aria-expanded', x === it); });
-  const b = it.firstElementChild;
-  b.addEventListener('click', go);
-  b.addEventListener('focus', go);
+// The film, once site/media/ has it (the build then marks the frame), in a dialog
+const reel = document.getElementById('reel'), film = document.querySelector('.film'), video = film.querySelector('video');
+if ('video' in reel.dataset) {
+  const btn = reel.querySelector('.film-btn');
+  btn.hidden = false;
+  video.addEventListener('loadedmetadata', () => { btn.lastChild.textContent = `TermF in ${Math.round(video.duration)} s`; }, {once: true});
+  video.preload = 'metadata';
+  video.load();
+  btn.addEventListener('click', () => { film.showModal(); video.play().catch(() => {}); });
+  film.addEventListener('close', () => video.pause());
+  film.addEventListener('click', e => { if (e.target === film) film.close(); });
 }
 
-// The team board: a ticket's lineup moves from the bench to the field, then each agent goes from at work to done
-const board = document.querySelector('.team-board'), field = board.querySelector('.field'), bench = board.querySelector('.bench');
-const line = board.querySelector('.coach p'), toks = [...board.querySelectorAll('.tok')];
-let timer, seen = false;
-function say(ticket, text) { line.replaceChildren(Object.assign(document.createElement('b'), {textContent: ticket}), ' ' + text); }
-function play(btn) {
-  clearTimeout(timer);
-  board.classList.remove('shipped');
-  const on = [...field.children];
-  const end = () => { board.classList.add('shipped'); say('Pull request ready.', 'It waits for your approval.'); };
-  if (reduce) { on.forEach(t => t.classList.add('d')); return end(); }
-  on.forEach(t => t.classList.replace('d', 'w') || t.classList.add('w'));
-  let i = 0;
-  const next = () => {
-    if (i < on.length) { on[i++].classList.replace('w', 'd'); timer = setTimeout(next, 520); }
-    else timer = setTimeout(end, 500);
-  };
-  timer = setTimeout(next, 1500);
-}
-function pick(btn, animate) {
-  const names = btn.dataset.lineup.split(' ');
-  for (const b of board.querySelectorAll('.tickets button')) b.setAttribute('aria-pressed', b === btn);
-  const before = animate && !reduce ? new Map(toks.map(t => [t, t.getBoundingClientRect()])) : null;
-  for (const t of toks) { t.classList.remove('w', 'd'); if (!names.includes(t.dataset.role)) bench.append(t); }
-  for (const n of names) { const t = toks.find(x => x.dataset.role === n); if (t) field.append(t); }
-  clearTimeout(timer);
-  board.classList.remove('shipped');
-  say(btn.dataset.ticket, btn.dataset.line);
-  if (before) for (const t of toks) {
-    const a = before.get(t), b = t.getBoundingClientRect();
-    if (Math.abs(a.left - b.left) + Math.abs(a.top - b.top) < 1) continue;
-    t.style.transformOrigin = '0 0';
-    t.animate([{transform: `translate(${a.left - b.left}px,${a.top - b.top}px) scale(${a.width / b.width})`}, {transform: 'none'}], {duration: 700, easing: 'cubic-bezier(.16,1,.3,1)'});
+// The team at work: each step of the example run goes from queued to working to done, then the pull request waits
+const cards = [...document.querySelectorAll('.crew-live .agent')], deliver = document.querySelector('.deliver');
+const steps = Math.max(...cards.map(c => +c.dataset.run)) + 1;
+const set = (el, state, label) => { const s = el.querySelector('.state'); s.className = 'state ' + state; s.textContent = label; };
+function frame(step) {
+  for (const c of cards) {
+    const r = +c.dataset.run;
+    set(c, r < step ? 'done' : r === step ? 'working' : '', r < step ? 'Done' : r === step ? 'Working' : 'Queued');
+    c.classList.toggle('on', r === step);
+    c.classList.toggle('idle', r > step);
   }
-  if (seen) play(btn);
+  const ready = step >= steps;
+  set(deliver, ready ? 'waiting' : '', ready ? 'Waiting for you' : 'Queued');
+  deliver.classList.toggle('ready', ready);
 }
-for (const b of board.querySelectorAll('.tickets button')) b.addEventListener('click', () => pick(b, true));
-const first = board.querySelector('.tickets [aria-pressed=true]');
-pick(first, false);
-new IntersectionObserver((entries, io) => { if (entries[0].isIntersecting) { seen = true; play(); io.disconnect(); } }, {threshold: .45}).observe(board);
+if (reduce) frame(steps);
+else {
+  let step = 0, timer = null;
+  frame(0);
+  const tick = () => { step = (step + 1) % (steps + 3); frame(Math.min(step, steps)); };
+  new IntersectionObserver(([e]) => {
+    clearInterval(timer);
+    if (e.isIntersecting) timer = setInterval(tick, 1600);
+  }, {threshold: .3}).observe(document.querySelector('.crew-live'));
+}
 </script>
 </body>
 </html>

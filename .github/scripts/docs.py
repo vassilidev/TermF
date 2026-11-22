@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Builds the website's generated parts: the docs (site/docs/*.html and site/docs/search.json) from the Markdown of
-# site/docs-src/<section>/<page>.md, the team on the front page (between <!-- gen:name --> markers) from library/roles/
-# and site/roles.toml, a small redirect page for every retired address in site/redirects.txt, and site/sitemap.xml.
+# site/docs-src/<section>/<page>.md, the role cards from library/roles/ and site/roles.toml, the number of roles on the
+# front page (between <!-- gen:count --> markers), a small redirect page for every retired address in
+# site/redirects.txt, and site/sitemap.xml.
 # Usage: python3 .github/scripts/docs.py (Python 3.11+, standard library only). The Pages workflow runs it.
 import glob
 import html
@@ -96,15 +97,6 @@ def role_cards():
         out.append(f'<section class="crew" aria-labelledby="crew-{g["id"]}"><h3 id="crew-{g["id"]}">{g["name"]}</h3>'
                    f'<p>{g["intro"]}</p><div class="roles">{"".join(cards)}</div></section>')
     return "\n".join(out)
-
-
-def roster():
-    """The front page's team board: every role as a token linking to its card in the docs. The CTO leads; a script on
-    the page moves an example lineup onto the field."""
-    def token(r):
-        return (f'<a class="tok c-{color[r["group"]]}" href="docs/team.html#role-{r["name"]}" data-role="{r["name"]}">'
-                f'<i aria-hidden="true">{r["mark"]}</i><span>{r["label"]}</span></a>')
-    return "".join(token(r) for r in roles if r["name"] != "cto")
 
 
 # ---------------------------------------------------------------------------------------------------------- markdown
@@ -351,13 +343,13 @@ def head(title, desc, url, prefix):
 <meta property="og:url" content="{url}">
 <meta property="og:image" content="{BASE}og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="theme-color" content="#f6f7f5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0b0f0d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b12" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="{prefix}icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="{prefix}favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="{prefix}apple-touch-icon.png">
-<link rel="preload" href="{prefix}fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{prefix}fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{prefix}site.css">
 {THEME_SCRIPT}
 </head>"""
@@ -594,8 +586,8 @@ for p in pages:
               for h, hid, parts in p.chunks]
 open(os.path.join(OUT, "search.json"), "w", encoding="utf-8").write(json.dumps(index, ensure_ascii=False, separators=(",", ":")))
 
-# The front page's team, between its markers
-fills = {"count": COUNTS["roles"], "roster": roster()}
+# The front page's count of roles, between its markers
+fills = {"count": COUNTS["roles"]}
 path = os.path.join(SITE, "index.html")
 source = open(path, encoding="utf-8").read()
 filled = source
@@ -607,7 +599,7 @@ video = ' data-video' if os.path.exists(os.path.join(SITE, "media", "launch.mp4"
 filled = re.sub(r'id="reel"( data-video)?', f'id="reel"{video}', filled)
 if filled != source:
     open(path, "w", encoding="utf-8").write(filled)
-    print("index.html: the team refreshed")
+    print("index.html refreshed")
 
 urls = ["", "download.html", "docs/"] + [f"docs/{p.slug}.html" for p in pages]
 open(os.path.join(SITE, "sitemap.xml"), "w", encoding="utf-8").write(
