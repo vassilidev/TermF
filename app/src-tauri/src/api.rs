@@ -198,9 +198,6 @@ impl Api {
     /// prints for Claude Code to read (null: nothing).
     fn hook(&self, app: &AppHandle, id: u32, event: &str, payload: &Value) -> Value {
         let task_reply = crate::claude::hook(app, id, event, payload);
-        if event == "StatusLine" {
-            crate::claude_native::status_line(app, id, payload);
-        }
         let text = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
         let (agent_session, handoff) = (text("session_id"), self.handoff_file(id));
         let mut current = true;
@@ -216,6 +213,9 @@ impl Api {
             } else {
                 m.agent_session_id = Some(agent_session.into());
             }
+        }
+        if event == "StatusLine" && current {
+            crate::claude_native::status_line(app, id, payload);
         }
         if event == "SessionStart" && !agent_session.is_empty() {
             tickets::conversation(app, id, agent_session);

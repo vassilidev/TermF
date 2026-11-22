@@ -199,7 +199,14 @@ pub fn claude_export_item(
         let (dest, _) = termf_library::export_target(&item, &dir)?;
         if dest.exists() {
             ensure!(overwrite, "{} exists already", dest.display());
-            native::trash(&dest, &native_state.trash)?;
+            // Written first next to it, so a failed export leaves the old one in place.
+            let staging = dir.join(".termf-export");
+            let _ = std::fs::remove_dir_all(&staging);
+            let swapped = termf_library::export_claude(&item, &staging)
+                .and_then(|fresh| native::replace(&dest, &fresh, &native_state.trash));
+            let _ = std::fs::remove_dir_all(&staging);
+            swapped?;
+            return Ok(dest.to_string_lossy().into_owned());
         }
         let dest = termf_library::export_claude(&item, &dir)?;
         Ok(dest.to_string_lossy().into_owned())
@@ -228,10 +235,11 @@ pub fn claude_session_open(
 ) -> CmdResult<SessionSummary> {
     sessions::check_id(&id).map_err(err)?;
     let (agent, _) = claude_agent(&state.config_dir).map_err(err)?;
+    // Elsewhere, Claude Code would resume it in the wrong folder.
     let cwd = cwd
         .map(PathBuf::from)
         .filter(|d| d.is_dir())
-        .unwrap_or_else(|| termf_core::expand_tilde("~"));
+        .ok_or("the folder this conversation ran in is gone: Claude Code resumes a session in its own folder")?;
     let title = format!(
         "{} · {agent}",
         cwd.file_name().unwrap_or_default().to_string_lossy()

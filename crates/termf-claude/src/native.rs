@@ -58,14 +58,25 @@ fn memory_files(env: &Env) -> Vec<PathBuf> {
     files
 }
 
+/// `autoMemoryDirectory` from the scopes Claude Code reads it in: a cloned repository's shared settings could
+/// otherwise point TermF at any folder. Empty or relative, it is ignored.
+pub fn auto_memory_dir(settings: &settings::Settings) -> Option<PathBuf> {
+    [Scope::Managed, Scope::Local, Scope::User]
+        .into_iter()
+        .find_map(|scope| {
+            let file = settings.files.iter().find(|f| f.scope == scope)?;
+            file.value.as_ref()?["autoMemoryDirectory"]
+                .as_str()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(termf_core::expand_tilde)
+        })
+        .filter(|d| d.is_absolute())
+}
+
 /// Automatic memory: one folder per project, or the one `autoMemoryDirectory` names.
 fn memory_dirs(env: &Env) -> Vec<PathBuf> {
-    let custom = settings::read(env)
-        .effective
-        .into_iter()
-        .find(|e| e.key == "autoMemoryDirectory")
-        .and_then(|e| e.value.as_str().map(termf_core::expand_tilde));
-    match custom {
+    match auto_memory_dir(&settings::read(env)) {
         Some(dir) => vec![dir],
         None => fs::read_dir(env.claude_dir.join("projects"))
             .into_iter()
@@ -76,29 +87,48 @@ fn memory_dirs(env: &Env) -> Vec<PathBuf> {
     }
 }
 
+/// `path` with every link on the way followed; for what is not there yet, its folder's.
+fn real(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| match (path.parent(), path.file_name()) {
+        (Some(dir), Some(name)) => real(dir).join(name),
+        _ => path.to_path_buf(),
+    })
+}
+
 /// `path` as given, once checked to be a Markdown file TermF may write: in a kind's folder, a memory file or an
-/// automatic memory folder. Nothing else, whatever the page sends.
+/// automatic memory folder. Nothing else, whatever the page sends. Links are followed: what they point to must
+/// be such a file too, and a repository's links must stay in the repository (a clone could bring a `SKILL.md`
+/// that points to `~/.ssh/authorized_keys`).
 pub fn writable(env: &Env, path: &Path) -> Result<PathBuf> {
     ensure!(
         path.is_absolute() && !path.components().any(|c| c == Component::ParentDir),
         "not a path TermF writes: {}",
         path.display()
     );
-    ensure!(
-        path.extension().is_some_and(|e| e == "md"),
-        "only Markdown files are edited here"
-    );
+    let md = |p: &Path| p.extension().is_some_and(|e| e == "md");
+    ensure!(md(path), "only Markdown files are edited here");
+    let target = real(path);
     let mut dirs: Vec<PathBuf> = KINDS
         .iter()
         .flat_map(|k| [Scope::User, Scope::Project].map(|s| kind_dir(env, k, s)))
         .flatten()
         .collect();
     dirs.extend(memory_dirs(env));
-    let inside = dirs.iter().any(|d| path.starts_with(d) && path != d);
+    let inside = dirs.iter().any(|d| {
+        let root = real(d);
+        path.starts_with(d) && path != d && target.starts_with(&root) && target != root
+    });
     ensure!(
         inside || memory_files(env).iter().any(|f| f == path),
         "not one of Claude Code's skills, agents, commands, styles, rules or memory files: {}",
         path.display()
+    );
+    let repo = env.repo.as_ref().filter(|r| path.starts_with(r));
+    ensure!(
+        md(&target) && repo.is_none_or(|r| target.starts_with(real(r))),
+        "{} is a link to {}, which TermF does not write",
+        path.display(),
+        target.display()
     );
     Ok(path.to_path_buf())
 }
@@ -328,6 +358,19 @@ pub fn trash(path: &Path, trash: &Path) -> Result<PathBuf> {
         }
     }
     Ok(dest)
+}
+
+/// Puts `staged`, written beforehand on the same disk, in place of `dest`, whose old version goes to the trash:
+/// if the swap fails, the old one comes back. Returns where the old one went.
+pub fn replace(dest: &Path, staged: &Path, trash_dir: &Path) -> Result<PathBuf> {
+    let old = trash(dest, trash_dir)?;
+    if let Err(e) = fs::rename(staged, dest) {
+        if fs::rename(&old, dest).is_err() {
+            let _ = copy(&old, dest);
+        }
+        return Err(e).with_context(|| format!("cannot write {}", dest.display()));
+    }
+    Ok(old)
 }
 
 fn copy(src: &Path, dest: &Path) -> Result<()> {

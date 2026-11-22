@@ -181,12 +181,7 @@ pub fn overview(env: &Env) -> Overview {
     });
     let settings = settings::read(env);
     let hooks = hooks(&settings);
-    let auto_dir = settings
-        .effective
-        .iter()
-        .find(|e| e.key == "autoMemoryDirectory")
-        .and_then(|e| e.value.as_str())
-        .map(termf_core::expand_tilde);
+    let auto_dir = native::auto_memory_dir(&settings);
     Overview {
         claude_dir: env.claude_dir.to_string_lossy().into_owned(),
         repo: env.repo.as_ref().map(|r| r.to_string_lossy().into_owned()),
@@ -440,11 +435,7 @@ pub struct Files {
 
 /// Skills and the like, and memory, read again without the slow commands of `overview`.
 pub fn files(env: &Env) -> Files {
-    let auto_dir = settings::read(env)
-        .effective
-        .into_iter()
-        .find(|e| e.key == "autoMemoryDirectory")
-        .and_then(|e| e.value.as_str().map(termf_core::expand_tilde));
+    let auto_dir = native::auto_memory_dir(&settings::read(env));
     Files {
         extensions: extensions(env),
         memory: memory(env, auto_dir),

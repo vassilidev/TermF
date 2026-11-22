@@ -30,13 +30,20 @@ export type ExportPreview = { dest: string; exists: boolean; diff: string };
 
 export const repoArg = () => claudeView.repo || null;
 
-/** Skills and the like, and memory, read again: the overview's slow commands are not run for that. */
+/** Skills and the like, and memory, read again: the overview's slow commands are not run for that. It never
+ * throws: it runs after a write that succeeded, whose success must not read as a failure. */
 export async function refreshFiles() {
   const o: Overview | null = claudeView.overview;
   if (!o) return;
-  const files = await invoke<{ extensions: Folder[]; memory: Overview["memory"] }>("claude_files", { repo: repoArg() });
-  o.extensions = files.extensions;
-  o.memory = files.memory;
+  try {
+    const files = await invoke<{ extensions: Folder[]; memory: Overview["memory"] }>("claude_files", { repo: repoArg() });
+    // Another repository chosen meanwhile has its own overview.
+    if (claudeView.overview !== o) return;
+    o.extensions = files.extensions;
+    o.memory = files.memory;
+  } catch (e) {
+    claudeView.error = String(e);
+  }
 }
 
 /** A tile a command opened: shown in the terminals, focused. */

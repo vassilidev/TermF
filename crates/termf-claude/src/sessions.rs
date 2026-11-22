@@ -53,12 +53,11 @@ pub fn folder_name(path: &Path) -> String {
 
 /// The repository's own folder and those of its worktrees (`<repo>/.claude/worktrees/…`). A name longer than
 /// 200 characters is cut and hashed by Claude Code: only its first 200 are compared.
-fn belongs(folder: &str, repo: &str) -> bool {
-    let (folder, repo) = (
-        &folder[..folder.len().min(200)],
-        &repo[..repo.len().min(200)],
-    );
-    folder == repo || folder.starts_with(&format!("{repo}--claude-worktrees-"))
+pub fn belongs(folder: &str, repo: &str) -> bool {
+    // Bytes: a folder that is not Claude Code's may have a long non-ASCII name.
+    let cut = |s: &str| s.as_bytes()[..s.len().min(200)].to_vec();
+    let (folder, repo) = (cut(folder), cut(repo));
+    folder == repo || folder.starts_with(&[repo.as_slice(), b"--claude-worktrees-"].concat())
 }
 
 /// `repo` by its real path too: Claude Code names the folder after it (`/tmp` is `/private/tmp` on macOS).
@@ -168,6 +167,8 @@ fn project(dir: &Path) -> Option<Project> {
                 .to_str()?
                 .strip_suffix(".jsonl")?
                 .to_owned();
+            // `agent-<id>.jsonl` and the like are not conversations `--resume` takes.
+            check_id(&id).ok()?;
             let m = e.metadata().ok().filter(|m| m.is_file())?;
             let (head, tail) = edges(&path, m.len());
             let meta = meta(&head, &tail);

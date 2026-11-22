@@ -259,19 +259,38 @@ fn lists_a_repositorys_sessions_and_its_worktrees_only() {
         "{}\n",
     );
     write(
-        &projects.join(format!("{name}-other")).join("x.jsonl"),
+        &projects
+            .join(format!("{name}-other"))
+            .join("33333333-2222-3333-4444-555555555555.jsonl"),
         "{}\n",
     );
     write(&projects.join(&name).join("memory/MEMORY.md"), "- x\n");
+    write(&projects.join(&name).join("agent-a1b2.jsonl"), "{}\n");
+    write(
+        &projects.join("-only-agents").join("agent-c3d4.jsonl"),
+        "{}\n",
+    );
+    // Not Claude Code's: a long name that is not ASCII must not stop the listing.
+    write(
+        &projects.join("é".repeat(150)).join(format!("{id}.jsonl")),
+        "{}\n",
+    );
 
     let listed = sessions::list(&env, Some(&repo));
     assert_eq!(listed.len(), 2, "{listed:?}");
     let own = listed.iter().find(|p| p.folder == name).unwrap();
-    assert_eq!(own.sessions.len(), 1);
+    assert_eq!(
+        own.sessions.len(),
+        1,
+        "agent-<id>.jsonl is not a conversation"
+    );
     assert_eq!(own.sessions[0].id, id);
     assert_eq!(own.sessions[0].prompt.as_deref(), Some("hello"));
     assert!(own.sessions[0].size > 0);
-    assert_eq!(sessions::list(&env, None).len(), 3);
+    assert_eq!(sessions::list(&env, None).len(), 4);
+    assert!(!sessions::belongs(&"é".repeat(150), "-repo"));
+    let long = "-".to_owned() + &"a".repeat(230);
+    assert!(sessions::belongs(&long[..201], &long));
 
     assert!(sessions::check_id(id).is_ok());
     for bad in ["--resume", "x", "../11111111-2222-3333-4444-5555555555"] {
@@ -382,4 +401,97 @@ fn diffs_documents_line_by_line() {
     );
     assert_eq!(native::line_diff("x\n", "x\n"), "");
     assert_eq!(native::line_diff("", "new\n"), "+new\n");
+}
+
+#[test]
+fn reads_auto_memory_directory_only_where_claude_code_does() {
+    let (root, env) = tree("auto-memory");
+    let elsewhere = root.join("elsewhere");
+    let note = elsewhere.join("note.md");
+    let setting = |dir: &str| json!({ "autoMemoryDirectory": dir }).to_string();
+    write(
+        &root.join("repo/.claude/settings.json"),
+        &setting(elsewhere.to_str().unwrap()),
+    );
+    assert!(
+        native::writable(&env, &note).is_err(),
+        "a cloned repository's shared settings name no folder"
+    );
+    for ignored in ["", "  ", "notes"] {
+        write(&env.claude_dir.join("settings.json"), &setting(ignored));
+        assert!(
+            native::writable(&env, &root.join("x.md")).is_err(),
+            "{ignored:?}"
+        );
+        assert!(native::writable(&env, &note).is_err(), "{ignored:?}");
+    }
+    write(
+        &env.claude_dir.join("settings.json"),
+        &setting(elsewhere.to_str().unwrap()),
+    );
+    assert!(native::writable(&env, &note).is_ok());
+    let files = crate::files(&env);
+    assert_eq!(files.memory.auto.len(), 1);
+    assert_eq!(files.memory.auto[0].path, elsewhere.to_string_lossy());
+}
+
+#[cfg(unix)]
+#[test]
+fn follows_links_only_where_they_stay_claude_codes() {
+    use std::os::unix::fs::symlink;
+    let (root, env) = tree("links");
+    let keys = root.join("ssh/authorized_keys");
+    write(&keys, "ssh-ed25519 AAAA alex\n");
+    let skill = env.claude_dir.join("skills/evil/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    symlink(&keys, &skill).unwrap();
+    assert!(native::writable(&env, &skill).is_err());
+    assert!(native::read(&env, &skill, true).is_err());
+    assert!(native::save(&env, &skill, "x", None).is_err());
+    assert_eq!(
+        fs::read_to_string(&keys).unwrap(),
+        "ssh-ed25519 AAAA alex\n"
+    );
+
+    // A repository's link to a Markdown file outside it.
+    let outside = env.claude_dir.join("CLAUDE.md");
+    write(&outside, "# Me\n");
+    symlink(&outside, root.join("repo/CLAUDE.md")).unwrap();
+    assert!(native::writable(&env, &root.join("repo/CLAUDE.md")).is_err());
+    let agent = root.join("repo/.claude/agents/qa.md");
+    fs::create_dir_all(agent.parent().unwrap()).unwrap();
+    symlink(&outside, &agent).unwrap();
+    assert!(native::writable(&env, &agent).is_err());
+
+    // Your own folders linked to dotfiles stay editable.
+    let dotfiles = root.join("dotfiles/agents");
+    write(&dotfiles.join("reviewer.md"), "---\nname: reviewer\n---\n");
+    symlink(&dotfiles, env.claude_dir.join("agents")).unwrap();
+    assert!(native::writable(&env, &env.claude_dir.join("agents/reviewer.md")).is_ok());
+    assert!(native::writable(&env, &env.claude_dir.join("agents/new.md")).is_ok());
+    let dotfile = root.join("dotfiles/CLAUDE.md");
+    write(&dotfile, "# Me\n");
+    fs::remove_file(&outside).unwrap();
+    symlink(&dotfile, &outside).unwrap();
+    assert!(native::writable(&env, &outside).is_ok());
+}
+
+#[test]
+fn replaces_an_item_only_once_the_new_one_is_written() {
+    let (root, _) = tree("replace");
+    let trash = root.join("trash");
+    let dest = root.join("skills/review");
+    write(&dest.join("SKILL.md"), "old\n");
+    let staged = root.join("staging/skills/review");
+    write(&staged.join("SKILL.md"), "new\n");
+    let old = native::replace(&dest, &staged, &trash).unwrap();
+    assert_eq!(fs::read_to_string(dest.join("SKILL.md")).unwrap(), "new\n");
+    assert_eq!(fs::read_to_string(old.join("SKILL.md")).unwrap(), "old\n");
+
+    assert!(native::replace(&dest, &root.join("staging/missing"), &trash).is_err());
+    assert_eq!(
+        fs::read_to_string(dest.join("SKILL.md")).unwrap(),
+        "new\n",
+        "a failed swap puts the old one back"
+    );
 }

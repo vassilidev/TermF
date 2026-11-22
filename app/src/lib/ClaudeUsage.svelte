@@ -36,8 +36,11 @@
 
   const headless = $derived([...agents.sessions].sort((a, b) => b.updated - a.updated));
   const headlessCost = $derived(headless.reduce((sum, a) => sum + a.cost, 0));
-  const dayStart = new Date().setHours(0, 0, 0, 0) / 1000;
-  const todayCost = $derived(headless.filter((a) => a.updated >= dayStart).reduce((sum, a) => sum + a.cost, 0));
+  /** The whole cost of the sessions active today: Claude Code gives a session's total, not a cost per day. */
+  const todayCost = $derived.by(() => {
+    const dayStart = new Date().setHours(0, 0, 0, 0) / 1000;
+    return headless.filter((a) => a.updated >= dayStart).reduce((sum, a) => sum + a.cost, 0);
+  });
 
   const percent = new Intl.NumberFormat(lang, { maximumFractionDigits: 0 });
   const level = (p: number) => (p >= 90 ? "over" : p >= 70 ? "warn" : "");
@@ -117,7 +120,7 @@
   <h3 id="claude-headless">{t("claudeDgHeadless")} <span class="count">{headless.length}</span></h3>
   {#if headless.length}
     <dl class="totals">
-      <div><dt>{t("claudeDgToday")}</dt><dd>{usd(todayCost)}</dd></div>
+      <div><dt>{t("claudeDgActiveToday")}</dt><dd>{usd(todayCost)}</dd></div>
       <div><dt>{t("claudeDgAllRuns")}</dt><dd>{usd(headlessCost)}</dd></div>
     </dl>
     <table>

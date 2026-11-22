@@ -77,10 +77,14 @@
       {#each m.files as [name, bytes] (name)}
         {@const path = join(m.path, name)}
         <li class:current={open?.path === path}>
-          <button class="main" onclick={() => (open = { path, create: false })}>
-            <span class="mono">{name}</span>
-            {#if name === "MEMORY.md"}<span class="badge">{t("claudeDgIndex")}</span>{/if}
-          </button>
+          {#if name.endsWith(".md")}
+            <button class="main" onclick={() => (open = { path, create: false })}>
+              <span class="mono">{name}</span>
+              {#if name === "MEMORY.md"}<span class="badge">{t("claudeDgIndex")}</span>{/if}
+            </button>
+          {:else}
+            <span class="main other mono">{name}</span>
+          {/if}
           <span class="muted small">{size(bytes)}</span>
           {#if name.endsWith(".md") && name !== "MEMORY.md"}
             <button
@@ -292,8 +296,12 @@
     text-align: left;
   }
 
-  .main:hover {
+  button.main:hover {
     background: var(--hover);
+  }
+
+  .main.other {
+    color: var(--muted);
   }
 
   .icon-btn.danger:hover:not(:disabled) {
