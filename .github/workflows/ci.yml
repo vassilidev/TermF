@@ -36,6 +36,11 @@ jobs:
       - name: Linux system dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: AppStream metadata of the Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y appstream
+          appstreamcli validate --no-net --explain app/src-tauri/installer/dev.termf.app.metainfo.xml
       - name: Frontend
         working-directory: app
         run: |

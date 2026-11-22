@@ -99,6 +99,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # On CI the bundler skips the Finder step that lays out the .dmg (background, icon positions) unless told not to.
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         with:
           projectPath: app
           tauriScript: pnpm tauri
