@@ -1,4 +1,5 @@
 ---
 type: regex
-pattern: 'integration'
+target: last_message
+pattern: 'markers\s*=\s*\[[^\]]*["'']integration'
 ---

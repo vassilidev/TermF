@@ -9,7 +9,7 @@ description: >-
 paths: "**/*.java, **/pom.xml, **/build.gradle, **/build.gradle.kts, **/settings.gradle, **/settings.gradle.kts, **/application*.properties, **/application*.yml, **/application*.yaml"
 license: MIT
 metadata:
-  termf-stacks: "spring-boot java"
+  termf-stacks: "spring-boot"
   termf-roles: "back qa"
   termf-versions: ">=3.4"
   termf-verified: "2026-11-22 spring-boot@4.2.0 spring-framework@7.1.0 jdk@25-lts gradle@9.9.2 maven@3.10.1"

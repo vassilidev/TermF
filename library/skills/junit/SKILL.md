@@ -10,7 +10,7 @@ description: >-
 paths: "**/*Test.java, **/*Tests.java, **/*IT.java, **/*Test.kt, **/*Tests.kt"
 license: MIT
 metadata:
-  termf-stacks: "junit java kotlin spring-boot"
+  termf-stacks: "junit java spring-boot"
   termf-roles: "qa back"
   termf-versions: ">=5.10"
   termf-verified: "2026-11-22 junit@6.1.3 assertj@3.27.7 mockito@5.24.0 mockk@1.14.12 testcontainers-java@2.0.5 spring-boot@4.2.0"

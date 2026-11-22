@@ -12,7 +12,7 @@ license: MIT
 metadata:
   termf-stacks: "rspec minitest"
   termf-roles: "qa back"
-  termf-versions: ">=3.12"
+  termf-versions: ">=8"
   termf-verified: "2026-11-22 rspec-rails@8.1.0 rspec-core@3.13.7 minitest@6.1.0 factory_bot@6.6.0 capybara@3.40.0 rails@8.1.4.1"
   termf-sources: "https://github.com/rspec/rspec-rails https://github.com/rspec/rspec https://github.com/minitest/minitest/blob/master/History.rdoc https://guides.rubyonrails.org/testing.html https://github.com/thoughtbot/factory_bot"
 ---

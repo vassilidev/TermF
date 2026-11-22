@@ -10,9 +10,9 @@ description: >-
 paths: "**/*.kt, **/AndroidManifest.xml, **/libs.versions.toml, **/proguard-rules.pro"
 license: MIT
 metadata:
-  termf-stacks: "kotlin android"
+  termf-stacks: "android"
   termf-roles: "front back qa"
-  termf-versions: ">=2.0"
+  termf-versions: ">=8.5"
   termf-verified: "2026-11-22 kotlin@2.4.21 agp@9.5.2 compose-bom@2026.11.01"
   termf-sources: "https://github.com/android/skills https://github.com/Kotlin/kotlin-agent-skills https://kotlinlang.org/llms.txt https://kotlinlang.org/docs/whatsnew24.html https://developer.android.com/build/releases/agp-9-0-0-release-notes https://developer.android.com/build/migrate-to-built-in-kotlin https://developer.android.com/develop/ui/compose/testing/migrate-v2 https://developer.android.com/tools/agents/android-cli"
 ---

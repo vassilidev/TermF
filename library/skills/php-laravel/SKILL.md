@@ -1,15 +1,15 @@
 ---
 name: php-laravel
 description: >-
-  Builds and changes PHP and Laravel applications the way the installed PHP and Laravel versions expect:
-  routes and controllers, Form Requests and validation, Eloquent models and queries, migrations, policies,
-  queues and jobs, Blade views, configuration, Composer packages, Pint and PHPStan. Use when a task touches
-  .php files, composer.json, artisan, routes/, app/, database/migrations or resources/views. Not for
-  writing tests (the pest skill covers Pest and PHPUnit), and not for Symfony-only projects.
-paths: "**/artisan, **/composer.json, **/app/**/*.php, **/routes/*.php, **/database/**/*.php, **/config/*.php, **/bootstrap/app.php, **/*.blade.php, **/src/**/*.php"
+  Builds and changes Laravel applications the way the installed PHP and Laravel versions expect: routes
+  and controllers, Form Requests and validation, Eloquent models and queries, migrations, policies, queues
+  and jobs, Blade views, configuration, Composer packages, Pint and PHPStan. Use when a task touches a
+  Laravel app: artisan, routes/, app/Models or app/Http, config/, database/ or Blade views. Not for
+  writing tests (the pest skill covers Pest and PHPUnit), nor for Symfony or plain PHP projects.
+paths: "**/artisan, **/bootstrap/app.php, **/routes/*.php, **/config/*.php, **/*.blade.php, **/app/Models/**/*.php, **/app/Http/**/*.php, **/app/Policies/**/*.php, **/app/Providers/**/*.php, **/app/Jobs/**/*.php, **/database/migrations/*.php, **/database/factories/*.php, **/database/seeders/*.php"
 license: MIT
 metadata:
-  termf-stacks: "laravel php"
+  termf-stacks: "laravel"
   termf-roles: "back qa"
   termf-versions: ">=11"
   termf-verified: "2026-11-22 laravel@13.43.0 php@8.6.0 laravel-boost@2.10.4 pint@1.32.3 larastan@3.15.0"

@@ -1,4 +1,5 @@
 ---
 type: regex
-pattern: '#\[DataProvider'
+target: last_message
+pattern: '#\[DataProvider|->with\('
 ---

@@ -1,4 +1,4 @@
-- Version: `pytest` in the lockfile; config in the first of `pytest.toml`, `.pytest.toml`, `pytest.ini`, `pyproject.toml`, `tox.ini`, `setup.cfg` (never merged).
+- Version: `pytest` in the lockfile; config in the first of `pytest.toml`, `.pytest.toml`, `pytest.ini`, `.pytest.ini`, `pyproject.toml`, `tox.ini`, `setup.cfg` (never merged).
 - Docs for this version: `https://docs.pytest.org/en/stable/changelog.html` and the docs of the plugins installed (pytest-asyncio, pytest-django, pytest-xdist).
 - Verify: the project's test command, else `uv run pytest`; narrow with `pytest path::test -x`, then `pytest --lf`.
 - pytest 9: native `[tool.pytest]` (TOML lists) or legacy `[tool.pytest.ini_options]`, never both; `strict = true` needs every marker registered.
