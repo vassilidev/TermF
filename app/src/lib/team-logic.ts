@@ -31,3 +31,13 @@ export function access(meta: Record<string, unknown>): string[] | "readOnly" | n
 export function added(before: { id: string }[], after: { id: string }[]): string | null {
   return after.find((p) => !before.some((b) => b.id === p.id))?.id ?? null;
 }
+
+/** A role setting as the Team view shows it: a list joined, anything else as text. */
+export function shown(value: unknown): string {
+  return Array.isArray(value) ? value.map(String).join(", ") : typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** The repository and license of a role's credit: `owner/repo@commit (MIT): path` gives `owner/repo (MIT)`. */
+export function source(credit: string): string {
+  return credit.replace(/@[0-9a-f]+/i, "").replace(/: .*$/, "").trim();
+}

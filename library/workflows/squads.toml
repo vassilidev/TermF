@@ -1,0 +1,5 @@
+extends = "default"
+description = "Several squads: the CTO plans the tasks of every squad"
+
+[steps.plan]
+role = "cto"

@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, HashSet};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use termf_core::squads::{Membership, Team, same_role};
+
+use crate::rules;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -30,6 +33,9 @@ pub struct Criterion {
 pub struct Task {
     pub id: String,
     pub role: String,
+    /// The squad of the project it belongs to; `""` when there is only one, or for a staff role.
+    #[serde(default)]
+    pub squad: String,
     /// The repository's name in the project.
     pub repo: String,
     pub size: Size,
@@ -121,6 +127,7 @@ pub fn plan_schema() -> Value {
     let task = object(json!({
         "id": { "type": "string" },
         "role": { "type": "string" },
+        "squad": { "type": "string" },
         "repo": { "type": "string" },
         "size": { "type": "string", "enum": ["S", "M", "L"] },
         "covers": strings(),
@@ -187,9 +194,9 @@ pub fn answer<T: serde::de::DeserializeOwned>(
     serde_json::from_str(braces).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
-/// What is wrong with a plan beyond its schema. `roles`: those the library has; `repo`: the run's repository,
-/// the only one a task may name until runs span several.
-pub fn check_plan(plan: &Plan, roles: &[String], repo: &str) -> Vec<String> {
+/// What is wrong with a plan beyond its schema. `roles`: those a task may have; `repo`: the run's repository,
+/// the only one a task may name until runs span several; `team`: the project's squads, each task's in turn.
+pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec<String> {
     let mut problems = Vec::new();
     if plan.tasks.is_empty() && plan.questions.is_empty() {
         problems.push("the plan has no task and no question".to_owned());
@@ -210,14 +217,57 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str) -> Vec<String> {
         if !ids.insert(id.as_str()) {
             problems.push(format!("two tasks are named {id}"));
         }
-        if !roles.contains(&task.role) {
-            problems.push(format!("task {id}: no role {} in the library", task.role));
+        if !roles.iter().any(|r| same_role(r, &task.role)) {
+            problems.push(format!(
+                "task {id}: role {} is not one a task may have ({})",
+                task.role,
+                roles.join(", ")
+            ));
         }
         if !task.repo.is_empty() && !task.repo.eq_ignore_ascii_case(repo) {
             problems.push(format!(
                 "task {id}: repository {} is not the run's ({repo}); a run works on one repository for now",
                 task.repo
             ));
+        }
+        let repo = if task.repo.is_empty() {
+            repo
+        } else {
+            &task.repo
+        };
+        match team.place(&task.squad, &task.role) {
+            Err(why) => problems.push(format!("task {id}: {why}")),
+            Ok(Membership::Staff) if !team.staff.iter().any(|r| same_role(r, &task.role)) => {
+                problems.push(format!(
+                    "task {id}: name its squad ({}), unless its role is on the staff ({})",
+                    team.squads
+                        .iter()
+                        .map(|s| s.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    team.staff.join(", ")
+                ));
+            }
+            Ok(Membership::Staff) => {}
+            Ok(Membership::Squad(squad)) => {
+                if !squad.has(&task.role) {
+                    problems.push(format!(
+                        "task {id}: role {} is not in squad {} ({})",
+                        task.role,
+                        squad.id,
+                        squad.roles.keys().cloned().collect::<Vec<_>>().join(", ")
+                    ));
+                }
+                if !squad.repos.is_empty()
+                    && !squad.repos.iter().any(|r| r.eq_ignore_ascii_case(repo))
+                {
+                    problems.push(format!(
+                        "task {id}: squad {} works on {}, not on {repo}",
+                        squad.id,
+                        squad.repos.join(", ")
+                    ));
+                }
+            }
         }
         if task.goal.trim().is_empty() {
             problems.push(format!("task {id} has no goal"));
@@ -254,6 +304,38 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str) -> Vec<String> {
         problems.push("the tasks depend on each other in a cycle".to_owned());
     }
     problems
+}
+
+/// The files a task plans outside its squad's paths: not wrong in itself, the `scope` rule decides once the work
+/// is done.
+pub fn stray_hints(plan: &Plan, team: &Team) -> Vec<String> {
+    let mut found = Vec::new();
+    for task in &plan.tasks {
+        let Ok(Membership::Squad(squad)) = team.place(&task.squad, &task.role) else {
+            continue;
+        };
+        if squad.paths.is_empty() {
+            continue;
+        }
+        for hint in &task.files_hint {
+            if !squad.paths.iter().any(|p| inside(hint, p)) {
+                found.push(format!(
+                    "task {}: {hint} is outside the paths of squad {} ({})",
+                    task.id,
+                    squad.id,
+                    squad.paths.join(", ")
+                ));
+            }
+        }
+    }
+    found
+}
+
+/// Whether a file, folder or glob of a plan falls within the squad path `path`.
+fn inside(hint: &str, path: &str) -> bool {
+    let hint = hint.trim().trim_start_matches("./").trim_end_matches('/');
+    let fixed = &hint[..hint.find(['*', '?']).unwrap_or(hint.len())];
+    rules::covers(path, hint) || rules::covers(path, &format!("{}/x", fixed.trim_end_matches('/')))
 }
 
 fn cycle(tasks: &[Task]) -> bool {
@@ -302,6 +384,7 @@ mod tests {
         Task {
             id: id.into(),
             role: "back".into(),
+            squad: String::new(),
             repo: "api".into(),
             size: Size::M,
             covers: vec!["AC1".into()],
@@ -325,14 +408,20 @@ mod tests {
         }
     }
 
+    fn small() -> Team {
+        termf_core::squads::parse("name = \"Acme\"\n").unwrap()
+    }
+
     #[test]
     fn checks_what_the_schema_cannot() {
         let roles = ["back".to_owned(), "front".to_owned()];
+        let small = small();
         assert!(
             check_plan(
                 &plan(vec![task("T1", &[]), task("T2", &["T1"])]),
                 &roles,
-                "API"
+                "API",
+                &small
             )
             .is_empty()
         );
@@ -346,11 +435,12 @@ mod tests {
             &plan(vec![task("T1", &[]), task("T1", &[]), bad]),
             &roles,
             "api",
+            &small,
         );
         let all = problems.join("\n");
         for expected in [
             "two tasks are named T1",
-            "no role wizard",
+            "role wizard is not one a task may have (back, front)",
             "repository front is not the run's",
             "covers AC7",
             "../etc/passwd is not a path",
@@ -362,10 +452,88 @@ mod tests {
 
         let looped = plan(vec![task("T1", &["T2"]), task("T2", &["T1"])]);
         assert_eq!(
-            check_plan(&looped, &roles, "api"),
+            check_plan(&looped, &roles, "api", &small),
             ["the tasks depend on each other in a cycle"]
         );
-        assert_eq!(check_plan(&plan(vec![]), &roles, "api").len(), 1);
+        assert_eq!(check_plan(&plan(vec![]), &roles, "api", &small).len(), 1);
+        let mut main = task("T1", &[]);
+        main.squad = "main".into();
+        main.role = "orchestrator".into();
+        let lead = ["lead".to_owned()];
+        assert!(
+            check_plan(&plan(vec![main]), &lead, "api", &small).is_empty(),
+            "the implicit squad, and the former name of lead"
+        );
+    }
+
+    #[test]
+    fn checks_each_task_against_its_squad() {
+        let team = termf_core::squads::parse(
+            r#"name = "Acme"
+[team]
+staff = ["architect"]
+[[squads]]
+id = "web"
+roles = { front = 2, qa = 1 }
+repos = ["front"]
+paths = ["apps/web/**", "packages/ui"]
+[[squads]]
+id = "api"
+roles = { back = 1 }
+repos = ["api"]
+paths = ["services/**"]
+"#,
+        )
+        .unwrap();
+        let roles: Vec<String> = ["front", "back", "qa", "architect"]
+            .map(String::from)
+            .to_vec();
+        let mut t1 = task("T1", &[]);
+        t1.squad = "api".into();
+        t1.files_hint = vec!["services/billing".into(), "README.md".into()];
+        let mut t2 = task("T2", &["T1"]);
+        t2.role = "architect".into();
+        let good = plan(vec![t1.clone(), t2]);
+        assert!(check_plan(&good, &roles, "api", &team).is_empty());
+        assert_eq!(
+            stray_hints(&good, &team),
+            ["task T1: README.md is outside the paths of squad api (services/**)"]
+        );
+
+        let mut outside = task("T3", &[]);
+        outside.squad = "web".into();
+        let mut nameless = task("T4", &[]);
+        nameless.role = "back".into();
+        let mut unknown = task("T5", &[]);
+        unknown.squad = "ops".into();
+        let problems = check_plan(
+            &plan(vec![outside, nameless, unknown]),
+            &roles,
+            "api",
+            &team,
+        );
+        let all = problems.join("\n");
+        for expected in [
+            "task T3: role back is not in squad web (front, qa)",
+            "task T3: squad web works on front, not on api",
+            "task T4: name its squad (web, api), unless its role is on the staff (architect)",
+            "task T5: no squad ops in the project (its squads: web, api)",
+        ] {
+            assert!(all.contains(expected), "{expected} in {all}");
+        }
+
+        let mut web = task("T6", &[]);
+        web.squad = "web".into();
+        web.role = "front".into();
+        web.repo = String::new();
+        web.files_hint = vec!["packages/ui/button.ts".into(), "apps/web".into()];
+        let web = plan(vec![web]);
+        assert!(stray_hints(&web, &team).is_empty());
+        assert_eq!(
+            check_plan(&web, &roles, "front", &team),
+            Vec::<String>::new(),
+            "no repository: the run's"
+        );
     }
 
     #[test]
@@ -401,7 +569,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            9
+            10
         );
         assert_eq!(
             report_schema()["properties"]["status"]["enum"][1],

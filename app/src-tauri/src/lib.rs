@@ -485,6 +485,7 @@ pub fn run() {
             team::team_runs,
             team::team_run,
             team::team_events,
+            team::team_squads,
             visual::visual_start,
             visual::visual_reviews,
             visual::visual_review,

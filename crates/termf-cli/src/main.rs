@@ -137,6 +137,8 @@ usage:
   termf team rules <run> [--task <id>] <rule>=<level>...
                                         rule levels for the ticket, or one task of the plan
   termf team stop [<run>]               emergency stop of one team, or of every team at work
+  termf team squads [<project>]         the squads and staff of a project (by default every project),
+                                        each role with its settings and the layers they come from
   termf review start [--run <run>] [--repo <path> --base <ref> --head <ref>] [--route <path>]...
                                         capture the screens before and after (a run's worktree, or two
                                         commits) with the project's dev server and Chrome, then compare
