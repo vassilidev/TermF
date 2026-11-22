@@ -51,8 +51,10 @@
     try {
       await action();
     } catch (e) {
-      if (needsConfirm(e)) setStatus(await invoke<VaultStatus>("vault_status"));
-      else error = failed(e);
+      if (needsConfirm(e)) {
+        error = t("vault2ConfirmAgain");
+        setStatus(await invoke<VaultStatus>("vault_status"));
+      } else error = failed(e);
     } finally {
       busy = "";
     }
@@ -96,10 +98,15 @@
     });
   }
 
-  const biometry = (days: number | null) =>
-    run("biometry", async () => {
+  async function biometry(days: number | null, control: HTMLInputElement | HTMLSelectElement) {
+    await run("biometry", async () => {
       setStatus(await invoke<VaultStatus>("vault_biometry_set", { days, reason: t("vault2ReasonEnable") }));
     });
+    // Refused or cancelled: the control shows what is, not what was asked.
+    const now = vault.status?.quickDays ?? null;
+    if (control instanceof HTMLInputElement) control.checked = now !== null;
+    else if (now !== null) control.value = String(now);
+  }
 
   const change = submit("password", async () => {
     try {
@@ -215,7 +222,7 @@
             class="switch"
             checked={status.quickDays !== null}
             disabled={!confirmed || !!busy}
-            onchange={(e) => biometry(e.currentTarget.checked ? 7 : null)}
+            onchange={(e) => biometry(e.currentTarget.checked ? 7 : null, e.currentTarget)}
           />
           {t("vault2BiometryOn", { name: biometryName() })}
           {@render spinner("biometry")}
@@ -223,7 +230,7 @@
         {#if status.quickDays !== null}
           <label class="toggle muted">
             {t("vault2BiometryDays")}
-            <select class="field" value={status.quickDays} disabled={!confirmed || !!busy} onchange={(e) => biometry(Number(e.currentTarget.value))}>
+            <select class="field" value={status.quickDays} disabled={!confirmed || !!busy} onchange={(e) => biometry(Number(e.currentTarget.value), e.currentTarget)}>
               {#each days as d (d)}<option value={d}>{t("vault2Days", { n: d })}</option>{/each}
             </select>
           </label>

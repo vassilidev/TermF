@@ -2610,6 +2610,9 @@ const fr = {
   vault2WrongRecovery: "Clé de récupération incorrecte.",
   vault2ProdKey: "Avec ma clé de sécurité",
   vault2ProdBiometry: "Avec {name}",
+  vault2ConfirmAgain: "Le mot de passe maître est redemandé : ta modification n'a pas été faite.",
+  vault2RecoveryPlaceholder: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX",
+  vault2BackToPassword: "Avec le mot de passe",
 
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.
   gitView: "Git",
@@ -5317,6 +5320,9 @@ const en: Record<Key, string> = {
   vault2WrongRecovery: "Wrong recovery key.",
   vault2ProdKey: "With my security key",
   vault2ProdBiometry: "With {name}",
+  vault2ConfirmAgain: "Your master password is asked again: your change was not made.",
+  vault2RecoveryPlaceholder: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX",
+  vault2BackToPassword: "With the password",
 
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.
   gitView: "Git",

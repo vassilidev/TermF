@@ -219,7 +219,7 @@
               <input
                 class="field mono"
                 bind:value={recoveryText}
-                placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                placeholder={t("vault2RecoveryPlaceholder")}
                 autocomplete="off"
                 spellcheck="false"
                 required

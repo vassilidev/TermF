@@ -65,8 +65,15 @@
 
   function byKey() {
     // Windows asks for the PIN in its own window.
+    // What was typed so far is the master password, not a PIN: it would spend one of the key's tries.
+    password = "";
     if (vault.methods?.keyPin) withKey = true;
     else prove("vault_reauth_key", { pin: null });
+  }
+
+  function byPassword() {
+    password = "";
+    withKey = false;
   }
 
   function open(url: string) {
@@ -169,10 +176,12 @@
       </label>
       <button type="submit" class="btn primary" disabled={busy || !password}>{t("vaultConfirm")}</button>
     </form>
-    {#if (vault.status?.keys && !withKey) || quickReady()}
+    {#if vault.status?.keys || quickReady()}
       <div class="reauth-other">
         <span class="muted">{t("vault2Or")}</span>
-        {#if vault.status?.keys && !withKey}
+        {#if withKey}
+          <button class="btn sm" disabled={busy} onclick={byPassword}>{t("vault2BackToPassword")}</button>
+        {:else if vault.status?.keys}
           <button class="btn sm" disabled={busy} onclick={byKey}>{t("vault2ProdKey")}</button>
         {/if}
         {#if quickReady()}
