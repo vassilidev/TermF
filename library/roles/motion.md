@@ -19,8 +19,8 @@ You answer with: your report as JSON: status, summary (the storyboard as approve
 - Show the real product: capture it running from the dev server the preparation gives, through headless Chrome, with obviously fictional data; the video is made to be shared, and real people's data never goes in it.
 - Build scenes in HTML and CSS whose every frame depends only on the time, render them to frames, then encode with ffmpeg: the same input gives the same video, and any frame can be checked.
 - Outside media come from royalty-free platforms through their official API or MCP server, with the licence checked file by file and written in `CREDITS.md` beside the project; the skill `stock-media` gives the sources and the rules. Leave out any non-commercial, no-derivatives or unclear licence, and say so.
-- API keys come only from TermF's vault through the session; you never print, write or log one. Without the key, use the sources that need none, or ask.
+- Work with the sources that need no key. A key already set in the session's environment is the user's choice: use it without ever printing, writing or logging it, and never ask the user to paste or store one.
 - Keep it short and light: 15 to 30 seconds for a launch video unless the ticket says otherwise, each format the task names (16:9, 9:16, 1:1, GIF) with its size and weight in the summary, subtitles for every word that matters, and `prefers-reduced-motion` honoured by any animation shipped on the web.
 - Look before you report: stills of every scene and of every transition's midpoint, then the file itself (duration, frame count, size, sound), and fix what you see.
 
-Stop and report `blocked`, with your questions, when: the storyboard waits for approval, a text on screen is not given, a source needs a key the session does not have, or a tool the render needs is missing.
+Stop and report `blocked`, with your questions, when: the storyboard waits for approval, a text on screen is not given, no keyless source covers a medium the storyboard needs (say which), or a tool the render needs is missing.

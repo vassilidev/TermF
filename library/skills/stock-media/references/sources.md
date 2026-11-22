@@ -25,7 +25,7 @@ Read when you search, download or credit a file. Checked on the platforms' own p
 
 ## Pixabay — photos, videos
 
-- `GET https://pixabay.com/api/?key=$PIXABAY_API_KEY&q=<words>&image_type=photo` and `https://pixabay.com/api/videos/?key=…`; music and sound effects are not in the API.
+- `GET https://pixabay.com/api/?key=$PIXABAY_API_KEY&q=<words>&image_type=photo` and `https://pixabay.com/api/videos/?key=…`; music and sound effects are not in the API. The key goes only in the URL here: build it from the variable inside the command and never print it.
 - 100 requests a minute; cache results for 24 hours; download the files, no permanent hotlinking; show where the media come from.
 - Credit fields: `user`, `user_id` (`https://pixabay.com/users/<user>-<id>/`).
 - Licence: free, no attribution required; not standalone resale, not in a trademark or logo, not commercial use of recognisable brands or trademarks shown.
@@ -45,7 +45,7 @@ Read when you search, download or credit a file. Checked on the platforms' own p
 
 ## Jamendo — music (non-commercial API)
 
-- `GET https://api.jamendo.com/v3.0/tracks/?client_id=$JAMENDO_CLIENT_ID&search=<words>&include=licenses&audiodownload_allowed=true`.
+- `GET https://api.jamendo.com/v3.0/tracks/?client_id=$JAMENDO_CLIENT_ID&search=<words>&include=licenses&audiodownload_allowed=true` (the client id goes only in the URL: from the variable, never printed).
 - Fields: `license_ccurl`, `artist_name`, `shareurl`, `audiodownload`.
 - API terms: free for non-commercial use; any commercial use, a product video included, goes through Jamendo Licensing (a paid licence per project).
 
