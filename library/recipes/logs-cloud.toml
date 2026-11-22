@@ -1,0 +1,75 @@
+# Recent events of a cloud logging service, through its official CLI (curl for Datadog's API).
+name = "logs-cloud"
+description = "Recent log events from CloudWatch, Google Cloud Logging, Loki or Datadog"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.since]
+type = "duration"
+description = "How far back, such as 15m, 1h or 2d"
+default = "1h"
+
+[params.grep]
+type = "text"
+description = "Only the events that hold this text"
+
+[params.query]
+type = "text"
+description = "The service's own query instead: a LogQL selector for Loki, a filter for Google Cloud"
+max_len = 500
+
+[params.lines]
+type = "int"
+description = "How many events at most"
+default = 200
+min = 1
+max = 1000
+
+[limits]
+lines = 1000
+bytes = 262144
+timeout_s = 60
+
+[[run]]
+kind = "cloudwatch"
+args = [
+  "logs", "tail", "{conn.log_group}", "--since", "{since}", "--format", "short",
+  ["--filter-pattern", "{grep}"],
+]
+
+[[run]]
+kind = "gcp"
+when = ["query"]
+args = [
+  "logging", "read", "{query}", "--freshness", "{since}", "--limit", "{lines}",
+  "--format", "value(timestamp,severity,textPayload,jsonPayload.message)",
+]
+
+[[run]]
+kind = "gcp"
+args = [
+  "logging", "read", ["{grep}"], "--freshness", "{since}", "--limit", "{lines}",
+  "--format", "value(timestamp,severity,textPayload,jsonPayload.message)",
+]
+
+[[run]]
+kind = "loki"
+when = ["query"]
+args = ["query", "--quiet", "--since", "{since}", "--limit", "{lines}", "{query}"]
+keep = "{grep}"
+
+[[run]]
+kind = "loki"
+args = ["query", "--quiet", "--since", "{since}", "--limit", "{lines}", "{{job=~\".+\"}}"]
+keep = "{grep}"
+
+[[run]]
+kind = "datadog"
+args = [
+  "/api/v2/logs/events", "-G",
+  "--data-urlencode", "filter[from]=now-{since}",
+  "--data-urlencode", "page[limit]={lines}",
+  ["--data-urlencode", "filter[query]={grep}"],
+]

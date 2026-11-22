@@ -1,0 +1,21 @@
+# The pods of the connection's namespace, with their state, restarts and node.
+name = "k8s-pods"
+description = "The pods of a Kubernetes namespace: state, restarts, age and node"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.selector]
+type = "text"
+description = "Only the pods with these labels, such as app=web"
+max_len = 120
+
+[limits]
+lines = 500
+bytes = 131072
+timeout_s = 30
+
+[[run]]
+kind = "kubernetes"
+args = ["get", "pods", "-o", "wide", ["-l", "{selector}"]]

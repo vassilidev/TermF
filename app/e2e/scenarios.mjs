@@ -264,6 +264,18 @@ export const scenarios = [
       check(dark, "the window is not dark");
     },
   },
+  {
+    name: "sync: the encrypted sync section of the settings, from the palette",
+    views: [],
+    async run(t) {
+      await t.ready();
+      await t.command("sync");
+      await t.s.waitFor(`${t.shown("settings")} [aria-current="page"]`);
+      await t.settled("settings");
+      await t.clean();
+    },
+  },
+  viewOnly("ops", "Ops: the project's connections and recipes"),
   viewOnly("ci", "CI/CD: the project's runs (fake gh, none yet)"),
   viewOnly("design", "design system: the tokens of the repository"),
   viewOnly("project", "configuration: the project's page"),

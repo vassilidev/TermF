@@ -326,7 +326,7 @@ fn pin(vault: &Vault) -> Result<Option<Secret>> {
 }
 
 /// This process's own session, which ends with it: the password typed now also opens prod.
-fn open(vault: &Vault, actor: &Actor) -> Result<()> {
+pub(crate) fn open(vault: &Vault, actor: &Actor) -> Result<()> {
     let password = prompt("Master password: ")?;
     let pin = pin(vault)?;
     vault.unlock(

@@ -10,7 +10,7 @@ use termf_tickets::utc;
 use crate::{Client, take_opt};
 
 /// `project` (from `--project`), else the project that lists the current folder.
-fn or_here(project: Option<String>) -> Result<String> {
+pub(crate) fn or_here(project: Option<String>) -> Result<String> {
     match project {
         Some(id) => Ok(id),
         None => termf_memory::project_of(

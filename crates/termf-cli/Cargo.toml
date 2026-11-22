@@ -22,6 +22,7 @@ termf-claude = { path = "../termf-claude" }
 termf-core = { path = "../termf-core" }
 termf-library = { path = "../termf-library" }
 termf-memory = { path = "../termf-memory" }
+termf-ops = { path = "../termf-ops" }
 termf-schedule = { path = "../termf-schedule" }
 termf-ssh = { path = "../termf-ssh" }
 termf-sync = { path = "../termf-sync" }
