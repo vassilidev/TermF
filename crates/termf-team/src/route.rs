@@ -281,8 +281,11 @@ fn check_steps(
     }
     // TermF runs what `skip` says: a ruling that skips a step `skip` keeps would run a step the journal says it left out.
     for ruling in &routing.rulings {
-        let what = ruling.trim().trim_start_matches("Ruling:").trim();
-        let what = what.split(" — ").next().unwrap_or(what).to_lowercase();
+        let lower = ruling.trim().to_lowercase();
+        let what = lower.trim_start_matches("ruling:").trim();
+        // Whatever dash or colon ends the decision: the why after it names steps too.
+        let what = what.split(['—', '–', ':', ';']).next().unwrap_or(what);
+        let what = what.split(" - ").next().unwrap_or(what);
         let Some(named) = what.strip_prefix("skip ") else {
             continue;
         };
@@ -368,6 +371,95 @@ pub fn flag(file: &Path, key: &str) -> Result<Option<bool>> {
         .as_bool()
         .map(Some)
         .with_context(|| format!("`[team] {key}` in {} must be true or false", file.display()))
+}
+
+/// Words of a ticket that touch what a single developer never takes without the security review: authentication,
+/// permissions, secrets, cryptography, data migrations, payments, concurrency. A trailing `*` matches the start of a
+/// word, a space a phrase.
+const SENSITIVE: [&str; 61] = [
+    "auth",
+    "authent*",
+    "authori*",
+    "authn",
+    "authz",
+    "oauth*",
+    "login*",
+    "logout",
+    "signin",
+    "sign in",
+    "signup",
+    "sign up",
+    "password*",
+    "passwd",
+    "passphrase*",
+    "mot de passe",
+    "mots de passe",
+    "2fa",
+    "mfa",
+    "otp",
+    "totp",
+    "sso",
+    "saml",
+    "jwt*",
+    "csrf",
+    "permission*",
+    "privilege*",
+    "rbac",
+    "acl*",
+    "role",
+    "roles",
+    "rôle*",
+    "droit",
+    "droits",
+    "access control",
+    "secret*",
+    "credential*",
+    "api key*",
+    "apikey*",
+    "token*",
+    "private key*",
+    "crypt*",
+    "encrypt*",
+    "decrypt*",
+    "chiffr*",
+    "hmac",
+    "migration*",
+    "migrate*",
+    "backfill*",
+    "payment*",
+    "paiement*",
+    "billing",
+    "factur*",
+    "checkout",
+    "stripe",
+    "refund*",
+    "rembours*",
+    "concurren*",
+    "race condition*",
+    "deadlock*",
+    "same time",
+];
+
+/// The first word of [`SENSITIVE`] that `text` says, if any.
+pub fn sensitive(text: &str) -> Option<&'static str> {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let spaced = format!(" {} ", words.join(" "));
+    SENSITIVE.into_iter().find(|term| {
+        let (stem, prefix) = match term.strip_suffix('*') {
+            Some(stem) => (stem, true),
+            None => (*term, false),
+        };
+        match (stem.contains(' '), prefix) {
+            (true, true) => spaced.contains(&format!(" {stem}")),
+            (true, false) => spaced.contains(&format!(" {stem} ")),
+            (false, true) => words.iter().any(|w| w.starts_with(stem)),
+            (false, false) => words.contains(&stem),
+        }
+    })
 }
 
 /// A short account of a routing, for the events and the CLI.
@@ -497,12 +589,20 @@ mod tests {
             ..routing()
         };
         let skips_frame = "Ruling: skip frame (po) — the ticket lists its criteria — cost if wrong: a missed edge case";
-        assert_eq!(
-            check(&ruled(&[], skips_frame), &workflows, &team, any),
-            [
-                "a ruling skips step frame, but skip does not list it: put it in skip, or rule to keep it"
-            ]
-        );
+        for ruling in [
+            skips_frame,
+            "Ruling: skip frame - the ticket lists its criteria - cost if wrong: a missed edge case",
+            "ruling: Skip frame – the ticket lists its criteria",
+            "Ruling: skip frame: the ticket lists its criteria",
+        ] {
+            assert_eq!(
+                check(&ruled(&[], ruling), &workflows, &team, any),
+                [
+                    "a ruling skips step frame, but skip does not list it: put it in skip, or rule to keep it"
+                ],
+                "{ruling}"
+            );
+        }
         for (skip, ruling) in [
             (&["frame"][..], skips_frame),
             (
@@ -516,6 +616,10 @@ mod tests {
             (
                 &[],
                 "Ruling: budget $1 — skip nothing — cost if wrong: a top-up",
+            ),
+            (
+                &[],
+                "Ruling: keep everything - skip frame would lose the criteria",
             ),
         ] {
             assert!(
@@ -586,5 +690,29 @@ mod tests {
             describe(&routing()),
             "feature, size M, workflow default; adds ux; squads web; efforts security high; budget $4.00: a new export"
         );
+    }
+
+    #[test]
+    fn a_sensitive_ticket_is_told_by_its_words() {
+        for (text, word) in [
+            ("Reset the PASSWORD of a user", "password*"),
+            ("Only admins with the right permissions can share", "permission*"),
+            ("Partage d'une liste avec des rôles", "rôle*"),
+            ("Store the API key in the vault", "api key*"),
+            ("Edits are lost when two devices save at the same time", "same time"),
+            ("Add a migration for the version column", "migration*"),
+            ("Le paiement échoue", "paiement*"),
+            ("Fix the OAuth callback", "oauth*"),
+        ] {
+            assert_eq!(sensitive(text), Some(word), "{text}");
+        }
+        for text in [
+            "Rename the Save button",
+            "The author's name is cut on the card",
+            "Fix a typo in the README, keep the same timeline",
+            "Export invoices to CSV",
+        ] {
+            assert_eq!(sensitive(text), None, "{text}");
+        }
     }
 }

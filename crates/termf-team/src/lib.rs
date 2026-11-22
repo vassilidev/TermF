@@ -237,6 +237,9 @@ pub struct Step {
     pub worktree: Option<PathBuf>,
     pub base: Option<String>,
     pub integrated: bool,
+    /// A task's worktree is prepared as the run's was (dependencies, `.env` files, recipe).
+    #[serde(default)]
+    pub prepared: bool,
     /// What the task changed; for an update step, the files its merge left in conflict.
     pub files: Vec<String>,
     /// An update step whose agent resolved a conflict: the merge commit that brought the base in.
@@ -282,6 +285,7 @@ impl Step {
             attempt: 0,
             feedback: None,
             goes_on: false,
+            prepared: false,
             worktree: None,
             base: None,
             integrated: false,
@@ -493,6 +497,13 @@ enum Msg {
         name: String,
         opened: Box<std::result::Result<termf_tickets::Run, String>>,
     },
+    /// A task's worktree, prepared in the background: what failed, if anything.
+    Prepared {
+        run: i64,
+        step: String,
+        path: PathBuf,
+        failed: Option<String>,
+    },
 }
 
 /// Tells the team what changed in the agent sessions: hand it every session update.
@@ -537,6 +548,8 @@ struct Inner {
     visual: Mutex<Option<VisualHook>>,
     /// The repositories being prepared for a run, by run and name.
     opening: Mutex<std::collections::BTreeSet<(i64, String)>>,
+    /// The tasks whose worktree is being prepared, by run and step.
+    preparing: Mutex<std::collections::BTreeSet<(i64, String)>>,
 }
 
 /// Called when a visual gate opens, with the run and the gate's step: the visual review starts. It must not
@@ -578,6 +591,7 @@ impl Team {
             launches: AtomicU64::new(0),
             visual: Mutex::default(),
             opening: Mutex::default(),
+            preparing: Mutex::default(),
         });
         if let Err(e) = inner.recover() {
             eprintln!("termf: team runs left as they were: {e:#}");
@@ -698,7 +712,7 @@ impl Team {
         if gates.iter().all(|s| s.state == StepState::Done) {
             return Ok(None);
         }
-        let done = done::evaluate(&run, &inner.done_criteria(&run)?);
+        let done = inner.done_of(&run)?;
         if done.passes() {
             return Ok(None);
         }
@@ -1221,15 +1235,28 @@ impl Inner {
         Ok(())
     }
 
-    /// The criteria of the definition of done: `[team] done` of the project's file, else of `termf.toml`.
-    fn done_criteria(&self, run: &TeamRun) -> Result<Vec<(String, bool)>> {
+    /// The criteria of the definition of done: `[team] done` of the project's file, else of `termf.toml`; and
+    /// whether one of them names them. Unnamed, `security` is not asked of a run whose workflow has no security
+    /// review, or kept it for sensitive files its tasks did not change; named, it always is.
+    fn done_criteria(&self, run: &TeamRun) -> Result<(Vec<(String, bool)>, bool)> {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
-        let mut ids = done::criteria(&[&project, &self.config_dir.join("termf.toml")])?;
-        // The CTO routes to the direct workflow only what has no security stake, and says so in its rulings.
-        if DIRECT.contains(&run.workflow.as_str()) {
+        let files = [project.as_path(), &self.config_dir.join("termf.toml")];
+        let mut ids = done::criteria(&files)?;
+        let named = review::team_key(&files, "done")?.is_some();
+        let reviewed = run.steps.iter().any(|s| {
+            s.role.as_deref().map(canonical_role) == Some("secops")
+                && !(s.state == StepState::Skipped && !s.paths.is_empty())
+        });
+        if !named && !reviewed {
             ids.retain(|(id, _)| id != "security");
         }
-        Ok(ids)
+        Ok((ids, named))
+    }
+
+    /// The definition of done as the run stands.
+    fn done_of(&self, run: &TeamRun) -> Result<done::Done> {
+        let (ids, named) = self.done_criteria(run)?;
+        Ok(done::evaluate(run, &ids, named))
     }
 
     /// The delivery gate passes when the definition of done is met; else only with the user's reason: the decision
@@ -1241,7 +1268,7 @@ impl Inner {
         run: &mut TeamRun,
         reason: Option<&str>,
     ) -> Result<Option<String>> {
-        let mut done = done::evaluate(run, &self.done_criteria(run)?);
+        let mut done = self.done_of(run)?;
         if done.passes() {
             run.done = Some(done);
             return Ok(None);
@@ -1866,8 +1893,20 @@ impl Inner {
             .iter()
             .map(|q| q.question.clone())
             .collect();
+        let guarded = match questions.is_empty() {
+            true => self.guard(run, &mut routing),
+            false => Ok(None),
+        };
+        let guarded = match guarded {
+            Ok(guarded) => guarded,
+            Err(e) => return self.block(store, run, i, &format!("{e:#}")),
+        };
         self.normalize(run, &mut routing);
         let mut summary = route::describe(&routing);
+        if let Some(guarded) = guarded {
+            self.event(store, run, Some(TRIAGE), "guard", &guarded);
+            summary = format!("{summary}\n{guarded}");
+        }
         let rulings = routing.rulings.join("\n");
         run.routing = Some(routing);
         run.steps[i].report = None;
@@ -1884,6 +1923,61 @@ impl Inner {
             summary = format!("{summary}\n{rulings}");
         }
         self.done(store, run, i, &summary);
+    }
+
+    /// The CTO's routing never leaves a sensitive ticket without its security review, whatever an untrusted ticket
+    /// steered it to: to a workflow whose security review is missing or kept for sensitive files (`direct`,
+    /// `trivial`), a ticket or a task that touches authentication, permissions, secrets, cryptography, data
+    /// migrations, payments or concurrency goes to the full workflow instead; what it says, for the journal.
+    fn guard(&self, run: &TeamRun, routing: &mut Routing) -> Result<Option<String>> {
+        if run.workflow_chosen {
+            return Ok(None);
+        }
+        let steps = self.routed_workflow(run, routing)?.steps()?;
+        let secops: Vec<&workflow::StepDef> = steps
+            .iter()
+            .map(|(_, s)| s)
+            .filter(|s| s.role.as_deref().map(canonical_role) == Some("secops"))
+            .collect();
+        if secops.iter().any(|s| s.paths.is_empty()) {
+            return Ok(None);
+        }
+        let task = routing.task.as_ref();
+        let text = [
+            run.target.title.as_str(),
+            &run.target.brief,
+            task.map_or("", |t| t.goal.as_str()),
+        ]
+        .join("\n");
+        let file = |hint: &String| {
+            let lower = hint.to_lowercase();
+            secops
+                .iter()
+                .flat_map(|s| &s.paths)
+                .any(|p| rules::glob(p, &lower) || rules::glob(p, &format!("{lower}/x")))
+        };
+        let why = match route::sensitive(&text) {
+            Some(word) => format!("the ticket says \"{}\"", word.trim_end_matches('*')),
+            None => match task.and_then(|t| t.files_hint.iter().find(|h| file(h))) {
+                Some(hint) => format!("its task touches {hint}"),
+                None => return Ok(None),
+            },
+        };
+        let full = match run.workflow == routing.workflow || DIRECT.contains(&run.workflow.as_str()) {
+            true => "default".to_owned(),
+            false => run.workflow.clone(),
+        };
+        let message = format!(
+            "TermF routes the run to workflow {full}, not {}: {why}, and a sensitive ticket keeps its security review",
+            routing.workflow
+        );
+        routing.workflow = full;
+        routing.task = None;
+        routing.skip.clear();
+        routing.add.clear();
+        // Advised for the small path, it would stop the full one before its reviews.
+        routing.budget_usd = 0.0;
+        Ok(Some(message))
     }
 
     /// Whether the user approves the routing of `run` to `routed`: always when `routed` has fewer gates than the
@@ -2035,6 +2129,34 @@ impl Inner {
         let store = self.store()?;
         match msg {
             Msg::Repo { run, name, opened } => self.joined(&store, run, name, *opened)?,
+            Msg::Prepared {
+                run,
+                step,
+                path,
+                failed,
+            } => {
+                self.preparing.lock().unwrap().remove(&(run, step.clone()));
+                let mut run = self.get(&store, run)?;
+                let Ok(i) = run.index(&step) else {
+                    return Ok(());
+                };
+                // A folder dropped or made again since says nothing of the one the step has now.
+                if run.steps[i].worktree.as_deref() != Some(path.as_path()) {
+                    return Ok(());
+                }
+                run.steps[i].prepared = true;
+                if run.steps[i].state == StepState::Pending {
+                    run.steps[i].note = None;
+                }
+                if let Some(failed) = failed {
+                    let message = format!("its worktree is not fully prepared: {failed}");
+                    self.event(&store, &run, Some(&step), "setup", &message);
+                }
+                match run.state.active() {
+                    true => self.tick(&store, &mut run)?,
+                    false => self.save(&store, &mut run)?,
+                }
+            }
             Msg::Session(session) => {
                 let Some((mut run, i)) = store.runs()?.into_iter().find_map(|r| {
                     let i = r.steps.iter().position(|s| {
@@ -2380,6 +2502,9 @@ impl Inner {
         let names: Vec<String> = roles.into_iter().map(|(n, _)| n).collect();
         let (planners, repos) = (self.planners(run), self.repo_names(run));
         let mut problems = plan::check_plan(&plan, &names, &planners, &repos, &squads);
+        if !plan.tasks.is_empty() && plan.acceptance.is_empty() {
+            problems.push("the plan has no acceptance criterion: list the ticket's, the tasks cover them".into());
+        }
         problems.extend(plan.tasks.iter().filter_map(|task| {
             let why = self.elsewhere(run, &task.role)?;
             Some(format!("task {}: {why}", task.id))
@@ -3667,10 +3792,32 @@ impl Inner {
         )
     }
 
-    /// Prepares the fresh worktree of task `i` as the run's own was (its dependencies, its `.env` files, its
-    /// recipe), so that the agent can run the project's checks; what fails goes to the run's events, the task goes
-    /// on without it.
-    fn prepare(&self, store: &Store, run: &TeamRun, i: usize, path: &Path) {
+    /// Whether the own worktree of task `i` is ready for its agent: checked out from the run's work, then prepared
+    /// as the run's was (its dependencies, its `.env` files, its recipe) so that the agent can run the project's
+    /// checks. Preparing takes long (installs, copies, the setup agent): it runs once a checkout, in the
+    /// background, off the team's lock, and the task starts when it ends; what fails goes to the run's events, the
+    /// task goes on without it.
+    fn ready(&self, run: &mut TeamRun, i: usize) -> Result<bool> {
+        let key = run.steps[i].key.clone();
+        if self.preparing.lock().unwrap().contains(&(run.run, key.clone())) {
+            return Ok(false);
+        }
+        if run.steps[i].worktree.is_some() && run.steps[i].prepared {
+            return Ok(true);
+        }
+        let path = match run.steps[i].worktree.clone() {
+            Some(path) => path,
+            None => {
+                let path = self.run_dir(run.run, run.steps[i].task.as_deref().unwrap_or(&key))?;
+                let _ = fs::remove_dir_all(&path);
+                let base = Git(&self.env).add_worktree(&run.home(i), &path)?;
+                let step = &mut run.steps[i];
+                step.worktree = Some(path.clone());
+                step.base = Some(base);
+                step.integrated = false;
+                path
+            }
+        };
         let name = run
             .task(i)
             .map(|t| t.repo.clone())
@@ -3682,24 +3829,34 @@ impl Inner {
             .find(|r| r.name == name)
             .map(|r| r.path.clone())
             .unwrap_or_else(|| run.target.repo_path.clone());
-        let report = self.setup().run(&termf_worktree::Worktree {
+        let worktree = termf_worktree::Worktree {
             project: run.target.project.clone(),
             repo: name,
             source,
-            path: path.to_path_buf(),
+            path,
             id: self.setup_id(run, i),
-        });
-        if report.failed() {
+        };
+        let step = &mut run.steps[i];
+        step.prepared = false;
+        step.note = Some("its worktree is being prepared".into());
+        self.preparing.lock().unwrap().insert((run.run, key.clone()));
+        let (setup, tx, id) = (self.setup(), self.tx.lock().unwrap().clone(), run.run);
+        std::thread::spawn(move || {
+            let report = setup.run(&worktree);
             let failed: Vec<String> = report
                 .steps
                 .iter()
                 .filter(|s| s.outcome.failed())
                 .map(|s| s.describe())
                 .collect();
-            let key = run.steps[i].key.clone();
-            let message = format!("its worktree is not fully prepared: {}", failed.join("; "));
-            self.event(store, run, Some(&key), "setup", &message);
-        }
+            let _ = tx.send(Msg::Prepared {
+                run: id,
+                step: key,
+                path: worktree.path,
+                failed: (!failed.is_empty()).then(|| failed.join("; ")),
+            });
+        });
+        Ok(false)
     }
 
     /// Where a review step `i` reads the work of the run's repository `repo`, other than its own.
@@ -3915,8 +4072,8 @@ impl Inner {
                 Err(e) => self.block(store, run, i, &format!("{e:#}")),
             },
             StepKind::Connector => {
-                let done = match self.done_criteria(run) {
-                    Ok(ids) => done::evaluate(run, &ids),
+                let done = match self.done_of(run) {
+                    Ok(done) => done,
                     Err(e) => {
                         self.block(store, run, i, &format!("{e:#}"));
                         return Ok(true);
@@ -4050,9 +4207,12 @@ impl Inner {
                         .collect();
                     let changed = changed.map(|all| all.join("\n"));
                     let untouched = changed.is_some_and(|files| {
-                        !files
-                            .lines()
-                            .any(|f| paths.iter().any(|p| rules::glob(p, f)))
+                        !files.lines().any(|f| {
+                            let lower = f.to_lowercase();
+                            paths
+                                .iter()
+                                .any(|p| rules::glob(p, f) || rules::glob(p, &lower))
+                        })
                     });
                     if untouched {
                         let note = format!("no task changed {}", paths.join(", "));
@@ -4104,12 +4264,18 @@ impl Inner {
                         }
                     }
                     let summary = run.routing.as_ref().map(|r| r.reason.clone());
-                    // The criteria are the ticket's own: the task names those it covers.
-                    let acceptance: Vec<serde_json::Value> = task
-                        .covers
-                        .iter()
-                        .map(|c| serde_json::json!({ "id": c, "text": format!("{c} of the ticket") }))
-                        .collect();
+                    // Every criterion the ticket lists, and those the CTO adds: the one task covers them all. None
+                    // at all, the plan is refused and its lead plans the ticket.
+                    let mut acceptance = plan::ticket_criteria(&run.target.brief);
+                    for c in &task.covers {
+                        if !acceptance.iter().any(|a| &a.id == c) {
+                            acceptance.push(plan::Criterion {
+                                id: c.clone(),
+                                text: format!("{c} of the ticket"),
+                            });
+                        }
+                    }
+                    task.covers = acceptance.iter().map(|c| c.id.clone()).collect();
                     let plan = serde_json::json!({
                         "summary": summary.unwrap_or_default(),
                         "acceptance": acceptance,
@@ -4123,11 +4289,22 @@ impl Inner {
                 let Some(budget) = self.room(run, i) else {
                     return Ok(false);
                 };
+                if run.steps[i].kind == StepKind::Task && !run.steps[i].batch {
+                    match self.ready(run, i) {
+                        Ok(true) => {}
+                        Ok(false) => return Ok(false),
+                        Err(e) => {
+                            let why = format!("its worktree cannot be made: {e:#}");
+                            self.block(store, run, i, &why);
+                            return Ok(true);
+                        }
+                    }
+                }
                 // A task sent back goes on in its own conversation: it knows the code it wrote and why.
                 if std::mem::take(&mut run.steps[i].goes_on)
                     && let (Some(session), Some(feedback)) =
                         (run.steps[i].session, run.steps[i].feedback.clone())
-                    && self.reopen(store, run, i, session, &feedback).is_ok()
+                    && self.reopen(store, run, i, session, &feedback, budget).is_ok()
                 {
                     return Ok(true);
                 }
@@ -4139,8 +4316,10 @@ impl Inner {
         Ok(true)
     }
 
-    /// Sends the task `i` back to its last session with `feedback`, in a fresh copy of the run's work at the same
-    /// place: the agent fixes what it wrote instead of a new agent reading it all again.
+    /// Sends the task `i` back to its last session with `feedback`, in its fresh copy of the run's work at the same
+    /// place (see [`Inner::ready`]): the agent fixes what it wrote instead of a new agent reading it all again. It
+    /// goes on as a new session would start now: within `budget`, the run's share, and without a way out once a
+    /// recipe read prod.
     fn reopen(
         &self,
         store: &Store,
@@ -4148,13 +4327,21 @@ impl Inner {
         i: usize,
         session: i64,
         feedback: &str,
+        budget: Option<f64>,
     ) -> Result<()> {
-        let path = self.run_dir(run.run, run.steps[i].task.as_deref().unwrap_or_default())?;
-        let spec = self.agents.session(session)?.spec;
-        ensure!(spec.cwd == path, "its session worked elsewhere");
-        let _ = fs::remove_dir_all(&path);
-        let base = Git(&self.env).add_worktree(&run.home(i), &path)?;
-        self.prepare(store, run, i, &path);
+        let path = run.steps[i].worktree.clone().context("the task has no worktree")?;
+        let old = self.agents.session(session)?;
+        ensure!(old.spec.cwd == path, "its session worked elsewhere");
+        let denied = self.disallowed(run, i);
+        self.agents.respec(session, |spec| {
+            // A session's budget counts what it spent: what it may spend from now on comes on top.
+            spec.budget = budget.map(|b| old.cost + b);
+            for tool in denied {
+                if !spec.disallowed_tools.contains(&tool) {
+                    spec.disallowed_tools.push(tool);
+                }
+            }
+        })?;
         let last = self
             .agents
             .events(session, 0)?
@@ -4167,9 +4354,6 @@ impl Inner {
         );
         self.agents.send(session, &message)?;
         let step = &mut run.steps[i];
-        step.worktree = Some(path);
-        step.base = Some(base);
-        step.integrated = false;
         step.attempt += 1;
         step.state = StepState::Running;
         step.accepted = false;
@@ -4569,22 +4753,22 @@ impl Inner {
             .as_ref()
             .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()))
             .cloned();
-        // A review gets a throwaway copy of the run's work each time: what it runs never reaches what ships.
-        let fresh = step.kind == StepKind::Task && !step.batch && step.worktree.is_none();
         if let Some(name) = task
             .as_ref()
             .and_then(|t| self.joining(run, std::slice::from_ref(t)).pop())
         {
             bail!("repository {name} has not joined the run yet");
         }
-        if fresh || step.kind == StepKind::Review {
-            let path = self.run_dir(run.run, step.task.as_deref().unwrap_or(&step.key))?;
+        ensure!(
+            step.kind != StepKind::Task || step.batch || step.worktree.is_some(),
+            "the task's worktree is not ready"
+        );
+        // A review gets a throwaway copy of the run's work each time: what it runs never reaches what ships.
+        if step.kind == StepKind::Review {
+            let path = self.run_dir(run.run, &step.key)?;
             let _ = fs::remove_dir_all(&path);
             let git = Git(&self.env);
             let base = git.add_worktree(&run.home(i), &path)?;
-            if fresh {
-                self.prepare(store, run, i, &path);
-            }
             let step = &mut run.steps[i];
             step.worktree = Some(path);
             step.base = Some(base);
@@ -4637,22 +4821,7 @@ impl Inner {
             // Nobody watches a step to approve each edit; the role says otherwise when it must.
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
-            // A review changes nothing, whatever its role may do in a task. Once a recipe read prod for the run,
-            // its next sessions have no way out (the trifecta rule, ARCHITECTURE §12.4).
-            disallowed_tools: DENIED
-                .iter()
-                .chain(if step.kind == StepKind::Review {
-                    &READ_ONLY[..]
-                } else {
-                    &[]
-                })
-                .chain(if termf_core::taint::run(&self.data_dir, run.target.run) {
-                    termf_core::taint::EGRESS_DENY
-                } else {
-                    &[]
-                })
-                .map(|d| d.to_string())
-                .collect(),
+            disallowed_tools: self.disallowed(run, i),
             // The ticket is untrusted, as in a ticket run's tile: the same hook refuses what `DENIED` misses.
             guard: true,
             rules: levels,
@@ -4700,6 +4869,26 @@ impl Inner {
             &format!("{role_name}, session {}{attempt}", session.id),
         );
         Ok(())
+    }
+
+    /// The tools a session of step `i` may not use. A review changes nothing, whatever its role may do in a task.
+    /// Once a recipe read prod for the run, its next sessions have no way out (the trifecta rule, ARCHITECTURE
+    /// §12.4).
+    fn disallowed(&self, run: &TeamRun, i: usize) -> Vec<String> {
+        DENIED
+            .iter()
+            .chain(if run.steps[i].kind == StepKind::Review {
+                &READ_ONLY[..]
+            } else {
+                &[]
+            })
+            .chain(if termf_core::taint::run(&self.data_dir, run.target.run) {
+                termf_core::taint::EGRESS_DENY
+            } else {
+                &[]
+            })
+            .map(|d| d.to_string())
+            .collect()
     }
 
     /// The most turns a step of `size` takes: `[team] max_turns.<size>` of the project's file, else of
@@ -5008,7 +5197,7 @@ impl Inner {
             text.push_str(&format!("\n## To address in this attempt\n\n{feedback}\n"));
         }
         if step.plan || step.kind == StepKind::Task {
-            let ids = self.done_criteria(run)?;
+            let (ids, _) = self.done_criteria(run)?;
             if !ids.is_empty() {
                 text.push_str(&format!(
                     "\n## The definition of done\n\n{}\n",

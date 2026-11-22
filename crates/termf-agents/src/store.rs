@@ -121,6 +121,14 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) fn set_spec(&self, id: i64, spec: &SessionSpec) -> Result<()> {
+        self.conn.execute(
+            "UPDATE agent_sessions SET spec = ?2 WHERE id = ?1",
+            params![id, serde_json::to_string(spec)?],
+        )?;
+        Ok(())
+    }
+
     /// The app starts: no session has a process it can talk to.
     pub(crate) fn stop_all(&self) -> Result<()> {
         self.conn.execute(

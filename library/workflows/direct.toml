@@ -8,7 +8,16 @@ enabled = false
 enabled = false
 
 [steps.review]
-prompt = "A small ticket done by one developer: a short review. Look for what breaks an acceptance criterion of the ticket, a criterion left without a test, and any change the ticket does not need (a finding to undo); leave conventions and nits aside. Change nothing: answer with your findings, each with the task that must fix it."
+prompt = "A small ticket done by one developer: a short review. Look for what breaks an acceptance criterion of the ticket, a criterion left without a test, and any change the ticket does not need (a finding to undo, but never a security control: a permission check, input validation, escaping); leave conventions and nits aside. Change nothing: answer with your findings, each with the task that must fix it."
 
+# Only when the task changed a sensitive file: authentication, permissions, secrets, cryptography, data migrations,
+# payments, concurrency. A ticket that says so goes to the full workflow at the triage.
 [steps.security]
-enabled = false
+paths = [
+  "**/*auth*", "**/*auth*/**", "**/*login*", "**/*password*", "**/*session*", "**/*token*",
+  "**/*permission*", "**/*permission*/**", "**/*polic*", "**/*polic*/**", "**/*role*", "**/*role*/**",
+  "**/*secret*", "**/*credential*", "**/.env*", "**/*.pem", "**/*.key", "**/*crypt*", "**/*crypt*/**",
+  "**/*migration*", "**/*migration*/**", "**/migrate/**", "**/*.sql", "**/*.prisma",
+  "**/*payment*", "**/*payment*/**", "**/*billing*", "**/*billing*/**", "**/*checkout*", "**/*stripe*",
+  "**/*mutex*", "**/*concurren*", "**/*lock.rs", "**/*lock.ts", "**/*lock.js", "**/*lock.py",
+]

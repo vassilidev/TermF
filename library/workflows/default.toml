@@ -83,13 +83,12 @@ needs = ["checks"]
 type = "review"
 role = "reviewer"
 needs = ["rules"]
-prompt = "Review the run's changes (git diff of this branch against its base), the tests included. A change the ticket does not need (hardening, refactoring, a behaviour changed beside it) is a finding to undo, unless an acceptance criterion depends on it. Change nothing: answer with your findings, each with the task that must fix it."
+prompt = "Review the run's changes (git diff of this branch against its base), the tests included. A change the ticket does not need (refactoring, cleanup, a behaviour changed beside it) is a finding to undo, unless an acceptance criterion depends on it; a security control is never one (a permission check, input validation, escaping): name it as welcome. Change nothing: answer with your findings, each with the task that must fix it."
 
-# Beside the code review: both read the same diff. A task the review sends back runs it again on the fix.
 [steps.security]
 type = "agent"
 role = "secops"
-needs = ["rules"]
+needs = ["review"]
 prompt = "Review the run's changes (git diff of this branch against its base) for vulnerabilities, abuse cases and vulnerable dependencies. Change nothing: put what you find in your report."
 
 [steps.seo]
