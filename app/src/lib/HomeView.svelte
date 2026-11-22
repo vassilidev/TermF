@@ -4,32 +4,39 @@
   import BellRing from "@lucide/svelte/icons/bell-ring";
   import Check from "@lucide/svelte/icons/check";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import CircleQuestionMark from "@lucide/svelte/icons/circle-question-mark";
+  import Eye from "@lucide/svelte/icons/eye";
+  import ListChecks from "@lucide/svelte/icons/list-checks";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
+  import Route from "@lucide/svelte/icons/route";
+  import Send from "@lucide/svelte/icons/send";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Users from "@lucide/svelte/icons/users";
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
-  import AskCard, { askIcons, askTitle } from "$lib/AskCard.svelte";
   import Conversation from "$lib/Conversation.svelte";
   import { initial } from "$lib/ProjectSwitcher.svelte";
-  import { runPill, ticketKey } from "$lib/TeamRunDetail.svelte";
+  import { stepName, ticketKey } from "$lib/TeamRunDetail.svelte";
+  import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { agentProjects, agents, ctoOf, expertOf, showConversations, showConversation } from "$lib/agents.svelte";
-  import { focusSession, keys } from "$lib/commands";
+  import { focusSession, keys, showRun } from "$lib/commands";
   import { pinned, summary, type Item } from "$lib/conversation-logic";
-  import { askKey, openRuns, place, primary, type Wait } from "$lib/home-logic";
-  import { ensure, goToWait, home, learn, projectWaits, waitProject } from "$lib/home.svelte";
+  import { openRuns, place, primary, type Wait } from "$lib/home-logic";
+  import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject } from "$lib/home.svelte";
   import { ago, t } from "$lib/i18n";
   import { openSetup, setup } from "$lib/onboarding.svelte";
   import type { Step } from "$lib/onboarding-logic";
   import { editProject, sessionProjects, tallies } from "$lib/project.svelte";
+  import { awaitsDelivery, shown } from "$lib/run-logic";
   import { app, onScreen, repoName, setProject, shortPath } from "$lib/state.svelte";
   import { initials } from "$lib/team-logic";
-  import { asks, current, progress, type TeamRun } from "$lib/team-run-logic";
-  import { showTeamRun, team, upsertRun } from "$lib/team.svelte";
+  import { TRIAGE, asks, current, progress, type Ask, type AskKind, type TeamRun } from "$lib/team-run-logic";
+  import { team, upsertRun } from "$lib/team.svelte";
   import { loadInbox, openUrl, showTickets, tickets, upsert, type Resolution, type Run, type TicketSummary } from "$lib/tickets.svelte";
 
   type Notice = Extract<Item, { type: "notice" }>;
@@ -44,7 +51,6 @@
   const session = $derived(project ? (home.with === "cto" ? cto : expertOf(project.id)) : undefined);
 
   let error = $state("");
-  let delivered = $state<{ text: string; url: string | null; warning: string | null } | null>(null);
 
   // Opening the Home opens its conversation, as the palette does: created without a process, the first message starts it.
   $effect(() => {
@@ -66,21 +72,10 @@
 
   // The cards of the CTO's thread: each step of the project's runs that waits for the user.
   let notices = $state<Notice[]>([]);
-  const decisions = $derived(
-    project
-      ? team.runs
-          .filter((r) => r.target.project === project.id)
-          .flatMap((run) => asks(run).map((ask) => ({ key: askKey(run.run, ask.step.key), run, ask })))
-      : [],
-  );
-  const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.ask.step.key }))));
+  const decisions = $derived(project ? decisionsOf(project.id) : []);
+  const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.step }))));
   const main = $derived(primary(placed, cto?.state === "waiting"));
   const decision = (key: string | undefined) => decisions.find((d) => d.key === key);
-
-  function ondelivered(text: string, url: string | null, warning: string | null) {
-    if (text) delivered = { text, url, warning };
-    else error = warning ?? "";
-  }
 
   // A new project's setup, until it is done.
   let onboarding = $state<Record<string, Onboarding>>({});
@@ -163,12 +158,6 @@
 
   const runs = $derived(openRuns(tickets.runs, team.runs, app.project));
 
-  function showRun(o: { run?: Run; team?: TeamRun }) {
-    if (o.team) return showTeamRun(o.team.run);
-    Object.assign(tickets, { tab: "runs", selected: o.run?.id ?? null });
-    showTickets();
-  }
-
   function showAll(tab: "inbox" | "runs") {
     tickets.tab = tab;
     showTickets();
@@ -203,32 +192,60 @@
         context: [what, a ? repoName(a.cwd) : ""].filter(Boolean).join(" · "),
       };
     }
-    const at = "run" in w ? w : null;
-    const run = at && team.runs.find((r) => r.run === at.run);
-    const ask = run && at && asks(run).find((a) => a.step.key === at.step);
-    if (!run || !ask) return { icon: BellRing, title: "", context: "" };
-    const title =
-      ask.kind === "questions" && ask.step.key === "triage" ? t("ux3t1CtoQuestions", { count: ask.questions.length }) : askTitle(ask);
-    return { icon: askIcons[ask.kind], title, context: `${ticketKey(run.target.ticket)} · ${run.target.title}` };
+    const d = "run" in w ? decisionsOf(null).find((x) => x.run.run === w.run && x.step === w.step) : undefined;
+    if (!d) return { icon: BellRing, title: "", context: "" };
+    const title = !d.ask
+      ? t("teamRunsAskDeliver")
+      : d.ask.kind === "questions" && d.step === TRIAGE
+        ? t("ux3t1CtoQuestions", { count: d.ask.questions.length })
+        : askTitle(d.ask);
+    return { icon: askIcons[d.ask?.kind ?? "deliver"], title, context: `${ticketKey(d.run.target.ticket)} · ${d.run.target.title}` };
   }
 
-  /** What a run is at, under its title, and its state. */
+  const askIcons: Record<AskKind, Component> = {
+    route: Route,
+    plan: ListChecks,
+    questions: CircleQuestionMark,
+    visual: Eye,
+    deliver: Send,
+    gate: BellRing,
+    blocked: TriangleAlert,
+  };
+
+  /** What a step waiting for the user asks, as its card says it. */
+  function askTitle(ask: Ask): string {
+    const name = stepName(ask.step);
+    if (ask.kind === "route") return t("ctoEntryAskRoute");
+    if (ask.kind === "plan") return t("teamRunsAskPlan");
+    if (ask.kind === "visual") return t("teamRunsAskVisual");
+    if (ask.kind === "deliver") return t("teamRunsAskDeliver");
+    if (ask.kind === "blocked") return t("teamRunsAskBlocked", { step: name });
+    if (ask.kind === "gate") return t("teamRunsAskGate", { step: name });
+    if (ask.step.key === TRIAGE) return t("ctoEntryAskQuestions");
+    if (ask.step.plan) return t("teamRunsAskPlanQuestions");
+    return ask.step.kind === "review" ? t("reviewLoopAsk") : t("teamRunsAskQuestions", { step: name });
+  }
+
+  /** What a run is at, under its title, and its state: the one the Run page shows. */
   function runLine(o: { run?: Run; team?: TeamRun }): { text: string; pill: [Status, string | undefined] } {
     const team = o.team;
+    const pill = (): [Status, string | undefined] => {
+      // A team whose ticket run is not known yet is that of an open run.
+      const s = shown(o.run ?? { status: "running", prUrl: null, prState: null }, team);
+      return [s.status as Status, s.label ? t(s.label) : undefined];
+    };
     if (team && team.state !== "done") {
       const done = progress(team);
       const steps = t("teamRunsProgress", { over: done.over, total: done.total });
       const waiting = asks(team)[0];
       const working = current(team)[0];
       const what = waiting ? askTitle(waiting) : team.state === "running" && working ? t("ux3t1RoleWorks", { role: working.role ?? working.key }) : "";
-      return { text: [what, steps].filter(Boolean).join(" · "), pill: runPill(team.state) };
+      return { text: [what, steps].filter(Boolean).join(" · "), pill: pill() };
     }
     const run = o.run;
-    if (!run) return { text: "", pill: ["done", undefined] };
-    if (run.status === "delivered" && run.prState) {
-      return { text: t(run.prState === "merged" ? "ux3t1Merged" : "ticketsUiEventPrClosed"), pill: ["done", t("ticketsUiReady")] };
-    }
-    return { text: repoName(run.repo), pill: [run.status, undefined] };
+    if (run?.status === "delivered" && run.prState) return { text: t(run.prState === "merged" ? "ux3t1Merged" : "ticketsUiEventPrClosed"), pill: pill() };
+    if (run && awaitsDelivery(run, team)) return { text: t("teamRunsAskDeliver"), pill: pill() };
+    return { text: run ? repoName(run.repo) : "", pill: pill() };
   }
 
   // Every project at a glance, when none is chosen.
@@ -275,7 +292,7 @@
   {@const key = o.team?.target.ticket ?? o.run?.ticket.key ?? ""}
   {@const id = o.team?.target.project ?? o.run?.project}
   {@const p = everywhere ? projects.find((x) => x.id === id) : undefined}
-  <button class="rrow" onclick={() => showRun(o)}>
+  <button class="rrow" onclick={() => showRun(o.run?.id ?? o.team?.run ?? 0)}>
     <span class="t">
       <b><span class="key mono">{ticketKey(key)}</span> {o.team?.target.title ?? o.run?.title}</b>
       {#if line.text}<span>{line.text}</span>{/if}
@@ -299,24 +316,26 @@
 
 {#snippet card(item: Notice, fallback: Snippet<[Notice]>)}
   {@const key = placed.at.get(item.key)}
-  {@const d = decision(key)}
-  {#if d}
-    <AskCard run={d.run} ask={d.ask} primary={d.key === main} {ondelivered} />
-  {:else}
-    {@render fallback(item)}
-  {/if}
+  {#if key}{@render cards(key)}{:else}{@render fallback(item)}{/if}
 {/snippet}
 
 {#snippet tail()}
-  {#each placed.rest as key (key)}
-    {@const d = decision(key)}
-    {#if d}<AskCard run={d.run} ask={d.ask} primary={d.key === main} {ondelivered} />{/if}
-  {/each}
+  {#each placed.rest as key (key)}{@render cards(key)}{/each}
+{/snippet}
+
+{#snippet cards(key: string)}
+  {@const d = decision(key)}
+  {#if d}
+    <!-- Only the latest decision keeps its primary button: one main action on the Home. -->
+    <div class="decision" class:main={key === main} data-wait={key} tabindex="-1">
+      <WaitCards run={d.run} step={d.step} context />
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet top()}
   {@const ob = project ? onboarding[project.id] : undefined}
-  {#if project && ob && ob.step !== "done"}
+  {#if project && ob && setupSteps.includes(ob.step)}
     {@const at = setupSteps.indexOf(ob.step)}
     <article class="setup" aria-labelledby="home-setup">
       <header>
@@ -351,20 +370,9 @@
     {/snippet}
   </ViewHeader>
 
-  {#if error || delivered}
+  {#if error}
     <div class="banners">
-      {#if error}<Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>{/if}
-      {#if delivered}
-        <Banner kind={delivered.warning ? "warn" : "ok"} ondismiss={() => (delivered = null)}>
-          {delivered.text}{#if delivered.warning}{" · "}{delivered.warning}{/if}
-          {#snippet action()}
-            {#if delivered?.url}
-              {@const url = delivered.url}
-              <button class="btn sm" onclick={() => openUrl(url)}>{t("ticketsUiOpenLink")}</button>
-            {/if}
-          {/snippet}
-        </Banner>
-      {/if}
+      <Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>
     </div>
   {/if}
 
@@ -795,6 +803,29 @@
   .ticket select {
     width: 120px;
     height: 26px;
+  }
+
+  .decision {
+    border-radius: var(--radius-lg);
+    scroll-margin: 24px;
+  }
+
+  .decision:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* An older decision's buttons stay plain: the latest one is the Home's main action. */
+  .decision:not(.main) :global(.btn.primary) {
+    border-color: var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .decision:not(.main) :global(.btn.primary:hover:not(:disabled)) {
+    border-color: var(--border);
+    background: var(--hover);
   }
 
   /* A new project's setup, at the head of the thread. */

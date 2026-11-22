@@ -23,16 +23,20 @@
     mono = false,
     children,
     actions,
+    lead,
   }: {
     title: string;
     context?: string;
     mono?: boolean;
     children?: Snippet;
     actions?: Snippet;
+    /** Before the title: a page's way back. */
+    lead?: Snippet;
   } = $props();
 </script>
 
 <header class="view-header" class:aside={closable && panel?.() !== ui.view}>
+  {@render lead?.()}
   <h1>{title}</h1>
   {#if context}<span class="context" class:mono>{context}</span>{/if}
   {@render children?.()}

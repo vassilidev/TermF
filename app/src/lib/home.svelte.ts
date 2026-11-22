@@ -2,11 +2,13 @@ import { tick } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { agentProjects, agents, ctoOf, expertOf, showConversation, upsert, waitingAgents, type AgentSession } from "$lib/agents.svelte";
 import { pending, type StoredEvent } from "$lib/conversation-logic";
-import { waits, type Wait } from "$lib/home-logic";
+import { askKey, waits, type Wait } from "$lib/home-logic";
 import { sessionProjects } from "$lib/project.svelte";
+import { awaitsDelivery } from "$lib/run-logic";
 import { app, setProject, ui, waitingSessions } from "$lib/state.svelte";
-import { asks } from "$lib/team-run-logic";
+import { asks, type Ask, type TeamRun } from "$lib/team-run-logic";
 import { team } from "$lib/team.svelte";
+import { tickets } from "$lib/tickets.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { focusSession } from "$lib/commands";
 
@@ -26,6 +28,22 @@ export function showHome() {
   ui.view = "home";
 }
 
+/** A step of a team run waiting for the user, as its card decides it; `ask` null: the delivery, once the team is done. */
+export type Decision = { key: string; run: TeamRun; step: string; ask: Ask | null };
+
+/** The decisions of a project's team runs, null for every project's. */
+export function decisions(project: string | null): Decision[] {
+  return team.runs
+    .filter((r) => project === null || r.target.project === project)
+    .flatMap((run) => {
+      const list: Decision[] = asks(run).map((ask) => ({ key: askKey(run.run, ask.step.key), run, step: ask.step.key, ask }));
+      const ticket = tickets.runs.find((r) => r.id === run.run);
+      const connector = run.steps.find((s) => s.kind === "connector")?.key;
+      if (ticket && connector && awaitsDelivery(ticket, run)) list.push({ key: askKey(run.run, connector), run, step: connector, ask: null });
+      return list;
+    });
+}
+
 /** What waits for the user in a project, null for every project. */
 export function projectWaits(project: string | null): Wait[] {
   const mine = (ids: string[]) => project === null || ids.includes(project);
@@ -34,9 +52,7 @@ export function projectWaits(project: string | null): Wait[] {
     waitingAgents()
       .filter((a) => mine(agentProjects(a)))
       .map((a) => ({ id: a.id, updated: a.updated, cto: !!a.mcp && a.role === "cto" })),
-    team.runs
-      .filter((r) => project === null || r.target.project === project)
-      .flatMap((r) => asks(r).map((a) => ({ run: r.run, step: a.step.key, kind: a.kind, updated: r.updated }))),
+    decisions(project).map((d) => ({ run: d.run.run, step: d.step, kind: d.ask?.kind ?? "deliver", updated: d.run.updated })),
   );
 }
 
