@@ -2226,6 +2226,13 @@ const fr = {
   reviewLoopAcceptTitle: "Accepter la revue telle quelle ?",
   reviewLoopAcceptText:
     "Les constats de ce tour restent tels quels, même ceux qui devaient être renvoyés à une tâche : rien n'est corrigé et le run continue.",
+  // UX pass 3 · T5: a lighter inbox, the team in one click, readable conversations.
+  ux3t5SeeRun: "Voir le run",
+  ux3t5WithoutTeam: "sans l'équipe",
+  ux3t5WithTeamOptions: "Avec l'équipe…",
+  ux3t5More: "Plus d'actions",
+  ux3t5Details: "Détails",
+  ux3t5Run: "run {run}",
 };
 
 type Key = keyof typeof fr;
@@ -4440,6 +4447,13 @@ const en: Record<Key, string> = {
   reviewLoopAcceptTitle: "Accept the review as it is?",
   reviewLoopAcceptText:
     "This round's findings stay as they are, even those to be sent back to a task: nothing gets fixed and the run goes on.",
+  // UX pass 3 · T5: a lighter inbox, the team in one click, readable conversations.
+  ux3t5SeeRun: "See the run",
+  ux3t5WithoutTeam: "without the team",
+  ux3t5WithTeamOptions: "With the team…",
+  ux3t5More: "More actions",
+  ux3t5Details: "Details",
+  ux3t5Run: "run {run}",
 };
 
 const messages = { fr, en };

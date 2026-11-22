@@ -196,9 +196,9 @@ pub enum TicketWorktrees {
 #[serde(rename_all = "lowercase")]
 pub enum TicketCleanup {
     /// Closes the run, unless its worktree holds work that is not pushed.
+    #[default]
     Auto,
     /// Tells the user, who closes it.
-    #[default]
     Ask,
     /// Does not look.
     Off,
@@ -971,9 +971,9 @@ mod tests {
         assert_eq!(settings("").ticket_agent().unwrap(), "claude");
         let chosen = "[agents]\nclaude = \"claude\"\nopus = \"claude --model opus\"\n[tickets]\nagent = \"opus\"\n";
         assert_eq!(settings(chosen).ticket_agent().unwrap(), "opus");
-        assert_eq!(settings("").tickets.cleanup, TicketCleanup::Ask);
-        let auto = settings("[tickets]\ncleanup = \"auto\"\n");
-        assert_eq!(auto.tickets.cleanup, TicketCleanup::Auto);
+        assert_eq!(settings("").tickets.cleanup, TicketCleanup::Auto);
+        let ask = settings("[tickets]\ncleanup = \"ask\"\n");
+        assert_eq!(ask.tickets.cleanup, TicketCleanup::Ask);
         assert_eq!(settings("").tickets.worktrees, TicketWorktrees::Repo);
         let data = settings("[tickets]\nworktrees = \"data\"\n");
         assert_eq!(data.tickets.worktrees, TicketWorktrees::Data);

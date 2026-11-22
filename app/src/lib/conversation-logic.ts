@@ -193,6 +193,30 @@ export function summary(input: unknown): string {
   return Object.keys(o).length ? JSON.stringify(o) : "";
 }
 
+const said = ["ticket", "request", "run", "step", "role", "repo", "workflow", "budget", "question", "query", "feedback", "note", "text"];
+
+/** The arguments of a call to one of TermF's tools that a sentence can say, in the order it says them; the rest stays
+ * in the details. */
+export function fields(input: unknown): [string, string][] {
+  if (!input || typeof input !== "object") return [];
+  const o = input as Record<string, unknown>;
+  return said.flatMap((k): [string, string][] => {
+    const v = o[k];
+    if (typeof v === "number") return [[k, String(v)]];
+    return typeof v === "string" && v.trim() ? [[k, v.trim()]] : [];
+  });
+}
+
+/** The ticket a call names among those TermF knows: by key or URL, else by the end of its key (`api#42`, `#42`) when
+ * one ticket alone has it. */
+export function ticketNamed<T extends { key: string; url: string }>(name: string, known: T[]): T | undefined {
+  const exact = known.find((t) => t.key === name || t.url === name);
+  if (exact) return exact;
+  const tail = name.startsWith("#") ? name : `/${name}`;
+  const ends = known.filter((t) => t.key.endsWith(tail));
+  return ends.length && ends.every((t) => t.key === ends[0].key) ? ends[0] : undefined;
+}
+
 /** The request still waiting for an answer: the last unanswered one since the process or the turn began. */
 export function pending(events: StoredEvent[]): string | null {
   let open: string[] = [];

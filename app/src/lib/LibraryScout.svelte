@@ -17,6 +17,7 @@
   import UserCog from "@lucide/svelte/icons/user-cog";
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
   import X from "@lucide/svelte/icons/x";
+  import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app, shortPath } from "$lib/state.svelte";
   import { library, lineDiff, matches, type Item, type Kind, type Layer } from "$lib/library.svelte";
@@ -279,7 +280,7 @@
               <span class="badge flag"><Terminal size={12} aria-hidden="true" />{t("scoutExecutable")}</span>
             {/if}
             {#if e.review !== "pending"}
-              <span class="decision {e.review}">{e.review === "accepted" ? t("convAccepted") : t("convRejected")}</span>
+              <span class="decision"><StatusPill status={e.review} /></span>
             {/if}
           </header>
 
@@ -657,18 +658,12 @@
     gap: 8px;
     padding: 12px 14px;
     border: 1px solid var(--border);
-    border-left: 3px solid var(--border-strong);
     border-radius: var(--radius-lg);
     background: var(--panel);
     box-shadow: var(--shadow-1);
   }
 
-  .card.accepted {
-    border-left-color: var(--done);
-  }
-
   .card.rejected {
-    border-left-color: var(--border);
     opacity: 0.65;
   }
 
@@ -699,16 +694,6 @@
 
   .decision {
     margin-left: auto;
-    font-size: var(--text-xs);
-    font-weight: 600;
-  }
-
-  .decision.accepted {
-    color: var(--done);
-  }
-
-  .decision.rejected {
-    color: var(--muted);
   }
 
   .critique {

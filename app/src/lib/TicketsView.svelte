@@ -4,6 +4,7 @@
   import Archive from "@lucide/svelte/icons/archive";
   import BrushCleaning from "@lucide/svelte/icons/brush-cleaning";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Inbox from "@lucide/svelte/icons/inbox";
   import Info from "@lucide/svelte/icons/info";
@@ -14,9 +15,11 @@
   import Ticket from "@lucide/svelte/icons/ticket";
   import Users from "@lucide/svelte/icons/users";
   import TeamOptions from "$lib/TeamOptions.svelte";
+  import { runPill } from "$lib/TeamRunDetail.svelte";
   import TicketRun, { openTile } from "$lib/TicketRun.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Popover from "$lib/ui/Popover.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
@@ -27,7 +30,7 @@
   import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
   import { app, repoName } from "$lib/state.svelte";
   import { budgetError, type TeamRun } from "$lib/team-run-logic";
-  import { showTeamRun, upsertRun } from "$lib/team.svelte";
+  import { showTeamRun, team, upsertRun } from "$lib/team.svelte";
   import { readyToClean, refusal } from "$lib/tickets-logic";
   import {
     launchTicket,
@@ -43,8 +46,13 @@
 
   let input = $state("");
   let resolving = $state(false);
-  /** A resolved ticket waiting to be launched: `from` is where it was asked, the paste field or an inbox row. */
-  let pending = $state<{ from: string; resolution: Resolution; repo: string; team?: boolean } | null>(null);
+  /**
+   * A resolved ticket waiting to be launched: `from` is where it was asked, the paste field or an inbox row. `options`:
+   * the team's workflow and budget are asked for.
+   */
+  let pending = $state<{ from: string; resolution: Resolution; repo: string; team?: boolean; options?: boolean } | null>(
+    null,
+  );
   let teamWorkflow = $state("");
   let teamBudget = $state<number | null>(null);
   /** The URL of the ticket being launched. */
@@ -63,15 +71,23 @@
   const runs = $derived(tickets.scope ? tickets.runs.filter((r) => r.project === tickets.scope) : tickets.runs);
   const current = $derived(runs.find((r) => r.id === tickets.selected) ?? runs[0]);
 
+  /** The ticket's run while it is open, the latest: a ticket has one run at a time. */
+  const runOf = (ticket: TicketSummary) => runs.find((r) => r.ticket.url === ticket.url && r.status !== "closed");
+  const seeRun = (run: Run) => Object.assign(tickets, { tab: "runs", selected: run.id });
+
   let pickedTickets = $state(none<string>());
   let pickedRuns = $state(none<number>());
-  const launchable = $derived((tickets.inbox ?? []).filter((ticket) => ticket.project).map((ticket) => ticket.url));
+  const launchable = $derived(
+    (tickets.inbox ?? []).filter((ticket) => ticket.project && !runOf(ticket)).map((ticket) => ticket.url),
+  );
   const chosenTickets = $derived(within(pickedTickets.keys, launchable));
   const chosenRuns = $derived(runs.filter((r) => pickedRuns.keys.includes(r.id)));
   const closable = $derived(chosenRuns.filter((r) => r.status !== "closed"));
   const cleanable = $derived(chosenRuns.filter(readyToClean));
   let asking = $state<"close" | "cleanup" | null>(null);
-  let bulk = $state(false);
+  let bulk = $state<"" | "launch" | "team" | "close">("");
+  let menu = $state<{ ticket: TicketSummary; trigger: HTMLElement } | null>(null);
+  let menuOpen = $state(false);
   /** Why the last bulk action left some picked, one per list. */
   let leftTickets = $state("");
   let leftRuns = $state("");
@@ -105,10 +121,22 @@
     ].filter(Boolean).join(" ");
   }
 
+  function toggleMenu(ticket: TicketSummary, trigger: HTMLElement) {
+    menuOpen = !(menuOpen && menu?.ticket.url === ticket.url);
+    menu = { ticket, trigger };
+  }
+
+  /** The menu's trigger takes the keyboard back first: it stays shown while its row has the focus. */
+  function act(run: () => void) {
+    menu?.trigger.focus();
+    menuOpen = false;
+    run();
+  }
+
   /** One after the other; a ticket whose repository must be chosen stays picked, to launch from its row. */
-  async function launchPicked() {
+  async function launchPicked(withTeam: boolean) {
     const list = (tickets.inbox ?? []).filter((ticket) => chosenTickets.includes(ticket.url));
-    bulk = true;
+    bulk = withTeam ? "team" : "launch";
     pending = null;
     const results: [string, Outcome][] = [];
     for (const ticket of list) {
@@ -124,14 +152,15 @@
         continue;
       }
       try {
-        upsert(await invoke<Run>("tickets_run", { input: ticket.url, project: resolution.project, repo: resolution.repo, cols: 120, rows: 32 }));
+        if (withTeam) await teamOn(resolution, resolution.repo, {});
+        else upsert(await invoke<Run>("tickets_run", { input: ticket.url, project: resolution.project, repo: resolution.repo, cols: 120, rows: 32 }));
         results.push([ticket.url, "done"]);
       } catch (e) {
         results.push([ticket.url, { error: String(e) }]);
       }
     }
     starting = "";
-    bulk = false;
+    bulk = "";
     const out = settle(results);
     tickets.error = out.errors.join(" · ");
     pickedTickets = { keys: [...out.kept, ...out.failed], anchor: null };
@@ -143,7 +172,7 @@
   async function closePicked(kind: "close" | "cleanup") {
     const list = kind === "close" ? closable : cleanable;
     asking = null;
-    bulk = true;
+    bulk = "close";
     const results: [number, Outcome][] = [];
     for (const run of list) {
       try {
@@ -154,7 +183,7 @@
         results.push([run.id, why.kind === "error" ? { error: why.message } : "kept"]);
       }
     }
-    bulk = false;
+    bulk = "";
     const out = settle(results);
     if (out.errors.length) tickets.error = out.errors.join(" · ");
     pickedRuns = { keys: [...out.kept, ...out.failed], anchor: null };
@@ -205,39 +234,53 @@
     if (resolution) pending = { from: ticket.url, resolution, repo: "" };
   }
 
-  /** The team starts in a new run of the ticket, which opens no session of its own: the workflow and budget first. */
-  async function launchTeam(ticket: TicketSummary) {
+  /**
+   * The team with the project's workflow and budget, the CTO choosing the path at triage; `options` asks for them
+   * first. A repository to choose is always asked for.
+   */
+  async function launchTeam(ticket: TicketSummary, options = false) {
     pending = null;
     teamWorkflow = "";
     teamBudget = null;
     starting = ticket.url;
     const resolution = await resolve(ticket.url, ticket.project);
     starting = "";
-    if (resolution) pending = { from: ticket.url, resolution, repo: resolution.repo ?? "", team: true };
+    if (!resolution) return;
+    if (resolution.repo && !options) return startTeam(resolution, resolution.repo);
+    pending = { from: ticket.url, resolution, repo: resolution.repo ?? "", team: true, options };
+  }
+
+  /** The team on a new run of the ticket, which opens no session of its own. */
+  async function teamOn(resolution: Resolution, repo: string, options: { workflow?: string; budget?: number }) {
+    const run = await invoke<Run>("tickets_run", {
+      input: resolution.ticket.url,
+      project: resolution.project,
+      repo,
+      session: false,
+    });
+    upsert(run);
+    try {
+      const started = await invoke<TeamRun>("team_start", { run: run.id, options });
+      upsertRun(started);
+      return started;
+    } catch (e) {
+      // The team did not start: its new run goes, and the launch can be tried again; if it stays, its row shows it.
+      await invoke<Run>("tickets_close", { id: run.id, force: false }).then(upsert, () => {});
+      throw e;
+    }
   }
 
   async function startTeam(resolution: Resolution, repo: string) {
     starting = resolution.ticket.url;
     tickets.error = "";
-    let run: Run | null = null;
     try {
-      run = await invoke<Run>("tickets_run", { input: resolution.ticket.url, project: resolution.project, repo, session: false });
-      upsert(run);
       const options = { workflow: teamWorkflow || undefined, budget: teamBudget ?? undefined };
-      const started = await invoke<TeamRun>("team_start", { run: run.id, options });
-      upsertRun(started);
+      const started = await teamOn(resolution, repo, options);
       pending = null;
       showTeamRun(started.run);
     } catch (e) {
       tickets.error = String(e);
-      // The team did not start: its new run goes, and the launch can be tried again; if it stays, its detail does it.
-      if (run) {
-        const id = run.id;
-        await invoke<Run>("tickets_close", { id, force: false }).then(upsert, () => {
-          pending = null;
-          Object.assign(tickets, { tab: "runs", selected: id });
-        });
-      }
+      if (runs.some((r) => r.ticket.url === resolution.ticket.url && r.status !== "closed")) pending = null;
     } finally {
       starting = "";
     }
@@ -285,7 +328,7 @@
     {@const r = pending.resolution}
     {@const known = tickets.inbox?.find((ticket) => ticket.url === r.ticket.url)}
     {@const chosen = r.repos.find((repo) => repo.path === pending?.repo)}
-    <div class="launch" class:team={pending.team} role="group" aria-label={t("ticketLaunchTitle", { key: r.ticket.key })}>
+    <div class="launch" class:team={pending.options} role="group" aria-label={t("ticketLaunchTitle", { key: r.ticket.key })}>
       <div class="what">
         <span class="name">
           <span class="mono">{r.ticket.key}</span>{known ? ` ${known.title}` : ""}
@@ -309,7 +352,7 @@
           </select>
         </label>
       {/if}
-      {#if pending.team}
+      {#if pending.options}
         <TeamOptions project={r.project} bind:workflow={teamWorkflow} bind:budget={teamBudget} />
       {/if}
       <div class="buttons">
@@ -437,21 +480,31 @@
                 onclear={() => ((leftTickets = ""), (pickedTickets = none()))}
               >
                 {#if leftTickets}<span class="note">{leftTickets}</span>{/if}
-                <button class="btn sm primary" disabled={bulk || !!starting} onclick={launchPicked}>
-                  {@render launching(bulk)}{#if !bulk}{` · ${chosenTickets.length}`}{/if}
+                <button class="btn sm" disabled={!!bulk || !!starting} onclick={() => launchPicked(false)}>
+                  {@render launching(bulk === "launch")}{#if bulk !== "launch"}{` · ${chosenTickets.length}`}{/if}
+                </button>
+                <button class="btn sm primary" disabled={!!bulk || !!starting} onclick={() => launchPicked(true)}>
+                  {#if bulk === "team"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ticketLaunching")}{:else}<Users
+                      size={14}
+                      aria-hidden="true"
+                    />{t("teamRunsWithTeam")} · {chosenTickets.length}{/if}
                 </button>
               </SelectionBar>
             </div>
           {/if}
           <ul class="inbox" class:picking={chosenTickets.length > 0}>
             {#each tickets.inbox as ticket (ticket.url)}
+              {@const run = runOf(ticket)}
+              {@const crew = run?.status === "running" ? team.runs.find((r) => r.run === run.id) : undefined}
+              {@const pickable = !!ticket.project && !run}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (the box does it from the keyboard) -->
               <li
                 class="ticket"
                 class:picked={chosenTickets.includes(ticket.url)}
-                onclick={(e) => ticket.project && rowClick(e, () => pickTicket(e, ticket.url))}
+                class:open={menuOpen && menu?.ticket.url === ticket.url}
+                onclick={(e) => pickable && rowClick(e, () => pickTicket(e, ticket.url))}
               >
-                {#if ticket.project}
+                {#if pickable}
                   <input
                     class="box"
                     type="checkbox"
@@ -474,36 +527,51 @@
                   </span>
                 </div>
                 <div class="labels">
-                  {#each ticket.labels as label (label)}<span class="badge">{label}</span>{/each}
+                  {#each ticket.labels.slice(0, 2) as label (label)}<span class="badge">{label}</span>{/each}
+                  {#if ticket.labels.length > 2}
+                    <span class="badge" title={ticket.labels.slice(2).join(", ")}>+{ticket.labels.length - 2}</span>
+                  {/if}
                 </div>
-                <button
-                  class="icon-btn sm"
-                  onclick={() => openUrl(ticket.url)}
-                  aria-label={t("ticketsUiOpenLink")}
-                  title={t("ticketsUiOpenLink")}
-                >
-                  <ExternalLink size={14} aria-hidden="true" />
-                </button>
-                {#if ticket.project}
-                  <button
-                    class="btn sm"
-                    title={t("teamRunsLaunchTitle", { key: ticket.key })}
-                    disabled={!!starting}
-                    onclick={() => launchTeam(ticket)}
-                  >
-                    <Users size={14} aria-hidden="true" />{t("teamRunsWithTeam")}
-                  </button>
-                  <button
-                    class="btn sm"
-                    title={t("ticketLaunchTitle", { key: ticket.key })}
-                    disabled={!!starting}
-                    onclick={() => launch(ticket)}
-                  >
-                    {@render launching(starting === ticket.url)}
-                  </button>
-                {:else}
-                  <span class="badge" title={t("ticketNoProjectTitle")}>{t("ticketNoProject")}</span>
-                {/if}
+                <div class="state">
+                  {#if run}
+                    {#if crew}
+                      {@const [status, label] = runPill(crew.state)}
+                      <StatusPill {status} {label} />
+                    {:else}
+                      <StatusPill status={run.status} label={readyToClean(run) ? t("ticketsUiReady") : undefined} />
+                    {/if}
+                    <button class="link" onclick={() => seeRun(run)}>{t("ux3t5SeeRun")}</button>
+                  {:else}
+                    <!-- Shown on hover and from the keyboard: the row's box takes the focus before them. -->
+                    <div class="acts" class:quiet={!!ticket.project && starting !== ticket.url}>
+                      {#if ticket.project}
+                        <button
+                          class="btn sm"
+                          title={t("teamRunsLaunchTitle", { key: ticket.key })}
+                          disabled={!!starting}
+                          onclick={() => launchTeam(ticket)}
+                        >
+                          {#if starting === ticket.url}{@render launching(true)}{:else}<Users
+                              size={14}
+                              aria-hidden="true"
+                            />{t("teamRunsWithTeam")}{/if}
+                        </button>
+                      {:else}
+                        <span class="badge" title={t("ticketNoProjectTitle")}>{t("ticketNoProject")}</span>
+                      {/if}
+                      <button
+                        class="icon-btn"
+                        aria-label={`${t("ux3t5More")} · ${ticket.key}`}
+                        title={t("ux3t5More")}
+                        aria-haspopup="dialog"
+                        aria-expanded={menuOpen && menu?.ticket.url === ticket.url}
+                        onclick={(e) => toggleMenu(ticket, e.currentTarget)}
+                      >
+                        <Ellipsis size={16} aria-hidden="true" />
+                      </button>
+                    </div>
+                  {/if}
+                </div>
               </li>
               {#if pending?.from === ticket.url}
                 <li class="choice">{@render launchBox()}</li>
@@ -544,10 +612,10 @@
           {:else}
             {#if leftRuns}<span class="note">{leftRuns}</span>{/if}
             {#if bulk}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
-            <button class="btn sm" disabled={bulk || !cleanable.length} onclick={() => (asking = "cleanup")}>
+            <button class="btn sm" disabled={!!bulk || !cleanable.length} onclick={() => (asking = "cleanup")}>
               <BrushCleaning size={14} aria-hidden="true" />{t("ticketsUiClean")} · {cleanable.length}
             </button>
-            <button class="btn sm" disabled={bulk || !closable.length} onclick={() => (asking = "close")}>
+            <button class="btn sm" disabled={!!bulk || !closable.length} onclick={() => (asking = "close")}>
               <Archive size={14} aria-hidden="true" />{t("closeRun")} · {closable.length}
             </button>
           {/if}
@@ -587,6 +655,25 @@
     {/if}
   </Tabs>
 </div>
+
+<Popover bind:open={menuOpen} trigger={menu?.trigger} label={t("ux3t5More")} align="end" width={260}>
+  {#if menu}
+    {@const ticket = menu.ticket}
+    <div class="menu">
+      {#if ticket.project}
+        <button class="item" disabled={!!starting} onclick={() => act(() => launch(ticket))}>
+          <Play size={14} aria-hidden="true" /><span>{t("ticketLaunch")}</span><small>{t("ux3t5WithoutTeam")}</small>
+        </button>
+        <button class="item" disabled={!!starting} onclick={() => act(() => launchTeam(ticket, true))}>
+          <Users size={14} aria-hidden="true" /><span>{t("ux3t5WithTeamOptions")}</span>
+        </button>
+      {/if}
+      <button class="item" onclick={() => act(() => openUrl(ticket.url))}>
+        <ExternalLink size={14} aria-hidden="true" /><span>{t("ticketsUiOpenLink")}</span>
+      </button>
+    </div>
+  {/if}
+</Popover>
 
 <style>
   .tickets {
@@ -712,6 +799,81 @@
     justify-content: flex-end;
     gap: 4px;
     max-width: 40%;
+  }
+
+  .state {
+    display: flex;
+    flex: 0 0 220px;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .acts {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .acts.quiet {
+    visibility: hidden;
+  }
+
+  .ticket:hover .acts,
+  .ticket:focus-within .acts,
+  .ticket.open .acts {
+    visibility: visible;
+  }
+
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-ink);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .menu {
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+  }
+
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius);
+    background: none;
+    text-align: left;
+  }
+
+  .item:hover:not(:disabled) {
+    background: var(--hover);
+  }
+
+  .item > :global(svg) {
+    color: var(--muted);
+  }
+
+  .item span {
+    flex: 1;
+  }
+
+  .item small {
+    color: var(--muted);
+    font-size: var(--text-xs);
   }
 
   .choice {
