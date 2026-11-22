@@ -5,6 +5,7 @@ mod browser;
 mod ci;
 mod claude;
 mod claude_native;
+mod cli_path;
 mod config;
 mod context;
 mod cto;
@@ -22,6 +23,8 @@ mod ssh;
 mod sync;
 mod team;
 mod tickets;
+mod tools;
+mod updates;
 mod vault;
 mod visual;
 mod worktree;
@@ -270,6 +273,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(Files::default()))
         .manage(ssh::KeyFiles::default())
         .plugin(quick_terminal::plugin())
@@ -280,6 +284,7 @@ pub fn run() {
             let (api, listener) = api::Api::new(settings.api.confirm_cli);
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(claude::ClaudeState::new(&data_dir));
+            app.manage(updates::Updates::new(&data_dir));
             app.manage(claude_native::NativeState::new(&data_dir));
             let (notifier, inbox) = termf_team::channel();
             app.manage(agents::state(
@@ -483,6 +488,15 @@ pub fn run() {
             ci::ci_poll,
             ci::ci_notify,
             ci::ci_notify_set,
+            updates::update_state,
+            updates::update_check,
+            updates::update_settings_set,
+            updates::update_install,
+            cli_path::cli_state,
+            cli_path::cli_install,
+            cli_path::cli_uninstall,
+            tools::tools_check,
+            tools::tools_chrome_install,
             git::git_state,
             git::git_graph,
             git::git_prs,

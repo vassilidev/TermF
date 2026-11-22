@@ -18,6 +18,7 @@ use termf_worktree::Setup;
 
 pub mod agent;
 pub mod browser;
+pub mod cft;
 pub mod config;
 pub mod diff;
 mod env;

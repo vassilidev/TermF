@@ -70,6 +70,13 @@
 
 ## Install
 
+The install script takes the latest release for your system, checks it against the release's `SHA256SUMS` and installs it, with no extra step for the unsigned builds (add `-s -- --beta` for the pre-releases):
+
+```sh
+curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh                # macOS, Linux
+irm https://vassilidev.github.io/TermF/install.ps1 | iex                     # Windows (PowerShell)
+```
+
 Download TermF from [the website](https://vassilidev.github.io/TermF/download.html) or the [releases](https://github.com/vassilidev/TermF/releases):
 
 | System | Files |
