@@ -4,9 +4,11 @@
   import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CircleCheck from "@lucide/svelte/icons/circle-check";
+  import Cloud from "@lucide/svelte/icons/cloud";
   import Copy from "@lucide/svelte/icons/copy";
   import CopyCheck from "@lucide/svelte/icons/copy-check";
   import Download from "@lucide/svelte/icons/download";
+  import FolderDown from "@lucide/svelte/icons/folder-down";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import FolderSync from "@lucide/svelte/icons/folder-sync";
@@ -18,10 +20,13 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Lock from "@lucide/svelte/icons/lock";
   import Power from "@lucide/svelte/icons/power";
+  import Server from "@lucide/svelte/icons/server";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import Unplug from "@lucide/svelte/icons/unplug";
   import SyncConflict from "$lib/SyncConflict.svelte";
   import { ago, t } from "$lib/i18n";
-  import { app } from "$lib/state.svelte";
+  import { app, load } from "$lib/state.svelte";
+  import { cloneTarget, expandHome, inside } from "$lib/sync-logic";
   import {
     currentReport,
     keepReport,
@@ -31,26 +36,40 @@
     sync,
     syncCall,
     syncNow,
+    clones,
     type Device,
+    type MissingRepo,
     type Remote,
     type Report,
     type Scope,
+    type SyncStatus,
   } from "$lib/sync.svelte";
 
   const status = $derived(app.sync);
-  const ready = $derived(!!status?.enabled && status.unlocked);
+  const ready = $derived(!!status?.enabled && status.unlocked && !status.forgotten);
   const report = $derived(currentReport());
   const info = $derived(summary(status));
   const syncedAt = $derived(status?.lastSync);
 
-  let kind = $state<"git" | "folder">("git");
+  let kind = $state<Remote["kind"]>("git");
   let url = $state("");
   let folder = $state("");
+  let s3 = $state({ endpoint: "", bucket: "", region: "", prefix: "", user: "", secret: "" });
+  let dav = $state({ url: "", user: "", secret: "" });
   /** The probe's answer: the remote already holds a sync to join. null until probed. */
   let joining = $state<boolean | null>(null);
-  // The vault only when asked, as on the command line.
-  let chosen = $state<Scope[]>(scopes.map(([scope]) => scope).filter((scope) => scope !== "vault"));
+  // The vault and the SSH keys only when asked, as on the command line.
+  let chosen = $state<Scope[]>(
+    scopes.map(([scope]) => scope).filter((scope) => scope !== "vault" && scope !== "sshKeys"),
+  );
   let deviceName = $state("");
+  /** Ticking the SSH keys waits for this confirmation: `apply` runs once confirmed. */
+  let sshWarning = $state<{ apply: () => void } | null>(null);
+  /** The device whose « Oublier » form is open. */
+  let forgetting = $state<Device | null>(null);
+  /** Where each missing repository is cloned, when the user chose another folder. */
+  let targets = $state<Record<string, string>>({});
+  let cloneErrors = $state<Record<string, string>>({});
 
   let mode = $state<"" | "recover" | "password" | "disable">("");
   let password = $state("");
@@ -63,7 +82,25 @@
   let copied = $state(false);
   let stored = $state(false);
 
-  const remote = $derived<Remote>(kind === "git" ? { kind, url: url.trim() } : { kind, path: folder.trim() });
+  const remote = $derived<Remote>(
+    kind === "git"
+      ? { kind, url: url.trim() }
+      : kind === "folder"
+        ? { kind, path: folder.trim() }
+        : kind === "s3"
+          ? {
+              kind,
+              endpoint: s3.endpoint.trim(),
+              bucket: s3.bucket.trim(),
+              region: s3.region.trim() || "us-east-1",
+              prefix: s3.prefix.trim(),
+              credentials: { user: s3.user.trim(), secret: s3.secret },
+            }
+          : { kind, url: dav.url.trim(), credentials: { user: dav.user.trim(), secret: dav.secret } },
+  );
+  const remoteReady = $derived(
+    !!remoteText(remote) && (kind !== "s3" || (!!s3.user.trim() && !!s3.secret)),
+  );
   const length = $derived([...password].length);
   const tooShort = $derived(confirm.length > 0 && length < 8);
   const mismatch = $derived(confirm.length > 0 && !tooShort && confirm !== password);
@@ -88,6 +125,7 @@
 
   function setMode(next: typeof mode) {
     mode = next;
+    forgetting = null;
     password = confirm = current = recoveryKey = "";
     sync.error = "";
   }
@@ -154,6 +192,55 @@
     devices = null;
   }
 
+  function openForget(device: Device | null) {
+    setMode("");
+    forgetting = device;
+  }
+
+  async function forget() {
+    if (!forgetting) return;
+    const key = await syncCall<string>("sync_forget", { id: forgetting.id, password });
+    if (!key) return;
+    openForget(null);
+    sync.recoveryKey = { key, reason: "forgot" };
+    loadDevices();
+  }
+
+  const repoKey = (r: MissingRepo) => r.project + "\n" + r.path;
+
+  function proposed(r: MissingRepo): string {
+    const home = app.workspace?.home ?? "";
+    const missing = new Set(status?.missingRepos.map((m) => expandHome(m.path, home)));
+    const present = (app.workspace?.projects.find((p) => p.id === r.project)?.repos ?? [])
+      .map((repo) => expandHome(repo.path, home))
+      .filter((path) => !missing.has(path));
+    return targets[repoKey(r)] ?? cloneTarget(r.path, present, home);
+  }
+
+  async function elsewhere(r: MissingRepo) {
+    const dir = await open({ directory: true, multiple: false });
+    if (dir) targets[repoKey(r)] = inside(dir, r.path);
+  }
+
+  async function clone(r: MissingRepo) {
+    const key = repoKey(r);
+    const target = proposed(r);
+    if (!target) return;
+    cloneErrors[key] = "";
+    clones.add(key);
+    sync.cloning[key] = "";
+    try {
+      app.sync = await invoke<SyncStatus>("sync_clone", { project: r.project, path: r.path, target });
+      delete targets[key];
+      load();
+    } catch (e) {
+      cloneErrors[key] = String(e);
+    } finally {
+      clones.delete(key);
+      delete sync.cloning[key];
+    }
+  }
+
   async function copy(key: string) {
     try {
       await navigator.clipboard.writeText(key);
@@ -213,8 +300,15 @@
           <input
             type="checkbox"
             checked={on}
-            disabled={!!sync.busy || (on && selected.length === 1)}
-            onchange={(e) => onchange(scope, e.currentTarget.checked)}
+            disabled={!!sync.busy || (on && selected.length === 1) || (scope === "sshKeys" && !!sshWarning)}
+            onchange={(e) => {
+              const box = e.currentTarget;
+              // The private keys leave only once the warning is read and confirmed.
+              if (scope === "sshKeys" && box.checked) {
+                box.checked = false;
+                sshWarning = { apply: () => onchange(scope, true) };
+              } else onchange(scope, box.checked);
+            }}
           />
           <span>{t(label)}</span>
           <span class="muted">{t(help)}</span>
@@ -222,6 +316,24 @@
       </li>
     {/each}
   </ul>
+  {#if sshWarning}
+    {@const { apply } = sshWarning}
+    <div class="warning-box" role="alert">
+      <p class="warn-title"><TriangleAlert size={14} aria-hidden="true" />{t("sync2SshWarnTitle")}</p>
+      <p class="help">{t("sync2SshWarn")}</p>
+      <div class="buttons">
+        <button type="button" class="btn sm" onclick={() => (sshWarning = null)} {@attach focus}>{t("cancel")}</button>
+        <button
+          type="button"
+          class="btn sm primary"
+          onclick={() => {
+            sshWarning = null;
+            apply();
+          }}><KeyRound size={14} aria-hidden="true" />{t("sync2SshConfirm")}</button
+        >
+      </div>
+    </div>
+  {/if}
   <p class="help">{t("syncScopesHelp")}</p>
 {/snippet}
 
@@ -293,7 +405,15 @@
       <h3>{t("syncKeyTitle")}</h3>
       <p class="lead">
         <CircleCheck size={16} aria-hidden="true" class="ok" />
-        {t(reason === "setup" ? "syncKeySetup" : reason === "changed" ? "syncKeyChanged" : "syncKeyRecovered")}
+        {t(
+          reason === "setup"
+            ? "syncKeySetup"
+            : reason === "changed"
+              ? "syncKeyChanged"
+              : reason === "forgot"
+                ? "sync2KeyForgot"
+                : "syncKeyRecovered",
+        )}
       </p>
       <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{t("syncKeyOnce")}</p>
       <div class="key">
@@ -326,8 +446,72 @@
           <button type="button" role="radio" aria-checked={kind === "folder"} onclick={() => setKind("folder")}>
             <FolderOpen size={13} aria-hidden="true" />{t("syncFolder")}
           </button>
+          <button type="button" role="radio" aria-checked={kind === "s3"} onclick={() => setKind("s3")}>
+            <Cloud size={13} aria-hidden="true" />{t("sync2S3")}
+          </button>
+          <button type="button" role="radio" aria-checked={kind === "webdav"} onclick={() => setKind("webdav")}>
+            <Server size={13} aria-hidden="true" />{t("sync2Webdav")}
+          </button>
         </div>
-        {#if kind === "git"}
+        {#if kind === "s3"}
+          <div class="grid" oninput={() => (joining = null)}>
+            <label class="labelled span">
+              <span>{t("sync2S3Endpoint")}</span>
+              <input
+                class="field mono"
+                bind:value={s3.endpoint}
+                placeholder="https://s3.eu-west-3.amazonaws.com"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <label class="labelled">
+              <span>{t("sync2S3Bucket")}</span>
+              <input class="field mono" bind:value={s3.bucket} autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="labelled">
+              <span>{t("sync2S3Region")}</span>
+              <input class="field mono" bind:value={s3.region} placeholder="us-east-1" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="labelled span">
+              <span>{t("sync2S3Prefix")}</span>
+              <input class="field mono" bind:value={s3.prefix} placeholder="termf" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="labelled">
+              <span>{t("sync2S3Access")}</span>
+              <input class="field mono" bind:value={s3.user} autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="labelled">
+              <span>{t("sync2S3Secret")}</span>
+              <input class="field" type="password" bind:value={s3.secret} autocomplete="off" />
+            </label>
+          </div>
+          <p class="help">{t("sync2S3Help")}</p>
+          <p class="help">{t("sync2Credentials")}</p>
+        {:else if kind === "webdav"}
+          <div class="grid" oninput={() => (joining = null)}>
+            <label class="labelled span">
+              <span>{t("sync2WebdavUrl")}</span>
+              <input
+                class="field mono"
+                bind:value={dav.url}
+                placeholder="https://cloud.example.com/remote.php/dav/files/alex/termf/"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <label class="labelled">
+              <span>{t("sync2WebdavUser")}</span>
+              <input class="field" bind:value={dav.user} autocomplete="username" spellcheck="false" />
+            </label>
+            <label class="labelled">
+              <span>{t("sync2WebdavPassword")}</span>
+              <input class="field" type="password" bind:value={dav.secret} autocomplete="current-password" />
+            </label>
+          </div>
+          <p class="help">{t("sync2WebdavHelp")}</p>
+          <p class="help">{t("sync2Credentials")}</p>
+        {:else if kind === "git"}
           <label class="labelled wide">
             <span>{t("syncGitUrl")}</span>
             <input
@@ -359,7 +543,7 @@
         {/if}
         {#if joining === null}
           <div>
-            <button class="btn primary" disabled={!remoteText(remote) || !!sync.busy}>
+            <button class="btn primary" disabled={!remoteReady || !!sync.busy}>
               {#if sync.busy === "sync_probe"}
                 <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("syncChecking")}
               {:else}
@@ -424,7 +608,10 @@
       {#if status.remote}
         <dt>{t("syncRemote")}</dt>
         <dd class="mono">
-          {#if status.remote.kind === "git"}<GitBranch size={12} aria-hidden="true" />{:else}<FolderOpen
+          {#if status.remote.kind === "git"}<GitBranch size={12} aria-hidden="true" />{:else if status.remote.kind === "s3"}<Cloud
+              size={12}
+              aria-hidden="true"
+            />{:else if status.remote.kind === "webdav"}<Server size={12} aria-hidden="true" />{:else}<FolderOpen
               size={12}
               aria-hidden="true"
             />{/if}{remoteText(status.remote)}
@@ -442,7 +629,12 @@
       {/if}
     </dl>
 
-    {#if !ready}
+    {#if status.forgotten}
+      <section class="step">
+        <p class="notice error"><Unplug size={14} aria-hidden="true" />{t("sync2ForgottenHelp")}</p>
+      </section>
+      {@render disableBlock()}
+    {:else if !ready}
       {#if mode === "recover"}
         <section class="step">{@render recoverForm()}</section>
       {:else}
@@ -521,7 +713,10 @@
           <p class="help">{t("syncMissingHelp")}</p>
           <ul class="rows">
             {#each status.missingRepos as repo (repo.project + repo.path)}
-              <li>
+              {@const key = repoKey(repo)}
+              {@const cloning = key in sync.cloning}
+              {@const target = repo.remote ? proposed(repo) : ""}
+              <li class="wrap">
                 <FolderGit2 size={14} aria-hidden="true" class="muted" />
                 <div class="grow">
                   <span class="mono">{repo.path}</span>
@@ -529,7 +724,27 @@
                     {app.workspace?.projects.find((p) => p.id === repo.project)?.name ?? repo.project}
                     {#if repo.remote}<span class="mono"> · {repo.remote}</span>{/if}
                   </span>
+                  {#if repo.remote}
+                    {#if target}<span class="sub target">{t("sync2CloneInto", { path: target })}</span>{/if}
+                  {/if}
+                  {#if cloning}
+                    <span class="sub progress" aria-live="polite">
+                      <LoaderCircle size={12} aria-hidden="true" class="spin" />{sync.cloning[key] || t("sync2Cloning")}
+                    </span>
+                  {:else if cloneErrors[key]}
+                    <span class="sub invalid lines" role="alert">{cloneErrors[key]}</span>
+                  {/if}
                 </div>
+                {#if repo.remote}
+                  <div class="buttons">
+                    <button class="btn sm quiet" onclick={() => elsewhere(repo)} disabled={cloning}>
+                      {t("sync2CloneElsewhere")}
+                    </button>
+                    <button class="btn sm" onclick={() => clone(repo)} disabled={cloning || !target}>
+                      <FolderDown size={14} aria-hidden="true" />{t("sync2Clone")}
+                    </button>
+                  </div>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -562,7 +777,39 @@
                   <span class="sub">{osLabel[d.os] ? t(osLabel[d.os]) : d.os}</span>
                 </div>
                 <span class="sub when">{ago(d.lastSync)}</span>
+                {#if !d.current}
+                  <button
+                    class="btn sm quiet"
+                    onclick={() => openForget(d)}
+                    disabled={!!sync.busy}
+                    aria-expanded={forgetting?.id === d.id}>{t("sync2Forget")}</button
+                  >
+                {/if}
               </li>
+              {#if forgetting?.id === d.id}
+                <li class="forget">
+                  <form class="form" onsubmit={submit(forget)}>
+                    <h4>{t("sync2ForgetTitle", { name: d.name })}</h4>
+                    <p class="help">{t("sync2ForgetHelp")}</p>
+                    <label class="labelled">
+                      <span>{t("syncPassword")}</span>
+                      <input
+                        class="field"
+                        type="password"
+                        autocomplete="current-password"
+                        bind:value={password}
+                        {@attach focus}
+                      />
+                    </label>
+                    <div class="buttons">
+                      <button type="button" class="btn sm" onclick={() => openForget(null)}>{t("cancel")}</button>
+                      <button class="btn sm danger" disabled={!password || !!sync.busy}>
+                        {@render spinner("sync_forget", Unplug)}{t("sync2ForgetRun")}
+                      </button>
+                    </div>
+                  </form>
+                </li>
+              {/if}
             {/each}
           </ul>
         {/if}
@@ -989,5 +1236,83 @@
 
   .stored {
     font-weight: 500;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 270px));
+    gap: 10px 12px;
+    max-width: 100%;
+  }
+
+  .grid .labelled {
+    width: auto;
+  }
+
+  .grid .span {
+    grid-column: 1 / -1;
+  }
+
+  .warning-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 660px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--warning);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+  }
+
+  .warn-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .warn-title :global(svg) {
+    flex-shrink: 0;
+    color: var(--warning);
+  }
+
+  .rows li.wrap {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .rows li.wrap > :global(svg) {
+    margin-top: 2px;
+  }
+
+  .target {
+    margin-top: 2px;
+    font-family: var(--font-mono);
+  }
+
+  .progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    font-family: var(--font-mono);
+  }
+
+  .sub.invalid {
+    color: var(--danger);
+  }
+
+  .rows li.forget {
+    display: block;
+    padding: 12px 4px 14px 28px;
+    background: var(--hover);
+  }
+
+  .forget h4 {
+    margin: 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
   }
 </style>
