@@ -234,7 +234,12 @@ pub fn create(config_dir: &Path, spec: &Spec, env: &Env) -> Result<Created> {
         Some(Err(e)) => (None, Some(format!("{e:#}"))),
     };
     let dir = path.to_string_lossy().into_owned();
-    let project = termf_core::save_project(config_dir, None, spec.name.trim(), &[dir.clone()])?;
+    let project = termf_core::save_project(
+        config_dir,
+        None,
+        spec.name.trim(),
+        std::slice::from_ref(&dir),
+    )?;
     Ok(Created {
         project,
         path: dir,
