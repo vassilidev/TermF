@@ -437,6 +437,31 @@ pub async fn tickets_jira_token_forget(
     .await
 }
 
+/// Whether the keychain holds a Linear (`kind` `linear`, `target` its workspace), GitLab (`gitlab`, its host)
+/// or Azure DevOps (`azure`, its organization) token.
+#[tauri::command]
+pub async fn tickets_token(app: AppHandle, kind: String, target: String) -> CmdResult<bool> {
+    blocking(app, move |app| tickets(app).has_token(&kind, &target)).await
+}
+
+#[tauri::command]
+pub async fn tickets_token_save(
+    app: AppHandle,
+    kind: String,
+    target: String,
+    token: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        tickets(app).save_token(&kind, &target, &token)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tickets_token_forget(app: AppHandle, kind: String, target: String) -> CmdResult<()> {
+    blocking(app, move |app| tickets(app).forget_token(&kind, &target)).await
+}
+
 /// The MCP servers of the user's Claude Code (`claude mcp list`, which checks each one: slow).
 #[tauri::command]
 pub async fn tickets_mcp_servers(

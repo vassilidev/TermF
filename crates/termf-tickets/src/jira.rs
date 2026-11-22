@@ -74,7 +74,7 @@ pub(crate) fn reference(site: &str, key: &str) -> Result<TicketRef> {
 }
 
 /// `ACME-123` (any case), uppercased.
-fn key(text: &str) -> Option<String> {
+pub(crate) fn key(text: &str) -> Option<String> {
     let (project, number) = text.rsplit_once('-')?;
     let mut letters = project.chars();
     let valid = letters.next().is_some_and(|c| c.is_ascii_alphabetic())
@@ -108,7 +108,7 @@ pub(crate) fn parse(input: &str) -> Option<(String, Option<String>)> {
 }
 
 /// Quotes a value for curl's config syntax.
-fn quoted(text: &str) -> String {
+pub(crate) fn quoted(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
     for c in text.chars() {

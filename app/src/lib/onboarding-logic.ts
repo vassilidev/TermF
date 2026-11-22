@@ -47,6 +47,9 @@ type GithubTracker = {
 export type Trackers = {
   github: GithubTracker | null;
   jira: unknown;
+  gitlab?: { host: string; repo: string | null; mine: boolean; comment: boolean } | null;
+  linear?: unknown;
+  azure?: unknown;
   mcp: Record<string, unknown>;
   implicit: boolean;
 };
