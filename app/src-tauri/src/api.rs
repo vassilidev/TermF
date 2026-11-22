@@ -1771,10 +1771,7 @@ mod tests {
         let repo = root.join("acme-api");
         fs::create_dir_all(repo.join("src")).unwrap();
         fs::create_dir_all(root.join("config/projects")).unwrap();
-        let file = format!(
-            "name = \"Acme\"\n[[repos]]\npath = '{}'\n",
-            repo.display()
-        );
+        let file = format!("name = \"Acme\"\n[[repos]]\npath = '{}'\n", repo.display());
         fs::write(root.join("config/projects/acme.toml"), file).unwrap();
         let config = root.join("config");
         // A team step's worktree lives in TermF's data folder, which no project lists.
