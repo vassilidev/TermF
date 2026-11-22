@@ -10,6 +10,7 @@
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import X from "@lucide/svelte/icons/x";
   import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
@@ -105,9 +106,6 @@
   const tone = $derived(summary(app.sync).tone);
   const flagged = $derived(tone === "attention" || tone === "error");
   const settingsLabel = $derived(flagged ? `${t("settings")} · ${t("syncNeedsYou")}` : t("settings"));
-  const machineLabel = $derived(
-    flagged && !unfolded ? `${t("settingsContext")} · ${t("syncNeedsYou")}` : t("settingsContext"),
-  );
 
   // A remembered or current project that no longer exists falls back to every project.
   $effect(() => {
@@ -119,13 +117,14 @@
   {@const count = view.count?.()}
   {@const at = side(view.id)}
   {@const alert = view.id === "settings" && flagged}
-  <li>
+  {@const name = alert ? settingsLabel : t(view.label)}
+  <li class:apart={view.apart}>
     <button
       class="nav-item"
       class:beside={at && ui.view !== view.id}
       aria-current={ui.view === view.id ? "page" : undefined}
       aria-label={alert ? settingsLabel : undefined}
-      title={alert ? settingsLabel : undefined}
+      title={view.hint ? `${name} — ${t(view.hint)}` : name}
       data-view={view.id}
       onclick={(e) => pick(e, view)}
       oncontextmenu={(e) => openMenu(e, view)}
@@ -158,7 +157,7 @@
     aria-keyshortcuts={aria("palette")}
     onclick={() => (ui.palette = true)}
   >
-    <Search size={14} aria-hidden="true" /><span>{t("navSearch")}</span>
+    <Search size={14} aria-hidden="true" /><span class="label">{t("navSearch")}</span>
     {#if keys.palette}<kbd>{keys.palette}</kbd>{/if}
   </button>
   {#if waiting}
@@ -168,7 +167,7 @@
       title={t("nextWaiting")}
       aria-keyshortcuts={aria("next_waiting")}
     >
-      <BellRing size={14} aria-hidden="true" /><span>{t("waitingCount", { count: waiting })}</span>
+      <BellRing size={14} aria-hidden="true" /><span class="label">{t("waitingCount", { count: waiting })}</span>
       {#if keys.next}<kbd>{keys.next}</kbd>{/if}
     </button>
   {/if}
@@ -201,7 +200,7 @@
             class="nav-item project"
             aria-current={open ? "true" : undefined}
             aria-keyshortcuts={i < 9 ? aria("project", i + 1) : undefined}
-            title={i < 9 && keys.project(i + 1) ? `${t("navSwitchTo", { name: project.name })} (${keys.project(i + 1)})` : undefined}
+            title={i < 9 && keys.project(i + 1) ? `${t("navSwitchTo", { name: project.name })} (${keys.project(i + 1)})` : project.name}
             onclick={() => setProject(project.id)}
           >
             <span class="mark" aria-hidden="true">{initial(project.name)}</span>
@@ -212,7 +211,7 @@
         </li>
       {/each}
       <li>
-        <button class="nav-item project" aria-current={app.project === null ? "true" : undefined} onclick={() => setProject(null)}>
+        <button class="nav-item project" aria-current={app.project === null ? "true" : undefined} title={t("ticketsAll")} onclick={() => setProject(null)}>
           <span class="mark all" aria-hidden="true"><Layers size={13} /></span>
           <span class="label">{t("ticketsAll")}</span>
         </button>
@@ -223,11 +222,21 @@
 
   <div class="foot">
     <div class="row">
-      <button class="nav-item machine" aria-expanded={unfolded} aria-label={machineLabel} title={machineLabel} onclick={toggleMachine}>
+      <button class="nav-item machine" aria-expanded={unfolded} title={t("settingsContext")} onclick={toggleMachine}>
         <Monitor size={16} aria-hidden="true" />
         <span class="label">{t("settingsContext")}</span>
-        {#if flagged && !unfolded}<span class="dot {tone}" aria-hidden="true"></span>{/if}
         <ChevronRight class="chev" size={14} aria-hidden="true" />
+      </button>
+      <!-- Always in sight, whether this machine is folded or not: a first launch finds the settings. -->
+      <button
+        class="icon-btn gear"
+        class:on={ui.view === "settings"}
+        aria-label={settingsLabel}
+        title={settingsLabel}
+        onclick={() => showSettings()}
+      >
+        <SettingsIcon size={16} aria-hidden="true" />
+        {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
       </button>
       {#if app.keepAwake?.active}
         <button
@@ -300,15 +309,6 @@
     padding: 0 6px 0 9px;
     border-radius: var(--radius);
     text-align: left;
-  }
-
-  .find span,
-  .wait span {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .find {
@@ -528,23 +528,34 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 2px;
   }
 
   .row .nav-item {
     flex: 1;
+    gap: 6px;
     min-width: 0;
+    padding-right: 2px;
   }
 
-  .machine {
+  /* Three buttons beside "This machine" leave its name room to show whole. */
+  .row .icon-btn {
+    width: 24px;
+  }
+
+  .gear {
     position: relative;
   }
 
-  /* Folded, the dot sits on the icon: the row has no width to spare for it. */
-  .machine .dot {
+  .gear.on {
+    background: var(--selected);
+    color: var(--accent-ink);
+  }
+
+  /* The dot sits on the icon: the row has no width to spare for it. */
+  .gear .dot {
     position: absolute;
-    top: 7px;
-    left: 19px;
+    top: 4px;
+    right: 4px;
     box-shadow: 0 0 0 2px var(--chrome);
   }
 
@@ -574,5 +585,114 @@
 
   .dot.error {
     background: var(--danger);
+  }
+
+  /* The project's tools, after its daily work. */
+  .apart {
+    margin-top: 6px;
+  }
+
+  /* --nav-width folds with it (app.css): icons only, each named by its tooltip and, for screen readers, its hidden label. */
+  @media (max-width: 1100px) {
+    .nav {
+      align-items: stretch;
+    }
+
+    .find,
+    .wait {
+      justify-content: center;
+      padding: 0;
+    }
+
+    .find kbd,
+    .wait kbd,
+    .group h2,
+    .group [aria-haspopup],
+    .nav :global(.side),
+    .nav :global(.tally),
+    .machine :global(.chev) {
+      display: none;
+    }
+
+    .nav :global(.label) {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .group {
+      justify-content: center;
+      padding: 0;
+    }
+
+    .nav :global(.nav-item) {
+      position: relative;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .views {
+      padding-left: 0;
+    }
+
+    .views::before {
+      display: none;
+    }
+
+    .views .nav-item {
+      padding-left: 0;
+    }
+
+    /* Under a project, its views; the thread is gone, so a line marks where they end. */
+    .projects .views {
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .count:not(.hot) {
+      display: none;
+    }
+
+    .count.hot,
+    .views .dot {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      min-width: 16px;
+      padding: 0 4px;
+      font-size: var(--text-xs);
+      line-height: 16px;
+    }
+
+    .views .dot {
+      top: 6px;
+      right: 8px;
+      min-width: 0;
+      padding: 0;
+    }
+
+    .row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 1px;
+    }
+
+    .row .icon-btn {
+      width: 100%;
+      height: 30px;
+    }
+
+    /* Unfolded, this machine lists the settings already. */
+    .machine[aria-expanded="true"] ~ .gear {
+      display: none;
+    }
+
+    .gear .dot {
+      top: 6px;
+      right: 8px;
+    }
   }
 </style>

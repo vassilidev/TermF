@@ -475,7 +475,7 @@ export function commands(): Command[] {
     const group = view.group === "machine" ? "machine" : "views";
     // "Edit the project" names no project under every project.
     if (view.id !== ui.view && (view.id !== "project" || app.project !== null)) {
-      list.push({ id: `view-${view.id}`, label: t(view.command), icon: view.icon, group, run: view.show });
+      list.push({ id: `view-${view.id}`, label: t(view.command), hint: view.hint && t(view.hint), icon: view.icon, group, run: view.show });
     }
     if (!onScreen(view.id)) {
       list.push({
