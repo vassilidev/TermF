@@ -225,7 +225,7 @@
       <button class="icon-btn sm" onclick={() => unstage(c)} disabled={!!busy} title={t("git2Unstage")} aria-label={`${t("git2Unstage")} ${c.path}`}><Minus size={14} aria-hidden="true" /></button>
     {:else}
       <button class="icon-btn sm danger-hover" onclick={() => askDiscard(c, null)} disabled={!!busy} title={t("git2Discard")} aria-label={`${t("git2Discard")} ${c.path}`}><Undo2 size={14} aria-hidden="true" /></button>
-      <button class="icon-btn sm" onclick={() => stage(c)} disabled={!!busy} title={t("git2Stage")} aria-label={`${t("git2Stage")} ${c.path}`}><Plus size={14} aria-hidden="true" /></button>
+      <button class="icon-btn sm" data-testid="git-stage" onclick={() => stage(c)} disabled={!!busy} title={t("git2Stage")} aria-label={`${t("git2Stage")} ${c.path}`}><Plus size={14} aria-hidden="true" /></button>
     {/if}
   </li>
   {#if open}
