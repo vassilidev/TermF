@@ -41,3 +41,67 @@ export function shown(value: unknown): string {
 export function source(credit: string): string {
   return credit.replace(/@[0-9a-f]+/i, "").replace(/: .*$/, "").trim();
 }
+
+/** A squad as its editor sets it (`team_squad_save`): an empty lead is the default one. */
+export type SquadForm = {
+  id: string;
+  lead: string;
+  roles: Record<string, number>;
+  repos: string[];
+  paths: string[];
+  domains: string[];
+};
+
+/** What the editor says of a squad: an error stops the save, a warning only tells. `subject`: what it is about. */
+export type SquadIssue = {
+  level: "error" | "warning";
+  kind: "id" | "taken" | "role" | "count" | "path" | "repo" | "overlap";
+  subject: string;
+};
+
+/** Whether `path` stays inside a repository: neither absolute nor going up. */
+function inside(path: string): boolean {
+  return !!path && !/^([/\\]|[A-Za-z]:)/.test(path) && !path.split(/[/\\]/).includes("..");
+}
+
+/** A glob's fixed part, before its first wildcard: `apps/web/**` → `apps/web`. */
+function fixed(glob: string): string {
+  return glob.replace(/^\.\//, "").split(/[*?[{]/)[0].replace(/\/+$/, "");
+}
+
+/** Whether two squads may change the same files: a repository in common, and paths that meet (none = all). */
+export function overlaps(a: SquadForm, b: SquadForm): boolean {
+  if (a.repos.length && b.repos.length && !a.repos.some((r) => b.repos.includes(r))) return false;
+  if (!a.paths.length || !b.paths.length) return true;
+  const under = (x: string, y: string) => !y || x === y || x.startsWith(`${y}/`);
+  return a.paths.some((p) => b.paths.some((q) => under(fixed(p), fixed(q)) || under(fixed(q), fixed(p))));
+}
+
+/** What is wrong with `squad` among the project's `others`, its `roles` (known to the library) and `repos`. */
+export function squadIssues(squad: SquadForm, others: SquadForm[], roles: string[], repos: string[]): SquadIssue[] {
+  const issues: SquadIssue[] = [];
+  const add = (level: SquadIssue["level"], kind: SquadIssue["kind"], subject: string) =>
+    issues.push({ level, kind, subject });
+  const id = squad.id.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) add("error", "id", id);
+  else if (others.some((o) => o.id === id)) add("error", "taken", id);
+  const known = (r: string) => roles.includes(r === "orchestrator" ? "lead" : r);
+  const lead = squad.lead.trim();
+  if (lead && !known(lead)) add("error", "role", lead);
+  for (const [role, n] of Object.entries(squad.roles)) {
+    if (!known(role)) add("error", "role", role);
+    if (!Number.isInteger(n) || n < 1) add("error", "count", role);
+  }
+  for (const path of squad.paths) if (!inside(path)) add("error", "path", path);
+  for (const repo of squad.repos) if (!repos.includes(repo)) add("error", "repo", repo);
+  for (const other of others) if (overlaps(squad, other)) add("warning", "overlap", other.id);
+  return issues;
+}
+
+/**
+ * The onboarding assistant's squads still worth offering: all of them while the project declares none (its one squad
+ * is then the implicit `main`), else those it does not have yet, so that adding one leaves the others offered.
+ */
+export function offered<P extends { id: string }>(proposals: P[], declared: boolean, squads: { id: string }[]): P[] {
+  return declared ? proposals.filter((p) => !squads.some((s) => s.id === p.id)) : proposals;
+}

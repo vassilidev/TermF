@@ -47,6 +47,8 @@ export type Run = {
   claudeSession: string | null;
   /** Known once its pull request is merged or closed: the run is then ready to clean up while delivered. */
   prState: "merged" | "closed" | null;
+  /** The run it works for in another repository of the project, when the team's plan spans several. */
+  parent?: number | null;
   /** Its terminal session while it exists, for this launch of the app. */
   sessionId: number | null;
 };
