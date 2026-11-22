@@ -49,6 +49,9 @@ pub const MCP_BROWSER: [&str; 8] = [
 /// TermF's folders, for the browser of `termf mcp`: the project's config, the worktree's ports.
 pub const ENV_CONFIG_DIR: &str = "TERMF_CONFIG_DIR";
 pub const ENV_DATA_DIR: &str = "TERMF_DATA_DIR";
+/// Ops (`termf-ops`): the recipes an agent may run and the run itself, which waits for the user's approval in
+/// TermF's own card (never a permission prompt of Claude Code), or only proposes a recipe that writes.
+pub const MCP_OPS: [&str; 2] = ["ops_recipes", "ops_run"];
 pub const MCP_ACTIONS: [&str; 6] = [
     "start_team_run",
     "answer",
@@ -223,6 +226,16 @@ pub enum McpCall {
     /// A question to the project's expert, answered with its sources.
     AskExpert {
         question: String,
+    },
+    /// The connections and recipes this session may use.
+    OpsRecipes {},
+    /// A recipe on a connection; `params`: name → value (a text or a number).
+    OpsRun {
+        recipe: String,
+        #[serde(default)]
+        connection: Option<String>,
+        #[serde(default)]
+        params: BTreeMap<String, Value>,
     },
 }
 
@@ -1222,6 +1235,7 @@ mod tests {
             .iter()
             .chain(&MCP_ACTIONS)
             .chain(&MCP_EXPERT)
+            .chain(&MCP_OPS)
             .copied()
             .collect();
         for name in &names {
@@ -1236,6 +1250,7 @@ mod tests {
                 ("query", json!("webhooks")),
                 ("id", json!(3)),
                 ("question", json!("why?")),
+                ("recipe", json!("logs-tail")),
             ] {
                 call.insert(key.into(), value);
             }
@@ -1251,6 +1266,7 @@ mod tests {
                 "memory_search" => &["query"],
                 "memory_read" => &["id"],
                 "ask_expert" => &["question"],
+                "ops_run" => &["recipe"],
                 _ => &[],
             };
             call.retain(|k, _| k == "tool" || fields.contains(&k.as_str()));

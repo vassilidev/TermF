@@ -3428,11 +3428,17 @@ impl Inner {
             // Nobody watches a step to approve each edit; the role says otherwise when it must.
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
-            // A review changes nothing, whatever its role may do in a task.
+            // A review changes nothing, whatever its role may do in a task. Once a recipe read prod for the run,
+            // its next sessions have no way out (the trifecta rule, ARCHITECTURE §12.4).
             disallowed_tools: DENIED
                 .iter()
                 .chain(if step.kind == StepKind::Review {
                     &READ_ONLY[..]
+                } else {
+                    &[]
+                })
+                .chain(if termf_core::taint::run(&self.data_dir, run.target.run) {
+                    termf_core::taint::EGRESS_DENY
                 } else {
                     &[]
                 })

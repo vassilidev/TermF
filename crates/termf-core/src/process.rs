@@ -39,6 +39,17 @@ pub fn run_until(
     exec(cmd, input, timeout, &mut |_| {}, cancel)
 }
 
+/// [`stream`], killed like at the deadline as soon as `cancel` is set, which `line` may do.
+pub fn stream_until(
+    cmd: Command,
+    input: &[u8],
+    timeout: Duration,
+    line: &mut dyn FnMut(&str),
+    cancel: &AtomicBool,
+) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    exec(cmd, input, timeout, line, cancel)
+}
+
 fn exec(
     mut cmd: Command,
     input: &[u8],
@@ -66,6 +77,10 @@ fn exec(
             while reader.read_until(b'\n', &mut partial)? > 0 && partial.ends_with(b"\n") {
                 line(String::from_utf8_lossy(&partial).trim_end());
                 out.append(&mut partial);
+                // A child that writes faster than this reads would keep it here past its deadline.
+                if cancel.load(Ordering::SeqCst) || Instant::now() > deadline {
+                    break;
+                }
             }
             if let Some(status) = exited {
                 break status;

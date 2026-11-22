@@ -109,13 +109,16 @@ pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
     Ok(())
 }
 
-/// The `PreToolUse` hook that sends each Bash command through `<termf> guard`.
+/// The `PreToolUse` hook that sends each Bash command through `<termf> guard`, and the tools that reach out of the
+/// machine (the web, other MCP servers), which it lets through unless the session read prod (`taint`).
 fn guard_hook(termf: &Path) -> Value {
     json!({
-        "matcher": "Bash",
+        "matcher": GUARDED,
         "hooks": [{ "type": "command", "command": termf.to_string_lossy(), "args": ["guard"], "timeout": 5 }],
     })
 }
+
+const GUARDED: &str = "Bash|WebFetch|WebSearch|mcp__.*";
 
 /// Settings with only the guard hook of a ticket run's tile, for a headless session's `--settings`.
 pub fn guard_settings(termf: &Path) -> Value {
@@ -401,7 +404,7 @@ mod tests {
 
         write_plugin(&dir, termf, true).unwrap();
         let guard = &read()["hooks"]["PreToolUse"][1];
-        assert_eq!(guard["matcher"], "Bash");
+        assert_eq!(guard["matcher"], "Bash|WebFetch|WebSearch|mcp__.*");
         assert_eq!(guard["hooks"][0]["command"], "/opt/Term F/termf");
         assert_eq!(guard["hooks"][0]["args"], json!(["guard"]));
         assert_eq!(

@@ -5688,6 +5688,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-ops"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "termf-claude",
+ "termf-core",
+ "termf-library",
+ "termf-sync",
+ "termf-vault",
+ "toml 1.2.2+spec-1.1.0",
+ "toml_edit 0.25.20+spec-1.1.0",
+]
+
+[[package]]
 name = "termf-schedule"
 version = "0.1.0"
 dependencies = [
