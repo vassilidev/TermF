@@ -261,10 +261,10 @@
   <section class="ask" aria-labelledby="team-resume">
     <h3 id="team-resume">{t("ticketsUiResume")}</h3>
     <p class="help">{t("teamRunsResumeHelp")}</p>
-    <TeamOptions project={run.target.project} resume spent={run.cost} bind:budget />
+    <TeamOptions project={run.target.project} resume spent={run.cost} required={run.state === "budget"} bind:budget />
     <div class="buttons">
       <button class="btn sm" onclick={() => (resuming = false)}>{t("cancel")}</button>
-      <button class="btn sm primary" disabled={!!busy || !!budgetError(budget, run.cost)} onclick={resume}>
+      <button class="btn sm primary" disabled={!!busy || !!budgetError(budget, run.cost, run.state === "budget")} onclick={resume}>
         {@render spinner("resume")}{t("ticketsUiResume")}
       </button>
     </div>

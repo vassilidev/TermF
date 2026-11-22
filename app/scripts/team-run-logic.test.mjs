@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { asks, budgetError, current, levels, notices, progress } from "../src/lib/team-run-logic.ts";
+import { asks, budgetError, current, levels, notices, progress, upsert } from "../src/lib/team-run-logic.ts";
 
 const task = (id, depends_on = []) => ({ id, role: "front", repo: "web", size: "S", covers: [], goal: id, files_hint: [], depends_on, ui_impact: false });
 const step = (key, state, more = {}) => ({
@@ -152,4 +152,17 @@ test("budgetError: none keeps the run's, an amount must be positive and above wh
   assert.equal(budgetError(Number.NaN), "invalid");
   assert.equal(budgetError(3, 3), "spent");
   assert.equal(budgetError(3.5, 3), null);
+  assert.equal(budgetError(null, 6, true), "missing");
+  assert.equal(budgetError(5, 6, true), "spent");
+  assert.equal(budgetError(7, 6, true), null);
+});
+
+test("upsert: a newer copy replaces, an older one never does, a new run goes first", () => {
+  const a = { run: 1, updated: 10, state: "running" };
+  const b = { run: 2, updated: 10, state: "waiting" };
+  const runs = [a, b];
+  assert.deepEqual(upsert(runs, { run: 1, updated: 12, state: "waiting" }), [{ run: 1, updated: 12, state: "waiting" }, b]);
+  assert.equal(upsert(runs, { run: 1, updated: 9, state: "paused" }), runs, "an answer older than the event heard");
+  assert.deepEqual(upsert(runs, { run: 2, updated: 10, state: "running" })[1].state, "running", "equal times: the last received");
+  assert.deepEqual(upsert(runs, { run: 3, updated: 1, state: "running" }).map((r) => r.run), [3, 1, 2]);
 });

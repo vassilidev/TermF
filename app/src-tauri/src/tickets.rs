@@ -428,9 +428,9 @@ pub async fn tickets_run(
     blocking(app, move |app| {
         // Its agent team works in the worktree instead: no Claude Code session at work beside it.
         if session == Some(false) {
-            let run = tickets(app)
-                .start(&input, project.as_deref(), repo.as_deref())?
-                .run;
+            api::run_guard(&app.state::<AppState>())?;
+            let run =
+                tickets(app).start_without_session(&input, project.as_deref(), repo.as_deref())?;
             updated(app, &run);
             return Ok(run);
         }

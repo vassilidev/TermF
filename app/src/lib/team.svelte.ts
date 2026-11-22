@@ -4,7 +4,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import type { Item } from "$lib/library.svelte";
 import { t } from "$lib/i18n";
 import { app, setProject, ui } from "$lib/state.svelte";
-import { asks, notices, type Notice, type TeamRun } from "$lib/team-run-logic";
+import { asks, notices, upsert, type Notice, type TeamRun } from "$lib/team-run-logic";
 
 export const team = $state({
   /** Loaded once first shown, then kept mounted. */
@@ -49,10 +49,12 @@ export function waitingRuns(): TeamRun[] {
   return team.runs.filter((r) => asks(r).length);
 }
 
-export function upsertRun(run: TeamRun) {
-  const i = team.runs.findIndex((r) => r.run === run.run);
-  if (i >= 0) team.runs[i] = run;
-  else team.runs.unshift(run);
+/** False when the list already holds a copy updated later. */
+export function upsertRun(run: TeamRun): boolean {
+  const runs = upsert(team.runs, run);
+  if (runs === team.runs) return false;
+  team.runs = runs;
+  return true;
 }
 
 const notes: Record<Notice["kind"], Parameters<typeof t>[0]> = {
@@ -78,7 +80,7 @@ export function watchTeam(): () => void {
   );
   const stop = listen<TeamRun>("team-updated", async ({ payload }) => {
     const before = team.runs.find((r) => r.run === payload.run);
-    upsertRun(payload);
+    if (!upsertRun(payload)) return;
     const list = notices(before, payload);
     if (!list.length || document.hasFocus()) return;
     const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";

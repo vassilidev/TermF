@@ -163,9 +163,22 @@ export function notices(before: TeamRun | undefined, after: TeamRun): Notice[] {
   return out;
 }
 
-/** A budget typed for a team: none keeps the workflow's or the run's; one must be above what the run spent. */
-export function budgetError(amount: number | null | undefined, spent = 0): "invalid" | "spent" | null {
-  if (amount === null || amount === undefined) return null;
+/**
+ * The runs with `run` in them, unless they hold a copy updated later: a command's answer may arrive after a newer
+ * `team-updated`. At equal times the one received last wins; a new run goes first. The same list when nothing changes.
+ */
+export function upsert<R extends { run: number; updated: number }>(runs: R[], run: R): R[] {
+  const i = runs.findIndex((r) => r.run === run.run);
+  if (i < 0) return [run, ...runs];
+  return runs[i].updated > run.updated ? runs : runs.map((r, j) => (j === i ? run : r));
+}
+
+/**
+ * A budget typed for a team: none keeps the workflow's or the run's, unless one is `required` (its budget is spent);
+ * one must be above what the run spent.
+ */
+export function budgetError(amount: number | null | undefined, spent = 0, required = false): "missing" | "invalid" | "spent" | null {
+  if (amount === null || amount === undefined) return required ? "missing" : null;
   if (!Number.isFinite(amount) || amount <= 0) return "invalid";
   return amount > spent ? null : "spent";
 }

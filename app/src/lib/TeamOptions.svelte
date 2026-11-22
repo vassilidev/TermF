@@ -12,23 +12,32 @@
     budget = $bindable(),
     spent = 0,
     resume = false,
-  }: { project: string; workflow?: string; budget: number | null; spent?: number; resume?: boolean } = $props();
+    required = false,
+  }: { project: string; workflow?: string; budget: number | null; spent?: number; resume?: boolean; required?: boolean } =
+    $props();
 
   let names = $state<string[]>([]);
 
+  // A late answer for the project before never replaces this one's; a workflow this project lacks is dropped.
   $effect(() => {
     if (resume) return;
+    let cancelled = false;
     // The shipped `squads` workflow only for a project that declares squads.
     Promise.all([
       invoke<Item[]>("library_list", { kind: "workflow", project }),
       invoke<{ declared: boolean }>("team_squads", { project }).catch(() => ({ declared: false })),
-    ]).then(
-      ([items, squads]) => (names = [...new Set(items.map((i) => i.name))].filter((n) => n !== "squads" || squads.declared)),
-      () => (names = []),
-    );
+    ])
+      .then(([items, squads]) => [...new Set(items.map((i) => i.name))].filter((n) => n !== "squads" || squads.declared))
+      .catch(() => [] as string[])
+      .then((list) => {
+        if (cancelled) return;
+        names = list;
+        if (!list.includes(workflow)) workflow = "";
+      });
+    return () => (cancelled = true);
   });
 
-  const error = $derived(budgetError(budget, spent));
+  const error = $derived(budgetError(budget, spent, required));
   const id = `team-budget-${Math.random().toString(36).slice(2)}`;
 </script>
 
@@ -49,15 +58,15 @@
       type="number"
       min="0"
       step="0.5"
-      placeholder={t(resume ? "teamRunsBudgetKeep" : "teamRunsBudgetHint")}
-      aria-invalid={!!error}
+      placeholder={required ? "" : t(resume ? "teamRunsBudgetKeep" : "teamRunsBudgetHint")}
+      aria-invalid={error === "invalid" || error === "spent"}
       aria-describedby={error ? id : undefined}
       bind:value={budget}
     />
   </label>
   {#if error}
-    <p class="notice error" {id}>
-      {error === "spent" ? t("teamRunsBudgetSpent", { spent: usd(spent) }) : t("teamRunsBudgetInvalid")}
+    <p class="notice" class:error={error !== "missing"} {id}>
+      {error === "invalid" ? t("teamRunsBudgetInvalid") : t("teamRunsBudgetSpent", { spent: usd(spent) })}
     </p>
   {/if}
 </div>

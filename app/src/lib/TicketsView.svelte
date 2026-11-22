@@ -208,6 +208,8 @@
   /** The team starts in a new run of the ticket, which opens no session of its own: the workflow and budget first. */
   async function launchTeam(ticket: TicketSummary) {
     pending = null;
+    teamWorkflow = "";
+    teamBudget = null;
     starting = ticket.url;
     const resolution = await resolve(ticket.url, ticket.project);
     starting = "";
@@ -228,10 +230,13 @@
       showTeamRun(started.run);
     } catch (e) {
       tickets.error = String(e);
-      // The ticket run exists: its detail starts the team again.
+      // The team did not start: its new run goes, and the launch can be tried again; if it stays, its detail does it.
       if (run) {
-        pending = null;
-        Object.assign(tickets, { tab: "runs", selected: run.id });
+        const id = run.id;
+        await invoke<Run>("tickets_close", { id, force: false }).then(upsert, () => {
+          pending = null;
+          Object.assign(tickets, { tab: "runs", selected: id });
+        });
       }
     } finally {
       starting = "";
