@@ -15,6 +15,10 @@
 //! Touch ID or Windows Hello reopen it on one machine for some days from a key kept in the system keychain,
 //! read once the system said yes: a gate in front of the keychain, not a cryptographic bond (an unsigned app
 //! cannot ask the keychain to require it).
+//!
+//! The sync carries the sealed file as it is and leaves the other machines' version beside it; the vault merges
+//! it item by item when it opens ([`merge`], [`synced`]). An export is the same content sealed by its own
+//! password ([`transfer`]); files exported by other managers come in through [`foreign`].
 
 use std::ffi::OsString;
 use std::fmt;
@@ -33,23 +37,32 @@ use zeroize::{Zeroize, Zeroizing};
 
 pub mod audit;
 pub mod fido;
+mod foreign;
 mod generate;
 mod item;
 mod mask;
+mod merge;
 mod reference;
+mod synced;
 #[cfg(test)]
 mod tests;
 mod totp;
+mod transfer;
+mod zip;
 
 pub use audit::{Action, Actor, ActorKind, Entry, Event, Verification};
 pub use fido::SecurityKeys;
 pub use generate::{Recipe, generate};
 pub use item::{Field, ItemDraft, ItemInfo, Kind, TotpInfo};
 pub use mask::{Masked, Masker};
+pub use merge::{Change, Merged, summary};
 pub use reference::check as check_reference;
+pub use synced::{ConflictInfo, Synced};
 pub use totp::{Algorithm, Totp};
+pub use transfer::{ForeignChoice, ForeignPreview, ForeignRow, is_export};
 
 use item::Item;
+use merge::{Conflicted, Tombstone, new_rev};
 
 /// The keychain's service name for the vault's key.
 pub const KEYCHAIN: &str = "dev.termf.vault";
@@ -59,9 +72,10 @@ const DIR: &str = "vault";
 const FILE: &str = "vault.json";
 /// This machine's Touch ID / Windows Hello slot, never synced: the key that opens it is in this keychain.
 const QUICK: &str = "quick.json";
-/// 2: the password manager's items. 3: security keys and the recovery key. A TermF that knows an older format
-/// would drop what it does not know when it writes, so it refuses a newer one.
-const FORMAT: u32 = 3;
+/// 2: the password manager's items. 3: security keys and the recovery key. 4: each element's history, the
+/// tombstones and the conflicts of the item-by-item merge, and when the way it opens last changed. A TermF that
+/// knows an older format would drop what it does not know when it writes, so it refuses a newer one.
+const FORMAT: u32 = 4;
 const PROD_REAUTH: u64 = 5 * 60;
 pub const MAX_KEYS: usize = 10;
 /// Touch ID or Windows Hello reopens the vault for this many days after the password, at most.
@@ -205,6 +219,8 @@ pub struct SecretInfo {
     pub updated: u64,
     /// An external manager's URI, resolved when used: the vault has no value for it.
     pub reference: Option<String>,
+    /// Other versions a merge kept beside it, for the user to choose from.
+    pub conflicts: usize,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -228,6 +244,8 @@ pub struct Status {
     pub quick_until: Option<u64>,
     /// Until when (Unix seconds) the vault's security can change without the master password again.
     pub confirmed_until: Option<u64>,
+    /// Another machine's version, brought by the sync, waits here.
+    pub synced: Option<Synced>,
 }
 
 /// A security key enrolled as the vault's second factor.
@@ -485,9 +503,12 @@ struct VaultFile {
     factor: Option<Factor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     recovery: Option<Recovery>,
+    /// When the way it opens last changed (password, security keys, recovery key): the newest wins in a merge.
+    #[serde(default)]
+    secured: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct Factor {
     /// The PRF input every key's `hmac-secret` is read with.
@@ -495,7 +516,7 @@ struct Factor {
     keys: Vec<EnrolledKey>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct EnrolledKey {
     id: String,
@@ -507,7 +528,7 @@ struct EnrolledKey {
     created: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct Recovery {
     kdf: Kdf,
@@ -664,16 +685,20 @@ fn kdf() -> Kdf {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 struct Content {
     secrets: Vec<Stored>,
     #[serde(default)]
     items: Vec<Item>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tombstones: Vec<Tombstone>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    conflicts: Vec<Conflicted>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct Stored {
+pub(crate) struct Stored {
     name: String,
     scope: Scope,
     project: Option<String>,
@@ -685,11 +710,33 @@ struct Stored {
     value: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reference: Option<String>,
+    /// Its versions, newest last: see [`merge`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    revs: Vec<String>,
+}
+
+/// `secret:<scope>:<project>:<name>`, as the interface names it.
+fn secret_key(name: &str, scope: Scope, project: Option<&str>) -> String {
+    format!(
+        "secret:{}:{}:{name}",
+        scope.as_str(),
+        project.unwrap_or_default()
+    )
+}
+
+impl Content {
+    fn conflicts_of(&self, key: &str) -> usize {
+        self.conflicts.iter().filter(|c| c.key() == key).count()
+    }
 }
 
 impl Stored {
     fn is(&self, id: &SecretId) -> bool {
         self.name == id.name && self.scope == id.scope && self.project == id.project
+    }
+
+    pub(crate) fn key(&self) -> String {
+        secret_key(&self.name, self.scope, self.project.as_deref())
     }
 
     fn info(&self) -> SecretInfo {
@@ -701,6 +748,7 @@ impl Stored {
             created: self.created,
             updated: self.updated,
             reference: self.reference.clone(),
+            conflicts: 0,
         }
     }
 }
@@ -776,8 +824,9 @@ impl Vault {
         }
     }
 
+    /// A vault here, or one the sync brought from another machine.
     pub fn initialized(&self) -> bool {
-        self.dir.join(FILE).is_file()
+        self.dir.join(FILE).is_file() || self.dir.join(synced::INCOMING).is_file()
     }
 
     fn read(&self) -> Result<VaultFile> {
@@ -888,6 +937,8 @@ impl Vault {
 
     pub fn status(&self) -> Result<Status> {
         self.check();
+        // A synced vault that cannot be taken here yet (a newer TermF): unlocking says so.
+        let _ = self.adopt();
         // A damaged file still has a status; unlocking says what is wrong.
         let file = self.read().ok();
         let quick = file.as_ref().and_then(|f| self.quick(&f.id));
@@ -909,6 +960,7 @@ impl Vault {
                 .and_then(|q| q.key.and(q.until))
                 .filter(|until| *until > now.wall),
             confirmed_until: session.as_ref().and_then(|s| fresh(s.typed, now)),
+            synced: self.synced(file.as_ref()),
         })
     }
 
@@ -1027,6 +1079,7 @@ impl Vault {
             data: String::new(),
             factor: None,
             recovery: None,
+            secured: self.clock.wall(),
         };
         file.set_password(password, &mut material)?;
         file.seal(&material.data, &Content::default())?;
@@ -1070,7 +1123,8 @@ impl Vault {
         remember: Option<bool>,
         pin: Option<&str>,
     ) -> Result<Status> {
-        let file = self.read()?;
+        self.adopt()?;
+        let (file, opened) = self.opening()?;
         ensure!(
             file.factor.is_none() || remember != Some(true),
             "the keychain cannot stand in for a security key"
@@ -1110,10 +1164,14 @@ impl Vault {
                     "the keychain's key no longer opens the vault: the master password is needed"
                 );
             }
+            if opened.is_some() && password.is_some_and(|p| self.changed_elsewhere(p)) {
+                bail!("the master password changed on another machine: use the new one");
+            }
             bail!("wrong master password");
         };
         material.data = data_key;
         file.open(&material.data)?;
+        self.absorb(actor, &material.data, opened.as_ref())?;
         let detail = match (password, &file.factor) {
             (None, _) => Some("keychain"),
             (Some(_), Some(_)) => Some("security key"),
@@ -1238,9 +1296,10 @@ impl Vault {
             .collect())
     }
 
-    /// Writes a change to the file's header, `event` recorded first: no entry, no change.
+    /// Writes a change to how the vault opens, `event` recorded first: no entry, no change.
     fn rewrite(&self, file: &mut VaultFile, material: &Material, event: Event) -> Result<()> {
         let content = file.open(&material.data)?;
+        file.secured = self.clock.wall();
         let backup = self.back_up(file)?;
         self.record(event)?;
         self.write(file)?;
@@ -1398,8 +1457,9 @@ impl Vault {
         password: &str,
     ) -> Result<(Status, Secret)> {
         check_password(password)?;
-        let _lock = self.exclusive()?;
-        let mut file = self.read()?;
+        self.adopt()?;
+        let lock = self.exclusive()?;
+        let (mut file, _) = self.opening()?;
         let recovery = file
             .recovery
             .clone()
@@ -1438,6 +1498,9 @@ impl Vault {
             ..Event::new(actor, Action::Unlock)
         };
         self.rewrite(&mut file, &material, event)?;
+        drop(lock);
+        // Its security is now the newest: only the synced content is still to merge.
+        self.absorb(actor, &material.data, None)?;
         self.drop_quick(&file.id);
         self.start(&file.id, &material, true);
         Ok((self.status()?, new))
@@ -1554,7 +1617,12 @@ impl Vault {
 
     /// Reopens the vault from this machine's keychain, once the app had Touch ID or Windows Hello say yes.
     pub fn unlock_quick(&self, actor: &Actor) -> Result<Status> {
+        self.adopt()?;
         let file = self.read()?;
+        if self.synced(Some(&file)) == Some(Synced::Secured) {
+            self.drop_quick(&file.id);
+            bail!("the vault's security changed on another machine: the master password is needed");
+        }
         let (until, sealed) = self.ready_quick(&file.id)?;
         let sealed = sealed.as_str();
         let material = self
@@ -1584,6 +1652,7 @@ impl Vault {
             detail: Some("biometry".into()),
             ..Event::new(actor, Action::Unlock)
         })?;
+        self.absorb(actor, &material.data, None)?;
         self.start(&file.id, &material, false);
         self.status()
     }
@@ -1630,6 +1699,7 @@ impl Vault {
         ensure!(file.id == id, Locked);
         let mut content = file.open(&key)?;
         let out = change(&mut content)?;
+        content.settle(self.clock.wall());
         let backup = self.back_up(&mut file)?;
         file.seal(&key, &content)?;
         self.record(event)?;
@@ -1642,13 +1712,16 @@ impl Vault {
 
     /// Every secret, or those `project` sees (its own and the global ones), sorted.
     pub fn list(&self, scope: Option<Scope>, project: Option<&str>) -> Result<Vec<SecretInfo>> {
-        let mut list: Vec<SecretInfo> = self
-            .open()?
+        let content = self.open()?;
+        let mut list: Vec<SecretInfo> = content
             .secrets
             .iter()
             .filter(|s| scope.is_none_or(|scope| s.scope == scope))
             .filter(|s| project.is_none() || s.project.is_none() || s.project.as_deref() == project)
-            .map(Stored::info)
+            .map(|s| SecretInfo {
+                conflicts: content.conflicts_of(&s.key()),
+                ..s.info()
+            })
             .collect();
         list.sort_by(|a, b| (&a.project, a.scope, &a.name).cmp(&(&b.project, b.scope, &b.name)));
         Ok(list)
@@ -1706,6 +1779,8 @@ impl Vault {
             let i = match content.secrets.iter().position(|s| s.is(id)) {
                 Some(i) => i,
                 None => {
+                    let key = secret_key(&id.name, id.scope, id.project.as_deref());
+                    let revs = content.unbury(&key);
                     content.secrets.push(Stored {
                         name: id.name.clone(),
                         scope: id.scope,
@@ -1715,6 +1790,7 @@ impl Vault {
                         updated: now,
                         value: None,
                         reference: None,
+                        revs,
                     });
                     content.secrets.len() - 1
                 }
@@ -1726,6 +1802,7 @@ impl Vault {
             stored.updated = now;
             stored.value = value;
             stored.reference = reference;
+            new_rev(&mut stored.revs);
             Ok(stored.info())
         })
     }
@@ -1736,10 +1813,15 @@ impl Vault {
             target: Some(id.clone()),
             ..Event::new(actor, Action::Delete)
         };
+        let now = self.clock.wall();
         self.modify(event, |content| {
-            let before = content.secrets.len();
-            content.secrets.retain(|s| !s.is(id));
-            ensure!(content.secrets.len() < before, "no secret {id}");
+            let i = content
+                .secrets
+                .iter()
+                .position(|s| s.is(id))
+                .with_context(|| format!("no secret {id}"))?;
+            let gone = content.secrets.remove(i);
+            content.bury(gone.key(), gone.project, gone.revs, now);
             Ok(())
         })
     }
@@ -1798,8 +1880,17 @@ impl Vault {
     /// items the passwords of 8 characters or more, the TOTP secrets and the notes' lines that look like keys.
     pub fn masker(&self) -> Result<Masker> {
         let content = self.open()?;
-        let mut masker = Masker::new(content.secrets.iter().filter_map(|s| s.value.as_ref()));
-        for item in &content.items {
+        let others = content.conflicts.iter();
+        let secrets = content
+            .secrets
+            .iter()
+            .chain(others.clone().filter_map(|c| c.secret.as_ref()));
+        let mut masker = Masker::new(secrets.filter_map(|s| s.value.as_ref()));
+        for item in content
+            .items
+            .iter()
+            .chain(others.filter_map(|c| c.item.as_ref()))
+        {
             // A short password ("admin", "1234") or a note's prose would hide ordinary words everywhere.
             if let Some(password) = item.password.as_ref().filter(|p| p.len() >= 8) {
                 masker.add(password);
@@ -1816,12 +1907,15 @@ impl Vault {
 
     /// Every item, or those `project` sees (its own and the global ones), by title.
     pub fn items(&self, project: Option<&str>) -> Result<Vec<ItemInfo>> {
-        let mut list: Vec<ItemInfo> = self
-            .open()?
+        let content = self.open()?;
+        let mut list: Vec<ItemInfo> = content
             .items
             .iter()
             .filter(|i| project.is_none() || i.project.is_none() || i.project.as_deref() == project)
-            .map(Item::info)
+            .map(|i| ItemInfo {
+                conflicts: content.conflicts_of(&i.id),
+                ..i.info()
+            })
             .collect();
         list.sort_by_cached_key(|i| (i.title.to_lowercase(), i.id.clone()));
         Ok(list)
@@ -1857,13 +1951,18 @@ impl Vault {
                         agents: false,
                         created: now,
                         updated: now,
+                        revs: Vec::new(),
                     });
                     content.items.len() - 1
                 }
             };
             let item = &mut content.items[i];
             item.apply(draft, totp, now);
-            Ok(item.info())
+            new_rev(&mut item.revs);
+            Ok(ItemInfo {
+                conflicts: content.conflicts_of(&id),
+                ..content.items[i].info()
+            })
         })
     }
 
@@ -1872,10 +1971,15 @@ impl Vault {
             item: Some(id.into()),
             ..Event::new(actor, Action::Delete)
         };
+        let now = self.clock.wall();
         self.modify(event, |content| {
-            let before = content.items.len();
-            content.items.retain(|i| i.id != id);
-            ensure!(content.items.len() < before, "no such item");
+            let i = content
+                .items
+                .iter()
+                .position(|i| i.id == id)
+                .context("no such item")?;
+            let gone = content.items.remove(i);
+            content.bury(gone.id, gone.project, gone.revs, now);
             Ok(())
         })
     }
