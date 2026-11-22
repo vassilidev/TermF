@@ -15,7 +15,9 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Search from "@lucide/svelte/icons/search";
+  import Variable from "@lucide/svelte/icons/variable";
   import Workflow from "@lucide/svelte/icons/workflow";
+  import AgentEnvSettings from "$lib/AgentEnvSettings.svelte";
   import ClaudeBinary from "$lib/ClaudeBinary.svelte";
   import CliPath from "$lib/CliPath.svelte";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
@@ -71,6 +73,12 @@
       words: ["contextAuto", "contextResetAt", "contextWarningAt", "contextSettingsHelp"],
     },
     { id: "ci", label: "viewCi", icon: Workflow, words: ["ciNotify", "ciNotifyHelp", "ciNotifyMine", "ciNotifyAll"] },
+    {
+      id: "agentenv",
+      label: "agentenvSettings",
+      icon: Variable,
+      words: ["agentenvSettingsHelp", "agentenvAllow", "agentenvBase", "agentenvAllowHelp"],
+    },
     {
       id: "config",
       label: "settingsConfig",
@@ -260,6 +268,8 @@
               {t("claudeRedesignSkipConfirm")}
             </label>
             <p class="help">{t("claudeRedesignSkipConfirmHelp")}</p>
+          {:else if settings.section === "agentenv"}
+            <AgentEnvSettings />
           {:else if settings.section === "config"}
             <h2>{t("settingsConfig")}</h2>
             {#if app.workspace}

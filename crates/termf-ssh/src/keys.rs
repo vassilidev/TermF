@@ -385,4 +385,4 @@ fn create_new(path: &Path, mode: u32) -> Result<fs::File> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -992,9 +992,12 @@ mod tests {
                     "analytics",
                     "legal",
                     "integrator",
+                    "researcher",
+                    "competitive-analyst",
+                    "reverse-engineer",
                 ][..],
             ),
-            (Kind::Workflow, &["default", "hotfix", "squads"]),
+            (Kind::Workflow, &["default", "hotfix", "squads", "kickoff"]),
             (
                 Kind::Rule,
                 &["scope-strict", "no-text-changes", "visual-review"],
@@ -1037,7 +1040,13 @@ mod tests {
             copy.iter().any(|t| t == "Bash"),
             "copy writes words, never runs commands"
         );
-        for role in ["a11y", "legal"] {
+        for role in [
+            "a11y",
+            "legal",
+            "researcher",
+            "competitive-analyst",
+            "reverse-engineer",
+        ] {
             let tools = list_of(find(&items, Kind::Role, role).meta.get("disallowedTools"));
             for tool in ["Edit", "Write", "NotebookEdit"] {
                 assert!(
@@ -1057,8 +1066,20 @@ mod tests {
                 "{role} checks pages in a browser"
             );
         }
+        for role in ["researcher", "competitive-analyst", "reverse-engineer"] {
+            let tools = list_of(find(&items, Kind::Role, role).meta.get("allowedTools"));
+            for tool in ["WebSearch", "WebFetch", "mcp__termf__browser_*"] {
+                assert!(tools.iter().any(|t| t == tool), "{role} reads the web");
+            }
+            assert!(
+                !tools
+                    .iter()
+                    .any(|t| t == "Bash" || t.starts_with("Bash(rm")),
+                "{role}: no command allowed beyond read-only tools"
+            );
+        }
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 26, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 29, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);

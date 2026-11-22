@@ -313,7 +313,7 @@ fn refuses_another_vault_and_says_how_to_join_it() {
         .unwrap();
     assert_eq!(b.titles(), ["GitHub"]);
     b.vault
-        .import_sealed(&human(), &export, EXPORT_PASSWORD)
+        .import_sealed(&human(), &export, EXPORT_PASSWORD, false)
         .unwrap();
     b.sync();
     a.sync();
@@ -368,16 +368,18 @@ fn exports_sealed_by_its_own_password_and_imports_as_a_merge() {
     let target = other.vault();
     target.init(&human(), "another password", false).unwrap();
     assert_eq!(
-        err(target.preview_import(&all, "wrong password!")),
+        err(target.preview_import(&all, "wrong password!", false)),
         "wrong export password"
     );
-    let rows = target.preview_import(&acme, EXPORT_PASSWORD).unwrap();
+    let rows = target
+        .preview_import(&acme, EXPORT_PASSWORD, false)
+        .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(
         (rows[0].title.as_str(), rows[0].change),
         ("GitHub", Change::Added)
     );
-    let rows = target.preview_import(&all, EXPORT_PASSWORD).unwrap();
+    let rows = target.preview_import(&all, EXPORT_PASSWORD, false).unwrap();
     assert!(rows.iter().all(|r| r.change == Change::Added) && rows.len() == 3);
     let shown = serde_json::to_string(&rows).unwrap();
     assert!(!shown.contains("hunter2") && !shown.contains(VALUE));
@@ -385,19 +387,19 @@ fn exports_sealed_by_its_own_password_and_imports_as_a_merge() {
     // Writing a prod secret asks for the master password again, as by hand.
     other.clock.awake(6 * 60);
     assert_eq!(
-        err(target.import_sealed(&human(), &all, EXPORT_PASSWORD)),
+        err(target.import_sealed(&human(), &all, EXPORT_PASSWORD, false)),
         "the prod scope needs the master password again"
     );
     target.reauth(&human(), "another password").unwrap();
     target
-        .import_sealed(&human(), &all, EXPORT_PASSWORD)
+        .import_sealed(&human(), &all, EXPORT_PASSWORD, false)
         .unwrap();
     assert_eq!(target.items(None).unwrap().len(), 2);
     assert_eq!(
         target.value(&human(), &prod, Access::Use).unwrap().expose(),
         VALUE
     );
-    let rows = target.preview_import(&all, EXPORT_PASSWORD).unwrap();
+    let rows = target.preview_import(&all, EXPORT_PASSWORD, false).unwrap();
     assert!(
         rows.iter().all(|r| r.change == Change::Unchanged),
         "{rows:?}"
@@ -407,7 +409,7 @@ fn exports_sealed_by_its_own_password_and_imports_as_a_merge() {
     let own = sealed(&target, None, EXPORT_PASSWORD).unwrap();
     target.delete_item(&human(), &github.id).unwrap();
     let rows = target
-        .import_sealed(&human(), &own, EXPORT_PASSWORD)
+        .import_sealed(&human(), &own, EXPORT_PASSWORD, false)
         .unwrap();
     assert!(rows.iter().all(|r| r.title != "GitHub"));
     assert_eq!(target.items(None).unwrap().len(), 1);
@@ -637,12 +639,14 @@ fn another_vaults_export_only_adds_and_never_replaces_nor_deletes() {
         .unwrap();
     let export = sealed(&theirs, None, EXPORT_PASSWORD).unwrap();
 
-    let rows = mine.preview_import(&export, EXPORT_PASSWORD).unwrap();
+    let rows = mine
+        .preview_import(&export, EXPORT_PASSWORD, false)
+        .unwrap();
     let change = |title: &str| rows.iter().find(|r| r.title == title).map(|r| r.change);
     assert_eq!(change("DATABASE_URL"), Some(Change::Conflict));
     assert_eq!(change("Theirs only"), Some(Change::Added));
     assert_eq!(change("TOKEN"), None, "their deletion deletes nothing here");
-    mine.import_sealed(&human(), &export, EXPORT_PASSWORD)
+    mine.import_sealed(&human(), &export, EXPORT_PASSWORD, false)
         .unwrap();
     let value = |id: &SecretId| {
         mine.value(&human(), id, Access::Use)
@@ -660,7 +664,7 @@ fn another_vaults_export_only_adds_and_never_replaces_nor_deletes() {
 
     // The same export again: nothing new, the other version is not piled up.
     let rows = mine
-        .import_sealed(&human(), &export, EXPORT_PASSWORD)
+        .import_sealed(&human(), &export, EXPORT_PASSWORD, false)
         .unwrap();
     assert!(rows.iter().all(|r| r.change != Change::Added));
     assert_eq!(mine.conflicts("secret:dev::DATABASE_URL").unwrap().len(), 1);
@@ -949,5 +953,83 @@ fn imports_other_managers_exports_after_a_preview_that_shows_no_value() {
     assert_eq!(
         (keepassxc.rows[0].folder.as_str(), keepassxc.rows[1].problem),
         ("Acme", Some("trash"))
+    );
+}
+
+#[test]
+fn a_restore_brings_back_what_was_deleted_since_the_export_on_every_machine() {
+    let remote_env = Env::new("restore-remote");
+    let (remote, git) = bare_remote(&remote_env.root);
+    let (a, b) = (
+        Machine::new("restore-a", &git),
+        Machine::new("restore-b", &git),
+    );
+    a.vault.init(&human(), PASSWORD, false).unwrap();
+    let github = a.vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    a.vault.save_item(&human(), login(None, "Kept")).unwrap();
+    let db = id("DATABASE_URL", Scope::Prod);
+    a.vault
+        .set(&human(), &db, Secret::new("pg://prod".into()), None)
+        .unwrap();
+    a.setup(&remote);
+    b.setup(&remote);
+    b.vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    let export = sealed(&a.vault, None, EXPORT_PASSWORD).unwrap();
+    a.vault.delete_item(&human(), &github.id).unwrap();
+    a.vault.delete(&human(), &db).unwrap();
+    a.sync();
+    b.sync();
+    assert_eq!(b.titles(), ["Kept"]);
+
+    let rows = a
+        .vault
+        .preview_import(&export, EXPORT_PASSWORD, false)
+        .unwrap();
+    assert!(
+        rows.iter().all(|r| r.change == Change::Unchanged),
+        "{rows:?}"
+    );
+    let rows = a
+        .vault
+        .preview_import(&export, EXPORT_PASSWORD, true)
+        .unwrap();
+    let added: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.change == Change::Added)
+        .map(|r| r.title.as_str())
+        .collect();
+    assert_eq!(added, ["GitHub", "DATABASE_URL"]);
+
+    // A prod secret comes back only with the master password again, as by hand.
+    a.env.clock.0.lock().unwrap().1 += Duration::from_secs(301);
+    assert!(
+        a.vault
+            .import_sealed(&human(), &export, EXPORT_PASSWORD, true)
+            .is_err()
+    );
+    a.vault.reauth(&human(), PASSWORD).unwrap();
+    a.vault
+        .import_sealed(&human(), &export, EXPORT_PASSWORD, true)
+        .unwrap();
+    let last = a.vault.audit(1).unwrap().remove(0);
+    assert_eq!(last.action, Action::Restore);
+    assert!(last.detail.unwrap().ends_with("; 2 restored"));
+    assert_eq!(a.titles(), ["GitHub", "Kept"]);
+    assert_eq!(a.password(&github.id), "hunter2-github-0123");
+
+    for _ in 0..2 {
+        a.sync();
+        b.sync();
+    }
+    assert_eq!(
+        b.titles(),
+        ["GitHub", "Kept"],
+        "the other machine's deletion does not take it again"
+    );
+    assert_eq!(
+        b.vault.value(&human(), &db, Access::Use).unwrap().expose(),
+        "pg://prod"
     );
 }

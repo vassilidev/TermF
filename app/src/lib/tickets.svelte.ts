@@ -58,6 +58,7 @@ export type RunEvent = { id: number; run: number; at: number } & (
   | { kind: "session_resumed"; session: number; conversation: string }
   | { kind: "committed"; commit: string; message: string }
   | { kind: "pushed"; branch: string; commit: string }
+  | { kind: "merged"; into: string; commit: string }
   | { kind: "pr_opened"; url: string }
   | { kind: "pr_merged"; url: string }
   | { kind: "pr_closed"; url: string }
@@ -72,6 +73,8 @@ export type DeliveryPreview = {
   files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; from: string | null }[];
   commits: { commit: string; subject: string }[];
   fingerprint: string;
+  /** No `origin`: the branch is merged into this one in the repository itself, no pull request. */
+  local?: string | null;
   /** origin is on GitLab: the delivery opens a merge request. */
   mergeRequest?: boolean;
   /** What the definition of done misses, when the run's team stopped short of its delivery gate. */

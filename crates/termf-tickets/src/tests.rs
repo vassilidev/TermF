@@ -1497,6 +1497,92 @@ fn runs_a_request_written_in_termf() {
     );
 }
 
+/// A project created without GitHub: its delivery merges the branch into `main` in the repository itself.
+#[test]
+fn delivers_into_main_here_when_the_repository_has_no_origin() {
+    let sb = Sandbox::new("local-delivery");
+    let repo = sb.root.join("repos/plant-care");
+    fs::create_dir_all(&repo).unwrap();
+    sb.git(&repo, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("README.md"), "# plant-care\n").unwrap();
+    sb.git(&repo, &["add", "-A"]);
+    sb.git(&repo, &["commit", "-q", "-m", "Initial commit"]);
+    sb.project(
+        "plant",
+        &format!(
+            "name = \"plant-care\"\n[[repos]]\nname = \"plant-care\"\npath = {:?}\n",
+            path(&repo)
+        ),
+    );
+    let t = sb.tickets();
+    let run = t.start_request("Water reminders", "plant", None).unwrap();
+    let worktree = PathBuf::from(run.worktree.clone().unwrap());
+    fs::write(worktree.join("a.txt"), "a\n").unwrap();
+    let preview = t.deliver_preview(run.id).unwrap();
+    assert_eq!(preview.local.as_deref(), Some("main"));
+
+    // Changes not committed on main: refused, main untouched.
+    fs::write(repo.join("README.md"), "# edited\n").unwrap();
+    let refused = format!("{:#}", t.deliver(run.id, &preview.fingerprint).unwrap_err());
+    assert!(
+        refused.contains("changes not committed on main"),
+        "{refused}"
+    );
+    assert_eq!(
+        sb.git(&repo, &["log", "--format=%s", "main"]),
+        "Initial commit"
+    );
+    sb.git(&repo, &["checkout", "-q", "--", "README.md"]);
+
+    // main moved meanwhile: a merge commit, both sides kept.
+    fs::write(repo.join("b.txt"), "b\n").unwrap();
+    sb.git(&repo, &["add", "b.txt"]);
+    sb.git(&repo, &["commit", "-q", "-m", "b on main"]);
+    let preview = t.deliver_preview(run.id).unwrap();
+    let delivered = t.deliver(run.id, &preview.fingerprint).unwrap();
+    assert_eq!(delivered.run.status, RunStatus::Delivered);
+    assert_eq!(delivered.run.pr_url, None);
+    assert!(repo.join("a.txt").is_file() && repo.join("b.txt").is_file());
+    assert_eq!(
+        sb.git(&repo, &["rev-list", "--merges", "--count", "main"]),
+        "1"
+    );
+    let merged = t
+        .events(run.id)
+        .unwrap()
+        .into_iter()
+        .find_map(|e| match e.event {
+            Event::Merged { into, commit } => Some((into, commit)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        merged,
+        ("main".into(), sb.git(&repo, &["rev-parse", "main"]))
+    );
+    assert!(!sb.root.join("gh.log").exists(), "no pull request");
+    assert_eq!(
+        t.close(run.id, false, || {}).unwrap().status,
+        RunStatus::Closed
+    );
+
+    // main not checked out: a fast-forward, which touches no file.
+    let next = t.start_request("Add a plant", "plant", None).unwrap();
+    fs::write(
+        PathBuf::from(next.worktree.clone().unwrap()).join("c.txt"),
+        "c\n",
+    )
+    .unwrap();
+    sb.git(&repo, &["switch", "-q", "-c", "elsewhere"]);
+    let preview = t.deliver_preview(next.id).unwrap();
+    t.deliver(next.id, &preview.fingerprint).unwrap();
+    assert_eq!(sb.git(&repo, &["show", "main:c.txt"]), "c");
+    assert!(
+        !repo.join("c.txt").exists(),
+        "the checkout stays on elsewhere"
+    );
+}
+
 /// A change over two repositories: one run each, two pull requests that name each other, delivered and closed
 /// repository by repository.
 #[cfg(unix)]
