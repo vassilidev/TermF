@@ -216,7 +216,11 @@
     font-size: var(--text-sm);
   }
 
-  .filter {
+  .toolbar .field {
+    width: auto;
+  }
+
+  .toolbar .filter {
     width: 240px;
   }
 

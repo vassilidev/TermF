@@ -90,6 +90,7 @@
           theme,
           syntaxHighlighting(highlight),
           dialect.of([]),
+          EditorView.lineWrapping,
           placeholder(t("opssqlPlaceholder")),
           EditorView.contentAttributes.of({ "aria-label": t("opssqlEditor") }),
           Prec.highest(keymap.of([{ key: "Mod-Enter", run: () => (run(), true) }])),
@@ -397,10 +398,28 @@
     color: var(--danger);
   }
 
+  /* The file editor's colors. */
   .editor {
     overflow: hidden;
     border: 1px solid var(--border-strong);
     border-radius: var(--radius);
+    --syn-keyword: #cf222e;
+    --syn-string: #0a3069;
+    --syn-comment: #6e7781;
+    --syn-number: #0550ae;
+    --syn-function: #8250df;
+    --syn-type: #953800;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .editor {
+      --syn-keyword: #ff7b72;
+      --syn-string: #a5d6ff;
+      --syn-comment: #8b949e;
+      --syn-number: #79c0ff;
+      --syn-function: #d2a8ff;
+      --syn-type: #ffa657;
+    }
   }
 
   .editor:focus-within {

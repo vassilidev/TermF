@@ -220,10 +220,12 @@
     align-items: center;
     gap: 8px;
     font-weight: 500;
+    white-space: nowrap;
   }
 
   .inline select {
-    max-width: 260px;
+    width: auto;
+    max-width: 320px;
   }
 
   .compare {
