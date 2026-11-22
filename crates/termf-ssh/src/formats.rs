@@ -649,7 +649,7 @@ pub(crate) fn ssh_spki(key: &KeyData) -> Result<Vec<u8>> {
     bail!("unsupported key type: Ed25519, ECDSA or RSA only")
 }
 
-fn from_pkcs8(der: &[u8]) -> Result<Secret> {
+pub(crate) fn from_pkcs8(der: &[u8]) -> Result<Secret> {
     let info = PrivateKeyInfo::try_from(der).map_err(|_| anyhow!("invalid PKCS#8 key"))?;
     if [ED25519, X25519].contains(&info.algorithm.oid) {
         let inner = OctetStringRef::from_der(info.private_key)
@@ -671,10 +671,38 @@ fn from_pkcs8(der: &[u8]) -> Result<Secret> {
             return Ok(Secret::Ec(curve, d));
         }
     }
+    if let Some(secret) = explicit_ec(info.private_key) {
+        return Ok(secret);
+    }
     bail!(
         "unsupported PKCS#8 key ({}): Ed25519, X25519, ECDSA or RSA only",
         info.algorithm.oid
     )
+}
+
+/// A SEC1 key whose curve is spelled out rather than named, as `ssh-keygen` built on LibreSSL (macOS) writes
+/// one: the curve of the scalar's size, kept only when the key's own public point proves it.
+fn explicit_ec(sec1: &[u8]) -> Option<Secret> {
+    use pkcs8::der::asn1::{AnyRef, ContextSpecific};
+    use pkcs8::der::{Reader, SliceReader, TagNumber};
+    let (d, public) = SliceReader::new(sec1)
+        .ok()?
+        .sequence(|r| {
+            u8::decode(r)?;
+            let d = OctetStringRef::decode(r)?;
+            ContextSpecific::<AnyRef>::decode_explicit(r, TagNumber::N0)?;
+            let public = ContextSpecific::<BitStringRef>::decode_explicit(r, TagNumber::N1)?;
+            Ok((d.as_bytes(), public.map(|p| p.value.raw_bytes())))
+        })
+        .ok()?;
+    let public = public?;
+    // The point is uncompressed; the scalar may have lost its leading zeros (P-521).
+    let curve = CURVES
+        .into_iter()
+        .find(|c| public.len() == 1 + 2 * c.size() && d.len() <= c.size())?;
+    let mut padded = Zeroizing::new(vec![0; curve.size() - d.len()]);
+    padded.extend_from_slice(d);
+    (Secret::ec_point(curve, &padded).ok()? == public).then(|| Secret::Ec(curve, padded))
 }
 
 /// The first PEM block whose label ends with `suffix` (OpenSSL may put `EC PARAMETERS` first).
@@ -789,6 +817,9 @@ pub(crate) fn parse(text: &str, pass: Option<&str>) -> Result<Parsed> {
                 {
                     return Ok(parsed(Secret::Ec(curve, d), Format::Sec1, false));
                 }
+            }
+            if let Some(secret) = explicit_ec(doc.as_bytes()) {
+                return Ok(parsed(secret, Format::Sec1, false));
             }
             bail!("unsupported SEC1 key: P-256, P-384 or P-521 only")
         }
