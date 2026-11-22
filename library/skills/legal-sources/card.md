@@ -6,4 +6,4 @@
 - A CELEX literal in SPARQL needs `^^xsd:string`; Cellar redirects to `http://`: fetch the same path over https.
 - eur-lex.europa.eu and courdecassation.fr block scripts: go through Cellar and JudiLibre.
 - What no official text backs is "to check", never written from memory.
-- Read the skill `legal-sources` before stating any legal obligation, mandatory notice, deadline or fine.
+- Read the skill `legal-sources` before stating any legal obligation, mandatory notice, deadline or fine, even one asked for from memory.

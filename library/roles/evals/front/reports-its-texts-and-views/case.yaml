@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: reports-its-texts-and-views
+context:
+  scaffold_script: setup.sh

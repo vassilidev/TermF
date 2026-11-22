@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: refuses-a-migration-that-loses-data
+context:
+  scaffold_script: setup.sh
