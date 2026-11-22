@@ -32,6 +32,13 @@ export function close<V extends string>(p: Panes<V>, view: V): Panes<V> {
   return { ...p, view: view === p.view ? p.other : p.view, other: null, active: 0 };
 }
 
+type Shown<V> = { view: V; other: V | null };
+
+/** Whether `page`, in one of the panels `before`, is in neither `after`: it goes off screen. */
+export function leaves<V extends string>(page: V, before: Shown<V>, after: Shown<V>): boolean {
+  return (before.view === page || before.other === page) && after.view !== page && after.other !== page;
+}
+
 export function encode<V extends string>(p: Panes<V>, known: readonly string[]): string | null {
   const [left, right] = slots(p);
   if (right === null || !known.includes(left) || !known.includes(right)) return null;

@@ -22,12 +22,19 @@
     run: "layerRun",
   };
 
+  /** The last request: an answer to an earlier one, arriving late, is dropped. */
+  let asked = 0;
+
   // Again on each library change: a toggle here, or an edit in the Library view.
   $effect(() => {
     void library.version;
+    const n = ++asked;
     invoke<Item[]>("library_list", { kind: "role", project }).then(
-      (list) => (roles = list),
+      (list) => {
+        if (n === asked) roles = list;
+      },
       (e) => {
+        if (n !== asked) return;
         roles = [];
         error = String(e);
       },

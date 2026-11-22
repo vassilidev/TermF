@@ -23,8 +23,8 @@
   import { lang, t } from "$lib/i18n";
   import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
   import { hasWords } from "$lib/nav-logic";
-  import { closeProject, config, configSections } from "$lib/project.svelte";
-  import { app, repoName, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
+  import { closeProject, config, configSections, type ConfigSection } from "$lib/project.svelte";
+  import { app, held, repoName, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
   import { added } from "$lib/team-logic";
 
   type Log = { at: number; what: string; decision?: "accepted" | "rejected"; detail: string };
@@ -49,18 +49,23 @@
   let recipe = $state<{ saved: boolean } | null>(null);
   let setup = $state<{ step: Step; log: Log[] } | null>(null);
   let question = $state<HTMLDialogElement>();
-  /** Where the current project went while the form had changes, until the user answers. */
-  let switching = $state<{ to: string | null }>();
+  /** What was held back while the form had changes, until the user answers: leave, or stay (and how). */
+  let pending = $state<{ leave: () => void; stay?: () => void }>();
+  /** Set once the user chose to leave: nothing asks again on the way out. */
+  let released = false;
   let savedForm = $state(JSON.stringify([seed?.name ?? "", seed?.repos.map((r) => r.path) ?? []]));
   const dirty = $derived(JSON.stringify([name, chosen]) !== savedForm || !!sources?.dirty());
   // An id that names no project (deleted, or gone after a reload) never shows a form that would create a copy.
   const missing = $derived(!!id && !project);
 
-  // The Worktrees tab tells why a recipe cannot be read; here it only gives its state.
+  /** What depends on the repositories, read again once they are saved. The Worktrees tab tells why a recipe cannot be read. */
   let stacks = $state<RepoStack[]>([]);
-  if (seed) {
+  function readRepos() {
     invoke<{ saved: boolean }>("worktree_recipe", { project: id }).then((r) => (recipe = r), () => {});
     invoke<RepoStack[]>("library_stack", { project: id }).then((s) => (stacks = s), () => {});
+  }
+  if (seed) {
+    readRepos();
     invoke<{ step: Step; log: Log[] }>("onboarding_state", { project: id }).then((s) => (setup = s), () => {});
   }
 
@@ -71,42 +76,83 @@
   const found = $derived(
     sections.filter((s) => hasWords([s.id === "project" && !project ? "newProject" : s.label, ...s.words].map((k) => t(k)).join(" "), query)),
   );
-
-  // A search, or a page without the section shown last, opens the first section it has.
-  $effect(() => {
-    if (found.length && !found.some((s) => s.id === config.section)) config.section = found[0].id;
+  /** A new project's page keeps its own section: the shared one is the projects'. */
+  let own = $state<ConfigSection>("project");
+  const current = $derived.by(() => {
+    const list = found.length ? found : sections;
+    const wanted = id ? config.section : own;
+    return (list.find((s) => s.id === wanted) ?? list[0]).id;
   });
+
+  function select(section: ConfigSection) {
+    if (id) config.section = section;
+    else own = section;
+  }
+
+  // A search that hides the section shown opens the first one it found.
+  $effect(() => {
+    if (query.trim() && found.length) select(current);
+  });
+
+  /**
+   * While the form has changes, holds back `leave` (whatever closes the page or takes it off screen, or follows
+   * another project) and asks; `stay` runs if the user stays.
+   */
+  function ask(leave: () => void, stay?: () => void): boolean {
+    return untrack(() => {
+      if (released || !dirty) return false;
+      if (!pending) {
+        pending = { leave, stay };
+        question?.showModal();
+      }
+      return true;
+    });
+  }
+
+  // The single way out of the page: the navigation, the panels, Escape and the links all ask it first.
+  $effect(() => {
+    const page = { view: "project" as const, hold: (leave: () => void) => ask(leave) };
+    held.page = page;
+    return () => {
+      if (held.page === page) held.page = null;
+    };
+  });
+
+  async function answer(choice: "stay" | "discard" | "save") {
+    const asked = pending;
+    if (!asked) return;
+    const saved = choice === "save" ? await persist() : null;
+    pending = undefined;
+    question?.close();
+    if (choice === "stay" || saved === false) return asked.stay?.();
+    released = true;
+    if (saved) setProject(saved);
+    asked.leave();
+  }
 
   /** The current project when the page was last in step with it: a new project's page follows it while untouched. */
   let shownFor = app.project;
 
-  // The page is the current project's: switching projects switches the page.
-  $effect(() => {
-    if (missing) return closeProject();
-    const to = app.project;
-    if (to === (id || shownFor)) return;
-    if (!untrack(() => dirty)) {
-      shownFor = to;
-      ui.editing = to ?? "";
-      return;
-    }
-    // A project being created stays while the user looks at another one.
-    if (!id) return;
-    switching = { to };
-    question?.showModal();
-  });
-
-  /** Discards the changes and follows the switch, or goes back to this project. */
-  function answer(discard: boolean) {
-    const to = switching?.to ?? null;
-    switching = undefined;
-    question?.close();
-    if (discard) ui.editing = to ?? "";
-    else setProject(id);
+  function follow(to: string | null) {
+    shownFor = to;
+    ui.editing = to ?? "";
   }
 
+  // The page is the current project's: switching projects switches the page.
+  $effect(() => {
+    if (missing) {
+      released = true;
+      return closeProject();
+    }
+    const to = app.project;
+    if (to === (id || shownFor)) return;
+    // A project being created stays while the user looks at another one.
+    if (!id && untrack(() => dirty)) return;
+    if (!ask(() => follow(to), () => setProject(id))) follow(to);
+  });
+
   function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || adding || switching || ui.palette || ui.help) return;
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || adding || pending || ui.palette || ui.help) return;
     // Beside another view, only while the keyboard is in its panel.
     if (ui.view !== "project") return;
     // Escape typed in a terminal (the quick terminal over the page) is the terminal's.
@@ -129,9 +175,9 @@
     chosen = on ? [...chosen, path] : chosen.filter((p) => p !== path);
   }
 
-  async function save(e: SubmitEvent) {
-    e.preventDefault();
-    if (!name.trim() || busy) return;
+  /** Saves the form: the id of a project it created, null for this one, false when it failed. */
+  async function persist(): Promise<string | null | false> {
+    if (!name.trim() || busy) return false;
     busy = true;
     error = "";
     try {
@@ -140,21 +186,31 @@
       app.workspace!.projects = after;
       savedForm = JSON.stringify([name, chosen]);
       await sources?.save();
-      const created = id ? null : added(before, after);
-      if (created) {
-        ui.editing = created;
-        setProject(created);
-      }
+      if (id) readRepos();
+      return id ? null : added(before, after);
     } catch (e) {
       error = String(e);
+      return false;
     } finally {
       busy = false;
     }
   }
 
+  async function save(e: SubmitEvent) {
+    e.preventDefault();
+    const created = await persist();
+    if (created) {
+      ui.editing = created;
+      setProject(created);
+    }
+  }
+
   /** A new project's page closes; a project's form goes back to what is saved. */
   function discard() {
-    if (!id) return closeProject();
+    if (!id) {
+      released = true;
+      return closeProject();
+    }
     [name, chosen] = JSON.parse(savedForm);
     round++;
   }
@@ -164,6 +220,7 @@
     error = "";
     try {
       app.workspace!.projects = await invoke<Project[]>("project_delete", { id });
+      released = true;
       closeProject();
     } catch (e) {
       error = String(e);
@@ -235,15 +292,15 @@
           apart: s.id === "delete",
           danger: s.id === "delete",
         }))}
-        current={config.section}
+        {current}
         label={t("ux3t3Config")}
-        onselect={(section) => (config.section = section)}
+        onselect={select}
         top={search}
         empty={t("filesNoResults")}
       />
 
       <div class="page">
-        <section class="sec" hidden={config.section !== "project"} aria-labelledby="config-project">
+        <section class="sec" hidden={current !== "project"} aria-labelledby="config-project">
           <h2 id="config-project">{t(project ? "runMetaProject" : "newProject")}</h2>
           <form id="project-form" class="form" onsubmit={save}>
             <div>
@@ -303,7 +360,7 @@
           {/if}
         </section>
 
-        <section class="sec" hidden={config.section !== "library"} aria-labelledby="config-library">
+        <section class="sec" hidden={current !== "library"} aria-labelledby="config-library">
           <h2 id="config-library">{t("viewLibrary")}</h2>
           <p class="help">{t("t6bHelpLibrary")}</p>
           <div>
@@ -314,7 +371,7 @@
         </section>
 
         {#if project}
-          <section class="sec" hidden={config.section !== "setup"} aria-labelledby="config-setup">
+          <section class="sec" hidden={current !== "setup"} aria-labelledby="config-setup">
             <h2 id="config-setup">{t("ux3t3Setup")}</h2>
             <p class="help">{t("obConfigureHint")}</p>
             {#if setup}
@@ -331,12 +388,10 @@
               </ol>
             {/if}
             <div>
-              <!-- Disabled while the form has changes: the assistant takes the page's place. -->
               <button
                 type="button"
                 class="btn"
                 class:primary={!!setup && setup.step !== "done" && !dirty}
-                disabled={dirty}
                 onclick={() => openSetup(id)}
               >
                 {t("obConfigure")}
@@ -350,20 +405,20 @@
             {/if}
           </section>
 
-          <section class="sec" hidden={config.section !== "tickets"}>
+          <section class="sec" hidden={current !== "tickets"}>
             {#key round}
               <TicketSources project={id} bind:this={sources} />
             {/key}
           </section>
 
-          <section class="sec" hidden={config.section !== "team"} aria-labelledby="config-team">
+          <section class="sec" hidden={current !== "team"} aria-labelledby="config-team">
             <h2 id="config-team">{t("t5Team")}</h2>
             <p class="help">{t("t6bHelpTeam")}</p>
-            <TeamSquads />
+            <TeamSquads project={id} />
             <TeamRoles project={id} />
           </section>
 
-          <section class="sec" hidden={config.section !== "worktrees"} aria-labelledby="config-worktrees">
+          <section class="sec" hidden={current !== "worktrees"} aria-labelledby="config-worktrees">
             <h2 id="config-worktrees">{t("wtTitle")}</h2>
             <p class="help">{t("wtIntro")}</p>
             <div class="line">
@@ -372,16 +427,16 @@
             </div>
           </section>
 
-          <section class="sec flow" hidden={config.section !== "memory"}>
-            <MemorySettings />
+          <section class="sec flow" hidden={current !== "memory"}>
+            <MemorySettings project={id} />
           </section>
 
-          <section class="sec" hidden={config.section !== "trust"} aria-labelledby="config-trust">
+          <section class="sec" hidden={current !== "trust"} aria-labelledby="config-trust">
             <h2 id="config-trust">{t("obTrustTitle")}</h2>
             <ClaudeTrust project={id} />
           </section>
 
-          <section class="sec" hidden={config.section !== "delete"} aria-labelledby="config-delete">
+          <section class="sec" hidden={current !== "delete"} aria-labelledby="config-delete">
             <h2 id="config-delete">{t("t5DeleteProject")}</h2>
             {#if confirming}
               <div class="danger-zone">
@@ -436,11 +491,12 @@
   </Popover>
 {/if}
 
-<dialog bind:this={question} class="question" oncancel={() => answer(false)}>
-  <p>{t("t5UnsavedSwitch", { name: project?.name ?? "" })}</p>
+<dialog bind:this={question} class="question" oncancel={() => answer("stay")}>
+  <p>{t("ux3t3Unsaved", { name: project?.name ?? t("newProject") })}</p>
   <div class="answers">
-    <button class="btn" onclick={() => answer(false)}>{t("cancel")}</button>
-    <button class="btn danger" onclick={() => answer(true)}>{t("confirm")}</button>
+    <button class="btn" onclick={() => answer("stay")}>{t("cancel")}</button>
+    <button class="btn delete" onclick={() => answer("discard")}>{t("ux3t3Discard")}</button>
+    <button class="btn primary" disabled={!name.trim() || busy} onclick={() => answer("save")}>{t("save")}</button>
   </div>
 </dialog>
 

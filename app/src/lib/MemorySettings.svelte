@@ -1,7 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import { currentProject } from "$lib/files.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
 
@@ -24,52 +23,36 @@
     artifacts: "expertSourceArtifacts",
   };
 
+  /** Mounted per project, by its Configuration page. */
+  let { project }: { project: string } = $props();
+
   let status = $state<MemoryStatus | null>(null);
   let busy = $state(false);
   let error = $state("");
 
-  const project = $derived(currentProject());
+  const name = $derived(app.workspace?.projects.find((p) => p.id === project)?.name ?? project);
 
-  /** Only while `id` is still the current project: another one's panel may be showing by then. */
-  function load(id: string) {
-    invoke<MemoryStatus>("memory_status", { project: id }).then(
-      (s) => {
-        if (app.project === id) status = s;
-      },
-      (e) => {
-        if (app.project === id) error = String(e);
-      },
-    );
-  }
-
-  $effect(() => {
-    const id = app.project;
-    status = null;
-    error = "";
-    if (id !== null) load(id);
-  });
+  // svelte-ignore state_referenced_locally
+  invoke<MemoryStatus>("memory_status", { project }).then(
+    (s) => (status = s),
+    (e) => (error = String(e)),
+  );
 
   async function run(command: string, args: Record<string, unknown>) {
-    const id = app.project;
     busy = true;
     error = "";
     try {
       const next = await invoke<MemoryStatus | null>(command, args);
-      if (app.project === id) {
-        if (next) status = next;
-      } else if (app.project !== null) {
-        // The settings are the same for every project: the one shown now reads them again.
-        load(app.project);
-      }
+      if (next) status = next;
     } catch (e) {
-      if (app.project === id) error = String(e);
+      error = String(e);
     } finally {
       busy = false;
     }
   }
 
   function save(enabled: boolean, exclude: MemorySource[]) {
-    run("memory_settings_save", { project: app.project, settings: { enabled, exclude } });
+    run("memory_settings_save", { project, settings: { enabled, exclude } });
   }
 
   function toggle(source: MemorySource, on: boolean) {
@@ -82,9 +65,7 @@
 <h2>{t("expertMemoryTitle")}</h2>
 <p class="help intro">{t("expertMemoryIntro")}</p>
 
-{#if app.project === null}
-  <p class="help">{t("expertMemoryNoProject")}</p>
-{:else if status}
+{#if status}
   <label class="check">
     <input
       type="checkbox"
@@ -107,7 +88,7 @@
 
   <div class="project">
     <div>
-      <h3>{t("expertMemoryProject", { project: project?.name ?? app.project })}</h3>
+      <h3>{t("expertMemoryProject", { project: name })}</h3>
       <p class="help" role="status">
         {#if busy}
           {t("expertMemoryIndexing")}
@@ -121,7 +102,7 @@
     <button
       class="btn sm"
       disabled={busy || !status.enabled}
-      onclick={() => run("memory_reindex", { project: app.project })}
+      onclick={() => run("memory_reindex", { project })}
     >
       <RefreshCw size={14} aria-hidden="true" />{t("expertMemoryReindex")}
     </button>

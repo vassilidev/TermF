@@ -421,7 +421,7 @@
                 : t("ticketsEmptyAll")}
           >
             {#if project}
-              <button class="btn" onclick={() => editProject(project.id)}>
+              <button class="btn" onclick={() => editProject(project.id, "tickets")}>
                 <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
               </button>
             {/if}

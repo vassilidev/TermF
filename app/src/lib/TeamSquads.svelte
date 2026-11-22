@@ -37,7 +37,9 @@
   /** The member whose settings show: its squad (null for the staff) and role. */
   let picked = $state<{ squad: string | null; role: string } | null>(null);
 
-  const project = $derived(app.project);
+  /** The current project's, unless the page around it says which. */
+  let { project: given }: { project?: string } = $props();
+  const project = $derived(given ?? app.project);
   const file = $derived(project && app.workspace ? `${shortPath(app.workspace.configDir)}/projects/${project}.toml` : "");
   const member = $derived.by(() => {
     if (!view || !picked) return null;

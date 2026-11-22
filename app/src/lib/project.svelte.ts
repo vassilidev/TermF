@@ -11,7 +11,7 @@ import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import { allRepos, currentProject, scopeRepos } from "$lib/files.svelte";
 import type { t } from "$lib/i18n";
 import { projectsOf, tally, type Tally } from "$lib/nav-logic";
-import { app, grid, launch, onScreen, panes, selected, ui, type Repo, type Session, type ViewId } from "$lib/state.svelte";
+import { app, grid, held, launch, onScreen, panes, selected, ui, type Repo, type Session, type ViewId } from "$lib/state.svelte";
 import { usable } from "$lib/onboarding.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { closePanel } from "$lib/panes.svelte";
@@ -77,10 +77,12 @@ let back: ViewId = "terminals";
 
 /** Opens a project's Configuration at a section, "" for a new project; Escape goes back to the view it was opened from. */
 export function editProject(id: string, section: ConfigSection = "project") {
+  if (ui.editing !== null && id !== ui.editing && held.page?.hold(() => editProject(id, section))) return;
   if (ui.view !== "project") back = ui.view;
   ui.switcher = false;
   ui.editing = id;
-  config.section = id ? section : "project";
+  // A new project's page keeps its own section.
+  if (id) config.section = section;
   ui.view = "project";
 }
 
@@ -90,6 +92,7 @@ export function showConfig() {
 }
 
 export function closeProject() {
+  if (held.page?.hold(closeProject)) return;
   ui.editing = null;
   // Beside another view, its panel closes.
   if (panes.other !== null && onScreen("project")) closePanel("project");

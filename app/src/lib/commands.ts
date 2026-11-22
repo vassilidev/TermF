@@ -411,7 +411,8 @@ export function commands(): Command[] {
   }
 
   for (const view of views) {
-    if (view.id !== ui.view) {
+    // "Edit the project" names no project under every project.
+    if (view.id !== ui.view && (view.id !== "project" || app.project !== null)) {
       list.push({ id: `view-${view.id}`, label: t(view.command), icon: view.icon, group: "views", run: view.show });
     }
     if (!onScreen(view.id)) {

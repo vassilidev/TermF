@@ -1,6 +1,6 @@
 import { tick, untrack } from "svelte";
 import * as logic from "$lib/panes-logic";
-import { app, panes, ui, type ViewId } from "$lib/state.svelte";
+import { app, holds, panes, ui, type ViewId } from "$lib/state.svelte";
 import { currentTab } from "$lib/tabs.svelte";
 import { views } from "$lib/views";
 // Each module reads the other only inside functions, so the import cycle is safe.
@@ -18,6 +18,7 @@ export async function openBeside(id: ViewId) {
   if (id !== panes.other) {
     const { last } = panes;
     const p = logic.beside({ ...panes, view: ui.view }, id);
+    if (holds(p, () => openBeside(id))) return;
     Object.assign(panes, { other: p.other, active: p.active });
     view.show();
     panes.last = last;
@@ -28,7 +29,7 @@ export async function openBeside(id: ViewId) {
 /** The second panel reopens on the view closed. */
 export function closePanel(id: ViewId) {
   const p = logic.close({ ...panes, view: ui.view }, id);
-  if (panes.other === null || p.other !== null) return;
+  if (panes.other === null || p.other !== null || holds(p, () => closePanel(id))) return;
   Object.assign(panes, { other: null, active: 0 });
   ui.view = p.view;
   panes.last = id;
