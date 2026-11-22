@@ -25,6 +25,8 @@ test("streamed text adds up until the stored text that holds it, from the start 
   assert.equal(live, "Hello");
   assert.equal(stream(live, { id: 4, kind: "text", text: "sub", parent: "t" }), "Hello", "a subagent's text is not the agent's");
   assert.equal(stream(null, { id: 4, kind: "text", text: "sub", parent: "t" }), "");
+  const reading = { id: 0, kind: "limit", status: "allowed", window: "five_hour", resetsAt: null, used: 25 };
+  assert.equal(stream("Hel", reading), "Hel", "a usage reading does not cut the streamed text");
   assert.equal(stream(live, { id: 4, kind: "text", text: "Hello" }), "");
   assert.equal(stream("Hel", { id: 5, kind: "turn_end" }), "", "an interrupted turn drops what streamed");
 });

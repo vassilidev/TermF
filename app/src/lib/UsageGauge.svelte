@@ -1,22 +1,18 @@
 <script lang="ts">
   import { ago, lang, t } from "$lib/i18n";
   import { showClaude } from "$lib/claude.svelte";
-  import { fullest, pressure, type Window } from "$lib/usage-logic";
+  import { NEARLY_USED, fullest, pressure, windows as live } from "$lib/usage-logic";
   import { billingText, isSubscribed, resetClock, usage, windowName } from "$lib/usage.svelte";
 
   let open = $state(false);
   let box = $state<HTMLElement>();
 
-  const limits = $derived(usage.data?.limits?.limits ?? null);
+  const limits = $derived(usage.data?.limits ?? null);
   const top = $derived(fullest(limits));
   const warn = $derived(pressure(limits));
-  const windows = $derived(
-    ([limits?.fiveHour ? { name: "fiveHour", window: limits.fiveHour } : null, limits?.sevenDay ? { name: "sevenDay", window: limits.sevenDay } : null] as (Window | null)[]).filter(
-      (w): w is Window => w !== null,
-    ),
-  );
+  const windows = $derived(live(limits));
   const percent = new Intl.NumberFormat(lang, { maximumFractionDigits: 0 });
-  const level = (p: number) => (p >= 100 ? "over" : p >= 80 ? "warn" : "");
+  const level = (p: number) => (p >= 100 ? "over" : p >= NEARLY_USED ? "warn" : "");
   const used = $derived(top ? Math.min(100, top.window.usedPercentage) : 0);
   const label = $derived(
     top ? `${t("usage2Gauge")} · ${windowName(top.name)} ${t("usage2GaugeShort", { percent: percent.format(top.window.usedPercentage) })}` : t("usage2Gauge"),

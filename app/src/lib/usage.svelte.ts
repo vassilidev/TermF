@@ -38,8 +38,13 @@ export const costHelp = () => (isSubscribed() ? t("usage2Help") : undefined);
 /** A budget's label: an API-equivalent usage cap for a subscriber. */
 export const budgetLabel = (label: string) => (isSubscribed() ? t("usage2Cap") : label);
 
+/** A window's label; one TermF does not know (`seven_day_opus`…) reads as the usage limit. */
 export const windowName = (name: Window["name"] | string | null) =>
-  name === "fiveHour" || name === "five_hour" ? t("claudeDgFiveHour") : name === "sevenDay" || name === "seven_day" ? t("claudeDgSevenDay") : (name ?? "");
+  name === "fiveHour" || name === "five_hour"
+    ? t("claudeDgFiveHour")
+    : name === "sevenDay" || name === "seven_day"
+      ? t("claudeDgSevenDay")
+      : t("usage2AnyWindow");
 
 export const resetClock = (epochSeconds: number) => clock(epochSeconds, lang);
 

@@ -409,7 +409,7 @@
       <span>{t("chatDenied", { tool: item.tool })}<span class="muted">{" · "}{item.message}</span></span>
     </p>
   {:else if item.type === "limit"}
-    {@const win = item.window ? windowName(item.window) : t("usage2AnyWindow")}
+    {@const win = windowName(item.window)}
     <p class="notice" class:error={item.reached} role="status">
       <CircleAlert size={14} aria-hidden="true" />
       <span>
@@ -605,7 +605,7 @@
     <span><small>{t("chatMode")}</small> {mode ? (modes[mode] ? t(modes[mode]) : mode) : t("schedulerDefault")}</span>
     {#if !runtime}<span title={costHelp()}><small>{t("chatCost")}</small> {apiUsd(session.cost)}</span>{/if}
     {#if left !== null && session.budget !== null}
-      <span><small>{budgetLabel(t("chatBudget"))}</small> {t("chatBudgetLeft", { left: usd(left), budget: budgetUsd(session.budget) })}</span>
+      <span><small>{budgetLabel(t("chatBudget"))}</small> {t("chatBudgetLeft", { left: budgetUsd(left), budget: budgetUsd(session.budget) })}</span>
     {/if}
     {#if session.context}<ContextGauge gauge={session.context} />{/if}
   </p>

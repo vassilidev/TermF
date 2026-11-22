@@ -3,7 +3,7 @@
   import { t } from "$lib/i18n";
   import type { Item } from "$lib/library.svelte";
   import { budgetError } from "$lib/team-run-logic";
-  import { usd } from "$lib/agents.svelte";
+  import { budgetUsd } from "$lib/agents.svelte";
   import { budgetLabel } from "$lib/usage.svelte";
 
   /** The workflow and budget a team starts with; a team going on keeps its workflow (`resume`). */
@@ -67,7 +67,7 @@
   </label>
   {#if error}
     <p class="notice" class:error={error !== "missing"} {id}>
-      {error === "invalid" ? t("teamRunsBudgetInvalid") : t("teamRunsBudgetSpent", { spent: usd(spent) })}
+      {error === "invalid" ? t("teamRunsBudgetInvalid") : t("teamRunsBudgetSpent", { spent: budgetUsd(spent) })}
     </p>
   {/if}
 </div>

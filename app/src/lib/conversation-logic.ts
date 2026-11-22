@@ -100,6 +100,8 @@ export function merge(events: StoredEvent[], incoming: StoredEvent[]): StoredEve
  */
 export function stream(live: string | null, e: StoredEvent): string | null {
   if (e.kind === "delta") return live === null ? null : live + e.text;
+  // A usage reading can arrive mid-answer: it is no message.
+  if (e.kind === "limit") return live;
   return "parent" in e && e.parent ? (live ?? "") : "";
 }
 

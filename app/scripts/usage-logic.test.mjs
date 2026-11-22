@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NEARLY_USED, approx, clock, fullest, pressure, subscribed } from "../src/lib/usage-logic.ts";
+import { NEARLY_USED, approx, clock, fullest, live, pressure, subscribed, windows } from "../src/lib/usage-logic.ts";
 
 const max = { mode: "subscription", plan: "max" };
 const api = { mode: "api", plan: null };
-const win = (usedPercentage, resetsAt = 1_763_820_000) => ({ usedPercentage, resetsAt, usedUsd: null, limitUsd: null });
+const later = Date.now() / 1000 + 3600;
+const win = (usedPercentage, resetsAt = later) => ({ usedPercentage, resetsAt, usedUsd: null, limitUsd: null });
 
 test("a subscriber's dollars are an API equivalent; an API key's are billed as they are", () => {
   assert.equal(subscribed(max), true);
@@ -28,6 +29,15 @@ test("a window warns from 80 %", () => {
   const near = pressure({ fiveHour: win(80), sevenDay: win(10), spendLimit: null });
   assert.equal(near.name, "fiveHour");
   assert.equal(pressure({ fiveHour: win(85), sevenDay: win(100), spendLimit: null }).name, "sevenDay");
+});
+
+test("a window past its reset no longer counts, nor warns", () => {
+  const limits = { fiveHour: win(100, 1_000), sevenDay: win(85, 9_000), spendLimit: null };
+  assert.equal(pressure(limits, NEARLY_USED, 999).name, "fiveHour");
+  assert.equal(pressure(limits, NEARLY_USED, 1_000).name, "sevenDay", "the 5-hour window reset at 1000");
+  assert.equal(pressure(limits, NEARLY_USED, 9_000), null);
+  assert.deepEqual(windows(limits, 1_000).map((w) => w.name), ["sevenDay"]);
+  assert.equal(live({ ...win(50), resetsAt: null }, 1e12), true, "a window without a reset time stays");
 });
 
 test("a reset today shows its time, a later one its day too", () => {

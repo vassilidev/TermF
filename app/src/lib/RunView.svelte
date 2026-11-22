@@ -594,7 +594,7 @@
                 <b>{apiUsd(teamRun.cost)}</b> {t("teamRunsSpent")}
                 <span class="muted">
                   · {teamRun.budget !== null && spent.left !== null
-                    ? t("chatBudgetLeft", { left: usd(spent.left), budget: budgetUsd(teamRun.budget) })
+                    ? t("chatBudgetLeft", { left: budgetUsd(spent.left), budget: budgetUsd(teamRun.budget) })
                     : t("teamRunsNoBudget")}
                 </span>
               </p>

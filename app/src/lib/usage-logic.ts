@@ -14,17 +14,27 @@ export const approx = (formatted: string, billing: Billing | null) => (subscribe
 
 export type Window = { name: "fiveHour" | "sevenDay"; window: LimitWindow };
 
-/** The fuller of the 5-hour and 7-day windows; a spend limit is a gateway's dollars, not the subscription's quota. */
-export function fullest(limits: Limits | null | undefined): Window | null {
-  const windows: Window[] = [];
-  if (limits?.fiveHour) windows.push({ name: "fiveHour", window: limits.fiveHour });
-  if (limits?.sevenDay) windows.push({ name: "sevenDay", window: limits.sevenDay });
-  return windows.reduce<Window | null>((top, w) => (top && top.window.usedPercentage >= w.window.usedPercentage ? top : w), null);
+const nowSeconds = () => Date.now() / 1000;
+
+/** Once a window has reset, what it said no longer holds. */
+export const live = (w: LimitWindow | null | undefined, now = nowSeconds()): w is LimitWindow => !!w && (w.resetsAt === null || w.resetsAt > now);
+
+/** The 5-hour and 7-day windows not reset yet; a spend limit is a gateway's dollars, not the subscription's quota. */
+export function windows(limits: Limits | null | undefined, now = nowSeconds()): Window[] {
+  const out: Window[] = [];
+  if (live(limits?.fiveHour, now)) out.push({ name: "fiveHour", window: limits!.fiveHour! });
+  if (live(limits?.sevenDay, now)) out.push({ name: "sevenDay", window: limits!.sevenDay! });
+  return out;
+}
+
+/** The fuller of those windows. */
+export function fullest(limits: Limits | null | undefined, now = nowSeconds()): Window | null {
+  return windows(limits, now).reduce<Window | null>((top, w) => (top && top.window.usedPercentage >= w.window.usedPercentage ? top : w), null);
 }
 
 /** The window to warn about, when one is at the threshold or more. */
-export function pressure(limits: Limits | null | undefined, threshold = NEARLY_USED): Window | null {
-  const top = fullest(limits);
+export function pressure(limits: Limits | null | undefined, threshold = NEARLY_USED, now = nowSeconds()): Window | null {
+  const top = fullest(limits, now);
   return top && top.window.usedPercentage >= threshold ? top : null;
 }
 

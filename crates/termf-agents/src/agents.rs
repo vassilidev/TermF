@@ -1002,6 +1002,16 @@ impl Inner {
             .process
             .as_ref()
             .is_some_and(|p| p.generation == generation);
+        // An `allowed` reading only feeds the usage gauge: like a delta, it is never stored.
+        if matches!(&event, AgentEvent::Limit { status, .. } if status == "allowed") {
+            (self.sink)(Update::Event(StoredEvent {
+                id: 0,
+                session: id,
+                at: now(),
+                event,
+            }));
+            return Ok(());
+        }
         if let AgentEvent::Delta { text } = event {
             if current && let Some(text) = self.stream(id, text) {
                 let (session, at) = (id, now());

@@ -342,11 +342,12 @@ impl Parser for Stream {
     }
 }
 
-/// A `rate_limit_event` worth telling: `allowed` is every turn's. The SDK references spell its fields both ways
-/// (`resetsAt` / `resets_at`, `rateLimitType` / `rate_limit_type`) and leave the unit of `resetsAt` unsaid: one in
-/// milliseconds is brought back to seconds. `utilization` is a fraction.
+/// A `rate_limit_event` worth passing on: a warning, a stop, or an `allowed` that says how full a window is (it
+/// tells the gauge a window emptied; the conversation never shows it). The SDK references spell its fields both
+/// ways (`resetsAt` / `resets_at`, `rateLimitType` / `rate_limit_type`) and leave the unit of `resetsAt` unsaid:
+/// one in milliseconds is brought back to seconds. `utilization` is a fraction.
 fn limit(info: &Value) -> Option<AgentEvent> {
-    let status = info["status"].as_str().filter(|s| *s != "allowed")?;
+    let status = info["status"].as_str()?;
     let field = |camel: &str, snake: &str| {
         Some(&info[camel])
             .filter(|v| !v.is_null())
@@ -355,13 +356,18 @@ fn limit(info: &Value) -> Option<AgentEvent> {
     let resets_at = field("resetsAt", "resets_at")
         .as_f64()
         .map(|r| if r > 1e11 { r / 1000.0 } else { r } as u64);
+    let window = field("rateLimitType", "rate_limit_type")
+        .as_str()
+        .map(str::to_owned);
+    let used = info["utilization"].as_f64().map(|u| u * 100.0);
+    if status == "allowed" && (window.is_none() || used.is_none()) {
+        return None;
+    }
     Some(AgentEvent::Limit {
         status: status.to_owned(),
-        window: field("rateLimitType", "rate_limit_type")
-            .as_str()
-            .map(str::to_owned),
+        window,
         resets_at,
-        used: info["utilization"].as_f64().map(|u| u * 100.0),
+        used,
     })
 }
 
@@ -613,6 +619,7 @@ mod tests {
     fn tells_a_usage_limit_neared_or_hit_with_when_it_resets() {
         let events = parse_all(&[
             r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1763820000}}"#,
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"five_hour","resetsAt":1763820000,"utilization":0.25}}"#,
             r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rate_limit_type":"seven_day","resets_at":1763820000,"utilization":0.85}}"#,
             r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"five_hour","resetsAt":1763820000000}}"#,
             r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected"}}"#,
@@ -626,6 +633,7 @@ mod tests {
         assert_eq!(
             events,
             [
+                limit("allowed", Some("five_hour"), Some(1763820000), Some(25.0)),
                 limit(
                     "allowed_warning",
                     Some("seven_day"),

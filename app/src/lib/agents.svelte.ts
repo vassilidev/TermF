@@ -48,7 +48,7 @@ const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", 
 export const usd = (amount: number) => approxUsd(money.format(amount));
 /** "≈ 0,12 $ en équivalent API" for a subscriber. */
 export const apiUsd = (amount: number) => equivalent(money.format(amount));
-/** A budget is a cap the user set: never approximate. */
+/** Exact: a budget, what is left of it, a gateway's spend limit. */
 export const budgetUsd = (amount: number) => money.format(amount);
 
 /** Codex CLI and Gemini CLI say how many tokens a turn used, not what it cost: their name stands in for a cost. */

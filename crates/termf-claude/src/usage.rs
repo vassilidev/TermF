@@ -68,16 +68,24 @@ pub fn read(status_line: &Value) -> Reading {
 /// From it, a window is nearly used up: TermF warns, and the CTO stays light.
 pub const NEARLY_USED: f64 = 80.0;
 
+impl Window {
+    /// Once it has reset, what it said no longer holds.
+    pub fn live(&self, now: u64) -> bool {
+        self.resets_at.is_none_or(|at| at > now)
+    }
+}
+
 impl Limits {
-    /// The fuller of the 5-hour and 7-day windows, named, when it is at `threshold` percent or more.
-    pub fn pressure(&self, threshold: f64) -> Option<(&'static str, &Window)> {
+    /// The fuller of the 5-hour and 7-day windows not reset yet at `now`, named, when it is at `threshold` percent
+    /// or more.
+    pub fn pressure(&self, threshold: f64, now: u64) -> Option<(&'static str, &Window)> {
         [
             ("five_hour", &self.five_hour),
             ("seven_day", &self.seven_day),
         ]
         .into_iter()
         .filter_map(|(name, w)| Some((name, w.as_ref()?)))
-        .filter(|(_, w)| w.used_percentage >= threshold)
+        .filter(|(_, w)| w.live(now) && w.used_percentage >= threshold)
         .max_by(|a, b| a.1.used_percentage.total_cmp(&b.1.used_percentage))
     }
 }

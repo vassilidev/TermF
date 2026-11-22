@@ -7,31 +7,30 @@
   import { agents, budgetUsd, usd } from "$lib/agents.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import type { LimitWindow } from "$lib/claude-native.svelte";
-  import { pressure } from "$lib/usage-logic";
+  import type { SeenWindow } from "$lib/claude-native.svelte";
+  import { live, pressure } from "$lib/usage-logic";
   import { billingText, costHelp, isSubscribed, loadBilling, resetClock, usage as store, windowName } from "$lib/usage.svelte";
 
   const usage = $derived(store.data);
   let reading = $state(false);
   const limits = $derived(usage?.limits ?? null);
-  const warn = $derived(pressure(limits?.limits));
+  const warn = $derived(pressure(limits));
   const costLabel = $derived(isSubscribed() ? t("usage2Cost") : t("claudeDgCost"));
+  /** Windows past their reset are left out: what they said no longer holds. */
   const windows = $derived(
     limits
       ? ([
-          ["claudeDgFiveHour", limits.limits.fiveHour],
-          ["claudeDgSevenDay", limits.limits.sevenDay],
-          ["claudeDgSpend", limits.limits.spendLimit],
-        ] as const).filter((w): w is [typeof w[0], LimitWindow] => w[1] !== null)
+          ["claudeDgFiveHour", limits.fiveHour],
+          ["claudeDgSevenDay", limits.sevenDay],
+          ["claudeDgSpend", limits.spendLimit],
+        ] as const).filter((w): w is [typeof w[0], SeenWindow] => live(w[1]))
       : [],
   );
-  const source = $derived(
-    limits?.conversation != null
-      ? (agents.sessions.find((a) => a.id === limits.conversation)?.title ?? `#${limits.conversation}`)
-      : limits
-        ? (app.sessions.find((s) => s.id === limits.session)?.title ?? `#${limits.session}`)
-        : undefined,
-  );
+  /** Where a window was read: each keeps its own source. */
+  const source = (w: SeenWindow) =>
+    w.conversation !== null
+      ? t("usage2FromConversation", { session: agents.sessions.find((a) => a.id === w.conversation)?.title ?? `#${w.conversation}`, when: ago(w.at) })
+      : t("claudeDgLimitsSource", { session: app.sessions.find((s) => s.id === w.session)?.title ?? `#${w.session}`, when: ago(w.at) });
 
   /** Claude Code tiles TermF started: they report through the status line. */
   const tiles = $derived(app.sessions.filter((s) => s.context));
@@ -83,7 +82,7 @@
 
 <section class="block" aria-labelledby="claude-limits">
   <h3 id="claude-limits">{t("claudeDgLimits")}</h3>
-  {#if windows.length && limits}
+  {#if windows.length}
     <div class="meters">
       {#each windows as [label, w] (label)}
         <div class="meter {level(w.usedPercentage)}">
@@ -95,18 +94,13 @@
             <span style="width: {Math.min(100, w.usedPercentage)}%"></span>
           </div>
           <span class="muted small">
-            {#if w.usedUsd !== null && w.limitUsd !== null}{usd(w.usedUsd)} / {usd(w.limitUsd)} · {/if}
+            {#if w.usedUsd !== null && w.limitUsd !== null}{budgetUsd(w.usedUsd)} / {budgetUsd(w.limitUsd)} · {/if}
             {w.resetsAt ? t("usage2ResetsAt", { time: resetClock(w.resetsAt), when: ago(w.resetsAt) }) : ""}
           </span>
+          <span class="source muted small"><Info size={13} aria-hidden="true" />{source(w)}</span>
         </div>
       {/each}
     </div>
-    <p class="source muted small">
-      <Info size={13} aria-hidden="true" />
-      {limits.conversation != null
-        ? t("usage2FromConversation", { session: source ?? "", when: ago(limits.at) })
-        : t("claudeDgLimitsSource", { session: source ?? "", when: ago(limits.at) })}
-    </p>
   {:else}
     <p class="empty muted">{t("claudeDgNoLimits")}</p>
   {/if}

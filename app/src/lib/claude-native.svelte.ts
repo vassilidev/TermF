@@ -22,8 +22,10 @@ export type BackgroundSession = {
 export type Background = { sessions: BackgroundSession[]; error: string | null };
 export type LimitWindow = { usedPercentage: number; resetsAt: number | null; usedUsd: number | null; limitUsd: number | null };
 export type Limits = { fiveHour: LimitWindow | null; sevenDay: LimitWindow | null; spendLimit: LimitWindow | null };
+/** A window as last seen: when, and from a tile (`session`) or a headless conversation (`conversation`). */
+export type SeenWindow = LimitWindow & { at: number; session: number | null; conversation: number | null };
 export type Usage = {
-  limits: { limits: Limits; at: number; session: number | null; conversation: number | null } | null;
+  limits: { fiveHour: SeenWindow | null; sevenDay: SeenWindow | null; spendLimit: SeenWindow | null };
   sessions: Record<string, { cost: number | null; model: string | null; at: number }>;
 };
 export type ExportPreview = { dest: string; exists: boolean; diff: string };
