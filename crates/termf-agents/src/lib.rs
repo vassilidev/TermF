@@ -19,7 +19,7 @@ mod store;
 mod tests;
 
 pub use agents::{Agents, Takeover};
-pub use claude::{ASK_EXPERT, ClaudeCode, EXPERT, TOOL_OUTPUT, mcp_settings, mcp_tools};
+pub use claude::{ASK_EXPERT, BROWSER, ClaudeCode, EXPERT, TOOL_OUTPUT, mcp_settings, mcp_tools};
 pub use store::{events, sessions};
 
 /// An agent CLI TermF drives (ARCHITECTURE §6.1); only Claude Code so far.
