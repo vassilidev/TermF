@@ -235,6 +235,12 @@ pub async fn team_revise(
     .await
 }
 
+/// Brings a run up to date with its base again: its update step, then its delivery gate.
+#[tauri::command]
+pub async fn team_update_base(app: AppHandle, run: i64) -> CmdResult<TeamRun> {
+    blocking(app, move |app| state_of(app).team.update_base(run)).await
+}
+
 #[tauri::command]
 pub async fn team_stop(app: AppHandle, run: Option<i64>) -> CmdResult<Vec<TeamRun>> {
     blocking(app, move |app| state_of(app).team.stop(run)).await

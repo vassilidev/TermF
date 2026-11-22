@@ -33,6 +33,8 @@ pub enum StepKind {
     /// The code review of the run's changes: a session of a role whose important findings go back to the tasks
     /// that must fix them, then the review again.
     Review,
+    /// Merges the run's base branch as it is now into the run's work; a conflict goes to the step's role.
+    Update,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -311,7 +313,7 @@ impl Workflow {
             let mut step = self.steps[id].clone();
             step.needs = needs[id].iter().cloned().collect();
             match step.kind {
-                StepKind::Agent | StepKind::Review => {
+                StepKind::Agent | StepKind::Review | StepKind::Update => {
                     ensure!(step.role.is_some(), "agent step {id} has no role")
                 }
                 StepKind::Foreach => {
@@ -411,8 +413,13 @@ mod tests {
         assert_eq!(steps["plan"].needs, ["ux"]);
         assert_eq!(
             steps["deliver"].needs,
-            ["migrations", "security", "seo", "visual"]
+            ["migrations", "security", "seo", "update-base", "visual"]
         );
+        let update = &steps["update-base"];
+        assert_eq!(update.kind, StepKind::Update);
+        assert_eq!(update.role.as_deref(), Some("integrator"));
+        assert_eq!(update.needs, ["migrations", "security", "seo", "visual"]);
+        assert!(!update.optional, "the CTO cannot skip it");
         assert_eq!(steps["migrations"].kind, StepKind::Review);
         assert_eq!(steps["migrations"].role.as_deref(), Some("dba"));
         assert!(!steps["migrations"].optional, "the CTO cannot skip it");
@@ -458,7 +465,7 @@ mod tests {
         let steps: BTreeMap<String, StepDef> = custom.steps().unwrap().into_iter().collect();
         assert_eq!(
             steps["deliver"].needs,
-            ["migrations", "review", "visual"],
+            ["migrations", "review", "update-base", "visual"],
             "security disabled by the repository"
         );
 

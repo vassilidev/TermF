@@ -56,6 +56,20 @@ pub struct Cleanup {
     pub error: Option<String>,
 }
 
+/// What GitHub says of a delivered run's open pull request against its base.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrMerge {
+    /// `MERGEABLE`, `CONFLICTING`, or `UNKNOWN` while GitHub works it out.
+    pub mergeable: String,
+    /// GitHub's `mergeStateStatus`: `CLEAN`, `BEHIND`, `DIRTY`, `BLOCKED`, `UNSTABLE`, `HAS_HOOKS`, `DRAFT`, `UNKNOWN`.
+    pub state: String,
+    /// It conflicts with its base.
+    pub conflict: bool,
+    /// Its base moved on since its branch left it.
+    pub behind: bool,
+}
+
 /// What delivering a run would send, for the user to check first.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -862,6 +876,23 @@ impl Tickets {
             run: run.clone(),
             warning,
         })
+    }
+
+    /// What GitHub says of the open pull request of delivered run `id` against its base; `None` when it has none
+    /// open.
+    pub fn pr_merge(&self, id: i64) -> Result<Option<PrMerge>> {
+        let run = Store::open(&self.data_dir)?.run(id)?;
+        let (RunStatus::Delivered, Some(url), None) = (run.status, &run.pr_url, &run.pr_state)
+        else {
+            return Ok(None);
+        };
+        let (mergeable, state) = self.github().pr_merge(url)?;
+        Ok(Some(PrMerge {
+            conflict: mergeable == "CONFLICTING" || state == "DIRTY",
+            behind: state == "BEHIND",
+            mergeable,
+            state,
+        }))
     }
 
     /// Asks GitHub about the pull request of each delivered run whose fate is not known yet, and records those

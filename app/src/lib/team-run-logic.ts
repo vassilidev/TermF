@@ -2,7 +2,7 @@
 
 export type RunState = "running" | "waiting" | "paused" | "stopped" | "budget" | "done";
 export type StepState = "pending" | "running" | "waiting" | "blocked" | "done" | "skipped";
-export type StepKind = "agent" | "gate" | "foreach" | "shell" | "rules" | "visual" | "connector" | "task" | "review";
+export type StepKind = "agent" | "gate" | "foreach" | "shell" | "rules" | "visual" | "connector" | "task" | "review" | "update";
 
 /** A task of the orchestrator's plan (ARCHITECTURE appendix A). */
 export type Task = {
@@ -122,7 +122,10 @@ export type Step = {
   sessions: number[];
   attempt: number;
   feedback: string | null;
+  /** What a task changed; for an update step, the files its merge left in conflict. */
   files: string[];
+  /** An update step whose agent resolved a conflict: the merge that brought the base in. */
+  merge?: string | null;
   report: Report | null;
   violations: Violation[];
   cost: number;
@@ -367,7 +370,7 @@ export function runs(step: { id: string; on: boolean }, routing: Pick<Routing, "
 export function editRouting(routing: Routing, workflow: WorkflowView, running: string[], squads: string[]): Routing {
   const optional = workflow.steps.filter((s) => s.optional);
   const agents = workflow.steps
-    .filter((s) => (s.kind === "agent" || s.kind === "review") && (!s.optional || running.includes(s.id)))
+    .filter((s) => ["agent", "review", "update"].includes(s.kind) && (!s.optional || running.includes(s.id)))
     .map((s) => s.id);
   return {
     ...routing,

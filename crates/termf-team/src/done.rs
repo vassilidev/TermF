@@ -113,6 +113,10 @@ fn check(run: &TeamRun, id: &str) -> Result<String, String> {
     match id {
         "checks" => {
             over(of(StepKind::Shell), true, "the workflow runs no checks")?;
+            // Accepted as it is, an update leaves the base out of what ships, or its merge unchecked.
+            if of(StepKind::Update).next().is_some() {
+                over(of(StepKind::Update), true, "")?;
+            }
             Ok("passed".into())
         }
         "review" => {

@@ -106,6 +106,7 @@ impl Decision {
             "approve" | "approved" => Decision::Approved,
             "reject" | "rejected" => Decision::Rejected,
             "changes" | "change" => Decision::Changes,
+            "pending" => Decision::Pending,
             other => bail!("unknown decision {other}: approve, reject or changes"),
         })
     }
@@ -149,6 +150,12 @@ pub struct Pin {
     pub x: u32,
     pub y: u32,
     pub comment: String,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct FileDiff {
+    pub path: String,
+    pub diff: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -804,6 +811,7 @@ impl Visual {
         Ok(shots)
     }
 
+    /// `Pending` keeps a screen to decide: it saves its comment and pins, or takes back its decision.
     pub fn decide(
         &self,
         id: i64,
@@ -816,10 +824,6 @@ impl Visual {
         let _lock = inner.lock.lock().unwrap();
         let store = Store::open(&inner.data_dir)?;
         let mut review = store.get(id)?.with_context(|| format!("no review {id}"))?;
-        ensure!(
-            decision != Decision::Pending,
-            "decide approve, reject or changes"
-        );
         let last = review
             .versions
             .len()
@@ -861,7 +865,7 @@ impl Visual {
                 s.id
             );
             s.decision = decision;
-            s.decided = Some(now());
+            s.decided = (decision != Decision::Pending).then(now);
         }
         if version
             .screens
@@ -933,6 +937,62 @@ impl Visual {
         .with_context(|| format!("{screen} has no {kind} image"))?;
         Ok(fs::read(self.folder(id, version).join(file))?)
     }
+
+    /// The files the version's after commit changed since its before commit, each with its unified diff.
+    pub fn files(&self, id: i64, version: u32) -> Result<Vec<FileDiff>> {
+        let review = self.review(id)?;
+        let v = review
+            .versions
+            .iter()
+            .find(|v| v.n == version)
+            .with_context(|| format!("review {id} has no version {version}"))?;
+        let (Some(before), Some(after)) = (&v.before, &v.after) else {
+            return Ok(Vec::new());
+        };
+        file_diffs(&self.inner.env, &review.repo_path, before, after)
+    }
+}
+
+pub(crate) fn file_diffs(
+    env: &[(String, String)],
+    repo: &Path,
+    before: &str,
+    after: &str,
+) -> Result<Vec<FileDiff>> {
+    let names = env::git(env, repo, &["diff", "--name-only", "-z", before, after])?;
+    // `--submodule=short`: a `diff.submodule = log` config would print a submodule without its `diff --git` header.
+    let patch = env::git(
+        env,
+        repo,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--submodule=short",
+            before,
+            after,
+        ],
+    )?;
+    // Both lists come from the same diff, in the same order: one `diff --git` section per name.
+    let mut diffs: Vec<String> = Vec::new();
+    for line in patch.lines() {
+        if line.starts_with("diff --git ") {
+            diffs.push(String::new());
+        }
+        if let Some(d) = diffs.last_mut() {
+            d.push_str(line);
+            d.push('\n');
+        }
+    }
+    Ok(names
+        .split('\0')
+        .filter(|n| !n.is_empty())
+        .zip(diffs)
+        .map(|(path, diff)| FileDiff {
+            path: path.to_owned(),
+            diff,
+        })
+        .collect())
 }
 
 pub fn folder(data_dir: &Path, id: i64, version: u32) -> PathBuf {
