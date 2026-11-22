@@ -193,13 +193,15 @@ test("refused combinations say why", () => {
   assert.equal(why("palette", "F6", true), null);
   assert.equal(why("tile", "Cmd+K", true), "settingsKeysNeedsDigit");
   assert.equal(why("tile", "Alt+Shift+1", false), null);
-  for (const combo of ["Cmd+Q", "Cmd+W", "Cmd+H", "Cmd+M", "Cmd+,", "Cmd+`", "Cmd+Space", "Cmd+Tab"]) {
+  for (const combo of ["Cmd+Q", "Cmd+H", "Cmd+M", "Cmd+,", "Cmd+`", "Cmd+Space", "Cmd+Tab"]) {
     assert.equal(why("palette", combo, true), "settingsKeysReservedSystem", combo);
   }
   for (const combo of ["Cmd+C", "Cmd+V", "Cmd+X", "Cmd+A", "Cmd+Z", "Cmd+Shift+Z"]) {
     assert.equal(why("palette", combo, true), "settingsKeysReservedEdit", combo);
   }
   assert.equal(why("palette", "Cmd+Shift+C", true), null);
+  // The app menu has no Close Window: ⌘W closes a split.
+  assert.equal(why("close_split", "Cmd+W", true), null);
   assert.equal(why("palette", "Ctrl+C", true), null);
   for (const combo of ["Ctrl+C", "Ctrl+D", "Ctrl+Z", "Ctrl+L"]) {
     assert.equal(why("palette", combo, false), "settingsKeysReservedTerminal", combo);

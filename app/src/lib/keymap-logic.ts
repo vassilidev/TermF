@@ -69,11 +69,62 @@ export const actions: KeyAction[] = [
   },
   {
     id: "tile",
-    label: "focusTiles",
+    label: "t6aTab",
     group: "terminals",
     scope: "app",
     digits: true,
     defaults: { mac: "Cmd", other: "Ctrl" },
+  },
+  {
+    id: "prev_tab",
+    label: "t6aPrevTab",
+    group: "terminals",
+    scope: "terminals",
+    defaults: { mac: "Cmd+Shift+[", other: "Ctrl+Shift+Tab" },
+  },
+  {
+    id: "next_tab",
+    label: "t6aNextTab",
+    group: "terminals",
+    scope: "terminals",
+    defaults: { mac: "Cmd+Shift+]", other: "Ctrl+Tab" },
+  },
+  {
+    id: "split_right",
+    label: "t6aSplitRight",
+    group: "terminals",
+    scope: "terminals",
+    defaults: { mac: "Cmd+D", other: "Ctrl+Shift+D" },
+  },
+  {
+    id: "split_down",
+    label: "t6aSplitDown",
+    group: "terminals",
+    scope: "terminals",
+    defaults: { mac: "Cmd+Shift+D", other: "Ctrl+Shift+E" },
+  },
+  {
+    id: "close_split",
+    label: "t6aCloseSplit",
+    group: "terminals",
+    scope: "terminals",
+    defaults: { mac: "Cmd+W", other: "Ctrl+Shift+W" },
+  },
+  // Ctrl+Alt is AltGr outside macOS: Alt+arrows there, as in Windows Terminal.
+  { id: "focus_left", label: "t6aFocusLeft", group: "terminals", scope: "terminals", defaults: { mac: "Alt+Cmd+Left", other: "Alt+Left" } },
+  { id: "focus_right", label: "t6aFocusRight", group: "terminals", scope: "terminals", defaults: { mac: "Alt+Cmd+Right", other: "Alt+Right" } },
+  { id: "focus_up", label: "t6aFocusUp", group: "terminals", scope: "terminals", defaults: { mac: "Alt+Cmd+Up", other: "Alt+Up" } },
+  { id: "focus_down", label: "t6aFocusDown", group: "terminals", scope: "terminals", defaults: { mac: "Alt+Cmd+Down", other: "Alt+Down" } },
+  { id: "resize_left", label: "t6aResizeLeft", group: "terminals", scope: "terminals", defaults: { mac: "Ctrl+Cmd+Left", other: "Alt+Shift+Left" } },
+  { id: "resize_right", label: "t6aResizeRight", group: "terminals", scope: "terminals", defaults: { mac: "Ctrl+Cmd+Right", other: "Alt+Shift+Right" } },
+  { id: "resize_up", label: "t6aResizeUp", group: "terminals", scope: "terminals", defaults: { mac: "Ctrl+Cmd+Up", other: "Alt+Shift+Up" } },
+  { id: "resize_down", label: "t6aResizeDown", group: "terminals", scope: "terminals", defaults: { mac: "Ctrl+Cmd+Down", other: "Alt+Shift+Down" } },
+  {
+    id: "equalize_splits",
+    label: "t6aEqualize",
+    group: "terminals",
+    scope: "terminals",
+    defaults: { mac: "Ctrl+Cmd+=", other: "Ctrl+Shift+=" },
   },
   {
     id: "maximize",
@@ -281,7 +332,7 @@ export function refusal(a: KeyAction, c: Combo, mac: boolean): Label | null {
   if (!c.ctrl && !c.alt && !c.cmd && !isFn(c.key)) return "settingsKeysNeedsModifier";
   const only = (ctrl: boolean, alt: boolean, cmd: boolean) => c.ctrl === ctrl && c.alt === alt && c.cmd === cmd;
   if (mac && only(false, false, true)) {
-    if (["Tab", "Space", "`"].includes(c.key) || (!c.shift && ["Q", "W", "H", "M", ","].includes(c.key))) {
+    if (["Tab", "Space", "`"].includes(c.key) || (!c.shift && ["Q", "H", "M", ","].includes(c.key))) {
       return "settingsKeysReservedSystem";
     }
     if ((!c.shift && ["C", "V", "X", "A", "Z"].includes(c.key)) || (c.shift && c.key === "Z")) return "settingsKeysReservedEdit";
