@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import Braces from "@lucide/svelte/icons/braces";
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Plug from "@lucide/svelte/icons/plug";
@@ -11,11 +12,42 @@
   let {
     stacks,
     ondecide,
+    project,
   }: {
     stacks: RepoStack[];
     /** Records an added server in the assistant's journal. */
     ondecide?: (detail: string) => Promise<void>;
+    /** With it, the language servers of the stack and the project's switch for them. */
+    project?: string;
   } = $props();
+
+  /** Each server once, with the repositories it serves: whether it is installed depends on the machine only. */
+  const languageServers = $derived.by(() => {
+    const byName = new Map<string, { server: RepoStack["servers"][number]; repos: string[] }>();
+    for (const repo of stacks) {
+      for (const server of repo.servers) {
+        const seen = byName.get(server.name);
+        if (seen) seen.repos.push(repo.name);
+        else byName.set(server.name, { server, repos: [repo.name] });
+      }
+    }
+    return [...byName.values()];
+  });
+  /** `null` until the project's file is read: the switch waits for it. */
+  let lspOn = $state<boolean | null>(null);
+  $effect(() => {
+    if (project) invoke<boolean>("library_lsp", { project }).then((on) => (lspOn = on), (e) => (error = String(e)));
+  });
+
+  async function setLsp(input: HTMLInputElement) {
+    error = "";
+    try {
+      lspOn = await invoke<boolean>("library_lsp", { project, enabled: input.checked });
+    } catch (e) {
+      input.checked = !!lspOn;
+      error = String(e);
+    }
+  }
 
   let added = $state<string[]>([]);
   let copied = $state("");
@@ -73,6 +105,7 @@
 
 {#if error}<p class="error" role="alert">{error}</p>{/if}
 
+{#if !project || sources.length}
 <article class="proposal">
   <h3><Store size={15} aria-hidden="true" />{t("stackOfficialTitle")}</h3>
   <p class="hint">{t("stackOfficialHint")}</p>
@@ -98,7 +131,9 @@
     {/each}
   </ul>
 </article>
+{/if}
 
+{#if !project || servers.length}
 <article class="proposal">
   <h3><Plug size={15} aria-hidden="true" />{t("stackMcpTitle")}</h3>
   <p class="hint">{t("stackMcpHint")}</p>
@@ -129,6 +164,46 @@
     {/each}
   </ul>
 </article>
+{/if}
+
+{#if project && languageServers.length}
+  <article class="proposal">
+    <h3><Braces size={15} aria-hidden="true" />{t("evalsLspTitle")}</h3>
+    <p class="hint">{t("evalsLspHint")}</p>
+    <label class="check">
+      <input
+        type="checkbox"
+        role="switch"
+        class="switch"
+        checked={!!lspOn}
+        disabled={lspOn === null}
+        onchange={(e) => setLsp(e.currentTarget)}
+      />
+      {t("evalsLspSwitch")}
+    </label>
+    <ul class="offers">
+      {#each languageServers as { server, repos } (server.name)}
+        <li>
+          <div class="what">
+            <b>{server.command}</b>
+            <span class="badge">{server.for}</span>
+            {#if many}<span class="muted">{repos.join(", ")}</span>{/if}
+            {#if server.installed}
+              <span class={lspOn === false ? "muted" : "done"}>{lspOn === false ? t("evalsLspOff") : t("evalsLspOn")}</span>
+            {:else}
+              <span class="badge warn">{t("evalsLspMissing")}</span>
+            {/if}
+          </div>
+          {#if !server.installed}
+            <button class="btn sm quiet" onclick={() => open(server.docs)} title={server.docs}>
+              <ExternalLink size={14} aria-hidden="true" />{t("evalsLspInstall")}
+            </button>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  </article>
+{/if}
 
 <style>
   .proposal {
@@ -158,7 +233,7 @@
   }
 
   .error {
-    color: var(--danger-text);
+    color: var(--danger);
   }
 
   .offers {
@@ -212,6 +287,14 @@
 
   .link:hover {
     text-decoration: underline;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-sm);
+    cursor: pointer;
   }
 
   .warn {

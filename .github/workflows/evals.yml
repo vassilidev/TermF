@@ -1,0 +1,59 @@
+name: Evals
+
+# Real model calls, billed to the repository's ANTHROPIC_API_KEY: started by hand only (Actions → Evals → Run
+# workflow), never on a pull request. Without the secret, the run is skipped.
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: "Suites, separated by spaces (empty: the key ones; --all: every one)"
+        required: false
+        default: ""
+      budget:
+        description: "The most the run may spend, in US dollars"
+        required: false
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  key:
+    runs-on: ubuntu-24.04
+    outputs:
+      present: ${{ steps.key.outputs.present }}
+    steps:
+      - id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No ANTHROPIC_API_KEY secret in this repository: the evals are skipped."
+          fi
+
+  evals:
+    needs: key
+    if: needs.key.outputs.present == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @anthropic-ai/claude-code@latest && claude --version
+      - name: Evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUITES: ${{ inputs.suites }}
+          BUDGET: ${{ inputs.budget }}
+        run: |
+          set -f
+          node app/scripts/evals.mjs $SUITES --budget "$BUDGET" --out "$RUNNER_TEMP/evals"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evals
+          path: ${{ runner.temp }}/evals
+          if-no-files-found: ignore

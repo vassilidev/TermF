@@ -1,13 +1,13 @@
 ---
 name: testing-js
 description: >-
-  Writes and runs JavaScript and TypeScript unit, integration and component tests with the
-  project's runner, Vitest or Jest, at the installed version: config, mocks at the boundaries,
-  fake timers, async assertions, Testing Library queries by role, upgrades (Vitest 4 to 5, Jest 29
-  to 30), failing or flaky tests. Use when a task adds or fixes *.test.* / *.spec.* files, touches
-  vitest.config.* or jest.config.*, or runs the test suite. Not for browser end-to-end tests
-  (playwright), not for deciding what deserves a test (tests-from-criteria), not for Python or PHP
-  tests.
+  Writes and runs JavaScript and TypeScript unit, integration and component tests with the project's runner,
+  Vitest or Jest, at the installed version: config, mocks at the boundaries, fake timers, async assertions,
+  Testing Library queries by role, upgrades (Vitest 4 to 5, Jest 29 to 30), failing or flaky tests. Use it
+  before answering whenever a task or a question is about Vitest or Jest: it adds or fixes *.test.* / *.spec.*
+  files, touches vitest.config.* or jest.config.*, runs the test suite or asks why a test fails. Not for browser
+  end-to-end tests (playwright), not for deciding what deserves a test (tests-from-criteria), not for Python or
+  PHP tests.
 paths: "**/*.test.*, **/__tests__/**, **/vitest.config.*, **/vitest.workspace.*, **/jest.config.*"
 license: MIT
 metadata:
