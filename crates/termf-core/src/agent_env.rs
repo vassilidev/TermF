@@ -656,7 +656,10 @@ mod tests {
             !set.contains_key("HOME"),
             "removed on the command, so not filled in again"
         );
-        assert!(set.contains_key("PATH"));
+        assert!(
+            set.keys().any(|k| k.eq_ignore_ascii_case("PATH")),
+            "Path under Windows"
+        );
     }
 
     #[test]

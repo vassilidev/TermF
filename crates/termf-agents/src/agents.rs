@@ -1435,11 +1435,14 @@ fn hide(event: AgentEvent, values: &[String]) -> AgentEvent {
             _ => {}
         }
     }
-    let Ok(mut value) = serde_json::to_value(&event) else {
-        return event;
-    };
-    walk(&mut value, values);
-    serde_json::from_value(value).unwrap_or(event)
+    // Never the event as it was: what could not be masked is not kept.
+    let masked = serde_json::to_value(&event).and_then(|mut value| {
+        walk(&mut value, values);
+        serde_json::from_value(value)
+    });
+    masked.unwrap_or_else(|_| AgentEvent::Error {
+        message: MASK.into(),
+    })
 }
 
 /// What the process wrote on stderr, for an error message: its start, where the error is, and its end.
