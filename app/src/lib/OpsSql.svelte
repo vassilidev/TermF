@@ -279,7 +279,7 @@
         {@const out = result.output}
         <section class="result" aria-label={t("opssqlResult")}>
           <div class="result-head">
-            <span class="badge" class:ok={out.exit === 0} class:bad={out.exit !== 0}>
+            <span class="badge" class:ok={out.exit === 0} class:danger={out.exit !== 0}>
               {out.exit === null ? (out.stopped ?? "—") : t("opsExit", { code: out.exit })}
             </span>
             {#if table}<span>{t("opssqlRows", { count: table.rows.length })}</span>{/if}
@@ -411,16 +411,6 @@
     border-color: var(--danger);
     background: var(--danger);
     color: var(--danger-text);
-  }
-
-  .badge.ok {
-    border-color: var(--done);
-    color: var(--done);
-  }
-
-  .badge.bad {
-    border-color: var(--danger);
-    color: var(--danger);
   }
 
   /* The file editor's colors. */

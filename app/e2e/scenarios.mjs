@@ -242,13 +242,22 @@ export const scenarios = [
     async run(t) {
       const { box } = t;
       const auto = `${t.shown("settings")} .keep-awake input[value="auto"]`;
+      // The settings open on Claude: the keep-awake choice has its own section.
+      const sections = `${t.shown("settings")} .sections .item`;
+      const awake = async () => {
+        const at = await t.s.exec((css, label) => [...document.querySelectorAll(css)].findIndex((b) => b.textContent.trim() === label), sections, text("en", "keepAwake"));
+        await t.s.click(sections, at);
+        await t.s.waitFor(auto);
+      };
       await t.ready();
       await t.view("settings");
+      await awake();
       await t.s.click(auto);
       await t.s.wait(() => /keep_awake = "auto"/.test(read(join(box.configDir, "termf.toml"))), { what: "termf.toml updated" });
       await t.restart();
       await t.ready();
       await t.view("settings");
+      await awake();
       check(await t.s.exec((css) => document.querySelector(css)?.checked, auto), "the choice is lost after a restart");
     },
   },

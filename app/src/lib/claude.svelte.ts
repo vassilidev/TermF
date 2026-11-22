@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ui } from "$lib/state.svelte";
-import { t } from "$lib/i18n";
+import { lang, t } from "$lib/i18n";
 import { latest } from "$lib/claude-logic";
 
 export type Scope = "user" | "project" | "local" | "managed";
@@ -348,7 +348,7 @@ export function show(value: unknown): string {
 
 export function size(bytes: number | null): string {
   if (bytes === null) return "";
-  return bytes < 1024 ? t("claudeViewBytes", { n: bytes }) : t("claudeViewKb", { n: (bytes / 1024).toFixed(1) });
+  return bytes < 1024 ? t("claudeViewBytes", { n: bytes }) : t("claudeViewKb", { n: (bytes / 1024).toLocaleString(lang, { maximumFractionDigits: 1 }) });
 }
 
 export function effective(o: Overview, key: string): Effective | undefined {
