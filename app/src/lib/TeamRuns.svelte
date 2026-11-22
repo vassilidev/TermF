@@ -2,12 +2,13 @@
   import { invoke } from "@tauri-apps/api/core";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import PenLine from "@lucide/svelte/icons/pen-line";
   import Play from "@lucide/svelte/icons/play";
   import Ticket from "@lucide/svelte/icons/ticket";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Users from "@lucide/svelte/icons/users";
   import TeamOptions from "$lib/TeamOptions.svelte";
-  import TeamRunDetail, { runPill, stepName } from "$lib/TeamRunDetail.svelte";
+  import TeamRunDetail, { runPill, stepName, ticketKey } from "$lib/TeamRunDetail.svelte";
   import { runSession } from "$lib/TicketRun.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
@@ -38,20 +39,37 @@
   let busy = $state(false);
   let error = $state("");
 
+  /** A ticket run by default when there is one, else a request written here. */
+  let mode = $state<"run" | "text" | null>(null);
+  const shownMode = $derived(mode ?? (free.length ? "run" : "text"));
+  let text = $state("");
+  let pickedProject = $state("");
+  let pickedRepo = $state("");
+  const projects = $derived(app.workspace?.projects ?? []);
+  const requestProject = $derived(app.project ?? (pickedProject || projects[0]?.id || ""));
+  const repos = $derived(projects.find((p) => p.id === requestProject)?.repos ?? []);
+  const requestRepo = $derived(repos.find((r) => r.name === pickedRepo)?.name ?? repos[0]?.name ?? "");
+
   async function launch() {
-    if (!chosen) return;
+    const request = shownMode === "text";
+    if (request ? !text.trim() || !requestProject : !chosen) return;
     busy = true;
     error = "";
     try {
-      const run = await invoke<TeamRun>("team_start", {
-        run: chosen.id,
-        options: { workflow: workflow || undefined, budget: budget ?? undefined },
-      });
+      const options = { workflow: workflow || undefined, budget: budget ?? undefined };
+      const run = await invoke<TeamRun>(
+        "team_start",
+        request
+          ? { request: { text: text.trim(), project: requestProject, repo: requestRepo || undefined }, options }
+          : { run: chosen?.id, options },
+      );
       upsertRun(run);
       showTeamRun(run.run);
       workflow = "";
       budget = null;
       picked = null;
+      text = "";
+      mode = null;
     } catch (e) {
       error = String(e);
     } finally {
@@ -66,7 +84,50 @@
   <section class="launch" aria-labelledby="team-launch">
     <h2 id="team-launch">{t("teamRunsLaunch")}</h2>
     <p class="help">{t("teamRunsHow")}</p>
-    {#if chosen}
+    <div class="segmented" role="radiogroup" aria-label={t("teamRunsLaunch")}>
+      <button type="button" role="radio" aria-checked={shownMode === "run"} onclick={() => (mode = "run")}>
+        <Ticket size={14} aria-hidden="true" />{t("ctoEntryFromRun")}
+      </button>
+      <button type="button" role="radio" aria-checked={shownMode === "text"} onclick={() => (mode = "text")}>
+        <PenLine size={14} aria-hidden="true" />{t("ctoEntryFromText")}
+      </button>
+    </div>
+    {#if shownMode === "text"}
+      <label class="labelled request">
+        <span>{t("ctoEntryText")}</span>
+        <textarea class="field" rows="5" placeholder={t("ctoEntryTextHint")} bind:value={text}></textarea>
+      </label>
+      <p class="help">{t("ctoEntryTextHelp")}</p>
+      {#if app.project === null || repos.length > 1}
+        <div class="where">
+          {#if app.project === null}
+            <label class="labelled">
+              <span>{t("ctoEntryProject")}</span>
+              <select class="field" value={requestProject} onchange={(e) => (pickedProject = e.currentTarget.value)}>
+                {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+              </select>
+            </label>
+          {/if}
+          {#if repos.length > 1}
+            <label class="labelled">
+              <span>{t("ctoEntryRepo")}</span>
+              <select class="field" value={requestRepo} onchange={(e) => (pickedRepo = e.currentTarget.value)}>
+                {#each repos as r (r.path)}<option value={r.name}>{r.name}</option>{/each}
+              </select>
+            </label>
+          {/if}
+        </div>
+      {/if}
+      {#if requestProject}<TeamOptions project={requestProject} bind:workflow bind:budget />{/if}
+      {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
+      <div class="buttons">
+        {#if runs.length}<button class="btn sm" onclick={() => (team.launching = false)}>{t("cancel")}</button>{/if}
+        <button class="btn sm primary" disabled={busy || !text.trim() || !requestProject || !!budgetError(budget)} onclick={launch}>
+          {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Play size={14} aria-hidden="true" />{/if}
+          {t("teamRunsLaunch")}
+        </button>
+      </div>
+    {:else if chosen}
       <label class="labelled">
         <span>{t("teamRunsTicketRun")}</span>
         <select class="field" value={chosen.id} onchange={(e) => (picked = Number(e.currentTarget.value))}>
@@ -119,7 +180,7 @@
             aria-current={run === shown && !team.launching}
             onclick={() => Object.assign(team, { selected: run.run, launching: false })}
           >
-            <span class="name"><span class="mono">{run.target.ticket}</span> {run.target.title}</span>
+            <span class="name"><span class="mono">{ticketKey(run.target.ticket)}</span> {run.target.title}</span>
             <span class="desc">
               {run.workflow} · {usd(run.cost)}{run.budget !== null ? ` / ${usd(run.budget)}` : ""}{now ? ` · ${now}` : ""}
             </span>
@@ -173,6 +234,30 @@
 
   .launch .labelled {
     max-width: 420px;
+  }
+
+  .launch .request {
+    max-width: none;
+  }
+
+  textarea.field {
+    height: auto;
+    padding: 6px 8px;
+    resize: vertical;
+  }
+
+  .segmented {
+    align-self: flex-start;
+  }
+
+  .where {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+
+  .where .labelled {
+    width: 200px;
   }
 
   .buttons {

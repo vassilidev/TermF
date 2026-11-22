@@ -1435,7 +1435,8 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
     )]);
     env.answer("triage.2.json", asks);
     let mut good = routing("default", &["api"]);
-    good["skip"] = json!(["frame"]);
+    // prd is off anyway: left out of the routing.
+    good["skip"] = json!(["frame", "prd"]);
     good["add"] = json!(["ux"]);
     good["efforts"] = json!([{"step": "security", "effort": "low"}]);
     env.answer("triage.3.json", good);
@@ -1898,7 +1899,7 @@ fn real_team() {
     assert!(
         run.steps
             .iter()
-            .filter(|s| s.agent() && !s.plan)
+            .filter(|s| s.agent() && !s.plan && s.key != TRIAGE)
             .all(|s| s.report.is_some())
     );
     assert!(run.cost > 0.0 && run.cost < 1.5, "{}", run.cost);

@@ -642,6 +642,7 @@ impl Team {
             run.budget = Some(routing.budget_usd);
         }
         routing.changed = true;
+        inner.normalize(&run, &mut routing);
         run.routing = Some(routing);
         for i in [t, g] {
             let step = &mut run.steps[i];
@@ -1106,6 +1107,7 @@ impl Inner {
             .iter()
             .map(|q| q.question.clone())
             .collect();
+        self.normalize(run, &mut routing);
         let summary = route::describe(&routing);
         run.routing = Some(routing);
         if !questions.is_empty() {
@@ -1129,6 +1131,18 @@ impl Inner {
                     .unwrap_or(true),
             },
         )
+    }
+
+    /// The routing without what changes nothing in its workflow, so that it says only what differs.
+    fn normalize(&self, run: &TeamRun, routing: &mut Routing) {
+        if let Ok(workflow) = workflow::load(
+            &self.config_dir,
+            Some(&run.target.project),
+            Some(&run.target.repo_path),
+            &routing.workflow,
+        ) {
+            route::normalize(routing, &workflow);
+        }
     }
 
     fn routed_workflow(&self, run: &TeamRun, routing: &Routing) -> Result<workflow::Workflow> {

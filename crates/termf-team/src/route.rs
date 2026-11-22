@@ -255,6 +255,13 @@ fn check_steps(
     }
 }
 
+/// Leaves out what changes nothing: a step skipped that is off anyway, one added that runs anyway.
+pub fn normalize(routing: &mut Routing, workflow: &Workflow) {
+    let enabled = |id: &String| workflow.steps.get(id).is_some_and(|s| s.enabled);
+    routing.skip.retain(enabled);
+    routing.add.retain(|id| !enabled(id));
+}
+
 /// `[team] <key>` of a TOML file, when it says.
 pub fn flag(file: &Path, key: &str) -> Result<Option<bool>> {
     let Ok(text) = fs::read_to_string(file) else {

@@ -17,7 +17,7 @@ export function byTheme(questions: Question[]): [Theme, Question[]][] {
 }
 
 /** The answer once `option` is clicked: one option for a choice or yes/no, ticked or not for a multiple choice. */
-export function pick(q: Question, value: string[], option: string): string[] {
+export function pick(q: Pick<Question, "kind" | "options">, value: string[], option: string): string[] {
   if (q.kind !== "multi") return [option];
   const next = value.includes(option) ? value.filter((v) => v !== option) : [...value, option];
   return q.options.filter((o) => next.includes(o));

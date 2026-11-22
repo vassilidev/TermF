@@ -18,13 +18,50 @@ export type Task = {
   /** Empty: the only squad, or the staff; absent from a plan made before squads. */
   squad?: string;
 };
+export type QuestionKind = "choice" | "multi" | "bool" | "text";
+/** A question of a step's questionnaire; one stored before the questionnaire is a bare sentence with no id. */
+export type Question = {
+  id: string;
+  theme: string;
+  question: string;
+  /** What the answer changes, or the side effect the agent found. */
+  why: string;
+  kind: QuestionKind;
+  options: string[];
+  /** The proposed answer, in the shape of an answer. */
+  proposed: string[];
+  /** What each option implies, in the order of `options`; empty when nothing to say. */
+  implications: string[];
+};
 export type Plan = {
   summary: string;
   acceptance: { id: string; text: string }[];
   out_of_scope: string[];
-  questions: string[];
+  questions: Question[];
   tasks: Task[];
 };
+/** The CTO's routing of a run (its triage). */
+export type Routing = {
+  kind: string;
+  size: "S" | "M" | "L";
+  reason: string;
+  workflow: string;
+  skip: string[];
+  add: string[];
+  efforts: { step: string; effort: string }[];
+  squads: string[];
+  questions: Question[];
+  budget_usd: number;
+  /** The user changed it, or set it. */
+  changed: boolean;
+};
+/** A workflow as the triage sees it (`team_workflows`). */
+export type WorkflowView = {
+  name: string;
+  description: string;
+  steps: { id: string; kind: StepKind; role: string | null; optional: boolean; on: boolean }[];
+};
+export type Answer = { step: string; question: Question; answer: string[]; at: number };
 /** What a step's agent reports (appendix B). */
 export type Report = {
   status: "done" | "blocked" | "failed";
@@ -33,7 +70,7 @@ export type Report = {
   text_changes: { file: string; text: string; justified_by: string }[];
   affected_views: { url: string; state: string; viewports: string[] }[];
   out_of_scope_findings: string[];
-  questions?: string[];
+  questions?: Question[];
 };
 export type Violation = { rule: string; file: string | null; message: string; blocking: boolean };
 export type Step = {
@@ -68,6 +105,9 @@ export type TeamRun = {
   budget: number | null;
   cost: number;
   plan: Plan | null;
+  /** Absent for a run that had no triage. */
+  routing?: Routing | null;
+  answers?: Answer[];
   steps: Step[];
   /** Why it waits, is paused, stopped or out of budget. */
   note: string | null;
@@ -101,9 +141,13 @@ export function levels(tasks: Task[]): Task[][] {
  * What a step waiting for the user asks: approve the plan, answer questions, review the interface, let the delivery
  * through, pass another gate, or decide on a step that failed.
  */
-export type AskKind = "plan" | "questions" | "visual" | "deliver" | "gate" | "blocked";
-/** `accept`: approving it as it is can work (never a plan step: it has no plan, or questions). */
-export type Ask = { kind: AskKind; step: Step; questions: string[]; accept: boolean };
+export type AskKind = "route" | "plan" | "questions" | "visual" | "deliver" | "gate" | "blocked";
+/** `accept`: approving it as it is can work (never a plan step or the triage: they have no answer yet, or questions). */
+export type Ask = { kind: AskKind; step: Step; questions: Question[]; accept: boolean };
+
+/** The CTO's first step of every run, and the gate where the user approves its routing. */
+export const TRIAGE = "triage";
+export const ROUTE = "approve-route";
 
 const working = (run: TeamRun) => run.state === "running" || run.state === "waiting";
 
@@ -115,11 +159,14 @@ export function asks(run: TeamRun): Ask[] {
     .filter((step) => step.state === "waiting" || step.state === "blocked")
     .map((step) => {
       if (step.state === "blocked") {
-        const questions = (step.plan ? run.plan?.questions : step.report?.questions) ?? [];
-        return { kind: questions.length ? "questions" : "blocked", step, questions, accept: !step.plan };
+        const triage = step.key === TRIAGE;
+        const questions = (triage ? run.routing?.questions : step.plan ? run.plan?.questions : step.report?.questions) ?? [];
+        return { kind: questions.length ? "questions" : "blocked", step, questions, accept: !step.plan && !triage };
       }
       const kind: AskKind =
-        step.kind === "visual"
+        step.key === ROUTE
+          ? "route"
+          : step.kind === "visual"
           ? "visual"
           : step.kind === "connector"
             ? "deliver"
@@ -181,4 +228,70 @@ export function budgetError(amount: number | null | undefined, spent = 0, requir
   if (amount === null || amount === undefined) return required ? "missing" : null;
   if (!Number.isFinite(amount) || amount <= 0) return "invalid";
   return amount > spent ? null : "spent";
+}
+
+/** The themes of a questionnaire, in the order the form shows them. */
+export const themes = ["product", "scope", "interface", "technical", "security", "delivery", "other"];
+
+/** The questions by theme, in a fixed order, a theme it does not know last, empty themes left out. */
+export function byTheme(questions: Question[]): [string, Question[]][] {
+  const order = [...themes, ...new Set(questions.map((q) => q.theme).filter((t) => !themes.includes(t)))];
+  return order
+    .map((theme) => [theme, questions.filter((q) => q.theme === theme)] as [string, Question[]])
+    .filter(([, list]) => list.length);
+}
+
+/** Whether the questions make a form: each has an id (one stored before the questionnaire is a bare sentence). */
+export function isForm(questions: Question[]): boolean {
+  return questions.length > 0 && questions.every((q) => q.id);
+}
+
+/** The answers the form starts with: the proposed ones. */
+export function proposed(questions: Question[]): Record<string, string[]> {
+  return Object.fromEntries(questions.map((q) => [q.id, [...q.proposed]]));
+}
+
+/** The questions left without an answer: one option, yes or no, or a text; a multiple choice may tick nothing. */
+export function unanswered(questions: Question[], answers: Record<string, string[]>): string[] {
+  return questions
+    .filter((q) => {
+      const answer = (answers[q.id] ?? []).filter((a) => a.trim());
+      if (q.kind === "multi") return answer.some((a) => !q.options.includes(a));
+      if (answer.length !== 1) return true;
+      if (q.kind === "bool") return !["yes", "no"].includes(answer[0]);
+      return q.kind === "choice" && !q.options.includes(answer[0]);
+    })
+    .map((q) => q.id);
+}
+
+/** Whether an optional step runs under `routing`: on by default unless skipped, off unless added. */
+export function runs(step: { id: string; on: boolean }, routing: Pick<Routing, "skip" | "add">): boolean {
+  return routing.add.includes(step.id) || (step.on && !routing.skip.includes(step.id));
+}
+
+/**
+ * The routing once the user picks `workflow`, the optional steps that run, the squads and the budget: skip and add
+ * rebuilt against that workflow's defaults, the efforts of the steps it does not run dropped.
+ */
+export function editRouting(
+  routing: Routing,
+  workflow: WorkflowView,
+  running: string[],
+  squads: string[],
+  budget: number,
+): Routing {
+  const optional = workflow.steps.filter((s) => s.optional);
+  const agents = workflow.steps
+    .filter((s) => s.kind === "agent" && (!s.optional || running.includes(s.id)))
+    .map((s) => s.id);
+  return {
+    ...routing,
+    workflow: workflow.name,
+    skip: optional.filter((s) => s.on && !running.includes(s.id)).map((s) => s.id),
+    add: optional.filter((s) => !s.on && running.includes(s.id)).map((s) => s.id),
+    efforts: routing.efforts.filter((e) => agents.includes(e.step)),
+    squads,
+    questions: [],
+    budget_usd: budget,
+  };
 }
