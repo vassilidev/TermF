@@ -1653,8 +1653,9 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
         (None, None),
         "the role file's sonnet and effort are Claude Code's"
     );
+    // A process's end is recorded before the session's new state is saved: each wait below takes both.
     env.until("the first turn and its process's end", || {
-        env.turns(id) == 1 && env.exits(id) == 1
+        env.turns(id) == 1 && env.exits(id) == 1 && env.session(id).state == State::Idle
     });
     let session = env.session(id);
     assert_eq!(session.state, State::Idle, "no process between turns");
@@ -1677,7 +1678,7 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
 
     env.agents.send(id, "and again").unwrap();
     env.until("the second turn", || {
-        env.turns(id) == 2 && env.exits(id) == 2
+        env.turns(id) == 2 && env.exits(id) == 2 && env.session(id).state == State::Idle
     });
     let runs = Env::cli_args(&codex);
     assert_eq!(runs.len(), 2, "one process per turn");
@@ -1721,7 +1722,6 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
             .any(|e| matches!(e, AgentEvent::ToolUse { id, .. } if id == "item_0"))
     });
     env.agents.interrupt(id).unwrap();
-    // The end of the process is recorded before the session's new state is saved: wait for both.
     env.until("the interrupted turn, the conversation going on", || {
         env.turns(id) == 3 && env.exits(id) == 3 && env.session(id).state == State::Idle
     });
@@ -1760,7 +1760,7 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
     };
     let id = env.agents.start(spec, Some("what is this")).unwrap().id;
     env.until("the first turn", || {
-        env.turns(id) == 1 && env.exits(id) == 1
+        env.turns(id) == 1 && env.exits(id) == 1 && env.session(id).state == State::Idle
     });
     let session = env.session(id);
     assert_eq!(
@@ -1802,7 +1802,7 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
 
     env.agents.send(id, "more").unwrap();
     env.until("the second turn", || {
-        env.turns(id) == 2 && env.exits(id) == 2
+        env.turns(id) == 2 && env.exits(id) == 2 && env.session(id).state == State::Idle
     });
     let runs = Env::cli_args(&gemini);
     assert_eq!(
@@ -1838,7 +1838,7 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
     );
     env.agents.interrupt(id).unwrap();
     env.until("the interrupted turn, then the one it kept", || {
-        env.turns(id) == 4 && env.exits(id) == 4
+        env.turns(id) == 4 && env.exits(id) == 4 && env.session(id).state == State::Idle
     });
     let ends: Vec<Outcome> = env
         .events(id)
