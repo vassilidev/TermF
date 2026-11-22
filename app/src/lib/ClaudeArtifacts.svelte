@@ -689,7 +689,6 @@
     color: var(--border-strong);
   }
 
-
   td.actions {
     padding: 0 8px 0 0;
     text-align: right;

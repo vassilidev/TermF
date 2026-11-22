@@ -64,10 +64,11 @@
     invoke<{ saved: boolean }>("worktree_recipe", { project: id }).then((r) => (recipe = r), () => {});
     invoke<RepoStack[]>("library_stack", { project: id }).then((s) => (stacks = s), () => {});
   }
+  /** The cards could not be read: without this, they would show their placeholders forever. */
+  let unread = $state(false);
   if (seed) {
     forgetCards();
-    // Unread, a card would show its placeholders forever: it shows what the project knows instead.
-    readCards(seed.repos.map((r) => r.path)).catch(() => seed.repos.forEach((r) => (cards[r.path] ??= { ...r, stack: null })));
+    readCards(seed.repos.map((r) => r.path)).catch(() => (unread = true));
     readRepos();
     invoke<{ step: Step; log: Log[] }>("onboarding_state", { project: id }).then((s) => (setup = s), () => {});
   }
@@ -161,7 +162,8 @@
   /** A repository as the setup shows it: what the project or discovery knows, then its card once read. */
   function cardOf(path: string) {
     const known = [...(seed?.repos ?? []), ...(app.workspace?.repos ?? [])].find((r) => r.path === path);
-    return { ...(known ?? { name: path.split(/[\\/]/).pop() ?? path, path, modified: null }), ...cards[path] };
+    const base = known ?? { name: path.split(/[\\/]/).pop() ?? path, path, modified: null };
+    return { ...base, ...(cards[path] ?? (unread ? { stack: null } : {})) };
   }
 
   const others = (path: string) =>
@@ -277,7 +279,7 @@
         }))}
         {current}
         label={t("ux3t3Config")}
-        onselect={(s) => (s === "library" ? openLibrary() : select(s))}
+        onselect={(s) => (s === "library" && id ? openLibrary() : select(s))}
         top={search}
         empty={t("filesNoResults")}
       />

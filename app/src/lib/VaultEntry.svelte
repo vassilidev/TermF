@@ -277,7 +277,6 @@
     font-size: var(--text-sm);
   }
 
-
   .head-actions {
     display: flex;
     align-items: center;

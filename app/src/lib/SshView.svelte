@@ -627,6 +627,13 @@
 </div>
 
 <style>
+  /* A key's long file name wraps instead of running out of its column. */
+  .btn.link {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
   .ssh {
     display: flex;
     flex-direction: column;

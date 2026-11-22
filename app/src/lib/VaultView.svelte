@@ -650,7 +650,6 @@
     transition: opacity var(--dur-fast) ease-out;
   }
 
-
   .row:hover .quick,
   .row.current .quick,
   .quick:focus-within {

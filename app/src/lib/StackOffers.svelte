@@ -272,8 +272,12 @@
     font-weight: 600;
   }
 
+  /* A long repository name wraps instead of running out of the card. */
   .btn.link {
     font-weight: 600;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
   }
 
   .check {

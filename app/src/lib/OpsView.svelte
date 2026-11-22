@@ -47,7 +47,7 @@
   const requests = $derived(ops.requests.filter((r) => r.project === project?.id));
   const kindLabel = (k: Kind) => t(`opsKind${k[0].toUpperCase()}${k.slice(1)}` as Key);
   /** A shipped recipe's English text in the user's language; a recipe's own words show as written. */
-  const said = (text: string) => (shippedTexts[text] ? t(shippedTexts[text] as Key) : text);
+  const said = (text: string) => (Object.hasOwn(shippedTexts, text) ? t(shippedTexts[text] as Key) : text);
   const access = (c: Connection) =>
     t(c.ai_access === "full" ? "opsAccessFull" : c.ai_access === "redacted" ? "opsAccessRedacted" : "opsAccessNone");
 
@@ -565,7 +565,6 @@
     background: var(--danger);
     color: var(--danger-text);
   }
-
 
   header h2 {
     margin: 0;
