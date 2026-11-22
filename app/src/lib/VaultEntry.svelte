@@ -38,9 +38,8 @@
     try {
       return await invoke<string>("vault_reveal", { name: secret?.name, scope: secret?.scope, project: secret?.project });
     } catch (e) {
-      if (!/needs the master password again/.test(String(e))) throw e;
-      reauth = true;
-      throw t("vaultProdAgain");
+      if (/needs the master password again/.test(String(e))) reauth = true;
+      throw e;
     }
   }
 
@@ -147,7 +146,8 @@
     <form class="reauth" onsubmit={confirm}>
       <label class="labelled">
         {t("vaultProdAgain")}
-        <input class="field" type="password" autocomplete="current-password" bind:value={password} required />
+        <!-- svelte-ignore a11y_autofocus (asked for right after the reveal) -->
+        <input class="field" type="password" autocomplete="current-password" bind:value={password} required autofocus />
       </label>
       <button type="submit" class="btn primary" disabled={busy || !password}>{t("vaultConfirm")}</button>
     </form>
@@ -258,8 +258,21 @@
     border-top: 1px solid var(--border);
   }
 
-  .fields :global(.field-row.multiline) {
-    align-items: start;
+  /* A note shown takes the whole width under its label. */
+  .fields :global(.field-row.multiline.open) {
+    grid-template-areas: "label . tools" "value value value";
+  }
+
+  .fields :global(.field-row.multiline.open .label) {
+    grid-area: label;
+  }
+
+  .fields :global(.field-row.multiline.open .value) {
+    grid-area: value;
+  }
+
+  .fields :global(.field-row.multiline.open .tools) {
+    grid-area: tools;
   }
 
   .fields :global(.field-row .label) {

@@ -66,9 +66,10 @@ export async function refreshVault() {
   }
 }
 
-/** An error to show, unless the vault locked meanwhile: its screen then says so. */
+/** An error to show, unless the vault locked meanwhile, or prod asks for the password: their screens say so. */
 export function failed(e: unknown): string {
   const text = String(e);
+  if (/needs the master password again/.test(text)) return "";
   if (/the vault is locked/.test(text)) {
     refreshVault();
     return "";

@@ -5,12 +5,12 @@ import FolderTree from "@lucide/svelte/icons/folder-tree";
 import House from "@lucide/svelte/icons/house";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import SettingsIcon from "@lucide/svelte/icons/settings";
 import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
 import Ticket from "@lucide/svelte/icons/ticket";
-import Vault from "@lucide/svelte/icons/vault";
 import Workflow from "@lucide/svelte/icons/workflow";
 import type { t } from "$lib/i18n";
 import { agents, showConversations } from "$lib/agents.svelte";
@@ -112,7 +112,7 @@ export const views: View[] = [
     id: "vault",
     label: "vaultTitle",
     command: "vaultShow",
-    icon: Vault,
+    icon: LockKeyhole,
     group: "project",
     show: showVault,
     loaded: () => vault.loaded,
@@ -193,7 +193,7 @@ export const views: View[] = [
     id: "vaultAll",
     label: "vaultTitle",
     command: "vaultShowAll",
-    icon: Vault,
+    icon: LockKeyhole,
     group: "machine",
     show: showVaultAll,
     loaded: () => vault.loadedAll,

@@ -30,9 +30,9 @@ const list = entries(
 );
 const names = (l) => l.map((e) => (e.type === "item" ? e.item.title : e.secret.name));
 
-test("visible: the project's entries and the global ones, by title; every one without a project", () => {
-  assert.deepEqual(names(visible(list, "acme", "all", "")), ["DATABASE_URL", "GitHub", "Stripe", "Wi-Fi du bureau"]);
-  assert.deepEqual(names(visible(list, null, "all", "")), ["AWS", "DATABASE_URL", "GitHub", "Stripe", "Wi-Fi du bureau"]);
+test("visible: the project's entries and the global ones, by title, secrets last; every one without a project", () => {
+  assert.deepEqual(names(visible(list, "acme", "all", "")), ["GitHub", "Stripe", "Wi-Fi du bureau", "DATABASE_URL"]);
+  assert.deepEqual(names(visible(list, null, "all", "")), ["AWS", "GitHub", "Stripe", "Wi-Fi du bureau", "DATABASE_URL"]);
 });
 
 test("visible: filters by kind, and searches title, user name, address and project name, accents aside", () => {
@@ -52,7 +52,7 @@ test("sections: the current project first, the others by name, the global entrie
     cut.map((s) => [s.project, names(s.entries)]),
     [
       ["other", ["AWS"]],
-      ["acme", ["DATABASE_URL", "Stripe", "Wi-Fi du bureau"]],
+      ["acme", ["Stripe", "Wi-Fi du bureau", "DATABASE_URL"]],
       [null, ["GitHub"]],
     ],
   );

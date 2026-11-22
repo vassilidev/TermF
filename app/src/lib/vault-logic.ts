@@ -61,7 +61,7 @@ function words(entry: Entry, projectName: (id: string) => string): string {
 
 /**
  * The entries `project` sees (its own and the global ones; every one for `null`) that match the filter and every word
- * of the query, case and accents aside; by title.
+ * of the query, case and accents aside; by title, the items before the secrets.
  */
 export function visible(
   list: Entry[],
@@ -78,7 +78,12 @@ export function visible(
       const text = fold(words(e, projectName));
       return asked.every((w) => text.includes(w));
     })
-    .sort((a, b) => fold(title(a)).localeCompare(fold(title(b))) || a.key.localeCompare(b.key));
+    .sort(
+      (a, b) =>
+        Number(a.type === "secret") - Number(b.type === "secret") ||
+        fold(title(a)).localeCompare(fold(title(b))) ||
+        a.key.localeCompare(b.key),
+    );
 }
 
 export const title = (e: Entry) => (e.type === "item" ? e.item.title : e.secret.name);

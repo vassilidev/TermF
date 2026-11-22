@@ -63,7 +63,7 @@
   });
 </script>
 
-<div class="field-row" class:multiline>
+<div class="field-row" class:multiline class:open={!!text}>
   <span class="label">{label}</span>
   <div class="value">
     {#if text}

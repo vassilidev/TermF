@@ -9,7 +9,7 @@
   import Search from "@lucide/svelte/icons/search";
   import StickyNote from "@lucide/svelte/icons/sticky-note";
   import Timer from "@lucide/svelte/icons/timer";
-  import VaultIcon from "@lucide/svelte/icons/vault";
+  import VaultIcon from "@lucide/svelte/icons/lock-keyhole";
   import { invoke } from "@tauri-apps/api/core";
   import { getContext } from "svelte";
   import VaultEntry from "$lib/VaultEntry.svelte";
