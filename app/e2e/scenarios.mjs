@@ -1,6 +1,6 @@
 // What a developer discovering TermF does, one scenario at a time, each in its own sandbox. `views`: the views of
 // `views.ts` (and the pages beside them) the scenario is about; every view of `views.ts` needs one.
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { text } from "./harness.mjs";
 import { Key } from "./webdriver.mjs";
@@ -102,6 +102,36 @@ export const scenarios = [
       await s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === answer), {
         what: `${answer} in the terminal`,
       });
+      await t.clean();
+    },
+  },
+  {
+    name: "terminal: off screen, xterm goes; back, it shows what was written meanwhile",
+    views: [],
+    only: "linux",
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      await t.command(`repo-shell-${box.acme}`);
+      const id = await t.tile();
+      await t.prompt(id);
+      const done = join(box.home, "hidden-done");
+      await t.typeIn(id, `seq 1 50; sleep 2; echo hidden-$((6*7)); touch ${done}` + Key.enter);
+      await s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === "50"), { what: "50 in the terminal" });
+      await t.view("home");
+      await s.wait(() => s.exec((sid) => !document.querySelector(`.tile[data-session="${sid}"] .xterm`), id), {
+        what: "the hidden terminal to let xterm go",
+      });
+      await s.wait(() => existsSync(done), { what: "the shell to write while hidden", timeout: 30_000 });
+      await t.view("terminals");
+      await s.wait(
+        async () => {
+          const lines = (await t.terminal(id)).split("\n").map((l) => l.trim());
+          return lines.includes("50") && lines.includes("hidden-42");
+        },
+        { what: "the scrollback and what was written while hidden" },
+      );
       await t.clean();
     },
   },

@@ -305,7 +305,14 @@ fn artifacts_state(app: &AppHandle) -> Artifacts {
 
 fn changed(app: &AppHandle) {
     let _ = app.emit("artifacts", artifacts_state(app));
+    // A listing or a deletion that starts has its time limits watched from now on.
+    if let Some(watcher) = WATCHER.get() {
+        watcher.unpark();
+    }
 }
+
+/// The thread of `watch`.
+static WATCHER: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
 
 #[tauri::command]
 pub fn artifacts_list(app: AppHandle) -> Artifacts {
@@ -621,7 +628,7 @@ pub fn exited(app: &AppHandle, id: u32) {
 /// Times the listing out, and lists the account at startup then every `[artifacts] refresh_hours`.
 pub fn watch(app: &AppHandle) {
     let app = app.clone();
-    std::thread::spawn(move || {
+    let watcher = std::thread::spawn(move || {
         // Leaves the app time to start before a first automatic listing.
         std::thread::sleep(Duration::from_secs(30));
         loop {
@@ -651,9 +658,17 @@ pub fn watch(app: &AppHandle) {
             if due && let Err(e) = start(&app, false) {
                 eprintln!("termf: artifacts not listed: {e:#}");
             }
-            std::thread::sleep(Duration::from_secs(5));
+            let busy =
+                claude.refresh.lock().unwrap().running || claude.deletion.lock().unwrap().running;
+            // At rest, only the next automatic listing is waited for, hours away; `changed` wakes it sooner.
+            if busy {
+                std::thread::sleep(Duration::from_secs(5));
+            } else {
+                std::thread::park_timeout(Duration::from_secs(600));
+            }
         }
     });
+    let _ = WATCHER.set(watcher.thread().clone());
 }
 
 #[cfg(test)]
