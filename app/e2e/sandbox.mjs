@@ -1,7 +1,7 @@
 // A throwaway world for one run of the app: home, config, data, a git repository "acme", and fake `claude` and
 // `gh` first on the PATH. Nothing of the machine's own config, keyring or accounts is reachable from it.
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -137,9 +137,14 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     env,
     calls: env.TERMF_E2E_LOG,
     git: (...args) => execFileSync("git", args, { cwd: acme, env, encoding: "utf8" }),
+    /** A process of the app still ending can write there meanwhile: what cannot go is left, and said. */
     cleanup() {
       for (const d of [root, ...(windows ? Object.values(dirs) : [])]) {
-        if (existsSync(d)) rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+        try {
+          rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+        } catch (e) {
+          console.warn(`  (sandbox left in place: ${e.message})`);
+        }
       }
     },
   };
