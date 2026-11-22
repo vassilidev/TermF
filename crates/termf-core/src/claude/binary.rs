@@ -1,5 +1,5 @@
 //! Which Claude Code TermF runs. A bare `claude` is looked for where Claude Code's installer puts it, then on the
-//! login shell's PATH, which lacks what only an interactive shell adds (`~/.local/bin` set in `.zshrc`): the
+//! login shell's PATH, then where an interactive shell finds it (`.zshrc` may add it: npm under nvm…): the
 //! newest found wins. A path set in `[agents]` is always the one run.
 
 use std::cmp::Reverse;
@@ -88,13 +88,14 @@ impl Found {
             let newer = self
                 .others
                 .iter()
-                .filter(|o| {
-                    o.version
-                        .as_deref()
-                        .is_some_and(|v| numbers(v) >= numbers(MIN_VERSION))
-                })
-                .max_by_key(|o| o.version.as_deref().map(numbers));
-            let such = newer.map_or_else(String::new, |n| format!(", such as {n}"));
+                .filter(|o| rank(o).0 == 2)
+                .max_by_key(|o| rank(o));
+            let unknown = self.others.iter().find(|o| o.version.is_none());
+            let such = match (newer, unknown) {
+                (Some(n), _) => format!(", such as {n}"),
+                (None, Some(u)) => format!(", such as the one {u}, whose version is unknown"),
+                (None, None) => String::new(),
+            };
             bail!(
                 "Claude Code {old} is too old: TermF needs {MIN_VERSION} or later. Update it (`claude update`), or set \
                  `claude` in termf.toml [agents] to the path of a recent install{such}"
@@ -110,17 +111,45 @@ impl Found {
 
 /// What `program`, the first word of an `[agents]` command, runs on this machine.
 pub fn find(program: &str) -> Found {
-    let (home, path) = places();
-    find_in(program, home.as_deref(), &path)
+    find_in(program, dirs::home_dir().as_deref(), &search_path())
 }
 
-/// The home folder and the login shell's PATH.
-fn places() -> (Option<PathBuf>, OsString) {
+/// The login shell's PATH, then the folder of the `claude` an interactive login shell runs, as a tile's.
+pub fn search_path() -> OsString {
     let path = crate::shell::login_path()
         .map(OsStr::to_os_string)
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default();
-    (dirs::home_dir(), path)
+    let Some(dir) = interactive().and_then(|c| c.parent().map(Path::to_path_buf)) else {
+        return path;
+    };
+    std::env::join_paths(std::env::split_paths(&path).chain([dir])).unwrap_or(path)
+}
+
+/// Asked again until a shell answered in time.
+fn interactive() -> Option<PathBuf> {
+    static FOUND: Mutex<Option<Option<PathBuf>>> = Mutex::new(None);
+    if let Some(found) = FOUND.lock().unwrap().clone() {
+        return found;
+    }
+    let shell = std::env::var_os("SHELL").filter(|_| cfg!(unix))?;
+    let found = interactive_in(Path::new(&shell)).ok()?;
+    *FOUND.lock().unwrap() = Some(found.clone());
+    found
+}
+
+/// The `claude` the interactive login shell `shell` runs; `Err` when it did not answer in time.
+fn interactive_in(shell: &Path) -> Result<Option<PathBuf>> {
+    let mut cmd = Command::new(shell);
+    cmd.args(["-l", "-i", "-c", "command -v claude"]);
+    let (_, out, _) = crate::process::run(cmd, b"", PROBE_TIMEOUT)?;
+    // Profiles may print their own lines first; an alias or a function is no path.
+    Ok(String::from_utf8_lossy(&out)
+        .lines()
+        .map(str::trim)
+        .rfind(|l| l.starts_with('/'))
+        .map(PathBuf::from)
+        .filter(|p| p.is_file()))
 }
 
 /// [`find`] in the home folder `home` and the folders of `path`. A program other than `claude` is taken as is.
@@ -173,17 +202,26 @@ fn search(program: &str, home: Option<&Path>, path: &OsStr, others: bool) -> Fou
     let chosen = if all.first().is_some_and(|i| i.origin == Origin::Setting) {
         Some(0)
     } else {
-        // The first of the newest; a version that cannot be read comes last.
-        (0..all.len()).min_by_key(|&i| Reverse(all[i].version.as_deref().map(numbers)))
+        // The first of the best ranked.
+        (0..all.len()).min_by_key(|&i| Reverse(rank(&all[i])))
     };
     let install = chosen.map(|i| all.remove(i));
     Found::new(install, all)
 }
 
+/// The newest of those recent enough, then one whose version could not be read (it may be recent), then the
+/// newest of the older ones.
+fn rank(install: &Install) -> (u8, Vec<u64>) {
+    match install.version.as_deref().map(numbers) {
+        Some(v) if v >= numbers(MIN_VERSION) => (2, v),
+        None => (1, Vec::new()),
+        Some(v) => (0, v),
+    }
+}
+
 /// What `program` runs, refused before it runs when it is too old (see [`Found::usable`]).
 pub fn binary(program: &str) -> Result<Install> {
-    let (home, path) = places();
-    resolve(program, home.as_deref(), &path)
+    resolve(program, dirs::home_dir().as_deref(), &search_path())
 }
 
 /// A path set is run without asking the other installs their version, unless it is too old: then a newer one is
@@ -215,17 +253,26 @@ fn replace(
     if install.origin == Origin::Setting || install.path == Path::new(program) {
         return Ok((command.to_owned(), install));
     }
-    let path = install.path.to_string_lossy();
-    // Unquoted when it can be: cmd.exe drops the first and last quotes of a command that starts with one.
+    let start = start(&install.path.to_string_lossy(), quote);
+    Ok((format!("{start}{}", &trimmed[end..]), install))
+}
+
+/// How a command run by `termf_term::shell_command`'s shell starts the program at `path`, quoted by `quote`.
+pub fn start(path: &str, quote: impl Fn(&str) -> String) -> String {
+    starting(path, quote, cfg!(windows))
+}
+
+fn starting(path: &str, quote: impl Fn(&str) -> String, windows: bool) -> String {
     let plain = path
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || "/\\._-:+@".contains(c));
-    let path = if plain {
-        path.into_owned()
-    } else {
-        quote(&path)
-    };
-    Ok((format!("{path}{}", &trimmed[end..]), install))
+    match path.rsplit_once(['\\', '/']) {
+        _ if plain => path.to_owned(),
+        // cmd.exe drops the first and last quotes of a command that starts with one, and the command reaches it
+        // quoted with `\"` inside: no quote at all, its folder first on the PATH instead.
+        Some((dir, file)) if windows => format!("set PATH={dir};%PATH%&& {file}"),
+        _ => quote(path),
+    }
 }
 
 /// A headless run without its answer: which Claude Code it was, then what it printed on stderr.
@@ -248,8 +295,12 @@ fn numbers(version: &str) -> Vec<u64> {
 /// Each file's modification time and version.
 type Versions = BTreeMap<PathBuf, (Option<SystemTime>, Option<String>)>;
 
-/// `<path> --version`, asked again only once the file changed.
+/// `<path> --version`, asked again only once the file changed, or when it did not answer in time.
 fn version(path: &Path, search: &OsStr) -> Option<String> {
+    version_within(path, search, PROBE_TIMEOUT)
+}
+
+fn version_within(path: &Path, search: &OsStr, timeout: Duration) -> Option<String> {
     static CACHE: Mutex<Versions> = Mutex::new(BTreeMap::new());
     let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let modified = std::fs::metadata(&key).and_then(|m| m.modified()).ok();
@@ -263,20 +314,24 @@ fn version(path: &Path, search: &OsStr) -> Option<String> {
     cmd.arg("--version").env("PATH", search);
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-    let version = crate::process::run(cmd, b"", PROBE_TIMEOUT)
+    let probed = crate::process::run(cmd, b"", timeout);
+    let version = probed
+        .as_ref()
         .ok()
         .filter(|(status, ..)| status.success())
         .and_then(|(_, out, _)| {
-            let text = String::from_utf8_lossy(&out);
+            let text = String::from_utf8_lossy(out);
             let word = text.lines().next()?.split_whitespace().next()?;
             let word = word.strip_prefix('v').unwrap_or(word);
             word.starts_with(|c: char| c.is_ascii_digit())
                 .then(|| word.to_owned())
         });
-    CACHE
-        .lock()
-        .unwrap()
-        .insert(key, (modified, version.clone()));
+    if probed.is_ok() {
+        CACHE
+            .lock()
+            .unwrap()
+            .insert(key, (modified, version.clone()));
+    }
     version
 }
 
@@ -310,17 +365,21 @@ mod tests {
 
         /// The same, which runs `body` for anything else.
         fn claude_running(&self, rel: &str, version: &str, body: &str) -> PathBuf {
-            let path = self.root.join(rel);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            let count = path.with_extension("count");
-            fs::write(
-                &path,
-                format!(
-                    "#!/bin/sh\nif [ \"$1\" != --version ]; then\n{body}\nfi\necho x >> '{}'\necho '{version} (Claude Code)'\n",
+            let count = self.root.join(rel).with_extension("count");
+            self.script(
+                rel,
+                &format!(
+                    "if [ \"$1\" != --version ]; then\n{body}\nfi\necho x >> '{}'\necho '{version} (Claude Code)'",
                     count.display()
                 ),
             )
-            .unwrap();
+        }
+
+        /// A shell script, run once without arguments.
+        fn script(&self, rel: &str, body: &str) -> PathBuf {
+            let path = self.root.join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
             // A process another test forks while the file is open for writing keeps it busy (ETXTBSY on Linux)
             // until it execs: wait for one run to start.
@@ -386,6 +445,15 @@ mod tests {
         b.claude("brew/bin/claude", "2.1.330");
         assert_eq!(picked(&b.find("claude", &["brew/bin"])).2, Origin::Native);
 
+        // A version that cannot be read is tried before an older one, which would be refused.
+        let broken = b.script("odd/bin/claude", "exit 1");
+        b.claude("brew/bin/claude", "2.0.1");
+        fs::rename(&native, b.root.join("native.bak")).unwrap();
+        let found = b.find("claude", &["brew/bin", "odd/bin"]);
+        assert_eq!(picked(&found), (broken.as_path(), None, Origin::Path));
+        assert!(!found.too_old);
+        fs::rename(b.root.join("native.bak"), &native).unwrap();
+
         // The older local install, and the same file twice on PATH, counted once.
         fs::remove_file(&native).unwrap();
         let legacy = b.claude("home/.claude/local/claude", "2.1.300");
@@ -443,6 +511,21 @@ mod tests {
         assert!(error.starts_with("Claude Code 2.0.1 at "), "{error}");
         assert!(!error.contains("such as"), "{error}");
 
+        // An install whose version cannot be read is named.
+        let odd = b.script("odd/bin/claude", "exit 1");
+        let error = b
+            .find(&old.to_string_lossy(), &["odd/bin"])
+            .usable("x")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.ends_with(&format!(
+                "such as the one at {}, whose version is unknown",
+                odd.display()
+            )),
+            "{error}"
+        );
+
         let set = b.claude("opt/claude", "2.1.288");
         let found = b.find(&set.to_string_lossy(), &["brew/bin"]);
         assert_eq!(
@@ -493,6 +576,45 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
         b.claude("home/.local/bin/claude", "2.1.331");
         assert_eq!(picked(&b.find("claude", &[])).1, Some("2.1.331"));
+
+        // Too slow once: asked again the next time.
+        let mark = b.root.join("asked");
+        let slow = b.script(
+            "slow/claude",
+            &format!(
+                "[ \"$1\" = --version ] || exit 0\n[ -e '{0}' ] || {{ touch '{0}'; sleep 5; }}\necho '2.1.330 (Claude Code)'",
+                mark.display()
+            ),
+        );
+        let (quick, path) = (Duration::from_secs(1), std::env::var_os("PATH").unwrap());
+        assert_eq!(version_within(&slow, &path, quick), None);
+        assert_eq!(
+            version_within(&slow, &path, quick).as_deref(),
+            Some("2.1.330")
+        );
+    }
+
+    #[test]
+    fn finds_the_claude_an_interactive_shell_runs() {
+        let b = Sandbox::new("interactive");
+        let nvm = b.claude("nvm/bin/claude", "2.1.400");
+        let shell = b.script(
+            "shell",
+            &format!(
+                "[ \"$*\" = '-l -i -c command -v claude' ] || exit 1\necho 'Welcome back'\necho '{}'",
+                nvm.display()
+            ),
+        );
+        assert_eq!(interactive_in(&shell).unwrap(), Some(nvm.clone()));
+        let shell = b.script("shell", "echo 'claude: aliased to npx claude'");
+        assert_eq!(interactive_in(&shell).unwrap(), None, "an alias is no path");
+        // Its folder after the login PATH: recent there, it is run rather than an older one refused.
+        b.claude("brew/bin/claude", "2.0.1");
+        let found = b.find("claude", &["brew/bin", "nvm/bin"]);
+        assert_eq!(
+            picked(&found),
+            (nvm.as_path(), Some("2.1.400"), Origin::Path)
+        );
     }
 
     #[test]
@@ -516,6 +638,21 @@ mod tests {
             "quoted only when it must be"
         );
         fs::remove_file(&spaced).unwrap();
+        // cmd.exe: never a leading quote.
+        let quote = |s: &str| format!("\"{s}\"");
+        assert_eq!(
+            starting(r"C:\Users\Jérôme\.local\bin\claude.exe", quote, true),
+            r"set PATH=C:\Users\Jérôme\.local\bin;%PATH%&& claude.exe"
+        );
+        assert_eq!(
+            starting(r"C:\Users\jo\.local\bin\claude.exe", quote, true),
+            r"C:\Users\jo\.local\bin\claude.exe"
+        );
+        assert_eq!(
+            starting("/opt/my tools/claude", quote, false),
+            "\"/opt/my tools/claude\""
+        );
+        let quote = |s: &str| format!("'{s}'");
         for same in [
             "~/bin/claude -c",
             "/bin/echo claude",

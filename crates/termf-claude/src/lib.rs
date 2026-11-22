@@ -52,7 +52,7 @@ impl Env {
             claude_dir: claude_dir(),
             managed_dir: managed_dir(),
             repo,
-            path: termf_core::shell::login_path().map(OsString::from),
+            path: Some(termf_core::claude::search_path()),
             home: Some(termf_core::expand_tilde("~")),
             claude,
         }
