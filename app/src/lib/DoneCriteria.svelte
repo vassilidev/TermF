@@ -1,6 +1,7 @@
 <script lang="ts">
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import CircleX from "@lucide/svelte/icons/circle-x";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { t } from "$lib/i18n";
   import type { Done } from "$lib/team-run-logic";
 
@@ -21,9 +22,10 @@
   <b class="title">{t("disciplineDoneTitle")}</b>
   <ul>
     {#each done.criteria as c (c.id)}
-      <li class:unmet={!c.met}>
-        {#if c.met}<CircleCheck size={14} aria-hidden="true" />{:else}<CircleX size={14} aria-hidden="true" />{/if}
-        <span class="label">{label(c.id)}<span class="sr-only">, {t(c.met ? "disciplineDoneMet" : "disciplineDoneUnmet")}</span></span>
+      {@const warned = !c.met && !!c.warn}
+      <li class:unmet={!c.met && !warned} class:warned>
+        {#if c.met}<CircleCheck size={14} aria-hidden="true" />{:else if warned}<TriangleAlert size={14} aria-hidden="true" />{:else}<CircleX size={14} aria-hidden="true" />{/if}
+        <span class="label">{label(c.id)}<span class="sr-only">, {t(c.met ? "disciplineDoneMet" : warned ? "qaTeamDoneWarned" : "disciplineDoneUnmet")}</span></span>
         <!-- What holds a criterion matters; a met one needs no word. -->
         {#if !c.met && c.note}<span class="note">{c.note}</span>{/if}
       </li>
@@ -70,6 +72,10 @@
 
   li.unmet {
     color: var(--danger);
+  }
+
+  li.warned {
+    color: var(--warning);
   }
 
   .label {

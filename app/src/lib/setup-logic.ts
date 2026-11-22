@@ -9,7 +9,8 @@ export type Card = {
   branch?: string | null;
   remote?: Remote | null;
   changes?: number;
-  stack?: string[];
+  /** `null` once reading it failed. */
+  stack?: string[] | null;
 };
 export type Filter = "all" | "recent" | "github";
 /** Where a name comes from: the only repository, their GitHub owner, their folder, or the first one. */

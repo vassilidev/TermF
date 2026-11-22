@@ -52,7 +52,7 @@ export type Inventory = {
   agent: { error: string | null; keys: AgentKey[] };
   hosts: Host[];
   repos: RepoKeys[];
-  problems: { path: string; error: string }[];
+  problems: { path: string; error: string; code?: "outside" }[];
 };
 export type HostTest = { ok: boolean; message: string };
 export type Rotation = {

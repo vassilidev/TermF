@@ -307,7 +307,7 @@
     gap: 6px;
     min-width: 0;
     height: 100%;
-    padding: 0 26px 0 12px;
+    padding: 0 30px 0 12px;
     border: 0;
     background: none;
     color: var(--muted);
@@ -318,7 +318,7 @@
 
   /* The shortcut keeps the room of the close button, which takes its place on hover and on the current tab. */
   [role="tab"]:has(kbd) {
-    padding-right: 6px;
+    padding-right: 4px;
   }
 
   [role="tab"]:hover,
@@ -346,7 +346,7 @@
     border-radius: var(--radius-sm);
     background: var(--accent-soft);
     color: var(--accent-ink);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
   }
 
@@ -371,24 +371,27 @@
     text-align: center;
   }
 
+  /* As wide as the close button over it. */
   kbd {
     flex-shrink: 0;
+    min-width: 24px;
     border-bottom-width: 1px;
     background: none;
   }
 
   .tab:hover kbd,
-  .tab.on kbd {
+  .tab.on kbd,
+  .tab:focus-within kbd {
     visibility: hidden;
   }
 
   .close {
     position: absolute;
-    right: 5px;
+    right: 4px;
     display: grid;
     place-items: center;
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: 0;
     border-radius: var(--radius-sm);
@@ -398,7 +401,8 @@
   }
 
   .tab:hover .close,
-  .tab.on .close {
+  .tab.on .close,
+  .tab:focus-within .close {
     opacity: 1;
   }
 
@@ -411,7 +415,7 @@
     flex: 1;
     min-width: 0;
     height: 24px;
-    margin: 0 26px 0 6px;
+    margin: 0 30px 0 6px;
     padding: 0 6px;
     border: 1px solid var(--focus);
     border-radius: var(--radius-sm);

@@ -13,6 +13,10 @@ use crate::{Step, StepKind, StepState, TeamRun, review};
 /// Every criterion, the default list.
 pub const CRITERIA: [&str; 5] = ["checks", "review", "security", "visual", "docs"];
 
+/// The criteria of the default list that only warn: shown at the delivery gate, they hold it only when `[team] done`
+/// names them.
+pub const WARNINGS: [&str; 1] = ["docs"];
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Done {
     pub criteria: Vec<Criterion>,
@@ -27,29 +31,43 @@ pub struct Criterion {
     pub met: bool,
     /// What the run shows of it.
     pub note: String,
+    /// Unmet, it is shown and holds nothing.
+    #[serde(default)]
+    pub warn: bool,
 }
 
 impl Done {
-    /// Whether the delivery may go: every criterion met, or the user passed over them.
+    /// Whether the delivery may go: every criterion met or only warning, or the user passed over them.
     pub fn passes(&self) -> bool {
-        self.overridden.is_some() || self.criteria.iter().all(|c| c.met)
+        self.overridden.is_some() || self.criteria.iter().all(|c| c.met || c.warn)
     }
 
-    /// The unmet criteria, each with what holds it, on one line.
+    /// The unmet criteria that hold the delivery, each with what holds it, on one line.
     pub fn unmet(&self) -> String {
+        self.listed(false)
+    }
+
+    /// The unmet criteria that only warn, on one line.
+    pub fn warned(&self) -> String {
+        self.listed(true)
+    }
+
+    fn listed(&self, warn: bool) -> String {
         self.criteria
             .iter()
-            .filter(|c| !c.met)
+            .filter(|c| !c.met && c.warn == warn)
             .map(|c| format!("{} ({})", c.id, c.note))
             .collect::<Vec<_>>()
             .join("; ")
     }
 }
 
-/// `[team] done` of the first of `files` that sets it (the project's, then `termf.toml`), else every criterion.
-pub fn criteria(files: &[&Path]) -> Result<Vec<String>> {
+/// `[team] done` of the first of `files` that sets it (the project's, then `termf.toml`), each criterion holding the
+/// delivery; else every criterion, those of [`WARNINGS`] only warning. Each with whether it only warns.
+pub fn criteria(files: &[&Path]) -> Result<Vec<(String, bool)>> {
     let Some((value, file)) = review::team_key(files, "done")? else {
-        return Ok(CRITERIA.map(str::to_owned).to_vec());
+        let all = CRITERIA.map(|id| (id.to_owned(), WARNINGS.contains(&id)));
+        return Ok(all.to_vec());
     };
     let wrong = || {
         anyhow::anyhow!(
@@ -66,11 +84,34 @@ pub fn criteria(files: &[&Path]) -> Result<Vec<String>> {
             _ => return Err(wrong()),
         }
     }
-    Ok(ids)
+    Ok(ids.into_iter().map(|id| (id, false)).collect())
 }
 
-/// What the steps after the plan read of it.
-pub fn describe(ids: &[String]) -> String {
+/// What the steps after the plan read of it: when TermF delivers, then what it only warns about.
+pub fn describe(criteria: &[(String, bool)]) -> String {
+    let ids = |warn: bool| -> Vec<String> {
+        let only = criteria.iter().filter(|(_, w)| *w == warn);
+        only.map(|(id, _)| id.clone()).collect()
+    };
+    let (held, warned) = (ids(false), ids(true));
+    let mut text = Vec::new();
+    if !held.is_empty() {
+        text.push(format!(
+            "TermF delivers the run only when {}.",
+            sentences(&held)
+        ));
+    }
+    if !warned.is_empty() {
+        text.push(format!(
+            "TermF warns the user, without holding the delivery, unless {}: when a task changes the public \
+             behaviour, plan a task for the docs role, or put the documentation in that task.",
+            sentences(&warned)
+        ));
+    }
+    text.join(" ")
+}
+
+fn sentences(ids: &[String]) -> String {
     ids.iter()
         .map(|id| match id.as_str() {
             "checks" => "the project's checks pass",
@@ -87,10 +128,10 @@ pub fn describe(ids: &[String]) -> String {
 }
 
 /// Each criterion of `ids`, as the run stands.
-pub fn evaluate(run: &TeamRun, ids: &[String]) -> Done {
+pub fn evaluate(run: &TeamRun, ids: &[(String, bool)]) -> Done {
     let criteria = ids
         .iter()
-        .map(|id| {
+        .map(|(id, warn)| {
             let (met, note) = match check(run, id) {
                 Ok(note) => (true, note),
                 Err(note) => (false, note),
@@ -99,6 +140,7 @@ pub fn evaluate(run: &TeamRun, ids: &[String]) -> Done {
                 id: id.clone(),
                 met,
                 note,
+                warn: *warn,
             }
         })
         .collect();
@@ -248,6 +290,21 @@ fn doc_file(file: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_documentation_only_warns_unless_the_project_names_it() {
+        let none = std::env::temp_dir().join("termf-done-none.toml");
+        let all = criteria(&[&none]).unwrap();
+        assert_eq!(all.iter().filter(|(_, warn)| *warn).count(), 1);
+        assert!(all.contains(&("docs".into(), true)));
+        let brief = describe(&all);
+        assert!(brief.starts_with("TermF delivers the run only when the project's checks pass"));
+        assert!(brief.contains("plan a task for the docs role"), "{brief}");
+        let named = std::env::temp_dir().join(format!("termf-done-{}.toml", std::process::id()));
+        std::fs::write(&named, "[team]\ndone = [\"docs\"]\n").unwrap();
+        assert_eq!(criteria(&[&named]).unwrap(), [("docs".to_owned(), false)]);
+        let _ = std::fs::remove_file(&named);
+    }
 
     #[test]
     fn a_file_of_the_documentation() {

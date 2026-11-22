@@ -120,6 +120,7 @@
           bind:this={broadcast}
           class="btn sm quiet toggle"
           aria-pressed={grid.broadcast}
+          title={t("uxfT3BroadcastHint")}
           onclick={() => (grid.broadcast = !grid.broadcast)}
         >
           <Megaphone size={14} aria-hidden="true" />{t("broadcast")}
