@@ -17,6 +17,7 @@
   import Users from "@lucide/svelte/icons/users";
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
   import Conversation from "$lib/Conversation.svelte";
+  import Requirements from "$lib/Requirements.svelte";
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
@@ -33,6 +34,8 @@
   import type { Step } from "$lib/onboarding-logic";
   import { newProject } from "$lib/newproject.svelte";
   import { sessionProjects, tallies } from "$lib/project.svelte";
+  import { checkTools, needs } from "$lib/release.svelte";
+  import { missingRequired } from "$lib/release-logic";
   import { awaitsDelivery, shown } from "$lib/run-logic";
   import { app, onScreen, repoName, setProject, shortPath } from "$lib/state.svelte";
   import { initials } from "$lib/team-logic";
@@ -263,6 +266,34 @@
 
   // Every project at a glance, when none is chosen.
   const projects = $derived(app.workspace?.projects ?? []);
+
+  // What the machine needs, above them: until it is read at the first launch, and whenever a required tool lacks.
+  const NEEDS_SEEN = "termf.needs";
+  let needsSeen = $state(seen());
+  function seen(): boolean {
+    try {
+      return localStorage.getItem(NEEDS_SEEN) !== null;
+    } catch {
+      return true;
+    }
+  }
+  function needsDone() {
+    needsSeen = true;
+    try {
+      localStorage.setItem(NEEDS_SEEN, "1");
+    } catch {
+      // Storage off: shown again at the next launch.
+    }
+  }
+  let toolsAsked = false;
+  $effect(() => {
+    if (project || toolsAsked) return;
+    toolsAsked = true;
+    if (!needs.tools) untrack(checkTools);
+  });
+  const showNeeds = $derived(
+    !!needs.tools && (missingRequired(needs.tools).length > 0 || (!needsSeen && projects.length === 0)),
+  );
   const counts = $derived(tallies());
 
   function activity(id: string): number | null {
@@ -502,6 +533,7 @@
     {@const all = projectWaits(null)}
     <div class="page">
       <div class="inner">
+        {#if showNeeds}<div class="needs"><Requirements ondone={needsDone} /></div>{/if}
         {#if all.length}
           <h2 class="sec">{t("teamRunsWaits")} <span class="n">{all.length}</span>{#if keys.next}<kbd>{keys.next}</kbd>{/if}</h2>
           <div class="table">
@@ -974,6 +1006,10 @@
 
   .sec:first-child {
     margin-top: 0;
+  }
+
+  .needs {
+    margin-bottom: 28px;
   }
 
   .table {

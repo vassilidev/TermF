@@ -10,6 +10,7 @@
   import ReviewView from "$lib/ReviewView.svelte";
   import HelpSheet from "$lib/HelpSheet.svelte";
   import NewProjectView from "$lib/NewProjectView.svelte";
+  import UpdateBanner from "$lib/UpdateBanner.svelte";
   import GuidedTour from "$lib/GuidedTour.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Panel from "$lib/ui/Panel.svelte";
@@ -29,6 +30,7 @@
   import { creating } from "$lib/newproject.svelte";
   import { views } from "$lib/views";
   import { visual, watchVisual } from "$lib/visual.svelte";
+  import { watchUpdates } from "$lib/release.svelte";
 
   let area = $state<HTMLElement>();
 
@@ -44,7 +46,8 @@
     const stopTour = watchTour();
     const stopTeam = watchTeam();
     const stopVisual = watchVisual();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopVisual());
+    const stopUpdates = watchUpdates();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopVisual(), stopUpdates());
   });
 
   function drag(e: PointerEvent) {
@@ -79,6 +82,7 @@
   <AppNav />
   <div class="main">
     <ApiConfirm />
+    <UpdateBanner />
     {#if app.error || app.workspace?.apiError || app.workspace?.quickTerminalError || app.workspace?.scanTruncated}
       <div class="banners">
         {#if app.error}
