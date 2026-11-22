@@ -526,7 +526,7 @@
                       {#if plan.exists}<span class="badge">{t("greenfieldFolderEmpty")}</span>{/if}
                     </p>
                   </section>
-                  <section>
+                  <section class="scratch-files">
                     <h3>{t("greenfieldFiles")}</h3>
                     {#each plan.files as f (f.name)}
                       <figure class="file">
@@ -535,7 +535,7 @@
                       </figure>
                     {/each}
                   </section>
-                  <section>
+                  <section class="scratch-files">
                     <h3>{t("greenfieldCommands")}</h3>
                     <figure class="file">
                       <figcaption><SquareTerminal size={14} aria-hidden="true" /><span class="mono">{shortPath(plan.path)}</span></figcaption>
@@ -1770,6 +1770,7 @@
 
   .kickoff {
     margin-top: 8px;
+    color: var(--text);
   }
 
   .where {
@@ -1802,6 +1803,11 @@
   .visibility {
     align-self: flex-start;
     margin: 10px 0 6px;
+  }
+
+  .scratch-files pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .recap .row :global(svg) {

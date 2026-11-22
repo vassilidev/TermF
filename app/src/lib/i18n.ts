@@ -3675,6 +3675,16 @@ const fr = {
   greenfieldThenCto: "L'Accueil s'ouvre : le CTO reçoit ton idée et te propose le workflow de démarrage.",
   greenfieldThenYou: "Tu valides chaque étape : rien ne démarre sans toi.",
   greenfieldNoGithub: "le dépôt GitHub n'a pas été créé ({error}) ; le projet existe sur cette machine",
+  greenfieldKindResearch: "Étude",
+  greenfieldStepResearch: "Recherche",
+  greenfieldStepCompetition: "Concurrents",
+  greenfieldStepReverse: "Rétro-ingénierie",
+  greenfieldStepDecide: "Note de décision",
+  greenfieldStepApproveDecision: "Ta décision",
+  greenfieldWhyNew: "Projet tout neuf : il faut d'abord étudier l'idée et ce qui existe",
+  greenfieldWhyNoNew: "le projet a déjà du code",
+  greenfieldWhyReverse: "Captures ou outils d'analyse : {detail}",
+  greenfieldWhyNoReverse: "rien à rétro-concevoir",
   greenfieldSeed: "Je démarre un nouveau projet de zéro, « {name} ». TermF vient de créer son dépôt, vide à part un README et un .gitignore ({path}).\n\nMon idée : {idea}\n\nPropose-moi de le lancer avec le workflow kickoff : cadrage, recherche et concurrents, une note de décision où je tranche, puis le squelette du projet. Je valide chaque étape.",
 };
 
@@ -7330,6 +7340,16 @@ const en: Record<Key, string> = {
   greenfieldThenCto: "The Home opens: the CTO gets your idea and proposes the kickoff workflow.",
   greenfieldThenYou: "You approve each step: nothing starts without you.",
   greenfieldNoGithub: "the GitHub repository was not created ({error}); the project exists on this machine",
+  greenfieldKindResearch: "Research",
+  greenfieldStepResearch: "Research",
+  greenfieldStepCompetition: "Competitors",
+  greenfieldStepReverse: "Reverse engineering",
+  greenfieldStepDecide: "Decision note",
+  greenfieldStepApproveDecision: "Your decision",
+  greenfieldWhyNew: "A brand-new project: the idea and what already exists come first",
+  greenfieldWhyNoNew: "the project already has code",
+  greenfieldWhyReverse: "Captures or analysis tools: {detail}",
+  greenfieldWhyNoReverse: "nothing to reverse engineer",
   greenfieldSeed: "I'm starting a new project from scratch, \"{name}\". TermF just created its repository, empty but for a README and a .gitignore ({path}).\n\nMy idea: {idea}\n\nPropose to launch it with the kickoff workflow: framing, research and competitors, a decision note where I decide, then the project's skeleton. I approve each step.",
 };
 
