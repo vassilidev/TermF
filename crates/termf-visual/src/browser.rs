@@ -222,7 +222,25 @@ impl Browser {
         self.ws.send(&message.to_string())?;
         loop {
             let reply: Value = serde_json::from_str(&self.ws.recv()?)?;
-            // Events of the page come in between.
+            // A request held by `print_html` (the only one to enable `Fetch`): only what the document holds loads.
+            if reply["method"] == "Fetch.requestPaused" {
+                let request = &reply["params"]["requestId"];
+                let inline = reply["params"]["request"]["url"]
+                    .as_str()
+                    .is_some_and(|u| u.starts_with("data:"));
+                self.next += 1;
+                let mut answer = if inline {
+                    json!({"id": self.next, "method": "Fetch.continueRequest", "params": {"requestId": request}})
+                } else {
+                    json!({"id": self.next, "method": "Fetch.failRequest", "params": {"requestId": request, "errorReason": "BlockedByClient"}})
+                };
+                if let Some(session) = &self.session {
+                    answer["sessionId"] = session.clone().into();
+                }
+                self.ws.send(&answer.to_string())?;
+                continue;
+            }
+            // Other events of the page come in between.
             if reply["id"].as_u64() != Some(id) {
                 continue;
             }
@@ -312,6 +330,51 @@ impl Browser {
             std::thread::sleep(Duration::from_millis(200));
         }
         Ok(())
+    }
+
+    /// A document as a PDF, its own `@page` size and its backgrounds kept. It is written into the blank page, not
+    /// opened from a file, and nothing loads: no script runs, every request (network or file) is blocked, and
+    /// a blank page may not read local files anyway. Only what `html` holds (data URIs included) is printed.
+    pub fn print_html(&mut self, html: &str) -> Result<Vec<u8>> {
+        self.call(
+            "Emulation.setScriptExecutionDisabled",
+            json!({"value": true}),
+        )?;
+        self.call("Network.enable", json!({}))?;
+        self.call(
+            "Network.setBlockedURLs",
+            json!({"urls": ["http://*", "https://*", "ws://*", "wss://*", "ftp://*", "file://*"]}),
+        )?;
+        // Every request is held, then refused unless it is a data URI: a second lock, should a Chrome let a blank
+        // page reach files the blocked URLs above do not cover.
+        self.call("Fetch.enable", json!({"patterns": [{"urlPattern": "*"}]}))?;
+        let tree = self.call("Page.getFrameTree", json!({}))?;
+        let frame = tree["frameTree"]["frame"]["id"]
+            .as_str()
+            .context("no page")?
+            .to_owned();
+        self.call(
+            "Page.setDocumentContent",
+            json!({"frameId": frame, "html": html}),
+        )?;
+        let deadline = Instant::now() + LOAD_TIMEOUT;
+        while self.eval("document.readyState")?.as_str() != Some("complete") {
+            ensure!(
+                Instant::now() < deadline,
+                "the document did not finish loading"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        self.eval(
+            "Promise.allSettled([...document.images].map((i) => i.decode())).then(() => document.fonts.ready).then(() => true)",
+        )?;
+        std::thread::sleep(SETTLE);
+        let pdf = self.call(
+            "Page.printToPDF",
+            json!({"printBackground": true, "preferCSSPageSize": true}),
+        )?;
+        let data = pdf["data"].as_str().context("no PDF")?;
+        base64ct::Base64::decode_vec(data).context("unreadable PDF")
     }
 
     pub fn capture(&mut self, target: &Target) -> Result<Shot> {
