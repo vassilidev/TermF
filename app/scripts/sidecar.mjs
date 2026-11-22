@@ -1,5 +1,6 @@
 // Builds the termf CLI for the bundle: Tauri's externalBin wants it at src-tauri/binaries/termf-<target triple>.
-// A universal macOS build gets both architectures joined by lipo.
+// A universal macOS build gets both architectures joined by lipo, and each one apart: Tauri compiles the app once
+// per architecture, and each compilation checks its own.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -19,8 +20,10 @@ for (const t of triples) {
     cwd: app,
   });
 }
+const binaries = join(app, "src-tauri", "binaries");
+mkdirSync(binaries, { recursive: true });
 const built = triples.map((t) => join(target, t, profile, `termf${exe}`));
-const out = join(app, "src-tauri", "binaries", `termf-${triple}${exe}`);
-mkdirSync(join(app, "src-tauri", "binaries"), { recursive: true });
-if (built.length > 1) execFileSync("lipo", ["-create", "-output", out, ...built], { stdio: "inherit" });
-else copyFileSync(built[0], out);
+triples.forEach((t, i) => copyFileSync(built[i], join(binaries, `termf-${t}${exe}`)));
+if (built.length > 1) {
+  execFileSync("lipo", ["-create", "-output", join(binaries, `termf-${triple}${exe}`), ...built], { stdio: "inherit" });
+}

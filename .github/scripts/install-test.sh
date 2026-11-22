@@ -38,7 +38,7 @@ serve() {
 
 "$python" -m http.server "$port" --bind 127.0.0.1 --directory "$tmp/api" > "$tmp/server.log" 2>&1 &
 server=$!
-trap 'kill $server 2>/dev/null; wait $server 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'status=$?; kill $server 2>/dev/null || :; wait $server 2>/dev/null || :; rm -rf "$tmp"; exit $status' EXIT
 serve "$(assets 0.2.0 false yes)" "$(assets 0.3.0-beta.1 true yes)"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   curl -fs "$api/repos/vassilidev/TermF/releases/latest" > /dev/null 2>&1 && break
@@ -114,13 +114,13 @@ else
   echo "FAIL AppImage not installed"
   fail=1
 fi
-rm -rf "$tmp/home"
+rm -rf "${tmp:?}/home"
 printf 'tampered\n' > "$tmp/api/dl/TermF_0.4.0_amd64.AppImage"
 refuse HOME="$tmp/home" TERMF_OS=Linux TERMF_ARCH=x86_64 sh "$sh" --format appimage
 [ ! -e "$tmp/home/.local/bin/TermF.AppImage" ] || { echo "FAIL tampered AppImage installed"; fail=1; }
 
 if command -v shellcheck > /dev/null 2>&1; then
-  shellcheck "$sh" "$0" && echo "ok   shellcheck"
+  if shellcheck "$sh" "$0"; then echo "ok   shellcheck"; else fail=1; fi
 else
   echo "shellcheck not found: not run"
 fi

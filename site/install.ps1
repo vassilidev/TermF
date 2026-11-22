@@ -19,9 +19,13 @@
     default { throw "TermF install: unsupported processor: $arch" }
   }
 
-  function Get-Json($path) {
-    (Invoke-WebRequest -UseBasicParsing -Headers @{ Accept = 'application/vnd.github+json' } -Uri "$api/repos/$repo/$path").Content | ConvertFrom-Json
+  # PowerShell 7 hands a body it does not take for text as bytes.
+  function Get-Text($uri) {
+    $body = (Invoke-WebRequest -UseBasicParsing -Headers @{ Accept = 'application/vnd.github+json' } -Uri $uri).Content
+    if ($body -is [byte[]]) { $body = [Text.Encoding]::UTF8.GetString($body) }
+    $body
   }
+  function Get-Json($path) { Get-Text "$api/repos/$repo/$path" | ConvertFrom-Json }
 
   # The latest release is the newest that is not a pre-release; until there is one, the newest pre-release.
   $release = $null
@@ -50,8 +54,7 @@
     $file = Join-Path $dir $asset.name
     Write-Host "Downloading TermF $tag ($($asset.name))..."
     Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile $file
-    $list = (Invoke-WebRequest -UseBasicParsing -Uri $sums.browser_download_url).Content
-    if ($list -is [byte[]]) { $list = [Text.Encoding]::UTF8.GetString($list) }
+    $list = Get-Text $sums.browser_download_url
     $expected = $list -split "`n" | ForEach-Object {
       $f = $_.Trim() -split '\s+', 2
       if ($f.Count -eq 2 -and $f[1].TrimStart('*') -eq $asset.name) { $f[0] }
