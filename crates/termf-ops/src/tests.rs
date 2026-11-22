@@ -619,8 +619,9 @@ url = "https://loki.acme.test"
         "{checks:?}"
     );
     let ssh = env.connection(PROD_SSH);
-    let checks = env
-        .runner()
+    // Only the fakes: the machine running the tests may have a journalctl of its own (Linux).
+    let only_fakes = Runner::new(Some(env.bin().into()));
+    let checks = only_fakes
         .test(&ssh, std::slice::from_ref(&ssh), &|_| unreachable!())
         .unwrap();
     let journal = checks.iter().find(|c| c.code == "journal").unwrap();
