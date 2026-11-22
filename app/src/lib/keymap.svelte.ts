@@ -53,6 +53,12 @@ export function display(id: string, n?: number): string {
   return logic.display(combo(id), isMac, n === undefined ? "" : String(n));
 }
 
+/** Every way to ask for an action, as the help and the tour show them: `⌘1…9`, `?`; [] when there is none. */
+export function shortcutOf(id: string): string[] {
+  const a = logic.action(id);
+  return a ? logic.shortcut(a, current()[id] ?? "", isMac) : [];
+}
+
 export function aria(id: string, n?: number): string | undefined {
   return logic.aria(combo(id), n === undefined ? "" : String(n));
 }
@@ -60,14 +66,20 @@ export function aria(id: string, n?: number): string | undefined {
 /** The app's action for a key press, null to leave it alone (and while the editor records one). */
 export function pressed(e: KeyboardEvent, limits?: Record<string, number>): logic.Hit | null {
   if (keymap.recording) return null;
-  const inTerminal = !!(e.target as Element | null)?.closest?.(".xterm");
-  return logic.match(e, current(), { mac: isMac, inTerminal, view: ui.view, limits });
+  const target = e.target as Element | null;
+  const inTerminal = !!target?.closest?.(".xterm");
+  const inField = !!target?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable='false'])");
+  return logic.match(e, current(), { mac: isMac, inTerminal, inField, view: ui.view, limits });
 }
 
 /** The shortcuts as the views show them; reading one in a template follows its changes. */
 export const keys = {
   get palette() {
     return display("palette");
+  },
+  /** Its own shortcut if it has one, else the character typed for it. */
+  get help() {
+    return display("help") || "?";
   },
   get quick() {
     return display("quick_terminal");

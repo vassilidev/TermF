@@ -16,11 +16,14 @@ export type KeyAction = {
   defaults: { mac: string; other: string };
   /** Followed by 1 to 9, so only the modifiers are set. */
   digits?: boolean;
+  /** A character that also asks for it, typed outside text fields and terminals; not editable. */
+  typed?: string;
 };
 
 /** Every shortcut of the app. A key press handled anywhere else is a bug. */
 export const actions: KeyAction[] = [
   { id: "palette", label: "palette", group: "general", scope: "app", defaults: { mac: "Cmd+K", other: "Ctrl+K" } },
+  { id: "help", label: "t6bHelp", help: "t6bHelpTyped", group: "general", scope: "app", typed: "?", defaults: { mac: "", other: "" } },
   {
     id: "switch_project",
     label: "navSwitchProject",
@@ -44,6 +47,20 @@ export const actions: KeyAction[] = [
     group: "general",
     scope: "app",
     defaults: { mac: "Ctrl+`", other: "Ctrl+`" },
+  },
+  {
+    id: "split_view",
+    label: "t6bSplitView",
+    group: "general",
+    scope: "app",
+    defaults: { mac: "Cmd+\\", other: "Ctrl+Shift+\\" },
+  },
+  {
+    id: "other_panel",
+    label: "t6bOtherPanel",
+    group: "general",
+    scope: "app",
+    defaults: { mac: "Alt+Cmd+\\", other: "Alt+Shift+\\" },
   },
   {
     id: "quick_terminal_global",
@@ -354,6 +371,8 @@ export type Context = {
   mac: boolean;
   /** The focus is in a terminal. */
   inTerminal: boolean;
+  /** The focus is where text is typed: a field, an editor. */
+  inField?: boolean;
   view: string;
   /** How many tiles or projects a digit can reach: a digit with nothing behind it is left to the terminal. */
   limits?: Record<string, number>;
@@ -361,6 +380,10 @@ export type Context = {
 
 /** The action a key press asks for in the app, null to leave the key alone. */
 export function match(e: Press, current: Record<string, string>, ctx: Context): Hit | null {
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && !ctx.inField && !ctx.inTerminal) {
+    const typed = actions.find((a) => a.typed === e.key && (a.scope === "app" || a.scope === ctx.view));
+    if (typed) return { id: typed.id };
+  }
   const got = pressedCombo(e);
   if (!got) return null;
   for (const a of actions) {
@@ -377,4 +400,34 @@ export function match(e: Press, current: Record<string, string>, ctx: Context): 
     return n === undefined ? { id: a.id } : { id: a.id, n };
   }
   return null;
+}
+
+/** The groups, in the order the editor and the help list them. */
+export const groups: [KeyGroup, Label][] = [
+  ["general", "settingsKeysGeneral"],
+  ["terminals", "viewTerminals"],
+  ["files", "viewFiles"],
+  ["tickets", "viewTickets"],
+];
+
+/** How an action is asked for: its combination (`⌘1…9` for a 1-to-9 one), then its typed character; none is []. */
+export function shortcut(a: KeyAction, combo: string, mac: boolean): string[] {
+  return [display(parse(combo), mac, a.digits ? "1…9" : ""), a.typed ?? ""].filter(Boolean);
+}
+
+export type Sheet = { group: KeyGroup; label: Label; rows: { id: string; label: Label; keys: string[] }[] }[];
+
+/** Every shortcut, as the help lists it: by group, the group of the view shown first, actions without one left out. */
+export function sheet(current: Record<string, string>, mac: boolean, view: string): Sheet {
+  const first = groups.filter(([g]) => g === view);
+  return [...first, ...groups.filter(([g]) => g !== view)]
+    .map(([group, label]) => ({
+      group,
+      label,
+      rows: actions
+        .filter((a) => a.group === group)
+        .map((a) => ({ id: a.id, label: a.label, keys: shortcut(a, current[a.id] ?? "", mac) }))
+        .filter((row) => row.keys.length),
+    }))
+    .filter((g) => g.rows.length);
 }

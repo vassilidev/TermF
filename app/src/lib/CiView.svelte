@@ -8,6 +8,7 @@
   import Copy from "@lucide/svelte/icons/copy";
   import FileText from "@lucide/svelte/icons/file-text";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Rocket from "@lucide/svelte/icons/rocket";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
@@ -20,8 +21,9 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
+  import { editProject } from "$lib/project.svelte";
   import { showSettings } from "$lib/settings.svelte";
-  import { ui } from "$lib/state.svelte";
+  import { onScreen } from "$lib/state.svelte";
   import {
     ci,
     duration,
@@ -95,7 +97,7 @@
 
   // While the view is on screen: a look every 30 s, cheap since GitHub answers "unchanged" (ETag).
   $effect(() => {
-    if (ui.view !== "ci") return;
+    if (!onScreen("ci")) return;
     const timer = setInterval(() => document.visibilityState === "visible" && refresh(), 30_000);
     return () => clearInterval(timer);
   });
@@ -349,7 +351,12 @@
   {/if}
 
   {#if !repos.length}
-    <EmptyState icon={Workflow} title={t("ciNoRepo")} text={t("ciNoRepoHelp")} />
+    {@const project = currentProject()}
+    <EmptyState icon={Workflow} title={t("ciNoRepo")} text={t("ciNoRepoHelp")}>
+      <button class="btn" onclick={() => editProject(project?.id ?? "")}>
+        <Pencil size={14} aria-hidden="true" />{t(project ? "ticketsEditProject" : "newProject")}
+      </button>
+    </EmptyState>
   {:else if listError}
     <EmptyState>
       <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{listError}</p>
@@ -358,7 +365,9 @@
   {:else if !runs}
     <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ciLoading")}</p>
   {:else if !runs.length}
-    <EmptyState icon={Workflow} title={t("ciEmpty")} text={t("ciEmptyHelp")} />
+    <EmptyState icon={Workflow} title={t("ciEmpty")} text={t("ciEmptyHelp")}>
+      <button class="btn" onclick={openForm}><Rocket size={14} aria-hidden="true" />{t("ciDispatchLong")}</button>
+    </EmptyState>
   {:else}
     <div class="split">
       <div class="list">

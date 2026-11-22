@@ -3,6 +3,8 @@ import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
 import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
+import CircleHelp from "@lucide/svelte/icons/circle-help";
+import Compass from "@lucide/svelte/icons/compass";
 import Images from "@lucide/svelte/icons/images";
 import Keyboard from "@lucide/svelte/icons/keyboard";
 import Coffee from "@lucide/svelte/icons/coffee";
@@ -42,6 +44,7 @@ import { nextAfter } from "$lib/conversation-logic";
 import { type Command } from "$lib/nav-logic";
 import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { openSetup } from "$lib/onboarding.svelte";
+import { openBeside, otherPanel, toggleSplit } from "$lib/panes.svelte";
 import type { Side } from "$lib/split-logic";
 import * as tabs from "$lib/tabs.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
@@ -50,7 +53,9 @@ import {
   grid,
   launch,
   load,
+  onScreen,
   openSession,
+  panes,
   resetContext,
   setKeepAwake,
   setProject,
@@ -63,6 +68,7 @@ import { showScout } from "$lib/scout.svelte";
 import { exportConfig, importConfig, showSettings } from "$lib/settings.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
 import { launchTicket } from "$lib/tickets.svelte";
+import { startTour } from "$lib/tour.svelte";
 import { dispatchWorkflow } from "$lib/ci.svelte";
 import { views } from "$lib/views";
 
@@ -149,9 +155,14 @@ export function onShortcut(e: KeyboardEvent) {
   const projects = app.workspace?.projects ?? [];
   const asked = pressed(e, { tile: shownTabs.length, project: projects.length });
   if (!asked || (ui.palette && asked.id !== "palette" && asked.id !== "quick_terminal")) return;
+  if (ui.help && asked.id !== "help") return;
   const n = asked.n ?? 0;
-  const actions: Record<string, () => void> = {
+  const actions: Record<string, (() => void) | undefined> = {
     palette: () => (ui.palette = !ui.palette),
+    help: () => (ui.help = !ui.help),
+    split_view: toggleSplit,
+    // With one panel, the keys stay with the terminal or the field.
+    other_panel: panes.other ? otherPanel : undefined,
     quick_terminal: toggleQuickTerminal,
     next_waiting: nextWaiting,
     launch_ticket: launchTicket,
@@ -373,6 +384,16 @@ export function commands(): Command[] {
     if (view.id !== ui.view) {
       list.push({ id: `view-${view.id}`, label: t(view.command), icon: view.icon, group: "views", run: view.show });
     }
+    if (!onScreen(view.id)) {
+      list.push({
+        id: `beside-${view.id}`,
+        label: t("t6bOpenBesideView", { view: t(view.label) }),
+        icon: Columns2,
+        group: "views",
+        searchOnly: true,
+        run: () => openBeside(view.id),
+      });
+    }
   }
   list.push({
     id: "claude-artifacts",
@@ -385,6 +406,19 @@ export function commands(): Command[] {
   const action = (command: Omit<Command, "group">) => list.push({ ...command, group: "actions" });
   action({ id: "switcher", label: t("navSwitchProject"), keys: keys.switcher, icon: ArrowLeftRight, run: () => (ui.switcher = true) });
   action({ id: "launcher", label: t("navNewSession"), keys: keys.launcher, icon: Plus, run: openLauncher });
+  action({
+    id: "split-view",
+    label: t("t6bSplitView"),
+    keys: display("split_view"),
+    icon: Columns2,
+    checked: panes.other !== null,
+    run: toggleSplit,
+  });
+  if (panes.other) {
+    action({ id: "other-panel", label: t("t6bOtherPanel"), keys: display("other_panel"), icon: ArrowLeftRight, run: otherPanel });
+  }
+  action({ id: "help", label: t("t6bHelp"), keys: keys.help, icon: CircleHelp, run: () => (ui.help = true) });
+  action({ id: "tour", label: t("t6bTour"), icon: Compass, run: startTour });
   action({ id: "shortcuts", label: t("shortcuts"), icon: Keyboard, run: () => showSettings("keys") });
   action({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
   action({ id: "ticket-launch", label: t("ticketLaunchLong"), keys: keys.ticket, icon: Ticket, run: launchTicket });

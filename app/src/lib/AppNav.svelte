@@ -1,10 +1,14 @@
 <script lang="ts">
   import BellRing from "@lucide/svelte/icons/bell-ring";
   import Coffee from "@lucide/svelte/icons/coffee";
+  import Columns2 from "@lucide/svelte/icons/columns-2";
   import Layers from "@lucide/svelte/icons/layers";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import PanelRight from "@lucide/svelte/icons/panel-right";
   import Search from "@lucide/svelte/icons/search";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+  import X from "@lucide/svelte/icons/x";
   import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
@@ -15,11 +19,39 @@
   import { validProject } from "$lib/nav-logic";
   import { tallies } from "$lib/project.svelte";
   import { showSettings } from "$lib/settings.svelte";
-  import { app, setProject, ui, waitingSessions } from "$lib/state.svelte";
+  import { app, onScreen, panes, setProject, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
   import { summary } from "$lib/sync.svelte";
-  import { groups, views } from "$lib/views";
+  import { groups, views, type View } from "$lib/views";
+  import Popover from "$lib/ui/Popover.svelte";
+  import { isMac } from "$lib/files.svelte";
+  import { closePanel, openBeside } from "$lib/panes.svelte";
 
   const waiting = $derived(waitingSessions().length + waitingAgents().length);
+  const settingsView = views.find((v) => v.id === "settings")!;
+  /** The view whose menu is open (right click, or the context menu key). */
+  let menu = $state<{ view: View; trigger: HTMLElement } | null>(null);
+  let menuOpen = $state(false);
+  const besideKey = isMac ? "⌘" : "Ctrl";
+
+  /** A view is shown where the keyboard is; with ⌘ (Ctrl elsewhere), in the other panel. */
+  function pick(e: MouseEvent, view: View) {
+    if (isMac ? e.metaKey : e.ctrlKey) openBeside(view.id);
+    else view.show();
+  }
+
+  function openMenu(e: MouseEvent, view: View) {
+    e.preventDefault();
+    menu = { view, trigger: e.currentTarget as HTMLElement };
+    menuOpen = true;
+  }
+
+  function act(run: () => void) {
+    menuOpen = false;
+    run();
+  }
+
+  /** Which side a view on screen is on, with two panels. */
+  const side = (id: ViewId) => (!panes.other || !onScreen(id) ? null : (ui.view === id) === (panes.active === 0) ? "left" : "right");
   const projects = $derived(app.workspace?.projects ?? []);
   const counts = $derived(tallies());
   /** Sync needs the owner (password, conflicts, recovery key, error): a dot on Settings. */
@@ -87,10 +119,23 @@
       <ul>
         {#each views.filter((v) => v.group === group) as view (view.id)}
           {@const count = view.count?.()}
+          {@const at = side(view.id)}
           <li>
-            <button class="nav-item" aria-current={ui.view === view.id ? "page" : undefined} onclick={view.show}>
+            <button
+              class="nav-item"
+              class:beside={at && ui.view !== view.id}
+              aria-current={ui.view === view.id ? "page" : undefined}
+              data-view={view.id}
+              onclick={(e) => pick(e, view)}
+              oncontextmenu={(e) => openMenu(e, view)}
+            >
               <view.icon size={16} aria-hidden="true" />
               <span class="label">{t(view.label)}</span>
+              {#if at}
+                {@const Side = at === "left" ? PanelLeft : PanelRight}
+                <Side class="side" size={13} aria-hidden="true" />
+                {#if ui.view !== view.id}<span class="sr-only">{t("t6bBeside")}</span>{/if}
+              {/if}
               {#if count}<span class="count" class:hot={view.hot}>{count}</span>{/if}
             </button>
           </li>
@@ -102,10 +147,13 @@
   <div class="foot">
     <button
       class="nav-item"
+      class:beside={side("settings") && ui.view !== "settings"}
       aria-current={ui.view === "settings" ? "page" : undefined}
       aria-label={settingsLabel}
       title={settingsLabel}
-      onclick={() => showSettings()}
+      data-view="settings"
+      onclick={(e) => pick(e, settingsView)}
+      oncontextmenu={(e) => openMenu(e, settingsView)}
     >
       <SettingsIcon size={16} aria-hidden="true" />{t("settings")}
       {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
@@ -131,6 +179,23 @@
     </button>
   </div>
 </nav>
+
+<Popover bind:open={menuOpen} trigger={menu?.trigger} label={menu ? t(menu.view.label) : ""} width={240}>
+  {#if menu}
+    {@const id = menu.view.id}
+    <div class="menu">
+      <button class="item" disabled={id === ui.view} onclick={() => act(() => openBeside(id))}>
+        <Columns2 size={14} aria-hidden="true" /><span>{t("t6bOpenBeside")}</span>
+        <kbd>{t("t6bClick", { key: besideKey })}</kbd>
+      </button>
+      {#if panes.other !== null && onScreen(id)}
+        <button class="item" onclick={() => act(() => closePanel(id))}>
+          <X size={14} aria-hidden="true" /><span>{t("t6bClosePanel")}</span>
+        </button>
+      {/if}
+    </div>
+  {/if}
+</Popover>
 
 <style>
   .nav {
@@ -254,6 +319,41 @@
 
   .nav :global(.nav-item[aria-current] > svg) {
     color: var(--accent-ink);
+  }
+
+  /* On screen in the other panel. */
+  .nav .nav-item.beside {
+    background: var(--hover);
+  }
+
+  .menu {
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+  }
+
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius);
+    background: none;
+    text-align: left;
+  }
+
+  .item:hover:not(:disabled) {
+    background: var(--hover);
+  }
+
+  .item span {
+    flex: 1;
+  }
+
+  .item > :global(svg) {
+    color: var(--muted);
   }
 
   .label {
