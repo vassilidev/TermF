@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use termf_team::{StepKind, StepState, TeamRun};
 use termf_worktree::Setup;
 
+pub mod agent;
 pub mod browser;
 pub mod config;
 pub mod diff;
@@ -1091,7 +1092,8 @@ impl Drop for Tracked<'_> {
     }
 }
 
-fn kill(pid: u32) {
+/// Kills `pid` and what it started (its process group under Unix, its tree under Windows).
+pub fn kill(pid: u32) {
     #[cfg(unix)]
     termf_core::process::kill_group(pid);
     #[cfg(windows)]
