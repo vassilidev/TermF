@@ -379,9 +379,9 @@ test("batches: a sub-plan waits as its own ask, its tasks show under their batch
   assert.deepEqual(
     shown.tasks.map((t) => [t.id, t.depends_on]),
     [
-      ["T2.1", []],
-      ["T2.2", ["T2.1"]],
-      ["T2.QA", ["T2.2"]],
+      ["T2.1", ["T1"]],
+      ["T2.2", ["T1", "T2.1"]],
+      ["T2.QA", ["T1", "T2.2"]],
     ],
   );
   assert.equal(batchTasks(proposed, "T1"), null, "not a batch");

@@ -484,54 +484,6 @@
             </section>
           {/if}
 
-          {#if repos.length}
-            {@const prs = repos.filter((r) => r.run.prUrl).length}
-            {@const other = repos.find((r) => r.run.id === deliveringRepo)?.run}
-            <section class="card" aria-labelledby="run-repos">
-              <div class="repos-head">
-                <h3 id="run-repos">{t("teams2Repos")}</h3>
-                <span class="muted">{t("teams2ReposSummary", { prs, total: repos.length })}</span>
-              </div>
-              <p class="help">{t("teams2ReposHelp")}</p>
-              <ul class="repos">
-                {#each repos as { run: r, state } (r.id)}
-                  {@const [status, label] = repoLabel[state]}
-                  {@const name = repoName(r.repo)}
-                  <li>
-                    <span class="repo-name">
-                      <b>{name}</b>
-                      {#if r.id === id}<span class="muted">{t("teams2RepoOwn")}</span>{/if}
-                    </span>
-                    {#if r.branch}<span class="mono muted branch">{r.branch}</span>{/if}
-                    <StatusPill {status} label={t(label)} />
-                    {#if r.prUrl}
-                      {@const url = r.prUrl}
-                      <button class="link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
-                        {prName(url)}<ExternalLink size={12} aria-hidden="true" />
-                      </button>
-                    {/if}
-                    <span class="repo-acts">
-                      {#if r.status === "delivered" && r.prState && r.id !== id}
-                        <button class="btn sm" onclick={() => cleanRepo(r)} disabled={!!busy} title={t("teams2CleanRepo", { repo: name })}>
-                          <BrushCleaning size={14} aria-hidden="true" />{t("ticketsUiClean")}
-                        </button>
-                      {:else if (r.status === "running" || r.status === "delivered") && !r.prState && !active}
-                        <button
-                          class="btn sm"
-                          title={t("teams2DeliverRepo", { repo: name })}
-                          onclick={() => (r.id === id ? (delivering = true) : (deliveringRepo = r.id))}
-                        >
-                          <Send size={14} aria-hidden="true" />{t("runDeliver")}
-                        </button>
-                      {/if}
-                    </span>
-                  </li>
-                {/each}
-              </ul>
-            </section>
-            {#if other}<Delivery run={other} onclose={() => (deliveringRepo = null)} />{/if}
-          {/if}
-
           <BaseUpdate {run} team={teamRun} />
 
           {#if teamRun}
@@ -539,6 +491,52 @@
               <p class="notice" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ctoEntryTriage")}</p>
             {/if}
             <WaitCards run={teamRun} />
+            {#if repos.length}
+              {@const prs = repos.filter((r) => r.run.prUrl).length}
+              {@const other = repos.find((r) => r.run.id === deliveringRepo)?.run}
+              <section class="card" aria-labelledby="run-repos">
+                <div class="repos-head">
+                  <h3 id="run-repos">{t("teams2Repos")}</h3>
+                  <span class="muted">{t("teams2ReposSummary", { prs, total: repos.length })}</span>
+                </div>
+                <p class="help">{t("teams2ReposHelp")}</p>
+                <ul class="repos">
+                  {#each repos as { run: r, state } (r.id)}
+                    {@const [status, label] = repoLabel[state]}
+                    {@const name = repoName(r.repo)}
+                    <li>
+                      <span class="repo-name">
+                        <b>{name}</b>
+                        {#if r.id === id}<span class="muted">{t("teams2RepoOwn")}</span>{/if}
+                      </span>
+                      <StatusPill {status} label={t(label)} />
+                      {#if r.prUrl}
+                        {@const url = r.prUrl}
+                        <button class="link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
+                          {prName(url)}<ExternalLink size={12} aria-hidden="true" />
+                        </button>
+                      {/if}
+                      <span class="repo-acts">
+                        {#if r.status === "delivered" && r.prState && r.id !== id}
+                          <button class="btn sm" onclick={() => cleanRepo(r)} disabled={!!busy} title={t("teams2CleanRepo", { repo: name })}>
+                            <BrushCleaning size={14} aria-hidden="true" />{t("ticketsUiClean")}
+                          </button>
+                        {:else if (r.status === "running" || r.status === "delivered") && !r.prState && !active}
+                          <button
+                            class="btn sm"
+                            title={t("teams2DeliverRepo", { repo: name })}
+                            onclick={() => (r.id === id ? (delivering = true) : (deliveringRepo = r.id))}
+                          >
+                            <Send size={14} aria-hidden="true" />{t("runDeliver")}
+                          </button>
+                        {/if}
+                      </span>
+                    </li>
+                  {/each}
+                </ul>
+              </section>
+              {#if other}<Delivery run={other} onclose={() => (deliveringRepo = null)} />{/if}
+            {/if}
             <TeamRunDetail run={teamRun} />
           {:else if open && !session}
             <p class="muted small">{t("runNoSession")}</p>
@@ -877,10 +875,6 @@
     align-items: baseline;
     gap: 6px;
     min-width: 120px;
-  }
-
-  .branch {
-    overflow-wrap: anywhere;
   }
 
   .repo-acts {

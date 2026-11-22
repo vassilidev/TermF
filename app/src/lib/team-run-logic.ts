@@ -276,9 +276,16 @@ export function batchTasks(run: TeamRun, id: string): { tasks: Task[]; grafted: 
   const grafted = (run.plan?.tasks ?? []).filter((t) => t.id.startsWith(`${id}.`));
   if (grafted.length) return { tasks: grafted, grafted: true };
   const sub = run.steps.find((s) => s.batch && s.task === id)?.subplan;
-  if (!sub) return null;
+  const batch = run.plan?.tasks.find((t) => t.id === id);
+  if (!sub || !batch) return null;
   const as = (own: string) => `${id}.${/^T\d+$/.test(own) ? own.slice(1) : own}`;
-  const tasks = sub.tasks.map((t) => ({ ...t, id: as(t.id), depends_on: t.depends_on.map(as) }));
+  const tasks = sub.tasks.map((t) => ({
+    ...t,
+    id: as(t.id),
+    squad: batch.squad,
+    repo: t.repo || batch.repo,
+    depends_on: [...batch.depends_on, ...t.depends_on.map(as)],
+  }));
   return { tasks, grafted: false };
 }
 
