@@ -137,6 +137,8 @@ export type Step = {
   merge?: string | null;
   report: Report | null;
   violations: Violation[];
+  /** What its agent scheduled in its own session (`/loop`): never run, the session ends with the step. */
+  loops?: string[];
   cost: number;
   /** Why it waits, is blocked or skipped, or a shell step's output. */
   note: string | null;

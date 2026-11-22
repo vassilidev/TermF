@@ -13,6 +13,7 @@ import { go, leaves } from "$lib/panes-logic";
 import type { Side } from "$lib/split-logic";
 import type { RemotePolicy, RemoteState } from "$lib/remote-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
+import type { Loop } from "$lib/tile-logic";
 // Each module reads the other only inside functions, so the import cycles are safe.
 import { place } from "$lib/tabs.svelte";
 import { tickets } from "$lib/tickets.svelte";
@@ -60,6 +61,8 @@ export type Session = {
   context: Gauge | null;
   /** The team role the session works for, once runs launch roles (phase 4). */
   role?: string | null;
+  /** Its `/loop`s and scheduled tasks, for Claude Code sessions that report to TermF. */
+  loops?: Loop[];
   /** The last tool its agent used, as its `PreToolUse` hook told (masked, only what says what it is about). */
   action?: { name: string; input: unknown } | null;
 };
@@ -184,6 +187,18 @@ export const selected = new SvelteSet<string>();
 /** Ids of the sessions ticked for broadcast. */
 export const ticked = new SvelteSet<number>();
 
+/** Now, for the tiles' loops: moved on when the first of them ends, so no timer runs without one. */
+export const loopClock = $state({ now: Date.now() });
+let loopTimer: ReturnType<typeof setTimeout> | undefined;
+
+function nextLoopEnd() {
+  clearTimeout(loopTimer);
+  const now = (loopClock.now = Date.now());
+  const ends = app.sessions.flatMap((s) => s.loops ?? []).flatMap((l) => (l.ends !== null && l.ends > now ? [l.ends] : []));
+  // setTimeout fires at once beyond 2^31 - 1 ms (about 24 days).
+  if (ends.length) loopTimer = setTimeout(nextLoopEnd, Math.min(Math.min(...ends) - now, 2 ** 31 - 1));
+}
+
 /**
  * Terminals: `all` shows every project's tiles under the current project; `broadcast` shows the ticks and the bar,
  * whose unsent message is `draft`.
@@ -212,6 +227,7 @@ export function init(): () => void {
   load().then(() => callLayouts("layouts"));
   invoke<Session[]>("pty_list").then((list) => {
     app.sessions = list;
+    nextLoopEnd();
   });
   invoke<KeepAwakeState>("keep_awake_state").then((s) => {
     app.keepAwake = s;
@@ -252,6 +268,11 @@ export function init(): () => void {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.context = payload.context;
   });
+  const unlistenLoops = listen<{ id: number; loops: Loop[] }>("session-loops", ({ payload }) => {
+    const session = app.sessions.find((s) => s.id === payload.id);
+    if (session) session.loops = payload.loops;
+    nextLoopEnd();
+  });
   const unlistenTool = listen<{ id: number; name: string; input: unknown }>("session-tool", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.action = { name: payload.name, input: payload.input };
@@ -269,6 +290,7 @@ export function init(): () => void {
     unlistenSync.then((stop) => stop());
     unlistenContext.then((stop) => stop());
     unlistenRemote.then((stop) => stop());
+    unlistenLoops.then((stop) => stop());
   };
 }
 

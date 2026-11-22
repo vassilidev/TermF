@@ -20,6 +20,7 @@ use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{
     self, AgentCall, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent,
 };
+use termf_core::loops::{Loop, Loops, now_ms};
 use termf_core::remote;
 use termf_core::{agent_env, cli_agents};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
@@ -45,6 +46,7 @@ struct Meta {
     remote: Option<Tile>,
     /// A Codex CLI terminal's prompt: Codex says when a turn ends, not when one starts.
     typed: Option<ipc::Typed>,
+    loops: Loops,
 }
 
 /// How often a Codex turn TermF guessed is checked, and how long a quiet terminal takes to end it.
@@ -63,6 +65,12 @@ const CALLER_CHECK: Duration = Duration::from_millis(250);
 struct ContextEvent {
     id: u32,
     context: Gauge,
+}
+
+#[derive(Serialize, Clone)]
+struct LoopsEvent {
+    id: u32,
+    loops: Vec<Loop>,
 }
 
 #[derive(Serialize, Clone)]
@@ -324,6 +332,7 @@ impl Api {
             agent_session_id: meta.and_then(|m| m.agent_session_id.clone()),
             context: meta.and_then(|m| m.reset.as_ref()).map(|r| r.gauge.clone()),
             remote: meta.and_then(|m| m.remote.as_ref()).map(Tile::state),
+            loops: meta.map(|m| m.loops.active(now_ms())).unwrap_or_default(),
             id: info.id,
             title: info.title,
             cwd: info.cwd,
@@ -365,6 +374,7 @@ impl Api {
         let text = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
         let (agent_session, handoff) = (text("session_id"), self.handoff_file(id));
         let mut current = true;
+        self.loops(app, id, |loops| loops.hook(event, payload, now_ms()));
         if !agent_session.is_empty()
             && let Some(m) = self.meta.lock().unwrap().get_mut(&id)
         {
@@ -442,6 +452,21 @@ impl Api {
             type_later(app.clone(), id, step, line);
         }
         task_reply.unwrap_or_else(|| output.unwrap_or_default())
+    }
+
+    /// Runs `f` on a session's loops, and shows them when it says they changed.
+    fn loops(&self, app: &AppHandle, id: u32, f: impl FnOnce(&mut Loops) -> bool) {
+        let loops = {
+            let mut meta = self.meta.lock().unwrap();
+            let Some(m) = meta.get_mut(&id) else {
+                return;
+            };
+            if !f(&mut m.loops) {
+                return;
+            }
+            m.loops.active(now_ms())
+        };
+        let _ = app.emit("session-loops", LoopsEvent { id, loops });
     }
 
     fn handoff_file(&self, id: u32) -> PathBuf {
@@ -860,6 +885,7 @@ impl Api {
     /// The process ended: an agent that reports its status is done.
     fn exited(&self, app: &AppHandle, id: u32) {
         self.revoke_session(id);
+        self.loops(app, id, Loops::clear);
         crate::claude::exited(app, id);
         agents::tile_exited(app, id);
         let tracked = self
@@ -1161,6 +1187,7 @@ pub fn spawn_command(
                 policy: None,
                 remote: None,
                 typed: None,
+                loops: Loops::default(),
             },
         );
         Ok(SpawnSpec {
@@ -1286,6 +1313,7 @@ fn launch(
                 policy: task.and_then(|t| t.policy.clone()),
                 remote: None,
                 typed: (hooks.is_some() && tool == Some(Tool::Codex)).then(ipc::Typed::default),
+                loops: Loops::default(),
             },
         );
         let mut extra = Vec::new();
@@ -2054,6 +2082,7 @@ mod tests {
             policy: None,
             remote,
             typed: None,
+            loops: Loops::default(),
         }
     }
 
