@@ -797,6 +797,25 @@ tried = "Tested with automated tests and a fake Claude Code."
 related = ["cli-skills", "library", "worktrees"]
 
 [[features]]
+slug = "language-servers"
+group = "library"
+name = "Language servers and evals"
+tagline = "Agents see your compiler's errors as they edit, and the shipped skills and roles are tested."
+keywords = "lsp language server rust-analyzer typescript pyright gopls diagnostics evals tests skills roles quality"
+problem = '''<p>An agent that edits code without its language's diagnostics finds its mistakes late. When the language server of your stack is installed (rust-analyzer, typescript-language-server, pyright, gopls, intelephense, ruby-lsp, jdtls, kotlin-lsp, sourcekit-lsp, csharp-ls), TermF declares it to the Claude Code sessions it starts, so errors show up as the agent edits. And the skills and key roles that ship with TermF have evals, test cases a model plays and another judges, to check that they do what they say.</p>'''
+how = [
+  "Install the language server of your stack as you usually would; TermF finds it on your <code>PATH</code>.",
+  "The project's Configuration shows each server: declared to the sessions, turned off for the project, or not installed, with a link to install it.",
+  "For contributors: <code>cd app &amp;&amp; pnpm evals</code> plays the evals with a budget cap.",
+]
+default = ["On for the servers that are installed; nothing is declared when none is.", "Every pull request checks that each eval case is readable by Claude Code; running them costs money and is never automatic."]
+tune = ["<code>[lsp] enabled = false</code> in the project's file turns them off."]
+commands = []
+limits = ["Only the servers of the official Claude Code plugins are known.", "The project's card was checked with a simulated backend."]
+tried = "A real Claude Code loaded TermF's language server declaration and received the diagnostics of a Swift file; the evals ran for real on Haiku, judged by Sonnet."
+related = ["skills", "library", "cli-skills"]
+
+[[features]]
 slug = "conventions"
 group = "library"
 name = "Conventions in plain words"

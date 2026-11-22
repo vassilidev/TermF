@@ -141,6 +141,7 @@ Chaque fonctionnalité a sa page sur le site, avec ce qui marche par défaut, ce
 - **Des worktrees prêts à tourner.** Chaque run travaille dans son propre worktree git, avec ses dépendances, ses fichiers `.env`, une base clonée et ses propres ports.
 - **La bibliothèque.** Rôles, règles, skills, workflows et commandes en couches (livré, global, projet, dépôt).
 - **38 skills par stack**, activées selon ce que TermF trouve dans tes dépôts, plus des skills pour `git`, `gh`, `curl`, `jq`, `make` et d'autres pour tous les agents.
+- **Serveurs de langage** : quand le serveur de langage de ta stack est installé (rust-analyzer, TypeScript, pyright, gopls…), les agents reçoivent ses diagnostics pendant qu'ils modifient le code ; les skills et rôles clés livrés ont leurs évals.
 - **Des conventions en mots simples**, proposées depuis ton code et relues une par une, et une **veille** qui cherche sur le web de meilleures pratiques.
 
 ### Claude Code, autres agents et planificateur

@@ -141,6 +141,7 @@ Every feature has its own page on the website, with what works out of the box, w
 - **Worktrees ready to run.** Each run works in its own git worktree, with dependencies, `.env` files, a cloned database and its own ports.
 - **The library.** Roles, rules, skills, workflows and commands in layers (shipped, global, project, repository).
 - **38 skills by stack**, turned on by what TermF finds in your repositories, plus skills for `git`, `gh`, `curl`, `jq`, `make` and more for every agent.
+- **Language servers**: when your stack's language server is installed (rust-analyzer, TypeScript, pyright, gopls…), agents get its diagnostics as they edit; the shipped skills and key roles have evals.
 - **Conventions in plain words**, proposed from your code and reviewed one by one, and a **library scout** that checks the web for better practices.
 
 ### Claude Code, other agents and the scheduler
