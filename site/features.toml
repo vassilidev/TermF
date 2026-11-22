@@ -1,11 +1,13 @@
 # The feature catalogue of the website: .github/scripts/features.py builds features.html, features/<slug>.html and
 # sitemap.xml from this file. Every claim here comes from docs/STATUS.md, docs/ARCHITECTURE.md or the README; what is
-# not verified says so. Text fields may hold inline HTML (code, kbd, links).
+# not verified says so. Text fields may hold inline HTML (code, kbd, links); {roles} and {role_names} are filled from
+# library/roles/. A group's icon is a Lucide icon from [icons], at the end.
 
 [[groups]]
 id = "team"
 name = "The CTO and the team"
-intro = "One agent you talk to, a team of role agents that does the work, and you at the gates."
+intro = "You talk to one agent, the CTO. A team of agents with one job each does the work, and stops for you at the key steps."
+icon = "users"
 article = "team.html"
 article_title = "The CTO and the team"
 not_yet = ["Runs across several repositories (one repository per run today)", "A squad editor outside the setup assistant, and the leads' sub-plans", "Re-planning after repeated failures, a daily budget, one scheduler for every team at work"]
@@ -13,51 +15,60 @@ not_yet = ["Runs across several repositories (one repository per run today)", "A
 [[groups]]
 id = "projects"
 name = "Projects, tickets and runs"
-intro = "A project groups repositories. A ticket becomes a run, with a page of its own, until the pull request."
+intro = "A project groups your repositories. Each ticket becomes a run, a ticket being worked on, with its own page up to the pull request."
+icon = "ticket"
 article = "how-it-works.html"
 article_title = "How a ticket becomes a pull request"
 
 [[groups]]
 id = "terminals"
 name = "Terminals"
-intro = "Every Claude Code session in view, Ghostty style, with its state and its context."
+intro = "Every Claude Code session in one window, in tabs and splits, with its state and how full its context is."
+icon = "layout-grid"
 
 [[groups]]
 id = "worktrees"
 name = "Worktrees"
-intro = "A worktree per run, with its dependencies, its environment, its database and its ports."
+intro = "Each run works in its own copy of the repository, a git worktree, with its dependencies, environment, database and ports ready."
+icon = "git-fork"
 
 [[groups]]
 id = "library"
 name = "Library and skills"
-intro = "Roles, rules, skills, workflows and commands in layers, matched to your stack."
+intro = "The roles, rules, skills and workflows your agents get, in layers, matched to your stack."
+icon = "library-big"
 
 [[groups]]
 id = "claude"
 name = "Claude Code, artifacts and the scheduler"
 intro = "Everything Claude Code knows on this machine, in one view, and Claude tasks on a schedule."
+icon = "bot"
 
 [[groups]]
 id = "ci"
 name = "CI/CD"
-intro = "GitHub Actions without leaving the app, through the GitHub CLI."
+intro = "GitHub Actions runs and logs without leaving the app, and a failure sent back to the agent that caused it."
+icon = "workflow"
 
 [[groups]]
 id = "visual"
-name = "Visual review"
-intro = "Before and after captures of every changed screen, as a gate of the team."
+name = "Design and visual review"
+intro = "Your design system read from the code, with its inconsistencies, and before and after screenshots of every changed screen."
+icon = "scan-eye"
 not_yet = ["The review page: side by side, slider, overlay, heatmap, pins and a swipe mode"]
 
 [[groups]]
 id = "machine"
 name = "Keys, vault and sync"
-intro = "The chores of a developer's machine, done properly."
-not_yet = ["Touch ID and Windows Hello for the vault, changing its master password, importing from other password managers", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
+intro = "SSH keys, a vault for passwords and secrets, and your settings synced across machines, encrypted."
+icon = "key-round"
+not_yet = ["Importing passwords from other password managers", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
 
 [[groups]]
 id = "security"
 name = "Security"
-intro = "Defense in depth on one machine, and plain words about what it does not cover."
+intro = "Guard rails on your machine, and plain words about what they do not cover."
+icon = "shield-check"
 article = "security.html"
 article_title = "Security, and its limits"
 
@@ -65,6 +76,7 @@ article_title = "Security, and its limits"
 id = "cli"
 name = "The termf command line"
 intro = "Everything the app does, from any terminal. It ships inside the app."
+icon = "square-terminal"
 
 # ---------------------------------------------------------------------------------------------------------------- team
 
@@ -102,12 +114,12 @@ limits = [
 ]
 tried = "Its tools were run with a real Claude Code (Haiku) through automated tests. The conversation in the app has been checked with a simulated backend."
 related = ["triage", "home", "expert"]
-read = "team.html#cto"
+read = "team.html#role-cto"
 
 [[features]]
 slug = "triage"
 group = "team"
-name = "Triage and the path"
+name = "Triage: how the team takes a ticket"
 tagline = "The CTO reads each request and picks how the team handles it."
 keywords = "routing route workflow budget squads hotfix kind size"
 problem = '''<p>A typo fix and an epic should not go through the same process. Before a team run starts, the CTO reads the request and the project and proposes the path: what kind of work it is, how big, which workflow, which optional steps, which squads, what budget. You approve it before anything starts.</p>'''
@@ -163,10 +175,10 @@ read = "how-it-works.html#questions"
 [[features]]
 slug = "roles"
 group = "team"
-name = "Seventeen roles"
+name = "{roles} agents, one role each"
 tagline = "From the product owner to the security reviewer, each a file you can change."
 keywords = "agents roles cto lead po pm architect ux front back devops qa seo secops reviewer expert brand copy motion model effort"
-problem = '''<p>One general agent doing everything drifts. TermF ships seventeen roles, each with a mission, a model, an effort and permissions: cto, lead, po, pm, architect, ux, front, back, devops, qa, seo, secops, reviewer, expert, brand, copy and motion. Most planners and reviewers run on opus, most builders on sonnet.</p>'''
+problem = '''<p>One general agent doing everything drifts. TermF ships {roles} roles, each with a mission, a model, an effort and permissions: {role_names}. Most planners and reviewers run on opus, most builders on sonnet.</p>'''
 how = [
   "The plan gives each task a role and a size.",
   "TermF starts a fresh Claude Code session for the step, with the role's instructions and a brief: the task, the criteria, your answers, the earlier reports.",
@@ -176,7 +188,7 @@ how = [
 visual = "roster"
 caption = "Some of the roles, with their model and effort. From library/roles."
 default = [
-  "Seventeen roles ship in <code>library/roles/</code>, each a Markdown file in the format of Claude Code's agents.",
+  "{roles} roles ship in <code>library/roles/</code>, each a Markdown file in the format of Claude Code's agents.",
   "Steps run in <code>acceptEdits</code> mode; the roles that only read cannot edit a file.",
   "secops runs at extra high effort.",
 ]
@@ -189,12 +201,12 @@ commands = [["termf team squads", "every role of a project with its settings and
 limits = ["A repository can only pick a model or an effort and add to what is denied.", "The descriptions of the shipped roles are in English even in the French interface."]
 tried = "Run with a real Claude Code (Haiku) from the plan to the tasks' reports, through automated tests."
 related = ["squads", "code-review", "creative"]
-read = "team.html#roles"
+read = "team.html#contact"
 
 [[features]]
 slug = "squads"
 group = "team"
-name = "Squads"
+name = "Squads for bigger projects"
 tagline = "Split a bigger project into teams with their own scope."
 keywords = "squads teams staff lead parallel repositories paths domains"
 problem = '''<p>On a project with several repositories or areas, one flat team steps on its own toes. Squads give each area its lead, its members and how many of each, its repositories, its paths and how many tasks it runs at once. The roles that serve every squad form the staff.</p>'''
@@ -271,6 +283,34 @@ tried = "Shipped with their skills and evaluation cases; nothing run for real ye
 related = ["roles", "questionnaire", "squads"]
 
 [[features]]
+slug = "specialists"
+group = "team"
+name = "The specialists"
+tagline = "Database, docs, integrations, reliability, accessibility, AI, analytics and compliance, when a ticket needs them."
+keywords = "specialists dba database migrations docs technical writer integrations stripe webhooks sso sre observability load tests a11y accessibility wcag rgaa ai llm rag evals analytics tracking legal compliance gdpr"
+problem = '''<p>Costly bugs hide in the fields a generalist forgets: a migration that locks a table, a webhook received twice, a screen a keyboard cannot reach, a consent nobody asked for. Specialists ship with TermF for these fields: the database engineer, the technical writer, the integration engineer, the site reliability engineer, the accessibility auditor, the AI engineer, the product analyst and the compliance analyst.</p>'''
+how = [
+  "The plan gives a specialist a task when the request touches its field, like any role.",
+  "The database engineer also reviews, as a step of the default workflow, every run whose tasks changed a migration; the step is skipped otherwise.",
+  "The accessibility auditor opens the changed screens in the agents' browser and audits them against WCAG 2.2 AA and the RGAA; it changes nothing, the front-end developer fixes.",
+  "The compliance analyst sources each obligation from an official text, to be checked by a legal professional; it changes nothing either.",
+]
+default = [
+  "No shipped workflow includes them, except the database engineer's review of migrations.",
+  "With squads, a specialist must be in the staff or in a squad to get a task, like any role.",
+  "They never use a real account, key or production system of a provider.",
+]
+tune = ["Their models and effort, like any role: <code>[roles.&lt;role&gt;]</code>."]
+commands = [["termf team squads", "the roles of a project, staff included"]]
+limits = [
+  "Never run in a real run nor evaluated yet.",
+  "The worktrees of tasks and reviews are not prepared yet, so a database engineer's task that must run its migrations may not reach the run's database (not tried).",
+]
+tried = "Shipped with their instructions; nothing run for real yet."
+related = ["roles", "agent-browser", "creative"]
+read = "team.html#specialists"
+
+[[features]]
 slug = "expert"
 group = "team"
 name = "The project expert"
@@ -299,7 +339,7 @@ limits = [
 ]
 tried = "Run with a real Claude Code (Haiku) through automated tests, the memory served by a fake TermF."
 related = ["cto", "roles", "library"]
-read = "team.html#expert"
+read = "team.html#role-expert"
 
 [[features]]
 slug = "budgets"
@@ -325,6 +365,38 @@ limits = ["A shell command started before a restart is not always killed.", "Tak
 tried = "Budgets and the emergency stop were tested with a fake Claude Code; taking over with the guard, by the code only."
 related = ["runs", "cto", "terminals"]
 read = "team.html#control"
+
+[[features]]
+slug = "agent-browser"
+group = "team"
+name = "The agents' browser"
+tagline = "The front, QA, UX and SEO agents open your pages and check them themselves."
+keywords = "browser chrome headless playwright puppeteer screenshot click form console network qa front ux seo dev server"
+problem = '''<p>An agent that changes a screen should look at it. The agents' browser gives a session a headless Chrome on its worktree's own dev server: it opens a page at a desktop, tablet or mobile size, in the light or dark theme, reads it, clicks, fills forms, waits, takes screenshots and reads the console and the network. It cannot reach your accounts or the rest of the web.</p>'''
+how = [
+  "An agent opens a page of its worktree; the first time, TermF starts the repository's dev server on a port of its own.",
+  "It reads the page as an accessibility tree, clicks, fills fields, waits for a text and takes screenshots.",
+  "It reads the console and the network, including the requests TermF blocked.",
+  "When the session ends, Chrome, its throwaway profile and the dev server go away.",
+]
+default = [
+  "On for front, QA, UX and SEO, in team steps and in direct conversations.",
+  "The system's Chrome, Chromium or Edge, headless, with a throwaway profile: never your keychain, your extensions or your sync.",
+  "Only localhost and the origins you allow; downloads are refused, and no tool runs JavaScript the agent wrote.",
+]
+tune = [
+  "Give it to another role: <code>[roles.&lt;role&gt;] allowedTools = [\"+mcp__termf__browser_*\"]</code>.",
+  "Allow more origins, a staging site for example: <code>[browser] origins</code>.",
+  "<code>[browser] tiles = true</code> offers it to the project's Claude Code terminals too, with a permission prompt.",
+]
+commands = []
+limits = [
+  "Tried for real on macOS only.",
+  "On Windows, the throwaway profile and the dev server's log may stay in the temporary folder.",
+  "A page an agent checked does not count as a visual review, which needs a before.",
+]
+tried = "Run with a real Chrome on macOS, and with a real Claude Code (Haiku) in the QA role, which opened a page, clicked and read the console."
+related = ["visual-review", "roles", "worktrees"]
 
 # ------------------------------------------------------------------------------------------------------------ projects
 
@@ -534,7 +606,7 @@ related = ["status", "panels", "files"]
 [[features]]
 slug = "status"
 group = "terminals"
-name = "State, gauge and context reset"
+name = "Session state and context reset"
 tagline = "Working, waiting for you or done, and a context that never overflows."
 keywords = "status hooks notifications context gauge reset handoff clear canary"
 problem = '''<p>You should not have to watch every session to know which one needs you. Each Claude Code session shows its state, read from Claude Code's own hooks, and its context gauge; a notification tells you when one waits or finishes. When a context fills up, TermF can hand it off, clear it and resume.</p>'''
@@ -633,7 +705,7 @@ related = ["runs", "skills", "projects"]
 [[features]]
 slug = "library"
 group = "library"
-name = "The layered library"
+name = "The library of roles, rules and skills"
 tagline = "Roles, rules, skills, workflows and commands, from shipped to repository."
 keywords = "library layers global project repository plugin export import config"
 problem = '''<p>What an agent gets should be visible and yours to change. TermF's library holds roles, rules, skills, preferences, workflows and commands in layers, shipped, packages, global, project, repository, and tells you why each one applies.</p>'''
@@ -834,8 +906,36 @@ tune = ["<code>[visual]</code>: routes, viewports (desktop, tablet, mobile), the
 commands = [["termf review start | show | decide | pr", "reviews from a terminal"]]
 limits = ["The review page is not built: the gate asks you to look at the result in the run's worktree.", "Chrome on Linux and Windows has not been tried."]
 tried = "The engine ran with a real Chrome on macOS through automated tests."
-related = ["workflows", "code-review", "delivery"]
+related = ["design-system", "agent-browser", "workflows"]
 read = "how-it-works.html#visual"
+
+[[features]]
+slug = "design-system"
+group = "visual"
+name = "The Design system view"
+tagline = "Your design system, read from the code, with its inconsistencies."
+keywords = "design system tokens colors contrast wcag tailwind css variables scss dtcg components storybook brand guidelines pdf dark theme"
+problem = '''<p>Tokens drift, colours get typed by hand, a dark theme stays half done. The Design system view reads a repository's design system without running anything from it: its tokens, its components and their variants, and every inconsistency it finds, each with the file and the line. A Brand guidelines tab shows the logos and the guidelines, and exports them to PDF.</p>'''
+how = [
+  "Open Design system among the project's views, or from the palette; pick the repository when the project has several.",
+  "TermF reads the tokens (CSS custom properties, Tailwind, SCSS, W3C design tokens) in both themes, and the Svelte, Vue, Astro and JSX components with their variants and stories.",
+  "Inconsistencies lists hard-coded values with the token to use, sizes off the scale, near-identical colours, unused or undefined tokens, an incomplete dark theme, contrasts under WCAG AA and duplicate components; each one opens at its line in TermF's editor.",
+  "Fix with the team writes a message to the CTO with the findings you picked; nothing is sent or started without you.",
+]
+default = [
+  "Read-only: nothing from the repository runs, no Node, no git; a <code>tailwind.config</code> is read as plain text.",
+  "Follows <code>.gitignore</code> and skips dependencies, builds, tests and generated files.",
+  "Bounded at 4,000 files and 8 seconds.",
+]
+tune = ["Pick which findings go to the team.", "The Brand guidelines tab reads <code>brand/</code> and <code>BRAND.md</code>, where the brand designer writes; export the guidelines to PDF."]
+commands = []
+limits = [
+  "Checked with a simulated backend, not yet in the app's real window; the PDF export was tried with Chrome on macOS only.",
+  "Components are listed, not rendered: rendering a Storybook would mean running the repository's code.",
+  "CSS-in-JS (styled-components, MUI themes, vanilla-extract) is not read.",
+]
+tried = "Covered by automated tests on throwaway repositories and by reading TermF's own app and site; the PDF export ran with a real Chrome on macOS."
+related = ["creative", "visual-review", "agent-browser"]
 
 # ------------------------------------------------------------------------------------------------------------- machine
 
@@ -865,22 +965,24 @@ group = "machine"
 name = "The vault and passwords"
 tagline = "Secrets, logins and secure notes, per project, encrypted."
 keywords = "vault secrets passwords password manager logins notes totp 2fa generator passphrase encryption argon2 xchacha audit 1password bitwarden doppler aws"
-problem = '''<p>Secrets do not belong in agents' contexts or in plain files, and a project's logins should not live in another app. The vault keeps secrets, logins with their two-factor codes, and secure notes encrypted, per project or for all of them, with an audit log; agents can never reveal a value.</p>'''
+problem = '''<p>Secrets do not belong in agents' contexts or in plain files, and a project's logins should not live in another app. The vault keeps secrets, logins with their two-factor codes, and secure notes encrypted, per project or for all of them, with an audit log; agents can never reveal a value. A security key can be a second factor, and Touch ID or Windows Hello can open it for a few days.</p>'''
 how = [
   "Create the vault with a master password, in the app or with <code>termf vault init</code>.",
   "Add logins (addresses, user name, password, two-factor key) and notes, for one project or for all; secrets live in dev, staging or prod scopes, and prod asks the password again.",
   "Search, filter logins, notes and secrets; copy a password or the current two-factor code without opening the item, the clipboard cleared after 30 seconds.",
   "Generate passwords or passphrases; every reveal goes in a hash-chained audit log.",
+  "In Security, add a security key (FIDO2) as a second factor, turn on Touch ID or Windows Hello, change the master password; a recovery key opens the vault if you lose the key or the password.",
 ]
 default = [
   "Argon2id and XChaCha20-Poly1305; locks after 10 minutes, and on sleep.",
   "A revealed password hides again after 30 seconds, a note after two minutes.",
   "References point to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.",
 ]
-tune = ["<code>[vault] auto_lock_minutes</code>.", "Per item, whether agents may use it: kept for the connections and recipes still to come."]
+tune = ["<code>[vault] auto_lock_minutes</code>.", "Up to 10 security keys; Touch ID or Windows Hello for 1 to 30 days; a new recovery key at any time.", "Per item, whether agents may use it: kept for the connections and recipes still to come."]
 commands = [["termf vault init | unlock | lock | status", "the vault"], ["termf vault items | item <id>", "logins and notes, from a terminal"], ["termf vault set | ref | reveal | audit", "secrets and the audit"]]
 limits = [
-  "No Touch ID or Windows Hello, no password change: a forgotten password means a lost vault.",
+  "Never tried with a real security key: the FIDO2 code is checked against a simulated key, and the Windows path is only built, never run.",
+  "Touch ID and Windows Hello are a convenience, not a cryptographic lock like a security key: the app is not signed.",
   "No import from other password managers, no sync of the vault yet, no QR code reading.",
   "On Linux and Windows, a key kept in the keychain can be read by any process of the user.",
 ]
@@ -1152,21 +1254,38 @@ cli = '''<div class="app"><pre class="pt term" style="padding:14px 16px">alex@mb
 
 skills = '''<ul class="tags" aria-label="The 38 stack skills that ship with TermF"><li>accessibility</li><li>angular</li><li>cloud</li><li>csharp-dotnet</li><li>css-tailwind</li><li>django</li><li>docker</li><li>fastapi</li><li>github-actions</li><li>go</li><li>java-spring</li><li>javascript-node</li><li>junit</li><li>kotlin-android</li><li>kubernetes</li><li>mongodb</li><li>mysql</li><li>nextjs</li><li>pest</li><li>php-laravel</li><li>playwright</li><li>pytest</li><li>python</li><li>react</li><li>redis</li><li>rspec</li><li>ruby-rails</li><li>rust</li><li>security-web</li><li>seo</li><li>sql-postgres</li><li>svelte-sveltekit</li><li>swift-ios</li><li>terraform</li><li>testing-js</li><li>tests-from-criteria</li><li>typescript</li><li>vue-nuxt</li></ul>'''
 
-workflow = '''<div class="bay"><p class="plate">Default workflow</p><ol class="strips">
-  <li class="strip" data-state="waiting"><span class="cs">Triage<small>cto</small></span><span class="what">Picks the workflow, steps, squads, budget</span><span class="st">You approve the path</span></li>
-  <li class="strip" data-state="working"><span class="cs">Frame<small>po</small></span><span class="what">Criteria, what is out of scope, the questions</span><span class="st">Reads only</span></li>
-  <li class="strip" data-state="waiting"><span class="cs">Plan<small>lead</small></span><span class="what">Tasks per role, with what each covers and needs</span><span class="st">You approve the plan</span></li>
-  <li class="strip" data-state="working"><span class="cs">Tasks<small>front, back, qa…</small></span><span class="what">In parallel, up to four at once, each in its own worktree</span><span class="st">Your agents work</span></li>
-  <li class="strip" data-state="working"><span class="cs">Checks<small>shell, rules</small></span><span class="what">The repository's checks, then the project's rules</span><span class="st">Automatic</span></li>
-  <li class="strip" data-state="working"><span class="cs">Review<small>reviewer, secops</small></span><span class="what">Findings back to their task; then the security review</span><span class="st">Up to two rounds</span></li>
-  <li class="strip" data-state="waiting"><span class="cs">Deliver<small>you</small></span><span class="what">What it will send, then the pull request</span><span class="st">You confirm</span></li>
-</ol></div>'''
+workflow = '''<div class="app"><div class="list steps-list">
+  <div class="row"><span class="n">1</span><span class="t"><b>Triage <i>cto</i></b><span>Picks the workflow, steps, squads, budget</span></span><span class="pill-s waiting">You approve the path</span></div>
+  <div class="row"><span class="n">2</span><span class="t"><b>Frame <i>po</i></b><span>Criteria, what is out of scope, the questions</span></span><span class="pill-s muted">Reads only</span></div>
+  <div class="row"><span class="n">3</span><span class="t"><b>Plan <i>lead</i></b><span>Tasks per role, with what each covers and needs</span></span><span class="pill-s waiting">You approve the plan</span></div>
+  <div class="row"><span class="n">4</span><span class="t"><b>Tasks <i>front, back, qa…</i></b><span>In parallel, up to four at once, each in its own worktree</span></span><span class="pill-s working">Your agents work</span></div>
+  <div class="row"><span class="n">5</span><span class="t"><b>Checks <i>shell, rules</i></b><span>The repository's checks, then the project's rules</span></span><span class="pill-s muted">Automatic</span></div>
+  <div class="row"><span class="n">6</span><span class="t"><b>Review <i>reviewer, secops</i></b><span>Findings back to their task; then the security review</span></span><span class="pill-s working">Up to two rounds</span></div>
+  <div class="row"><span class="n">7</span><span class="t"><b>Deliver <i>you</i></b><span>What it will send, then the pull request</span></span><span class="pill-s waiting">You confirm</span></div>
+</div></div>'''
 
-recipe = '''<div class="bay"><p class="plate">Recipe</p><ol class="strips">
-  <li class="strip" data-state="done"><span class="cs">Include<small>.worktreeinclude</small></span><span class="what">The ignored files the worktree needs</span><span class="st">Copied</span></li>
-  <li class="strip" data-state="done"><span class="cs">Deps<small>copy-on-write</small></span><span class="what">Dependency folders cloned, then installed offline first</span><span class="st">Never raw</span></li>
-  <li class="strip" data-state="done"><span class="cs">Database<small>local only</small></span><span class="what">Its own copy; every <code>.env*</code> naming it repointed</span><span class="st">Dropped at close</span></li>
-  <li class="strip" data-state="done"><span class="cs">Env<small>ports</small></span><span class="what"><code>PORT</code>, <code>TERMF_PORT_*</code>, <code>COMPOSE_PROJECT_NAME</code></span><span class="st">Per run</span></li>
-  <li class="strip" data-state="done"><span class="cs">Commands<small>yours</small></span><span class="what">Whatever else the project needs to run</span><span class="st">In order</span></li>
-  <li class="strip"><span class="cs">Agent<small>opt-in</small></span><span class="what">A Claude Code in a sandbox for what a recipe cannot guess</span><span class="st">Off by default</span></li>
-</ol></div>'''
+recipe = '''<div class="app"><div class="list steps-list">
+  <div class="row"><span class="n">1</span><span class="t"><b>Include <i>.worktreeinclude</i></b><span>The ignored files the worktree needs</span></span><span class="pill-s done">Copied</span></div>
+  <div class="row"><span class="n">2</span><span class="t"><b>Dependencies <i>copy-on-write</i></b><span>Dependency folders cloned, then installed offline first</span></span><span class="pill-s done">Never raw</span></div>
+  <div class="row"><span class="n">3</span><span class="t"><b>Database <i>local only</i></b><span>Its own copy; every <code>.env*</code> naming it repointed</span></span><span class="pill-s done">Dropped at close</span></div>
+  <div class="row"><span class="n">4</span><span class="t"><b>Environment <i>ports</i></b><span><code>PORT</code>, <code>TERMF_PORT_*</code>, <code>COMPOSE_PROJECT_NAME</code></span></span><span class="pill-s done">Per run</span></div>
+  <div class="row"><span class="n">5</span><span class="t"><b>Commands <i>yours</i></b><span>Whatever else the project needs to run</span></span><span class="pill-s done">In order</span></div>
+  <div class="row"><span class="n">6</span><span class="t"><b>Agent <i>opt-in</i></b><span>A Claude Code in a sandbox for what a recipe cannot guess</span></span><span class="pill-s muted">Off by default</span></div>
+</div></div>'''
+
+# Lucide icons (ISC license), as in the app: the inner markup of each 24×24 stroked icon.
+[icons]
+users = '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>'
+ticket = '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>'
+layout-grid = '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>'
+git-fork = '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/>'
+library-big = '<rect width="8" height="18" x="3" y="3" rx="1"/><path d="M7 3v18"/><path d="M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z"/>'
+bot = '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>'
+workflow = '<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>'
+scan-eye = '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/>'
+key-round = '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>'
+shield-check = '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>'
+square-terminal = '<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>'
+laptop = '<path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/>'
+code-xml = '<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>'
+badge-check = '<path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/>'

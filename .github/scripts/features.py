@@ -1,24 +1,97 @@
 #!/usr/bin/env python3
 # Builds the website's feature catalogue (site/features.html), one page per feature (site/features/<slug>.html) and
-# site/sitemap.xml, all from site/features.toml. The icon sprite, the nav and the footer are taken from
-# site/how-it-works.html, so the generated pages share them with the hand-written ones.
+# site/sitemap.xml from site/features.toml, and fills the generated parts of the hand-written pages (the team roster,
+# the feature grid and their counts, between <!-- gen:name --> markers) from site/features.toml, site/roles.toml and
+# the roles of library/roles/. The icon sprite, the nav and the footer are taken from site/how-it-works.html, so the
+# generated pages share them with the hand-written ones.
 # Usage: python3 .github/scripts/features.py (Python 3.11+, standard library only). The Pages workflow runs it.
+import glob
 import json
 import os
 import re
 import tomllib
 
-SITE = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "site"))
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+SITE = os.path.join(ROOT, "site")
 BASE = "https://vassilidev.github.io/TermF/"
-ARROW = '<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i>'
 
 data = tomllib.load(open(os.path.join(SITE, "features.toml"), "rb"))
-groups, features, visuals = data["groups"], data["features"], data.get("visuals", {})
+groups, features, visuals, icons = data["groups"], data["features"], data.get("visuals", {}), data["icons"]
 by_slug = {f["slug"]: f for f in features}
 by_group = {g["id"]: g for g in groups}
+crew = tomllib.load(open(os.path.join(SITE, "roles.toml"), "rb"))
+
+
+def frontmatter(path):
+    """The top-level `key: value` lines of a role's frontmatter; [a, b] lists and comma lists become Python lists."""
+    head = re.match(r"---\n(.*?)\n---\n", open(path, encoding="utf-8").read().replace("\r\n", "\n"), re.S)
+    assert head, f"{path}: no frontmatter"
+    meta = {}
+    for line in head.group(1).splitlines():
+        key, sep, value = line.partition(":")
+        if sep and not line.startswith((" ", "\t", "-")):
+            meta[key.strip()] = value.strip()
+    for key in ("disallowedTools", "allowedTools", "writes"):
+        if key in meta:
+            meta[key] = [x.strip().strip("\"'") for x in meta[key].strip("[]").split(",") if x.strip()]
+    return meta
+
+
+def role_card(path):
+    """A role as the site shows it: its readable texts from roles.toml, the rest from its file. A role roles.toml does
+    not know yet still shows, in the last group, with its own description."""
+    meta = frontmatter(path)
+    name = meta["name"]
+    known = crew["roles"].get(name)
+    if known is None:
+        print(f"warning: role {name} is not in site/roles.toml; shown with its description")
+        desc = meta.get("description", "").strip()
+        label, sep, rest = desc.partition(". ")
+        if not sep:
+            label, rest = name.capitalize(), desc
+        never = re.search(r"\bNot for (.*)$", rest)
+        does = re.sub(r"\s*\bNot for .*$", "", rest).strip().rstrip(".") or desc.rstrip(".")
+        known = {"label": label, "group": crew["groups"][-1]["id"], "short": label, "does": does + "." if does else "",
+                 "never": never.group(1)[0].upper() + never.group(1)[1:].rstrip(".") + "." if never else ""}
+    denied = meta.get("disallowedTools", [])
+    if "writes" in meta:
+        access = known.get("access", "Writes only its own paths") if meta["writes"] else "Reads only"
+    else:
+        access = "Reads only" if {"Edit", "Write"} <= set(denied) else "Edits files"
+    limits = [label for tool, label in (("Bash", "No shell"), ("WebFetch", "No web")) if tool in denied]
+    if any(t.startswith("mcp__termf__browser") for t in meta.get("allowedTools", [])):
+        limits.append("Uses a browser")
+    words = re.split(r"[-_\s]+", name)
+    mark = known.get("mark") or (words[0][0] + words[1][0] if len(words) > 1 else name[:2]).upper()
+    return {"name": name, "mark": mark, "model": meta.get("model", ""), "effort": meta.get("effort", ""),
+            "access": access, "limits": limits, **known}
+
+
+roles = [role_card(p) for p in sorted(glob.glob(os.path.join(ROOT, "library", "roles", "*.md")))]
+assert roles, "no role in library/roles/: the team pages need at least one"
+order = {name: i for i, name in enumerate(crew["roles"])}
+roles.sort(key=lambda r: (order.get(r["name"], len(order)), r["name"]))
+by_crew = {g["id"]: [r for r in roles if r["group"] == g["id"]] for g in crew["groups"]}
+names = [r["name"] for r in roles]
+COUNTS = {"roles": str(len(roles)), "role_names": " and ".join(filter(None, [", ".join(names[:-1]), names[-1]]))}
+
+
+def counted(value):
+    """{roles} and {role_names} in features.toml, filled from library/roles/."""
+    if isinstance(value, str):
+        return re.sub(r"\{(roles|role_names)\}", lambda m: COUNTS[m.group(1)], value)
+    if isinstance(value, list):
+        return [counted(v) for v in value]
+    return value
+
+
+features = [{k: counted(v) for k, v in f.items()} for f in features]
+by_slug = {f["slug"]: f for f in features}
 
 # The data is checked before anything is written, so a typo fails the build instead of shipping a broken link
 assert len(by_slug) == len(features), "duplicate slug"
+assert all(g.get("icon") in icons for g in groups), "a group without a known icon"
+assert all(r["group"] in by_crew for r in roles), "a role in an unknown group"
 for f in features:
     assert re.fullmatch(r"[a-z0-9-]+", f["slug"]), f["slug"]
     assert f["group"] in by_group, f"{f['slug']}: unknown group {f['group']}"
@@ -27,7 +100,7 @@ for f in features:
     for key in ("name", "tagline", "problem", "how", "default", "tune", "limits", "tried"):
         assert f.get(key), f"{f['slug']}: no {key}"
 
-shell = open(os.path.join(SITE, "how-it-works.html")).read()
+shell = open(os.path.join(SITE, "how-it-works.html"), encoding="utf-8").read()
 SPRITE = re.search(r'<svg width="0".*?</svg>', shell, re.S).group(0)
 NAV = re.search(r'<header class="nav".*?</header>', shell, re.S).group(0).replace(' aria-current="page"', "")
 FOOTER = re.search(r"<footer>.*?</footer>", shell, re.S).group(0)
@@ -39,6 +112,19 @@ def esc(s):
 
 def text(s):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", s)).replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").strip()
+
+
+def sprite(names):
+    symbols = "".join(f'<symbol id="g-{n}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+                      f'stroke-linecap="round" stroke-linejoin="round">{icons[n]}</symbol>' for n in names)
+    return f'<svg width="0" height="0" style="position:absolute" aria-hidden="true">{symbols}</svg>'
+
+
+def ico(name):
+    return f'<svg aria-hidden="true"><use href="#g-{name}"/></svg>'
+
+
+GROUP_ICONS = sorted({g["icon"] for g in groups})
 
 
 def rebase(page, prefix):
@@ -93,6 +179,7 @@ def page(path, title, desc, body, ld, og_type="website", current="", script=""):
 <body>
 <a class="skip" href="#main">Skip to content</a>
 {SPRITE}
+{sprite(GROUP_ICONS)}
 
 {nav}
 
@@ -104,7 +191,11 @@ def page(path, title, desc, body, ld, og_type="website", current="", script=""):
 
 <script>
 const nav = document.getElementById('nav');
-addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {{passive: true}});{script}
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {{passive: true}});
+const menu = nav.querySelector('.menu');
+menu.addEventListener('click', e => {{ if (e.target.closest('a')) menu.open = false; }});
+addEventListener('click', e => {{ if (menu.open && !menu.contains(e.target)) menu.open = false; }});
+addEventListener('keydown', e => {{ if (e.key === 'Escape' && menu.open) {{ menu.open = false; menu.querySelector('summary').focus(); }} }});{script}
 </script>
 </body>
 </html>
@@ -113,7 +204,7 @@ addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40),
     html = rebase(html, "../" * depth) if depth else html
     out = os.path.join(SITE, path)
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    open(out, "w").write(html)
+    open(out, "w", encoding="utf-8").write(html)
     return path
 
 
@@ -124,70 +215,71 @@ def crumbs(*items):
 def figure(key, caption):
     snippet = visuals[key].strip()
     if snippet.startswith('<div class="app'):
-        inner = f'<div class="screen"><p class="screen-cap">{esc(caption)}</p>{snippet}</div>'
-    elif snippet.startswith('<div class="bay"'):
-        inner = f'<div class="board">{snippet}</div><figcaption>{esc(caption)}</figcaption>'
-    else:
-        inner = f"{snippet}<figcaption>{esc(caption)}</figcaption>"
-    return f"<figure>{inner}</figure>"
-
-
-def how_board(f):
-    strips = "".join(f'<li class="strip" data-state="working"><span class="cs">{i}</span><span class="what">{step}</span></li>' for i, step in enumerate(f["how"], 1))
-    return f'<div class="board how"><div class="bay"><p class="plate">How it works</p><ol class="strips">{strips}</ol></div></div>'
+        return f'<figure class="shot"><div class="screen">{snippet}</div><figcaption>{esc(caption)}</figcaption></figure>'
+    return f'<figure class="shot">{snippet}<figcaption>{esc(caption)}</figcaption></figure>'
 
 
 def items(xs):
     return "".join(f"<li>{x}</li>" for x in xs)
 
 
-def feature_strip(f):
-    return (f'<li><a class="strip" data-state="done" href="features/{f["slug"]}.html">'
-            f'<span class="cs">{f["name"]}</span><span class="what">{f["tagline"]}</span>'
-            f'<span class="st"><svg aria-hidden="true"><use href="#i-arrow"/></svg></span></a></li>')
+def card(f, attrs=""):
+    """A feature as a card: its group's icon, its name and its one-line summary, the whole card a link."""
+    icon = by_group[f["group"]]["icon"]
+    return (f'<li{attrs}><a class="fcard" href="features/{f["slug"]}.html"><span class="fi">{ico(icon)}</span>'
+            f'<span class="fn">{f["name"]}</span><span class="ft">{f["tagline"]}</span></a></li>')
 
+
+ARTICLES = {"team.html": "The team", "how-it-works.html": "How a ticket becomes a pull request",
+            "security.html": "Security, and its limits", "download.html": "Download TermF"}
 
 written = []
 
 for f in features:
     g = by_group[f["group"]]
-    visual = f.get("visual")
-    right = figure(visual, f.get("caption", "")) if visual else how_board(f)
-    how = f'<section aria-labelledby="how"><h2 id="how">How it works</h2>{how_board(f)}</section>' if visual else ""
-    cmds = "".join(f"<li><code>{esc(c)}</code><span>{d}</span></li>" for c, d in f.get("commands", []))
-    cmds_block = f'<div><h2 id="cmds">Commands</h2><ul class="cmds">{cmds}</ul></div>' if cmds else '<div><h2 id="cmds">Commands</h2><p class="status">Nothing to type: it is all in the app.</p></div>'
-    related = "".join(feature_strip(by_slug[r]) for r in f.get("related", []))
+    steps = f'<ol class="howto">{items(f["how"])}</ol>'
+    if f.get("visual"):
+        top = figure(f["visual"], f.get("caption", ""))
+        how = f'<section aria-labelledby="how"><h2 id="how">How to use it</h2>{steps}</section>'
+    else:
+        top = f'<aside class="howto-card" aria-labelledby="how"><h2 id="how">How to use it</h2>{steps}</aside>'
+        how = ""
+    cmds = "\n\n".join(f"<span class=\"c\"># {esc(text(d))}</span>\n{esc(c)}" for c, d in f.get("commands", []))
+    cmds_block = (f'<pre class="code"><code>{cmds}</code></pre>' if cmds
+                  else '<p class="plain">Nothing to type: it is all in the app.</p>')
     read = ""
     if f.get("read"):
         target = f["read"]
-        article = {"team.html": "The CTO and the team", "how-it-works.html": "How a ticket becomes a pull request",
-                   "security.html": "Security, and its limits", "download.html": "Download TermF"}[target.split("#")[0]]
-        read = f'<a class="more" href="{target}">Read: {article}</a>'
-    body = f"""<header class="page-head">
+        read = f'<p><a class="more" href="{target}">Read: {ARTICLES[target.split("#")[0]]}</a></p>'
+    related = "".join(card(by_slug[r]) for r in f.get("related", []))
+    body = f"""<header class="page-head fp-head">
   <div class="wrap">
-    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><a href="features.html">Features</a><span aria-hidden="true">/</span><a href="features.html#{g['id']}">{g['name']}</a></p>
+    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><a href="features.html">Features</a><span aria-hidden="true">/</span><a class="crumb-g" href="features.html#{g['id']}">{ico(g['icon'])}{g['name']}</a></p>
     <h1>{f['name']}</h1>
     <p class="lead">{f['tagline']}</p>
   </div>
 </header>
 <div class="wrap fp">
-  <section class="split" aria-labelledby="what">
+  <section class="fp-top" aria-labelledby="what">
     <div class="text"><h2 id="what">What it does</h2>{f['problem']}{read}</div>
-    {right}
+    {top}
   </section>
   {how}
   <section aria-labelledby="defaults">
     <h2 id="defaults">Out of the box, and what you can tune</h2>
-    <ol class="strips feat"><li class="strip" data-state="done"><span class="cs">{f['name']}<small>{f['tagline']}</small></span><span class="what"><span class="lab">By default</span><ul>{items(f['default'])}</ul></span><span class="tune"><span class="lab">You can tune</span><ul>{items(f['tune'])}</ul></span></li></ol>
+    <div class="dt">
+      <div><h3><span class="tick done" aria-hidden="true"></span>Works by default</h3><ul>{items(f['default'])}</ul></div>
+      <div><h3><span class="tick" aria-hidden="true"></span>You can tune</h3><ul>{items(f['tune'])}</ul></div>
+    </div>
   </section>
-  <section class="split" aria-labelledby="cmds">
-    {cmds_block}
-    <div><h2 id="limits">Limits, honestly</h2><ul class="limits">{items(f['limits'])}</ul><p class="status"><b>Tried so far.</b> {f['tried']}</p></div>
+  <section class="fp-two">
+    <div><h2 id="cmds">Commands</h2>{cmds_block}</div>
+    <div><h2 id="limits">Limits</h2><div class="callout"><ul>{items(f['limits'])}</ul><p><b>Tried so far.</b> {f['tried']}</p></div></div>
   </section>
   <section aria-labelledby="near">
-    <h2 id="near">Next to it</h2>
-    <ol class="strips cat">{related}</ol>
-    <p style="margin-top:28px"><a class="more" href="features.html">Every feature</a></p>
+    <h2 id="near">Related features</h2>
+    <ul class="cards three">{related}</ul>
+    <p class="after"><a class="more" href="features.html">Every feature</a></p>
   </section>
 </div>"""
     path = f"features/{f['slug']}.html"
@@ -199,74 +291,148 @@ for f in features:
           {"@type": "BreadcrumbList", "itemListElement": crumbs(("TermF", ""), ("Features", "features.html"), (text(f["name"]), path))}]
     written.append(page(path, f"{text(f['name'])} · TermF features", desc, body, ld, og_type="article", current="features.html"))
 
+
+def in_group(g):
+    return [f for f in features if f["group"] == g["id"]]
+
+
 sections = []
 for g in groups:
-    strips = "".join(feature_strip(f) for f in features if f["group"] == g["id"])
-    strips += "".join(f'<li><span class="strip" data-state="queued"><span class="cs">Not yet</span><span class="what">{x}</span><span class="st">Roadmap</span></span></li>' for x in g.get("not_yet", []))
-    article = f'<a class="more" href="{g["article"]}">Read: {g["article_title"]}</a>' if g.get("article") else ""
+    cards = "".join(card(f, f' data-text="{esc(text(" ".join([f["name"], f["tagline"], f.get("keywords", ""), g["name"]])).lower())}"')
+                    for f in in_group(g))
+    soon = f'<div class="soon"><h3>Still to come</h3><ul>{items(g["not_yet"])}</ul></div>' if g.get("not_yet") else ""
+    article = f'<p><a class="more" href="{g["article"]}">Read: {g["article_title"]}</a></p>' if g.get("article") else ""
     sections.append(f"""<section class="group" id="{g['id']}" aria-labelledby="g-{g['id']}">
-  <header><h2 id="g-{g['id']}">{g['name']}</h2><p>{g['intro']}</p>{article}</header>
-  <ol class="strips cat">{strips}</ol>
+  <header><span class="gi">{ico(g['icon'])}</span><div><h2 id="g-{g['id']}">{g['name']}</h2><p>{g['intro']}</p>{article}</div></header>
+  <ul class="cards">{cards}</ul>
+  {soon}
 </section>""")
-chips = "".join(f'<button type="button" aria-pressed="false" data-g="{g["id"]}">{g["name"]}</button>' for g in groups)
+toc = "".join(f'<li><a href="#{g["id"]}">{ico(g["icon"])}<span>{g["name"]}</span><small>{len(in_group(g))}</small></a></li>' for g in groups)
 body = f"""<header class="page-head">
   <div class="wrap">
-    <h1>Every feature, with its defaults</h1>
-    <p class="lead">{len(features)} features, grouped as you would meet them, from the conversation with the CTO to the chores around the agents. Each one has its page: what it does, how it works, what works out of the box, what you can tune, and its limits.</p>
-    <form class="filter" role="search" hidden>
-      <label for="q">Filter the features</label>
-      <input id="q" type="search" placeholder="worktree, Jira, budget, review…" autocomplete="off" spellcheck="false">
-      <div class="chips" role="group" aria-label="Groups"><button type="button" aria-pressed="true" data-g="">All</button>{chips}</div>
-      <p class="none" hidden>No feature matches. Try another word.</p>
-    </form>
+    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><span>Features</span></p>
+    <h1>Everything TermF does</h1>
+    <p class="lead">{len(features)} features in {len(groups)} groups. Each one has its own page: what it does, how to use it, what works out of the box, what you can tune, and its limits.</p>
   </div>
 </header>
-<div class="wrap groups">
+<div class="wrap catalog">
+  <nav class="cat-toc" aria-label="Feature groups"><ol>{toc}</ol></nav>
+  <div class="cat-main">
+    <form class="filter" role="search" hidden>
+      <label for="q">Find a feature</label>
+      <input id="q" type="search" placeholder="worktree, Jira, budget, review…" autocomplete="off" spellcheck="false">
+      <p class="none" hidden>No feature matches. Try another word.</p>
+    </form>
 {chr(10).join(sections)}
+  </div>
 </div>"""
 script = """
 
 const form = document.querySelector('.filter'), q = document.getElementById('q'), none = form.querySelector('.none');
-let group = '';
 form.hidden = false;
 form.addEventListener('submit', e => e.preventDefault());
-function filter() {
+q.addEventListener('input', () => {
   const words = q.value.toLowerCase().split(/\\s+/).filter(Boolean);
   let shown = 0;
   for (const sec of document.querySelectorAll('.group')) {
     let n = 0;
-    for (const li of sec.querySelectorAll('li')) {
-      const hit = (!group || sec.id === group) && words.every(w => li.dataset.text.includes(w));
-      li.hidden = !hit;
-      n += hit;
+    for (const li of sec.querySelectorAll('.cards li')) {
+      li.hidden = !words.every(w => li.dataset.text.includes(w));
+      n += !li.hidden;
     }
     sec.hidden = !n;
+    const soon = sec.querySelector('.soon');
+    if (soon) soon.hidden = words.length > 0;
+    const entry = document.querySelector(`.cat-toc a[href="#${sec.id}"]`);
+    entry.parentNode.hidden = !n;
+    entry.querySelector('small').textContent = n;
     shown += n;
   }
   none.hidden = shown > 0;
-}
-q.addEventListener('input', filter);
-form.querySelector('.chips').addEventListener('click', e => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  group = b.dataset.g;
-  for (const c of form.querySelectorAll('.chips button')) c.setAttribute('aria-pressed', c === b);
-  filter();
 });"""
-keys = {f["slug"]: text(" ".join([f["name"], f["tagline"], f.get("keywords", ""), by_group[f["group"]]["name"]])).lower() for f in features}
-body = re.sub(r'<li><a class="strip" data-state="done" href="features/([a-z0-9-]+)\.html">',
-              lambda m: f'<li data-text="{esc(keys[m.group(1)])}"><a class="strip" data-state="done" href="features/{m.group(1)}.html">', body)
-body = re.sub(r'<li><span class="strip" data-state="queued">(.*?)</li>',
-              lambda m: f'<li data-text="{esc(text(m.group(1)).lower())}"><span class="strip" data-state="queued">{m.group(1)}</li>', body)
 ld = [{"@type": "CollectionPage", "name": "TermF features", "url": BASE + "features.html", "description": "Every feature of TermF, with what works by default and what you can tune.",
        "mainEntity": {"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "position": i + 1, "name": text(f["name"]), "url": BASE + f"features/{f['slug']}.html"} for i, f in enumerate(features)]}},
       {"@type": "BreadcrumbList", "itemListElement": crumbs(("TermF", ""), ("Features", "features.html"))}]
-written.append(page("features.html", "Features · TermF, every feature and what it does by default",
+written.append(page("features.html", "Features · Everything TermF does, with its defaults",
                     f"The {len(features)} features of TermF, from the CTO and its team of Claude Code agents to terminals, worktrees, skills, CI/CD, keys and security, each with what works out of the box and what you can tune.",
                     body, ld, current="features.html", script=script))
+
+
+# The generated parts of the hand-written pages
+
+def agent_meta(r):
+    chips = [f"{r['model']} · {r['effort']}" if r["effort"] else r["model"], r["access"], *r["limits"]]
+    return "".join(f"<li>{c}</li>" for c in chips if c)
+
+
+def agent_card(r, big=False):
+    rows = [("Called", r.get("when")), ("Never", r.get("never"))]
+    dl = "".join(f"<div><dt>{k}</dt><dd>{v}</dd></div>" for k, v in rows if v)
+    return (f'<article class="agent{" big" if big else ""}" id="role-{r["name"]}">'
+            f'<header><span class="mark" aria-hidden="true">{r["mark"]}</span><div><h3>{r["label"]}</h3><code>{r["name"]}</code></div></header>'
+            f'<p>{r["does"]}</p><dl>{dl}</dl><ul class="chips-m" aria-label="Settings">{agent_meta(r)}</ul></article>')
+
+
+def team_cards():
+    out = []
+    for g in crew["groups"]:
+        members = by_crew[g["id"]]
+        if not members:
+            continue
+        cards = "".join(agent_card(r, big=r["name"] == "cto") for r in members)
+        out.append(f'<section class="crew c-{g["color"]}" id="{g["id"]}" aria-labelledby="crew-{g["id"]}">'
+                   f'<header><h2 id="crew-{g["id"]}">{g["name"]}</h2><p>{g["intro"]}</p></header>'
+                   f'<div class="agents">{cards}</div></section>')
+    return "\n".join(out)
+
+
+def roster():
+    """The home's org chart: you, the CTO (and the expert beside it), then every group of the team at once."""
+    def tile(r):
+        return (f'<li><a href="team.html#role-{r["name"]}"><span class="mark" aria-hidden="true">{r["mark"]}</span>'
+                f'<span class="rn">{r["label"]}</span><span class="rs">{r["short"]}</span></a></li>')
+    head = by_crew[crew["groups"][0]["id"]]
+    cols, narrow = [], 0
+    for g in crew["groups"][1:]:
+        members = by_crew[g["id"]]
+        if members:
+            # A large group gets a row of its own under the columns, so the columns stay wide enough to read
+            wide = len(members) > 5
+            narrow += not wide
+            cols.append(f'<div class="org-col c-{g["color"]}{" wide" if wide else ""}"><p class="oh" id="org-{g["id"]}">{g["name"]}</p>'
+                        f'<ul aria-labelledby="org-{g["id"]}">{"".join(tile(r) for r in members)}</ul></div>')
+    return (f'<div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-{crew["groups"][0]["color"]}">{"".join(tile(r) for r in head)}</ul>'
+            f'<div class="org-cols" style="--cols:{max(narrow, 1)}">{"".join(cols)}</div></div>')
+
+
+def feature_grid():
+    out = []
+    for g in groups:
+        names = "".join(f'<li><a href="features/{f["slug"]}.html">{f["name"]}</a></li>' for f in in_group(g))
+        out.append(f'<section class="fam" aria-labelledby="fam-{g["id"]}"><span class="gi">{ico(g["icon"])}</span>'
+                   f'<h3 id="fam-{g["id"]}"><a href="features.html#{g["id"]}">{g["name"]}</a></h3><p>{g["intro"]}</p><ul>{names}</ul></section>')
+    out.append(f'<a class="fam-all" href="features.html"><b>Browse all {len(features)} features</b>'
+               '<span>Each with what works out of the box, what you can tune, and its limits.</span></a>')
+    return "".join(out)
+
+
+fills = {"count": COUNTS["roles"], "fcount": str(len(features)), "gcount": str(len(groups)),
+         "icons": sprite(sorted(set(GROUP_ICONS) | {"laptop", "code-xml", "badge-check"})),
+         "roster": roster(), "groups": feature_grid(), "team": team_cards()}
+expected = {"index.html": ("count", "fcount", "gcount", "icons", "roster", "groups"), "team.html": ("count", "roster", "team")}
+for name, keys in expected.items():
+    path = os.path.join(SITE, name)
+    source = open(path, encoding="utf-8").read()
+    filled = source
+    for key in keys:
+        filled, n = re.subn(rf"(<!-- gen:{key} -->).*?(<!-- /gen:{key} -->)", lambda m: m.group(1) + fills[key] + m.group(2), filled, flags=re.S)
+        assert n, f"{name}: no <!-- gen:{key} --> … <!-- /gen:{key} --> marker"
+    if filled != source:
+        open(path, "w", encoding="utf-8").write(filled)
+        print(f"{name}: generated parts refreshed")
 
 pages = ["" if p == "index.html" else p for p in sorted(os.listdir(SITE)) if p.endswith(".html") and p != "404.html"]
 pages += [p for p in written if p.startswith("features/")]
 urls = "".join(f"  <url>\n    <loc>{BASE}{p}</loc>\n  </url>\n" for p in sorted(set(pages), key=lambda p: (p != "", p)))
-open(os.path.join(SITE, "sitemap.xml"), "w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n')
-print(f"{len(written)} pages and sitemap.xml ({len(set(pages))} urls)")
+open(os.path.join(SITE, "sitemap.xml"), "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n')
+print(f"{len(written)} pages and sitemap.xml ({len(set(pages))} urls), {len(roles)} roles")
