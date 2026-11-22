@@ -155,19 +155,22 @@ pub async fn memory_status(app: AppHandle, project: String) -> CmdResult<Status>
     .await
 }
 
-/// Saves the settings, then brings the project's index in line with them.
+/// Saves the settings, then brings the project's index in line with them (the others follow in the background).
 #[tauri::command]
 pub async fn memory_settings_save(
     app: AppHandle,
-    project: String,
+    project: Option<String>,
     settings: MemorySettings,
-) -> CmdResult<Status> {
+) -> CmdResult<Option<Status>> {
     blocking(app, move |app| {
         for source in &settings.exclude {
             Source::parse(source)?;
         }
         termf_core::save_memory(&state(app).paths.config_dir, &settings)?;
-        index(app, Some(&project))?.pop().context("no status")
+        match project {
+            Some(id) => Ok(index(app, Some(&id))?.pop()),
+            None => Ok(None),
+        }
     })
     .await
 }
