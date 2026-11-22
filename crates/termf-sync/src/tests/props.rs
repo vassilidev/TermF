@@ -45,7 +45,7 @@ fn records_decode_as_encoded() {
                 exec: rng.chance(2),
             });
             let clock = (0..rng.below(3))
-                .map(|_| (rng.text(&['a', 'b', 'é'], 4), rng.next() >> 1))
+                .map(|_| (rng.text(&['a', 'b', 'é'], 4), rng.next_u64() >> 1))
                 .collect();
             let record = Record {
                 path: path.clone(),
@@ -152,9 +152,9 @@ fn changes_to_different_keys_on_two_machines_both_stay() {
             continue;
         }
         let (mut local, mut remote) = (base.clone(), base.clone());
-        let mut seed = Rng::new(rng.next());
+        let mut seed = Rng::new(rng.next_u64());
         change(&mut seed, &mut local, &a);
-        let mut again = Rng::new(seed.next());
+        let mut again = Rng::new(seed.next_u64());
         change(&mut again, &mut remote, &b);
         // The remote's change applied on top of the local version: what the merge must give.
         let mut expected = local.clone();

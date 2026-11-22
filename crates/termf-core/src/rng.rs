@@ -9,7 +9,7 @@ impl Rng {
         Self(seed)
     }
 
-    pub fn next(&mut self) -> u64 {
+    pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -19,7 +19,7 @@ impl Rng {
 
     /// In `0..n`; `n` must not be 0.
     pub fn below(&mut self, n: usize) -> usize {
-        (self.next() % n as u64) as usize
+        (self.next_u64() % n as u64) as usize
     }
 
     pub fn chance(&mut self, one_in: usize) -> bool {
@@ -31,7 +31,7 @@ impl Rng {
     }
 
     pub fn bytes(&mut self, len: usize) -> Vec<u8> {
-        (0..len).map(|_| self.next() as u8).collect()
+        (0..len).map(|_| self.next_u64() as u8).collect()
     }
 
     /// Up to `max` characters drawn from `alphabet`.
