@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::native::{self, Deleted, Text};
 use termf_claude::sessions::{self, Background, Project};
 use termf_claude::settings::{Preview, Scope};
-use termf_claude::usage::{self, Limits};
+use termf_claude::usage::{self, Billing, Limits, Window};
 use termf_claude::{Env, Files, account};
 use termf_core::claude::start;
 use termf_core::ipc::SessionSummary;
@@ -27,6 +27,7 @@ use crate::{AppState, CmdResult, api, err};
 pub struct NativeState {
     trash: PathBuf,
     usage: Mutex<Usage>,
+    billing: Mutex<Option<Billing>>,
 }
 
 impl NativeState {
@@ -34,6 +35,7 @@ impl NativeState {
         Self {
             trash: data_dir.join("trash/claude"),
             usage: Mutex::default(),
+            billing: Mutex::default(),
         }
     }
 }
@@ -317,9 +319,11 @@ pub async fn claude_background_stop(state: State<'_, AppState>, id: String) -> C
 #[serde(rename_all = "camelCase")]
 pub struct SeenLimits {
     limits: Limits,
-    /// When the status line said so, and from which tile.
+    /// When Claude Code said so, and where: the status line of a tile (`session`), or the `rate_limit_event` of
+    /// a headless conversation (`conversation`).
     at: u64,
-    session: u32,
+    session: Option<u32>,
+    conversation: Option<i64>,
 }
 
 #[derive(Serialize, Clone)]
@@ -356,7 +360,8 @@ pub fn status_line(app: &AppHandle, id: u32, payload: &Value) {
             usage.limits = Some(SeenLimits {
                 limits: reading.limits,
                 at,
-                session: id,
+                session: Some(id),
+                conversation: None,
             });
         }
         changed |= usage
@@ -378,9 +383,100 @@ pub fn status_line(app: &AppHandle, id: u32, payload: &Value) {
     }
 }
 
+/// A headless session neared or hit a limit (`rate_limit_event`): that window is updated, the others kept.
+pub fn rate_limit(
+    app: &AppHandle,
+    conversation: i64,
+    status: &str,
+    window: Option<&str>,
+    resets_at: Option<u64>,
+    used: Option<f64>,
+) {
+    let Some(used) = used.or((status == "rejected").then_some(100.0)) else {
+        return;
+    };
+    let seen = Window {
+        used_percentage: used,
+        resets_at,
+        used_usd: None,
+        limit_usd: None,
+    };
+    let Some(state) = app.try_state::<NativeState>() else {
+        return;
+    };
+    let snapshot = {
+        let mut usage = state.usage.lock().unwrap();
+        let mut limits = usage
+            .limits
+            .as_ref()
+            .map(|l| l.limits.clone())
+            .unwrap_or_default();
+        match window {
+            Some("five_hour") => limits.five_hour = Some(seen),
+            Some("seven_day") => limits.seven_day = Some(seen),
+            _ => return,
+        }
+        usage.limits = Some(SeenLimits {
+            limits,
+            at: now(),
+            session: None,
+            conversation: Some(conversation),
+        });
+        usage.clone()
+    };
+    let _ = app.emit("claude-usage", snapshot);
+}
+
 #[tauri::command]
 pub fn claude_usage(native_state: State<NativeState>) -> Usage {
     native_state.usage.lock().unwrap().clone()
+}
+
+/// How the account pays, read once and kept; `refresh` reads it again (after logging in or out).
+#[tauri::command]
+pub async fn claude_billing(
+    state: State<'_, AppState>,
+    native_state: State<'_, NativeState>,
+    refresh: Option<bool>,
+) -> CmdResult<Billing> {
+    if !refresh.unwrap_or(false)
+        && let Some(billing) = native_state.billing.lock().unwrap().clone()
+    {
+        return Ok(billing);
+    }
+    let env = env(&state.config_dir, None);
+    let billing = blocking(move || Ok(account::billing(&env))).await?;
+    *native_state.billing.lock().unwrap() = Some(billing.clone());
+    Ok(billing)
+}
+
+/// What the CTO reads before it starts a team (`usage` of `termf mcp`): how the account pays, the limits last
+/// seen, and the window nearly used up, if any.
+pub fn usage_for_agents(app: &AppHandle) -> Value {
+    let native = app.state::<NativeState>();
+    let billing = native.billing.lock().unwrap().clone().unwrap_or_else(|| {
+        let state = app.state::<AppState>();
+        let billing = account::billing(&env(&state.config_dir, None));
+        *native.billing.lock().unwrap() = Some(billing.clone());
+        billing
+    });
+    let seen = native.usage.lock().unwrap().limits.clone();
+    let nearly = seen.as_ref().and_then(|s| {
+        let (window, w) = s.limits.pressure(usage::NEARLY_USED)?;
+        Some(serde_json::json!({"window": window, "usedPercentage": w.used_percentage, "resetsAt": w.resets_at}))
+    });
+    let advice = match (&nearly, billing.mode) {
+        (Some(_), _) => "A usage window is nearly used up: do not start a team run; answer directly, or advise a direct conversation with one role on a lighter model (sonnet or haiku, low effort), and tell the user why.",
+        (None, "subscription") => "The subscription's limits are fine. Dollar amounts are API-equivalent list prices: the subscription is not billed per use, it draws on these limits.",
+        _ => "Dollar amounts are what the account is billed.",
+    };
+    serde_json::json!({
+        "billing": billing,
+        "limits": seen.as_ref().map(|s| &s.limits),
+        "seenAt": seen.as_ref().map(|s| s.at),
+        "nearlyUsedUp": nearly,
+        "advice": advice,
+    })
 }
 
 // Account and installation.

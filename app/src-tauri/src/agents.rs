@@ -32,7 +32,25 @@ pub fn state(
     let config = config_dir.clone();
     let agents = Agents::new(config_dir, data_dir, move |update| {
         let _ = match update {
-            Update::Event(event) => handle.emit("agent-event", event),
+            Update::Event(event) => {
+                if let AgentEvent::Limit {
+                    status,
+                    window,
+                    resets_at,
+                    used,
+                } = &event.event
+                {
+                    crate::claude_native::rate_limit(
+                        &handle,
+                        event.session,
+                        status,
+                        window.as_deref(),
+                        *resets_at,
+                        *used,
+                    );
+                }
+                handle.emit("agent-event", event)
+            }
             Update::Session(session) => {
                 team.session(session.id);
                 handle.emit("agent-updated", session)

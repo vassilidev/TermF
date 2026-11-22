@@ -114,6 +114,12 @@ fn tools() -> Value {
             "What waits for the user in the project: sessions asking for a permission, gates and blocked steps.",
             none.clone()
         ),
+        read(
+            "usage",
+            "Usage limits",
+            "How the user's account pays (a claude.ai subscription, an API key, a cloud) and how much of its 5-hour and 7-day usage limits is used. Read it before starting a team run: when a window is nearly used up, do not start one; answer directly or advise one role on a lighter model, and say why.",
+            none.clone()
+        ),
         act(
             "start_team_run",
             "Start a team run",

@@ -573,6 +573,7 @@ pub fn run() {
             claude_native::claude_background_attach,
             claude_native::claude_background_stop,
             claude_native::claude_usage,
+            claude_native::claude_billing,
             claude_native::claude_auth_login,
             claude_native::claude_auth_logout,
             claude_native::claude_update,
