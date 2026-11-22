@@ -26,7 +26,7 @@ mod tests;
 
 use github::Etags;
 pub use github::GitHub;
-pub use guard::guard;
+pub use guard::{egress, guard};
 pub use jira::{DEFAULT_JQL, Jira};
 pub use mcp::{Mcp, McpServer};
 pub use run::{

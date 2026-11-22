@@ -1,0 +1,21 @@
+# Writes: an agent can only propose it; you run it after typing the environment's name.
+name = "service-restart"
+description = "Restarts a systemd service on a server reached by SSH (sudo without a password)"
+mode = "write"
+ai_access = "full"
+approval = "always"
+redact = ["vault_values"]
+
+[params.unit]
+type = "name"
+description = "The systemd unit to restart, such as nginx.service"
+required = true
+
+[limits]
+lines = 200
+bytes = 65536
+timeout_s = 60
+
+[[run]]
+kind = "ssh"
+args = ["sudo", "-n", "systemctl", "restart", "{unit}"]

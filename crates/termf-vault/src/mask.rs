@@ -53,6 +53,11 @@ impl Masker {
             .sort_by_key(|v| std::cmp::Reverse(v.expose().len()));
     }
 
+    /// The values looked for, the longest first.
+    pub fn values(&self) -> impl Iterator<Item = &str> {
+        self.values.iter().map(Secret::expose)
+    }
+
     pub fn mask(&self, text: &str) -> Masked {
         let mut text = text.to_owned();
         let mut count = 0;

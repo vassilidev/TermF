@@ -1,0 +1,807 @@
+<script lang="ts">
+  import { untrack } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import Copy from "@lucide/svelte/icons/copy";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import Play from "@lucide/svelte/icons/play";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Server from "@lucide/svelte/icons/server";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import OpsChecks from "$lib/OpsChecks.svelte";
+  import OpsForm from "$lib/OpsForm.svelte";
+  import OpsRequest from "$lib/OpsRequest.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
+  import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Tabs from "$lib/ui/Tabs.svelte";
+  import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { ago, t } from "$lib/i18n";
+  import { runsOn, target, type Check, type Connection, type Kind, type Plan, type Ran } from "$lib/ops-logic";
+  import { loadHistory, loadOps, ops, type OpsTab } from "$lib/ops.svelte";
+  import { app, onScreen } from "$lib/state.svelte";
+  import type { VaultStatus } from "$lib/vault.svelte";
+
+  type Key = Parameters<typeof t>[0];
+
+  const project = $derived(app.workspace?.projects.find((p) => p.id === app.project));
+  const visible = $derived(onScreen("ops"));
+
+  $effect(() => {
+    const id = project?.id;
+    if (!visible || !id) return;
+    untrack(() => {
+      if (ops.project !== id) {
+        ops.connection = null;
+        ops.editing = null;
+        ops.recipe = null;
+        ops.result = null;
+        ops.proposal = null;
+      }
+      loadOps(id);
+      loadHistory(id);
+    });
+  });
+
+  const requests = $derived(ops.requests.filter((r) => r.project === project?.id));
+  const kindLabel = (k: Kind) => t(`opsKind${k[0].toUpperCase()}${k.slice(1)}` as Key);
+  const access = (c: Connection) =>
+    t(c.ai_access === "full" ? "opsAccessFull" : c.ai_access === "redacted" ? "opsAccessRedacted" : "opsAccessNone");
+
+  // Connections.
+  const current = $derived(ops.connections.find((c) => c.name === ops.connection) ?? (ops.editing === null ? ops.connections[0] : undefined));
+  let checks = $state<Check[] | null>(null);
+  let testing = $state(false);
+  let deleting = $state(false);
+  let busyError = $state("");
+
+  function pick(name: string) {
+    ops.connection = name;
+    ops.editing = null;
+    checks = null;
+  }
+
+  function blank(): Connection {
+    return { name: "", kind: "ssh", env: "prod", ai_access: "none" };
+  }
+
+  async function test(c: Connection) {
+    testing = true;
+    checks = null;
+    busyError = "";
+    try {
+      checks = await invoke<Check[]>("ops_test", { project: project?.id, connection: c, previous: c.name });
+    } catch (e) {
+      busyError = String(e);
+    } finally {
+      testing = false;
+    }
+  }
+
+  async function remove(name: string) {
+    try {
+      ops.connections = await invoke<Connection[]>("ops_connection_delete", { project: project?.id, name });
+      ops.connection = null;
+      checks = null;
+    } catch (e) {
+      busyError = String(e);
+    }
+  }
+
+  function openRecipe(name: string, connection?: string) {
+    ops.tab = "recipes";
+    ops.recipe = name;
+    ops.proposal = null;
+    ops.result = null;
+    ops.form = { connection: connection ?? "", params: {} };
+  }
+
+  // Recipes.
+  const recipe = $derived(ops.recipes.find((r) => r.name === ops.recipe) ?? ops.recipes[0]);
+  const fitting = $derived(recipe ? ops.connections.filter((c) => runsOn(recipe, c)) : []);
+  $effect(() => {
+    if (fitting.length && !fitting.some((c) => c.name === ops.form.connection)) {
+      untrack(() => (ops.form.connection = fitting[0].name));
+    }
+  });
+  const given = $derived(Object.fromEntries(Object.entries(ops.form.params).filter(([, v]) => String(v).trim() !== "")));
+  let plan = $state<Plan | null>(null);
+  let planError = $state("");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const ask = { project: project?.id, recipe: recipe?.name, connection: ops.form.connection, params: given };
+    clearTimeout(timer);
+    if (!ask.project || !ask.recipe || !ask.connection) {
+      plan = null;
+      return;
+    }
+    timer = setTimeout(() => {
+      invoke<Plan>("ops_plan", ask).then(
+        (p) => {
+          plan = p;
+          planError = "";
+        },
+        (e) => {
+          plan = null;
+          planError = String(e);
+        },
+      );
+    }, 250);
+  });
+
+  let running = $state(false);
+  let confirming = $state(false);
+  let typed = $state("");
+  /** The vault's password the run waits for: to unlock it, or to confirm prod. */
+  let needs = $state<"unlock" | "reauth" | null>(null);
+  let password = $state("");
+  let after: (() => Promise<void>) | null = null;
+  let revealed = $state<Record<number, string>>({});
+  let copied = $state(false);
+
+  function askPassword(e: unknown, retry: () => Promise<void>): boolean {
+    const text = String(e);
+    const kind = /the vault is locked/.test(text) ? "unlock" : /needs the master password again/.test(text) ? "reauth" : null;
+    if (!kind) return false;
+    needs = kind;
+    after = retry;
+    return true;
+  }
+
+  async function givePassword() {
+    busyError = "";
+    try {
+      if (needs === "unlock") await invoke<VaultStatus>("vault_unlock", { password });
+      else await invoke<VaultStatus>("vault_reauth", { password });
+      needs = null;
+      password = "";
+      const retry = after;
+      after = null;
+      await retry?.();
+    } catch (e) {
+      busyError = /wrong master password/.test(String(e)) ? t("vaultWrongPassword") : String(e);
+    }
+  }
+
+  async function start() {
+    if (recipe?.mode === "write") {
+      typed = "";
+      confirming = true;
+      return;
+    }
+    await run(null);
+  }
+
+  async function run(confirm: string | null) {
+    if (!recipe || !project) return;
+    running = true;
+    busyError = "";
+    revealed = {};
+    try {
+      ops.result = await invoke<Ran>("ops_run", {
+        project: project.id,
+        recipe: recipe.name,
+        connection: ops.form.connection,
+        params: given,
+        confirm,
+        proposal: ops.proposal,
+      });
+      ops.proposal = null;
+      loadHistory(project.id);
+    } catch (e) {
+      if (!askPassword(e, () => run(confirm))) busyError = String(e);
+    } finally {
+      running = false;
+    }
+  }
+
+  async function reveal(index: number) {
+    const id = ops.result?.id;
+    if (id === undefined) return;
+    try {
+      revealed[index] = await invoke<string>("ops_reveal", { result: id, index });
+      setTimeout(() => delete revealed[index], 30_000);
+    } catch (e) {
+      if (!askPassword(e, () => reveal(index))) busyError = String(e);
+    }
+  }
+
+  async function copyOutput() {
+    if (!ops.result) return;
+    await navigator.clipboard.writeText(ops.result.output.text).catch(() => {});
+    copied = true;
+    setTimeout(() => (copied = false), 2000);
+  }
+
+  const proposer = $derived(ops.proposal === null ? null : ops.requests.find((r) => r.id === ops.proposal));
+  const approvalLabels: Record<string, Key> = {
+    user: "opsApprovalUser",
+    approved: "opsApprovalApproved",
+    refused: "opsApprovalRefused",
+    expired: "opsApprovalExpired",
+    proposed: "opsApprovalProposed",
+    "not asked": "opsApprovalNotAsked",
+  };
+</script>
+
+{#snippet passwordForm()}
+  {#if needs}
+    <form
+      class="password"
+      onsubmit={(e) => {
+        e.preventDefault();
+        givePassword();
+      }}
+    >
+      <span>{t(needs === "unlock" ? "opsPasswordUnlock" : "opsPasswordReauth")}</span>
+      <input class="field" type="password" autocomplete="current-password" placeholder={t("opsPassword")} bind:value={password} />
+      <button class="btn sm primary" disabled={!password}>{t("opsContinue")}</button>
+      <button type="button" class="btn sm" onclick={() => ((needs = null), (after = null))}>{t("cancel")}</button>
+    </form>
+  {/if}
+{/snippet}
+
+<div class="ops-view">
+  <ViewHeader title={t("opsView")} context={project?.name ?? ""}>
+    {#snippet actions()}
+      {#if project && ops.tab === "connections" && ops.connections.length && ops.editing === null}
+        <button class="btn sm primary" onclick={() => ((ops.editing = ""), (checks = null))}>
+          <Plus size={14} aria-hidden="true" />{t("opsAdd")}
+        </button>
+      {/if}
+    {/snippet}
+  </ViewHeader>
+
+  {#if !project}
+    <div class="pane"><EmptyState icon={Server} title={t("opsView")} text={t("opsNoProject")} /></div>
+  {:else}
+    <p class="intro muted">{t("opsIntro")}</p>
+    {#if requests.length}
+      <div class="requests">
+        {#each requests as r (r.id)}<OpsRequest request={r} />{/each}
+      </div>
+    {/if}
+    <Tabs
+      id="ops"
+      label={t("opsView")}
+      tabs={[
+        { id: "connections", label: t("opsTabConnections"), count: ops.connections.length },
+        { id: "recipes", label: t("opsTabRecipes"), count: ops.recipes.length },
+        { id: "history", label: t("opsTabHistory") },
+      ]}
+      selected={ops.tab}
+      onselect={(tab) => (ops.tab = tab as OpsTab)}
+    >
+      {#if ops.error || busyError || ops.errors.length}
+        <div class="banners">
+          {#if ops.error}<Banner kind="error" ondismiss={() => (ops.error = "")}>{ops.error}</Banner>{/if}
+          {#if busyError}<Banner kind="error" ondismiss={() => (busyError = "")}>{busyError}</Banner>{/if}
+          {#if ops.errors.length}<Banner kind="warn">{t("opsRecipeErrors", { list: ops.errors.join(" · ") })}</Banner>{/if}
+        </div>
+      {/if}
+
+      {#if ops.tab === "connections"}
+        {#if !ops.connections.length && ops.editing === null}
+          <div class="pane">
+            <EmptyState icon={Server} title={t("opsEmpty")} text={t("opsEmptyHelp")}>
+              <button class="btn primary" onclick={() => (ops.editing = "")}><Plus size={14} aria-hidden="true" />{t("opsAdd")}</button>
+            </EmptyState>
+          </div>
+        {:else}
+          <div class="split">
+            <ul class="list" aria-label={t("opsTabConnections")}>
+              {#each ops.connections as c (c.name)}
+                <li class="row" class:current={c === current && ops.editing === null}>
+                  <button class="pick" aria-current={c === current} onclick={() => pick(c.name)}>
+                    <span class="name mono">{c.name}</span>
+                    <span class="desc">{kindLabel(c.kind)}</span>
+                  </button>
+                  <span class="badge env" class:prod={c.env === "prod"}>{c.env}</span>
+                </li>
+              {/each}
+            </ul>
+            <section class="detail" aria-live="polite">
+              {#if ops.editing !== null}
+                {#key ops.editing}
+                  <OpsForm
+                    project={project.id}
+                    start={ops.editing ? (ops.connections.find((c) => c.name === ops.editing) ?? blank()) : blank()}
+                    previous={ops.editing || null}
+                    onclose={(saved) => {
+                      ops.editing = null;
+                      if (saved) ops.connection = saved;
+                    }}
+                  />
+                {/key}
+              {:else if current}
+                <header>
+                  <h2 class="mono">{current.name}</h2>
+                  <p class="muted">{kindLabel(current.kind)} · <span class="badge env" class:prod={current.env === "prod"}>{current.env}</span></p>
+                </header>
+                {#if current.description}<p>{current.description}</p>{/if}
+                <dl class="meta">
+                  <dt>{t("opsTarget")}</dt>
+                  <dd class="mono">{target(current, ops.connections)}</dd>
+                  <dt>{t("opsAccess")}</dt>
+                  <dd>{access(current)}</dd>
+                  <dt>{t("opsSecrets")}</dt>
+                  <dd class="mono">{Object.values(current.secrets ?? {}).join(", ") || t("opsNoSecrets")}</dd>
+                </dl>
+                <div class="actions">
+                  <button class="btn sm primary" disabled={testing} onclick={() => test(current)}>
+                    {#if testing}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("opsTesting")}{:else}{t("opsTest")}{/if}
+                  </button>
+                  <button class="btn sm" onclick={() => ((ops.editing = current.name), (checks = null))}>
+                    <Pencil size={14} aria-hidden="true" />{t("opsEdit")}
+                  </button>
+                  <button class="btn sm" onclick={() => (deleting = true)}><Trash2 size={14} aria-hidden="true" />{t("opsDelete")}</button>
+                </div>
+                {@render passwordForm()}
+                {#if checks}<div class="gap"><OpsChecks {checks} /></div>{/if}
+                <h3>{t("opsRecipesHere")}</h3>
+                <ul class="recipes">
+                  {#each ops.recipes.filter((r) => runsOn(r, current)) as r (r.name)}
+                    <li>
+                      <button class="btn sm" onclick={() => openRecipe(r.name, current.name)}>
+                        <Play size={13} aria-hidden="true" /><span class="mono">{r.name}</span>
+                      </button>
+                      <span class="muted">{r.description}</span>
+                    </li>
+                  {/each}
+                </ul>
+                <ConfirmDialog
+                  bind:open={deleting}
+                  title={t("opsDeleteTitle", { name: current.name })}
+                  confirm={t("opsDelete")}
+                  danger
+                  onconfirm={() => remove(current.name)}
+                >
+                  <p>{t("opsDeleteBody")}</p>
+                </ConfirmDialog>
+              {/if}
+            </section>
+          </div>
+        {/if}
+      {:else if ops.tab === "recipes"}
+        <div class="split">
+          <ul class="list" aria-label={t("opsTabRecipes")}>
+            {#each ops.recipes as r (r.name)}
+              <li class="row" class:current={r === recipe}>
+                <button class="pick" aria-current={r === recipe} onclick={() => openRecipe(r.name)}>
+                  <span class="name mono">{r.name}</span>
+                  <span class="desc">{r.description}</span>
+                </button>
+                {#if r.mode === "write"}<span class="badge write">{t("opsWrite")}</span>{/if}
+              </li>
+            {/each}
+          </ul>
+          <section class="detail" aria-live="polite">
+            {#if recipe}
+              <header>
+                <h2 class="mono">{recipe.name}</h2>
+                <p class="muted">{recipe.description}</p>
+              </header>
+              {#if recipe.mode === "write"}<p class="notice warn">{t("opsWriteHelp")}</p>{/if}
+              {#if proposer}<p class="notice">{t("opsProposedBy", { who: proposer.agent.role === "cto" ? t("ux3t1Cto") : (proposer.agent.role ?? proposer.agent.title) })}</p>{/if}
+              {#if !fitting.length}
+                <p class="notice">{t("opsNoConnectionFor")}</p>
+              {:else}
+                <form
+                  class="run"
+                  onsubmit={(e) => {
+                    e.preventDefault();
+                    start();
+                  }}
+                >
+                  <label class="labelled">
+                    <span>{t("opsConnection")}</span>
+                    <select class="field" bind:value={ops.form.connection}>
+                      {#each fitting as c (c.name)}<option value={c.name}>{c.name} · {c.env}</option>{/each}
+                    </select>
+                  </label>
+                  {#if recipe.params.length}
+                    <fieldset>
+                      <legend>{t("opsParams")}</legend>
+                      {#each recipe.params as p (p.name)}
+                        <label class="labelled">
+                          <span><span class="mono">{p.name}</span>{#if p.required} *{/if} <span class="muted">{p.description}</span></span>
+                          {#if p.type === "choice" || p.type === "command"}
+                            <select class="field mono" bind:value={ops.form.params[p.name]}>
+                              {#if !p.required}<option value="">—</option>{/if}
+                              {#each p.values ?? [] as v (v)}<option value={v}>{v}</option>{/each}
+                            </select>
+                          {:else}
+                            <input
+                              class="field mono"
+                              inputmode={p.type === "int" ? "numeric" : undefined}
+                              placeholder={p.default ? t("opsDefault", { value: p.default }) : ""}
+                              bind:value={ops.form.params[p.name]}
+                            />
+                          {/if}
+                        </label>
+                      {/each}
+                    </fieldset>
+                  {/if}
+                  <div class="command">
+                    <span class="label">{plan?.remote ? t("opsRemote", { target: plan.target }) : t("opsCommand")}</span>
+                    {#if plan}
+                      <pre>{plan.remote ?? plan.command}</pre>
+                      {#if plan.secrets.length}<p class="muted small">{t("opsVaultSecrets", { names: plan.secrets.join(", ") })}</p>{/if}
+                    {:else if planError}
+                      <p class="notice error">{planError}</p>
+                    {/if}
+                  </div>
+                  <div class="buttons">
+                    <button class="btn primary" disabled={running || !plan}>
+                      {#if running}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("opsRunning")}{:else}<Play size={14} aria-hidden="true" />{t("opsRun")}{/if}
+                    </button>
+                  </div>
+                </form>
+                {@render passwordForm()}
+              {/if}
+
+              {#if ops.result && ops.result.plan.recipe === recipe.name}
+                {@const out = ops.result.output}
+                <section class="result" aria-label={t("opsCommand")}>
+                  <div class="result-head">
+                    <span class="badge" class:ok={out.exit === 0} class:bad={out.exit !== 0}>
+                      {out.exit === null ? (out.stopped ?? "—") : t("opsExit", { code: out.exit })}
+                    </span>
+                    <span class="muted">{t("opsDuration", { seconds: (out.millis / 1000).toFixed(1) })}</span>
+                    <span class="muted">{t("opsMasked", { count: out.masks })}</span>
+                    {#if out.truncated}<span class="muted">{t("opsTruncated")}</span>{/if}
+                    {#if out.stopped && out.exit !== null}<span class="muted">{out.stopped}</span>{/if}
+                    <button class="icon-btn sm end" onclick={copyOutput} aria-label={t("opsCopy")} title={t("opsCopy")}>
+                      <Copy size={13} aria-hidden="true" />
+                    </button>
+                    {#if copied}<span class="muted" role="status">{t("opsCopied")}</span>{/if}
+                  </div>
+                  <pre class="output">{#if out.parts.length}{#each out.parts as part, i (i)}{#if "text" in part}{part.text}{:else if revealed[part.hidden] !== undefined}<mark class="shown">{revealed[part.hidden]}</mark>{:else}<button
+                            class="hidden"
+                            title={t("opsReveal")}
+                            aria-label={t("opsReveal")}
+                            onclick={() => reveal(part.hidden)}>••••••</button
+                          >{/if}{/each}{:else}{out.text || t("opsNoOutput")}{/if}</pre>
+                  {#if out.errors.trim()}
+                    <span class="label">{t("opsErrors")}</span>
+                    <pre class="errors">{out.errors}</pre>
+                  {/if}
+                </section>
+              {/if}
+            {/if}
+          </section>
+        </div>
+        <ConfirmDialog
+          bind:open={confirming}
+          title={t("opsConfirmTitle", { recipe: recipe?.name ?? "", connection: ops.form.connection })}
+          confirm={t("opsRun")}
+          danger
+          disabled={typed.trim() !== plan?.env}
+          onconfirm={() => run(typed.trim())}
+        >
+          <p>{t("opsConfirmBody", { env: plan?.env ?? "" })}</p>
+          {#if plan}<pre class="confirm-command">{plan.remote ?? plan.command}</pre>{/if}
+          <label class="labelled">
+            <span>{t("opsConfirmField")}</span>
+            <input class="field mono" bind:value={typed} placeholder={plan?.env ?? ""} />
+          </label>
+        </ConfirmDialog>
+      {:else}
+        <div class="pane">
+          {#if !ops.history.length}
+            <p class="muted empty">{t("opsHistoryEmpty")}</p>
+          {:else}
+            <ul class="history">
+              {#each ops.history as h (h.id)}
+                <li>
+                  <details>
+                    <summary>
+                      <time class="muted" datetime={new Date(h.at * 1000).toISOString()}>{ago(h.at)}</time>
+                      <span class="mono">{h.recipe}</span>
+                      <span class="mono muted">{h.connection}</span>
+                      {#if h.env}<span class="badge env" class:prod={h.env === "prod"}>{h.env}</span>{/if}
+                      <span class="muted">{h.by === "agent" ? t("opsByAgent", { session: h.session ?? "" }) : t("opsByYou")}</span>
+                      {#if h.approval !== "user"}
+                        <span class="badge" class:bad={h.approval === "refused" || h.approval === "expired"}>
+                          {approvalLabels[h.approval] ? t(approvalLabels[h.approval]) : h.approval}
+                        </span>
+                      {/if}
+                      <span class="facts muted">
+                        {#if h.exit !== null}{t("opsExit", { code: h.exit })}{/if}
+                        {#if h.masks}· {t("opsMasked", { count: h.masks })}{/if}
+                      </span>
+                    </summary>
+                    <pre>{h.command}</pre>
+                    {#if h.error}<p class="notice error">{h.error}</p>{/if}
+                  </details>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
+    </Tabs>
+  {/if}
+</div>
+
+<style>
+  .ops-view {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--panel);
+  }
+
+  .intro {
+    margin: 0;
+    padding: 10px 20px 2px;
+    background: var(--chrome);
+    font-size: var(--text-sm);
+  }
+
+  .requests {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 20px;
+    background: var(--chrome);
+  }
+
+  .pane {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .row .badge {
+    margin-left: auto;
+  }
+
+  .badge.prod {
+    border-color: var(--danger);
+    background: var(--danger);
+    color: var(--danger-text);
+  }
+
+  .badge.write,
+  .badge.bad {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .badge.ok {
+    border-color: var(--done);
+    color: var(--done);
+  }
+
+  header h2 {
+    margin: 0;
+    font-size: var(--text-xl);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  header p {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0 0;
+    font-size: var(--text-sm);
+  }
+
+  h3 {
+    margin: 22px 0 8px;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px 16px;
+    margin: 18px 0 0;
+    font-size: var(--text-sm);
+  }
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .actions,
+  .buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 16px;
+  }
+
+  .gap {
+    margin-top: 12px;
+  }
+
+  .recipes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-sm);
+  }
+
+  .recipes li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .notice.warn {
+    margin-top: 12px;
+  }
+
+  .run {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  fieldset {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px 16px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  legend {
+    margin-bottom: 8px;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .command {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .label {
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+
+  pre {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    background: var(--hover);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .small {
+    margin: 0;
+    font-size: var(--text-xs);
+  }
+
+  .password {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    font-size: var(--text-sm);
+  }
+
+  .password input {
+    width: 220px;
+  }
+
+  .result {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 20px;
+  }
+
+  .result-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--text-sm);
+  }
+
+  .end {
+    margin-left: auto;
+  }
+
+  .output {
+    max-height: 420px;
+    overflow-y: auto;
+  }
+
+  .hidden {
+    white-space: nowrap;
+    padding: 0 2px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .shown {
+    border-radius: var(--radius-sm);
+    background: var(--waiting-soft);
+    color: var(--waiting-text);
+  }
+
+  .errors {
+    max-height: 160px;
+    overflow-y: auto;
+    color: var(--danger);
+  }
+
+  .confirm-command {
+    margin: 8px 0 12px;
+  }
+
+  .empty {
+    padding: 28px;
+  }
+
+  .history {
+    max-width: 980px;
+    margin: 0;
+    padding: 8px 28px 28px;
+    list-style: none;
+    font-size: var(--text-sm);
+  }
+
+  .history li {
+    border-bottom: 1px solid var(--border);
+  }
+
+  summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary time {
+    min-width: 90px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .facts {
+    margin-left: auto;
+  }
+
+  details > pre,
+  details > p {
+    margin-bottom: 10px;
+  }
+</style>
