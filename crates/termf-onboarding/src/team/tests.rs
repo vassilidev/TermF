@@ -516,6 +516,30 @@ fn a_new_project_gets_its_researchers_and_captures_call_for_the_reverse_engineer
     let client = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert!(kept(&client).contains(&("reverse-engineer", true, "reverse")));
     assert!(kept(&client).contains(&("researcher", false, "no-new")));
+
+    // Code without a manifest TermF knows is still code: not a new project.
+    for (name, files) in [
+        (
+            "java",
+            &[("README.md", ""), ("src/Main.java", "class Main {}")][..],
+        ),
+        ("html", &[("index.html", "<p>Hi</p>")][..]),
+        ("c", &[("main.c", "int main(void) { return 0; }")][..]),
+    ] {
+        let (_, config, data) = setup(name, &[(name, files)]);
+        let code = team(&config, &data, "acme", Choices::default(), true).unwrap();
+        assert!(
+            kept(&code).contains(&("researcher", false, "no-new")),
+            "{name}"
+        );
+    }
+    let (_, config, data) = setup("empty", &[("blank", &[])]);
+    let blank = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    assert!(kept(&blank).contains(&("competitive-analyst", true, "new")));
+    // Several repositories: new only when none has code yet.
+    let (_, config, data) = setup("half-new", &[("invoicy", NEW), ("client", CLIENT)]);
+    let half = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    assert!(kept(&half).contains(&("researcher", false, "no-new")));
 }
 
 #[test]

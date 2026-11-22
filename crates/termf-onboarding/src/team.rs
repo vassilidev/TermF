@@ -341,6 +341,25 @@ fn signals(repo: &Path, files: &[String]) -> BTreeMap<String, Vec<String>> {
             found.entry("reverse".into()).or_default().insert(f.clone());
         }
     }
+    // Nothing yet but what starts a repository (a README, a licence, dotfiles), whatever its language: a project
+    // starting from an idea.
+    let starter = |f: &String| {
+        let upper = f.to_uppercase();
+        !f.contains('/')
+            && (f.starts_with('.')
+                || ["README", "LICENSE", "LICENCE", "COPYING", "CHANGELOG"]
+                    .iter()
+                    .any(|s| upper.starts_with(s)))
+    };
+    if files.iter().all(starter) {
+        let kept = files.iter().cloned().collect::<BTreeSet<_>>();
+        let marker = if kept.is_empty() {
+            BTreeSet::from(["(empty)".to_owned()])
+        } else {
+            kept
+        };
+        found.insert("new".into(), marker);
+    }
     found
         .into_iter()
         .map(|(kind, set)| (kind, set.into_iter().take(MAX_SIGNALS).collect()))
@@ -1038,6 +1057,7 @@ pub(crate) fn propose(
     };
     // Payments, sign-in and analytics handle personal data, which the law frames even without a public site.
     let personal = unique([found("integrations"), found("analytics")].concat());
+    let fresh = !repos.is_empty() && repos.iter().all(|r| r.signals.contains_key("new"));
 
     let mut choices = Vec::new();
     for role in roles.iter().filter(|r| r.plannable) {
@@ -1066,8 +1086,8 @@ pub(crate) fn propose(
             "legal" if !web.is_empty() => (true, "web", labels(&web)),
             "legal" if !personal.is_empty() => (true, "personal", personal.clone()),
             "legal" => (false, "no-public", Vec::new()),
-            // No code yet: a project starting from an idea, whose first decisions need research.
-            "researcher" | "competitive-analyst" if units.is_empty() => (true, "new", Vec::new()),
+            // No code yet in any repository: a project starting from an idea, whose first decisions need research.
+            "researcher" | "competitive-analyst" if fresh => (true, "new", found("new")),
             "researcher" | "competitive-analyst" => (false, "no-new", Vec::new()),
             "reverse-engineer" => signal("reverse", "no-reverse"),
             "architect" => (true, "design", Vec::new()),
