@@ -187,14 +187,14 @@
   <ViewHeader title={t(view === "vaultAll" ? "uxfT1VaultAll" : "vaultTitle")} {context}>
     {#snippet actions()}
       {#if status?.unlocked}
-        <button class="btn sm primary" onclick={() => create("login")}><Plus size={14} aria-hidden="true" />{t("vaultNew")}</button>
+        <button class="btn sm primary" data-testid="vault-new" onclick={() => create("login")}><Plus size={14} aria-hidden="true" />{t("vaultNew")}</button>
         <button class="btn sm" aria-pressed={transfer} onclick={() => ((transfer = !transfer), (security = false), (editing = null))}>
           <ArrowDownUp size={14} aria-hidden="true" />{t("vault3Transfer")}
         </button>
         <button class="btn sm" aria-pressed={security} onclick={() => ((security = !security), (transfer = false), (editing = null))}>
           <ShieldCheck size={14} aria-hidden="true" />{t("vault2Security")}
         </button>
-        <button class="btn sm" onclick={lock}><Lock size={14} aria-hidden="true" />{t("vaultLock")}</button>
+        <button class="btn sm" data-testid="vault-lock" onclick={lock}><Lock size={14} aria-hidden="true" />{t("vaultLock")}</button>
       {/if}
     {/snippet}
   </ViewHeader>

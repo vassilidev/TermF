@@ -4,10 +4,12 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::io::{BufRead, BufReader, Read};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -27,6 +29,8 @@ const READ_FACTOR: u64 = 16;
 const MIN_READ: u64 = 4 << 20;
 /// Where a client reaches a database through its tunnel, once the tunnel has its port.
 const PORT: &str = "<local port>";
+/// A followed line longer than this arrives in pieces.
+const FOLLOW_LINE: u64 = 16 << 10;
 
 /// TermF's part of a command: the client, its connection options, and where its secrets go.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -481,6 +485,111 @@ impl Runner {
         Ok(raw)
     }
 
+    /// Starts a recipe's plan that runs until stopped: `lines` gets its output a few lines at a time (those
+    /// `keep` keeps), `end` its exit and the end of its error output once it stops on its own.
+    pub fn follow(
+        &self,
+        plan: &crate::Plan,
+        secrets: Secrets,
+        mut lines: impl FnMut(Vec<String>) + Send + 'static,
+        end: impl FnOnce(Option<i32>, String) + Send + 'static,
+    ) -> Result<Following> {
+        // shortcut: no tunnel nor secret on stdin, which no log client needs; add them for a followed query.
+        ensure!(
+            plan.base.tunnel.is_none() && plan.base.stdin.is_empty(),
+            "{} cannot be followed: it needs a tunnel or its input",
+            plan.recipe
+        );
+        let mut cmd = self.program(&plan.base.program)?;
+        for (var, name) in &plan.base.env {
+            cmd.env(var, secrets(name)?.expose());
+        }
+        cmd.envs(plan.base.vars.iter().map(|(k, v)| (k, v)))
+            .args(plan.base.args.iter().chain(&plan.args))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("cannot start {}", plan.base.program))?;
+        let (stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
+        let child = Arc::new(Mutex::new(child));
+        let errors = std::thread::spawn(move || {
+            // Read to its end, keeping only the last of it: a full pipe would stop the client.
+            let (mut said, mut buf) = (Vec::new(), [0u8; 8192]);
+            if let Some(err) = stderr.as_mut() {
+                while let Ok(n) = err.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    said.extend_from_slice(&buf[..n]);
+                    if said.len() > 64 << 10 {
+                        said.drain(..said.len() - (16 << 10));
+                    }
+                }
+            }
+            let said = String::from_utf8_lossy(&said).into_owned();
+            termf_core::process::tail(&said)
+        });
+        let (tx, rx) = mpsc::channel::<String>();
+        let keep = plan.keep.as_ref().map(|k| k.to_lowercase());
+        std::thread::spawn(move || {
+            let Some(out) = stdout else { return };
+            let mut reader = BufReader::new(out);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                // A line without end arrives in pieces, never held whole.
+                match (&mut reader).take(FOLLOW_LINE).read_until(b'\n', &mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                let text = String::from_utf8_lossy(&line).trim_end().to_owned();
+                if keep
+                    .as_ref()
+                    .is_none_or(|k| text.to_lowercase().contains(k))
+                    && tx.send(text).is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let waited = Arc::clone(&child);
+        std::thread::spawn(move || {
+            let mut batch = Vec::new();
+            loop {
+                match rx.recv_timeout(Duration::from_millis(200)) {
+                    Ok(line) => {
+                        batch.push(line);
+                        if batch.len() < 500 {
+                            continue;
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+                if !batch.is_empty() {
+                    lines(std::mem::take(&mut batch));
+                }
+            }
+            if !batch.is_empty() {
+                lines(batch);
+            }
+            let exit = loop {
+                match waited.lock().unwrap().try_wait() {
+                    Ok(Some(status)) => break status.code(),
+                    Ok(None) => {}
+                    Err(_) => break None,
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            end(exit, errors.join().unwrap_or_default());
+        });
+        Ok(Following { child })
+    }
+
     /// Runs a recipe's plan; its output is still to mask ([`crate::redact::mask`]).
     pub fn run(&self, plan: &crate::Plan, secrets: Secrets) -> Result<Raw> {
         self.launch(
@@ -692,6 +801,33 @@ fn mysql_writes(grants: &str) -> bool {
             })
             .any(|p| WRITES.contains(&p))
     })
+}
+
+/// A recipe followed until stopped: dropping it kills its client and what that started.
+pub struct Following {
+    child: Arc<Mutex<Child>>,
+}
+
+impl Following {
+    /// Kills the client and its process group, unless it already ended: once waited for, its number (and its
+    /// group's) may be another program's. True when it signalled.
+    pub fn stop(&self) -> bool {
+        let mut child = self.child.lock().unwrap();
+        // Under the lock the follower cannot wait for it in between: alive here means not reaped.
+        if !matches!(child.try_wait(), Ok(None)) {
+            return false;
+        }
+        #[cfg(unix)]
+        termf_core::process::kill_group(child.id());
+        let _ = child.kill();
+        true
+    }
+}
+
+impl Drop for Following {
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 /// The vault must be opened, or prod confirmed, before anything else: the app asks for it.

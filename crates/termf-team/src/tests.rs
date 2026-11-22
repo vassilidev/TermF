@@ -251,8 +251,9 @@ impl Env {
     fn restart(&mut self) {
         self.team.shutdown();
         self.agents.shutdown();
-        // In the app, the threads that saw the processes end are gone with it.
-        let deadline = Instant::now() + Duration::from_secs(10);
+        // In the app, the threads that saw the processes end are gone with it. As long as `until`: under load,
+        // each killed process's end goes through the store like any other write.
+        let deadline = Instant::now() + Duration::from_secs(30);
         while termf_agents::sessions(&self.data).unwrap().iter().any(|s| {
             matches!(
                 s.state,
@@ -384,15 +385,21 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
             task("T4", "back", &["src/api/b.txt"], &["T1"]),
         ])),
     );
-    for (id, file) in [
-        ("T1", "src/api/a.txt"),
-        ("T2", "web/x.txt"),
-        ("T3", "web/pages/y.txt"),
-        ("T4", "src/api/b.txt"),
+    // T1 ends only once T2 has begun (30 s at most): run one after the other, they fail the order checked below,
+    // whatever the load, where a fixed pause could end T1 before a slow start of T2.
+    let t2_begun = format!(
+        "i=0; until grep -qx 'implement:T2 1 begin' '{}.steps' || [ $i -ge 300 ]; do sleep 0.1; i=$((i + 1)); done",
+        env.log
+    );
+    for (id, file, wait) in [
+        ("T1", "src/api/a.txt", t2_begun.as_str()),
+        ("T2", "web/x.txt", "sleep 1"),
+        ("T3", "web/pages/y.txt", "sleep 1"),
+        ("T4", "src/api/b.txt", "sleep 1"),
     ] {
         env.script(
             &format!("implement:{id}"),
-            &format!("sleep 1; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
+            &format!("{wait}; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
         );
     }
     let run = env
@@ -1085,6 +1092,24 @@ fn shares_the_run_budget_between_parallel_sessions() {
     );
 }
 
+/// A run with less than a cent left gave its session a cent all the same, so it could spend twice its budget (seen
+/// with the real Claude Code on 2026-11-22: $0.006 for $0.003).
+#[test]
+fn a_session_never_gets_more_than_the_run_has_left() {
+    let env = Env::new("share-small");
+    env.answer("plan.json", env.plan(json!([task("T1", "back", &[], &[])])));
+    let options = Options {
+        workflow: Some("nogate".into()),
+        budget: Some(0.003),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Budget);
+    let session = env.step(&run, "plan").session.unwrap();
+    let given = env.agents.session(session).unwrap().spec.budget.unwrap();
+    assert!((given - 0.003).abs() < 1e-9, "{given}");
+}
+
 #[test]
 fn a_bigger_budget_goes_on_in_new_sessions() {
     let mut env = Env::new("budget-more");
@@ -1521,16 +1546,22 @@ effort_range = ["high", "high"]
             squad(task("T6", "front", &["web/z.txt"], &[]), "web"),
         ])),
     );
-    for (id, file) in [
-        ("T1", "src/api/a.txt"),
-        ("T2", "src/api/b.txt"),
-        ("T3", "web/x.txt"),
-        ("T4", "web/y.txt"),
-        ("T6", "web/z.txt"),
+    // T3 ends only once T4 has begun (30 s at most): one front at a time fails the order checked below, whatever
+    // the load, where a fixed pause could end T3 before a slow start of T4.
+    let t4_begun = format!(
+        "i=0; until grep -qx 'implement:T4 1 begin' '{}.steps' || [ $i -ge 300 ]; do sleep 0.1; i=$((i + 1)); done",
+        env.log
+    );
+    for (id, file, wait) in [
+        ("T1", "src/api/a.txt", "sleep 1"),
+        ("T2", "src/api/b.txt", "sleep 1"),
+        ("T3", "web/x.txt", t4_begun.as_str()),
+        ("T4", "web/y.txt", "sleep 1"),
+        ("T6", "web/z.txt", "sleep 1"),
     ] {
         env.script(
             &format!("implement:{id}"),
-            &format!("sleep 1; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
+            &format!("{wait}; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
         );
     }
     // T4 strays out of its squad once.
@@ -2494,6 +2525,10 @@ fn without_a_task_to_send_it_to_a_finding_asks_why_it_stays() {
             json!([finding("important", "src/api/a.txt", 2, "")]),
         ),
     );
+    // A finding is on a file of the repository.
+    let file = env.target.worktree.join("src/api/a.txt");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, "a\nb\n").unwrap();
     env.team
         .start(
             env.target.clone(),
@@ -2941,11 +2976,18 @@ fn real_team() {
     let mut squads: Vec<&str> = plan.tasks.iter().map(|t| t.squad.as_str()).collect();
     squads.sort();
     assert_eq!(squads, ["client", "server"], "{plan:#?}");
-    assert!(
-        run.steps
-            .iter()
-            .filter(|s| s.agent() && !s.plan && s.key != TRIAGE)
-            .all(|s| s.report.is_some())
+    // A base that did not move is taken in with no agent, so with no report.
+    let unreported: Vec<&str> = run
+        .steps
+        .iter()
+        .filter(|s| s.agent() && !s.plan && s.key != TRIAGE && !s.sessions.is_empty())
+        .filter(|s| s.report.is_none())
+        .map(|s| s.key.as_str())
+        .collect();
+    assert_eq!(
+        unreported,
+        Vec::<&str>::new(),
+        "every agent that ran reported"
     );
     assert!(run.cost > 0.0 && run.cost < 1.5, "{}", run.cost);
 }
@@ -3838,8 +3880,29 @@ fn a_team_stopped_short_of_its_gate_leaves_the_delivery_to_you() {
     let env = Env::new("done-stopped");
     let mut public = report("T1 done");
     public["public_change"] = true.into();
-    env.answer("implement:T1.json", public);
+    env.answer("implement:T1.json", public.clone());
+    // By default the documentation only warns: a public change without it is shown, and delivered.
     disciplined(&env, "");
+    let run = env.until("the delivery", delivery);
+    let done = run.done.clone().unwrap();
+    assert!(done.passes(), "{done:?}");
+    assert!(
+        done.warned()
+            .starts_with("docs (T1 changed the public behaviour"),
+        "{done:?}"
+    );
+    let gate = env.step(&run, "deliver");
+    let note = gate.note.clone().unwrap_or_default();
+    assert!(note.contains("To know before: docs"), "{note}");
+    assert_eq!(env.team.check_delivery(1).unwrap(), None);
+
+    // Named in `[team] done`, it holds the delivery.
+    let env = Env::new("done-stopped-docs");
+    env.answer("implement:T1.json", public);
+    disciplined(
+        &env,
+        "done = [\"checks\", \"review\", \"security\", \"docs\"]",
+    );
     env.until("the delivery", delivery);
     assert!(
         env.team.check_delivery(1).is_err(),
@@ -4131,6 +4194,14 @@ fn the_integrator_resolves_a_conflict_with_the_base_then_the_review_reads_it() {
     assert!(
         review.contains("## The base update")
             && review.contains(&format!("--remerge-diff {merge}")),
+        "{review}"
+    );
+    // Against the base as merged in: what it brought is not the run's to review, nor to undo.
+    let base = run.base.clone().unwrap();
+    assert!(
+        review.contains(&format!(
+            "## What to review\n\nThe run's own changes: `git diff {base} HEAD`"
+        )) && review.contains("never ask to undo or change it"),
         "{review}"
     );
     assert_eq!(checked(&env), 2, "the checks ran again on the resolution");

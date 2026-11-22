@@ -48,13 +48,21 @@ export type Recipe = {
   connection?: string;
   mode: "read" | "write";
   params: Param[];
-  limits: { lines: number; bytes: number; timeout_s: number };
+  limits: { lines: number; bytes: number; timeout_s: number; rows?: number };
   ai_access: AiAccess;
   approval: "always" | "write" | "never";
   redact: string[];
+  /** Its output is a `.env`; it runs until stopped. */
+  env?: boolean;
+  follow?: boolean;
   run: { kind: Kind }[];
   source: "shipped" | "project";
 };
+
+/** A recipe of the SQL console: it takes a query. */
+export const isSql = (r: Recipe) => r.params.some((p) => p.type === "sql");
+/** A recipe of the Recipes tab: neither a query nor a stream. */
+export const bounded = (r: Recipe) => !isSql(r) && !r.follow;
 
 export type Plan = {
   recipe: string;
@@ -75,6 +83,7 @@ export type Plan = {
 };
 
 export type Part = { text: string } | { hidden: number };
+export type Table = { columns: string[]; rows: string[][] };
 export type Output = {
   text: string;
   parts: Part[];
@@ -85,7 +94,15 @@ export type Output = {
   bytes: number;
   masks: number;
   millis: number;
+  /** A query's result, masked. */
+  table?: Table;
+  /** A `.env`'s keys: their values stay in TermF, revealed one by one. */
+  keys?: string[];
 };
+export type EnvDiff = { key: string; state: "same" | "different" | "prod" | "local" };
+export type Streamed =
+  | { id: number; kind: "lines"; lines: string[]; masks: number }
+  | { id: number; kind: "end"; exit: number | null; errors: string };
 export type Ran = { id: number; plan: Plan; output: Output };
 export type Check = {
   code: "tool" | "secret" | "tunnel" | "connect" | "readonly" | "journal";
@@ -189,6 +206,10 @@ export type Run = {
   error: string | null;
   size: number | null;
   masks: number | null;
+  /** Not a run but what the user did with one: `follow`, or a `.env`'s `reveal`, `copy`, `write`. */
+  event: string | null;
+  key: string | null;
+  run: number | null;
 };
 
 type Entry = {
@@ -225,6 +246,9 @@ export function historyRow(e: Entry): Run {
     error: typeof d.error === "string" ? d.error : null,
     size: e.size ?? null,
     masks: e.masks ?? null,
+    event: typeof d.event === "string" ? d.event : null,
+    key: typeof d.key === "string" ? d.key : null,
+    run: typeof d.run === "number" ? d.run : null,
   };
 }
 
@@ -259,4 +283,111 @@ export const shippedTexts: Record<string, string> = {
   "Only the lines that match this pattern": "uxfT4ParamGrepPattern",
   "Only the lines that hold this text": "uxfT4ParamGrepLines",
   "Only the events that hold this text": "uxfT4ParamGrepEvents",
+  "Reads a server's .env over SSH and shows it masked: each value revealed on its own; agents get only the key names":
+    "uxfT4RecipeEnvFetch",
+  "The .env file on the server, such as /srv/app/shared/.env": "uxfT4ParamEnvFile",
+  "A read-only SQL query on a Postgres or MySQL database: one SELECT, EXPLAIN or SHOW, in a read-only transaction":
+    "uxfT4RecipeSqlReadonly",
+  "One SELECT, WITH … SELECT, EXPLAIN or SHOW": "uxfT4ParamSql",
+  "Follows logs live until stopped: a journal or a file over SSH, a Kubernetes pod, CloudWatch or Loki": "uxfT4RecipeLogsFollow",
+  "SSH: a systemd unit, such as nginx.service": "uxfT4ParamFollowUnit",
+  "SSH: a log file instead of the journal, such as /var/log/app/error.log": "uxfT4ParamFollowFile",
+  "Kubernetes: the pod, or deploy/<name>": "uxfT4ParamFollowPod",
+  "Kubernetes: the container, when the pod has several": "uxfT4ParamFollowContainer",
+  'Loki: a LogQL selector, such as {app="web"}': "uxfT4ParamFollowQuery",
+  "How many past lines to start with": "uxfT4ParamFollowLines",
 };
+
+/** A query's rows sorted on a column: numbers as numbers, NULL last either way. */
+export function sortRows(rows: string[][], column: number, desc: boolean): string[][] {
+  const number = (v: string) => (v.trim() !== "" && !Number.isNaN(Number(v)) ? Number(v) : null);
+  return [...rows].sort((a, b) => {
+    const [x, y] = [a[column] ?? "", b[column] ?? ""];
+    if (x === y) return 0;
+    if (x === "NULL") return 1;
+    if (y === "NULL") return -1;
+    const [p, q] = [number(x), number(y)];
+    const order = p !== null && q !== null ? p - q : x.localeCompare(y, undefined, { numeric: true });
+    return desc ? -order : order;
+  });
+}
+
+/** A table as a spreadsheet pastes it: tab-separated, a cell's own tabs and line breaks as spaces. */
+export function tsv(table: Table): string {
+  const cell = (c: string) => c.replace(/[\t\r\n]+/g, " ");
+  return [table.columns, ...table.rows].map((r) => r.map(cell).join("\t")).join("\n") + "\n";
+}
+
+/** The past queries of the SQL console, the most recent first, each once. */
+export function pastQueries(
+  history: Run[],
+  recipes: Pick<Recipe, "name" | "params">[],
+): { query: string; connection: string; at: number }[] {
+  // Each recipe names its query parameter as it likes.
+  const param = new Map(
+    recipes.flatMap((r) => {
+      const p = r.params.find((x) => x.type === "sql");
+      return p ? [[r.name, p.name] as const] : [];
+    }),
+  );
+  const seen = new Set<string>();
+  const out: { query: string; connection: string; at: number }[] = [];
+  for (const h of history) {
+    const name = param.get(h.recipe);
+    const query = name === undefined ? undefined : h.params[name];
+    if (h.event || !query || seen.has(query)) continue;
+    seen.add(query);
+    out.push({ query, connection: h.connection, at: h.at });
+  }
+  return out;
+}
+
+/** A query the SQL console refused, as the backend sends it (`{refused: {code, subject}, message}`); `null` for
+ * any other error. */
+export function refusal(e: unknown): { code: string; subject: string; message: string } | null {
+  try {
+    const sent = JSON.parse(String(e));
+    if (typeof sent?.refused?.code !== "string") return null;
+    return { code: sent.refused.code, subject: String(sent.refused.subject ?? ""), message: String(sent.message ?? "") };
+  } catch {
+    return null;
+  }
+}
+
+/** The live logs' state that its events change. */
+export type Live = {
+  id: number | null;
+  paused: boolean;
+  lines: string[];
+  held: string[];
+  ended: { exit: number | null; errors: string } | null;
+};
+
+/** What an `ops-follow` event changes, or `null` when it is not of the stream followed. The front end picks the
+ * stream's id before starting it, so its first lines, which may come before the start answers, are kept. */
+export function streamed(live: Live, e: Streamed, max = 5000): Partial<Live> | null {
+  if (e.id !== live.id) return null;
+  if (e.kind === "end") return { id: null, ended: { exit: e.exit, errors: e.errors } };
+  const last = (lines: string[]) => (lines.length > max ? lines.slice(-max) : lines);
+  return live.paused ? { held: last([...live.held, ...e.lines]) } : { lines: last([...live.lines, ...e.lines]) };
+}
+
+export type Level = "error" | "warn" | "info" | "debug";
+const LEVELS: [Level, RegExp][] = [
+  ["error", /\b(fatal|panic|emerg(ency)?|alert|crit(ical)?|err(or)?)\b/i],
+  ["warn", /\bwarn(ing)?\b/i],
+  ["debug", /\b(debug|trace)\b/i],
+  ["info", /\b(info|notice)\b/i],
+];
+const RANK: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+
+/** A log line's level, read from its words; `null` when it says none. */
+export function level(line: string): Level | null {
+  return LEVELS.find(([, re]) => re.test(line))?.[0] ?? null;
+}
+
+/** Whether a line shows with the live filter: its text, and a level at least `min` (a line without one counts as info). */
+export function shows(line: string, text: string, min: Level | "all"): boolean {
+  if (text && !line.toLowerCase().includes(text.toLowerCase())) return false;
+  return min === "all" || RANK[level(line) ?? "info"] >= RANK[min];
+}

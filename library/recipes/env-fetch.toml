@@ -1,0 +1,23 @@
+# A server's .env read over SSH into TermF's memory: each value masked, revealed one by one after the master
+# password; an agent gets only the names of its keys.
+name = "env-fetch"
+description = "Reads a server's .env over SSH and shows it masked: each value revealed on its own; agents get only the key names"
+mode = "read"
+env = true
+ai_access = "redacted"
+approval = "always"
+redact = ["vault_values"]
+
+[params.path]
+type = "path"
+description = "The .env file on the server, such as /srv/app/shared/.env"
+required = true
+
+[limits]
+lines = 1000
+bytes = 262144
+timeout_s = 30
+
+[[run]]
+kind = "ssh"
+args = ["cat", "--", "{path}"]

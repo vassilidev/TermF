@@ -11,6 +11,11 @@ anyhow = "1.0.104"
 regex = "1.13.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+# Already in the build (the vault): a .env compared by the hashes of its values, never the values.
+sha2 = "0.10.9"
+# The SQL console's analysis (ARCHITECTURE §12.3), Apache-2.0: its visitor walks every nested query and statement.
+# Without its default `recursive` stack growth: the parser's own depth limit stays.
+sqlparser = { version = "0.64.0", default-features = false, features = ["std", "visitor"] }
 termf-claude = { path = "../termf-claude" }
 termf-core = { path = "../termf-core" }
 termf-library = { path = "../termf-library" }
