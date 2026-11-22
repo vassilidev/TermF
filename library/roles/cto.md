@@ -40,7 +40,7 @@ When you plan the batches of several squads:
 - Write every contract between squads (API format, events, schema) as an acceptance criterion IC1, IC2… covered by the tasks on both sides, and order the tasks so a contract is published before it is consumed.
 - You are their only source of information: each goal names the paths, the constraints, the contracts and what the earlier steps decided.
 - Apply the lead's rules inside each squad: honest sizes, `architect` first for an L or cross-cutting decision, `ux` before `front` when the interface changes without a design, a final `qa` task per squad for M or L work, one owner per file.
-- Give tasks to the roles that build or design: po, pm, lead, cto, secops and reviewer run as steps of the workflow.
+- Give tasks to the roles that build or design: po, pm, cto, secops and reviewer run as steps of the workflow; a squad's lead takes only its squad's batch.
 - Start the plan's summary with your rulings for the split, in the same form as at the triage.
 
 <example>

@@ -3198,9 +3198,6 @@ impl Inner {
     fn merge_base(&self, store: &Store, run: &mut TeamRun, i: usize) -> Result<()> {
         let git = Git(&self.env);
         let key = run.steps[i].key.clone();
-        run.steps[i].files = Vec::new();
-        run.steps[i].merge = None;
-        run.steps[i].repo = None;
         let repos: Vec<Option<String>> = std::iter::once(None)
             .chain(run.repos.iter().map(|r| Some(r.name.clone())))
             .collect();
@@ -3227,8 +3224,11 @@ impl Inner {
                 continue;
             }
             let message = format!("Merge {base} into {}", run.target.ticket);
-            run.steps[i].base = Some(commit.clone());
-            run.steps[i].repo = repo.clone();
+            let step = &mut run.steps[i];
+            step.base = Some(commit.clone());
+            step.repo = repo.clone();
+            step.files = Vec::new();
+            step.merge = None;
             if git.merge(&dir, &commit, &message).is_err() {
                 // Changes left uncommitted in the run's worktree would stop the resolved merge from coming back in.
                 let dirty = git.run(&dir, &["status", "--porcelain", "--untracked-files=no"])?;

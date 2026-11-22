@@ -1018,6 +1018,8 @@ mod tests {
             ]
             .contains(&name);
             assert_eq!(plannable(role), !planner_only, "{name}");
+            let plans = role.meta.get("output").and_then(|o| o.as_str()) == Some("plan");
+            assert_eq!(plans, name == "lead", "{name}: only the lead plans a batch");
             if let Some(credits) = role.meta.get("credits") {
                 assert!(credits.as_array().is_some_and(|c| !c.is_empty()), "{name}");
                 assert!(
