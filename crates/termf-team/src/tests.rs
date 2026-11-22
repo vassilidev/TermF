@@ -1712,7 +1712,7 @@ fn triage_project(env: &Env) {
 }
 
 fn routing(workflow: &str, squads: &[&str]) -> Value {
-    json!({"kind": "feature", "size": "M", "reason": "a new export for the API", "workflow": workflow,
+    json!({"kind": "feature", "size": "L", "reason": "a new export for the API", "workflow": workflow,
         "skip": [], "add": [], "efforts": [], "squads": squads, "questions": [], "budget_usd": 4.0})
 }
 
@@ -1865,7 +1865,7 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
     );
     let plan = env.message("plan", 1);
     assert!(
-        plan.contains("The request was routed as feature, size M: a new export for the API")
+        plan.contains("The request was routed as feature, size L: a new export for the API")
             && plan.contains("- api: roles back; paths src/**")
             && !plan.contains("- web:")
             && plan.contains("- audience? → clients")
@@ -1877,7 +1877,7 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
             .events(1, 0)
             .unwrap()
             .iter()
-            .any(|e| e.kind == "routed" && e.message.starts_with("feature, size M, workflow default; skips frame; adds ux; squads api; efforts security low")),
+            .any(|e| e.kind == "routed" && e.message.starts_with("feature, size L, workflow default; skips frame; adds ux; squads api; efforts security low")),
         "{:?}",
         env.kinds()
     );
@@ -2206,6 +2206,61 @@ fn blocked_review(r: &TeamRun) -> bool {
 }
 
 #[test]
+fn a_medium_run_asks_nothing_before_its_delivery_unless_the_project_says_so() {
+    let env = Env::new("medium");
+    triage_project(&env);
+    let mut medium = routing("default", &["api"]);
+    medium["size"] = "M".into();
+    env.answer("triage.json", medium);
+    let mut t1 = task("T1", "back", &["src/api/a.txt"], &[]);
+    t1["squad"] = "".into();
+    env.answer("plan.json", env.plan(json!([t1])));
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+    );
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    let run = env.until("the delivery", delivery);
+    assert_eq!(env.step(&run, ROUTE).state, StepState::Skipped);
+    let gate = env.step(&run, "approve-plan");
+    assert_eq!(gate.state, StepState::Skipped);
+    assert!(
+        gate.note
+            .as_deref()
+            .unwrap_or_default()
+            .contains("plan_gate")
+    );
+
+    drop(env);
+    let env = Env::new("medium-gate");
+    triage_project(&env);
+    let file = env.config.join("projects/acme.toml");
+    let text = fs::read_to_string(&file).unwrap();
+    fs::write(
+        &file,
+        text.replace("triage = true", "triage = true\nplan_gate = \"always\""),
+    )
+    .unwrap();
+    let mut medium = routing("default", &["api"]);
+    medium["size"] = "M".into();
+    env.answer("triage.json", medium);
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src"], &[])])),
+    );
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    env.until("the plan's gate", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "approve-plan" && s.state == StepState::Waiting)
+    });
+}
+
+#[test]
 fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     let env = Env::new("direct");
     triage_project(&env);
@@ -2229,19 +2284,14 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     env.team
         .start(env.target.clone(), Options::default())
         .unwrap();
-    let run = env.until("the routing gate", |r| {
-        r.steps
-            .get(1)
-            .is_some_and(|s| s.state == StepState::Waiting)
-    });
+    // A small run asks nothing before its delivery: neither its routing nor its plan waits.
+    let run = env.until("the delivery", delivery);
     assert!(
         env.message("triage", 2)
             .contains("workflow direct needs its one task in task"),
         "asked again"
     );
-    assert_eq!(run.routing.as_ref().unwrap().workflow, "direct");
-    env.team.approve(1, ROUTE).unwrap();
-    let run = env.until("the delivery", delivery);
+    assert_eq!(env.step(&run, ROUTE).state, StepState::Skipped);
 
     let plan = env.step(&run, "plan");
     assert_eq!(plan.state, StepState::Done);

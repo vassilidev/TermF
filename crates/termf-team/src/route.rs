@@ -309,7 +309,7 @@ fn check_steps(
             ));
         }
     }
-    if name == crate::DIRECT && routing.task.is_none() {
+    if crate::DIRECT.contains(&name.as_str()) && routing.task.is_none() {
         problems.push(format!(
             "workflow {name} needs its one task in task: the role, the goal, the files, the criteria it covers"
         ));

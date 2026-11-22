@@ -55,7 +55,7 @@ const CONTINUE: &str = "TermF stopped while you were working on this step. Go on
 /// The CTO's first step of every run, and the gate where the user approves its routing.
 pub const TRIAGE: &str = "triage";
 /// The workflow where the CTO gives the one task at the triage: no framing, no lead's plan, one short review.
-pub const DIRECT: &str = "direct";
+pub const DIRECT: [&str; 2] = ["direct", "trivial"];
 /// How many times a failed check sends the tasks back before the user decides.
 const CHECKS_BACK: usize = 2;
 pub const ROUTE: &str = "approve-route";
@@ -1226,7 +1226,7 @@ impl Inner {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         let mut ids = done::criteria(&[&project, &self.config_dir.join("termf.toml")])?;
         // The CTO routes to the direct workflow only what has no security stake, and says so in its rulings.
-        if run.workflow == DIRECT {
+        if DIRECT.contains(&run.workflow.as_str()) {
             ids.retain(|(id, _)| id != "security");
         }
         Ok(ids)
@@ -1898,21 +1898,27 @@ impl Inner {
             Some(&run.target.repo_path),
             &run.workflow,
         )?;
+        // A plan that would not wait for its size (`[team] plan_gate`): dropping its gate drops nothing.
+        let plan_waits = self.plan_waits(run)?;
         let gates = |w: &workflow::Workflow| -> Result<usize> {
             Ok(w.steps()?
                 .iter()
-                .filter(|(_, s)| s.kind == StepKind::Gate)
+                .filter(|(key, s)| {
+                    s.kind == StepKind::Gate && (plan_waits || key != "approve-plan")
+                })
                 .count())
         };
         if gates(routed)? < gates(&launch)? {
             return Ok(true);
         }
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
+        // Unset, the routing waits for a large run only: a small one goes on, the user sees it at the delivery.
+        let large = run.routing.as_ref().is_none_or(|r| r.size == plan::Size::L);
         Ok(
             match route::flag(&project, "approve_route")?.or(launch.approve_route) {
                 Some(on) => on,
                 None => route::flag(&self.config_dir.join("termf.toml"), "approve_route")?
-                    .unwrap_or(true),
+                    .unwrap_or(large),
             },
         )
     }
@@ -2594,6 +2600,41 @@ impl Inner {
 
     /// Whether the sub-plan of `batch` waits for the user: `[team] subplan_gate` of the project's file, else of
     /// `termf.toml`: `off`, `large` (the default: a batch sized L) or `always`.
+    /// Whether the gate step `i` waits for the user: always, but the plan's gate, which by `[team] plan_gate`
+    /// (`large` by default, `always`, `off`) waits only for a run the CTO sized L. A run it did not size waits.
+    fn plan_gate(&self, run: &TeamRun, i: usize) -> Result<bool> {
+        let gates_plan = run.steps[i]
+            .needs
+            .iter()
+            .any(|n| run.steps.iter().any(|s| &s.key == n && s.plan));
+        match gates_plan {
+            true => self.plan_waits(run),
+            false => Ok(true),
+        }
+    }
+
+    /// Whether this run's plan waits for the user, by `[team] plan_gate` and the CTO's size.
+    fn plan_waits(&self, run: &TeamRun) -> Result<bool> {
+        let Some(size) = run.routing.as_ref().map(|r| r.size) else {
+            return Ok(true);
+        };
+        let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
+        let files = [project.as_path(), &self.config_dir.join("termf.toml")];
+        Ok(
+            match review::team_key(&files, "plan_gate")?
+                .as_ref()
+                .map(|(v, f)| (v.as_str(), f))
+            {
+                None | Some((Some("large"), _)) => size == plan::Size::L,
+                Some((Some("always"), _)) => true,
+                Some((Some("off"), _)) => false,
+                Some((_, file)) => {
+                    bail!("`[team] plan_gate` in {file} must be \"off\", \"large\" or \"always\"")
+                }
+            },
+        )
+    }
+
     fn subplan_gate(&self, run: &TeamRun, batch: &Task) -> Result<bool> {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         let files = [project.as_path(), &self.config_dir.join("termf.toml")];
@@ -3805,9 +3846,21 @@ impl Inner {
                     Err(e) => self.block(store, run, i, &format!("{e:#}")),
                 }
             }
-            StepKind::Gate => {
-                self.wait(store, run, i, "waiting for your approval");
-            }
+            StepKind::Gate => match self.plan_gate(run, i) {
+                Ok(false) => {
+                    let size = run
+                        .routing
+                        .as_ref()
+                        .map(|r| r.size)
+                        .unwrap_or(plan::Size::L);
+                    let note = format!(
+                        "a plan of size {size:?} goes on without you (`[team] plan_gate` waits for large ones)"
+                    );
+                    self.skip(store, run, i, &note);
+                }
+                Ok(true) => self.wait(store, run, i, "waiting for your approval"),
+                Err(e) => self.block(store, run, i, &format!("{e:#}")),
+            },
             StepKind::Connector => {
                 let done = match self.done_criteria(run) {
                     Ok(ids) => done::evaluate(run, &ids),
@@ -3986,7 +4039,7 @@ impl Inner {
                 // The direct workflow: the CTO gave the one task at the triage, no lead plans it. A task it
                 // gave that does not pass the plan's checks sends the step to its lead, with the reason.
                 if run.steps[i].plan
-                    && run.workflow == DIRECT
+                    && DIRECT.contains(&run.workflow.as_str())
                     && run.steps[i].attempt == 0
                     && run.steps[i].feedback.is_none()
                     && let Some(mut task) = run.routing.as_ref().and_then(|r| r.task.clone())
@@ -4863,7 +4916,7 @@ impl Inner {
                      back any change the ticket does not need.\n",
                 );
             }
-            if run.workflow == DIRECT {
+            if DIRECT.contains(&run.workflow.as_str()) {
                 text.push_str(
                     "\nYou are this ticket's only developer: write the code and the tests its criteria call for, \
                      then run the project's checks (its tests, and its typecheck and lint when it has them) and fix \

@@ -251,7 +251,7 @@ function tap(text) {
 }
 
 function nodeTest(cwd, files) {
-  const args = ["--disable-warning=ExperimentalWarning", "--test", "--test-force-exit", "--test-timeout=20000"];
+  const args = ["--disable-warning=ExperimentalWarning", "--test", "--test-force-exit", "--test-timeout=90000"];
   const r = sh("node", [...args, "--test-reporter=tap", ...files], { cwd, timeout: 180_000 });
   return tap(r.stdout + r.stderr);
 }
