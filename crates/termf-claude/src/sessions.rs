@@ -188,7 +188,7 @@ fn project(dir: &Path) -> Option<Project> {
     if sessions.is_empty() {
         return None;
     }
-    sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.modified));
     Some(Project {
         folder: dir.file_name()?.to_string_lossy().into_owned(),
         cwd,
@@ -213,7 +213,7 @@ pub fn list(env: &Env, repo: Option<&Path>) -> Vec<Project> {
         })
         .filter_map(|e| project(&e.path()))
         .collect();
-    projects.sort_by(|a, b| b.sessions[0].modified.cmp(&a.sessions[0].modified));
+    projects.sort_by_key(|p| std::cmp::Reverse(p.sessions[0].modified));
     projects
 }
 

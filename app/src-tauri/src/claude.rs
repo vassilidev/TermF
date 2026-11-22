@@ -65,7 +65,7 @@ fn now() -> u64 {
 }
 
 /// The `[agents]` entry that runs Claude Code (the one named `claude` first) and its command.
-fn claude_agent(config_dir: &Path) -> Result<(String, String)> {
+pub(crate) fn claude_agent(config_dir: &Path) -> Result<(String, String)> {
     let settings = termf_core::load_settings(config_dir)?;
     let named = settings
         .agents
@@ -83,11 +83,11 @@ fn claude_agent(config_dir: &Path) -> Result<(String, String)> {
 }
 
 /// Only the program: the agent's own options (say `--dangerously-skip-permissions`) never reach a hidden session.
-fn program(command: &str) -> String {
+pub(crate) fn program(command: &str) -> String {
     command.split_whitespace().next().unwrap_or("claude").into()
 }
 
-fn env(config_dir: &Path, repo: Option<String>) -> Env {
+pub(crate) fn env(config_dir: &Path, repo: Option<String>) -> Env {
     let claude = claude_agent(config_dir).map_or_else(|_| "claude".into(), |(_, c)| program(&c));
     Env::current(repo.map(PathBuf::from), claude)
 }

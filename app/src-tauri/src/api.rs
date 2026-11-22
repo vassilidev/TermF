@@ -198,6 +198,9 @@ impl Api {
     /// prints for Claude Code to read (null: nothing).
     fn hook(&self, app: &AppHandle, id: u32, event: &str, payload: &Value) -> Value {
         let task_reply = crate::claude::hook(app, id, event, payload);
+        if event == "StatusLine" {
+            crate::claude_native::status_line(app, id, payload);
+        }
         let text = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
         let (agent_session, handoff) = (text("session_id"), self.handoff_file(id));
         let mut current = true;
@@ -543,6 +546,58 @@ pub fn spawn_task(
         Some(&task),
         &[],
     )
+}
+
+/// A command of Claude Code's own in a tile, as typed (`claude auth login`, `claude attach <id>`): no hooks, no
+/// library, nothing added to it.
+pub fn spawn_command(
+    state: &AppState,
+    cwd: PathBuf,
+    title: String,
+    command: &str,
+) -> Result<SessionSummary> {
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let (program, args) = shell_command(Some(command));
+    let mut new_id = None;
+    let spawned = state.sessions.spawn_with(|id| {
+        new_id = Some(id);
+        state.api.meta.lock().unwrap().insert(
+            id,
+            Meta {
+                title: title.clone(),
+                status: None,
+                remote_control: false,
+                agent_session_id: None,
+                dir: None,
+                reset: None,
+                hidden: false,
+                policy: None,
+            },
+        );
+        Ok(SpawnSpec {
+            title: title.clone(),
+            program,
+            args,
+            cwd,
+            agent: None,
+            cols: 120,
+            rows: 32,
+            env: Vec::new(),
+        })
+    });
+    if spawned.is_err()
+        && let Some(id) = new_id
+    {
+        state.api.forget(id);
+    }
+    Ok(state.api.summary(SessionInfo {
+        id: spawned?,
+        title,
+        cwd: cwd_text,
+        agent: None,
+        running: true,
+        exit_code: None,
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
