@@ -211,7 +211,7 @@
 {/snippet}
 
 {#snippet colorChip(tk: Token)}
-  <div class="chip" class:split={data?.dark}>
+  <div class="chip">
     <span style:background={tk.color}></span>
     {#if data?.dark}<span style:background={tk.darkColor ?? tk.color}></span>{/if}
   </div>
@@ -391,7 +391,7 @@
                       <div class="swatch">
                         {@render colorChip(tk)}
                         <div class="name mono" title={tk.path ?? tk.name}>{tk.name}</div>
-                        <div class="value mono">{tk.value}{#if tk.dark} · {tk.dark.value}{/if}</div>
+                        <div class="value mono">{tk.value}{#if tk.dark}{" · "}{tk.dark.value}{/if}</div>
                         {@render meta(tk)}
                       </div>
                     {/each}
@@ -441,25 +441,27 @@
                   <ul class="rows">
                     {#each list as tk (tk.name)}
                       <li class="token-row">
-                        {#if design.section === "spacing" && tk.px !== null}
-                          <span class="bar" style:width="{Math.min(tk.px, 320)}px"></span>
-                        {:else if design.section === "radius"}
-                          <span class="corner" style:border-radius={tk.px !== null ? `${tk.px}px` : tk.value}></span>
-                        {:else if design.section === "shadow"}
-                          <span class="lift" style:box-shadow={tk.value}></span>
-                        {:else if design.section === "motion"}
-                          <button class="icon-btn sm" onclick={() => play(tk.name)} aria-label={t("designPlay")} aria-pressed={playing === tk.name}>
-                            <Play size={13} aria-hidden="true" />
-                          </button>
-                          <span class="track">
-                            <span
-                              class="dot"
-                              class:moved={playing === tk.name}
-                              style:transition-duration={/m?s$/.test(tk.value.trim()) ? tk.value : "600ms"}
-                              style:transition-timing-function={/m?s$/.test(tk.value.trim()) ? "ease" : tk.value}
-                            ></span>
-                          </span>
-                        {/if}
+                        <span class="viz">
+                          {#if design.section === "spacing" && tk.px !== null}
+                            <span class="bar" style:width="{Math.min(tk.px, 120)}px"></span>
+                          {:else if design.section === "radius"}
+                            <span class="corner" style:border-radius={tk.px !== null ? `${tk.px}px` : tk.value}></span>
+                          {:else if design.section === "shadow"}
+                            <span class="lift" style:box-shadow={tk.value}></span>
+                          {:else if design.section === "motion"}
+                            <button class="icon-btn sm" onclick={() => play(tk.name)} aria-label={t("designPlay")} aria-pressed={playing === tk.name}>
+                              <Play size={13} aria-hidden="true" />
+                            </button>
+                            <span class="track">
+                              <span
+                                class="dot"
+                                class:moved={playing === tk.name}
+                                style:transition-duration={/m?s$/.test(tk.value.trim()) ? tk.value : "600ms"}
+                                style:transition-timing-function={/m?s$/.test(tk.value.trim()) ? "ease" : tk.value}
+                              ></span>
+                            </span>
+                          {/if}
+                        </span>
                         <div class="row-meta">
                           <span class="name mono">{tk.name}</span>
                           <span class="value mono">{tk.value}</span>
@@ -520,7 +522,7 @@
                     <div class="swatch">
                       {@render colorChip(tk)}
                       <div class="name mono">{tk.name}</div>
-                      <div class="value mono">{tk.color}{#if data.dark && tk.darkColor && tk.darkColor !== tk.color} · {tk.darkColor}{/if}</div>
+                      <div class="value mono">{tk.color}{#if data.dark && tk.darkColor && tk.darkColor !== tk.color}{" · "}{tk.darkColor}{/if}</div>
                     </div>
                   {/each}
                 </div>
@@ -776,7 +778,7 @@
   .text {
     flex: 1;
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 
   .where {
@@ -867,9 +869,9 @@
     height: 52px;
     margin-bottom: 6px;
     overflow: hidden;
+    border: 1px solid var(--border);
     border-radius: var(--radius);
     background: repeating-conic-gradient(#d9dbe0 0 25%, #ffffff 0 50%) 0 0 / 12px 12px;
-    box-shadow: inset 0 0 0 1px rgb(127 127 127 / 0.3);
   }
 
   .chip span {
@@ -992,6 +994,15 @@
     align-items: baseline;
     gap: 4px 12px;
     min-width: 0;
+  }
+
+  /* The previews share one column, so the names line up. */
+  .viz {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+    width: 136px;
   }
 
   .bar {

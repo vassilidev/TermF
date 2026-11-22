@@ -901,22 +901,25 @@ fn contrast(read: &Read, tokens: &[Token], dark: bool, out: &mut Vec<Finding>) -
         if fg == bg {
             continue;
         }
-        for &theme in themes {
-            if pairs.len() >= MAX_PAIRS
-                || !seen.insert((fg.clone(), bg.clone(), theme == Theme::Dark))
-            {
-                continue;
-            }
-            let Some((r, front, back)) = ratio(&fg, &bg, theme) else {
-                continue;
-            };
+        if pairs.len() >= MAX_PAIRS || !seen.insert((fg.clone(), bg.clone())) {
+            continue;
+        }
+        let measured: Vec<(Theme, (f64, Rgba, Rgba))> = themes
+            .iter()
+            .filter_map(|&theme| Some((theme, ratio(&fg, &bg, theme)?)))
+            .collect();
+        // Colors the dark theme does not change are one pair, not two.
+        let same = measured.len() == 2
+            && measured[0].1.1 == measured[1].1.1
+            && measured[0].1.2 == measured[1].1.2;
+        for (theme, (r, front, back)) in measured.into_iter().take(if same { 1 } else { 2 }) {
             if r < AA {
                 let level = if r < AA_LARGE {
                     Level::Error
                 } else {
                     Level::Warn
                 };
-                let theme_of = dark.then_some(theme);
+                let theme_of = (dark && !same).then_some(theme);
                 let mut locs: Vec<Loc> = at.iter().cloned().collect();
                 for side in [&fg, &bg] {
                     if let Some(t) = colors.get(side.as_str()) {

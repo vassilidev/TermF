@@ -118,8 +118,10 @@ type T = (key: string, vars?: Record<string, string | number>) => string;
 
 /** The finding as one sentence. */
 export function describe(f: Finding, t: T, number: (n: number) => string): string {
+  // `13px` could be a padding or a font size: say which.
+  const sized = literal(f.subject) && (f.family === "spacing" || f.family === "text" || f.family === "radius");
   const vars = {
-    subject: f.subject,
+    subject: sized ? `${f.subject} (${t(`designOf${f.family![0].toUpperCase()}${f.family!.slice(1)}`)})` : f.subject,
     other: f.other.join(", "),
     first: f.other[0] ?? "",
     measure: f.measure === null ? "" : number(f.measure),

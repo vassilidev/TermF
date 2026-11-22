@@ -48,7 +48,10 @@ test("describe: one sentence per kind, the theme said when it matters", () => {
   assert.equal(describe(finding({}), t, number), 'designKindHardcoded{"subject":"#4f46e6","other":"--accent","first":"--accent","measure":""}');
   assert.match(describe(finding({ measure: 1.4 }), t, number), /^designKindHardcodedNear.*"measure":"1.4"/);
   assert.match(describe(finding({ other: [] }), t, number), /^designKindHardcodedLone/);
-  assert.match(describe(finding({ kind: "offScale", subject: "13px", other: ["4px", "8px"] }), t, number), /^designKindOffScale\{/);
+  assert.match(
+    describe(finding({ kind: "offScale", family: "text", subject: "13px", other: ["14px", "16px"] }), t, number),
+    /^designKindOffScale\{"subject":"13px \(designOfText\)"/,
+  );
   assert.match(
     describe(finding({ kind: "offScale", subject: "--space-6", other: ["18px", "4px"] }), t, number),
     /^designKindOffScaleToken.*"value":"18px","base":"4px"/,
