@@ -301,7 +301,10 @@ fn notice_of(event: &TeamEvent, run: &TeamRun, about: &str) -> Notice {
     let key = event.step.clone().unwrap_or_default();
     let what = match about {
         "waiting" => format!("the gate {key} waits for the user's approval"),
-        "review" => format!("the code review (step {key}) ended a round"),
+        "review" => format!(
+            "the {} (step {key}) ended a round",
+            termf_team::review::title(&key)
+        ),
         _ => format!("the step {key} is blocked"),
     };
     let text = format!(
@@ -844,8 +847,25 @@ mod tests {
         assert!(
             round
                 .text
-                .contains("the code review (step implement:t2) ended a round")
+                .contains("the implement:t2 review (step implement:t2) ended a round"),
+            "a review is named after its step"
         );
         assert!(round.detail.is_some_and(|d| !d.contains("ghp_")));
+        for (step, said) in [
+            ("review", "the code review (step review) ended a round"),
+            (
+                "migrations",
+                "the migrations review (step migrations) ended a round",
+            ),
+        ] {
+            let event = TeamEvent {
+                step: Some(step.into()),
+                ..event.clone()
+            };
+            assert!(
+                notice_of(&event, &run, "review").text.contains(said),
+                "{said}"
+            );
+        }
     }
 }

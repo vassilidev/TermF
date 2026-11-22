@@ -130,6 +130,7 @@ test("a wait's title, naming its step only where the title says it", () => {
   assert.deepEqual(askTitle(ask("questions", "triage")), { key: "ctoEntryAskQuestions", step: false });
   assert.deepEqual(askTitle(ask("questions", "plan", { plan: true })), { key: "teamRunsAskPlanQuestions", step: false });
   assert.deepEqual(askTitle(ask("questions", "review", { kind: "review" })), { key: "reviewLoopAsk", step: false });
+  assert.deepEqual(askTitle(ask("questions", "migrations", { kind: "review" })), { key: "roles2ReviewAsk", step: true });
   assert.deepEqual(askTitle(ask("questions", "frame")), { key: "teamRunsAskQuestions", step: true });
 });
 

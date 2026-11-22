@@ -1,0 +1,9 @@
+- Version: the engine from the Compose or CI image tag or `SELECT version();`, the migration tool from the lockfile (Rails, Django, Alembic, Prisma, Laravel, Flyway).
+- Docs: https://www.postgresql.org/docs/current/sql-altertable.html (lock per form), https://dev.mysql.com/doc/refman/9.7/en/innodb-online-ddl-operations.html (online DDL per operation); verified 2026-11-22.
+- Verify: the tool's status, then up, down and up again on the worktree's database copy; the SQL it will run (`sqlmigrate`, `alembic upgrade --sql`, `migrate --pretend`).
+- Old and new code share the schema during a deploy: add, backfill, switch, and drop or tighten only in a later release.
+- PostgreSQL: `SET lock_timeout` first; `CREATE INDEX CONCURRENTLY` alone with the tool's transaction off; constraints `NOT VALID` then `VALIDATE`.
+- MySQL: one DDL statement per migration (no transactional DDL); write `ALGORITHM=INSTANT` or `ALGORITHM=INPLACE, LOCK=NONE` so a copy fails loudly; `lock_wait_timeout` defaults to a year.
+- Backfills in batches outside the schema change; every migration has its down step or a written way back.
+- Plans (`EXPLAIN ANALYZE`) only on the worktree's copy, never on a shared or remote database.
+- Read the skill `schema-migrations` before writing or reviewing a migration that changes a table in use.

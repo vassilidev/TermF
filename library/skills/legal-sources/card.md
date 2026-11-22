@@ -1,0 +1,9 @@
+- No version to read: the law changes under you. Each statement cites the text, the article, its version in force, the official URL and the date read today.
+- Sources: Légifrance and JudiLibre through PISTE (OAuth client credentials, production), Cellar for EU law (SPARQL `https://publications.europa.eu/webapi/rdf/sparql`, no key).
+- Credentials: `PISTE_CLIENT_ID` and `PISTE_CLIENT_SECRET` only when already in the session's environment, used by name, token never printed; never ask for one. Without them: Cellar, and WebFetch on legifrance.gouv.fr, cnil.fr and the regulators, said in the report.
+- Verify: re-run the Cellar query for each CELEX (in force, latest consolidated version); re-read each LEGIARTI's state; the deliverable's last line is "To be validated by a legal professional before use."
+- A LEGIARTI id is one version of an article: check its state (`V`, `VT` apply; `VD` not yet; `Ab` repealed).
+- A CELEX literal in SPARQL needs `^^xsd:string`; Cellar redirects to `http://`: fetch the same path over https.
+- eur-lex.europa.eu and courdecassation.fr block scripts: go through Cellar and JudiLibre.
+- What no official text backs is "to check", never written from memory.
+- Read the skill `legal-sources` before stating any legal obligation, mandatory notice, deadline or fine.

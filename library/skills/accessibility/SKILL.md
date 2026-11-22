@@ -12,7 +12,7 @@ paths: "**/*.html, **/*.tsx, **/*.jsx, **/*.vue, **/*.svelte, **/*.astro, **/*.c
 license: MIT
 metadata:
   termf-stacks: "web"
-  termf-roles: "front ux qa"
+  termf-roles: "front ux qa a11y"
   termf-versions: "*"
   termf-verified: "2026-11-22 WCAG 2.2 (W3C Recommendation 2023-10-05), WAI-ARIA 1.2, axe-core@4.14.1, @axe-core/playwright@4.14.0"
   termf-sources: "https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/ https://www.w3.org/WAI/WCAG22/quickref/ https://www.w3.org/WAI/ARIA/apg/ https://www.w3.org/TR/wai-aria-1.2/ https://playwright.dev/docs/accessibility-testing https://github.com/dequelabs/axe-core/blob/develop/doc/API.md"

@@ -1,7 +1,7 @@
 ---
 name: no-text-changes
 description: Toute modification textuelle non demandée est interdite
-applies_to: [front, back, devops, seo, copy]
+applies_to: [front, back, devops, seo, copy, dba, docs, integrations, sre, ai, analytics]
 check: text-changes
 level: block
 ---

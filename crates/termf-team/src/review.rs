@@ -275,11 +275,20 @@ pub fn questions(findings: &[&Finding], tasks: &[Task], last: &str) -> Vec<Quest
         .collect()
 }
 
-/// What a task gets back: the findings it must fix.
-pub fn feedback(round: u32, findings: &[&Finding]) -> String {
+/// What TermF calls the review step `key` in its notes: the code review, or the `<key>` review.
+pub fn title(key: &str) -> String {
+    match key {
+        "review" => "code review".to_owned(),
+        key => format!("{key} review"),
+    }
+}
+
+/// What a task gets back: the findings of the review step `key` it must fix.
+pub fn feedback(key: &str, round: u32, findings: &[&Finding]) -> String {
     let mut text = format!(
-        "The code review (round {round}) found what to fix in your work, now merged with the other tasks' in \
-         this folder:\n"
+        "The {} (round {round}) found what to fix in your work, now merged with the other tasks' in \
+         this folder:\n",
+        title(key)
     );
     for f in findings {
         text.push_str(&format!(
@@ -429,5 +438,13 @@ mod tests {
         .unwrap_err();
         assert_eq!(wrong.len(), 4, "{wrong:?}");
         assert!(wrong[3].contains("T9 is neither a task"), "{wrong:?}");
+    }
+
+    #[test]
+    fn a_review_is_named_after_its_step() {
+        assert!(feedback("review", 2, &[]).starts_with("The code review (round 2) found"));
+        assert!(
+            feedback("migrations", 1, &[]).starts_with("The migrations review (round 1) found")
+        );
     }
 }

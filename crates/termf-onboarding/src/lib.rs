@@ -68,6 +68,9 @@ pub struct Facts {
     pub tests: Vec<String>,
     /// Its CI and infrastructure, for devops; a folder ends with `/`.
     pub infra: Vec<String>,
+    /// What calls for a specialist, by kind (`data`, `llm`, `analytics`, `integrations`, `docs`): the
+    /// dependencies, files and folders found.
+    pub signals: BTreeMap<String, Vec<String>>,
 }
 
 /// What Claude Code found that matters to agents, such as the test command.
