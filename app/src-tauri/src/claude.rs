@@ -15,6 +15,7 @@ use termf_claude::cli::{self, Mcp, Plugins};
 use termf_claude::manage::{self, Done, McpAction, PluginAction};
 use termf_claude::settings::{self, Edit, Preview, Scope, Settings};
 use termf_claude::{Env, Hook, Overview};
+use termf_core::claude::Found;
 use termf_core::ipc::SessionSummary;
 
 use crate::api::{self, Task};
@@ -102,6 +103,15 @@ pub async fn claude_overview(
 ) -> CmdResult<Overview> {
     let env = env(&state.config_dir, repo);
     tauri::async_runtime::spawn_blocking(move || termf_claude::overview(&env))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The Claude Code TermF runs, where it comes from, and the other installs found.
+#[tauri::command]
+pub async fn claude_binary(state: State<'_, AppState>) -> CmdResult<Found> {
+    let env = env(&state.config_dir, None);
+    tauri::async_runtime::spawn_blocking(move || cli::binary(&env))
         .await
         .map_err(|e| e.to_string())
 }

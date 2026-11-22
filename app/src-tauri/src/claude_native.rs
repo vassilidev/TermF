@@ -20,7 +20,7 @@ use termf_core::ipc::SessionSummary;
 use termf_library::Kind;
 use termf_term::shell_quote;
 
-use crate::claude::{claude_agent, env, program};
+use crate::claude::{claude_agent, env};
 use crate::{AppState, CmdResult, api, err};
 
 pub struct NativeState {
@@ -283,7 +283,7 @@ pub async fn claude_background(state: State<'_, AppState>) -> CmdResult<Backgrou
 }
 
 fn claude_program(state: &AppState) -> String {
-    claude_agent(&state.config_dir).map_or_else(|_| "claude".into(), |(_, c)| program(&c))
+    termf_claude::cli::program(&env(&state.config_dir, None))
 }
 
 /// Opens a background session in a tile, with `claude attach`.

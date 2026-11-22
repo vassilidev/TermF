@@ -62,6 +62,12 @@ pub struct Found {
     pub too_old: bool,
 }
 
+impl Default for Found {
+    fn default() -> Self {
+        Found::new(None, Vec::new())
+    }
+}
+
 impl Found {
     fn new(install: Option<Install>, others: Vec<Install>) -> Self {
         let too_old = install
@@ -189,10 +195,10 @@ fn replace(
     Ok((format!("{path}{}", &trimmed[end..]), install))
 }
 
-/// What a failed run printed on stderr, after which Claude Code it was.
+/// A headless run without its answer: which Claude Code it was, then what it printed on stderr.
 pub fn failure(claude: &Install, status: ExitStatus, stderr: &[u8]) -> String {
     let said = crate::process::excerpt(&String::from_utf8_lossy(stderr));
-    format!("Claude Code {claude} failed ({status}): {said}")
+    format!("Claude Code {claude} gave no answer ({status}): {said}")
 }
 
 /// `2.1.330 (Claude Code)` → `[2, 1, 330]`.
@@ -206,10 +212,12 @@ fn numbers(version: &str) -> Vec<u64> {
         .collect()
 }
 
+/// Each file's modification time and version.
+type Versions = BTreeMap<PathBuf, (Option<SystemTime>, Option<String>)>;
+
 /// `<path> --version`, asked again only once the file changed.
 fn version(path: &Path, search: &OsStr) -> Option<String> {
-    static CACHE: Mutex<BTreeMap<PathBuf, (Option<SystemTime>, Option<String>)>> =
-        Mutex::new(BTreeMap::new());
+    static CACHE: Mutex<Versions> = Mutex::new(BTreeMap::new());
     let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let modified = std::fs::metadata(&key).and_then(|m| m.modified()).ok();
     if let Some((when, version)) = CACHE.lock().unwrap().get(&key)
@@ -491,10 +499,7 @@ mod tests {
             "{error}"
         );
         assert!(error.ends_with("Node.js v26.0.0"), "{error}");
-        assert!(failure(&claude, status, &err).starts_with(&format!(
-            "Claude Code 2.1.300 at {} failed (exit status: 1): file:",
-            path.display()
-        )));
+        assert_eq!(failure(&claude, status, &err), error);
     }
 
     #[test]

@@ -481,6 +481,7 @@ pub fn run() {
             git::git_branch_delete,
             git::git_remote_branch_delete,
             claude::claude_overview,
+            claude::claude_binary,
             claude::claude_setting_preview,
             claude::claude_setting_save,
             claude::claude_setting_reveal,

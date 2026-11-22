@@ -678,6 +678,7 @@ impl Inner {
             .agents
             .get(agent)
             .with_context(|| format!("no agent {agent} in termf.toml [agents]"))?;
+        let (command, claude) = claude::in_command(command, shell_quote)?;
         let dir = store.dir(id).join("session");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir)?;
@@ -756,7 +757,10 @@ impl Inner {
         });
         entry.pending.clear();
         entry.interrupting = false;
-        let said = std::thread::spawn(move || tail(stderr));
+        let said = std::thread::spawn(move || match said(stderr) {
+            said if said.is_empty() => said,
+            said => format!("Claude Code {claude}: {said}"),
+        });
         let inner = self.clone();
         std::thread::spawn(move || inner.read(id, generation, child, stdout, said));
         store.set_pid(id, Some(pid))?;
@@ -1188,18 +1192,24 @@ fn other_repos(config_dir: &Path, spec: &SessionSpec) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
-/// The end of what the process wrote on stderr, for an error message.
-fn tail(mut stderr: impl Read) -> String {
-    let (mut kept, mut chunk) = (Vec::new(), [0u8; 4096]);
+/// What the process wrote on stderr, for an error message: its start, where the error is, and its end.
+fn said(mut stderr: impl Read) -> String {
+    let (mut head, mut kept, mut chunk) = (Vec::new(), Vec::new(), [0u8; 4096]);
     while let Ok(n) = stderr.read(&mut chunk) {
         if n == 0 {
             break;
+        }
+        if head.len() < 8192 {
+            head.extend_from_slice(&chunk[..n]);
+            continue;
         }
         kept.extend_from_slice(&chunk[..n]);
         let extra = kept.len().saturating_sub(8192);
         kept.drain(..extra);
     }
-    termf_core::process::tail(&String::from_utf8_lossy(&kept))
+    head.push(b'\n');
+    head.extend(kept);
+    termf_core::process::excerpt(&String::from_utf8_lossy(&head))
 }
 
 /// Whether `pid` still runs this conversation's agent: its command line names the conversation, so a pid the

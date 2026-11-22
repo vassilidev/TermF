@@ -54,10 +54,7 @@ pub fn structured_output(
             .ok()
             .filter(Value::is_object)
     }) else {
-        bail!(
-            "Claude Code {claude} gave no answer ({status}): {}",
-            crate::process::excerpt(&String::from_utf8_lossy(stderr))
-        );
+        bail!("{}", failure(claude, status, stderr));
     };
     let cost = result["total_cost_usd"].as_f64();
     match result.get("structured_output") {
