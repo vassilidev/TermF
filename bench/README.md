@@ -19,11 +19,13 @@ Code account**. The bench never runs in CI. Options: `--model` (`sonnet`), `--tr
 `--budget` (25 US dollars in all, the judge included: no trial starts once what is spent plus the cap of each
 running trial would pass it), `--cap` (3 US dollars per trial), `--minutes` (40 per trial), `--judge-model`
 (`sonnet`), `--arms solo,team`, `--out <folder>` (go on with a results folder: trials already in it are kept),
-`--keep` (keep the trial folders in the temporary folder).
+`--keep` (keep the trial folders in the temporary folder), `--no-tsc` (no `tsc` on the PATH), `--remeasure <folder>`
+(measure each trial again from its `diff.patch`, no judge). The bench machine has TypeScript installed: `tsc` from
+`app/node_modules` is put on the PATH of both arms (after `pnpm install` in `app/`).
 
 ## What a trial does
 
-1. Copies `fixture/` to a temporary folder, commits it, gives it a local bare `origin` (nothing reaches GitHub).
+1. Copies the ticket's project (`fixture/`, or `fixture-lists/` for the realistic tickets) to a temporary folder, commits it, gives it a local bare `origin` (nothing reaches GitHub).
 2. **solo**: `claude -p` in that folder with `--setting-sources project,local --strict-mcp-config` (none of your
    settings, CLAUDE.md, skills, plugins or MCP servers), `--disable-slash-commands`, `Agent` disallowed,
    `--permission-mode bypassPermissions`, `--effort high`, `--max-budget-usd <cap>`; it works until it says it is
@@ -32,12 +34,13 @@ running trial would pass it), `--cap` (3 US dollars per trial), `--minutes` (40 
    the shipped library, every role on the same model, the same Claude Code flags, and the run's budget set to the
    cap.
 3. Measures the final tree (the team's: its run worktree): the hidden tests of the ticket (`hidden/`, copied in only
-   now), the project's own `npm test`, the first release's tests (`fixture/test/`), the typecheck (`tsc` from
+   now), the project's own `npm test`, the first release's tests (the project's `test/`), the typecheck (`tsc` from
    `app/node_modules`, after `pnpm install` in `app/`), the files changed outside `src/`, `test/`, `public/` and
    `README.md`, whether the README changed when the ticket needs it.
 4. A blind judge (`claude -p`, Sonnet, no tool) reads the ticket and the diff only, never which arm wrote it, and
    answers each acceptance criterion (met / partial / unmet), seven scores out of 10, its review findings
-   (severity, category) and an overall mark.
+   (severity, category) and an overall mark. For the realistic tickets it is told to weigh security, robustness and
+   edge cases beyond the written criteria.
 
 Each trial writes `results/<date>/<ticket>-<arm>-<n>/result.json` and `diff.patch` (logs stay local);
 `summary.json` holds the means per ticket and per kind. Then the trial's folders and their Claude Code transcripts
@@ -53,6 +56,12 @@ Each trial writes `results/<date>/<ticket>-<arm>-<n>/result.json` and `diff.patc
 | `c1-tags` | complex | Tags: API, own tables, filter, page, tests |
 | `c2-status` | complex | Refactor `done` into a three-state `status`, migrating existing data, with compatibility |
 | `c3-accounts` | complex | Accounts, sign-in, tokens, per-user tasks (security) |
+| `r1-sharing` | realistic | Share a list with other accounts: roles, expiring invitation links (hidden security criteria) |
+| `r2-slow-lists` | realistic | "The app is slow on big lists": cursor paging, N+1, indexes (hidden load and exactness tests) |
+| `r3-lost-update` | realistic | "Edits sometimes disappear": a lost update under concurrency, versions and 409 |
+
+The realistic tickets are on `fixture-lists/`, a shared task-list app of a few thousand lines (accounts, lists, tasks,
+comments, activity, jobs, a front), with existing tests and a little debt.
 
 The hidden tests talk to the API through `createServer(dbPath)` of `src/app.ts`, as the project's own tests do, and
 read the database file for the data criteria.

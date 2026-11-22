@@ -1,5 +1,5 @@
 extends = "default"
-description = "Small ticket (S) whose acceptance criteria are already testable, in one role's area, with no security stake: the CTO gives the one task at the triage; one developer codes, writes the tests and runs the checks, then one short review"
+description = "Small ticket (S) whose acceptance criteria are already testable, that one developer can do in one go, with no security stake: the CTO gives the one task at the triage; one developer codes, writes the tests and runs the checks, then one short review"
 
 [steps.frame]
 enabled = false
