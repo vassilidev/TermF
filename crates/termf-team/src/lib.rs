@@ -591,14 +591,19 @@ impl Team {
     }
 
     /// Refuses the delivery of run `id` while its team's definition of done is not met and the user did not pass
-    /// over it at the delivery gate. A run without a team, or whose workflow has no delivery gate, goes.
+    /// over it at the delivery gate. A run without a team, whose workflow has no delivery gate, or whose gate
+    /// passed (it read the definition of done then, or came before it), goes.
     pub fn check_delivery(&self, id: i64) -> Result<()> {
         let inner = &self.inner;
         let Some(run) = inner.store()?.get(id)? else {
             return Ok(());
         };
-        let gate = run.steps.iter().any(|s| s.kind == StepKind::Connector);
-        if !gate || run.done.as_ref().is_some_and(|d| d.overridden.is_some()) {
+        let gates: Vec<&Step> = run
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Connector)
+            .collect();
+        if gates.iter().all(|s| s.state == StepState::Done) {
             return Ok(());
         }
         let done = done::evaluate(&run, &inner.done_criteria(&run)?);
