@@ -515,24 +515,39 @@ fn reads_a_repository_again_only_when_its_head_moves() {
 fn a_remote_on_github_brings_the_github_tag_to_the_repository_and_its_worktrees() {
     let dir = repo("github", &[("go.mod", "module x\n")]);
     git(&dir, &["init", "-q"]);
-    git(&dir, &["remote", "add", "upstream", "https://gitlab.com/acme/api.git"]);
+    git(
+        &dir,
+        &[
+            "remote",
+            "add",
+            "upstream",
+            "https://gitlab.com/acme/api.git",
+        ],
+    );
     assert_eq!(names(&detect(&dir).tags), ["go"]);
 
-    git(&dir, &["remote", "add", "origin", "git@github.com:acme/api.git"]);
+    git(
+        &dir,
+        &["remote", "add", "origin", "git@github.com:acme/api.git"],
+    );
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-q", "-m", "one"]);
     let tags = detect(&dir).tags;
     assert_eq!(names(&tags), ["github", "go"]);
     assert_eq!(tag(&tags, "github").source, ".git/config");
 
-    let worktree = dir.with_file_name(format!(
-        "{}-wt",
-        dir.file_name().unwrap().to_string_lossy()
-    ));
+    let worktree = dir.with_file_name(format!("{}-wt", dir.file_name().unwrap().to_string_lossy()));
     let _ = fs::remove_dir_all(&worktree);
     git(
         &dir,
-        &["worktree", "add", "-q", "-b", "task", worktree.to_str().unwrap()],
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "task",
+            worktree.to_str().unwrap(),
+        ],
     );
     assert!(worktree.join(".git").is_file());
     assert_eq!(names(&detect(&worktree).tags), ["github", "go"]);

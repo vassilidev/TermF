@@ -11,7 +11,7 @@ metadata:
   termf-roles: "all"
   termf-versions: "*"
   termf-verified: "2026-11-22 curl@8.23.1, macOS 26.5 ships curl 8.7.1"
-  termf-sources: "https://curl.se/docs/manpage.html https://everything.curl.dev/cmdline/exitcode https://curl.se/ch/"
+  termf-sources: "https://curl.se/docs/manpage.html https://everything.curl.dev/cmdline/exitcode.html https://curl.se/ch/"
 ---
 # curl
 
@@ -48,4 +48,4 @@ metadata:
 ## References
 
 - Manual, every option with the version that added it: https://curl.se/docs/manpage.html
-- Exit codes: https://everything.curl.dev/cmdline/exitcode
+- Exit codes: https://everything.curl.dev/cmdline/exitcode.html
