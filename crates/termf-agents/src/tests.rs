@@ -388,7 +388,9 @@ fn plays_a_role_and_answers_with_its_schema() {
             .map(|w| w[1].clone())
             .collect()
     };
-    assert_eq!(after("--disallowedTools").len(), 4);
+    let denied = after("--disallowedTools");
+    assert_eq!(denied.len(), 9);
+    assert_eq!(denied[4..], termf_core::claude::SECRET_DENY[..]);
     assert_eq!(after("--json-schema"), [r#"{"type":"object"}"#]);
     let prompt = fs::read_to_string(&after("--append-system-prompt-file")[0]).unwrap();
     assert!(prompt.starts_with("## Role: orchestrator\n\nYou are the orchestrator"));

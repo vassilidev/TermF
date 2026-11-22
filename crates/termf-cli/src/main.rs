@@ -20,6 +20,7 @@ mod ssh;
 mod sync;
 mod team;
 mod tickets;
+mod vault;
 mod worktree;
 
 const USAGE: &str = "\
@@ -137,6 +138,24 @@ usage:
   termf team stop [<run>]               emergency stop of one team, or of every team at work
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
+  termf vault init                      create the vault, protected by a master password
+  termf vault unlock | lock | status    TermF's vault: open it with the master password, close it, or see
+                                        whether it is open (locks itself after some idle minutes)
+  termf vault ls [--scope dev|staging|prod] [--project <id>]
+                                        names of the secrets, never their values; a project also sees the
+                                        global ones
+  termf vault set <name> [--scope <s>] [--project <id>] [--description <text>]
+                                        store a value read on stdin (or typed, hidden), never an argument
+  termf vault ref <name> <uri> [--scope <s>] [--project <id>] [--description <text>]
+                                        a secret kept by a manager and read with its CLI each time it is used:
+                                        op://, bw://, doppler://, aws-sm://, vault://
+  termf vault reveal <name> [--scope <s>] [--project <id>]
+                                        print a value
+  termf vault rm <name> [--scope <s>] [--project <id>]
+  termf vault audit [--limit <n>] [--jsonl] | termf vault audit verify
+                                        who read or changed what, or check the log's hash chain
+                                        (the scope is dev without --scope; every vault command that reads or
+                                        writes a secret asks for the master password)
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -229,6 +248,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         ["agent", rest @ ..] => agent::run(rest.to_vec())?,
         ["team", rest @ ..] => team::run(rest.to_vec())?,
+        ["vault", rest @ ..] => vault::run(rest.to_vec())?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,

@@ -9,7 +9,7 @@
 //! minutes, like `sudo`. Every access goes to the hash-chained audit log ([`audit`]); no value ever goes to
 //! `Debug`, a log or an error.
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::Write;
@@ -439,7 +439,8 @@ pub struct Vault {
     data_dir: PathBuf,
     store: Box<dyn KeyStore>,
     clock: Box<dyn Clock>,
-    /// `PATH` for the external managers' CLIs; `None`: this process's.
+    /// `PATH` for the external managers' CLIs; `None`: the login shell's, which an app opened from the Finder
+    /// or a desktop menu lacks.
     path: Option<OsString>,
     auto_lock: AtomicU64,
     session: Mutex<Option<Session>>,
@@ -889,7 +890,12 @@ impl Vault {
             (Some(value), _) if access == Access::Reveal => (value, Action::Reveal, None),
             (Some(value), _) => (value, Action::Read, None),
             (None, Some(uri)) => (
-                reference::resolve(uri, self.path.as_deref().map(OsStr::new))?,
+                reference::resolve(
+                    uri,
+                    self.path
+                        .as_deref()
+                        .or_else(|| termf_core::shell::login_path()),
+                )?,
                 Action::Resolve,
                 Some(format!("{use_} {uri}")),
             ),

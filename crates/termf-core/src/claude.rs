@@ -111,8 +111,36 @@ pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
     Ok(())
 }
 
+/// Denied to every Claude Code session TermF starts (ARCHITECTURE §12.2): secret files under its folder and
+/// dumps of its environment. Deny rules of every settings scope add up, so the user's own still hold.
+pub const SECRET_DENY: &[&str] = &[
+    "Read(**/.env*)",
+    "Read(**/*.pem)",
+    "Read(**/id_*)",
+    "Bash(*printenv*)",
+    "Bash(env)",
+];
+
+/// Adds `more` to session settings: objects merged key by key, lists joined, as Claude Code merges its scopes.
+pub fn merge_settings(base: &mut Value, more: &Value) {
+    match (base, more) {
+        (Value::Object(base), Value::Object(more)) => {
+            for (key, value) in more {
+                match base.get_mut(key) {
+                    Some(mine) => merge_settings(mine, value),
+                    None => {
+                        base.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (Value::Array(base), Value::Array(more)) => base.extend(more.iter().cloned()),
+        (base, more) => *base = more.clone(),
+    }
+}
+
 /// Writes the file given to `--settings`: a status line running `<termf> statusline`, which reports the
-/// context to TermF, then runs the status line you set yourself, if any, saved next to it.
+/// context to TermF, then runs the status line you set yourself, if any, saved next to it; and [`SECRET_DENY`].
 pub fn write_settings(dir: &Path, termf: &Path, cwd: &Path, claude_dir: &Path) -> Result<PathBuf> {
     fs::create_dir_all(dir)?;
     let mut status_line = user_status_line(cwd, claude_dir)
@@ -128,7 +156,10 @@ pub fn write_settings(dir: &Path, termf: &Path, cwd: &Path, claude_dir: &Path) -
     let file = dir.join("settings.json");
     fs::write(
         &file,
-        serde_json::to_string_pretty(&json!({ "statusLine": status_line }))?,
+        serde_json::to_string_pretty(&json!({
+            "statusLine": status_line,
+            "permissions": { "deny": SECRET_DENY },
+        }))?,
     )?;
     Ok(file)
 }
@@ -208,6 +239,36 @@ mod tests {
         let file = write_settings(&dir, termf, &repo, &claude_dir).unwrap();
         assert_eq!(status_line(&file)["padding"], 2, "your other fields kept");
         assert_eq!(fs::read_to_string(&chained).unwrap(), "~/mine.sh");
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn denies_secret_files_and_keeps_a_tasks_own_rules() {
+        let root = std::env::temp_dir().join(format!("termf-deny-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let file = write_settings(
+            &root.join("s"),
+            Path::new("termf"),
+            &root.join("repo"),
+            &root.join("home"),
+        )
+        .unwrap();
+        let mut settings: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+        assert_eq!(
+            settings["permissions"],
+            json!({"deny": ["Read(**/.env*)", "Read(**/*.pem)", "Read(**/id_*)", "Bash(*printenv*)", "Bash(env)"]})
+        );
+        assert!(settings["statusLine"]["command"].is_string());
+
+        merge_settings(
+            &mut settings,
+            &json!({"permissions": {"deny": ["Bash", "Edit"], "defaultMode": "plan"}, "model": "haiku"}),
+        );
+        assert_eq!(settings["permissions"]["deny"].as_array().unwrap().len(), 7);
+        assert_eq!(settings["permissions"]["deny"][5], "Bash");
+        assert_eq!(settings["permissions"]["defaultMode"], "plan");
+        assert_eq!(settings["model"], "haiku");
+        assert!(settings["statusLine"]["command"].is_string());
         fs::remove_dir_all(&root).unwrap();
     }
 

@@ -88,6 +88,23 @@ pub struct Settings {
     /// Anything else than tables of strings is ignored rather than making the whole file invalid.
     #[serde(deserialize_with = "key_tables")]
     pub keys: BTreeMap<String, BTreeMap<String, String>>,
+    pub vault: VaultSettings,
+}
+
+/// `[vault]` in `termf.toml`.
+#[derive(Deserialize, Debug)]
+#[serde(default)]
+pub struct VaultSettings {
+    /// The vault locks after this many minutes without use.
+    pub auto_lock_minutes: u32,
+}
+
+impl Default for VaultSettings {
+    fn default() -> Self {
+        Self {
+            auto_lock_minutes: 10,
+        }
+    }
 }
 
 /// The id of the system-wide quick terminal shortcut in `[keys]`.
@@ -241,6 +258,7 @@ impl Default for Settings {
             ci: CiSettings::default(),
             artifacts: ArtifactSettings::default(),
             keys: BTreeMap::new(),
+            vault: VaultSettings::default(),
         }
     }
 }
@@ -388,6 +406,13 @@ pub fn save_artifacts_delete_without_confirmation(config_dir: &Path, on: bool) -
     edit_settings(config_dir, |doc| {
         doc.entry("artifacts").or_insert(toml_edit::table())["delete_without_confirmation"] =
             value(on);
+    })
+}
+
+pub fn save_vault_auto_lock(config_dir: &Path, minutes: u32) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        doc.entry("vault").or_insert(toml_edit::table())["auto_lock_minutes"] =
+            value(i64::from(minutes));
     })
 }
 

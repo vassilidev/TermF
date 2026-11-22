@@ -40,6 +40,7 @@ pub const WRITES: &[&str] = &[
     "conventions_discard",
     "conventions_apply",
     "conventions_switch",
+    "vault_auto_lock_set",
 ];
 
 enum Wake {
