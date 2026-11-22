@@ -54,7 +54,10 @@ fn a_guarded_session_gets_the_hook_that_refuses_what_a_ticket_run_refuses() {
     let fake = root.join("claude");
     std::fs::write(
         &fake,
-        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", log.display()),
+        format!(
+            "#!/bin/sh\n[ \"$1\" = --version ] && exit 0\nprintf '%s\\n' \"$@\" > '{}'\n",
+            log.display()
+        ),
     )
     .unwrap();
     use std::os::unix::fs::PermissionsExt;

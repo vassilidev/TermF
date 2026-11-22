@@ -513,6 +513,7 @@ pub fn run() {
             git::git_force_plan,
             git::git_force_push,
             claude::claude_overview,
+            claude::claude_binary,
             claude::claude_setting_preview,
             claude::claude_setting_save,
             claude::claude_setting_reveal,

@@ -7,6 +7,9 @@ use std::process::ExitStatus;
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 
+mod binary;
+pub use binary::*;
+
 /// The events `ipc::hook_status` understands.
 pub const HOOK_EVENTS: &[&str] = &[
     "SessionStart",
@@ -37,8 +40,9 @@ pub fn after_program(command: &str, args: &str) -> String {
     format!("{} {args}{}", &command[..end], &command[end..])
 }
 
-/// Reads a `claude -p --output-format json --json-schema …` run: the structured answer and what it cost.
+/// Reads a `claude -p --output-format json --json-schema …` run of `claude`: the structured answer and what it cost.
 pub fn structured_output(
+    claude: &Install,
     status: ExitStatus,
     stdout: &[u8],
     stderr: &[u8],
@@ -50,10 +54,7 @@ pub fn structured_output(
             .ok()
             .filter(Value::is_object)
     }) else {
-        bail!(
-            "Claude Code gave no answer ({status}): {}",
-            crate::process::tail(&String::from_utf8_lossy(stderr))
-        );
+        bail!("{}", failure(claude, status, stderr));
     };
     let cost = result["total_cost_usd"].as_f64();
     match result.get("structured_output") {

@@ -3196,6 +3196,19 @@ const fr = {
   opsNotifyPropose: "{who} propose {recipe} sur {connection}",
   opsWaitTitle: "Approuver {recipe}",
   opsWaitPropose: "Proposition : {recipe}",
+  claudebinTitle: "Programme Claude Code",
+  claudebinHelp: "Celui que TermF lance partout : terminaux, sessions de l'équipe, assistant, veille, planificateur.",
+  claudebinOrigin: "Provenance",
+  claudebinSetting: "chemin indiqué dans [agents] de termf.toml",
+  claudebinNative: "installation native",
+  claudebinPath: "trouvé dans le PATH",
+  claudebinNone: "Claude Code introuvable : installe-le, ou indique son chemin dans [agents] de termf.toml.",
+  claudebinTooOld:
+    "Claude Code {version} est trop ancien : TermF a besoin de la version {minimum} ou plus récente. Mets-le à jour, ou indique dans [agents] de termf.toml le chemin d'une installation récente.",
+  claudebinOthers: "Autres installations trouvées, que TermF ne lance pas :",
+  claudebinOthersHelp: "Pour en lancer une autre, indique son chemin dans [agents] de termf.toml.",
+  claudebinAlertOld: "Claude Code {version} est trop ancien pour TermF (il faut la {minimum} ou plus récente)",
+  claudebinAlertSeveral: "Plusieurs installations de Claude Code coexistent",
   // The integrator: the run brought up to date with its base before the delivery, and a pull request that conflicts
   // with its base or is behind it.
   integratorStep: "Mise à jour avec la base",
@@ -6487,6 +6500,19 @@ const en: Record<Key, string> = {
   opsNotifyPropose: "{who} proposes {recipe} on {connection}",
   opsWaitTitle: "Approve {recipe}",
   opsWaitPropose: "Proposal: {recipe}",
+  claudebinTitle: "Claude Code program",
+  claudebinHelp: "The one TermF runs everywhere: terminals, team sessions, assistant, scout, scheduler.",
+  claudebinOrigin: "Origin",
+  claudebinSetting: "path set in termf.toml [agents]",
+  claudebinNative: "native install",
+  claudebinPath: "found on the PATH",
+  claudebinNone: "Claude Code not found: install it, or set its path in termf.toml [agents].",
+  claudebinTooOld:
+    "Claude Code {version} is too old: TermF needs version {minimum} or later. Update it, or set the path of a recent install in termf.toml [agents].",
+  claudebinOthers: "Other installs found, which TermF does not run:",
+  claudebinOthersHelp: "To run another one, set its path in termf.toml [agents].",
+  claudebinAlertOld: "Claude Code {version} is too old for TermF ({minimum} or later needed)",
+  claudebinAlertSeveral: "Several Claude Code installs side by side",
   // The integrator: the run brought up to date with its base before the delivery, and a pull request that conflicts
   // with its base or is behind it.
   integratorStep: "Update with the base",

@@ -564,7 +564,8 @@ impl Setup {
             .claude
             .split_first()
             .context("no Claude Code command")?;
-        let mut cmd = command(program);
+        let claude = termf_core::claude::binary(program)?;
+        let mut cmd = command(&claude.path);
         cmd.args(lead)
             .args(["-p", "--output-format", "json"])
             .arg("--plugin-dir")
@@ -584,15 +585,19 @@ impl Setup {
             .arg(sandbox(access).to_string())
             .current_dir(&wt.path)
             .envs(env);
-        let result = self.execute_with(cmd, prompt.as_bytes(), AGENT_TIMEOUT);
+        prepare(&mut cmd, &self.env);
+        let result = termf_core::process::run(cmd, prompt.as_bytes(), AGENT_TIMEOUT);
         let _ = fs::remove_dir_all(&scratch);
-        let out = result?;
+        let (status, out, stderr) =
+            result.with_context(|| format!("cannot run Claude Code {claude}"))?;
         let text = String::from_utf8_lossy(&out);
         let answer = text
             .lines()
             .rev()
-            .find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
-            .context("Claude Code gave no answer")?;
+            .find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok());
+        let Some(answer) = answer.filter(|a| status.success() || a["is_error"] == true) else {
+            bail!("{}", termf_core::claude::failure(&claude, status, &stderr));
+        };
         let summary = answer["result"].as_str().unwrap_or_default().trim();
         ensure!(answer["is_error"] != true, "Claude Code: {summary}");
         let mut detail = tail(summary, 600);
