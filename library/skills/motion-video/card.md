@@ -1,0 +1,6 @@
+- With the `brag` or `brag-slim` skill loaded, follow it, plus the storyboard approval, formats, subtitles and credits; without it, offer its import (github.com/latent-spaces/brag, MIT).
+- Storyboard approved before any render; real captures of the product with fictional data.
+- Scenes in HTML and CSS, every frame a pure function of time; Hyperframes or headless Chrome, then ffmpeg.
+- MP4: H.264, `-pix_fmt yuv420p`, even sizes, `-movflags +faststart`; 16:9, 9:16, 1:1, GIF as asked; subtitles for every word that matters.
+- Outside media only with a checked licence, credited in `CREDITS.md` (skill `stock-media`).
+- Read the skill `motion-video` before making a video, a demo, a GIF or an animated logo.

@@ -11,6 +11,9 @@
     infra: "ctoEntryKindInfra",
     seo: "ctoEntryKindSeo",
     docs: "ctoEntryKindDocs",
+    brand: "rolesKindBrand",
+    copy: "rolesKindCopy",
+    motion: "rolesKindMotion",
     other: "ctoEntryKindOther",
   };
 
