@@ -4,6 +4,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
 
   type GithubTracker = {
@@ -773,6 +774,8 @@
         </button>
       {/if}
     </div>
+  {:else if !error}
+    <Skeleton shape="list" rows={5} />
   {/if}
 
   {#if error}

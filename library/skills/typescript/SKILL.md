@@ -11,7 +11,7 @@ paths: "**/*.ts, **/*.tsx, **/*.mts, **/*.cts, **/tsconfig*.json"
 license: MIT
 metadata:
   termf-stacks: "typescript"
-  termf-roles: "front back qa"
+  termf-roles: "front back qa reviewer"
   termf-versions: ">=5.8"
   termf-verified: "2026-11-22 typescript@7.0.2 (6.0.3 for 6.x)"
   termf-sources: "https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/ https://devblogs.microsoft.com/typescript/announcing-typescript-6-0/ https://www.typescriptlang.org/tsconfig/"

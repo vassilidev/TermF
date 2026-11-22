@@ -98,6 +98,16 @@ impl Sandbox {
         let gh = &self.git.gh;
         fs::write(gh, format!("#!/bin/sh\n{script}\n")).unwrap();
         fs::set_permissions(gh, fs::Permissions::from_mode(0o755)).unwrap();
+        // A process another test forks while the file is open for writing keeps it busy (ETXTBSY on Linux) until it
+        // execs: wait for one run to start.
+        for _ in 0..100 {
+            match Command::new(gh).output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20))
+                }
+                _ => break,
+            }
+        }
     }
 }
 

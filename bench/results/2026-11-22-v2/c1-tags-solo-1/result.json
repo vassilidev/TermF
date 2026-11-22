@@ -1,0 +1,189 @@
+{
+  "ticket": "c1-tags",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T18:22:33.108Z",
+  "state": "done",
+  "wall_s": 56.156,
+  "cost_usd": 0.18382719999999997,
+  "sessions": 1,
+  "turns": 6,
+  "tokens": {
+    "input": 12,
+    "output": 9598,
+    "cache_read": 140232,
+    "cache_creation": 18450
+  },
+  "said": "Tags are in across the API, data, page, tests and README. `npm test` passes all 16 tests, including the new ones. I didn't open the page in a browser or run `tsc`, so the UI changes are untested.\n\n- **Data:** a new migration adds a `tags` table and a `task_tags` link table (`src/db.ts`). Deleting a task cascades to its links. A tag that no task uses any more is removed from `tags`, so it drops out of `GET /api/tags`. The first migration is unchanged, so an existing `tasks.db` upgrades on start.\n- **API:**\n  - Every task has `tags`, sorted, `[]` by default.\n  - `POST` and `PATCH` accept `tags`. In a `PATCH` the list replaces the old one, and leaving `tags` out keeps it.\n  - Invalid tags answer `400 {\"error\":\"invalid tags\"}` before anything is written. That covers non-array values, non-string items, bad characters, more than 30 characters, or more than 10 tags.\n  - `GET /api/tasks?tag=` normalizes the name and combines with `done`. A name that isn't a valid tag returns `[]`.\n  - `GET /api/tags` returns the name and count, sorted by name.\n  - Task and tag writes run in one transaction.\n- **Page:**\n  - Each task shows its tags as buttons. Clicking one filters to that tag, and a \"Show all tags\" button clears the filter.\n  - The add form takes comma-separated tags.\n  - API errors from the add form now show in the page's error line.\n- **Tests and README:** the tests cover each acceptance point on the API, plus the cascade at the database level. The README has the updated endpoint table and a Tags section.\n\n**Bug fix you didn't ask for:** `?done=false` used to return the done tasks, because the string `\"false\"` counted as true. It now returns the open ones, as the README always said. Any other `done` value is now ignored rather than treated as true. I fixed it because the tag filter has to combine with `done`, and there's a test for it.",
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 16,
+    "fail": 0,
+    "tests": 16,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 15,
+      "removed": 4
+    },
+    {
+      "path": "public/app.js",
+      "added": 38,
+      "removed": 6
+    },
+    {
+      "path": "public/index.html",
+      "added": 8,
+      "removed": 0
+    },
+    {
+      "path": "src/app.ts",
+      "added": 13,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 110,
+      "removed": 13
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 115,
+      "removed": 0
+    }
+  ],
+  "lines_added": 309,
+  "lines_removed": 26,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "toTasks adds a sorted tags array, [] by default; tests check it."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST and PATCH both read body.tags; PATCH replaces the list via setTags and leaves it alone when tags is undefined."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "normalizeTags trims, lowercases, dedupes, checks the pattern and the 10-tag cap after dedupe, and returns 400 'invalid tags'. Validation runs before any write, so nothing changes."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "listTasks filters with an EXISTS subquery on a normalized tag and combines it with done."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "listTags joins tags to task_tags, groups, and sorts by name. Orphan tags are cleaned up, and the join excludes them anyway."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "A new migration adds tags and task_tags with ON DELETE CASCADE, and foreign_keys is on."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "The page shows clickable tag buttons, a 'Show all tags' control, and a comma-separated tags input on the add form."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "API tests were added and the README documents the tags API. Some behaviours are untested (see findings)."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 7,
+      "error_handling": 6,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "toTasks loads every task_tags link in the table for each call, even when only one task or a filtered list is returned. This is wasteful and scales badly."
+      },
+      {
+        "severity": "medium",
+        "category": "error-handling",
+        "file": "src/app.ts",
+        "what": "body.tags is read without checking that body is an object. A JSON body of null would throw a TypeError. This was already the case for body.title, but the new code adds more of it. POST with a non-string title is still unvalidated."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "In updateTask, the 404 check and the write are separate from the transaction. This is fine in a synchronous single process, but a PATCH with an invalid tags value and a missing id answers 400 where 404 may be expected. The ticket does not specify the order."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The cascade test inserts rows directly through SQL instead of going through the API. There is no test that the tag filter is case-normalized in the invalid-name path, such as ?tag=bad%20name. The 'invalid' list does not include an uppercase-only valid case, but that is covered elsewhere."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "test/tasks.test.ts",
+        "what": "The added '?done=false' test is not part of this ticket. It is a small, harmless addition."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "setTags runs prepare() inside a loop on every call. Statements could be prepared once, and the orphan cleanup is duplicated in deleteTask."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "public/app.js",
+        "what": "After the user clicks a tag, activeTag stays set even if the tag disappears, for example when its last task is deleted. The list is then empty with no hint other than the 'Tag:' label. Tag buttons also only show on tasks, and there is no tag list."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets every acceptance criterion. Tags live in their own tables with cascade deletes, validation runs before any write, and writes are transactional. Weaknesses are an inefficient load-all-links query, some unvalidated body handling, and a few thin edge-case tests, but nothing blocking.",
+    "cost_usd": 0.0673624
+  }
+}

@@ -101,6 +101,8 @@ export const tickets = $state({
   configured: null as boolean | null,
   loading: false,
   runs: [] as Run[],
+  /** The runs were read once, or failed to be. */
+  runsRead: false,
   /** The run its page shows, by id. */
   selected: null as number | null,
   /** Asks the paste field for the keyboard. */
@@ -159,6 +161,8 @@ export async function loadRuns() {
     tickets.runs = await invoke<Run[]>("tickets_runs");
   } catch (e) {
     tickets.error = String(e);
+  } finally {
+    tickets.runsRead = true;
   }
 }
 

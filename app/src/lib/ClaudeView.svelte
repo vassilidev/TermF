@@ -11,7 +11,6 @@
   import FileDown from "@lucide/svelte/icons/file-down";
   import Images from "@lucide/svelte/icons/images";
   import LayoutDashboard from "@lucide/svelte/icons/layout-dashboard";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plug from "@lucide/svelte/icons/plug";
   import Puzzle from "@lucide/svelte/icons/puzzle";
@@ -37,6 +36,7 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { allRepos } from "$lib/files.svelte";
@@ -724,7 +724,7 @@
         {:else if section === "usage"}
           <ClaudeUsage />
         {:else if !o && claudeView.loading}
-          <p class="loading" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("claudeViewLoading")}</p>
+          <Skeleton shape={section === "overview" ? "cards" : "lines"} rows={section === "overview" ? 4 : 6} label={t("claudeViewLoading")} />
         {:else if !o}
           <EmptyState icon={CircleAlert}>
             <button class="btn sm" onclick={loadOverview}><RefreshCw size={14} aria-hidden="true" />{t("claudeViewRefresh")}</button>
@@ -841,14 +841,6 @@
     width: 100%;
     max-width: 960px;
     padding: 20px 28px 40px;
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 40px 0;
-    color: var(--muted);
   }
 
   .page-head {

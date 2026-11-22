@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
 
   type Tray = { icon: boolean; badge: boolean };
@@ -32,6 +33,8 @@
     <input type="checkbox" role="switch" class="switch" checked={tray.badge} onchange={(e) => set({ ...tray!, badge: e.currentTarget.checked })} />
     {t("remoteTrayBadge")}
   </label>
+{:else if !error}
+  <Skeleton rows={2} />
 {/if}
 <p class="help">{t("remoteTrayHelp")}</p>
 {#if error}<p class="notice error" role="alert">{error}</p>{/if}

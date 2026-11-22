@@ -5,9 +5,9 @@
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CircleX from "@lucide/svelte/icons/circle-x";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Search from "@lucide/svelte/icons/search";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import type { Job, JobLog } from "$lib/ci.svelte";
   import { cycle } from "$lib/ci-logic";
@@ -114,7 +114,7 @@
       <button class="btn sm" onclick={load}><RefreshCw size={13} aria-hidden="true" />{t("ciRetry")}</button>
     </div>
   {:else if !log}
-    <p class="state muted" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ciLogLoading")}</p>
+    <div class="state"><Skeleton shape="block" label={t("ciLogLoading")} /></div>
   {:else if !log.lines.length}
     <p class="state muted">{t("ciLogEmpty")}</p>
   {:else}

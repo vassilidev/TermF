@@ -4,6 +4,7 @@
   import Copy from "@lucide/svelte/icons/copy";
   import Plus from "@lucide/svelte/icons/plus";
   import Banner from "$lib/ui/Banner.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { osOf } from "$lib/release-logic";
   import { loadCli, needs, setCli } from "$lib/release.svelte";
@@ -68,6 +69,8 @@
       </div>
       <p class="help">{t(windows ? "releaseCliHowWindows" : "releaseCliHowUnix")}</p>
     {/if}
+  {:else if !needs.error}
+    <Skeleton rows={2} />
   {/if}
 </section>
 

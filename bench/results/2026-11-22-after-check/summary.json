@@ -1,0 +1,68 @@
+{
+  "tickets": [
+    {
+      "name": "s3-title-errors",
+      "arm": "team",
+      "trials": 2,
+      "wall_s": 108.63456039600001,
+      "cost_usd": 0.6360386,
+      "sessions": 5,
+      "hidden_pct": 100,
+      "own_tests_green": 100,
+      "own_tests": 13,
+      "original_green": 100,
+      "criteria_met_pct": 100,
+      "judge_overall": 9,
+      "findings_high": 0,
+      "findings": 4.5,
+      "out_of_scope": 0,
+      "lines": 147,
+      "typecheck_ok": 50,
+      "docs_ok": null
+    }
+  ],
+  "kinds": [
+    {
+      "name": "simple",
+      "arm": "team",
+      "trials": 2,
+      "wall_s": 108.63456039600001,
+      "cost_usd": 0.6360386,
+      "sessions": 5,
+      "hidden_pct": 100,
+      "own_tests_green": 100,
+      "own_tests": 13,
+      "original_green": 100,
+      "criteria_met_pct": 100,
+      "judge_overall": 9,
+      "findings_high": 0,
+      "findings": 4.5,
+      "out_of_scope": 0,
+      "lines": 147,
+      "typecheck_ok": 50,
+      "docs_ok": null
+    }
+  ],
+  "all": [
+    {
+      "name": "all",
+      "arm": "team",
+      "trials": 2,
+      "wall_s": 108.63456039600001,
+      "cost_usd": 0.6360386,
+      "sessions": 5,
+      "hidden_pct": 100,
+      "own_tests_green": 100,
+      "own_tests": 13,
+      "original_green": 100,
+      "criteria_met_pct": 100,
+      "judge_overall": 9,
+      "findings_high": 0,
+      "findings": 4.5,
+      "out_of_scope": 0,
+      "lines": 147,
+      "typecheck_ok": 50,
+      "docs_ok": null
+    }
+  ]
+}

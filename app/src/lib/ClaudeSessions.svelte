@@ -4,13 +4,13 @@
   import CircleStop from "@lucide/svelte/icons/circle-stop";
   import CopyPlus from "@lucide/svelte/icons/copy-plus";
   import History from "@lucide/svelte/icons/history";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Play from "@lucide/svelte/icons/play";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import { ago, t } from "$lib/i18n";
   import type { Session } from "$lib/state.svelte";
@@ -150,7 +150,7 @@
 {/if}
 
 {#if projects === null}
-  <p class="loading" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("claudeViewLoading")}</p>
+  <Skeleton shape="list" rows={5} label={t("claudeViewLoading")} />
 {:else}
   {#each projects as p (p.folder)}
     {@const shown = all.includes(p.folder) ? p.sessions : p.sessions.slice(0, SHOWN)}
@@ -359,14 +359,6 @@
 
   .more {
     margin-top: 6px;
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 40px 0;
-    color: var(--muted);
   }
 
   .plan {

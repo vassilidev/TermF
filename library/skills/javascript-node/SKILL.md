@@ -12,7 +12,7 @@ paths: "**/*.js, **/*.mjs, **/*.cjs, **/*.mts, **/*.cts, **/package.json, **/esl
 license: MIT
 metadata:
   termf-stacks: "node"
-  termf-roles: "back front devops qa"
+  termf-roles: "back front devops qa reviewer"
   termf-versions: ">=20"
   termf-verified: "2026-11-22 node@26.13.1 eslint@10.15.0"
   termf-sources: "https://nodejs.org/llms.txt https://nodejs.org/docs/latest/api/typescript.md https://nodejs.org/docs/latest/api/cli.md https://nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule https://eslint.org/blog/2026/02/eslint-v10.0.0-released/"

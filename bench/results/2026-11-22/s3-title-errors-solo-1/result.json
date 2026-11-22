@@ -1,0 +1,163 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:13:07.347Z",
+  "state": "done",
+  "wall_s": 38.434,
+  "cost_usd": 0.1305125,
+  "sessions": 1,
+  "turns": 10,
+  "tokens": {
+    "input": 20,
+    "output": 5028,
+    "cache_read": 248925,
+    "cache_creation": 13825
+  },
+  "said": "`POST /api/tasks` and `PATCH /api/tasks/:id` now validate the title, and the page shows the API's error message when adding a task fails. All 12 tests pass.\n\n- **Title rules** (`src/app.ts`): a missing, blank, `null` or non-string `title` gets `400 {\"error\": \"title is required\"}`. A title over 200 characters after trimming gets `400 {\"error\": \"title must be at most 200 characters\"}`. Valid titles are saved trimmed. `PATCH` applies the same rules whenever the body has a `title` key, so `{\"title\": null}` is rejected. A `PATCH` with only `done` still works.\n- **Bad JSON:** a body that doesn't parse gets `400 {\"error\": \"invalid JSON body\"}`.\n- **Unexpected errors:** these get `500 {\"error\": \"internal error\"}`. The real error is logged with `console.error` on the server.\n- **Page** (`public/app.js`): the add-task handler now catches failures and shows the API's message in the existing error area.\n- **Tests** (`test/tasks.test.ts`): they cover all the cases above. The 500 test closes the database under a running server to force an error, and checks that the real message stays out of the response and gets logged.\n\nA body that is valid JSON but not an object (`null`, `[]`, a number) is treated as an empty object. On `POST` that gives `title is required`, and on `PATCH` it changes nothing. The ticket didn't cover this case, so say if you want it to return `invalid JSON body` instead.\n\nI also added the new error responses to the README's API section.",
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 12,
+    "fail": 0,
+    "tests": 12,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 6,
+      "removed": 1
+    },
+    {
+      "path": "public/app.js",
+      "added": 7,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 36,
+      "removed": 4
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 79,
+      "removed": 0
+    }
+  ],
+  "lines_added": 128,
+  "lines_removed": 8,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "validTitle rejects missing/blank/non-string with 400 'title is required' before createTask; test covers {}, '', spaces, 5, null, array and checks nothing is created."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "PATCH calls validTitle when 'title' in body; tests cover blank, non-string, null."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Length checked after trim with the exact message; saved trimmed; boundary 200 vs 201 tested."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "readJson catches JSON.parse failure and throws HttpError 400 'invalid JSON body'; tested for POST and PATCH."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "Catch handler logs with console.error and sends generic 'internal error'; test forces a failure by closing the DB and checks the response and log."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "app.js wraps the POST in try/catch and calls show(err); this assumes api() throws with the API's error message, which the diff doesn't show. No test for the UI."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "New tests cover 400 title cases, trimming, length, PATCH, invalid JSON and the 500 path."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 8,
+      "edge_cases": 7,
+      "scope": 9
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "readJson turns a non-object JSON body (null, array, number) into {}. On POST this gives 'title is required', which is fine. On PATCH, a body like [] or 5 becomes an empty update that returns 200 instead of 400."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH passes body.done through unvalidated, so a non-boolean done can still hit SQLite and cause a 500 or store a wrong value. The ticket doesn't cover this."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "A PATCH with an invalid title on a nonexistent id returns 400 rather than 404, because validation runs before the lookup. This is acceptable, but it is untested."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The 500 test closes the database by emitting 'close' on the server, which depends on internals. The UI change in public/app.js has no test."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "public/app.js",
+        "what": "The submit handler shows the error but keeps the input text. That is reasonable, but it relies on api() throwing an Error that carries the API message, which the diff doesn't show."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "readJson has no body size limit. This existed before the diff and the diff does not change it."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets every acceptance criterion with a small HttpError class, one validation helper and focused tests. The remaining gaps are minor: PATCH accepts non-object bodies and unvalidated `done`, and there is no UI test.",
+    "cost_usd": 0.0402664
+  }
+}

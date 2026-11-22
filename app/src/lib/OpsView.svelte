@@ -19,6 +19,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
@@ -310,7 +311,9 @@
         </div>
       {/if}
 
-      {#if ops.tab === "connections"}
+      {#if ops.project !== project.id && (ops.tab === "connections" || ops.tab === "recipes")}
+        <div class="split"><div class="list"><Skeleton shape="list" rows={4} /></div></div>
+      {:else if ops.tab === "connections"}
         {#if !ops.connections.length && ops.editing === null}
           <div class="pane">
             <EmptyState icon={Server} title={t("opsEmpty")} text={t("opsEmptyHelp")}>

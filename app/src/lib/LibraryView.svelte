@@ -11,6 +11,7 @@
   import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
@@ -27,7 +28,7 @@
     type Layer,
   } from "$lib/library.svelte";
 
-  let items = $state<Item[]>([]);
+  let items = $state<Item[] | null>(null);
   let query = $state("");
   let selected = $state<string | null>(null);
 
@@ -46,6 +47,7 @@
       if (scope === library.scope) items = list;
     } catch (e) {
       library.error = String(e);
+      items ??= [];
     }
   }
 
@@ -80,7 +82,7 @@
     run: "whyRepo",
   } as const;
 
-  const visible = $derived(items.filter((i) => matches(i, query)));
+  const visible = $derived((items ?? []).filter((i) => matches(i, query)));
   const tabs = $derived([
     ...kinds.map((kind) => ({ id: kind, label: t(tabLabel[kind]), count: visible.filter((i) => i.kind === kind).length })),
     ...(library.scope
@@ -212,6 +214,7 @@
               bind:value={query}
             />
           </div>
+          {#if !items}<div class="loading"><Skeleton shape="list" rows={8} /></div>{/if}
           <ul class="list">
             {#each shown as item (item.name)}
               <li class="row" class:current={item === current}>
@@ -317,7 +320,7 @@
             {:else}
               <p class="muted">{t("itemEmpty")}</p>
             {/if}
-          {:else}
+          {:else if items}
             <EmptyState icon={LibraryBig} text={query.trim() ? t("filesNoResults") : t("libraryEmpty")} />
           {/if}
         </section>
@@ -366,6 +369,10 @@
     padding: 0 6px 8px;
     overflow-y: auto;
     list-style: none;
+  }
+
+  .loading {
+    padding: 4px 10px;
   }
 
   .layer-project {

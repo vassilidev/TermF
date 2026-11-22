@@ -279,8 +279,9 @@ pub fn questions_schema() -> Value {
     json!({ "type": "array", "items": question_schema() })
 }
 
-pub fn plan_schema() -> Value {
-    let task = object(json!({
+/// A task of a plan, as the plan's schema takes it, and the CTO's routing for the direct workflow.
+pub fn task_schema() -> Value {
+    object(json!({
         "id": { "type": "string" },
         "role": { "type": "string" },
         "squad": { "type": "string" },
@@ -291,7 +292,11 @@ pub fn plan_schema() -> Value {
         "files_hint": strings(),
         "depends_on": strings(),
         "ui_impact": { "type": "boolean" },
-    }));
+    }))
+}
+
+pub fn plan_schema() -> Value {
+    let task = task_schema();
     let criterion = object(json!({ "id": { "type": "string" }, "text": { "type": "string" } }));
     object(json!({
         "summary": { "type": "string" },
@@ -697,6 +702,95 @@ pub fn check_subplan(
     problems
 }
 
+/// The acceptance criteria a ticket lists: the items of the list under its heading about them ("Acceptance
+/// criteria", "Expected", "Critères d'acceptation"…), else its lines that start with `AC<n>`; each `AC<n>`, by the
+/// item's own number, else its rank.
+pub fn ticket_criteria(ticket: &str) -> Vec<Criterion> {
+    const HEADINGS: [&str; 7] = [
+        "acceptance",
+        "criteria",
+        "critère",
+        "critere",
+        "expected",
+        "attendu",
+        "definition of done",
+    ];
+    let marker = |line: &str| -> Option<(Option<String>, String)> {
+        let rest = line
+            .strip_prefix("- ")
+            .or_else(|| line.strip_prefix("* "))
+            .or_else(|| line.strip_prefix("+ "));
+        if let Some(rest) = rest {
+            let rest = ["[ ] ", "[x] ", "[X] "]
+                .iter()
+                .find_map(|b| rest.strip_prefix(b))
+                .unwrap_or(rest);
+            return Some((None, rest.to_owned()));
+        }
+        let digits = line.find(|c: char| !c.is_ascii_digit())?;
+        let rest = line[digits..]
+            .strip_prefix(". ")
+            .or_else(|| line[digits..].strip_prefix(") "))?;
+        (digits > 0).then(|| (Some(line[..digits].to_owned()), rest.to_owned()))
+    };
+    let own = |text: &str| -> Option<(String, String)> {
+        let upper = text.trim_start_matches("**").to_ascii_uppercase();
+        let n: String = upper
+            .strip_prefix("AC")?
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        let rest = text.trim_start_matches("**")[2 + n.len()..]
+            .trim_start_matches(['*', ':', '.', ')', '-', '—', ' ']);
+        (!n.is_empty()).then(|| (format!("AC{n}"), rest.trim().to_owned()))
+    };
+    let mut found: Vec<Criterion> = Vec::new();
+    let mut inside = false;
+    for line in ticket.lines() {
+        let trimmed = line.trim();
+        let heading = trimmed.starts_with('#')
+            || (trimmed.ends_with(':') && line == trimmed && !trimmed.starts_with(['-', '*', '+']))
+            || (trimmed.starts_with("**") && trimmed.ends_with("**"));
+        if heading && marker(trimmed).is_none() {
+            let lower = trimmed.to_lowercase();
+            inside = HEADINGS.iter().any(|h| lower.contains(h));
+            continue;
+        }
+        // The frame TermF puts around an untrusted ticket.
+        if trimmed.starts_with("</ticket") || trimmed.starts_with("<ticket") {
+            inside = false;
+            continue;
+        }
+        if !inside || trimmed.is_empty() {
+            continue;
+        }
+        let top = line.len() - line.trim_start().len() <= 1;
+        match marker(trimmed).filter(|_| top) {
+            Some((number, text)) => {
+                let (id, text) = own(&text).unwrap_or_else(|| {
+                    let n = number.unwrap_or_else(|| (found.len() + 1).to_string());
+                    (format!("AC{n}"), text)
+                });
+                found.push(Criterion { id, text });
+            }
+            None => {
+                if let Some(last) = found.last_mut() {
+                    last.text = format!("{} {trimmed}", last.text);
+                }
+            }
+        }
+    }
+    if found.is_empty() {
+        found = ticket
+            .lines()
+            .filter_map(|l| own(l.trim().trim_start_matches(['-', '*', ' '])))
+            .map(|(id, text)| Criterion { id, text })
+            .collect();
+    }
+    found.dedup_by(|a, b| a.id == b.id);
+    found
+}
+
 /// The criteria a batch's sub-plan works on: the batch's own, and the contracts between squads (`IC…`).
 pub fn batch_criteria(plan: &Plan, batch: &Task) -> Vec<Criterion> {
     plan.acceptance
@@ -812,6 +906,48 @@ mod tests {
             questions: vec![],
             tasks,
         }
+    }
+
+    #[test]
+    fn reads_the_criteria_a_ticket_lists() {
+        let ids = |ticket: &str| -> Vec<(String, String)> {
+            ticket_criteria(ticket)
+                .into_iter()
+                .map(|c| (c.id, c.text))
+                .collect()
+        };
+        let pair = |id: &str, text: &str| (id.to_owned(), text.to_owned());
+        let numbered = "# Filter\n\n**Type:** bug\n\n1. Create two tasks.\n2. Expected: only one.\n\n\
+             ## Acceptance criteria\n\n1. `?done=false` returns the open tasks.\n2. `?done=true` returns the done\n   \
+             ones, as before.\n\n## Notes\n\n- not a criterion\n";
+        assert_eq!(
+            ids(numbered),
+            [
+                pair("AC1", "`?done=false` returns the open tasks."),
+                pair("AC2", "`?done=true` returns the done ones, as before."),
+            ]
+        );
+        let french = "Critères d'acceptation :\n- [ ] le bouton s'affiche\n- [x] il exporte\n";
+        assert_eq!(
+            ids(french),
+            [
+                pair("AC1", "le bouton s'affiche"),
+                pair("AC2", "il exporte")
+            ]
+        );
+        let own = "## Expected\n\n- AC3: a 409 on a conflict\n- **AC4** — the README says so\n";
+        assert_eq!(
+            ids(own),
+            [
+                pair("AC3", "a 409 on a conflict"),
+                pair("AC4", "the README says so")
+            ]
+        );
+        assert_eq!(
+            ids("Some text.\nAC1: it works\nAC2 - it is fast\n"),
+            [pair("AC1", "it works"), pair("AC2", "it is fast")]
+        );
+        assert!(ids("# Rename the button\n\nCall it Save.\n").is_empty());
     }
 
     fn small() -> Team {

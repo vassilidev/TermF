@@ -1,0 +1,280 @@
+{
+  "ticket": "s1-done-filter",
+  "arm": "team",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:26:51.212Z",
+  "state": "done",
+  "wall_s": 80.171992375,
+  "cost_usd": 0.5539438,
+  "sessions": 5,
+  "turns": 5,
+  "tokens": {
+    "cache_creation": 106695,
+    "cache_read": 462258,
+    "input": 34,
+    "output": 8087
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "The API turns the query string \"false\" into a truthy string in `listTasks` (src/tasks.ts), so `done=false` returns the done tasks. The fix is a strict parse of `done` plus a 400 for other values, and one regression test.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 1.2,
+    "rulings": [
+      "Ruling: workflow `default`, not `hotfix` — a clear bug with a small fix, not an urgent outage, so the plan gate stays — a few minutes of delay if it was urgent",
+      "Ruling: skip `frame` (po) — the ticket already lists four testable acceptance criteria — a missed edge case such as `?done=TRUE` or a repeated `done` parameter, which the plan should settle: accept only lowercase `true` and `false`, and treat a repeated parameter by its first value",
+      "Ruling: skip `prd`, `architecture`, `ux`, `seo` — one function and one handler change; the page already sends `true`, `false` or no parameter, so no interface change — none expected",
+      "Ruling: no squads — the project declares none; the lead plans one `back` task (parse `done` in `src/app.ts`/`src/tasks.ts`, answer 400 with `{\"error\": \"done must be true or false\"}`, test in `test/tasks.test.ts`) — if the lead splits it into several tasks, the cost rises slightly",
+      "Ruling: `?done=` (empty value) must answer 400 as criterion 3 says, so the handler must tell a missing parameter (`null`) from an empty one — it must not use `?? undefined` and then a falsy check — the empty case is silently treated as 'all' if this is missed",
+      "Ruling: security review at medium effort — it parses user input from the query string but touches no authentication or personal data, and the SQL is already parameterized — a missed injection or validation gap is unlikely",
+      "Ruling: budget $1.20 — one S task, one review round, the security review and the plan gate — too low would stop the run before the reviews"
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.1093167,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.1076567,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.1382655,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1068134,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.0918915,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 6,
+    "fail": 0,
+    "tests": 6,
+    "failed": [],
+    "total": 6
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 13,
+    "fail": 0,
+    "tests": 13,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "src/app.ts",
+      "added": 6,
+      "removed": 2
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 41,
+      "removed": 1
+    }
+  ],
+  "lines_added": 48,
+  "lines_removed": 4,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "raw 'false' is converted to boolean false and listTasks filters done = 0; the old string 'false' was truthy, which was the bug."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "'true' maps to true and filters done = 1; a missing param (null) calls listTasks with no filter, so all tasks are returned."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Any value other than 'true' or 'false', including the empty string (get returns '', not null), returns 400 with the exact error message."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "New test '?done=false lists the open tasks and not the done ones' fails on the old code and passes with the fix."
+      }
+    ],
+    "scores": {
+      "correctness": 10,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "test/tasks.test.ts",
+        "what": "The diff changes `test(\"serves the page\", async` to `test(\"serves the page\",async`, which drops a space. It's an unrelated formatting regression, and it appears to come from rewriting the surrounding lines."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The ?done=true and unfiltered tests only check that specific ids are included or excluded. They never check that nothing else is wrong, though that is acceptable because the DB is shared between tests. The 400 test covers '', 'yes' and 'TRUE', but not repeated params such as ?done=true&done=false. Only the first value is used, so this is minor."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "The 'Show: Open' filter in public/ was not checked or changed in the diff. If the page sends done=false, it should now work. No UI test covers it."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The fix is correct and minimal. It parses `done` strictly in the handler, passes a boolean to `listTasks`, returns the exact 400 error for invalid values, and has good tests for each criterion. The only blemish is an unrelated whitespace slip on the `serves the page` test line.",
+    "cost_usd": 0.027272400000000002
+  }
+}

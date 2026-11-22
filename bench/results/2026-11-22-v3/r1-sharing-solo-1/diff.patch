@@ -1,0 +1,1438 @@
+diff --git a/README.md b/README.md
+index 89fbcae..642600b 100644
+--- a/README.md
++++ b/README.md
+@@ -1,13 +1,13 @@
+ # Lists
+ 
+-Task lists: a JSON API over SQLite with accounts, tags, comments, an activity log and email reminders, and a small
+-page. No dependencies: Node.js 22.18 or later runs the TypeScript sources directly and brings SQLite
++Task lists: a JSON API over SQLite with accounts, shared lists, tags, comments, an activity log and email reminders, and a
++small page. No dependencies: Node.js 22.18 or later runs the TypeScript sources directly and brings SQLite
+ (`node:sqlite`).
+ 
+ ```sh
+-npm start        # http://localhost:3000, data in lists.db (PORT and DB_PATH change them)
++npm start        # http://localhost:3000, data in lists.db (PORT and DB_PATH change them; PUBLIC_URL is the address of invitation links)
+ npm test         # the tests (node:test)
+ ```
+ 
+ `npm start` also runs the job runner every minute (reminders and digests, see below).
+ 
+@@ -28,18 +28,19 @@ Every body is JSON. Errors answer `{ "error": "<message>" }`. Every route but si
+ A username is lowercased, then 3 to 32 characters among `a-z`, `0-9` and `_`. A password has at least 10
+ characters. The email is optional: without one, no reminder nor digest is sent.
+ 
+ ### Lists
+ 
+-A list belongs to the user who created it, and only they see it: someone else's list answers 404, as one that does
+-not exist.
++A list belongs to the user who created it (its owner) and can be shared with other users, see [Sharing](#sharing).
++Someone with no access to a list gets 404, as if it did not exist; a member who lacks the right for the request
++gets `403 { "error": "you do not have the right to do this in this list" }`.
+ 
+ | Method and path | Body | Answers |
+ |---|---|---|
+-| `GET /api/lists` | | 200, the user's lists by name, each with `task_count` and `open_count` |
++| `GET /api/lists` | | 200, the lists the user owns and those shared with them, by name, each with `role`, `task_count` and `open_count` |
+ | `POST /api/lists` | `{ "name" }` | 201, the list |
+-| `GET /api/lists/:id` | | 200, the list |
++| `GET /api/lists/:id` | | 200, the list, with the caller's `role` (`owner`, `editor` or `viewer`) |
+ | `PATCH /api/lists/:id` | `{ "name" }` | 200, the list |
+ | `DELETE /api/lists/:id` | | 204: the list, its tasks, their comments and the list's activity are deleted |
+ | `GET /api/lists/:id/tags` | | 200, `[{ "name", "count" }]`: the tags used in the list |
+ | `GET /api/lists/:id/activity` | | 200, the latest entries, newest first; `?limit=` (default 50, at most 200) |
+ 
+@@ -64,11 +65,11 @@ A task is:
+ | `DELETE /api/tasks/:id` | | 204 |
+ | `GET /api/tasks/:id/comments` | | 200, `[{ "id", "task_id", "author", "body", "created_at" }]`, oldest first |
+ | `POST /api/tasks/:id/comments` | `{ "body" }` | 201, the comment |
+ 
+ Fields: `title` 1 to 200 characters; `notes` up to 5,000; `done` a boolean; `priority` 0 (low) to 3 (urgent);
+-`due_date` `YYYY-MM-DD` or null; `assignee_id` a user who can see the list, or null; `position` a
++`due_date` `YYYY-MM-DD` or null; `assignee_id` the owner or a member of the list, or null; `position` a
+ whole number, 0 or more; `tags` up to 10 names of 1 to 30 letters, digits, `-` or `_`, stored in lowercase. A
+ comment has 1 to 2,000 characters.
+ 
+ `GET /api/lists/:id/tasks` takes:
+ 
+@@ -81,11 +82,43 @@ comment has 1 to 2,000 characters.
+ 
+ ### Activity
+ 
+ Every change to a list or its tasks adds an entry `{ "id", "action", "task_id", "user", "detail", "created_at" }`.
+ Actions: `list.created`, `list.renamed`, `task.created`, `task.updated` (`detail.changes` names the fields that
+-changed), `task.deleted`, `comment.added`.
++changed), `task.deleted`, `comment.added`, `member.joined` and `member.removed` (`detail.role`).
++
++## Sharing
++
++A list has its owner and members, each member being an `editor` or a `viewer`.
++
++| | owner | editor | viewer |
++|---|---|---|---|
++| read the list, its tasks, comments, tags, activity and members | yes | yes | yes |
++| create, change and delete tasks; comment | yes | yes | no |
++| rename or delete the list | yes | no | no |
++| create and revoke invitations, see the pending ones, remove members | yes | no | no |
++
++| Method and path | Body | Answers |
++|---|---|---|
++| `POST /api/lists/:id/invitations` | `{ "role": "viewer" \| "editor", "expires_in_hours"? }` | 201 `{ "id", "token", "url", "role", "expires_at" }`; `expires_in_hours` is above 0 and at most 720, 72 by default |
++| `GET /api/lists/:id/invitations` | | 200, the pending invitations `[{ "id", "role", "created_at", "expires_at" }]` (without token) |
++| `DELETE /api/lists/:id/invitations/:invitationId` | | 204: the link stops working |
++| `POST /api/invitations/:token/accept` | | 200, the list (with the caller's `role`); 404 if the invitation is unknown, revoked or used, 410 if it expired |
++| `GET /api/lists/:id/members` | | 200, `[{ "id", "username", "role" }]`, the owner first, with the role `owner` |
++| `DELETE /api/lists/:id/members/:userId` | | 204; 400 for the owner; 404 for someone who is not a member |
++
++- The `url` of an invitation is `<origin>/#invitation=<token>`. The origin is `PUBLIC_URL` if that environment
++  variable is set, else the `Host` of the request. The token is in the fragment so that it is not sent to servers,
++  nor in referrers. Opening the link shows the page; once the person is signed in (or has created an account) the
++  page accepts the invitation and shows the list.
++- The token is shown once, when the invitation is created: only its hash is stored. An invitation is used once: the
++  first signed-in user who accepts it becomes a member, and it no longer is pending. The owner accepting their own
++  invitation changes nothing; a member keeps their role, except a viewer who accepts an editor invitation and
++  becomes an editor.
++- Access is checked on every request: a removed member loses it at once. Removing a member unassigns their tasks
++  in the list (and cancels their reminders). Deleting a list deletes its members and invitations.
++- A task can be assigned to the owner or to any member of its list.
+ 
+ ## Reminders and digests
+ 
+ `src/jobs.ts` holds a small job runner over the `jobs` table; `runDueJobs(db, now)` runs what is due.
+ 
+@@ -101,14 +134,14 @@ repository.
+ ## Layout
+ 
+ - `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied).
+ - `src/http.ts`: the router, JSON bodies, errors.
+ - `src/auth.ts`: accounts and sessions (scrypt, hashed bearer tokens).
+-- `src/lists.ts`, `src/tasks.ts`, `src/comments.ts`, `src/activity.ts`: the resources.
++- `src/lists.ts`, `src/tasks.ts`, `src/comments.ts`, `src/activity.ts`: the resources; `src/sharing.ts`: members and invitations.
+ - `src/jobs.ts`: reminders, digests and the job runner.
+ - `src/app.ts`: the routes and the HTTP server; `src/main.ts` starts it.
+-- `public/`: the page (`app.js` starts it; `api.js`, `auth.js`, `lists.js`, `tasks.js`).
++- `public/`: the page (`app.js` starts it; `api.js`, `auth.js`, `lists.js`, `tasks.js`, `sharing.js`).
+ - `test/`: the tests, against a server on a random port with an in-memory database.
+ 
+ ## Known issues
+ 
+ - Sessions never expire: a token works until its user signs out.
+diff --git a/package.json b/package.json
+index 6b8e180..c83e767 100644
+--- a/package.json
++++ b/package.json
+@@ -1,8 +1,8 @@
+ {
+   "name": "lists",
+-  "version": "1.4.0",
++  "version": "1.5.0",
+   "private": true,
+   "type": "module",
+   "description": "Task lists: a JSON API over SQLite with accounts, tags, comments, an activity log and email reminders, and a small page.",
+   "engines": {
+     "node": ">=22.18"
+diff --git a/public/app.js b/public/app.js
+index 2951ffc..71a06cd 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -1,15 +1,37 @@
+ import { api, session, showError } from "./api.js";
+ import { initAuth } from "./auth.js";
+-import { initLists, renderLists } from "./lists.js";
++import { initLists, renderLists, selectList } from "./lists.js";
+ import { initTasks, showList } from "./tasks.js";
+ 
+ const signin = document.querySelector("#signin");
+ const app = document.querySelector("#app");
+ const account = document.querySelector("#account");
+ const whoami = document.querySelector("#whoami");
+ 
++// An invitation link is `/#invitation=<token>`. The token waits in the session until the person is signed in (or has
++// created an account), then it is accepted.
++const INVITATION_KEY = "lists.invitation";
++const linked = /^#invitation=([A-Za-z0-9_-]{16,128})$/.exec(location.hash)?.[1];
++if (linked) {
++  sessionStorage.setItem(INVITATION_KEY, linked);
++  history.replaceState(null, "", location.pathname + location.search);
++}
++
++async function acceptPendingInvitation() {
++  const token = sessionStorage.getItem(INVITATION_KEY);
++  if (!token) return;
++  sessionStorage.removeItem(INVITATION_KEY);
++  try {
++    const list = await api(`/api/invitations/${token}/accept`, { method: "POST" });
++    selectList(list.id);
++    showError(null);
++  } catch (err) {
++    showError(err);
++  }
++}
++
+ function showSignIn() {
+   signin.hidden = false;
+   app.hidden = true;
+   account.hidden = true;
+ }
+@@ -20,10 +42,11 @@ async function start() {
+     const me = await api("/api/me");
+     whoami.textContent = me.username;
+     signin.hidden = true;
+     app.hidden = false;
+     account.hidden = false;
++    await acceptPendingInvitation();
+     await renderLists();
+   } catch (err) {
+     showError(err);
+     showSignIn();
+   }
+diff --git a/public/index.html b/public/index.html
+index f9faf82..3f4e20d 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -40,10 +40,11 @@
+       </nav>
+ 
+       <section id="list-view" hidden>
+         <div class="row list-head">
+           <h2 id="list-title"></h2>
++          <span id="list-role" class="tag"></span>
+           <button id="rename-list" type="button">Rename</button>
+           <button id="delete-list" type="button">Delete</button>
+         </div>
+ 
+         <form id="new-task" class="row">
+@@ -80,10 +81,35 @@
+           </label>
+         </div>
+ 
+         <ul id="tasks"></ul>
+ 
++        <details id="sharing" open>
++          <summary>Sharing</summary>
++          <ul id="members"></ul>
++          <form id="invite-form" class="row" hidden>
++            <label>Invite as
++              <select id="invite-role">
++                <option value="viewer">Viewer (reads)</option>
++                <option value="editor">Editor (changes tasks)</option>
++              </select>
++            </label>
++            <label>Valid for (hours)
++              <input id="invite-hours" type="number" min="1" max="720" step="1" placeholder="72" />
++            </label>
++            <button type="submit">Create invitation link</button>
++          </form>
++          <div id="invite-link" class="row" hidden>
++            <input id="invite-url" readonly size="50" aria-label="Invitation link" />
++            <button id="copy-link" type="button">Copy</button>
++          </div>
++          <div id="pending" hidden>
++            <h3>Pending invitations</h3>
++            <ul id="pending-items"></ul>
++          </div>
++        </details>
++
+         <details id="activity">
+           <summary>Activity</summary>
+           <ol id="activity-items"></ol>
+         </details>
+       </section>
+diff --git a/public/lists.js b/public/lists.js
+index 010d20f..5434787 100644
+--- a/public/lists.js
++++ b/public/lists.js
+@@ -21,10 +21,15 @@ export function initLists(select) {
+       showError(err);
+     }
+   });
+ }
+ 
++/** Makes `id` the list shown by the next `renderLists`. */
++export function selectList(id) {
++  selectedId = id;
++}
++
+ export async function renderLists() {
+   const lists = await api("/api/lists");
+   if (!lists.some((list) => list.id === selectedId)) selectedId = lists[0]?.id ?? null;
+   nav.replaceChildren(...lists.map(listItem));
+   onSelect(lists.find((list) => list.id === selectedId) ?? null);
+@@ -32,11 +37,11 @@ export async function renderLists() {
+ 
+ function listItem(list) {
+   const button = element(
+     "button",
+     { type: "button", title: `${list.open_count} open of ${list.task_count}` },
+-    element("span", { textContent: list.name }),
++    element("span", { textContent: list.role === "owner" ? list.name : `${list.name} (${list.role})` }),
+     element("span", { className: "count", textContent: String(list.open_count) }),
+   );
+   button.setAttribute("aria-current", String(list.id === selectedId));
+   button.addEventListener("click", () => {
+     selectedId = list.id;
+diff --git a/public/sharing.js b/public/sharing.js
+new file mode 100644
+index 0000000..bc6125b
+--- /dev/null
++++ b/public/sharing.js
+@@ -0,0 +1,106 @@
++import { api, element, showError } from "./api.js";
++
++const section = document.querySelector("#sharing");
++const memberItems = document.querySelector("#members");
++const pendingBox = document.querySelector("#pending");
++const pendingItems = document.querySelector("#pending-items");
++const inviteForm = document.querySelector("#invite-form");
++const inviteRole = document.querySelector("#invite-role");
++const inviteHours = document.querySelector("#invite-hours");
++const inviteLink = document.querySelector("#invite-link");
++const linkInput = document.querySelector("#invite-url");
++
++let current = null;
++let members = [];
++
++export function initSharing(onChange) {
++  inviteForm.addEventListener("submit", async (event) => {
++    event.preventDefault();
++    try {
++      const body = { role: inviteRole.value };
++      if (inviteHours.value) body.expires_in_hours = Number(inviteHours.value);
++      const invitation = await api(`/api/lists/${current.id}/invitations`, { method: "POST", body });
++      linkInput.value = invitation.url;
++      inviteLink.hidden = false;
++      linkInput.select();
++      showError(null);
++      await renderPending();
++    } catch (err) {
++      showError(err);
++    }
++  });
++  document.querySelector("#copy-link").addEventListener("click", async () => {
++    linkInput.select();
++    try {
++      await navigator.clipboard.writeText(linkInput.value);
++    } catch {
++      document.execCommand?.("copy");
++    }
++  });
++  addEventListener("members-changed", () => onChange?.());
++}
++
++/** The members of the list, for the sharing section and the assignee choices. */
++export function currentMembers() {
++  return members;
++}
++
++/** Shows who the list is shared with; the owner also gets the invitations. */
++export async function showSharing(list) {
++  current = list;
++  inviteLink.hidden = true;
++  linkInput.value = "";
++  const owner = list.role === "owner";
++  inviteForm.hidden = !owner;
++  pendingBox.hidden = !owner;
++  members = await api(`/api/lists/${list.id}/members`);
++  renderMembers(owner);
++  if (owner) await renderPending();
++  section.hidden = members.length < 2 && !owner;
++}
++
++function renderMembers(owner) {
++  memberItems.replaceChildren(
++    ...members.map((member) => {
++      const item = element("li", {}, element("span", { textContent: `${member.username} ` }), element("span", { className: "tag", textContent: member.role }));
++      if (owner && member.role !== "owner") {
++        const remove = element("button", { type: "button", textContent: "Remove" });
++        remove.setAttribute("aria-label", `Remove ${member.username}`);
++        remove.addEventListener("click", async () => {
++          if (!confirm(`Remove ${member.username} from "${current.name}"?`)) return;
++          try {
++            await api(`/api/lists/${current.id}/members/${member.id}`, { method: "DELETE" });
++            dispatchEvent(new Event("members-changed"));
++          } catch (err) {
++            showError(err);
++          }
++        });
++        item.append(" ", remove);
++      }
++      return item;
++    }),
++  );
++}
++
++async function renderPending() {
++  const invitations = await api(`/api/lists/${current.id}/invitations`);
++  pendingItems.replaceChildren(
++    ...invitations.map((invitation) => {
++      const revoke = element("button", { type: "button", textContent: "Revoke" });
++      revoke.addEventListener("click", async () => {
++        try {
++          await api(`/api/lists/${current.id}/invitations/${invitation.id}`, { method: "DELETE" });
++          await renderPending();
++        } catch (err) {
++          showError(err);
++        }
++      });
++      return element(
++        "li",
++        {},
++        element("span", { textContent: `${invitation.role}, expires ${new Date(invitation.expires_at).toLocaleString()} ` }),
++        revoke,
++      );
++    }),
++  );
++}
+diff --git a/public/style.css b/public/style.css
+index 4810180..1946fab 100644
+--- a/public/style.css
++++ b/public/style.css
+@@ -1,5 +1,7 @@
++[hidden] { display: none !important; }
++
+ :root {
+   --line: #d9d9de;
+   --muted: #6b6b76;
+   --accent: #2f5bea;
+   --danger: #b00020;
+@@ -36,10 +38,13 @@ nav .count { color: var(--muted); font-size: 0.85em; }
+ .priority-3 { color: var(--danger); font-weight: 600; }
+ .priority-2 { color: #a15c00; }
+ .comments { margin: 0.4rem 0 0 1.6rem; }
+ .comments ul { padding-left: 1rem; margin: 0.25rem 0; }
+ 
++#sharing { margin-top: 1.5rem; }
++#sharing ul { padding-left: 1rem; }
++#sharing h3 { font-size: 1em; margin: 0.5rem 0 0; }
+ #activity { margin-top: 1.5rem; color: var(--muted); }
+ 
+ @media (max-width: 40rem) {
+   main { grid-template-columns: 1fr; }
+ }
+diff --git a/public/tasks.js b/public/tasks.js
+index 78e5d5b..efe7d86 100644
+--- a/public/tasks.js
++++ b/public/tasks.js
+@@ -1,7 +1,8 @@
+ import { api, element, showError } from "./api.js";
+ import { deleteList, renameList, renderLists } from "./lists.js";
++import { currentMembers, initSharing, showSharing } from "./sharing.js";
+ 
+ const view = document.querySelector("#list-view");
+ const heading = document.querySelector("#list-title");
+ const items = document.querySelector("#tasks");
+ const form = document.querySelector("#new-task");
+@@ -9,10 +10,11 @@ const titleInput = document.querySelector("#task-title");
+ const dueInput = document.querySelector("#task-due");
+ const priorityInput = document.querySelector("#task-priority");
+ const doneFilter = document.querySelector("#filter-done");
+ const tagFilter = document.querySelector("#filter-tag");
+ const sortSelect = document.querySelector("#sort");
++const roleBadge = document.querySelector("#list-role");
+ const activityItems = document.querySelector("#activity-items");
+ 
+ const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
+ 
+ let current = null;
+@@ -30,10 +32,11 @@ export function initTasks() {
+     }
+   });
+   for (const control of [doneFilter, tagFilter, sortSelect]) {
+     control.addEventListener("change", () => renderTasks().catch(showError));
+   }
++  initSharing(() => refresh().catch(showError));
+   document.querySelector("#rename-list").addEventListener("click", () => renameList(current).catch(showError));
+   document.querySelector("#delete-list").addEventListener("click", () => deleteList(current).catch(showError));
+ }
+ 
+ /** Shows a list, or hides the view when `list` is null. */
+@@ -41,12 +44,19 @@ export async function showList(list) {
+   const changed = list?.id !== current?.id;
+   current = list;
+   view.hidden = !list;
+   if (!list) return;
+   heading.textContent = list.name;
++  roleBadge.textContent = list.role;
++  roleBadge.hidden = list.role === "owner";
++  // Only the owner renames or deletes the list; viewers cannot add tasks.
++  document.querySelector("#rename-list").hidden = list.role !== "owner";
++  document.querySelector("#delete-list").hidden = list.role !== "owner";
++  form.hidden = list.role === "viewer";
+   if (changed) tagFilter.value = "";
+-  await Promise.all([renderTags(), renderTasks(), renderActivity()]);
++  await Promise.all([renderTags(), showSharing(list), renderActivity()]);
++  await renderTasks();
+ }
+ 
+ async function refresh() {
+   showError(null);
+   await renderLists();
+@@ -87,34 +97,49 @@ function describe(entry) {
+       return `changed ${entry.detail.changes.join(", ")} of task #${entry.task_id}`;
+     case "task.deleted":
+       return `deleted "${entry.detail.title}"`;
+     case "comment.added":
+       return `commented on task #${entry.task_id}`;
++    case "member.joined":
++      return `joined as ${entry.detail.role}`;
++    case "member.removed":
++      return `removed a member`;
+     case "list.renamed":
+       return `renamed the list to "${entry.detail.to}"`;
+     default:
+       return entry.action;
+   }
+ }
+ 
+ function taskItem(task) {
+-  const box = element("input", { type: "checkbox", checked: task.done });
++  const canEdit = current.role !== "viewer";
++  const box = element("input", { type: "checkbox", checked: task.done, disabled: !canEdit });
+   box.setAttribute("aria-label", `Done: ${task.title}`);
+   box.addEventListener("change", () => patch(task, { done: box.checked }));
+ 
+   const title = element("span", { className: `task-title priority-${task.priority}`, textContent: task.title });
+-  title.addEventListener("dblclick", () => {
++  if (canEdit) title.addEventListener("dblclick", () => {
+     const next = prompt("Title", task.title);
+     if (next !== null) patch(task, { title: next });
+   });
+ 
+   const tagsButton = element("button", { type: "button", textContent: "Tags" });
+   tagsButton.addEventListener("click", () => {
+     const next = prompt("Tags, separated by commas", task.tags.join(", "));
+     if (next !== null) patch(task, { tags: next.split(",").map((tag) => tag.trim()).filter(Boolean) });
+   });
+ 
++  const assignButton = element("button", { type: "button", textContent: "Assign" });
++  assignButton.addEventListener("click", () => {
++    const names = currentMembers().map((member) => member.username).join(", ");
++    const next = prompt(`Assign to (${names}), empty for nobody`, task.assignee?.username ?? "");
++    if (next === null) return;
++    const member = currentMembers().find((m) => m.username === next.trim().toLowerCase());
++    if (next.trim() && !member) return showError(new Error(`${next.trim()} has no access to this list`));
++    patch(task, { assignee_id: member?.id ?? null });
++  });
++
+   const commentsButton = element("button", { type: "button", textContent: `Comments (${task.comment_count})` });
+   const remove = element("button", { type: "button", textContent: "Delete" });
+   remove.addEventListener("click", () => {
+     api(`/api/tasks/${task.id}`, { method: "DELETE" }).then(refresh, showError);
+   });
+@@ -128,11 +153,11 @@ function taskItem(task) {
+     ...task.tags.map((tag) => element("span", { className: "tag", textContent: tag })),
+   );
+   const item = element(
+     "li",
+     { className: task.done ? "task done" : "task" },
+-    element("div", { className: "task-line" }, box, title, tagsButton, commentsButton, remove),
++    element("div", { className: "task-line" }, box, title, ...(canEdit ? [tagsButton, assignButton] : []), commentsButton, ...(canEdit ? [remove] : [])),
+     meta,
+   );
+   commentsButton.addEventListener("click", () => toggleComments(task, item).catch(showError));
+   return item;
+ }
+@@ -144,10 +169,11 @@ function patch(task, changes) {
+ async function toggleComments(task, item) {
+   const open = item.querySelector(".comments");
+   if (open) return open.remove();
+   const comments = await api(`/api/tasks/${task.id}/comments`);
+   const input = element("input", { placeholder: "Add a comment", maxLength: 2000 });
++  const canEdit = current.role !== "viewer";
+   const send = element("form", { className: "row" }, input, element("button", { type: "submit", textContent: "Send" }));
+   send.addEventListener("submit", async (event) => {
+     event.preventDefault();
+     try {
+       await api(`/api/tasks/${task.id}/comments`, { method: "POST", body: { body: input.value } });
+@@ -159,7 +185,7 @@ async function toggleComments(task, item) {
+   const list = element(
+     "ul",
+     {},
+     ...comments.map((comment) => element("li", { textContent: `${comment.author?.username ?? "someone"}: ${comment.body}` })),
+   );
+-  item.append(element("div", { className: "comments" }, list, send));
++  item.append(element("div", { className: "comments" }, list, ...(canEdit ? [send] : [])));
+ }
+diff --git a/src/app.ts b/src/app.ts
+index bc8701f..5e67a1d 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -5,10 +5,11 @@ import { HttpError, Router, created, noContent, ok, readJson, send } from "./htt
+ import { startJobs } from "./jobs.ts";
+ import * as activity from "./activity.ts";
+ import * as auth from "./auth.ts";
+ import * as comments from "./comments.ts";
+ import * as lists from "./lists.ts";
++import * as sharing from "./sharing.ts";
+ import * as tasks from "./tasks.ts";
+ 
+ const PUBLIC = new URL("../public/", import.meta.url);
+ const TYPES: Record<string, string> = {
+   html: "text/html; charset=utf-8",
+@@ -70,10 +71,26 @@ function routes(db: Db): Router {
+       const list = lists.loadList(db, me(req), Number(params.id));
+       return ok(activity.forList(db, list.id, limitOf(query)));
+     })
+     .add("GET", "/api/lists/:id/tags", ({ req, params }) => ok(tasks.listTags(db, me(req), Number(params.id))))
+ 
++    .add("GET", "/api/lists/:id/members", ({ req, params }) => ok(sharing.listMembers(db, me(req), Number(params.id))))
++    .add("DELETE", "/api/lists/:id/members/:userId", async ({ req, params }) => {
++      await sharing.removeMember(db, me(req), Number(params.id), Number(params.userId));
++      return noContent();
++    })
++    .add("GET", "/api/lists/:id/invitations", ({ req, params }) => ok(sharing.listInvitations(db, me(req), Number(params.id))))
++    .add("POST", "/api/lists/:id/invitations", async ({ req, params }) => {
++      const user = me(req);
++      return created(await sharing.createInvitation(db, user, Number(params.id), await readJson(req), req));
++    })
++    .add("DELETE", "/api/lists/:id/invitations/:invitationId", ({ req, params }) => {
++      sharing.revokeInvitation(db, me(req), Number(params.id), Number(params.invitationId));
++      return noContent();
++    })
++    .add("POST", "/api/invitations/:token/accept", async ({ req, params }) => ok(await sharing.acceptInvitation(db, me(req), params.token)))
++
+     .add("GET", "/api/lists/:id/tasks", ({ req, params, query }) => ok(tasks.listTasks(db, me(req), Number(params.id), query)))
+     .add("POST", "/api/lists/:id/tasks", async ({ req, params }) => {
+       const user = me(req);
+       return created(await tasks.createTask(db, user, Number(params.id), await readJson(req)));
+     })
+diff --git a/src/auth.ts b/src/auth.ts
+index 1957f9c..46cdbe6 100644
+--- a/src/auth.ts
++++ b/src/auth.ts
+@@ -30,11 +30,11 @@ async function checkPassword(password: string, stored: string): Promise<boolean>
+   const [salt, hash] = stored.split(":");
+   const actual = await scryptAsync(password, Buffer.from(salt, "hex"), KEY_LENGTH);
+   return timingSafeEqual(actual, Buffer.from(hash, "hex"));
+ }
+ 
+-const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
++export const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
+ 
+ function cleanUsername(value: unknown): string {
+   return typeof value === "string" ? value.trim().toLowerCase() : "";
+ }
+ 
+diff --git a/src/comments.ts b/src/comments.ts
+index e22b380..ab742cd 100644
+--- a/src/comments.ts
++++ b/src/comments.ts
+@@ -41,11 +41,11 @@ export function listComments(db: Db, user: User, taskId: number): CommentView[]
+   loadTask(db, user, taskId);
+   return (db.prepare(`${SELECT} WHERE c.task_id = ? ORDER BY c.id`).all(taskId) as Row[]).map(toView);
+ }
+ 
+ export async function addComment(db: Db, user: User, taskId: number, body: any): Promise<CommentView> {
+-  const task = loadTask(db, user, taskId);
++  const task = loadTask(db, user, taskId, "editor");
+   const text = typeof body.body === "string" ? body.body.trim() : "";
+   if (!text) throw badRequest("Comment body can't be empty.");
+   if (text.length > MAX_LENGTH) throw badRequest(`Comment is too long, ${MAX_LENGTH} characters at most.`);
+   const { lastInsertRowid } = db.prepare("INSERT INTO comments (task_id, author_id, body) VALUES (?, ?, ?)").run(taskId, user.id, text);
+   const id = Number(lastInsertRowid);
+diff --git a/src/db.ts b/src/db.ts
+index 203173c..0c9144e 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -89,10 +89,29 @@ const migrations: string[] = [
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT ${NOW},
+      sent_at TEXT
+    );`,
++
++  `CREATE TABLE list_members (
++     list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
++     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++     role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
++     created_at TEXT NOT NULL DEFAULT ${NOW},
++     PRIMARY KEY (list_id, user_id)
++   );
++   CREATE INDEX list_members_user ON list_members(user_id);
++   CREATE TABLE invitations (
++     id INTEGER PRIMARY KEY AUTOINCREMENT,
++     list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
++     token_hash TEXT NOT NULL UNIQUE,
++     role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
++     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
++     created_at TEXT NOT NULL DEFAULT ${NOW},
++     expires_at TEXT NOT NULL
++   );
++   CREATE INDEX invitations_list ON invitations(list_id);`,
+ ];
+ 
+ export function openDb(path = ":memory:"): Db {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA foreign_keys = ON");
+diff --git a/src/http.ts b/src/http.ts
+index c8193f7..410acba 100644
+--- a/src/http.ts
++++ b/src/http.ts
+@@ -7,10 +7,11 @@ export class HttpError extends Error {
+     this.status = status;
+   }
+ }
+ 
+ export const badRequest = (message: string) => new HttpError(400, message);
++export const forbidden = (message: string) => new HttpError(403, message);
+ export const notFound = (message: string) => new HttpError(404, message);
+ 
+ export interface Reply {
+   status: number;
+   body?: unknown;
+@@ -33,19 +34,19 @@ interface Route {
+   pattern: RegExp;
+   keys: string[];
+   handler: Handler;
+ }
+ 
+-/** Routes like `/api/lists/:id/tasks`; a `:name` segment matches a positive integer. */
++/** Routes like `/api/lists/:id/tasks`; a `:name` segment matches a positive integer, except `:token` (an invitation token). */
+ export class Router {
+   #routes: Route[] = [];
+ 
+   add(method: string, path: string, handler: Handler): this {
+     const keys: string[] = [];
+     const source = path.replace(/:(\w+)/g, (_, key: string) => {
+       keys.push(key);
+-      return "([1-9][0-9]{0,15})";
++      return key === "token" ? "([A-Za-z0-9_-]{16,128})" : "([1-9][0-9]{0,15})";
+     });
+     this.#routes.push({ method, pattern: new RegExp(`^${source}$`), keys, handler });
+     return this;
+   }
+ 
+diff --git a/src/jobs.ts b/src/jobs.ts
+index 6035919..1fe270b 100644
+--- a/src/jobs.ts
++++ b/src/jobs.ts
+@@ -21,11 +21,11 @@ const handlers: Record<string, JobHandler> = {
+   reminder(db, { task_id, due_date }) {
+     const row = db
+       .prepare(
+         `SELECT t.title, t.done, t.due_date, l.name AS list_name, u.username, u.email
+          FROM tasks t JOIN lists l ON l.id = t.list_id JOIN users u ON u.id = t.assignee_id
+-         WHERE t.id = ?`,
++         WHERE t.id = ? AND (u.id = l.owner_id OR EXISTS (SELECT 1 FROM list_members m WHERE m.list_id = l.id AND m.user_id = u.id))`,
+       )
+       .get(task_id) as any;
+     if (!row || row.done || row.due_date !== due_date || !row.email) return;
+     mail(db, row.email, `Due today: ${row.title}`, `Hello ${row.username},\n\n"${row.title}" (${row.list_name}) is due today.\n`);
+   },
+@@ -44,14 +44,17 @@ const handlers: Record<string, JobHandler> = {
+ /** Open tasks due on `date` or before that are the user's: assigned to them, or unassigned in their lists. */
+ function dueTasks(db: Db, userId: number, date: string): { title: string; due_date: string; list_name: string }[] {
+   return db
+     .prepare(
+       `SELECT t.title, t.due_date, l.name AS list_name FROM tasks t JOIN lists l ON l.id = t.list_id
+-       WHERE t.done = 0 AND t.due_date <= ? AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?))
++       WHERE t.done = 0 AND t.due_date <= ? AND (
++         (t.assignee_id = ? AND (l.owner_id = ? OR EXISTS (SELECT 1 FROM list_members m WHERE m.list_id = l.id AND m.user_id = ?)))
++         OR (t.assignee_id IS NULL AND l.owner_id = ?)
++       )
+        ORDER BY t.due_date, t.id`,
+     )
+-    .all(date, userId, userId) as any[];
++    .all(date, userId, userId, userId, userId) as any[];
+ }
+ 
+ function mail(db: Db, to: string, subject: string, body: string): void {
+   db.prepare("INSERT INTO outbox (to_address, subject, body) VALUES (?, ?, ?)").run(to, subject, body);
+ }
+diff --git a/src/lists.ts b/src/lists.ts
+index 9a53e6a..eef62e5 100644
+--- a/src/lists.ts
++++ b/src/lists.ts
+@@ -1,18 +1,24 @@
+ import type { User } from "./auth.ts";
+ import { transaction, type Db } from "./db.ts";
+-import { badRequest, notFound } from "./http.ts";
++import { badRequest, forbidden, notFound } from "./http.ts";
+ import * as activity from "./activity.ts";
+ 
+ export interface List {
+   id: number;
+   owner_id: number;
+   name: string;
+   created_at: string;
+ }
+ 
++/** What a user can do in a list: an owner everything, an editor changes the tasks, a viewer only reads. */
++export type Role = "owner" | "editor" | "viewer";
++
++const RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 };
++
+ export interface ListView extends List {
++  role: Role;
+   task_count: number;
+   open_count: number;
+ }
+ 
+ const MAX_NAME = 100;
+@@ -22,29 +28,53 @@ function cleanName(value: unknown): string {
+   const name = value.trim();
+   if (name.length > MAX_NAME) throw badRequest(`name is too long (max ${MAX_NAME} characters)`);
+   return name;
+ }
+ 
+-/** The list if `user` owns it. Someone else's list is answered as if it did not exist. */
+-export function loadList(db: Db, user: User, id: number): List {
+-  const list = db.prepare("SELECT * FROM lists WHERE id = ? AND owner_id = ?").get(id, user.id) as List | undefined;
+-  if (!list) throw notFound("list not found");
+-  return list;
++/** The role of `user` in a list, or undefined when the list does not exist or they have no access to it. */
++export function roleOf(db: Db, user: User, listId: number): Role | undefined {
++  const row = db
++    .prepare(
++      `SELECT CASE WHEN l.owner_id = ? THEN 'owner' ELSE m.role END AS role
++       FROM lists l LEFT JOIN list_members m ON m.list_id = l.id AND m.user_id = ? WHERE l.id = ?`,
++    )
++    .get(user.id, user.id, listId) as { role: Role | null } | undefined;
++  return row?.role ?? undefined;
++}
++
++/** Throws 403 unless `role` is at least `need`. */
++export function requireRole(role: Role, need: Role): void {
++  if (RANK[role] < RANK[need]) throw forbidden("you do not have the right to do this in this list");
+ }
+ 
+-const VIEW = `SELECT l.*,
++/**
++ * The list if `user` has at least the role `need` in it (anyone with access by default). A list the user has no
++ * access to is answered as if it did not exist; one they can see but not change answers 403.
++ */
++export function loadList(db: Db, user: User, id: number, need: Role = "viewer"): List {
++  const role = roleOf(db, user, id);
++  if (!role) throw notFound("list not found");
++  requireRole(role, need);
++  return db.prepare("SELECT * FROM lists WHERE id = ?").get(id) as List;
++}
++
++// `?1` is the id of the user whose role is asked.
++const VIEW = `SELECT l.*, CASE WHEN l.owner_id = ?1 THEN 'owner' ELSE m.role END AS role,
+   (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id) AS task_count,
+   (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id AND t.done = 0) AS open_count
+-  FROM lists l`;
++  FROM lists l LEFT JOIN list_members m ON m.list_id = l.id AND m.user_id = ?1`;
+ 
++/** The lists the user owns and those shared with them. */
+ export function listLists(db: Db, user: User): ListView[] {
+-  return db.prepare(`${VIEW} WHERE l.owner_id = ? ORDER BY l.name COLLATE NOCASE, l.id`).all(user.id) as ListView[];
++  return db
++    .prepare(`${VIEW} WHERE l.owner_id = ?1 OR m.user_id = ?1 ORDER BY l.name COLLATE NOCASE, l.id`)
++    .all(user.id) as ListView[];
+ }
+ 
+ export function getList(db: Db, user: User, id: number): ListView {
+   loadList(db, user, id);
+-  return db.prepare(`${VIEW} WHERE l.id = ?`).get(id) as ListView;
++  return db.prepare(`${VIEW} WHERE l.id = ?2`).get(user.id, id) as ListView;
+ }
+ 
+ export async function createList(db: Db, user: User, body: any): Promise<ListView> {
+   const name = cleanName(body.name);
+   const { lastInsertRowid } = db.prepare("INSERT INTO lists (owner_id, name) VALUES (?, ?)").run(user.id, name);
+@@ -52,21 +82,21 @@ export async function createList(db: Db, user: User, body: any): Promise<ListVie
+   await activity.record(db, { list_id: id, user_id: user.id, action: "list.created", detail: { name } });
+   return getList(db, user, id);
+ }
+ 
+ export async function renameList(db: Db, user: User, id: number, body: any): Promise<ListView> {
+-  const list = loadList(db, user, id);
++  const list = loadList(db, user, id, "owner");
+   const name = cleanName(body.name);
+   if (name !== list.name) {
+     db.prepare("UPDATE lists SET name = ? WHERE id = ?").run(name, id);
+     await activity.record(db, { list_id: id, user_id: user.id, action: "list.renamed", detail: { from: list.name, to: name } });
+   }
+   return getList(db, user, id);
+ }
+ 
+ export function deleteList(db: Db, user: User, id: number): void {
+-  loadList(db, user, id);
++  loadList(db, user, id, "owner");
+   transaction(db, () => {
+     db.prepare("DELETE FROM activity WHERE list_id = ?").run(id);
+     db.prepare("DELETE FROM lists WHERE id = ?").run(id);
+   });
+ }
+diff --git a/src/sharing.ts b/src/sharing.ts
+new file mode 100644
+index 0000000..d4c08ec
+--- /dev/null
++++ b/src/sharing.ts
+@@ -0,0 +1,128 @@
++import { randomBytes } from "node:crypto";
++import { hashToken, type User } from "./auth.ts";
++import { now, transaction, type Db } from "./db.ts";
++import { HttpError, badRequest, notFound } from "./http.ts";
++import { getList, loadList, roleOf, type ListView } from "./lists.ts";
++import * as activity from "./activity.ts";
++
++export type MemberRole = "editor" | "viewer";
++
++export interface Member {
++  id: number;
++  username: string;
++  role: "owner" | MemberRole;
++}
++
++export interface InvitationView {
++  id: number;
++  role: MemberRole;
++  created_at: string;
++  expires_at: string;
++}
++
++const ROLES: MemberRole[] = ["editor", "viewer"];
++const DEFAULT_HOURS = 72;
++const MAX_HOURS = 720;
++
++/**
++ * The address the page is served at, for the invitation links: `PUBLIC_URL` when set, else the `Host` of the
++ * request. The link only goes back to whoever asked for it.
++ */
++function baseUrl(req: any): string {
++  const configured = process.env.PUBLIC_URL;
++  if (configured) return configured.replace(/\/+$/, "");
++  const host = String(req.headers.host ?? "");
++  return /^[A-Za-z0-9.:\[\]-]{1,255}$/.test(host) ? `http://${host}` : "http://localhost";
++}
++
++/** Owner and members of a list, the owner first. Anyone with access to the list can see them. */
++export function listMembers(db: Db, user: User, listId: number): Member[] {
++  const list = loadList(db, user, listId);
++  const owner = db.prepare("SELECT id, username FROM users WHERE id = ?").get(list.owner_id) as { id: number; username: string };
++  const members = db
++    .prepare(
++      `SELECT u.id, u.username, m.role FROM list_members m JOIN users u ON u.id = m.user_id
++       WHERE m.list_id = ? ORDER BY u.username, u.id`,
++    )
++    .all(listId) as unknown as Member[];
++  return [{ id: owner.id, username: owner.username, role: "owner" }, ...members];
++}
++
++export async function removeMember(db: Db, user: User, listId: number, userId: number): Promise<void> {
++  const list = loadList(db, user, listId, "owner");
++  if (userId === list.owner_id) throw badRequest("the owner of a list cannot be removed");
++  const member = db.prepare("SELECT role FROM list_members WHERE list_id = ? AND user_id = ?").get(listId, userId) as { role: string } | undefined;
++  if (!member) throw notFound("member not found");
++  transaction(db, () => {
++    db.prepare("DELETE FROM list_members WHERE list_id = ? AND user_id = ?").run(listId, userId);
++    // Someone without access to the list can no longer be given its tasks, nor be reminded of them.
++    const assigned = db.prepare("SELECT id FROM tasks WHERE list_id = ? AND assignee_id = ?").all(listId, userId) as { id: number }[];
++    db.prepare("UPDATE tasks SET assignee_id = NULL, updated_at = ? WHERE list_id = ? AND assignee_id = ?").run(now(), listId, userId);
++    for (const { id } of assigned) {
++      db.prepare("DELETE FROM jobs WHERE kind = 'reminder' AND done_at IS NULL AND json_extract(payload, '$.task_id') = ?").run(id);
++    }
++  });
++  await activity.record(db, { list_id: listId, user_id: user.id, action: "member.removed", detail: { user_id: userId, role: member.role } });
++}
++
++export async function createInvitation(db: Db, user: User, listId: number, body: any, req: any) {
++  loadList(db, user, listId, "owner");
++  if (!ROLES.includes(body.role)) throw badRequest("role must be viewer or editor");
++  const hours = body.expires_in_hours ?? DEFAULT_HOURS;
++  if (typeof hours !== "number" || !Number.isFinite(hours) || hours <= 0 || hours > MAX_HOURS) {
++    throw badRequest(`expires_in_hours must be a number above 0, ${MAX_HOURS} at most`);
++  }
++  const token = randomBytes(32).toString("base64url");
++  const created = new Date();
++  const expiresAt = new Date(created.getTime() + hours * 3_600_000).toISOString();
++  // The token is only stored hashed: reading the database does not give access to the lists.
++  const { lastInsertRowid } = transaction(db, () => {
++    db.prepare("DELETE FROM invitations WHERE list_id = ? AND expires_at <= ?").run(listId, created.toISOString());
++    return db
++      .prepare("INSERT INTO invitations (list_id, token_hash, role, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
++      .run(listId, hashToken(token), body.role, user.id, created.toISOString(), expiresAt);
++  });
++  return { id: Number(lastInsertRowid), token, url: `${baseUrl(req)}/#invitation=${token}`, role: body.role as MemberRole, expires_at: expiresAt };
++}
++
++/** The invitations not yet accepted nor expired. The tokens are not kept: only the one answered at creation exists. */
++export function listInvitations(db: Db, user: User, listId: number): InvitationView[] {
++  loadList(db, user, listId, "owner");
++  return db
++    .prepare("SELECT id, role, created_at, expires_at FROM invitations WHERE list_id = ? AND expires_at > ? ORDER BY id")
++    .all(listId, now()) as unknown as InvitationView[];
++}
++
++export function revokeInvitation(db: Db, user: User, listId: number, invitationId: number): void {
++  loadList(db, user, listId, "owner");
++  const { changes } = db.prepare("DELETE FROM invitations WHERE id = ? AND list_id = ?").run(invitationId, listId);
++  if (!changes) throw notFound("invitation not found");
++}
++
++/**
++ * Makes `user` a member of the invitation's list. An invitation is used once. Someone who already has access
++ * keeps it, except a viewer holding an editor invitation, who becomes an editor.
++ */
++export async function acceptInvitation(db: Db, user: User, token: string): Promise<ListView> {
++  const outcome = transaction(db, () => {
++    const invitation = db
++      .prepare("SELECT id, list_id, role, expires_at FROM invitations WHERE token_hash = ?")
++      .get(hashToken(token)) as { id: number; list_id: number; role: MemberRole; expires_at: string } | undefined;
++    if (!invitation) throw notFound("invitation not found");
++    if (invitation.expires_at <= now()) throw new HttpError(410, "invitation expired");
++    const current = roleOf(db, user, invitation.list_id);
++    if (current === "owner" || current === "editor" || (current === "viewer" && invitation.role === "viewer")) {
++      return { listId: invitation.list_id, joined: false };
++    }
++    db.prepare(
++      `INSERT INTO list_members (list_id, user_id, role) VALUES (?, ?, ?)
++       ON CONFLICT (list_id, user_id) DO UPDATE SET role = excluded.role`,
++    ).run(invitation.list_id, user.id, invitation.role);
++    db.prepare("DELETE FROM invitations WHERE id = ?").run(invitation.id);
++    return { listId: invitation.list_id, joined: true, role: invitation.role };
++  });
++  if (outcome.joined) {
++    await activity.record(db, { list_id: outcome.listId, user_id: user.id, action: "member.joined", detail: { role: outcome.role } });
++  }
++  return getList(db, user, outcome.listId);
++}
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4f36ce6..da5d827 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -1,9 +1,9 @@
+ import type { User } from "./auth.ts";
+ import { now, transaction, type Db } from "./db.ts";
+ import { badRequest, notFound } from "./http.ts";
+-import { loadList, type List } from "./lists.ts";
++import { loadList, requireRole, roleOf, type List, type Role } from "./lists.ts";
+ import * as activity from "./activity.ts";
+ import * as jobs from "./jobs.ts";
+ 
+ export interface Task {
+   id: number;
+@@ -75,13 +75,15 @@ function checkDate(value: unknown): string | null {
+     if (!Number.isNaN(date.getTime()) && date.toISOString().startsWith(value)) return value;
+   }
+   throw badRequest("due_date must be a date as YYYY-MM-DD, or null");
+ }
+ 
+-function checkAssignee(list: List, value: unknown): number | null {
++function checkAssignee(db: Db, list: List, value: unknown): number | null {
+   if (value === null) return null;
+-  if (value !== list.owner_id) throw badRequest("the assignee must have access to the list");
++  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw badRequest("the assignee must have access to the list");
++  const member = value === list.owner_id || db.prepare("SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?").get(list.id, value);
++  if (!member) throw badRequest("the assignee must have access to the list");
+   return value;
+ }
+ 
+ function cleanTags(value: unknown): string[] {
+   if (!Array.isArray(value) || value.length > MAX_TAGS) throw badRequest(`tags must be a list of at most ${MAX_TAGS} names`);
+@@ -91,11 +93,11 @@ function cleanTags(value: unknown): string[] {
+   });
+   return [...new Set(names)].sort();
+ }
+ 
+ /** The task fields in `body`, checked. For a PATCH (`partial`) each one is optional. */
+-function readInput(list: List, body: any, partial: boolean): TaskInput {
++function readInput(db: Db, list: List, body: any, partial: boolean): TaskInput {
+   const input: TaskInput = {};
+   if (!partial || body.title !== undefined) input.title = cleanTitle(body.title);
+   if (body.notes !== undefined) {
+     if (typeof body.notes !== "string" || body.notes.length > MAX_NOTES) throw badRequest(`notes must be a text of at most ${MAX_NOTES} characters`);
+     input.notes = body.notes;
+@@ -107,11 +109,11 @@ function readInput(list: List, body: any, partial: boolean): TaskInput {
+   if (body.priority !== undefined) {
+     if (![0, 1, 2, 3].includes(body.priority)) throw badRequest("priority must be 0, 1, 2 or 3");
+     input.priority = body.priority;
+   }
+   if (body.due_date !== undefined) input.due_date = checkDate(body.due_date);
+-  if (body.assignee_id !== undefined) input.assignee_id = checkAssignee(list, body.assignee_id);
++  if (body.assignee_id !== undefined) input.assignee_id = checkAssignee(db, list, body.assignee_id);
+   if (body.position !== undefined) {
+     if (!Number.isInteger(body.position) || body.position < 0) throw badRequest("position must be a whole number, 0 or more");
+     input.position = body.position;
+   }
+   if (body.tags !== undefined) input.tags = cleanTags(body.tags);
+@@ -162,16 +164,19 @@ function viewOf(db: Db, id: number): TaskView {
+   const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Task | undefined;
+   if (!task) throw notFound("task not found");
+   return toView(db, task);
+ }
+ 
+-/** The task if `user` owns its list. Someone else's task is answered as if it did not exist. */
+-export function loadTask(db: Db, user: User, id: number): Task {
+-  const task = db
+-    .prepare("SELECT t.* FROM tasks t JOIN lists l ON l.id = t.list_id WHERE t.id = ? AND l.owner_id = ?")
+-    .get(id, user.id) as Task | undefined;
+-  if (!task) throw notFound("task not found");
++/**
++ * The task if `user` has at least the role `need` in its list. A task of a list the user has no access to is
++ * answered as if it did not exist; one they can see but not change answers 403.
++ */
++export function loadTask(db: Db, user: User, id: number, need: Role = "viewer"): Task {
++  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Task | undefined;
++  const role = task && roleOf(db, user, task.list_id);
++  if (!task || !role) throw notFound("task not found");
++  requireRole(role, need);
+   return task;
+ }
+ 
+ export function listTasks(db: Db, user: User, listId: number, query: URLSearchParams): TaskView[] {
+   loadList(db, user, listId);
+@@ -207,12 +212,12 @@ export function listTasks(db: Db, user: User, listId: number, query: URLSearchPa
+ export function getTask(db: Db, user: User, id: number): TaskView {
+   return toView(db, loadTask(db, user, id));
+ }
+ 
+ export async function createTask(db: Db, user: User, listId: number, body: any): Promise<TaskView> {
+-  const list = loadList(db, user, listId);
+-  const input = readInput(list, body, false);
++  const list = loadList(db, user, listId, "editor");
++  const input = readInput(db, list, body, false);
+   const stamp = now();
+   const task = transaction(db, () => {
+     const { next } = db.prepare("SELECT COALESCE(MAX(position) + 1, 0) AS next FROM tasks WHERE list_id = ?").get(listId) as { next: number };
+     const { lastInsertRowid } = db
+       .prepare(
+@@ -228,12 +233,12 @@ export async function createTask(db: Db, user: User, listId: number, body: any):
+   await activity.record(db, { list_id: listId, task_id: task.id, user_id: user.id, action: "task.created", detail: { title: task.title } });
+   return viewOf(db, task.id);
+ }
+ 
+ export async function updateTask(db: Db, user: User, id: number, body: any): Promise<TaskView> {
+-  const task = loadTask(db, user, id);
+-  const input = readInput(loadList(db, user, task.list_id), body, true);
++  const task = loadTask(db, user, id, "editor");
++  const input = readInput(db, loadList(db, user, task.list_id), body, true);
+   const current: Record<string, unknown> = { ...task, tags: input.tags && tagsOf(db, id) };
+   const changes = Object.entries(input)
+     .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
+     .map(([key]) => key);
+   if (changes.length === 0) return toView(db, task);
+@@ -250,11 +255,11 @@ export async function updateTask(db: Db, user: User, id: number, body: any): Pro
+   if (changes.some((key) => key === "due_date" || key === "assignee_id" || key === "done")) jobs.scheduleReminder(db, next);
+   return viewOf(db, id);
+ }
+ 
+ export async function deleteTask(db: Db, user: User, id: number): Promise<void> {
+-  const task = loadTask(db, user, id);
++  const task = loadTask(db, user, id, "editor");
+   db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+   jobs.cancelReminders(db, id);
+   await activity.record(db, { list_id: task.list_id, task_id: id, user_id: user.id, action: "task.deleted", detail: { title: task.title } });
+ }
+ 
+diff --git a/test/sharing.test.ts b/test/sharing.test.ts
+new file mode 100644
+index 0000000..6c867c9
+--- /dev/null
++++ b/test/sharing.test.ts
+@@ -0,0 +1,311 @@
++import { after, before, test } from "node:test";
++import assert from "node:assert/strict";
++import { makeList, makeTask, signUp, start, type App, type Auth } from "./helpers.ts";
++
++let app: App;
++before(async () => (app = await start()));
++after(() => app.close());
++
++async function invite(auth: Auth, listId: number, body: Record<string, unknown> = { role: "viewer" }) {
++  const res = await app.call("POST", `/api/lists/${listId}/invitations`, body, auth);
++  assert.equal(res.status, 201, JSON.stringify(res.body));
++  return res.body;
++}
++
++/** An owner with a list and a task, an editor and a viewer who joined it. */
++async function shared(prefix: string) {
++  const owner = await signUp(app, `${prefix}_owner`);
++  const editor = await signUp(app, `${prefix}_editor`);
++  const viewer = await signUp(app, `${prefix}_viewer`);
++  const stranger = await signUp(app, `${prefix}_stranger`);
++  const list = await makeList(app, owner.auth, "Shared");
++  const task = await makeTask(app, owner.auth, list.id, { title: "Existing" });
++  for (const [who, role] of [[editor, "editor"], [viewer, "viewer"]] as const) {
++    const invitation = await invite(owner.auth, list.id, { role });
++    assert.equal((await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, who.auth)).status, 200);
++  }
++  return { owner, editor, viewer, stranger, list, task };
++}
++
++test("creates an invitation with its link, role and expiry", async () => {
++  const { auth } = await signUp(app, "inv_alice");
++  const list = await makeList(app, auth);
++  const before = Date.now();
++  const invitation = await invite(auth, list.id, { role: "editor" });
++  assert.deepEqual(Object.keys(invitation).sort(), ["expires_at", "id", "role", "token", "url"]);
++  assert.equal(invitation.role, "editor");
++  assert.ok(invitation.token.length >= 32);
++  assert.ok(invitation.url.startsWith(app.base) && invitation.url.includes(invitation.token));
++  const hours = (Date.parse(invitation.expires_at) - before) / 3_600_000;
++  assert.ok(hours > 71.9 && hours < 72.1, `expires in ${hours} hours`);
++  const custom = await invite(auth, list.id, { role: "viewer", expires_in_hours: 720 });
++  assert.ok((Date.parse(custom.expires_at) - before) / 3_600_000 > 719);
++  assert.notEqual(custom.token, invitation.token);
++});
++
++test("an invitation needs a role and a sensible expiry", async () => {
++  const { auth } = await signUp(app, "inv_bob");
++  const list = await makeList(app, auth);
++  for (const body of [{}, { role: "owner" }, { role: "admin" }, { role: 1 }, { role: "viewer", expires_in_hours: 721 },
++    { role: "viewer", expires_in_hours: 0 }, { role: "viewer", expires_in_hours: -1 }, { role: "viewer", expires_in_hours: "5" }]) {
++    const res = await app.call("POST", `/api/lists/${list.id}/invitations`, body, auth);
++    assert.equal(res.status, 400, JSON.stringify(body));
++  }
++  assert.deepEqual((await app.call("GET", `/api/lists/${list.id}/invitations`, undefined, auth)).body, []);
++});
++
++test("accepting makes the user a member with the invited role", async () => {
++  const owner = await signUp(app, "acc_owner");
++  const guest = await signUp(app, "acc_guest");
++  const list = await makeList(app, owner.auth, "Trip");
++  const invitation = await invite(owner.auth, list.id, { role: "editor" });
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, guest.auth)).status, 404);
++
++  const accepted = await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, guest.auth);
++  assert.equal(accepted.status, 200);
++  assert.equal(accepted.body.id, list.id);
++  assert.equal(accepted.body.name, "Trip");
++  assert.equal(accepted.body.role, "editor");
++
++  const members = await app.call("GET", `/api/lists/${list.id}/members`, undefined, owner.auth);
++  assert.deepEqual(members.body, [
++    { id: owner.user.id, username: "acc_owner", role: "owner" },
++    { id: guest.user.id, username: "acc_guest", role: "editor" },
++  ]);
++  const lists = await app.call("GET", "/api/lists", undefined, guest.auth);
++  assert.deepEqual(lists.body.map((l: any) => [l.id, l.role]), [[list.id, "editor"]]);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, owner.auth)).body.role, "owner");
++});
++
++test("an invitation can be used once, and the pending list no longer shows it", async () => {
++  const owner = await signUp(app, "once_owner");
++  const first = await signUp(app, "once_first");
++  const second = await signUp(app, "once_second");
++  const list = await makeList(app, owner.auth);
++  const invitation = await invite(owner.auth, list.id);
++  const pending = await app.call("GET", `/api/lists/${list.id}/invitations`, undefined, owner.auth);
++  assert.deepEqual(pending.body, [{ id: invitation.id, role: "viewer", created_at: pending.body[0].created_at, expires_at: invitation.expires_at }]);
++  assert.ok(!JSON.stringify(pending.body).includes(invitation.token));
++
++  assert.equal((await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, first.auth)).status, 200);
++  assert.equal((await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, second.auth)).status, 404);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, second.auth)).status, 404);
++  assert.deepEqual((await app.call("GET", `/api/lists/${list.id}/invitations`, undefined, owner.auth)).body, []);
++});
++
++test("an unknown, malformed, revoked or expired invitation grants nothing", async () => {
++  const owner = await signUp(app, "bad_owner");
++  const guest = await signUp(app, "bad_guest");
++  const list = await makeList(app, owner.auth);
++
++  assert.equal((await app.call("POST", `/api/invitations/${"a".repeat(43)}/accept`, undefined, guest.auth)).status, 404);
++  assert.equal((await app.call("POST", "/api/invitations/short/accept", undefined, guest.auth)).status, 404);
++
++  const revoked = await invite(owner.auth, list.id);
++  const del = await app.call("DELETE", `/api/lists/${list.id}/invitations/${revoked.id}`, undefined, owner.auth);
++  assert.equal(del.status, 204);
++  assert.equal((await app.call("POST", `/api/invitations/${revoked.token}/accept`, undefined, guest.auth)).status, 404);
++  assert.equal((await app.call("DELETE", `/api/lists/${list.id}/invitations/${revoked.id}`, undefined, owner.auth)).status, 404);
++
++  const short = await invite(owner.auth, list.id, { role: "viewer", expires_in_hours: 0.000001 });
++  await new Promise((resolve) => setTimeout(resolve, 20));
++  assert.equal((await app.call("POST", `/api/invitations/${short.token}/accept`, undefined, guest.auth)).status, 410);
++  assert.deepEqual((await app.call("GET", `/api/lists/${list.id}/invitations`, undefined, owner.auth)).body, []);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, guest.auth)).status, 404);
++});
++
++test("accepting needs a signed-in user", async () => {
++  const owner = await signUp(app, "anon_owner");
++  const list = await makeList(app, owner.auth);
++  const invitation = await invite(owner.auth, list.id);
++  const res = await app.call("POST", `/api/invitations/${invitation.token}/accept`);
++  assert.equal(res.status, 401);
++  // still usable afterwards
++  const guest = await signUp(app, "anon_guest");
++  assert.equal((await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, guest.auth)).status, 200);
++});
++
++test("the owner accepting their own invitation, or a member accepting twice, changes nothing", async () => {
++  const owner = await signUp(app, "own_owner");
++  const guest = await signUp(app, "own_guest");
++  const list = await makeList(app, owner.auth);
++  const viewerLink = await invite(owner.auth, list.id, { role: "viewer" });
++  const own = await app.call("POST", `/api/invitations/${viewerLink.token}/accept`, undefined, owner.auth);
++  assert.equal(own.status, 200);
++  assert.equal(own.body.role, "owner");
++
++  await app.call("POST", `/api/invitations/${viewerLink.token}/accept`, undefined, guest.auth);
++  const editorLink = await invite(owner.auth, list.id, { role: "editor" });
++  assert.equal((await app.call("POST", `/api/invitations/${editorLink.token}/accept`, undefined, guest.auth)).body.role, "editor");
++  const lowerLink = await invite(owner.auth, list.id, { role: "viewer" });
++  assert.equal((await app.call("POST", `/api/invitations/${lowerLink.token}/accept`, undefined, guest.auth)).body.role, "editor");
++  const members = await app.call("GET", `/api/lists/${list.id}/members`, undefined, owner.auth);
++  assert.equal(members.body.length, 2);
++});
++
++test("viewers read everything but change nothing", async () => {
++  const { owner, viewer, list, task } = await shared("v");
++  await app.call("POST", `/api/tasks/${task.id}/comments`, { body: "Hello" }, owner.auth);
++  const read = [`/api/lists/${list.id}`, `/api/lists/${list.id}/tasks`, `/api/lists/${list.id}/tags`, `/api/lists/${list.id}/activity`,
++    `/api/lists/${list.id}/members`, `/api/tasks/${task.id}`, `/api/tasks/${task.id}/comments`];
++  for (const path of read) assert.equal((await app.call("GET", path, undefined, viewer.auth)).status, 200, path);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, viewer.auth)).body.role, "viewer");
++  assert.equal((await app.call("GET", `/api/tasks/${task.id}/comments`, undefined, viewer.auth)).body.length, 1);
++
++  for (const [method, path, body] of [
++    ["POST", `/api/lists/${list.id}/tasks`, { title: "Nope" }],
++    ["PATCH", `/api/tasks/${task.id}`, { done: true }],
++    ["DELETE", `/api/tasks/${task.id}`, undefined],
++    ["POST", `/api/tasks/${task.id}/comments`, { body: "Nope" }],
++    ["PATCH", `/api/lists/${list.id}`, { name: "Mine" }],
++    ["DELETE", `/api/lists/${list.id}`, undefined],
++    ["POST", `/api/lists/${list.id}/invitations`, { role: "viewer" }],
++    ["GET", `/api/lists/${list.id}/invitations`, undefined],
++    ["DELETE", `/api/lists/${list.id}/invitations/1`, undefined],
++    ["DELETE", `/api/lists/${list.id}/members/${owner.user.id}`, undefined],
++  ] as const) {
++    assert.equal((await app.call(method, path, body, viewer.auth)).status, 403, `${method} ${path}`);
++  }
++  const after = await app.call("GET", `/api/tasks/${task.id}`, undefined, owner.auth);
++  assert.equal(after.body.done, false);
++  assert.equal(after.body.comment_count, 1);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, owner.auth)).body.name, "Shared");
++});
++
++test("editors change the tasks and comment, but not the list nor its members", async () => {
++  const { owner, editor, viewer, list, task } = await shared("e");
++  const added = await app.call("POST", `/api/lists/${list.id}/tasks`, { title: "From editor" }, editor.auth);
++  assert.equal(added.status, 201);
++  assert.equal(added.body.created_by, editor.user.id);
++  assert.equal((await app.call("PATCH", `/api/tasks/${task.id}`, { done: true, tags: ["x"] }, editor.auth)).body.done, true);
++  assert.equal((await app.call("POST", `/api/tasks/${task.id}/comments`, { body: "Mine" }, editor.auth)).status, 201);
++  assert.equal((await app.call("DELETE", `/api/tasks/${added.body.id}`, undefined, editor.auth)).status, 204);
++  const log = await app.call("GET", `/api/lists/${list.id}/activity`, undefined, viewer.auth);
++  assert.ok(log.body.some((e: any) => e.action === "task.created" && e.user.username === "e_editor"));
++
++  for (const [method, path, body] of [
++    ["PATCH", `/api/lists/${list.id}`, { name: "Mine" }],
++    ["DELETE", `/api/lists/${list.id}`, undefined],
++    ["POST", `/api/lists/${list.id}/invitations`, { role: "editor" }],
++    ["GET", `/api/lists/${list.id}/invitations`, undefined],
++    ["DELETE", `/api/lists/${list.id}/members/${viewer.user.id}`, undefined],
++  ] as const) {
++    assert.equal((await app.call(method, path, body, editor.auth)).status, 403, `${method} ${path}`);
++  }
++  assert.equal((await app.call("GET", `/api/lists/${list.id}/members`, undefined, owner.auth)).body.length, 3);
++});
++
++test("someone with no access sees the shared list as one that does not exist", async () => {
++  const { stranger, list, task } = await shared("s");
++  for (const [method, path, body] of [
++    ["GET", `/api/lists/${list.id}`, undefined],
++    ["GET", `/api/lists/${list.id}/members`, undefined],
++    ["GET", `/api/lists/${list.id}/invitations`, undefined],
++    ["POST", `/api/lists/${list.id}/invitations`, { role: "editor" }],
++    ["DELETE", `/api/lists/${list.id}/members/1`, undefined],
++    ["GET", `/api/tasks/${task.id}`, undefined],
++    ["POST", `/api/tasks/${task.id}/comments`, { body: "hi" }],
++  ] as const) {
++    assert.equal((await app.call(method, path, body, stranger.auth)).status, 404, `${method} ${path}`);
++  }
++  assert.deepEqual((await app.call("GET", "/api/lists", undefined, stranger.auth)).body, []);
++});
++
++test("an invitation of one list gives no access to another", async () => {
++  const owner = await signUp(app, "iso_owner");
++  const guest = await signUp(app, "iso_guest");
++  const a = await makeList(app, owner.auth, "A");
++  const b = await makeList(app, owner.auth, "B");
++  const taskB = await makeTask(app, owner.auth, b.id);
++  const invitation = await invite(owner.auth, a.id, { role: "editor" });
++  await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, guest.auth);
++  assert.equal((await app.call("GET", `/api/lists/${b.id}`, undefined, guest.auth)).status, 404);
++  assert.equal((await app.call("PATCH", `/api/tasks/${taskB.id}`, { done: true }, guest.auth)).status, 404);
++  assert.equal((await app.call("DELETE", `/api/lists/${a.id}/invitations/${invitation.id}`, undefined, owner.auth)).status, 404);
++});
++
++test("an invitation of a list cannot be revoked through another list", async () => {
++  const owner = await signUp(app, "rev_owner");
++  const a = await makeList(app, owner.auth, "A");
++  const b = await makeList(app, owner.auth, "B");
++  const invitation = await invite(owner.auth, a.id);
++  assert.equal((await app.call("DELETE", `/api/lists/${b.id}/invitations/${invitation.id}`, undefined, owner.auth)).status, 404);
++  assert.equal((await app.call("GET", `/api/lists/${a.id}/invitations`, undefined, owner.auth)).body.length, 1);
++});
++
++test("the owner removes a member, who loses access at once", async () => {
++  const { owner, editor, viewer, list, task } = await shared("r");
++  const gone = await app.call("DELETE", `/api/lists/${list.id}/members/${editor.user.id}`, undefined, owner.auth);
++  assert.equal(gone.status, 204);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, editor.auth)).status, 404);
++  assert.equal((await app.call("PATCH", `/api/tasks/${task.id}`, { done: true }, editor.auth)).status, 404);
++  assert.deepEqual((await app.call("GET", "/api/lists", undefined, editor.auth)).body, []);
++  const members = await app.call("GET", `/api/lists/${list.id}/members`, undefined, owner.auth);
++  assert.deepEqual(members.body.map((m: any) => m.username), ["r_owner", "r_viewer"]);
++  assert.equal((await app.call("DELETE", `/api/lists/${list.id}/members/${editor.user.id}`, undefined, owner.auth)).status, 404);
++  assert.equal((await app.call("DELETE", `/api/lists/${list.id}/members/${owner.user.id}`, undefined, owner.auth)).status, 400);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, viewer.auth)).status, 200);
++});
++
++test("a removed member can come back only with a new invitation", async () => {
++  const { owner, editor, list } = await shared("b");
++  await app.call("DELETE", `/api/lists/${list.id}/members/${editor.user.id}`, undefined, owner.auth);
++  const invitation = await invite(owner.auth, list.id, { role: "viewer" });
++  const back = await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, editor.auth);
++  assert.equal(back.body.role, "viewer");
++});
++
++test("tasks can be assigned to the owner and to members, to nobody else", async () => {
++  const { owner, editor, viewer, stranger, list, task } = await shared("a");
++  for (const who of [owner, editor, viewer]) {
++    const res = await app.call("PATCH", `/api/tasks/${task.id}`, { assignee_id: who.user.id }, editor.auth);
++    assert.equal(res.status, 200);
++    assert.equal(res.body.assignee.id, who.user.id);
++  }
++  const created = await app.call("POST", `/api/lists/${list.id}/tasks`, { title: "T", assignee_id: viewer.user.id }, owner.auth);
++  assert.equal(created.status, 201);
++  for (const bad of [stranger.user.id, 99999, "1", 1.5]) {
++    const res = await app.call("PATCH", `/api/tasks/${task.id}`, { assignee_id: bad }, owner.auth);
++    assert.equal(res.status, 400, String(bad));
++  }
++});
++
++test("removing a member unassigns their tasks and cancels their reminders", async () => {
++  const { owner, editor, list } = await shared("u");
++  const task = await makeTask(app, owner.auth, list.id, { due_date: "2099-01-01", assignee_id: editor.user.id });
++  const other = await makeTask(app, owner.auth, list.id, { assignee_id: owner.user.id });
++  await app.call("DELETE", `/api/lists/${list.id}/members/${editor.user.id}`, undefined, owner.auth);
++  assert.equal((await app.call("GET", `/api/tasks/${task.id}`, undefined, owner.auth)).body.assignee, null);
++  assert.equal((await app.call("GET", `/api/tasks/${other.id}`, undefined, owner.auth)).body.assignee.id, owner.user.id);
++});
++
++test("deleting a list deletes its members and invitations", async () => {
++  const { owner, editor, list } = await shared("d");
++  const pending = await invite(owner.auth, list.id);
++  assert.equal((await app.call("DELETE", `/api/lists/${list.id}`, undefined, owner.auth)).status, 204);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}`, undefined, editor.auth)).status, 404);
++  assert.deepEqual((await app.call("GET", "/api/lists", undefined, editor.auth)).body, []);
++  const guest = await signUp(app, "d_guest");
++  assert.equal((await app.call("POST", `/api/invitations/${pending.token}/accept`, undefined, guest.auth)).status, 404);
++});
++
++test("shared lists come in the lists of the user, by name, with their counts and roles", async () => {
++  const owner = await signUp(app, "ls_owner");
++  const guest = await signUp(app, "ls_guest");
++  await makeList(app, guest.auth, "Mine");
++  const list = await makeList(app, owner.auth, "Alpha");
++  await makeTask(app, owner.auth, list.id);
++  const invitation = await invite(owner.auth, list.id, { role: "viewer" });
++  await app.call("POST", `/api/invitations/${invitation.token}/accept`, undefined, guest.auth);
++  const lists = await app.call("GET", "/api/lists", undefined, guest.auth);
++  assert.deepEqual(lists.body.map((l: any) => [l.name, l.role, l.task_count]), [["Alpha", "viewer", 1], ["Mine", "owner", 0]]);
++  assert.equal((await app.call("GET", "/api/lists", undefined, owner.auth)).body.length, 1);
++});
++
++test("joining and leaving are in the activity", async () => {
++  const { owner, viewer, list } = await shared("act");
++  await app.call("DELETE", `/api/lists/${list.id}/members/${viewer.user.id}`, undefined, owner.auth);
++  const log = await app.call("GET", `/api/lists/${list.id}/activity`, undefined, owner.auth);
++  const actions = log.body.map((e: any) => e.action);
++  assert.ok(actions.includes("member.joined") && actions.includes("member.removed"));
++});

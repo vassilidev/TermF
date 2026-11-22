@@ -6,6 +6,7 @@
   import { library } from "$lib/library.svelte";
   import { trustState, type RepoTrust } from "$lib/onboarding-logic";
   import { shortPath } from "$lib/state.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
 
   /** Claude Code's trust in the project's repositories: only ever given by ticking, never by TermF alone. */
@@ -75,6 +76,8 @@
         </button>
       {/if}
     </div>
+  {:else if !error}
+    <Skeleton shape="list" rows={2} />
   {/if}
 </div>
 

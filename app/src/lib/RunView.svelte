@@ -27,12 +27,14 @@
   import BaseUpdate from "$lib/BaseUpdate.svelte";
   import CiChecks from "$lib/CiChecks.svelte";
   import Delivery from "$lib/Delivery.svelte";
+  import RunLive from "$lib/RunLive.svelte";
   import TeamOptions from "$lib/TeamOptions.svelte";
   import TeamRunDetail, { ticketKey } from "$lib/TeamRunDetail.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import Popover from "$lib/ui/Popover.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { apiUsd, budgetUsd, usd } from "$lib/agents.svelte";
@@ -95,7 +97,8 @@
   let moreTrigger = $state<HTMLButtonElement>();
   let teamWorkflow = $state("");
   let teamBudget = $state<number | null>(null);
-  let events = $state<RunEvent[]>([]);
+  /** Null until first read. */
+  let events = $state<RunEvent[] | null>(null);
 
   const session = $derived(run && runSession(run));
   const open = $derived(run?.status === "running" || run?.status === "delivered");
@@ -145,7 +148,10 @@
         if (request === eventsRequest) events = [...list].reverse();
       },
       (e) => {
-        if (request === eventsRequest) error = String(e);
+        if (request === eventsRequest) {
+          error = String(e);
+          events ??= [];
+        }
       },
     );
   });
@@ -496,6 +502,7 @@
               <p class="notice" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ctoEntryTriage")}</p>
             {/if}
             <WaitCards run={teamRun} />
+            <RunLive run={teamRun} />
             {#if repos.length}
               {@const prs = repos.filter((r) => r.run.prUrl).length}
               {@const other = repos.find((r) => r.run.id === deliveringRepo)?.run}
@@ -607,21 +614,24 @@
 
           <section class="panel" aria-labelledby="run-journal">
             <h3 id="run-journal">{t("runJournal")}</h3>
+            {#if events === null}<Skeleton rows={3} />{/if}
             <ol class="journal">
-              {#each events as event (event.id)}
+              {#each events ?? [] as event (event.id)}
                 {@const [compact, full] = when(event.at)}
                 <li class:failed={event.kind === "failed"}>
                   <time datetime={new Date(event.at * 1000).toISOString()} title={full}>{compact}</time>
                   <span>{describe(event)}</span>
                 </li>
               {:else}
-                <li class="muted">{t("runJournalEmpty")}</li>
+                {#if events}<li class="muted">{t("runJournalEmpty")}</li>{/if}
               {/each}
             </ol>
           </section>
         </aside>
       </div>
     </div>
+  {:else if !tickets.runsRead}
+    <div class="page"><Skeleton shape="cards" rows={3} /></div>
   {/if}
 </div>
 

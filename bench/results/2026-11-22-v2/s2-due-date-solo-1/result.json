@@ -1,0 +1,167 @@
+{
+  "ticket": "s2-due-date",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:21:22.947Z",
+  "state": "done",
+  "wall_s": 29.159,
+  "cost_usd": 0.1061292,
+  "sessions": 1,
+  "turns": 4,
+  "tokens": {
+    "input": 8,
+    "output": 4581,
+    "cache_read": 79632,
+    "cache_creation": 13085
+  },
+  "said": "Tasks now have an optional `due_date`, and all 12 tests pass (7 of them new). I didn't open the page in a browser, so the due-date display and the date field in the add form are untested.\n\n- **Migration:** a second migration in `src/db.ts` adds a nullable `due_date` column. Existing rows read back as `null`, and one of the new tests checks this against a database built the old way.\n- **API:** `src/tasks.ts` and `src/app.ts` carry the field on every task. `POST` accepts it, and `PATCH` sets it, clears it with `null`, or leaves it alone when it's absent.\n- **Validation:** a `due_date` that isn't a real `YYYY-MM-DD` date returns the specified 400 and saves nothing. That covers `2026-1-5`, `tomorrow`, `2026-02-30` and leap-year cases like `2025-02-29`. It also covers non-strings, such as a number or an empty string.\n- **Page:** a task with a due date shows `due YYYY-MM-DD` next to its title. The add form has an optional date input, which sends `null` when left empty.\n- **Docs and tests:** the README documents the field, its errors and the new 400 on both routes. The tests cover the default, create, PATCH set/keep/clear, invalid dates on both routes, and the migration.\n\nA `PATCH` with a bad `due_date` is rejected whole. Even a valid `title` sent in the same request isn't applied.\n\nI haven't committed anything.",
+  "hidden": {
+    "pass": 8,
+    "fail": 0,
+    "tests": 8,
+    "failed": [],
+    "total": 8
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 12,
+    "fail": 0,
+    "tests": 12,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 8,
+      "removed": 3
+    },
+    {
+      "path": "public/app.js",
+      "added": 8,
+      "removed": 2
+    },
+    {
+      "path": "public/index.html",
+      "added": 3,
+      "removed": 0
+    },
+    {
+      "path": "src/app.ts",
+      "added": 11,
+      "removed": 2
+    },
+    {
+      "path": "src/db.ts",
+      "added": 1,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 19,
+      "removed": 4
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 58,
+      "removed": 0
+    }
+  ],
+  "lines_added": 108,
+  "lines_removed": 11,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "Task and Row gain due_date: string|null, the column is nullable with no default, and toTask spreads it, so tasks come back with null by default."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST passes due_date ?? null. updateTask keeps the old value when undefined and writes null when null, and the PATCH test covers set, keep and clear."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "validDueDate runs before any write in both handlers. It checks the format, month and day (leap years included) and rejects non-strings. It returns the exact error message with a 400, and the tests check that nothing is saved."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "A new ALTER TABLE migration is appended, and a test migrates a version-1 database and reads due_date as null. The test assumes migrate is exported from db.ts, which this diff does not show."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "A <time> element is shown after the title when due_date is set, and the form has an optional <input type=date> that sends null when empty."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The new tests cover default, create, PATCH set/keep/clear, invalid values and the migration, and the README documents the field."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 8,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "public/app.js",
+        "what": "The time element is always created, but only appended through `...(task.due_date ? [due] : [])`. Building and appending it inside one `if` would be simpler."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "If the JSON body is the literal `null`, `body.due_date` throws a TypeError. The code that read `body.title` before had the same problem, so this is not new, but the new validation line adds one more place it can happen."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "Invalid values are only looped over for POST. PATCH is tested with a single bad value. Object and array values and a PATCH with a non-string are not tested."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The migration test imports `migrate` from `../src/db.ts`. The diff does not show it being exported, so the test fails if it is not."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "The days-in-month table and leap-year logic are hand-rolled. A Date round-trip check would be shorter, but the current code is correct."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets every acceptance criterion. Validation runs before any write, PATCH keeps, sets and clears the value correctly, and the migration, UI, README and tests are all there. The remaining issues are minor: an awkward conditional append in app.js, a migration test that relies on an export the diff doesn't show, and PATCH invalid-value coverage that is thinner than POST's.",
+    "cost_usd": 0.0532524
+  }
+}

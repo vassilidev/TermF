@@ -7,6 +7,7 @@
   import X from "@lucide/svelte/icons/x";
   import ClaudeChange from "$lib/ClaudeChange.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { t } from "$lib/i18n";
   import {
@@ -204,7 +205,7 @@
   {#if error}<Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>{/if}
 
   {#if !team}
-    {#if !error}<p class="notice" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /></p>{/if}
+    {#if !error}<Skeleton rows={4} />{/if}
   {:else}
     {#if team.proposal.team}
       <section class="part">
