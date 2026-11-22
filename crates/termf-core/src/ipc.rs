@@ -49,6 +49,9 @@ pub const MCP_BROWSER: [&str; 8] = [
 /// TermF's folders, for the browser of `termf mcp`: the project's config, the worktree's ports.
 pub const ENV_CONFIG_DIR: &str = "TERMF_CONFIG_DIR";
 pub const ENV_DATA_DIR: &str = "TERMF_DATA_DIR";
+/// Ops (`termf-ops`): the recipes an agent may run and the run itself, which waits for the user's approval in
+/// TermF's own card (never a permission prompt of Claude Code), or only proposes a recipe that writes.
+pub const MCP_OPS: [&str; 2] = ["ops_recipes", "ops_run"];
 pub const MCP_ACTIONS: [&str; 6] = [
     "start_team_run",
     "answer",
@@ -223,6 +226,16 @@ pub enum McpCall {
     /// A question to the project's expert, answered with its sources.
     AskExpert {
         question: String,
+    },
+    /// The connections and recipes this session may use.
+    OpsRecipes {},
+    /// A recipe on a connection; `params`: name → value (a text or a number).
+    OpsRun {
+        recipe: String,
+        #[serde(default)]
+        connection: Option<String>,
+        #[serde(default)]
+        params: BTreeMap<String, Value>,
     },
 }
 
@@ -709,6 +722,51 @@ pub fn keeps_awake(session: &SessionSummary) -> bool {
     }
 }
 
+/// The line someone types at Codex CLI's prompt, as far as TermF can tell from the keys: Codex says when a turn ends,
+/// not when one starts.
+#[derive(Default, Debug)]
+pub struct Typed {
+    line: String,
+}
+
+impl Typed {
+    /// Takes terminal input; `true` when Enter sends a message: neither an empty line nor a `/command`.
+    pub fn send(&mut self, input: &[u8]) -> bool {
+        // Pasted text comes between bracketed-paste marks; any other escape sequence (arrows, reports) leaves the
+        // line as it is, and Esc alone drops it.
+        let pasted = input
+            .strip_prefix(b"\x1b[200~")
+            .map(|rest| rest.strip_suffix(b"\x1b[201~").unwrap_or(rest));
+        let input = match pasted {
+            Some(text) => text,
+            None if input == b"\x1b" => {
+                self.line.clear();
+                return false;
+            }
+            None if input.first() == Some(&0x1b) => return false,
+            None => input,
+        };
+        let mut sent = false;
+        for c in String::from_utf8_lossy(input).chars() {
+            match c {
+                '\r' => {
+                    let line = std::mem::take(&mut self.line);
+                    let line = line.trim();
+                    sent |= !line.is_empty() && !line.starts_with('/');
+                }
+                '\x7f' | '\x08' => {
+                    self.line.pop();
+                }
+                // Ctrl+U, Ctrl+C.
+                '\x15' | '\x03' => self.line.clear(),
+                c if !c.is_control() || c == '\n' => self.line.push(c),
+                _ => {}
+            }
+        }
+        sent
+    }
+}
+
 /// Whether terminal input can answer a prompt: escape sequences (arrows, focus and mouse reports) cannot.
 pub fn answers_prompt(input: &[u8]) -> bool {
     input.first().is_some_and(|&b| b != 0x1b)
@@ -734,18 +792,22 @@ pub fn is_typing(input: &[u8]) -> bool {
     !report
 }
 
-/// Status a Claude Code hook event means, or `None` when it says nothing about the state.
+/// Status a Claude Code hook event means, or `None` when it says nothing about the state. Also Gemini CLI's hooks
+/// and Codex CLI's `notify` (`cli_agents`).
 pub fn hook_status(event: &str, payload: &Value) -> Option<Status> {
     let field = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
     match event {
         "UserPromptSubmit" | "PreToolUse" | "PostToolUse" => Some(Status::Working),
+        "BeforeAgent" | "BeforeTool" | "AfterTool" => Some(Status::Working),
+        "AfterAgent" | crate::cli_agents::CODEX_TURN_DONE => Some(Status::Idle),
         "PermissionRequest" => Some(Status::Waiting),
         "Notification" => match field("notification_type") {
             "permission_prompt"
             | "elicitation_dialog"
             | "elicitation_url_dialog"
             | "agent_needs_input"
-            | "quota_auto_resume_stale" => Some(Status::Waiting),
+            | "quota_auto_resume_stale"
+            | "ToolPermission" => Some(Status::Waiting),
             // Also the only sign of a turn interrupted with Esc, which fires no Stop.
             "idle_prompt" => Some(Status::Idle),
             _ => None,
@@ -918,6 +980,31 @@ mod tests {
     }
 
     #[test]
+    fn a_codex_turn_starts_with_a_message_sent() {
+        let mut typed = Typed::default();
+        assert!(!typed.send(b"\r"), "an empty prompt");
+        assert!(!typed.send(b"/model"));
+        assert!(!typed.send(b"\r"), "a command");
+        assert!(!typed.send(b"\x1b[B"), "an arrow in its menu");
+        assert!(!typed.send(b"\r"));
+        for key in [&b"fix"[..], b" it", b"x", b"\x7f"] {
+            assert!(!typed.send(key));
+        }
+        assert!(typed.send(b"\r"), "a message");
+        typed.send(b"drop this");
+        assert!(!typed.send(b"\x1b"), "Esc");
+        assert!(!typed.send(b"\r"), "nothing left");
+        typed.send(b"no");
+        typed.send(b"\x15");
+        assert!(!typed.send(b"\r"), "Ctrl+U");
+        assert!(
+            typed.send(b"\x1b[200~pasted\nlines\x1b[201~\r"),
+            "pasted, then Enter"
+        );
+        assert!(typed.send("é\r".as_bytes()));
+    }
+
+    #[test]
     fn maps_hook_events_to_status() {
         let none = json!({});
         assert_eq!(
@@ -926,6 +1013,22 @@ mod tests {
         );
         assert_eq!(hook_status("PreToolUse", &none), Some(Status::Working));
         assert_eq!(hook_status("PostToolUse", &none), Some(Status::Working));
+        // Gemini CLI's hooks and Codex CLI's notify.
+        for working in ["BeforeAgent", "BeforeTool", "AfterTool"] {
+            assert_eq!(hook_status(working, &none), Some(Status::Working));
+        }
+        assert_eq!(hook_status("AfterAgent", &none), Some(Status::Idle));
+        assert_eq!(
+            hook_status("agent-turn-complete", &none),
+            Some(Status::Idle)
+        );
+        assert_eq!(
+            hook_status(
+                "Notification",
+                &json!({"notification_type": "ToolPermission", "message": "Allow?"})
+            ),
+            Some(Status::Waiting)
+        );
         assert_eq!(
             hook_status("PermissionRequest", &none),
             Some(Status::Waiting)
@@ -1222,6 +1325,7 @@ mod tests {
             .iter()
             .chain(&MCP_ACTIONS)
             .chain(&MCP_EXPERT)
+            .chain(&MCP_OPS)
             .copied()
             .collect();
         for name in &names {
@@ -1236,6 +1340,7 @@ mod tests {
                 ("query", json!("webhooks")),
                 ("id", json!(3)),
                 ("question", json!("why?")),
+                ("recipe", json!("logs-tail")),
             ] {
                 call.insert(key.into(), value);
             }
@@ -1251,6 +1356,7 @@ mod tests {
                 "memory_search" => &["query"],
                 "memory_read" => &["id"],
                 "ask_expert" => &["question"],
+                "ops_run" => &["recipe"],
                 _ => &[],
             };
             call.retain(|k, _| k == "tool" || fields.contains(&k.as_str()));

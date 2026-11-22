@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 use termf_core::context::Gauge;
-use termf_core::ipc::{MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_READ};
+use termf_core::ipc::{MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_OPS, MCP_READ};
 
 use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
 
@@ -20,6 +20,8 @@ pub const EXPERT: &str = "expert";
 pub const ASK_EXPERT: &str = "mcp__termf__ask_expert";
 /// What a role allows to get the browser of `termf mcp`: every `browser_*` tool, without a permission prompt.
 pub const BROWSER: &str = "mcp__termf__browser_*";
+/// What a role allows to get Ops: `ops_recipes` and `ops_run`, each run approved in TermF's own card.
+pub const OPS: &str = "mcp__termf__ops_*";
 
 fn expert(spec: &SessionSpec) -> bool {
     spec.mcp && spec.role.as_deref() == Some(EXPERT)
@@ -33,24 +35,34 @@ pub fn mcp_tools(spec: &SessionSpec) -> Vec<&'static str> {
         return MCP_EXPERT.to_vec();
     }
     if spec.mcp {
-        return MCP_READ.iter().chain(&MCP_ACTIONS).copied().collect();
+        return MCP_READ
+            .iter()
+            .chain(&MCP_ACTIONS)
+            .chain(&MCP_OPS)
+            .copied()
+            .collect();
     }
-    let allowed = |tool: &str| {
+    let allowed = |all: &str, tool: &str| {
         spec.allowed_tools
             .iter()
-            .any(|t| t == BROWSER || t.strip_prefix("mcp__termf__") == Some(tool))
+            .any(|t| t == all || t.strip_prefix("mcp__termf__") == Some(tool))
     };
     let mut tools: Vec<&str> = Vec::new();
     if spec.allowed_tools.iter().any(|t| t == ASK_EXPERT) {
         tools.push("ask_expert");
     }
-    tools.extend(MCP_BROWSER.iter().filter(|t| allowed(t)));
+    tools.extend(MCP_BROWSER.iter().filter(|t| allowed(BROWSER, t)));
+    // Only where `termf guard` sees each command: once it read prod, the session's ways out need the user.
+    if spec.guard {
+        tools.extend(MCP_OPS.iter().filter(|t| allowed(OPS, t)));
+    }
     tools
 }
 
 /// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user
 /// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web. The
-/// expert, read-only, has no action, and its read-only sub-agents search wide.
+/// expert, read-only, has no action, and its read-only sub-agents search wide. Ops are allowed here: TermF asks
+/// the user in its own card, with the exact command.
 pub fn mcp_settings(spec: &SessionSpec) -> Value {
     let tools = |names: &[&str]| -> Vec<String> {
         names.iter().map(|n| format!("mcp__termf__{n}")).collect()
@@ -69,7 +81,7 @@ pub fn mcp_settings(spec: &SessionSpec) -> Value {
     }
     deny.push("Agent");
     json!({ "permissions": {
-        "allow": tools(&MCP_READ),
+        "allow": tools(&MCP_READ).into_iter().chain(tools(&MCP_OPS)).collect::<Vec<_>>(),
         "ask": tools(&MCP_ACTIONS),
         "deny": deny,
     } })
@@ -102,6 +114,10 @@ fn options(spec: &SessionSpec) -> Vec<String> {
 impl AgentRuntime for ClaudeCode {
     fn id(&self) -> &'static str {
         "claude-code"
+    }
+
+    fn label(&self) -> &'static str {
+        "Claude Code"
     }
 
     fn headless_args(&self, spec: &SessionSpec, launch: &Launch) -> Vec<String> {
@@ -192,11 +208,11 @@ impl AgentRuntime for ClaudeCode {
         json!({ "type": "user", "message": { "role": "user", "content": text } }).to_string()
     }
 
-    fn interrupt(&self) -> String {
+    fn interrupt(&self) -> Option<String> {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = format!("termf-interrupt-{}", NEXT.fetch_add(1, Ordering::Relaxed));
-        json!({ "type": "control_request", "request_id": id, "request": { "subtype": "interrupt" } })
-            .to_string()
+        let line = json!({ "type": "control_request", "request_id": id, "request": { "subtype": "interrupt" } });
+        Some(line.to_string())
     }
 
     fn answer(&self, request: &str, allow: bool, input: &Value, message: &str) -> String {
@@ -414,7 +430,7 @@ fn tool_output(content: &Value) -> String {
     }
 }
 
-fn cut(text: &str) -> (String, bool) {
+pub(crate) fn cut(text: &str) -> (String, bool) {
     match text.char_indices().nth(TOOL_OUTPUT) {
         Some((end, _)) => (text[..end].to_owned(), true),
         None => (text.to_owned(), false),
@@ -629,11 +645,11 @@ mod tests {
     fn writes_stdin_lines() {
         let line: Value = serde_json::from_str(&ClaudeCode.message("hi \"there\"\n")).unwrap();
         assert_eq!(line["message"]["content"], "hi \"there\"\n");
-        let interrupt: Value = serde_json::from_str(&ClaudeCode.interrupt()).unwrap();
+        let interrupt: Value = serde_json::from_str(&ClaudeCode.interrupt().unwrap()).unwrap();
         assert_eq!(interrupt["request"]["subtype"], "interrupt");
         assert_ne!(
             interrupt["request_id"],
-            serde_json::from_str::<Value>(&ClaudeCode.interrupt()).unwrap()["request_id"]
+            serde_json::from_str::<Value>(&ClaudeCode.interrupt().unwrap()).unwrap()["request_id"]
         );
         let allow: Value =
             serde_json::from_str(&ClaudeCode.answer("r1", true, &json!({"a": 1}), "")).unwrap();

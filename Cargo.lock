@@ -5796,6 +5796,7 @@ dependencies = [
  "termf-library",
  "termf-memory",
  "termf-onboarding",
+ "termf-ops",
  "termf-schedule",
  "termf-ssh",
  "termf-sync",
@@ -5849,6 +5850,7 @@ dependencies = [
  "termf-core",
  "termf-library",
  "termf-memory",
+ "termf-ops",
  "termf-schedule",
  "termf-ssh",
  "termf-sync",
@@ -5866,6 +5868,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "libc",
+ "regex",
  "serde",
  "serde_json",
  "toml 1.2.2+spec-1.1.0",
@@ -5948,6 +5951,24 @@ dependencies = [
  "termf-team",
  "termf-tickets",
  "termf-worktree",
+ "toml 1.2.2+spec-1.1.0",
+ "toml_edit 0.25.20+spec-1.1.0",
+]
+
+[[package]]
+name = "termf-ops"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "termf-claude",
+ "termf-core",
+ "termf-library",
+ "termf-sync",
+ "termf-vault",
  "toml 1.2.2+spec-1.1.0",
  "toml_edit 0.25.20+spec-1.1.0",
 ]

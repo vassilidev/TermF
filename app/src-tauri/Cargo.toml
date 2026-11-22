@@ -33,6 +33,7 @@ termf-vault = { path = "../../crates/termf-vault" }
 termf-worktree = { path = "../../crates/termf-worktree" }
 termf-claude = { path = "../../crates/termf-claude" }
 termf-onboarding = { path = "../../crates/termf-onboarding" }
+termf-ops = { path = "../../crates/termf-ops" }
 termf-visual = { path = "../../crates/termf-visual" }
 termf-design = { path = "../../crates/termf-design" }
 anyhow = "1.0.104"

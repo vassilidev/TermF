@@ -1,15 +1,13 @@
 export type Os = "mac" | "windows" | "linux";
-export type ToolId = "git" | "claude" | "gh" | "chrome";
+export type ToolId = "git" | "claude" | "codex" | "gemini" | "gh" | "chrome";
 
 export type Tool = { name: string; version: string | null; path: string | null };
 export type Install = { path: string; version: string | null; origin: "setting" | "native" | "path" };
 export type Chrome = { path: string; testing: boolean; version: string | null };
-export type Tools = {
-  git: Tool;
-  gh: Tool;
-  claude: { install: Install | null; others: Install[]; minimum: string; tooOld: boolean };
-  chrome: Chrome | null;
-};
+export type Agent = { install: Install | null; others: Install[]; minimum: string; tooOld: boolean };
+export type Tools = { git: Tool; gh: Tool; claude: Agent; codex: Agent; gemini: Agent; chrome: Chrome | null };
+
+const everywhere = (command: string) => ({ mac: command, windows: command, linux: command });
 
 /** Each tool's official page, and its install command where the page gives one for this system. */
 export const installs: Record<ToolId, { url: string; command: Partial<Record<Os, string>> }> = {
@@ -25,6 +23,8 @@ export const installs: Record<ToolId, { url: string; command: Partial<Record<Os,
       windows: "irm https://claude.ai/install.ps1 | iex",
     },
   },
+  codex: { url: "https://github.com/openai/codex", command: everywhere("npm install -g @openai/codex") },
+  gemini: { url: "https://github.com/google-gemini/gemini-cli", command: everywhere("npm install -g @google/gemini-cli") },
   gh: { url: "https://cli.github.com", command: { mac: "brew install gh", windows: "winget install --id GitHub.cli" } },
   chrome: { url: "https://www.google.com/chrome/", command: {} },
 };
@@ -36,7 +36,7 @@ export function osOf(platform: string): Os {
 export const required: ToolId[] = ["git", "claude"];
 
 export function found(tools: Tools, id: ToolId): boolean {
-  if (id === "claude") return tools.claude.install !== null && !tools.claude.tooOld;
+  if (id === "claude" || id === "codex" || id === "gemini") return tools[id].install !== null && !tools[id].tooOld;
   if (id === "chrome") return tools.chrome !== null;
   return tools[id].path !== null;
 }

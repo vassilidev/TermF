@@ -26,7 +26,7 @@
   import Popover from "$lib/ui/Popover.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
-  import { showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import { runtimes, showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
   import { focusSession } from "$lib/commands";
   import {
     addressed,
@@ -47,7 +47,7 @@
     type StoredEvent,
     type Tool,
   } from "$lib/conversation-logic";
-  import { t } from "$lib/i18n";
+  import { lang, t } from "$lib/i18n";
   import type { Item as LibraryItem } from "$lib/library.svelte";
   import { blocks, type Span } from "$lib/markdown-logic";
   import { app, onScreen, shortPath, type Session } from "$lib/state.svelte";
@@ -141,6 +141,7 @@
   const model = $derived(session.model || (init?.kind === "init" ? init.model : ""));
   const mode = $derived(session.permissionMode || (init?.kind === "init" ? init.permissionMode : ""));
   const left = $derived(session.budget === null ? null : Math.max(0, session.budget - session.cost));
+  const runtime = $derived(runtimes[session.runtime]);
 
   const atBottom = () => !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
 
@@ -521,7 +522,11 @@
       {@const [status, label] = outcomes[end.outcome]}
       <StatusPill {status} label={t(label)} />
     {/if}
-    <span>{t("chatTurnCost", { cost: usd(end.cost), total: usd(end.total) })}</span>
+    {#if runtime}
+      <span>{t("adaptersTurnTokens", { input: end.usage.input.toLocaleString(lang), output: end.usage.output.toLocaleString(lang) })}</span>
+    {:else}
+      <span>{t("chatTurnCost", { cost: usd(end.cost), total: usd(end.total) })}</span>
+    {/if}
     {#if end.context}<ContextGauge gauge={end.context} />{/if}
   </div>
   {#if end.outcome === "error" && end.error}
@@ -566,10 +571,11 @@
 {#snippet meta()}
   <p class="meta">
     <span class="mono" title={session.cwd}>{shortPath(session.cwd)}</span>
+    {#if runtime}<span><small>{t("adaptersTool")}</small> {t(runtime)}</span>{/if}
     <span><small>{t("metaModel")}</small> {model || t("schedulerDefault")}</span>
     <span><small>{t("metaEffort")}</small> {session.effort ? (efforts[session.effort] ? t(efforts[session.effort]) : session.effort) : t("schedulerDefault")}</span>
     <span><small>{t("chatMode")}</small> {mode ? (modes[mode] ? t(modes[mode]) : mode) : t("schedulerDefault")}</span>
-    <span><small>{t("chatCost")}</small> {usd(session.cost)}</span>
+    {#if !runtime}<span><small>{t("chatCost")}</small> {usd(session.cost)}</span>{/if}
     {#if left !== null && session.budget !== null}
       <span><small>{t("chatBudget")}</small> {t("chatBudgetLeft", { left: usd(left), budget: usd(session.budget) })}</span>
     {/if}

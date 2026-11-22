@@ -7,10 +7,12 @@ const claude = (install, tooOld = false) => ({ install, others: [], minimum: "2.
 const at = { path: "/home/alex/.local/bin/claude", version: "2.1.330", origin: "native" };
 
 test("git and a recent enough Claude Code are required; gh and Chrome are not", () => {
-  const all = { git: tool("git", "/usr/bin/git"), gh: tool("gh"), claude: claude(at), chrome: null };
+  const all = { git: tool("git", "/usr/bin/git"), gh: tool("gh"), claude: claude(at), codex: claude(null), gemini: claude(null), chrome: null };
   assert.deepEqual(missingRequired(all), []);
   assert.equal(found(all, "gh"), false);
   assert.equal(found(all, "chrome"), false);
+  assert.equal(found(all, "codex"), false, "Codex and Gemini are optional");
+  assert.equal(found({ ...all, gemini: claude({ ...at, version: "0.1.0" }, true) }, "gemini"), false, "too old");
   assert.deepEqual(missingRequired({ ...all, git: tool("git") }), ["git"]);
   assert.deepEqual(missingRequired({ ...all, claude: claude(null) }), ["claude"]);
   assert.deepEqual(missingRequired({ ...all, claude: claude({ ...at, version: "2.0.1" }, true) }), ["claude"], "too old");

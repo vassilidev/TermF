@@ -22,6 +22,8 @@
   const rows: { id: ToolId; name: string; what: Parameters<typeof t>[0] }[] = [
     { id: "git", name: "git", what: "releaseGitWhat" },
     { id: "claude", name: "Claude Code", what: "releaseClaudeWhat" },
+    { id: "codex", name: "Codex CLI", what: "releaseAgentWhat" },
+    { id: "gemini", name: "Gemini CLI", what: "releaseAgentWhat" },
     { id: "gh", name: "GitHub CLI (gh)", what: "releaseGhWhat" },
     { id: "chrome", name: "Chrome", what: "releaseChromeWhat" },
   ];
@@ -75,6 +77,12 @@
             <p class="what">{t(row.what)}</p>
             {#if row.id === "claude" && tools.claude.install}
               <ClaudeBinary b={tools.claude} summary />
+            {:else if (row.id === "codex" || row.id === "gemini") && tools[row.id].install}
+              {@const agent = tools[row.id]}
+              <p class="at"><code>{agent.install?.path}</code>{#if agent.install?.version}<span class="muted">{agent.install.version}</span>{/if}</p>
+              {#if agent.tooOld}
+                <Banner kind="error">{t("releaseTooOld", { version: agent.install?.version ?? "", minimum: agent.minimum })}</Banner>
+              {/if}
             {:else if row.id === "chrome" && tools.chrome}
               <p class="at">
                 <code>{tools.chrome.path}</code>

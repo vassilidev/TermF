@@ -158,8 +158,9 @@ fn speaks_mcp_and_calls_termf_with_its_own_token_only() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 13, "{names:?}");
+    assert_eq!(names.len(), 15, "{names:?}");
     assert!(names.contains(&"ask_expert") && !names.contains(&"memory_search"));
+    assert!(names.contains(&"ops_recipes") && names.contains(&"ops_run"));
     for never in ["deliver", "close", "push", "vault", "secret"] {
         assert!(!names.iter().any(|n| n.contains(never)), "{never}");
     }

@@ -1,5 +1,6 @@
-//! What TermF needs on the machine (ARCHITECTURE §16, first launch): git and Claude Code, then the GitHub CLI and
-//! a Chrome, both optional. Chrome for Testing is downloaded on demand when no Chrome is found.
+//! What TermF needs on the machine (ARCHITECTURE §16, first launch): git and Claude Code, then the GitHub CLI, the
+//! other agent CLIs TermF drives (Codex, Gemini) and a Chrome, all optional. Chrome for Testing is downloaded on
+//! demand when no Chrome is found.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,7 +9,7 @@ use serde::Serialize;
 use tauri::State;
 use termf_claude::Env;
 use termf_claude::cli::{self, Tool};
-use termf_core::claude::Found;
+use termf_core::claude::{self as agent, Found};
 use termf_visual::cft;
 
 use crate::{AppState, CmdResult, err};
@@ -19,6 +20,8 @@ pub struct Tools {
     git: Tool,
     gh: Tool,
     claude: Found,
+    codex: Found,
+    gemini: Found,
     chrome: Option<Chrome>,
 }
 
@@ -49,10 +52,14 @@ pub fn detect(env: &Env, data_dir: &Path, browser: Option<PathBuf>) -> Tools {
     let (Some(git), Some(gh)) = (found.next(), found.next()) else {
         unreachable!("one result per name");
     };
+    let path = env.path.clone().unwrap_or_default();
+    let other = |program| agent::find_in(program, env.home.as_deref(), &path);
     Tools {
         git,
         gh,
         claude: cli::binary(env),
+        codex: other("codex"),
+        gemini: other("gemini"),
         chrome: browser.map(|p| chrome(p, data_dir)),
     }
 }
@@ -63,9 +70,17 @@ fn data_dir() -> CmdResult<PathBuf> {
 
 #[tauri::command]
 pub async fn tools_check(state: State<'_, AppState>) -> CmdResult<Tools> {
-    let env = crate::claude::env(&state.config_dir, None);
+    let mut env = crate::claude::env(&state.config_dir, None);
     let data = data_dir()?;
     tauri::async_runtime::spawn_blocking(move || {
+        // Codex and Gemini are also looked for where an interactive shell finds them (npm under nvm…).
+        let paths = [agent::Tool::Codex, agent::Tool::Gemini].map(agent::search_path_for);
+        let all = env
+            .path
+            .iter()
+            .chain(&paths)
+            .flat_map(std::env::split_paths);
+        env.path = std::env::join_paths(all).ok();
         detect(&env, &data, termf_visual::browser::find().ok())
     })
     .await
@@ -131,15 +146,25 @@ mod tests {
         let none = detect(&env(&bin), &data, None);
         assert!(none.git.path.is_none() && none.gh.path.is_none());
         assert!(none.claude.install.is_none() && none.chrome.is_none());
+        assert!(none.codex.install.is_none() && none.gemini.install.is_none());
 
         program(&bin, "git", "git version 2.47.1");
         program(&bin, "claude", "2.1.330 (Claude Code)");
+        program(&bin, "codex", "codex-cli 0.171.0");
         let some = detect(&env(&bin), &data, None);
         assert_eq!(some.git.version.as_deref(), Some("2.47.1"));
         assert!(some.gh.path.is_none(), "gh is optional and missing");
         let claude = some.claude.install.unwrap();
         assert_eq!(claude.version.as_deref(), Some("2.1.330"));
         assert!(!some.claude.too_old);
+        assert_eq!(
+            some.codex.install.unwrap().version.as_deref(),
+            Some("0.171.0")
+        );
+        assert!(
+            some.gemini.install.is_none(),
+            "Gemini CLI is optional and missing"
+        );
 
         let testing = cft::root(&data).join("131.0.6778.85/chrome-linux64/chrome");
         let found = chrome(testing, &data);

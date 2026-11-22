@@ -23,6 +23,7 @@
   import { tour, watchTour } from "$lib/tour.svelte";
   import { watchAgents } from "$lib/agents.svelte";
   import { watchCi } from "$lib/ci.svelte";
+  import { watchOps } from "$lib/ops.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
   import { sync, watchSync } from "$lib/sync.svelte";
   import { watchTeam } from "$lib/team.svelte";
@@ -46,10 +47,11 @@
     const stopPanes = watchPanes();
     const stopTour = watchTour();
     const stopTeam = watchTeam();
+    const stopOps = watchOps();
     const stopVisual = watchVisual();
     const stopSync = watchSync();
     const stopUpdates = watchUpdates();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopVisual(), stopSync(), stopUpdates());
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopVisual(), stopSync(), stopUpdates());
   });
 
   function drag(e: PointerEvent) {

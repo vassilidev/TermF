@@ -626,6 +626,36 @@ fn checks_the_plan_and_its_questions() {
 }
 
 #[test]
+fn a_team_started_after_prod_was_read_has_no_way_out_from_its_first_session() {
+    let env = Env::new("read-prod");
+    env.answer(
+        "plan.1.json",
+        env.plan(json!([task("T1", "back", &[], &[])])),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        plan_only: true,
+        read_prod: true,
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.until("the plan's session", |r| r.steps[0].session.is_some());
+    let spec = env
+        .agents
+        .session(run.steps[0].session.unwrap())
+        .unwrap()
+        .spec;
+    for tool in ["WebFetch", "WebSearch", "Bash(curl *)"] {
+        assert!(
+            spec.disallowed_tools.iter().any(|t| t == tool),
+            "{tool}: {:?}",
+            spec.disallowed_tools
+        );
+    }
+    assert!(termf_core::taint::run(&env.data, env.target.run));
+}
+
+#[test]
 fn needs_a_valid_report() {
     let env = Env::new("report");
     env.answer(
@@ -4465,5 +4495,37 @@ fn real_integrator() {
     assert!(
         merged.contains("trim()") && merged.contains("Hello, ") && merged.contains('!'),
         "both intents kept: {merged}"
+    );
+}
+
+#[test]
+fn a_task_never_goes_to_a_role_on_another_agent() {
+    let env = Env::new("elsewhere");
+    let config = env.config.join("termf.toml");
+    let settings = fs::read_to_string(&config).unwrap();
+    let settings = settings.replace("[agents]\n", "[agents]\ncodex = \"/opt/none/codex\"\n");
+    fs::write(
+        &config,
+        format!("{settings}[roles.back]\nagent = \"codex\"\n"),
+    )
+    .unwrap();
+    env.answer(
+        "plan.1.json",
+        env.plan(json!([task("T1", "back", &[], &[])])),
+    );
+    env.answer("plan.2.json", json!({"summary": "x"}));
+    let options = Options {
+        workflow: Some("nogate".into()),
+        plan_only: true,
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    env.until("the plan blocked", |r| {
+        r.steps[0].state == StepState::Blocked
+    });
+    let second = env.message("plan", 2);
+    assert!(
+        second.contains("task T1: role back runs the agent codex (Codex CLI), and a team's step needs Claude Code"),
+        "{second}"
     );
 }

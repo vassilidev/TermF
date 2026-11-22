@@ -8,6 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use interprocess::local_socket::{GenericFilePath, Stream, prelude::*};
 use serde_json::Value;
+use termf_core::cli_agents::CODEX_TURN_DONE;
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary};
 use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
@@ -17,6 +18,7 @@ mod ci;
 mod claude;
 mod mcp;
 mod memory;
+mod ops;
 mod review;
 mod schedule;
 mod scout;
@@ -209,6 +211,18 @@ usage:
   termf vault item <id> [password|totp|seed|notes]
                                         print a login's password (by default), its TOTP code now, its TOTP
                                         secret or the notes
+  termf ops connections [--project <id>]
+                                        the project's connections (default: the project of this folder):
+                                        kind, environment, what agents may see, where each reaches
+  termf ops test <connection> [--project <id>]
+                                        what works and what is missing: the client, the vault's secrets,
+                                        reaching it, and for a database whether its user can write
+  termf ops recipes [--project <id>]    the recipes and their parameters
+  termf ops run <recipe> --connection <name> [--<param> <value>]... [--project <id>]
+                                        run a recipe without an agent: its exact command, then its output,
+                                        masked and audited; one that writes asks you to type the
+                                        environment's name (e.g. termf ops run logs-tail --connection
+                                        acme-prod --since 1h --grep ERROR)
   termf vault audit [--limit <n>] [--jsonl] | termf vault audit verify
                                         who read or changed what, or check the log's hash chain
   termf vault export -o <file> [--project <id>]
@@ -236,6 +250,31 @@ fn main() -> ExitCode {
     match args.as_slice() {
         ["hook", event] => {
             hook(event);
+            return ExitCode::SUCCESS;
+        }
+        // Codex CLI's `notify`: its JSON last, after the user's own `notify`, run next with it.
+        ["hook", CODEX_TURN_DONE, yours @ .., raw] => {
+            let payload = serde_json::from_str(raw).unwrap_or(Value::Null);
+            let (done, wait) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = forward(CODEX_TURN_DONE.into(), payload);
+                let _ = done.send(());
+            });
+            let _ = wait.recv_timeout(Duration::from_secs(2));
+            if let [program, args @ ..] = yours {
+                let _ = std::process::Command::new(program)
+                    .args(args)
+                    .arg(raw)
+                    .status();
+            }
+            return ExitCode::SUCCESS;
+        }
+        // Gemini CLI's `SessionStart`: the library's instructions become the session's context.
+        ["hook", event @ "SessionStart", prompt] => {
+            hook(event);
+            if let Some(context) = termf_core::cli_agents::gemini_context(Path::new(prompt)) {
+                println!("{context}");
+            }
             return ExitCode::SUCCESS;
         }
         ["statusline", chained @ ..] if chained.len() < 2 => {
@@ -315,6 +354,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["team", rest @ ..] => team::run(rest.to_vec())?,
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["vault", rest @ ..] => vault::run(rest.to_vec())?,
+        ["ops", rest @ ..] => ops::run(rest.to_vec())?,
         ["mcp"] => mcp::serve()?,
         ["mcp", "--reaper"] => mcp::reap()?,
         ["review", rest @ ..] => review::run(rest.to_vec())?,
