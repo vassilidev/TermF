@@ -90,6 +90,9 @@ pub struct Key {
 pub struct Problem {
     pub path: String,
     pub error: String,
+    /// Set for a problem the app words itself, in the user's language: `"outside"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<&'static str>,
 }
 
 impl Problem {
@@ -97,6 +100,7 @@ impl Problem {
         Self {
             path: path.to_string_lossy().into_owned(),
             error: error.to_string(),
+            code: None,
         }
     }
 }
@@ -236,10 +240,13 @@ impl Ssh {
             // Every action refuses a symlink leading out of ~/.ssh, so it is reported rather than listed.
             match self.resolve(&path.to_string_lossy()) {
                 Ok(_) => files.push(path),
-                Err(_) => problems.push(Problem::new(
-                    &path,
-                    "links to a file outside ~/.ssh, which TermF leaves alone",
-                )),
+                Err(_) => problems.push(Problem {
+                    code: Some("outside"),
+                    ..Problem::new(
+                        &path,
+                        "links to a file outside ~/.ssh, which TermF leaves alone",
+                    )
+                }),
             }
         }
         files.sort();

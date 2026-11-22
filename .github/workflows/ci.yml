@@ -5,10 +5,10 @@ on:
     branches: [main]
   pull_request:
 
-# A new push to a pull request cancels its older run; main keeps every run.
+# A newer push cancels the older run of the same pull request, or of main.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 # The owner's platform is macOS: main runs there, pull requests get one quick Linux run.
 # Windows and Linux packages are still built by release.yml.
@@ -36,6 +36,11 @@ jobs:
       - name: Linux system dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: AppStream metadata of the Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y appstream
+          appstreamcli validate --no-net --explain app/src-tauri/installer/dev.termf.app.metainfo.xml
       - name: Frontend
         working-directory: app
         run: |

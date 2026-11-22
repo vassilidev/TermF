@@ -113,7 +113,7 @@
     {#each sources as source (source.repo)}
       <li>
         <div class="what">
-          <button class="link" onclick={() => open(source.url)}>
+          <button class="btn link" onclick={() => open(source.url)}>
             {source.repo}<ExternalLink size={12} aria-hidden="true" />
           </button>
           <span class="badge">{source.for}</span>
@@ -272,21 +272,12 @@
     font-weight: 600;
   }
 
-  .link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent-ink);
-    font: inherit;
+  /* A long repository name wraps instead of running out of the card. */
+  .btn.link {
     font-weight: 600;
-    cursor: pointer;
-  }
-
-  .link:hover {
-    text-decoration: underline;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
   }
 
   .check {

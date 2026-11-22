@@ -264,7 +264,7 @@ fn guards_paths_from_the_ui() {
         assert!(
             problems
                 .iter()
-                .any(|p| p.path.ends_with("leak") && p.error.contains("outside")),
+                .any(|p| p.path.ends_with("leak") && p.code == Some("outside")),
             "{problems:?}"
         );
         assert!(find(&keys, "real").too_open);
