@@ -4157,9 +4157,10 @@ impl Inner {
         }
         let step = &run.steps[i];
         let cwd = step.worktree.clone().unwrap_or_else(|| run.home(i));
-        // Every step but a task's may read the project's other repositories: their run's work once they joined it
-        // (a review, a copy of it), else their checkout.
-        let add_dirs = match step.kind == StepKind::Task && !step.batch {
+        // Every step but a task's or a merge's may read the project's other repositories: their run's work once they
+        // joined it (a review, a copy of it), else their checkout.
+        let own = (step.kind == StepKind::Task && !step.batch) || step.kind == StepKind::Update;
+        let add_dirs = match own {
             true => Vec::new(),
             false => self.other_dirs(run, i, &cwd)?,
         };
