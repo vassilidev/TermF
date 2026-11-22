@@ -66,7 +66,9 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || adding || switching || ui.palette) return;
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || adding || switching || ui.palette || ui.help) return;
+    // Beside another view, only while the keyboard is in its panel.
+    if (ui.view !== "project") return;
     // Escape typed in a terminal (the quick terminal over the page) is the terminal's.
     if ((e.target as Element | null)?.closest?.(".xterm")) return;
     e.preventDefault();

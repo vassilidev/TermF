@@ -9,6 +9,7 @@ import {
 import { t } from "$lib/i18n";
 import { loadKeys } from "$lib/keymap.svelte";
 import { projectsOf } from "$lib/nav-logic";
+import { go } from "$lib/panes-logic";
 import type { Side } from "$lib/split-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
 // Each module reads the other only inside functions, so the import cycles are safe.
@@ -123,15 +124,36 @@ export function setProject(id: string | null) {
   }
 }
 
+/** `last`: what the active panel showed before, where ⌘\ reopens the second panel. */
+export const panes = $state({ other: null as ViewId | null, active: 0 as 0 | 1, size: 0.5, last: null as ViewId | null });
+
 /** The view shown, and the overlays opened from the navigation, the shortcuts or the palette. */
-export const ui = $state({
-  view: "terminals" as ViewId,
-  palette: false,
-  switcher: false,
-  launcher: false,
+class Ui {
+  #view = $state<ViewId>("terminals");
+  palette = $state(false);
+  switcher = $state(false);
+  launcher = $state(false);
+  help = $state(false);
   /** The project whose page is open, "" for a new one. */
-  editing: null as string | null,
-});
+  editing = $state<string | null>(null);
+
+  /** The active panel's view: setting it shows a view there, or moves to the other panel when that one shows it. */
+  get view(): ViewId {
+    return this.#view;
+  }
+
+  set view(next: ViewId) {
+    if (next !== this.#view && next !== panes.other) panes.last = this.#view;
+    const p = go({ ...panes, view: this.#view }, next);
+    this.#view = p.view;
+    panes.other = p.other;
+    panes.active = p.active;
+  }
+}
+
+export const ui = new Ui();
+
+export const onScreen = (view: ViewId) => ui.view === view || panes.other === view;
 
 /** Paths of the repositories ticked in the session launcher. */
 export const selected = new SvelteSet<string>();

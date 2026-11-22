@@ -11,7 +11,7 @@
   import { currentProject } from "$lib/files.svelte";
   import { library, showLibrary, type Item, type Layer } from "$lib/library.svelte";
   import { sessionProjects } from "$lib/project.svelte";
-  import { app, shortPath, ui } from "$lib/state.svelte";
+  import { app, onScreen, shortPath } from "$lib/state.svelte";
   import { access, initials } from "$lib/team-logic";
   import { team } from "$lib/team.svelte";
 
@@ -21,7 +21,7 @@
   const project = $derived(currentProject());
   const scope = $derived(app.project ?? "");
   const here = $derived<Layer>(scope ? "project" : "global");
-  const visible = $derived(ui.view === "team");
+  const visible = $derived(onScreen("team"));
 
   // A session in a tile is listed once, as its tile; a headless one only while its process lives.
   // The current project's own, whatever the Terminals view shows (its "every project" toggle).

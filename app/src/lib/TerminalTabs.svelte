@@ -3,10 +3,13 @@
   import X from "@lucide/svelte/icons/x";
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import Popover from "$lib/ui/Popover.svelte";
+  import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import { focusSession, keys, openLauncher } from "$lib/commands";
+  import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
   import { aria } from "$lib/keymap.svelte";
   import { sessionProjects } from "$lib/project.svelte";
+  import { all, none, pick, within } from "$lib/select-logic";
   import { leaves } from "$lib/split-logic";
   import { closeTab, currentTab, entryOf, moveTab, tabName, terminals, visibleTabs, type Tab } from "$lib/tabs.svelte";
   import { app, grid, type Session } from "$lib/state.svelte";
@@ -35,9 +38,37 @@
     return app.workspace?.projects.find((p) => p.id === id)?.name ?? "";
   }
 
-  const select = async (tab: Tab) => {
+  let picked = $state(none<number>());
+  let askingMany = $state(false);
+  const ids = $derived(list.map((tab) => tab.id));
+  const chosen = $derived(list.filter((tab) => within(picked.keys, ids).includes(tab.id)));
+  const chosenSessions = $derived(chosen.flatMap(sessionsOf));
+  const running = $derived(chosenSessions.filter((s) => s.running).length);
+
+  /** A first Shift-click ranges from the current tab, as in a browser. */
+  const select = async (e: MouseEvent, tab: Tab) => {
+    if ((isMac ? e.metaKey : e.ctrlKey) || e.shiftKey) {
+      const from = picked.anchor === null && current ? { keys: [], anchor: current.id } : picked;
+      askingMany = false;
+      picked = pick(from, ids, tab.id, e.shiftKey);
+      return;
+    }
     await focusSession(entryOf(tab));
   };
+
+  /** The keyboard moves only if the current tab was among those closed. */
+  async function closeMany() {
+    const tabs = chosen;
+    const moving = !!current && tabs.includes(current);
+    askingMany = false;
+    picked = none();
+    let next: number | null = null;
+    for (const tab of tabs) next = await closeTab(tab);
+    if (!moving) return;
+    const left = currentTab();
+    const to = next !== null && app.sessions.some((s) => s.id === next) ? next : left ? entryOf(left) : null;
+    if (to !== null) focusSession(to);
+  }
 
   async function close(tab: Tab) {
     closing = null;
@@ -108,7 +139,13 @@
     {#each list as tab, i (tab.id)}
       {@const count = leaves(tab.root).length}
       {@const project = mixed ? projectName(tab) : ""}
-      <div class="tab" class:on={tab === current} class:dragged={dragged === tab.id} data-tab={tab.id}>
+      <div
+        class="tab"
+        class:on={tab === current}
+        class:chosen={chosen.includes(tab)}
+        class:dragged={dragged === tab.id}
+        data-tab={tab.id}
+      >
         {#if renaming === tab.id}
           <input
             class="rename"
@@ -129,7 +166,7 @@
             tabindex={tab === current ? 0 : -1}
             title="{tabName(tab)} · {t('t6aRename')}"
             aria-keyshortcuts={i < 9 ? aria("tile", i + 1) : undefined}
-            onclick={() => !moved && select(tab)}
+            onclick={(e) => !moved && select(e, tab)}
             ondblclick={() => (renaming = tab.id)}
             onpointerdown={(e) => down(e, tab)}
             onpointermove={over}
@@ -142,6 +179,7 @@
             {/if}
             {#if project}<span class="mark" title={project} aria-hidden="true">{initial(project)}</span><span class="sr-only">{project}</span>{/if}
             <span class="name">{tabName(tab)}</span>
+            {#if chosen.includes(tab)}<span class="sr-only">{t("t6bChosen")}</span>{/if}
             {#if count > 1}<span class="count" title={t("t6aSplits", { count })}>{count}</span>{/if}
             {#if i < 9}<kbd aria-hidden="true">{keys.tile(i + 1)}</kbd>{/if}
           </button>
@@ -168,6 +206,26 @@
     <Plus size={14} aria-hidden="true" />
   </button>
 </div>
+
+{#if chosen.length}
+  <SelectionBar
+    count={chosen.length}
+    total={list.length}
+    label={t("t6aTabs")}
+    onall={() => ((askingMany = false), (picked = all(picked, ids)))}
+    onclear={() => ((askingMany = false), (picked = none()))}
+  >
+    {#if askingMany}
+      <span class="ask" role="alert">{t("t6bCloseTabsAsk", { count: chosenSessions.length, running })}</span>
+      <button class="btn sm" onclick={() => (askingMany = false)}>{t("cancel")}</button>
+      <button class="btn sm danger" onclick={closeMany}>{t("close")} · {chosen.length}</button>
+    {:else}
+      <button class="btn sm" onclick={() => (running ? (askingMany = true) : closeMany())}>
+        <X size={14} aria-hidden="true" />{t("close")} · {chosen.length}
+      </button>
+    {/if}
+  </SelectionBar>
+{/if}
 
 <Popover bind:open={asking} trigger={closeTrigger} label={t("t6aCloseTab")} width={300}>
   {#if closing}
@@ -232,6 +290,14 @@
 
   .tab.dragged {
     opacity: 0.6;
+  }
+
+  .tab.chosen {
+    background: var(--accent-soft);
+  }
+
+  .tab.chosen [role="tab"] {
+    color: var(--accent-ink);
   }
 
   [role="tab"] {
