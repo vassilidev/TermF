@@ -7,7 +7,6 @@ description: >-
   about AI Overviews and AI Mode. Use when a task mentions SEO, search ranking, indexing, meta tags, sitemap,
   robots.txt, canonical, hreflang, schema.org or JSON-LD, social previews, or Lighthouse SEO scores. Not for
   accessibility (accessibility), styling (css-tailwind) or paid ads.
-paths: "**/robots.txt, **/sitemap*.xml, **/app/**/layout.*, **/app/**/page.*, **/app/sitemap.*, **/app/robots.*, **/pages/**, **/routes/**, **/src/app/**, **/nuxt.config.*, **/*.html"
 license: MIT
 metadata:
   termf-stacks: "web"

@@ -7,7 +7,6 @@ description: >-
   (prompt injection, tool permissions). Use when a task asks for a security review or audit, touches login,
   permissions, user input, uploads, tokens, secrets or a new package, or reports a vulnerability or CVE. Not for
   CI workflow hardening (github-actions), cloud IAM policies (cloud) or container hardening (docker).
-paths: "**/auth/**, **/middleware*, **/proxy.*, **/routes/**, **/controllers/**, **/api/**, **/handlers/**, **/views.py, **/urls.py, **/settings.py, **/package.json, **/requirements*.txt, **/pyproject.toml, **/composer.json, **/Gemfile, **/go.mod, **/Cargo.toml"
 license: MIT
 metadata:
   termf-stacks: "web django fastapi flask rails laravel symfony spring-boot aspnetcore nextjs nuxt sveltekit node gin echo"

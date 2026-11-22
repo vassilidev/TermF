@@ -6,7 +6,7 @@ description: >-
   permissions, untrusted input from issues and pull requests. Use when a task touches .github/workflows/*.yml,
   an action.yml, dependabot.yml for actions, or asks why a workflow fails or is unsafe. Not for Dockerfiles
   (docker), Kubernetes manifests (kubernetes) or other CI systems.
-paths: ".github/workflows/*.yml, .github/workflows/*.yaml, .github/workflows/actions.lock, **/action.yml, **/action.yaml, .github/dependabot.yml"
+paths: "**/.github/workflows/*.y*ml, **/.github/workflows/actions.lock, **/action.y*ml, **/.github/dependabot.y*ml"
 license: MIT
 metadata:
   termf-stacks: "github-actions"

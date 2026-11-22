@@ -6,7 +6,7 @@ description: >-
   with Gateway API instead of Ingress NGINX, API versions removed by upgrades. Use when a task touches YAML with
   apiVersion and kind, kustomization.yaml, Chart.yaml, values.yaml or templates/, or kubectl and helm commands.
   Not for Dockerfiles or Compose files (docker), nor for the cloud resources around a cluster (terraform, cloud).
-paths: "**/k8s/**, **/kubernetes/**, **/manifests/**, **/deploy/**, **/kustomization.yaml, **/kustomization.yml, **/Chart.yaml, **/values*.yaml, **/templates/*.yaml"
+paths: "**/kustomization.y*ml, **/Chart.yaml, **/values*.y*ml, **/charts/**/templates/*.y*ml, **/k8s/**/*.y*ml, **/kubernetes/**/*.y*ml"
 license: MIT
 metadata:
   termf-stacks: "kubernetes helm"

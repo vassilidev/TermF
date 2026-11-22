@@ -6,7 +6,7 @@ description: >-
   new calendar-versioned releases. Use when a task touches SQL or migrations for MySQL, mysql:// or
   DB_CONNECTION=mysql settings, my.cnf, or the mysql and mysqldump clients. Not for PostgreSQL (sql-postgres),
   nor for MariaDB-specific features, which diverged from MySQL.
-paths: "**/*.sql, **/migrations/**, **/database/migrations/**, **/db/migrate/**, **/my.cnf, **/*.cnf"
+paths: "**/*.sql, **/migrations/**, **/db/migrate/*.rb, **/my.cnf"
 license: MIT
 metadata:
   termf-stacks: "mysql"

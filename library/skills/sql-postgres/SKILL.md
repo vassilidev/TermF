@@ -6,7 +6,7 @@ description: >-
   transactions, row level security, upgrades to PostgreSQL 18 and 19. Use when a task touches SQL for
   Postgres, migration files of an ORM on Postgres, psql, DATABASE_URL with postgres://, or EXPLAIN output.
   Not for MySQL or MariaDB (mysql), MongoDB (mongodb) or Redis (redis).
-paths: "**/*.sql, **/migrations/**, **/migrate/**, **/db/**, **/prisma/schema.prisma, **/alembic/**"
+paths: "**/*.sql, **/migrations/**, **/db/migrate/*.rb, **/alembic/versions/*.py, **/prisma/schema.prisma"
 license: MIT
 metadata:
   termf-stacks: "postgres"

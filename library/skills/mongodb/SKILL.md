@@ -6,7 +6,7 @@ description: >-
   MongoDB 9.0 changes. Use when a task touches a MongoDB driver or Mongoose, MONGODB_URI or mongodb+srv://,
   mongosh, aggregation pipelines or index definitions. Not for SQL databases (sql-postgres, mysql) nor Redis
   (redis).
-paths: "**/models/**, **/schemas/**, **/*.model.*, **/*.schema.*, **/mongo*.*"
+paths: "**/*mongo*.*, **/mongod.conf"
 license: MIT
 metadata:
   termf-stacks: "mongodb"

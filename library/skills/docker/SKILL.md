@@ -6,7 +6,7 @@ description: >-
   their database, local stacks for a worktree. Use when a task touches a Dockerfile, a compose.yaml or
   docker-compose.yml, a .dockerignore, or docker build and docker compose commands. Not for Kubernetes
   manifests or Helm charts (kubernetes), nor for CI workflow files (github-actions).
-paths: "**/Dockerfile, **/Dockerfile.*, **/*.Dockerfile, **/compose.yaml, **/compose.yml, **/compose.*.yaml, **/compose.*.yml, **/docker-compose*.yml, **/docker-compose*.yaml, **/.dockerignore"
+paths: "**/Dockerfile, **/Dockerfile.*, **/*.Dockerfile, **/compose.y*ml, **/compose.*.y*ml, **/docker-compose*.y*ml, **/.dockerignore"
 license: MIT
 metadata:
   termf-stacks: "docker compose"
