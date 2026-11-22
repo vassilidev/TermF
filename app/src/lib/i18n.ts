@@ -3062,6 +3062,15 @@ const fr = {
   roles2WhyNoDocs: "ni dossier de doc, ni spec d'API, ni changelog",
   roles2WhyPersonal: "Données personnelles : {detail}",
   roles2WhyNoPublic: "ni site public ni données personnelles repérées",
+  // Language servers of the stack in TermF's plugin, and the project's switch for them.
+  evalsLspTitle: "Serveurs de langage",
+  evalsLspHint:
+    "Avec un serveur de langage, Claude Code voit les erreurs de type après chaque modification et trouve le code par symbole. TermF déclare aux sessions du projet ceux qui sont installés sur cette machine.",
+  evalsLspSwitch: "Dans les sessions de ce projet",
+  evalsLspOn: "Déclaré aux sessions",
+  evalsLspOff: "Coupé pour ce projet",
+  evalsLspMissing: "Pas installé : installe-le pour de meilleurs résultats",
+  evalsLspInstall: "L'installer",
 };
 
 type Key = keyof typeof fr;
@@ -6106,6 +6115,15 @@ const en: Record<Key, string> = {
   roles2WhyNoDocs: "no docs folder, API spec nor changelog",
   roles2WhyPersonal: "Personal data: {detail}",
   roles2WhyNoPublic: "no public website nor personal data found",
+  // Language servers of the stack in TermF's plugin, and the project's switch for them.
+  evalsLspTitle: "Language servers",
+  evalsLspHint:
+    "With a language server, Claude Code sees type errors after each edit and finds code by symbol. TermF declares the ones installed on this machine to the project's sessions.",
+  evalsLspSwitch: "In this project's sessions",
+  evalsLspOn: "Declared to sessions",
+  evalsLspOff: "Off for this project",
+  evalsLspMissing: "Not installed: install it for better results",
+  evalsLspInstall: "Install it",
 };
 
 const messages = { fr, en };

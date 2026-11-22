@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import Braces from "@lucide/svelte/icons/braces";
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Plug from "@lucide/svelte/icons/plug";
@@ -11,11 +12,29 @@
   let {
     stacks,
     ondecide,
+    project,
   }: {
     stacks: RepoStack[];
     /** Records an added server in the assistant's journal. */
     ondecide?: (detail: string) => Promise<void>;
+    /** With it, the language servers of the stack and the project's switch for them. */
+    project?: string;
   } = $props();
+
+  const languageServers = $derived(stacks.flatMap((repo) => repo.servers.map((server) => ({ repo, server }))));
+  let lspOn = $state(true);
+  $effect(() => {
+    if (project) invoke<boolean>("library_lsp", { project }).then((on) => (lspOn = on), () => {});
+  });
+
+  async function setLsp(on: boolean) {
+    error = "";
+    try {
+      lspOn = await invoke<boolean>("library_lsp", { project, enabled: on });
+    } catch (e) {
+      error = String(e);
+    }
+  }
 
   let added = $state<string[]>([]);
   let copied = $state("");
@@ -130,6 +149,45 @@
   </ul>
 </article>
 
+{#if project && languageServers.length}
+  <article class="proposal">
+    <h3><Braces size={15} aria-hidden="true" />{t("evalsLspTitle")}</h3>
+    <p class="hint">{t("evalsLspHint")}</p>
+    <label class="check">
+      <input
+        type="checkbox"
+        role="switch"
+        class="switch"
+        checked={lspOn}
+        onchange={(e) => setLsp(e.currentTarget.checked)}
+      />
+      {t("evalsLspSwitch")}
+    </label>
+    <ul class="offers">
+      {#each languageServers as { repo, server } (`${repo.path}:${server.name}`)}
+        <li>
+          <div class="what">
+            <b>{server.name}</b>
+            <span class="badge">{server.for}</span>
+            {#if many}<span class="muted">{repo.name}</span>{/if}
+            {#if server.installed}
+              <span class={lspOn ? "done" : "muted"}>{lspOn ? t("evalsLspOn") : t("evalsLspOff")}</span>
+            {:else}
+              <span class="badge warn">{t("evalsLspMissing")}</span>
+            {/if}
+            <code>{server.command}</code>
+          </div>
+          {#if !server.installed}
+            <button class="btn sm quiet" onclick={() => open(server.docs)} title={server.docs}>
+              <ExternalLink size={14} aria-hidden="true" />{t("evalsLspInstall")}
+            </button>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  </article>
+{/if}
+
 <style>
   .proposal {
     display: flex;
@@ -212,6 +270,14 @@
 
   .link:hover {
     text-decoration: underline;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-sm);
+    cursor: pointer;
   }
 
   .warn {
