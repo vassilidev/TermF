@@ -59,7 +59,7 @@
   import { closeRun, showReview } from "$lib/commands";
   import { reviewOf } from "$lib/visual.svelte";
   import { ago, lang, t } from "$lib/i18n";
-  import { expected, named, prName, shown, soloNames, stageNames, stages, type StageState } from "$lib/run-logic";
+  import { expected, named, prName, repoRuns, shown, soloNames, stageNames, stages, type RepoState, type StageState } from "$lib/run-logic";
   import { repoName, shortPath } from "$lib/state.svelte";
   import { TRIAGE, budgetError, progress, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun } from "$lib/team.svelte";
@@ -87,6 +87,8 @@
   let error = $state("");
   let done = $state("");
   let delivering = $state(false);
+  /** The run of another repository whose delivery is open. */
+  let deliveringRepo = $state<number | null>(null);
   let stopping = $state(false);
   let more = $state(false);
   let moreTrigger = $state<HTMLButtonElement>();
@@ -100,6 +102,15 @@
   const pill = $derived(run && shown(run, teamRun));
   const wants = $derived(run ? expected(run, teamRun) : null);
   const timeline = $derived(run ? stages(run, teamRun) : []);
+  // A change over several repositories: each with its own pull request.
+  const repos = $derived(repoRuns(tickets.runs, id));
+  const repoLabel: Record<RepoState, [Status, Parameters<typeof t>[0]]> = {
+    working: ["running", "teams2RepoWorking"],
+    open: ["delivered", "teams2RepoOpen"],
+    merged: ["done", "teams2RepoMerged"],
+    closed: ["closed", "teams2RepoClosed"],
+    gone: ["closed", "teams2RepoGone"],
+  };
   const spent = $derived(teamRun && progress(teamRun));
   const triaging = $derived(active && teamRun?.steps.some((s) => s.key === TRIAGE && s.state === "running"));
   /** The team's own delivery card offers it while the team waits on it, or once it is done. */
@@ -227,6 +238,13 @@
       }
       step = null;
       done = t(cleanup ? "ticketsUiCleaned" : "runClosed");
+    });
+
+  /** The run of another repository whose pull request was merged or closed: its worktree goes, the others stay. */
+  const cleanRepo = (other: Run) =>
+    act("cleanup", async () => {
+      upsert(await invoke<Run>("tickets_cleanup", { id: other.id, force: false }));
+      done = t("ticketsUiCleaned");
     });
 
   /** Without a warning, straight to the tile, like a launch. */
@@ -464,6 +482,54 @@
                 </button>
               </div>
             </section>
+          {/if}
+
+          {#if repos.length}
+            {@const prs = repos.filter((r) => r.run.prUrl).length}
+            {@const other = repos.find((r) => r.run.id === deliveringRepo)?.run}
+            <section class="card" aria-labelledby="run-repos">
+              <div class="repos-head">
+                <h3 id="run-repos">{t("teams2Repos")}</h3>
+                <span class="muted">{t("teams2ReposSummary", { prs, total: repos.length })}</span>
+              </div>
+              <p class="help">{t("teams2ReposHelp")}</p>
+              <ul class="repos">
+                {#each repos as { run: r, state } (r.id)}
+                  {@const [status, label] = repoLabel[state]}
+                  {@const name = repoName(r.repo)}
+                  <li>
+                    <span class="repo-name">
+                      <b>{name}</b>
+                      {#if r.id === id}<span class="muted">{t("teams2RepoOwn")}</span>{/if}
+                    </span>
+                    {#if r.branch}<span class="mono muted branch">{r.branch}</span>{/if}
+                    <StatusPill {status} label={t(label)} />
+                    {#if r.prUrl}
+                      {@const url = r.prUrl}
+                      <button class="link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
+                        {prName(url)}<ExternalLink size={12} aria-hidden="true" />
+                      </button>
+                    {/if}
+                    <span class="repo-acts">
+                      {#if r.status === "delivered" && r.prState && r.id !== id}
+                        <button class="btn sm" onclick={() => cleanRepo(r)} disabled={!!busy} title={t("teams2CleanRepo", { repo: name })}>
+                          <BrushCleaning size={14} aria-hidden="true" />{t("ticketsUiClean")}
+                        </button>
+                      {:else if (r.status === "running" || r.status === "delivered") && !r.prState && !active}
+                        <button
+                          class="btn sm"
+                          title={t("teams2DeliverRepo", { repo: name })}
+                          onclick={() => (r.id === id ? (delivering = true) : (deliveringRepo = r.id))}
+                        >
+                          <Send size={14} aria-hidden="true" />{t("runDeliver")}
+                        </button>
+                      {/if}
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            </section>
+            {#if other}<Delivery run={other} onclose={() => (deliveringRepo = null)} />{/if}
           {/if}
 
           <BaseUpdate {run} team={teamRun} />
@@ -773,6 +839,54 @@
 
   .card h3 {
     margin: 0;
+  }
+
+  .repos-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .repos {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+    list-style: none;
+  }
+
+  .repos li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    min-height: 44px;
+    padding: 6px 10px;
+  }
+
+  .repos li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  .repo-name {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 120px;
+  }
+
+  .branch {
+    overflow-wrap: anywhere;
+  }
+
+  .repo-acts {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
   }
 
   p {

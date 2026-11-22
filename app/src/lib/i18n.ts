@@ -3206,6 +3206,28 @@ const fr = {
   teams2SqProposed: "L'assistant de mise en route propose ces squads :",
   teams2SqAdd: "Ajouter",
   teams2SqAddAll: "Ajouter les {n}",
+  // Team S2: leads' sub-plans and runs over several repositories.
+  teams2AskSubplan: "Sous-plan de {step} à approuver",
+  teams2AskSubplanQuestions: "Le lead de {step} a des questions",
+  teams2AskSubplanHelp:
+    "Le lead de la squad a découpé son lot en tâches. Rien ne démarre avant ton accord ; demander des modifications lui renvoie le lot avec ton retour.",
+  teams2ApproveSubplan: "Approuver le sous-plan",
+  teams2Batch: "Lot",
+  teams2SubplanOne: "Sous-plan · 1 tâche",
+  teams2SubplanCount: "Sous-plan · {count} tâches",
+  teams2SubplanProposed: "proposé, attend ton accord",
+  teams2SubplanPending: "Le lead de la squad le découpe en tâches.",
+  teams2Repos: "Dépôts du run",
+  teams2ReposSummary: "{prs} PR sur {total} dépôts",
+  teams2ReposHelp: "Une PR par dépôt, chacune liée aux autres. Chaque dépôt se livre et se nettoie à part.",
+  teams2RepoOwn: "dépôt du run",
+  teams2RepoWorking: "En cours",
+  teams2RepoOpen: "PR ouverte",
+  teams2RepoMerged: "PR fusionnée",
+  teams2RepoClosed: "PR fermée",
+  teams2RepoGone: "Fermé",
+  teams2DeliverRepo: "Livrer {repo}",
+  teams2CleanRepo: "Nettoyer {repo}",
 };
 
 type Key = keyof typeof fr;
@@ -6394,6 +6416,28 @@ const en: Record<Key, string> = {
   teams2SqProposed: "The setup assistant proposes these squads:",
   teams2SqAdd: "Add",
   teams2SqAddAll: "Add all {n}",
+  // Team S2: leads' sub-plans and runs over several repositories.
+  teams2AskSubplan: "Sub-plan of {step} to approve",
+  teams2AskSubplanQuestions: "The lead of {step} has questions",
+  teams2AskSubplanHelp:
+    "The squad's lead split its batch into tasks. Nothing starts before you agree; asking for changes sends the batch back to it with your feedback.",
+  teams2ApproveSubplan: "Approve the sub-plan",
+  teams2Batch: "Batch",
+  teams2SubplanOne: "Sub-plan · 1 task",
+  teams2SubplanCount: "Sub-plan · {count} tasks",
+  teams2SubplanProposed: "proposed, waits for you",
+  teams2SubplanPending: "The squad's lead splits it into tasks.",
+  teams2Repos: "The run's repositories",
+  teams2ReposSummary: "{prs} pull requests of {total} repositories",
+  teams2ReposHelp: "One pull request per repository, each linked to the others. Each repository is delivered and cleaned up on its own.",
+  teams2RepoOwn: "the run's own",
+  teams2RepoWorking: "In progress",
+  teams2RepoOpen: "Pull request open",
+  teams2RepoMerged: "Pull request merged",
+  teams2RepoClosed: "Pull request closed",
+  teams2RepoGone: "Closed",
+  teams2DeliverRepo: "Deliver {repo}",
+  teams2CleanRepo: "Clean up {repo}",
 };
 
 const messages = { fr, en };

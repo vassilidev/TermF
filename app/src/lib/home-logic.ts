@@ -60,7 +60,7 @@ export function primary(placed: { at: Map<number, string>; rest: string[] }, cto
   return told.at(-1)?.[1] ?? placed.rest.filter((key) => !done.includes(key)).at(-1) ?? null;
 }
 
-type RunIn = { id: number; project: string; status: string; updated: number };
+type RunIn = { id: number; project: string; status: string; updated: number; parent?: number | null };
 type TeamIn = { run: number; target: { project: string }; state: string; updated: number };
 
 /**
@@ -70,7 +70,8 @@ type TeamIn = { run: number; target: { project: string }; state: string; updated
 export function openRuns<R extends RunIn, T extends TeamIn>(runs: R[], teams: T[], project: string | null): { run?: R; team?: T; at: number }[] {
   const mine = (p: string) => project === null || p === project;
   const out: { run?: R; team?: T; at: number }[] = runs
-    .filter((r) => mine(r.project) && (r.status === "running" || r.status === "delivered"))
+    // The run of another repository of a change shows on its change's page.
+    .filter((r) => !r.parent && mine(r.project) && (r.status === "running" || r.status === "delivered"))
     .map((run) => {
       const team = teams.find((t) => t.run === run.id);
       return { run, team, at: Math.max(run.updated, team?.updated ?? 0) };

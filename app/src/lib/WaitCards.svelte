@@ -334,6 +334,9 @@
               {:else if run.plan}
                 <div class="box"><RunPlan {run} /></div>
               {/if}
+            {:else if ask.kind === "subplan" && ask.step.task}
+              <p class="help">{t("teams2AskSubplanHelp")}</p>
+              <div class="box"><RunPlan {run} batch={ask.step.task} /></div>
             {:else if ask.kind === "visual" && review}
               <p class="help">{t("review5bAskHelp")}</p>
               {#if reviewLine}<p class="muted">{reviewLine}</p>{/if}
@@ -364,7 +367,15 @@
                   </button>
                   {@render approveButton(
                     key,
-                    t(ask.kind === "plan" ? "teamRunsApprovePlan" : ask.kind === "visual" ? "teamRunsValidate" : "teamRunsApprove"),
+                    t(
+                      ask.kind === "plan"
+                        ? "teamRunsApprovePlan"
+                        : ask.kind === "subplan"
+                          ? "teams2ApproveSubplan"
+                          : ask.kind === "visual"
+                            ? "teamRunsValidate"
+                            : "teamRunsApprove",
+                    ),
                   )}
                 {/if}
               </div>

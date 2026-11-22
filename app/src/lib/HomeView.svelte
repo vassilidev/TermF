@@ -228,6 +228,7 @@
   const askIcons: Record<AskKind, Component> = {
     route: Route,
     plan: ListChecks,
+    subplan: ListChecks,
     questions: CircleQuestionMark,
     visual: Eye,
     deliver: Send,
