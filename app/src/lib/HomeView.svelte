@@ -379,7 +379,7 @@
             <span class="t"><b>{t(stepLabels[step as keyof typeof stepLabels])}</b>{#if text}<span>{text}</span>{/if}</span>
             {#if i === at}
               <button class="btn sm" class:primary={main === null && cto?.state !== "waiting"} onclick={() => openSetup(project.id)}>
-                {t(stepActions[step as keyof typeof stepActions])}<ChevronRight size={14} aria-hidden="true" />
+                {step === "analysis" && analyzing[project.id] ? t("setupFollow") : t(stepActions[step as keyof typeof stepActions])}<ChevronRight size={14} aria-hidden="true" />
               </button>
             {/if}
           </li>

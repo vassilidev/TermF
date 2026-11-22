@@ -1,12 +1,13 @@
 import { untrack } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
+import type { Step } from "$lib/onboarding-logic";
 import { app, onScreen, panes, ui, type ViewId } from "$lib/state.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { closePanel } from "$lib/panes.svelte";
 import { creating } from "$lib/newproject.svelte";
 
-/** The project whose onboarding assistant is open. */
-export const setup = $state({ project: null as string | null });
+/** The project whose onboarding assistant is open; `at`: the step it opens on, else where it was left. */
+export const setup = $state({ project: null as string | null, at: null as Step | null });
 
 /** Projects whose analysis is running: a remounted assistant waits for it instead of paying for another. */
 export const analyzing = $state<Record<string, boolean>>({});
@@ -24,9 +25,10 @@ export function usable(view: ViewId): ViewId {
 }
 
 /** Opens the assistant where the project's last visit left it; leaving goes back to the view it was opened from. */
-export function openSetup(id: string) {
+export function openSetup(id: string, at: Step | null = null) {
   if (ui.view !== "onboarding") back = ui.view;
   ui.switcher = false;
+  setup.at = at;
   setup.project = id;
   ui.view = "onboarding";
 }

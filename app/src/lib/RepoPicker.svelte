@@ -40,7 +40,9 @@
     const known = [...(app.workspace?.repos ?? []), ...(app.workspace?.projects.flatMap((p) => p.repos) ?? [])];
     for (const r of known) if (!seen.has(r.path)) seen.set(r.path, { ...r });
     for (const path of [...added, ...chosen]) if (!seen.has(path)) seen.set(path, { name: path.split(/[\\/]/).pop() ?? path, path, modified: null });
-    return byActivity([...seen.values()].map((c) => ({ ...c, ...cards[c.path] })));
+    const sorted = byActivity([...seen.values()].map((c) => ({ ...c, ...cards[c.path] })));
+    // A folder just added comes first, where the owner looks.
+    return [...sorted.filter((c) => added.includes(c.path)), ...sorted.filter((c) => !added.includes(c.path))];
   });
   const visible = $derived(all.filter((c) => shown(c, filter, query, now)));
   const counts = $derived({

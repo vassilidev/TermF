@@ -130,7 +130,8 @@
     if (!project) return closeSetup();
     try {
       ob = await invoke<Onboarding>("onboarding_state", { project: project.id });
-      shown = ob.step;
+      shown = setup.at ?? ob.step;
+      setup.at = null;
       answers = { ...ob.answers };
     } catch (e) {
       error = String(e);

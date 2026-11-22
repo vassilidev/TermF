@@ -99,7 +99,12 @@
   const recipe = $derived(
     recipeLines(Object.fromEntries(chosenCards.flatMap((c) => (typeof found[c.path] === "object" ? [[c.name, (found[c.path] as Detected).recipe]] : [])))),
   );
-  const workflows = $derived(detected.flatMap((d) => d.facts.workflows));
+  const workflows = $derived(
+    chosenCards.flatMap((c) => {
+      const d = found[c.path];
+      return typeof d === "object" && d.facts.workflows.length ? [`${c.name} (${d.facts.workflows.join(", ")})`] : [];
+    }),
+  );
   const keys = $derived([...new Set(detected.flatMap((d) => d.keys))]);
   const kept = $derived(draft?.roles.filter((r) => r.keep) ?? []);
   const left = $derived(draft?.roles.filter((r) => !r.keep) ?? []);
@@ -218,7 +223,6 @@
       });
     if (!aside.includes("ci")) await attempt(() => decide("ci", notify));
     if (trust) await attempt(() => invoke("claude_trust_set", { project, on: true }));
-    if (aside.length) await attempt(() => invoke("onboarding_step", { project, step: "proposals" }));
     // Runs in the background: the Home and the assistant follow it, and say why if it fails.
     analyze(project, lang).catch(() => {});
     if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });
@@ -226,7 +230,7 @@
     creating.open = false;
     creating.round++;
     ui.view = "home";
-    if (aside.length) openSetup(project);
+    if (aside.length) openSetup(project, "proposals");
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -269,7 +273,7 @@
 {#snippet blockState(block: Block)}
   {@const off = aside.includes(block)}
   <span class="state" class:off>{off ? t("setupAside") : t("setupRecommended")}</span>
-  <button type="button" class="btn sm" class:quiet={!off} aria-pressed={off} onclick={() => toggle(block)}>
+  <button type="button" class="btn sm" aria-pressed={off} onclick={() => toggle(block)}>
     {off ? t("setupKeep") : t("setupCustomize")}
   </button>
 {/snippet}
@@ -366,15 +370,13 @@
                         {#each recipe as line (line.repo)}
                           <li>
                             <span class="key">{line.repo}</span>
-                            {#each line.parts as part, i (i)}<code>{part}</code>{:else}<span class="muted">{t("obRecipeNothing")}</span>{/each}
+                            {#each [...new Set(line.parts)] as part (part)}<code>{part}</code>{:else}<span class="muted">{t("obRecipeNothing")}</span>{/each}
                           </li>
                         {/each}
                       </ul>
                     {:else if block === "ci"}
-                      <p>
-                        {workflows.length ? t("obCiWorkflows", { list: workflows.join(", ") }) : t("obCiNone")}
-                        <span class="muted">· {t("setupCiNotify", { mode: t(notifyLabel[notify]) })}</span>
-                      </p>
+                      <p>{workflows.length ? t("obCiWorkflows", { list: workflows.join(" · ") }) : t("obCiNone")}</p>
+                      <p class="note">{t("setupCiNotify", { mode: t(notifyLabel[notify]) })}</p>
                     {:else if block === "skills"}
                       {#if draft}
                         {#if draft.skills.length}
@@ -482,7 +484,7 @@
 
     <aside class="project" aria-label={t("setupYourProject")}>
       <div class="identity">
-        <span class="mark" class:empty={!name} aria-hidden="true">{name ? initial(name) : "?"}</span>
+        <span class="mark" class:empty={!name} aria-hidden="true">{name ? initial(name) : ""}</span>
         {#if editing}
           <input
             class="name-field"
@@ -1180,7 +1182,8 @@
   }
 
   .mark.empty {
-    background: var(--hover);
+    border: 1.5px dashed var(--border-strong);
+    background: none;
     color: var(--muted);
   }
 

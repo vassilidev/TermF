@@ -2878,6 +2878,7 @@ const fr = {
   setupCreate: "Créer le projet",
   setupCreating: "Création…",
   setupPartial: "Projet créé, mais une partie du setup n'a pas pu s'appliquer : {error}",
+  setupFollow: "Suivre",
 };
 
 type Key = keyof typeof fr;
@@ -5743,6 +5744,7 @@ const en: Record<Key, string> = {
   setupCreate: "Create the project",
   setupCreating: "Creating…",
   setupPartial: "Project created, but part of the setup could not be applied: {error}",
+  setupFollow: "Follow",
 };
 
 const messages = { fr, en };

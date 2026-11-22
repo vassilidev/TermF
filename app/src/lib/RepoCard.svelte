@@ -35,17 +35,17 @@
   <span class="main">
     <span class="line">
       <b class="name">{card.name}</b>
-      {#if card.remote && card.remote.slug.toLowerCase() !== card.name.toLowerCase()}
-        <span class="slug">{card.remote.slug}</span>
-      {:else if read && !card.remote}
-        <span class="slug">{t("setupNoRemote")}</span>
-      {/if}
+      <span class="path mono" title={card.path}>{shortPath(card.path)}</span>
       {#each elsewhere as name (name)}
         <span class="badge in">{t("setupInProject", { name })}</span>
       {/each}
     </span>
     <span class="line meta">
-      <span class="path mono" title={card.path}>{shortPath(card.path)}</span>
+      {#if card.remote}
+        <span class="slug">{card.remote.slug}</span>
+      {:else if read}
+        <span class="slug">{t("setupNoRemote")}</span>
+      {/if}
       {#if card.branch}
         <span class="branch"><GitBranch size={12} aria-hidden="true" /><span class="mono">{card.branch}</span></span>
       {/if}
@@ -133,12 +133,20 @@
     white-space: nowrap;
   }
 
-  .slug {
+  .line .path {
     flex-shrink: 1;
     min-width: 0;
     overflow: hidden;
     color: var(--muted);
-    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .slug {
+    flex-shrink: 0;
+    max-width: 50%;
+    overflow: hidden;
+    color: var(--text);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -156,18 +164,11 @@
     font-size: var(--text-sm);
   }
 
-  .path {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .branch {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    flex-shrink: 0;
+    min-width: 0;
     max-width: 180px;
   }
 
