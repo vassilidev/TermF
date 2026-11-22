@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { access, added, initials, shown, source } from "../src/lib/team-logic.ts";
+import { access, added, initials, offered, overlaps, shown, source, squadIssues } from "../src/lib/team-logic.ts";
 
 test("a role's mark takes two letters of its name", () => {
   assert.equal(initials("front"), "FR");
@@ -39,4 +39,40 @@ test("role settings and credits, as the Team view shows them", () => {
   assert.equal(source("obra/superpowers@22f0b463e7a5 (MIT): skills/x/task-reviewer-prompt.md"), "obra/superpowers (MIT)");
   assert.equal(source("acme/roles"), "acme/roles");
   assert.equal(source("https://github.com/obra/superpowers (MIT): skills/x.md"), "https://github.com/obra/superpowers (MIT)");
+});
+
+test("a squad's editor flags what is wrong, and warns of perimeters that meet", () => {
+  const squad = (id, repos, paths, roles = {}) => ({ id, lead: "", roles, repos, paths, domains: [] });
+  const web = squad("web", ["acme-web"], ["apps/web/**", "packages/ui"]);
+  const api = squad("api", ["acme-api"], []);
+  const roles = ["lead", "front", "back", "qa"];
+  const repos = ["acme-web", "acme-api"];
+  assert.deepEqual(squadIssues(web, [api], roles, repos), []);
+
+  assert.equal(overlaps(web, squad("ui", ["acme-web"], ["packages/ui/button.ts"])), true, "a path under another");
+  assert.equal(overlaps(web, squad("docs", ["acme-web"], ["docs/**"])), false);
+  assert.equal(overlaps(web, squad("all", [], ["apps/*"])), true, "no repository named: every one");
+  assert.equal(overlaps(web, squad("whole", ["acme-web"], [])), true, "no path: the whole repository");
+  assert.equal(overlaps(api, squad("other", ["acme-web"], [])), false, "another repository");
+
+  const bad = { ...squad("w b", ["acme-mobile"], ["/etc", "../up", "ok/**"], { wizard: 1, front: 0 }), lead: "chief" };
+  const said = (issues) => issues.map((i) => `${i.level} ${i.kind} ${i.subject}`);
+  assert.deepEqual(said(squadIssues(bad, [web], roles, repos)), [
+    "error id w b",
+    "error role chief",
+    "error role wizard",
+    "error count front",
+    "error path /etc",
+    "error path ../up",
+    "error repo acme-mobile",
+  ]);
+  assert.deepEqual(said(squadIssues(squad("web", [], []), [web], roles, repos)), ["error taken web", "warning overlap web"]);
+  assert.deepEqual(squadIssues({ ...squad("api", [], []), lead: "orchestrator" }, [], roles, repos), []);
+});
+
+test("offered: the assistant's squads the project does not have yet, one added leaving the others", () => {
+  const proposals = [{ id: "main" }, { id: "web" }, { id: "api" }];
+  assert.deepEqual(offered(proposals, false, [{ id: "main" }]), proposals, "the implicit main hides nothing");
+  assert.deepEqual(offered(proposals, true, [{ id: "web" }]).map((p) => p.id), ["main", "api"]);
+  assert.deepEqual(offered(proposals, true, proposals), []);
 });

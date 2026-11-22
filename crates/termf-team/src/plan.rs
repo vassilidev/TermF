@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use termf_core::squads::{Membership, Team, same_role};
+use termf_core::squads::{Membership, Squad, Team, same_role};
 
 use crate::rules;
 
@@ -360,9 +360,17 @@ pub fn answer<T: serde::de::DeserializeOwned>(
     serde_json::from_str(braces).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
-/// What is wrong with a plan beyond its schema. `roles`: those a task may have; `repo`: the run's repository,
-/// the only one a task may name until runs span several; `team`: the project's squads, each task's in turn.
-pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec<String> {
+/// What is wrong with a plan beyond its schema. `roles`: those a task may have; `planners`: the roles that plan
+/// a batch of their squad, which only its lead takes; `repos`: those a task may name, the run's own first (the one
+/// of a task that names none); `team`: the project's squads, each task's in turn.
+pub fn check_plan(
+    plan: &Plan,
+    roles: &[String],
+    planners: &[String],
+    repos: &[String],
+    team: &Team,
+) -> Vec<String> {
+    let own = repos.first().map(String::as_str).unwrap_or_default();
     let mut problems = Vec::new();
     if plan.tasks.is_empty() && plan.questions.is_empty() {
         problems.push("the plan has no task and no question".to_owned());
@@ -371,38 +379,47 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec
     let mut ids = HashSet::new();
     for task in &plan.tasks {
         let id = &task.id;
-        if id.is_empty()
-            || !id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
-        {
+        if !task_id(id) {
             problems.push(format!(
-                "task id {id:?} is not made of letters, digits, - or _"
+                "task id {id:?} is not made of letters, digits, - or _, with a dot only between two of them"
             ));
         }
         if !ids.insert(id.as_str()) {
             problems.push(format!("two tasks are named {id}"));
         }
-        if !roles.iter().any(|r| same_role(r, &task.role)) {
+        let batch = planners.iter().any(|r| same_role(r, &task.role));
+        if !batch && !roles.iter().any(|r| same_role(r, &task.role)) {
             problems.push(format!(
                 "task {id}: role {} is not one a task may have ({})",
                 task.role,
                 roles.join(", ")
             ));
         }
-        if !task.repo.is_empty() && !task.repo.eq_ignore_ascii_case(repo) {
-            problems.push(format!(
-                "task {id}: repository {} is not the run's ({repo}); a run works on one repository for now",
-                task.repo
-            ));
-        }
         let repo = if task.repo.is_empty() {
-            repo
+            own
         } else {
             &task.repo
         };
+        if !repos.iter().any(|r| r.eq_ignore_ascii_case(repo)) {
+            problems.push(format!(
+                "task {id}: repository {repo} is not one of the project's ({})",
+                repos.join(", ")
+            ));
+        }
         match team.place(&task.squad, &task.role) {
             Err(why) => problems.push(format!("task {id}: {why}")),
+            Ok(Membership::Staff) if batch => {
+                problems.push(format!(
+                    "task {id}: a batch of {} names its squad",
+                    task.role
+                ));
+            }
+            Ok(Membership::Squad(squad)) if batch && !same_role(&squad.lead, &task.role) => {
+                problems.push(format!(
+                    "task {id}: a batch goes to the lead of its squad, {} for squad {}",
+                    squad.lead, squad.id
+                ));
+            }
             Ok(Membership::Staff) if !team.staff.iter().any(|r| same_role(r, &task.role)) => {
                 problems.push(format!(
                     "task {id}: name its squad ({}), unless its role is on the staff ({})",
@@ -416,7 +433,7 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec
             }
             Ok(Membership::Staff) => {}
             Ok(Membership::Squad(squad)) => {
-                if !squad.has(&task.role) {
+                if !batch && !squad.has(&task.role) {
                     problems.push(format!(
                         "task {id}: role {} is not in squad {} ({})",
                         task.role,
@@ -471,6 +488,17 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec
     }
     problems.extend(check_questions(&plan.questions));
     problems
+}
+
+/// Whether `id` names a task: letters, digits, `-` and `_`, and a dot only between two such parts, as a grafted
+/// task's `T2.1` (never `.` nor `..`: an id names the task's folder).
+pub fn task_id(id: &str) -> bool {
+    id.split('.').all(|part| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
+    })
 }
 
 /// What is wrong with a questionnaire beyond its schema.
@@ -583,6 +611,114 @@ pub fn stray_hints(plan: &Plan, team: &Team) -> Vec<String> {
     found
 }
 
+/// What is wrong with the sub-plan `sub` that the lead of `batch`, a task of `plan`, made: a plan of its squad
+/// alone (`roles`: those of the squad a task may have; its repositories among `repos`; within its paths), on the
+/// batch's criteria and the contracts between squads (`IC…`), each criterion of the batch covered, its ids new to
+/// `plan` once grafted.
+pub fn check_subplan(
+    plan: &Plan,
+    batch: &Task,
+    sub: &Plan,
+    roles: &[String],
+    repos: &[String],
+    squad: &Squad,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut sub = sub.clone();
+    sub.acceptance = batch_criteria(plan, batch);
+    let own = match batch.repo.as_str() {
+        "" => repos.first().cloned().unwrap_or_default(),
+        repo => repo.to_owned(),
+    };
+    for task in &mut sub.tasks {
+        if task.squad.is_empty() {
+            task.squad = squad.id.clone();
+        } else if task.squad != squad.id {
+            problems.push(format!(
+                "task {}: a sub-plan stays in squad {}",
+                task.id, squad.id
+            ));
+            task.squad = squad.id.clone();
+        }
+        if task.repo.is_empty() {
+            task.repo = own.clone();
+        }
+    }
+    let team = Team {
+        declared: true,
+        squads: vec![squad.clone()],
+        staff: Vec::new(),
+    };
+    let repos: Vec<String> = repos
+        .iter()
+        .filter(|r| squad.repos.is_empty() || squad.repos.iter().any(|s| s.eq_ignore_ascii_case(r)))
+        .cloned()
+        .collect();
+    problems.extend(check_plan(&sub, roles, &[], &repos, &team));
+    problems.extend(stray_hints(&sub, &team));
+    for covered in &batch.covers {
+        if !sub.questions.is_empty() {
+            break;
+        }
+        if !sub.tasks.iter().any(|t| t.covers.contains(covered)) {
+            problems.push(format!(
+                "no task covers {covered}, a criterion of batch {}",
+                batch.id
+            ));
+        }
+    }
+    let mut ids = std::collections::HashSet::new();
+    for task in graft(batch, &sub) {
+        if plan.tasks.iter().any(|t| t.id == task.id) || !ids.insert(task.id.clone()) {
+            problems.push(format!(
+                "task {} would be {} once grafted, which another task is",
+                task.id.split_once('.').map_or("", |(_, id)| id),
+                task.id
+            ));
+        }
+    }
+    problems
+}
+
+/// The criteria a batch's sub-plan works on: the batch's own, and the contracts between squads (`IC…`).
+pub fn batch_criteria(plan: &Plan, batch: &Task) -> Vec<Criterion> {
+    plan.acceptance
+        .iter()
+        .filter(|c| batch.covers.contains(&c.id) || c.id.starts_with("IC"))
+        .cloned()
+        .collect()
+}
+
+/// The tasks of the sub-plan of `batch` as tasks of the run's plan: their ids prefixed with the batch's (`T1` of
+/// batch `T2` is `T2.1`), in its squad and repository unless they name theirs, after what the batch waits for.
+pub fn graft(batch: &Task, sub: &Plan) -> Vec<Task> {
+    let id = |own: &str| {
+        let short = own
+            .strip_prefix('T')
+            .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or(own);
+        format!("{}.{short}", batch.id)
+    };
+    sub.tasks
+        .iter()
+        .map(|t| Task {
+            id: id(&t.id),
+            squad: batch.squad.clone(),
+            repo: match t.repo.is_empty() {
+                true => batch.repo.clone(),
+                false => t.repo.clone(),
+            },
+            depends_on: batch
+                .depends_on
+                .iter()
+                .cloned()
+                .chain(t.depends_on.iter().map(|d| id(d)))
+                .collect(),
+            ..t.clone()
+        })
+        .collect()
+}
+
 /// Whether a file, folder or glob of a plan falls within the squad path `path`.
 fn inside(hint: &str, path: &str) -> bool {
     let hint = hint.trim().trim_start_matches("./").trim_end_matches('/');
@@ -665,6 +801,166 @@ mod tests {
         termf_core::squads::parse("name = \"Acme\"\n").unwrap()
     }
 
+    fn repos(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    fn squads() -> Team {
+        termf_core::squads::parse(
+            r#"[[squads]]
+id = "web"
+roles = { front = 2, qa = 1 }
+repos = ["acme-web"]
+paths = ["src/**"]
+[[squads]]
+id = "api"
+lead = "orchestrator"
+roles = { back = 1 }
+repos = ["acme-api"]
+"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_task_id_never_names_a_folder_outside_its_own() {
+        for good in ["T1", "T2.1", "T2.QA", "back-1_b"] {
+            assert!(task_id(good), "{good}");
+        }
+        for bad in ["", ".", "..", ".T1", "T1.", "T1..2", "a/b", "../x", "T 1"] {
+            assert!(!task_id(bad), "{bad}");
+        }
+        let all = check_plan(
+            &plan(vec![task("..", &[]), task(".", &[])]),
+            &repos(&["back"]),
+            &[],
+            &repos(&["api"]),
+            &small(),
+        )
+        .join("\n");
+        assert!(
+            all.contains("task id \"..\" is not made of letters, digits, - or _, with a dot only between two of them")
+                && all.contains("task id \".\""),
+            "{all}"
+        );
+    }
+
+    #[test]
+    fn a_batch_goes_to_the_lead_of_its_squad() {
+        let team = squads();
+        let roles = repos(&["front", "back", "qa"]);
+        let planners = repos(&["lead"]);
+        let all = repos(&["acme-web", "acme-api"]);
+        let mut web = task("T1", &[]);
+        (web.role, web.squad, web.repo) = ("lead".into(), "web".into(), "acme-web".into());
+        let mut api = task("T2", &["T1"]);
+        (api.role, api.squad, api.repo) = ("lead".into(), "api".into(), "acme-api".into());
+        let good = plan(vec![web.clone(), api]);
+        assert_eq!(
+            check_plan(&good, &roles, &planners, &all, &team),
+            Vec::<String>::new()
+        );
+        assert!(
+            check_plan(&good, &roles, &[], &all, &team)
+                .join("\n")
+                .contains("role lead is not one a task may have"),
+            "no batch where no role plans one"
+        );
+        let mut staff = web.clone();
+        staff.squad = String::new();
+        let mut other = web;
+        other.id = "T3".into();
+        other.repo = "acme-api".into();
+        let all = check_plan(&plan(vec![staff, other]), &roles, &planners, &all, &team).join("\n");
+        for expected in [
+            "task T1: a batch of lead names its squad",
+            "task T3: squad web works on acme-web, not on acme-api",
+        ] {
+            assert!(all.contains(expected), "{expected} in {all}");
+        }
+    }
+
+    #[test]
+    fn a_sub_plan_stays_in_its_squad_and_is_grafted_with_its_batch_prefix() {
+        let team = squads();
+        let web = team.squads[0].clone();
+        let mut top = plan(vec![]);
+        top.acceptance.push(Criterion {
+            id: "AC2".into(),
+            text: "a button".into(),
+        });
+        top.acceptance.push(Criterion {
+            id: "IC1".into(),
+            text: "the API answers CSV".into(),
+        });
+        let mut batch = task("T2", &["T1"]);
+        (batch.role, batch.squad, batch.repo) = ("lead".into(), "web".into(), "acme-web".into());
+        batch.covers = vec!["AC2".into(), "IC1".into()];
+        let mut t1 = task("T1", &[]);
+        t1.id = "T0".into();
+        top.tasks = vec![t1, batch.clone()];
+        let roles = repos(&["front", "qa"]);
+        let all = repos(&["acme-web", "acme-api"]);
+
+        let mut front = task("T1", &[]);
+        (front.role, front.repo) = ("front".into(), String::new());
+        front.covers = vec!["AC2".into(), "IC1".into()];
+        front.files_hint = vec!["src/List.svelte".into()];
+        let mut qa = task("T2", &["T1"]);
+        (qa.role, qa.repo) = ("qa".into(), String::new());
+        qa.covers = vec!["AC2".into()];
+        qa.files_hint = vec!["src/List.test.ts".into()];
+        let sub = Plan {
+            acceptance: vec![],
+            tasks: vec![front.clone(), qa],
+            ..plan(vec![])
+        };
+        assert_eq!(
+            check_subplan(&top, &batch, &sub, &roles, &all, &web),
+            Vec::<String>::new()
+        );
+        let grafted = graft(&batch, &sub);
+        let ids: Vec<(&str, &[String], &str)> = grafted
+            .iter()
+            .map(|t| (t.id.as_str(), t.depends_on.as_slice(), t.repo.as_str()))
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                ("T2.1", &["T1".to_owned()][..], "acme-web"),
+                (
+                    "T2.2",
+                    &["T1".to_owned(), "T2.1".to_owned()][..],
+                    "acme-web"
+                ),
+            ]
+        );
+        assert!(grafted.iter().all(|t| t.squad == "web"));
+
+        let mut stray = front.clone();
+        stray.files_hint = vec!["infra/main.tf".into()];
+        stray.covers = vec!["AC1".into()];
+        let mut back = front;
+        (back.id, back.role, back.repo) = ("T3".into(), "back".into(), "acme-api".into());
+        back.covers = vec!["IC1".into()];
+        back.squad = "api".into();
+        let wrong = Plan {
+            tasks: vec![stray, back],
+            ..sub.clone()
+        };
+        let all = check_subplan(&top, &batch, &wrong, &roles, &all, &web).join("\n");
+        for expected in [
+            "task T1 covers AC1, which is not a criterion",
+            "task T1: infra/main.tf is outside the paths of squad web",
+            "task T3: a sub-plan stays in squad web",
+            "task T3: role back is not in squad web",
+            "task T3: repository acme-api is not one of the project's (acme-web)",
+            "no task covers AC2, a criterion of batch T2",
+        ] {
+            assert!(all.contains(expected), "{expected} in {all}");
+        }
+    }
+
     #[test]
     fn checks_what_the_schema_cannot() {
         let roles = ["back".to_owned(), "front".to_owned()];
@@ -673,7 +969,8 @@ mod tests {
             check_plan(
                 &plan(vec![task("T1", &[]), task("T2", &["T1"])]),
                 &roles,
-                "API",
+                &[],
+                &repos(&["API"]),
                 &small
             )
             .is_empty()
@@ -687,14 +984,15 @@ mod tests {
         let problems = check_plan(
             &plan(vec![task("T1", &[]), task("T1", &[]), bad]),
             &roles,
-            "api",
+            &[],
+            &repos(&["api"]),
             &small,
         );
         let all = problems.join("\n");
         for expected in [
             "two tasks are named T1",
             "role wizard is not one a task may have (back, front)",
-            "repository front is not the run's",
+            "repository front is not one of the project's (api)",
             "covers AC7",
             "../etc/passwd is not a path",
             "/abs is not a path",
@@ -705,16 +1003,19 @@ mod tests {
 
         let looped = plan(vec![task("T1", &["T2"]), task("T2", &["T1"])]);
         assert_eq!(
-            check_plan(&looped, &roles, "api", &small),
+            check_plan(&looped, &roles, &[], &repos(&["api"]), &small),
             ["the tasks depend on each other in a cycle"]
         );
-        assert_eq!(check_plan(&plan(vec![]), &roles, "api", &small).len(), 1);
+        assert_eq!(
+            check_plan(&plan(vec![]), &roles, &[], &repos(&["api"]), &small).len(),
+            1
+        );
         let mut main = task("T1", &[]);
         main.squad = "main".into();
         main.role = "orchestrator".into();
         let lead = ["lead".to_owned()];
         assert!(
-            check_plan(&plan(vec![main]), &lead, "api", &small).is_empty(),
+            check_plan(&plan(vec![main]), &lead, &[], &repos(&["api"]), &small).is_empty(),
             "the implicit squad, and the former name of lead"
         );
     }
@@ -747,7 +1048,7 @@ paths = ["services/**"]
         let mut t2 = task("T2", &["T1"]);
         t2.role = "architect".into();
         let good = plan(vec![t1.clone(), t2]);
-        assert!(check_plan(&good, &roles, "api", &team).is_empty());
+        assert!(check_plan(&good, &roles, &[], &repos(&["api", "front"]), &team).is_empty());
         assert_eq!(
             stray_hints(&good, &team),
             ["task T1: README.md is outside the paths of squad api (services/**)"]
@@ -762,7 +1063,8 @@ paths = ["services/**"]
         let problems = check_plan(
             &plan(vec![outside, nameless, unknown]),
             &roles,
-            "api",
+            &[],
+            &repos(&["api"]),
             &team,
         );
         let all = problems.join("\n");
@@ -783,7 +1085,7 @@ paths = ["services/**"]
         let web = plan(vec![web]);
         assert!(stray_hints(&web, &team).is_empty());
         assert_eq!(
-            check_plan(&web, &roles, "front", &team),
+            check_plan(&web, &roles, &[], &repos(&["front", "api"]), &team),
             Vec::<String>::new(),
             "no repository: the run's"
         );
