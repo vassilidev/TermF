@@ -9,7 +9,7 @@
   import Send from "@lucide/svelte/icons/send";
   import CiStatus from "$lib/CiStatus.svelte";
   import { t } from "$lib/i18n";
-  import { ui, type Session } from "$lib/state.svelte";
+  import { onScreen, type Session } from "$lib/state.svelte";
   import type { Run } from "$lib/tickets.svelte";
   import { duration, outcome, type AgentMessage, type Job, type RunDetail, type WorkflowRun } from "$lib/ci.svelte";
   import { failedJobs } from "$lib/ci-logic";
@@ -54,7 +54,7 @@
 
   // While a check runs and the tickets are on screen.
   $effect(() => {
-    if (ui.view !== "tickets" || !checks?.some((c) => c.status !== "completed")) return;
+    if (!onScreen("tickets") || !checks?.some((c) => c.status !== "completed")) return;
     const timer = setInterval(() => document.visibilityState === "visible" && load(), 30_000);
     return () => clearInterval(timer);
   });

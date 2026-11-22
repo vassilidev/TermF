@@ -12,6 +12,7 @@ import {
   pressedCombo,
   refusal,
   setBinding,
+  sheet,
 } from "../src/lib/keymap-logic.ts";
 
 const key = (key, code, mods = {}) => ({ key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
@@ -234,4 +235,50 @@ test("[keys] keeps only what differs from the defaults, and ids it does not know
   assert.equal(current.palette, "Cmd+P");
   assert.equal(current.next_waiting, "Cmd+J");
   assert.equal(current.someday, undefined);
+});
+
+test("? asks for the help outside a field and a terminal only, whatever the layout", () => {
+  const ctx = { mac: true, inTerminal: false, view: "tickets", limits: nine };
+  // US: Shift+/ ; AZERTY: Shift+, at the place of M.
+  assert.deepEqual(match(key("?", "Slash", { shiftKey: true }), mac, ctx), { id: "help" });
+  assert.deepEqual(match(key("?", "KeyM", { shiftKey: true }), mac, ctx), { id: "help" });
+  assert.equal(match(key("?", "Slash", { shiftKey: true }), mac, { ...ctx, inField: true }), null);
+  assert.equal(match(key("?", "Slash", { shiftKey: true }), mac, { ...ctx, inTerminal: true }), null);
+  assert.equal(match(key("?", "Slash", { shiftKey: true, metaKey: true }), mac, ctx), null);
+  // Given a combination as well, it takes both.
+  const own = bindings({ help: "F1" }, true);
+  assert.deepEqual(match(key("F1", "F1"), own, { ...ctx, inTerminal: true }), { id: "help" });
+});
+
+test("the second panel's shortcuts", () => {
+  const ctx = (mac) => ({ mac, inTerminal: true, view: "terminals", limits: nine });
+  assert.deepEqual(match(key("\\", "Backslash", { metaKey: true }), mac, ctx(true)), { id: "split_view" });
+  assert.deepEqual(match(key("\\", "Backslash", { metaKey: true, altKey: true }), mac, ctx(true)), { id: "other_panel" });
+  assert.deepEqual(match(key("|", "Backslash", { ctrlKey: true, shiftKey: true }), other, ctx(false)), { id: "split_view" });
+  assert.deepEqual(match(key("|", "Backslash", { altKey: true, shiftKey: true }), other, ctx(false)), { id: "other_panel" });
+  // Ctrl+\ is the terminal's (SIGQUIT).
+  assert.equal(match(key("\\", "Backslash", { ctrlKey: true }), other, ctx(false)), null);
+});
+
+test("the help lists every shortcut from the registry, the view's group first", () => {
+  const groups = sheet(mac, true, "tickets");
+  assert.deepEqual(
+    groups.map((g) => g.group),
+    ["tickets", "general", "terminals", "files"],
+  );
+  const rows = Object.fromEntries(groups.flatMap((g) => g.rows).map((r) => [r.id, r.keys]));
+  assert.deepEqual(rows.help, ["?"]);
+  assert.deepEqual(rows.tile, ["⌘1…9"]);
+  assert.deepEqual(rows.palette, ["⌘K"]);
+  // No shortcut, no line.
+  assert.equal(rows.quick_terminal_global, undefined);
+  // Every bound action is there, each once.
+  const bound = actions.filter((a) => a.typed || mac[a.id]).map((a) => a.id);
+  assert.deepEqual(Object.keys(rows).sort(), bound.sort());
+  // A change in termf.toml shows; elsewhere, Ctrl and the help's own combination.
+  const changed = Object.fromEntries(sheet(bindings({ help: "F1", palette: "" }, false), false, "files").flatMap((g) => g.rows).map((r) => [r.id, r.keys]));
+  assert.deepEqual(changed.help, ["F1", "?"]);
+  assert.equal(changed.palette, undefined);
+  assert.equal(sheet(other, false, "files")[0].group, "files");
+  assert.equal(sheet(other, false, "ssh")[0].group, "general");
 });

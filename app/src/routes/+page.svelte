@@ -5,17 +5,25 @@
   import CommandPalette from "$lib/CommandPalette.svelte";
   import OnboardingView from "$lib/OnboardingView.svelte";
   import ProjectView from "$lib/ProjectView.svelte";
+  import HelpSheet from "$lib/HelpSheet.svelte";
+  import GuidedTour from "$lib/GuidedTour.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import Panel from "$lib/ui/Panel.svelte";
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
+  import { MAX, MIN } from "$lib/panes-logic";
+  import { dragPanes, resizePanes, watchPanes } from "$lib/panes.svelte";
   import { showSettings } from "$lib/settings.svelte";
-  import { app, init, ui } from "$lib/state.svelte";
+  import { app, init, onScreen, panes, ui } from "$lib/state.svelte";
+  import { tour, watchTour } from "$lib/tour.svelte";
   import { watchAgents } from "$lib/agents.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
   import { watchTickets } from "$lib/tickets.svelte";
   import { setup, watchSetup } from "$lib/onboarding.svelte";
   import { views } from "$lib/views";
+
+  let area = $state<HTMLElement>();
 
   onMount(() => {
     document.documentElement.lang = lang;
@@ -25,8 +33,35 @@
     const stopTickets = watchTickets();
     const stopSetup = watchSetup();
     const stopAgents = watchAgents();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents());
+    const stopPanes = watchPanes();
+    const stopTour = watchTour();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour());
   });
+
+  function drag(e: PointerEvent) {
+    if (!area || e.button !== 0) return;
+    const handle = e.currentTarget as HTMLElement;
+    const box = area.getBoundingClientRect();
+    handle.setPointerCapture(e.pointerId);
+    dragPanes(true);
+    const move = (m: PointerEvent) => resizePanes((m.clientX - box.left) / box.width);
+    const end = () => {
+      dragPanes(false);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  }
+
+  function resizeKey(e: KeyboardEvent) {
+    const to = { ArrowLeft: panes.size - 0.05, ArrowRight: panes.size + 0.05, Home: MIN, End: MAX }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    resizePanes(to);
+  }
 </script>
 
 <svelte:window onkeydowncapture={onShortcut} />
@@ -55,29 +90,60 @@
         {/if}
       </div>
     {/if}
-    {#each views as view (view.id)}
-      {#if view.loaded()}
-        {#await view.load() then { default: View }}
-          <!-- Hidden, not unmounted: terminals keep running and keep their scrollback. -->
-          <div class="pane" hidden={ui.view !== view.id}><View /></div>
-        {/await}
+    <div
+      class="panels"
+      class:two={panes.other !== null}
+      style:--left={panes.size}
+      bind:this={area}
+    >
+      {#each views as view (view.id)}
+        {#if view.loaded()}
+          {#await view.load() then { default: View }}
+            <!-- Hidden, not unmounted: terminals keep running and keep their scrollback. -->
+            <Panel view={view.id}><View /></Panel>
+          {/await}
+        {/if}
+      {/each}
+      {#if onScreen("project") && ui.editing !== null}
+        {#key ui.editing}
+          <Panel view="project"><ProjectView /></Panel>
+        {/key}
       {/if}
-    {/each}
-    {#if ui.view === "project" && ui.editing !== null}
-      {#key ui.editing}
-        <div class="pane"><ProjectView /></div>
-      {/key}
-    {/if}
-    {#if ui.view === "onboarding" && setup.project !== null}
-      {#key setup.project}
-        <div class="pane"><OnboardingView /></div>
-      {/key}
-    {/if}
+      {#if onScreen("onboarding") && setup.project !== null}
+        {#key setup.project}
+          <Panel view="onboarding"><OnboardingView /></Panel>
+        {/key}
+      {/if}
+      {#if panes.other !== null}
+        <!-- A focusable separator is a widget (WAI-ARIA window splitter): the arrows move it. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <div
+          class="handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("t6aResizeHandle")}
+          aria-valuenow={Math.round(panes.size * 100)}
+          aria-valuemin={MIN * 100}
+          aria-valuemax={MAX * 100}
+          tabindex="0"
+          title={t("t6aResizeHandle")}
+          onpointerdown={drag}
+          ondblclick={() => resizePanes(0.5)}
+          onkeydown={resizeKey}
+        ></div>
+      {/if}
+    </div>
   </div>
 </div>
 
 {#if ui.palette}
   <CommandPalette />
+{/if}
+{#if ui.help}
+  <HelpSheet />
+{/if}
+{#if tour.step !== null}
+  <GuidedTour />
 {/if}
 
 <style>
@@ -94,14 +160,47 @@
     min-height: 0;
   }
 
-  .pane {
+  .panels {
     display: grid;
-    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     flex: 1;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     min-height: 0;
   }
 
-  .pane[hidden] {
-    display: none;
+  .panels.two {
+    grid-template-columns: minmax(0, calc((100% - 1px) * var(--left))) 1px minmax(0, 1fr);
+  }
+
+  /* A 1px line, wider to grab than to see, over the panels' edges. */
+  .handle {
+    position: relative;
+    z-index: 6;
+    grid-area: 1 / 2;
+    background: var(--border-strong);
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .handle::before {
+    content: "";
+    position: absolute;
+    inset: 0 -4px;
+  }
+
+  .handle::after {
+    content: "";
+    position: absolute;
+    inset: 0 -1px;
+    transition: background-color var(--dur-fast) ease-out;
+  }
+
+  .handle:hover::after,
+  .handle:active::after,
+  .handle:focus-visible::after {
+    background: var(--accent);
+  }
+
+  .handle:focus-visible {
+    outline: none;
   }
 </style>
