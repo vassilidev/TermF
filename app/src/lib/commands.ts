@@ -5,6 +5,7 @@ import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
 import Gauge from "@lucide/svelte/icons/gauge";
 import History from "@lucide/svelte/icons/history";
+import CircleArrowUp from "@lucide/svelte/icons/circle-arrow-up";
 import CircleHelp from "@lucide/svelte/icons/circle-help";
 import Compass from "@lucide/svelte/icons/compass";
 import Images from "@lucide/svelte/icons/images";
@@ -20,6 +21,7 @@ import Import from "@lucide/svelte/icons/import";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import Layers from "@lucide/svelte/icons/layers";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+import ListChecks from "@lucide/svelte/icons/list-checks";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Megaphone from "@lucide/svelte/icons/megaphone";
 import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
@@ -74,6 +76,7 @@ import {
   type ViewId,
 } from "$lib/state.svelte";
 import { showScout } from "$lib/scout.svelte";
+import { checkUpdates } from "$lib/release.svelte";
 import { exportConfig, importConfig, showSettings } from "$lib/settings.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
 import { launchTicket, tickets } from "$lib/tickets.svelte";
@@ -523,6 +526,8 @@ export function commands(): Command[] {
   action({ id: "help", label: t("t6bHelp"), keys: keys.help, icon: CircleHelp, run: () => (ui.help = true) });
   action({ id: "tour", label: t("t6bTour"), icon: Compass, run: startTour });
   action({ id: "shortcuts", label: t("shortcuts"), icon: Keyboard, run: () => showSettings("keys") });
+  action({ id: "release-check", label: t("releaseCmdCheck"), icon: CircleArrowUp, run: () => (showSettings("updates"), checkUpdates()) });
+  action({ id: "release-needs", label: t("releaseCmdNeeds"), icon: ListChecks, run: () => showSettings("tools") });
   action({ id: "quick", label: t("quickTerminal"), keys: keys.quick, icon: SquareTerminal, run: toggleQuickTerminal });
   action({ id: "ticket-launch", label: t("ticketLaunchLong"), keys: keys.ticket, icon: Ticket, run: launchTicket });
   action({ id: "ci-dispatch", label: t("ciDispatchLong"), icon: Workflow, run: dispatchWorkflow });
