@@ -163,3 +163,35 @@ export function recipeLines(repos: Record<string, RepoRecipe>): { repo: string; 
     ],
   }));
 }
+
+/** The translation key of why the team proposal keeps or leaves out a role (`RoleChoice.why`). */
+export const teamWhy = {
+  front: "obTeamWhyFront",
+  back: "obTeamWhyBack",
+  tests: "obTeamWhyTests",
+  "no-tests": "obTeamWhyNoTests",
+  infra: "obTeamWhyInfra",
+  ui: "obTeamWhyUi",
+  web: "obTeamWhyWeb",
+  design: "obTeamWhyDesign",
+  own: "obTeamWhyOwn",
+  "no-front": "obTeamWhyNoFront",
+  "no-back": "obTeamWhyNoBack",
+  "no-infra": "obTeamWhyNoInfra",
+  "no-ui": "obTeamWhyNoUi",
+  "no-web": "obTeamWhyNoWeb",
+  data: "roles2WhyData",
+  "no-data": "roles2WhyNoData",
+  llm: "roles2WhyLlm",
+  "no-llm": "roles2WhyNoLlm",
+  analytics: "roles2WhyAnalytics",
+  "no-analytics": "roles2WhyNoAnalytics",
+  integrations: "roles2WhyIntegrations",
+  "no-integrations": "roles2WhyNoIntegrations",
+  service: "roles2WhyService",
+  "no-service": "roles2WhyNoService",
+  docs: "roles2WhyDocs",
+  "no-docs": "roles2WhyNoDocs",
+  personal: "roles2WhyPersonal",
+  "no-public": "roles2WhyNoPublic",
+} as const;

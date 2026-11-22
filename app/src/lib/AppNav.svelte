@@ -21,7 +21,8 @@
   import { t } from "$lib/i18n";
   import { aria } from "$lib/keymap.svelte";
   import { validProject } from "$lib/nav-logic";
-  import { editProject, tallies } from "$lib/project.svelte";
+  import { newProject } from "$lib/newproject.svelte";
+  import { tallies } from "$lib/project.svelte";
   import { showSettings } from "$lib/settings.svelte";
   import { app, onScreen, panes, setProject, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
   import { summary } from "$lib/sync.svelte";
@@ -187,7 +188,7 @@
     >
       <Search size={14} aria-hidden="true" />
     </button>
-    <button class="icon-btn sm" aria-label={t("newProject")} title={t("newProject")} onclick={() => editProject("")}>
+    <button class="icon-btn sm" aria-label={t("newProject")} title={t("newProject")} onclick={newProject}>
       <Plus size={14} aria-hidden="true" />
     </button>
   </div>
