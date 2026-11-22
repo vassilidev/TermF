@@ -176,7 +176,16 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["lead", "architect", "back", "devops", "front", "qa", "ux"]
+            [
+                "lead",
+                "architect",
+                "back",
+                "devops",
+                "front",
+                "qa",
+                "seo",
+                "ux"
+            ]
         );
         let _ = fs::remove_dir_all(&dir);
     }
