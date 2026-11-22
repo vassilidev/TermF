@@ -10,6 +10,7 @@
   import { lang, t } from "$lib/i18n";
   import { showSettings } from "$lib/settings.svelte";
   import { app, init, ui } from "$lib/state.svelte";
+  import { watchAgents } from "$lib/agents.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
   import { watchTickets } from "$lib/tickets.svelte";
@@ -23,7 +24,8 @@
     const stopSchedule = watchSchedule();
     const stopTickets = watchTickets();
     const stopSetup = watchSetup();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup());
+    const stopAgents = watchAgents();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents());
   });
 </script>
 

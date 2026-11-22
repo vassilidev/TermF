@@ -586,6 +586,17 @@ fn reserved_on_windows(name: &str) -> bool {
 pub struct Layout {
     pub name: String,
     pub sessions: Vec<LayoutSession>,
+    /// The Terminals tabs over `sessions`; none in a layout saved before tabs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tabs: Vec<LayoutTab>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LayoutTab {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// The tab's splits, written and checked by the app (`split-logic.ts`), as indexes into `sessions`.
+    pub splits: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1183,6 +1194,10 @@ mod tests {
         let morning = Layout {
             name: "morning".into(),
             sessions: vec![session("src/api", Some("claude")), session("src/web", None)],
+            tabs: vec![LayoutTab {
+                name: "review".into(),
+                splits: r#"{"dir":"row","sizes":[0.5,0.5],"children":[0,1]}"#.into(),
+            }],
         };
         save_layout(
             &dir,
@@ -1197,11 +1212,13 @@ mod tests {
             Layout {
                 name: "evening".into(),
                 sessions: vec![session("src/docs", None)],
+                tabs: vec![],
             },
         )
         .unwrap();
         let text = fs::read_to_string(dir.join("layouts.toml")).unwrap();
         assert!(!text.contains(&home_path("")), "paths are stored as ~/…");
+        assert_eq!(text.matches("[[layouts.tabs]]").count(), 1, "{text}");
         assert_eq!(load_layouts(&dir).unwrap()[0], morning);
 
         save_layout(
@@ -1209,6 +1226,7 @@ mod tests {
             Layout {
                 name: "morning".into(),
                 sessions: vec![session("src/api", None)],
+                tabs: vec![],
             },
         )
         .unwrap();
@@ -1234,6 +1252,15 @@ mod tests {
             ..morning
         };
         assert!(save_layout(&dir, no_sessions).is_err());
+
+        // Saved before tabs: no `tabs` key.
+        let old = temp_dir("layouts-old");
+        fs::write(
+            old.join("layouts.toml"),
+            "[[layouts]]\nname = \"x\"\n\n[[layouts.sessions]]\npath = \"/a\"\n",
+        )
+        .unwrap();
+        assert!(load_layouts(&old).unwrap()[0].tabs.is_empty());
     }
 
     #[test]

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { t } from "$lib/i18n";
 import { mostRecent } from "$lib/nav-logic";
 import { app, ui, type Project, type Repo } from "$lib/state.svelte";
+import { zoomed } from "$lib/tabs.svelte";
 
 export type Entry = { name: string; path: string; dir: boolean };
 export type Content =
@@ -70,9 +71,9 @@ export function scopeRepo() {
   if (!repos.some((r) => r.path === files.repo)) files.repo = mostRecent(repos)?.path ?? "";
 }
 
-/** Shows the Files view on the focused session's repository, else keeps the current one or takes the most recent. */
+/** Shows the Files view on the zoomed session's repository, else keeps the current one or takes the most recent. */
 export function showFiles() {
-  const focused = app.sessions.find((s) => s.id === app.focused)?.cwd;
+  const focused = zoomed()?.cwd;
   if (focused && scopeRepos().some((r) => r.path === focused)) files.repo = focused;
   else scopeRepo();
   ui.view = "files";
