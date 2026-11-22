@@ -1,0 +1,54 @@
+# The last lines of a service's journal, or of a log file, on a server reached by SSH.
+name = "logs-tail"
+description = "The last lines of a service's journal (journalctl) or of a log file, on a server reached by SSH"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.unit]
+type = "name"
+description = "A systemd unit, such as nginx.service (journal only)"
+
+[params.file]
+type = "path"
+description = "A log file instead of the journal, such as /var/log/app/error.log"
+
+[params.since]
+type = "duration"
+description = "How far back, such as 15m, 1h or 2d (journal only)"
+default = "1h"
+
+[params.grep]
+type = "text"
+description = "Only the lines that match this pattern"
+
+[params.lines]
+type = "int"
+description = "How many lines at most"
+default = 200
+min = 1
+max = 2000
+
+[limits]
+lines = 2000
+bytes = 262144
+timeout_s = 30
+
+[[run]]
+kind = "ssh"
+when = ["file", "grep"]
+args = ["grep", "-E", "--", "{grep}", "{file}"]
+pipe = [["tail", "-n", "{lines}"]]
+
+[[run]]
+kind = "ssh"
+when = ["file"]
+args = ["tail", "-n", "{lines}", "--", "{file}"]
+
+[[run]]
+kind = "ssh"
+args = [
+  "journalctl", "--no-pager", "-o", "short-iso", "-n", "{lines}", "--since", "{since} ago",
+  ["-u", "{unit}"], ["--grep", "{grep}"],
+]

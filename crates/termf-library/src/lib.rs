@@ -430,6 +430,15 @@ pub fn shipped(rel: &str) -> Option<&'static str> {
     SHIPPED.get_file(rel)?.contents_utf8()
 }
 
+/// The files of a folder of the library shipped with TermF, such as `recipes`: each one's name and text.
+pub fn shipped_files(dir: &str) -> Vec<(&'static str, &'static str)> {
+    SHIPPED.get_dir(dir).map_or_else(Vec::new, |dir| {
+        dir.files()
+            .filter_map(|f| Some((f.path().file_name()?.to_str()?, f.contents_utf8()?)))
+            .collect()
+    })
+}
+
 pub fn explain(config_dir: &Path, scope: &Scope, kind: Kind, name: &str) -> Result<Item> {
     resolve(config_dir, scope)?
         .into_iter()
