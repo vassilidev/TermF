@@ -8,6 +8,7 @@ mod context;
 mod files;
 mod keep_awake;
 mod library;
+mod memory;
 mod onboarding;
 mod quick_terminal;
 mod schedule;
@@ -288,6 +289,11 @@ pub fn run() {
                 data_dir.clone(),
             ));
             app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
+            app.manage(memory::start(
+                app.handle(),
+                config_dir.clone(),
+                data_dir.clone(),
+            ));
             app.manage(AppState {
                 config_dir,
                 sessions: api.sessions(app.handle().clone()),
@@ -470,6 +476,9 @@ pub fn run() {
             claude::artifacts_confirm,
             claude::artifacts_delete,
             claude::artifacts_edit,
+            memory::memory_status,
+            memory::memory_settings_save,
+            memory::memory_reindex,
             agents::agent_start,
             agents::agent_send,
             agents::agent_interrupt,

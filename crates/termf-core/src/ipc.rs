@@ -77,6 +77,21 @@ pub enum Call {
     Vault(VaultCall),
     /// Visual reviews before / after (crate `termf-visual`).
     Review(ReviewCall),
+    /// The project memory and its expert (crate `termf-memory`).
+    Memory(MemoryCall),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum MemoryCall {
+    /// Brings a project's index up to date, or every project's.
+    Reindex { project: Option<String> },
+    /// A question to the project's expert, answered by a headless session TermF starts and waits for.
+    Ask {
+        project: String,
+        question: String,
+        budget: Option<f64>,
+    },
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]

@@ -26,6 +26,7 @@ const STOP_WAIT: Duration = Duration::from_secs(10);
 const KILL_WAIT: Duration = Duration::from_secs(5);
 /// How long a terminal may take to close when its session is handed back.
 const TILE_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 });
+const CONSULT_POLL: Duration = Duration::from_millis(if cfg!(test) { 50 } else { 500 });
 const BUSY: &str = "the session is being stopped, taken over or handed back";
 
 /// Clones share the same sessions.
@@ -388,6 +389,75 @@ impl Agents {
 
     pub fn events(&self, id: i64, after: i64) -> Result<Vec<StoredEvent>> {
         store::events(&self.inner.data_dir, id, after)
+    }
+
+    /// Starts a session on `prompt` and waits for its answer, what TermF asks an agent for another (`ask_expert`).
+    /// Nobody is there to approve a tool, so each permission it asks for is refused; past `timeout` it is stopped.
+    /// Its process ends with the answer; the conversation stays, and a message resumes it.
+    pub fn consult(
+        &self,
+        spec: SessionSpec,
+        prompt: &str,
+        timeout: Duration,
+    ) -> Result<(AgentSession, String)> {
+        let id = self.start(spec, Some(prompt))?.id;
+        let deadline = std::time::Instant::now() + timeout;
+        let session = loop {
+            let session = self.session(id)?;
+            match session.state {
+                State::Working => {}
+                State::Waiting => {
+                    let pending: Vec<String> = {
+                        let live = self.inner.live.lock().unwrap();
+                        live.get(&id)
+                            .map(|e| e.pending.keys().cloned().collect())
+                            .unwrap_or_default()
+                    };
+                    for request in pending {
+                        let why = "Nobody can approve this here: answer with what you can read.";
+                        let _ = self.answer(id, &request, false, Some(why));
+                    }
+                }
+                _ => break session,
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = self.stop(id);
+                bail!(
+                    "no answer within {} minutes (conversation {id})",
+                    timeout.as_secs() / 60
+                );
+            }
+            std::thread::sleep(CONSULT_POLL);
+        };
+        if session.state == State::Idle {
+            self.stop(id)?;
+        }
+        let events = self.events(id, 0)?;
+        // The result line holds the answer; its last text says the same when that line has none.
+        let said = events.iter().rev().find_map(|e| match &e.event {
+            AgentEvent::Text { text, parent: None } => Some(text.clone()),
+            _ => None,
+        });
+        let end = events.into_iter().rev().find_map(|e| match e.event {
+            AgentEvent::TurnEnd {
+                outcome,
+                result,
+                error,
+                ..
+            } => Some((outcome, result.or(said.clone()), error)),
+            _ => None,
+        });
+        match end {
+            Some((Outcome::Done, Some(text), _)) if !text.trim().is_empty() => {
+                Ok((self.session(id)?, text))
+            }
+            Some((Outcome::Budget, ..)) => bail!(
+                "its budget ran out (${:.2}) before it answered (conversation {id})",
+                session.cost
+            ),
+            Some((_, _, Some(error))) => bail!("no answer: {error} (conversation {id})"),
+            _ => bail!("no answer (conversation {id})"),
+        }
     }
 }
 

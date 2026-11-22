@@ -15,6 +15,7 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 mod agent;
 mod ci;
 mod claude;
+mod memory;
 mod review;
 mod schedule;
 mod scout;
@@ -148,6 +149,14 @@ usage:
                                         decide a screen; once none is pending, the team's visual gate
                                         goes on, stops the run, or sends the changes to the agent
   termf review pr <id> [--yes]          show, then (with --yes) post the images on the run's pull request
+  termf ask <question>... [--project <id>] [--budget <usd>]
+                                        ask the project's expert (default: the project of this folder);
+                                        it searches the project memory and reads the code, read-only, and
+                                        answers with its sources (budget: $1 at most)
+  termf memory search <query>... [--project <id>] [--source <s>]... [--limit <n>]
+                                        search the project memory: conversations, runs, library, CLAUDE.md
+                                        and automatic memory, docs, git history, artifacts (masked, local)
+  termf memory reindex [--project <id>] bring the memory of a project (default: every project) up to date
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
   termf claude settings get <key> [--scope <s>] [--repo <path>]
@@ -276,6 +285,8 @@ fn run(args: &[&str]) -> Result<()> {
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["vault", rest @ ..] => vault::run(rest.to_vec())?,
         ["review", rest @ ..] => review::run(rest.to_vec())?,
+        ["memory", rest @ ..] => memory::run(rest.to_vec())?,
+        ["ask", rest @ ..] => memory::ask(rest.to_vec())?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,

@@ -68,6 +68,7 @@ while IFS= read -r line; do
     *structured*) answer '{"ok":true}'; result success ',"structured_output":{"ok":true}' ;;
     *budget*) result error_max_budget_usd ',"is_error":true,"terminal_reason":"budget_exhausted","errors":["Reached maximum budget ($0.05)"]' ;;
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
+    *webhooks*) answer 'Three retries: src/webhooks.rs:12, and conversation 1111 (2026-11-20).'; result success ;;
     *) answer 'OK.'; result success ;;
   esac
 done
@@ -468,6 +469,36 @@ fn the_expert_reads_only_and_never_reaches_the_network() {
         (Some("haiku"), Some("low")),
         "the spec's own model and effort win over the role's"
     );
+}
+
+#[test]
+fn consults_an_agent_for_another_and_waits_for_its_answer() {
+    let env = Env::new("consult");
+    let ask = |prompt: &str| {
+        let spec = SessionSpec {
+            role: Some("expert".into()),
+            budget: Some(0.5),
+            ..env.spec()
+        };
+        env.agents.consult(spec, prompt, Duration::from_secs(20))
+    };
+    let (session, text) = ask("Why do webhooks retry?").unwrap();
+    assert!(text.contains("src/webhooks.rs:12"), "{text}");
+    assert_eq!(
+        session.state,
+        State::Stopped,
+        "its process ends with the answer"
+    );
+    assert_eq!(session.spec.budget, Some(0.5));
+    let (session, text) = ask("permission to write a file").unwrap();
+    assert_eq!(text, "Not written.", "nobody can approve a tool");
+    let refused = env
+        .events(session.id)
+        .into_iter()
+        .any(|e| matches!(e, AgentEvent::PermissionAnswer { allow: false, .. }));
+    assert!(refused);
+    let error = ask("over budget").unwrap_err().to_string();
+    assert!(error.contains("budget ran out"), "{error}");
 }
 
 #[test]
