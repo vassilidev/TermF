@@ -525,6 +525,58 @@ export const scenarios = [
     },
   },
   {
+    name: "files: find a file by name, then a text across the repository",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("files");
+      await t.ready();
+      await t.project();
+      await t.view("files");
+      await t.command("file");
+      await s.type("dialog.finder input", "app.js");
+      await s.wait(async () => (await s.text("#finder-0"))?.includes("app.js"), { what: "app.js found" });
+      await s.press(Key.enter);
+      await s.waitGone("dialog.finder[open]");
+      await s.wait(async () => (await s.text(`${pane} .cm-content`))?.includes("greet"), { what: "src/app.js in the editor" });
+      await s.click(`${pane} .segmented button:nth-child(2)`);
+      await s.type(`${pane} .search input.field`, "The API of Acme");
+      await s.wait(async () => (await s.text(`${pane} .search .hit`))?.includes("The API of Acme"), { what: "the README line found" });
+      await t.clean();
+    },
+  },
+  {
+    name: "CI/CD: a failed run on main listed from GitHub (fake gh)",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const run = {
+        id: 4242,
+        name: "CI",
+        display_title: "Fix the login button on Safari",
+        run_number: 12,
+        run_attempt: 1,
+        event: "push",
+        status: "completed",
+        conclusion: "failure",
+        head_branch: "main",
+        head_sha: box.git("rev-parse", "HEAD").trim(),
+        actor: { login: "alex" },
+        pull_requests: [],
+        html_url: "https://github.com/acme/api/actions/runs/4242",
+        created_at: "2026-11-22T09:00:00Z",
+        updated_at: "2026-11-22T09:05:00Z",
+        run_started_at: "2026-11-22T09:00:05Z",
+      };
+      writeFileSync(join(box.root, "gh-runs.json"), JSON.stringify([run]));
+      await t.ready();
+      await t.project();
+      await t.view("ci");
+      await s.wait(async () => (await s.text(t.shown("ci")))?.includes("Fix the login button on Safari"), { what: "the run in the list" });
+      await t.clean();
+    },
+  },
+  {
     name: "Ops: an SSH connection added to the project, kept in its config",
     views: [],
     async run(t) {

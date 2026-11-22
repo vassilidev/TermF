@@ -99,6 +99,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     GIT_CONFIG_NOSYSTEM: "1",
     TERMF_E2E_LOG: join(root, "calls.log"),
     TERMF_E2E_RELEASES: join(root, "releases.json"),
+    TERMF_E2E_GH_RUNS: join(root, "gh-runs.json"),
   });
   if (!windows) {
     Object.assign(env, {
