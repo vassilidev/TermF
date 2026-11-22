@@ -1,5 +1,5 @@
 ---
-description: PNG frames to an MP4 that plays everywhere: the pixel format is the trap.
+description: "PNG frames to an MP4 that plays everywhere: the pixel format is the trap."
 max_turns: 8
 allowed_tools: [Read, Glob, Grep, Skill]
 ---

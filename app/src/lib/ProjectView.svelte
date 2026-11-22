@@ -332,10 +332,10 @@
             </div>
           {/if}
 
-          {#if stacks.some((s) => s.mcp.length || s.sources.length)}
+          {#if stacks.some((s) => s.mcp.length || s.sources.length || s.servers.length)}
             <div class="offers">
               <h3>{t("stackOffersTitle")}</h3>
-              <StackOffers {stacks} />
+              <StackOffers {stacks} project={id} />
             </div>
           {/if}
         </section>

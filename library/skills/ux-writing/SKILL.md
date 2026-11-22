@@ -4,9 +4,10 @@ description: >-
   Writes the product's words a ticket asks for, consistent with the rest: interface labels and microcopy
   (buttons, errors, empty states, confirmations, onboarding), pages and README sections, in every language the
   project ships, through its translation files, with the product's glossary and tone. Proposes options for the
-  user to choose when the wording is not given, and leaves existing text alone. Use when a task asks for UI
-  text, an error or empty-state message, a translation, a glossary, a tone of voice or a README section. Not for
-  the layout or the code around the text (front), nor for rewording text no ticket names.
+  user to choose when the wording is not given, and leaves existing text alone. Use it before answering whenever
+  a task asks for UI text, an error or empty-state message, a translation, a glossary, a tone of voice or a
+  README section. Not for the layout or the code around the text (front), nor for rewording text no ticket
+  names.
 license: MIT
 metadata:
   termf-stacks: "*"

@@ -3,10 +3,11 @@ name: security-web
 description: >-
   Reviews and fixes the security of web applications and APIs by OWASP Top 10:2025 and ASVS 5.0 identifiers:
   access control and IDOR, authentication, sessions, JWT and OAuth, injection and XSS, SSRF, file uploads,
-  secrets, new dependencies and supply chain, error handling that fails open, and features built on LLMs
-  (prompt injection, tool permissions). Use when a task asks for a security review or audit, touches login,
-  permissions, user input, uploads, tokens, secrets or a new package, or reports a vulnerability or CVE. Not for
-  CI workflow hardening (github-actions), cloud IAM policies (cloud) or container hardening (docker).
+  secrets, new dependencies and supply chain, error handling that fails open, and features built on LLMs (prompt
+  injection, tool permissions). Use it before answering whenever a task asks for a security review or audit,
+  touches login, permissions, user input, uploads, tokens, secrets or a new package, or reports a vulnerability
+  or CVE. Not for CI workflow hardening (github-actions), cloud IAM policies (cloud) or container hardening
+  (docker).
 license: MIT
 metadata:
   termf-stacks: "web django fastapi flask rails laravel symfony spring-boot aspnetcore nextjs nuxt sveltekit node gin echo"
