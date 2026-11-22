@@ -28,7 +28,10 @@ pub const GEMINI_SETTINGS_ENV: &str = "GEMINI_CLI_SYSTEM_SETTINGS_PATH";
 /// `-c developer_instructions=…`: Codex parses the value as TOML, whose basic strings take JSON's escapes.
 pub fn codex_instructions(text: &str) -> String {
     let value = serde_json::to_string(text).unwrap_or_default();
-    format!("developer_instructions={}", value.replace('\u{7f}', "\\u007f"))
+    format!(
+        "developer_instructions={}",
+        value.replace('\u{7f}', "\\u007f")
+    )
 }
 
 /// `-c notify=[…]`: Codex runs `<termf> hook agent-turn-complete`, then your own `notify`, read from
@@ -188,7 +191,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("termf-cli-agents-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("termf-cli-agents-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -224,7 +228,11 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect();
-        assert_eq!(&chained[3..], ["python3", "/home/alex/notify.py"], "yours still runs");
+        assert_eq!(
+            &chained[3..],
+            ["python3", "/home/alex/notify.py"],
+            "yours still runs"
+        );
 
         let server = json!({"command": "/opt/termf", "args": ["mcp"], "env": {"TERMF_SOCKET": "/s", "TERMF_MCP_TOKEN": "${TERMF_MCP_TOKEN}"}});
         let args = codex_mcp(&server, "TERMF_MCP_TOKEN");
@@ -235,7 +243,10 @@ mod tests {
             let value: toml::Table = toml::from_str(&format!("v = {value}")).unwrap();
             config.insert(key.into(), value["v"].clone());
         }
-        assert_eq!(config["mcp_servers.termf.command"].as_str(), Some("/opt/termf"));
+        assert_eq!(
+            config["mcp_servers.termf.command"].as_str(),
+            Some("/opt/termf")
+        );
         assert_eq!(
             config["mcp_servers.termf.env_vars"],
             toml::Value::Array(vec!["TERMF_MCP_TOKEN".into()])
@@ -264,7 +275,10 @@ mod tests {
         assert_eq!(settings["general"]["vimMode"], true);
         let before = settings["hooks"]["BeforeTool"].as_array().unwrap();
         assert_eq!(before.len(), 2, "the machine's hook stays");
-        assert_eq!(before[1]["hooks"][0]["command"], "'/opt/termf' hook BeforeTool");
+        assert_eq!(
+            before[1]["hooks"][0]["command"],
+            "'/opt/termf' hook BeforeTool"
+        );
         let start = &settings["hooks"]["SessionStart"][0]["hooks"][0]["command"];
         assert_eq!(
             start.as_str().unwrap(),
@@ -281,7 +295,11 @@ mod tests {
         let parsed: toml::Table = toml::from_str(&policy).unwrap();
         let rules = parsed["rule"].as_array().unwrap();
         assert!(rules.iter().all(|r| r["decision"].as_str() == Some("deny")));
-        assert!(rules.iter().any(|r| r.get("commandPrefix").and_then(|p| p.as_str()) == Some("printenv")));
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.get("commandPrefix").and_then(|p| p.as_str()) == Some("printenv"))
+        );
         assert!(policy.contains("TERMF_MCP_TOKEN") && policy.contains("\\.env"));
         fs::remove_dir_all(&dir).unwrap();
     }

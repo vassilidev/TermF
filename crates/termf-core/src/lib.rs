@@ -275,6 +275,17 @@ impl Settings {
         agents
     }
 
+    /// The command of the agent `name`, from [`Settings::agents_found`]; only `codex` and `gemini` are looked for.
+    pub fn agent(&self, name: &str) -> Option<String> {
+        match self.agents.get(name) {
+            Some(command) => Some(command.clone()),
+            None => {
+                claude::Tool::of(name)?;
+                self.agents_found().remove(name)
+            }
+        }
+    }
+
     /// The program of the first Claude Code agent, else `claude`, for headless runs (`claude -p`).
     pub fn claude_program(&self) -> String {
         let program = self

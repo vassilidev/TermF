@@ -104,6 +104,15 @@ pub fn kill_group(leader: u32) {
     }
 }
 
+/// Interrupts a process group, as Ctrl+C in its terminal would.
+#[cfg(unix)]
+pub fn interrupt_group(leader: u32) {
+    if let Ok(group) = i32::try_from(leader) {
+        // SAFETY: only sends a signal; a group already gone gives an error, ignored.
+        unsafe { libc::kill(-group, libc::SIGINT) };
+    }
+}
+
 /// A fresh private folder in the system's temporary folder.
 pub fn scratch_dir() -> Result<PathBuf> {
     use std::sync::atomic::AtomicUsize;

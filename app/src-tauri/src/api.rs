@@ -707,7 +707,7 @@ fn agent_command(state: &AppState, agent: Option<&str>) -> Result<Option<String>
         return Ok(None);
     };
     let settings = termf_core::load_settings(&state.config_dir)?;
-    let command = settings.agents_found().remove(name);
+    let command = settings.agent(name);
     Ok(Some(
         command.ok_or_else(|| anyhow!("unknown agent {name}"))?,
     ))

@@ -226,12 +226,7 @@ fn interactive(tool: Tool) -> Option<PathBuf> {
 /// The `tool` the interactive login shell `shell` runs; `Err` when it did not answer in time.
 fn interactive_in(shell: &Path, tool: Tool) -> Result<Option<PathBuf>> {
     let mut cmd = Command::new(shell);
-    cmd.args([
-        "-l",
-        "-i",
-        "-c",
-        &format!("command -v {}", tool.program()),
-    ]);
+    cmd.args(["-l", "-i", "-c", &format!("command -v {}", tool.program())]);
     let (_, out, _) = crate::process::run(cmd, b"", PROBE_TIMEOUT)?;
     // Profiles may print their own lines first; an alias or a function is no path.
     Ok(String::from_utf8_lossy(&out)
