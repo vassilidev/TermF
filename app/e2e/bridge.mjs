@@ -89,7 +89,7 @@ function clickAt(css, index, x, y) {
 }
 
 /** `keys`: characters and WebDriver key codes; `chord`: modifiers held over the other keys, else each key alone. */
-function typeKeys(keys, chord) {
+async function typeKeys(keys, chord) {
   const named = {
     "": ["Backspace", 8],
     "": ["Tab", 9],
@@ -131,6 +131,8 @@ function typeKeys(keys, chord) {
   const command = held.ctrlKey || held.metaKey || held.altKey;
   for (const k of keys) {
     if (modifiers[k]) continue;
+    // One key per task, as from a keyboard: the page updates (a submit button enabled by the text) in between.
+    await new Promise((r) => setTimeout(r));
     const el = document.activeElement;
     if (named[k]) {
       const [key, keyCode, code = key] = named[k];
