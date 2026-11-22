@@ -183,3 +183,111 @@ fn a_detached_head_and_a_submodule_are_read() {
     sb.git.stage(&repo, "sub", None, None).unwrap();
     assert!(!sb.git.diff(&repo, "sub", None, true).unwrap().partial);
 }
+
+/// xorshift64 with a fixed seed: the same cases on every run.
+struct Rng(u64);
+
+impl Rng {
+    fn below(&mut self, n: u64) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0 % n.max(1)
+    }
+}
+
+fn random_text(rng: &mut Rng, base: &[String], eol: &str) -> String {
+    let mut lines = base.to_vec();
+    for _ in 0..rng.below(6) {
+        let at = rng.below(lines.len() as u64 + 1) as usize;
+        match rng.below(3) {
+            0 if at < lines.len() => {
+                lines.remove(at);
+            }
+            1 if at < lines.len() => lines[at] = format!("é{}", rng.below(1000)),
+            _ => lines.insert(at, format!("new {}", rng.below(1000))),
+        }
+    }
+    let mut text = lines.join(eol);
+    if !lines.is_empty() && rng.below(3) > 0 {
+        text.push_str(eol);
+    }
+    text
+}
+
+fn every_line(diff: &FileDiff) -> Vec<Pick> {
+    (0..diff.hunks.len())
+        .map(|h| pick(h, &(0..diff.hunks[h].lines.len()).collect::<Vec<_>>()))
+        .collect()
+}
+
+/// Any subset of lines staged, then the rest, gives the work tree; unstaged line by line gives HEAD back; and
+/// discarded line by line gives the index back.
+#[test]
+fn staging_random_lines_adds_up_to_the_file() {
+    let sb = Sandbox::new("edge-random");
+    let repo = sb.clone("acme");
+    let mut rng = Rng(0x5eed_0f7e_3f00);
+    let show = |sb: &Sandbox| sb.git.run(&repo, &["show", ":f.txt"]).unwrap();
+    for case in 0..25 {
+        let eol = if rng.below(4) == 0 { "\r\n" } else { "\n" };
+        let base: Vec<String> = (0..rng.below(12)).map(|i| format!("line {i}")).collect();
+        let head = random_text(&mut rng, &base, eol);
+        fs::write(repo.join("f.txt"), &head).unwrap();
+        sb.git(&repo, &["add", "f.txt"]);
+        sb.git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        let lines: Vec<String> = head.lines().map(str::to_owned).collect();
+        let work = random_text(&mut rng, &lines, eol);
+        fs::write(repo.join("f.txt"), &work).unwrap();
+        let what = format!("case {case}: {head:?} -> {work:?}");
+
+        let diff = sb.git.diff(&repo, "f.txt", None, false).unwrap();
+        if !diff.partial {
+            assert!(diff.hunks.is_empty(), "{what}: {diff:?}");
+            continue;
+        }
+        let subset: Vec<Pick> = (0..diff.hunks.len())
+            .map(|h| {
+                let lines: Vec<usize> = (0..diff.hunks[h].lines.len())
+                    .filter(|_| rng.below(2) == 0)
+                    .collect();
+                pick(h, &lines)
+            })
+            .collect();
+        if let Err(e) = sb.git.stage(&repo, "f.txt", Some(&subset), Some(&diff.id)) {
+            assert!(
+                format!("{e:#}").contains("no change picked"),
+                "{what}: {e:#}"
+            );
+        }
+        let rest = sb.git.diff(&repo, "f.txt", None, false).unwrap();
+        if !rest.hunks.is_empty() {
+            sb.git
+                .stage(&repo, "f.txt", Some(&every_line(&rest)), Some(&rest.id))
+                .unwrap_or_else(|e| panic!("{what}: {e:#}"));
+        }
+        assert_eq!(show(&sb), work, "{what}");
+
+        let staged = sb.git.diff(&repo, "f.txt", None, true).unwrap();
+        sb.git
+            .unstage(
+                &repo,
+                "f.txt",
+                None,
+                Some(&every_line(&staged)),
+                Some(&staged.id),
+            )
+            .unwrap_or_else(|e| panic!("{what}: {e:#}"));
+        assert_eq!(show(&sb), head, "{what}");
+
+        let diff = sb.git.diff(&repo, "f.txt", None, false).unwrap();
+        sb.git
+            .discard(&repo, "f.txt", Some(&every_line(&diff)), &diff.id)
+            .unwrap_or_else(|e| panic!("{what}: {e:#}"));
+        assert_eq!(
+            fs::read_to_string(repo.join("f.txt")).unwrap(),
+            head,
+            "{what}"
+        );
+    }
+}
