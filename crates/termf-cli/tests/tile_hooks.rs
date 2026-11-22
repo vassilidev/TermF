@@ -265,6 +265,7 @@ fn the_real_claude_code_reports_through_its_hooks() {
     sessions
         .attach(
             id,
+            1,
             Box::new(move |out| {
                 if let termf_term::Output::Data(d) = out {
                     seen.lock().unwrap().push_str(&String::from_utf8_lossy(&d));

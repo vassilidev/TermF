@@ -576,7 +576,9 @@ mod tests {
     #[test]
     fn answers_the_terminal_queries_while_no_view_does() {
         let (tx, exited) = mpsc::channel();
-        let sessions = Sessions::default().on_exit(move |id| drop(tx.send(id)));
+        let sessions = Sessions::default().on_exit(move |id| {
+            let _ = tx.send(id);
+        });
         // Waits for its go, then asks where the cursor is and prints the answer in hex, as a TUI starting off screen.
         let script = "read go; stty raw -echo; printf '\\033[6n'; head -c 6 | od -An -tx1";
         let id = sessions.spawn(spec("/bin/sh", &["-c", script])).unwrap();

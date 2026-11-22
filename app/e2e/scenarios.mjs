@@ -132,7 +132,7 @@ export const scenarios = [
   {
     name: "terminal: off screen, xterm goes; back, it shows what was written meanwhile",
     views: [],
-    only: "linux",
+    only: ["linux", "macos"],
     async run(t) {
       const { s, box } = t;
       await t.ready();
@@ -165,7 +165,9 @@ export const scenarios = [
         },
         { what: "the scrollback and what was written while hidden", timeout: 30_000 },
       );
-      check(lines.includes("asked-5"), `the cursor position asked while hidden: ${lines.find((l) => l.startsWith("asked-"))}`);
+      // The answer can come before `read -s` silences the terminal, which then echoes it on that line.
+      const asked = lines.find((l) => l.includes("asked-"));
+      check(asked?.endsWith("asked-5"), `the cursor position asked while hidden: ${asked}`);
       check(lines.includes("late-0"), `the replay typed into the shell: ${lines.find((l) => l.startsWith("late-"))}`);
       await t.clean();
     },
