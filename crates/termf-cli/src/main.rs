@@ -151,6 +151,8 @@ usage:
   termf claude plugin enable|disable <plugin> [--scope <s>]
                                         through claude plugin; a command the marketplace runs to install
                                         is shown, and runs only once you pass its --accept-command
+  termf claude sessions [--repo <path>]  Claude Code's saved conversations of the repository and its worktrees
+                                        (titles and first messages only); claude --resume <id> takes one up
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
