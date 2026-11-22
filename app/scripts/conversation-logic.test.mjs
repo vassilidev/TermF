@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blocked, merge, nextAfter, pending, stream, summary, thread } from "../src/lib/conversation-logic.ts";
+import { addressed, blocked, mentioned, merge, nextAfter, pending, stream, summary, thread } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -110,4 +110,42 @@ test("the next one waiting comes after the current one, else the first", () => {
   assert.equal(nextAfter(order, ["tile:1", "agent:8"], "agent:8"), "tile:1");
   assert.equal(nextAfter(order, ["agent:9"], null), "agent:9");
   assert.equal(nextAfter(order, [], "tile:1"), null);
+});
+
+test("@role sends to a role of the project, anything else goes to the CTO", () => {
+  const roles = ["back", "front", "qa", "ux-writer"];
+  assert.deepEqual(addressed("@back is /users ready?", roles), { role: "back", text: "is /users ready?" });
+  assert.deepEqual(addressed("  @ux-writer  two\nlines ", roles), { role: "ux-writer", text: "two\nlines" });
+  assert.equal(addressed("@back", roles), null, "nothing to send yet");
+  assert.equal(addressed("@nobody hi", roles), null, "not a role of the project");
+  assert.equal(addressed("ask @back about it", roles), null, "only at the start");
+  assert.equal(addressed("where is the team?", roles), null);
+});
+
+test("typing @ offers the project's roles", () => {
+  const roles = ["back", "front", "qa"];
+  assert.deepEqual(mentioned("@", roles), roles);
+  assert.deepEqual(mentioned("@B", roles), ["back"]);
+  assert.deepEqual(mentioned("@back ", roles), [], "picked: the message follows");
+  assert.deepEqual(mentioned("hi @", roles), []);
+});
+
+test("TermF's notices sit in the thread apart from the user's messages", () => {
+  n = 100;
+  const turns = thread([
+    ev("user", { text: "where is the team?" }),
+    ev("text", { text: "Run 12 works." }),
+    end(),
+    ev("notice", { about: "waiting", run: 12, step: "approve-plan", text: "Run 12: the gate waits." }),
+    ev("text", { text: "The plan of run 12 waits for you." }),
+    end(),
+    ev("notice", { about: "direct", role: "back", conversation: 9, detail: "hi", text: "The user wrote to back." }),
+  ]);
+  assert.equal(turns.length, 3);
+  assert.equal(turns[1].user, null, "not the user's words");
+  assert.deepEqual(turns[1].items.map((i) => i.type), ["notice", "text"]);
+  assert.deepEqual(
+    { ...turns[2].items[0], key: 0 },
+    { type: "notice", key: 0, about: "direct", role: "back", conversation: 9, detail: "hi", text: "The user wrote to back." },
+  );
 });

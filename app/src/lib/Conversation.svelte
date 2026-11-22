@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import AtSign from "@lucide/svelte/icons/at-sign";
   import Check from "@lucide/svelte/icons/check";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
@@ -10,6 +11,7 @@
   import CirclePause from "@lucide/svelte/icons/circle-pause";
   import CircleX from "@lucide/svelte/icons/circle-x";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import Megaphone from "@lucide/svelte/icons/megaphone";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ShieldQuestionMark from "@lucide/svelte/icons/shield-question-mark";
   import ShieldX from "@lucide/svelte/icons/shield-x";
@@ -20,10 +22,12 @@
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
-  import { upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import { showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
   import { focusSession } from "$lib/commands";
   import {
+    addressed,
     blocked,
+    mentioned,
     merge,
     pending,
     stream,
@@ -31,12 +35,15 @@
     thread,
     type End,
     type Item,
+    type NoticeFields,
     type Permission,
     type StoredEvent,
     type Tool,
   } from "$lib/conversation-logic";
   import { t } from "$lib/i18n";
+  import type { Item as LibraryItem } from "$lib/library.svelte";
   import { app, onScreen, shortPath, type Session } from "$lib/state.svelte";
+  import { showTeamRun } from "$lib/team.svelte";
 
   let { session }: { session: AgentSession } = $props();
 
@@ -52,7 +59,18 @@
 
   const turns = $derived(thread(events));
   const init = $derived(events.findLast((e) => e.kind === "init"));
-  const why = $derived(blocked(session.state));
+  const cto = $derived(session.mcp === true);
+  /** The project's active roles, the CTO aside: `@role` writes to one of them. */
+  let roles = $state<string[]>([]);
+  let repo = $state("");
+  let picked = $state(0);
+  let closed = $state(false);
+  let box = $state<HTMLTextAreaElement>();
+  const repos = $derived(app.workspace?.projects.find((p) => p.id === session.project)?.repos ?? []);
+  const to = $derived(cto ? addressed(draft, roles) : null);
+  const offered = $derived(cto && !closed ? mentioned(draft, roles) : []);
+  // A message to another agent does not wait for the CTO's turn.
+  const why = $derived(to ? null : blocked(session.state));
   const turning = $derived(session.state === "working" || session.state === "waiting");
   const asking = $derived(session.state === "waiting" ? pending(events) : null);
 
@@ -99,6 +117,52 @@
   $effect(() => {
     if (onScreen("conversations")) follow(true);
   });
+
+  $effect(() => {
+    if (!cto) return;
+    invoke<LibraryItem[]>("library_list", { kind: "role", project: session.project }).then(
+      (items) => (roles = items.filter((i) => i.active && i.name !== "cto").map((i) => i.name)),
+      () => (roles = []),
+    );
+  });
+
+  $effect(() => {
+    if (!repos.some((r) => r.path === repo)) repo = repos[0]?.path ?? "";
+  });
+
+  $effect(() => {
+    if (!draft.startsWith("@")) closed = false;
+  });
+
+  const termfTools: Record<string, Parameters<typeof t>[0]> = {
+    mcp__termf__project: "ctoToolProject",
+    mcp__termf__team_runs: "ctoToolTeamRuns",
+    mcp__termf__team_run: "ctoToolTeamRun",
+    mcp__termf__ticket_runs: "ctoToolTicketRuns",
+    mcp__termf__inbox: "ctoToolInbox",
+    mcp__termf__waiting: "ctoToolWaiting",
+    mcp__termf__start_team_run: "ctoToolStart",
+    mcp__termf__answer: "ctoToolAnswer",
+    mcp__termf__approve: "ctoToolApprove",
+    mcp__termf__request_changes: "ctoToolChanges",
+    mcp__termf__stop_team_run: "ctoToolStop",
+    mcp__termf__send_message: "ctoToolSend",
+  };
+  const toolName = (name: string) => (termfTools[name] ? t(termfTools[name]) : name);
+  const asks = (tool: string) =>
+    termfTools[tool] ? t("ctoAsks", { action: t(termfTools[tool]) }) : t("chatPermission", { tool });
+
+  function said(n: NoticeFields): string {
+    const vars = { run: n.run ?? "", step: n.step ?? "", role: n.role ?? "" };
+    const keys = { waiting: "ctoNoticeWaiting", blocked: "ctoNoticeBlocked", step: "ctoNoticeStep", direct: "ctoNoticeDirect" } as const;
+    return n.about in keys ? t(keys[n.about as keyof typeof keys], vars) : n.text;
+  }
+
+  function choose(role: string) {
+    draft = `@${role} `;
+    picked = 0;
+    box?.focus();
+  }
 
   // Heard while what is stored loads, or failed to load: `merge` drops what both give.
   let buffer: StoredEvent[] | null = [];
@@ -150,6 +214,17 @@
     e.preventDefault();
     const text = draft.trim();
     if (!text || why || busy) return;
+    if (to) {
+      const { role, text } = to;
+      const args = { project: session.project, role, text, repo: repo || null };
+      const reached = await run("send", () => invoke<{ session: AgentSession }>("cto_address", args));
+      if (reached) {
+        draft = "";
+        upsert(reached.session);
+        showConversation(reached.session.id);
+      }
+      return;
+    }
     const sent = await run("send", () => invoke("agent_send", { id: id(), text }).then(() => true));
     if (sent) {
       draft = "";
@@ -158,6 +233,16 @@
   }
 
   function enter(e: KeyboardEvent) {
+    if (offered.length && !e.isComposing) {
+      const at = Math.min(picked, offered.length - 1);
+      const step = { ArrowDown: 1, ArrowUp: offered.length - 1 }[e.key];
+      if (step !== undefined) picked = (at + step) % offered.length;
+      else if (e.key === "Enter" || e.key === "Tab") choose(offered[at]);
+      else if (e.key === "Escape") closed = true;
+      else return;
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       form?.requestSubmit();
@@ -203,6 +288,19 @@
     <p class="sys"><SquareTerminal size={14} aria-hidden="true" />{t("chatTakenOver")}</p>
   {:else if item.type === "handed_back"}
     <p class="sys"><Undo2 size={14} aria-hidden="true" />{t("chatHandedBack")}</p>
+  {:else if item.type === "notice"}
+    {@const opens = item.about === "step" || item.about === "direct" ? item.conversation : undefined}
+    <div class="termf" class:asks={item.about === "waiting" || item.about === "blocked"} role="note">
+      <Megaphone size={14} aria-hidden="true" />
+      <p>
+        <b>{t("ctoNoticeTermf")}</b> · {said(item)}{#if item.detail}<span class="muted pre">{" · "}{item.detail}</span>{/if}
+      </p>
+      {#if opens}
+        <button class="btn sm" onclick={() => showConversation(opens)}>{t("ctoOpen")}</button>
+      {:else if item.run && (item.about === "waiting" || item.about === "blocked")}
+        <button class="btn sm" onclick={() => showTeamRun(item.run!)}>{t("ctoOpen")}</button>
+      {/if}
+    </div>
   {/if}
 {/snippet}
 
@@ -223,7 +321,7 @@
         {:else}
           <Check size={14} aria-hidden="true" />
         {/if}
-        <b>{item.name}</b>
+        <b>{toolName(item.name)}</b>
         <span class="mono sum">{summary(item.input)}</span>
         {#if item.children.length}<span class="badge">{t("chatSubagent", { count: item.children.length })}</span>{/if}
       </span>
@@ -254,16 +352,16 @@
           aria-hidden="true"
         />{:else}<ShieldQuestionMark size={14} aria-hidden="true" />{/if}
       <span>
-        {t("chatPermission", { tool: item.tool })} ·
+        {asks(item.tool)} ·
         {#if item.answer?.allow}{t("chatAllowed")}{:else if item.answer?.message}{t("chatRefusedWhy", {
             message: item.answer.message,
           })}{:else if item.answer}{t("chatRefused")}{:else}{t("chatUnanswered")}{/if}
       </span>
     </p>
   {:else}
-    <div class="ask" role="group" aria-label={t("chatPermission", { tool: item.tool })}>
+    <div class="ask" role="group" aria-label={asks(item.tool)}>
       <p class="ask-title">
-        <ShieldQuestionMark size={16} aria-hidden="true" />{t("chatPermission", { tool: item.tool })}
+        <ShieldQuestionMark size={16} aria-hidden="true" />{asks(item.tool)}
       </p>
       {#if item.description}<p class="ask-text">{item.description}</p>{/if}
       <pre class="mono code">{pretty(item.input)}</pre>
@@ -310,7 +408,7 @@
           <CirclePause size={14} aria-hidden="true" />{t("chatInterrupt")}
         </button>
       {/if}
-      {#if session.state === "idle" || session.state === "stopped" || session.state === "error"}
+      {#if !cto && (session.state === "idle" || session.state === "stopped" || session.state === "error")}
         <button class="btn sm" disabled={!!busy} onclick={takeover} title={t("chatTakeoverHelp")}>
           {#if busy === "takeover"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<SquareTerminal
               size={14}
@@ -365,6 +463,9 @@
         <button class="btn sm" onclick={load}>{t("chatRetry")}</button>
       </p>
     {/if}
+    {#if cto && !turns.length && !loadError}
+      <p class="intro">{t("ctoIntro")}</p>
+    {/if}
     {#each turns as turn (turn.key)}
       {@const now = turning && turn === turns.at(-1) && !turn.end}
       {#if turn.user !== null}<p class="user">{turn.user}</p>{/if}
@@ -376,18 +477,40 @@
 </div>
 
 <form class="composer" bind:this={form} onsubmit={send}>
+  {#if offered.length}
+    <ul class="mentions" id="cto-roles" role="listbox" aria-label={t("ctoRoles")}>
+      {#each offered as role, i (role)}
+        {@const on = i === Math.min(picked, offered.length - 1)}
+        <li id="cto-role-{role}" role="option" aria-selected={on} class:on>
+          <button type="button" tabindex="-1" onclick={() => choose(role)}><AtSign size={13} aria-hidden="true" />{role}</button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   <textarea
     class="field"
     rows="2"
-    placeholder={t("chatMessage")}
-    aria-label={t("chatMessage")}
+    placeholder={cto ? t("ctoMessage") : t("chatMessage")}
+    aria-label={cto ? t("ctoMessage") : t("chatMessage")}
     aria-describedby={why ? "chat-why" : undefined}
+    aria-controls={offered.length ? "cto-roles" : undefined}
+    aria-activedescendant={offered.length ? `cto-role-${offered[Math.min(picked, offered.length - 1)]}` : undefined}
+    bind:this={box}
     bind:value={draft}
     onkeydown={enter}
   ></textarea>
-  <button type="submit" class="btn primary" disabled={!!why || !!busy || !draft.trim()}>
-    {#if busy === "send"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{t("chatSend")}
-  </button>
+  <div class="send">
+    {#if to && repos.length > 1}
+      <select class="field" aria-label={t("ctoRepo")} title={t("ctoRepo")} bind:value={repo}>
+        {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
+      </select>
+    {/if}
+    <button type="submit" class="btn primary" disabled={!!why || !!busy || !draft.trim()}>
+      {#if busy === "send"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{to
+        ? t("ctoSendTo", { role: to.role })
+        : t("chatSend")}
+    </button>
+  </div>
   {#if why}<p class="why" id="chat-why">{t(reasonsWhy[why])}</p>{/if}
 </form>
 
@@ -720,5 +843,87 @@
     margin: 0;
     color: var(--muted);
     font-size: var(--text-xs);
+  }
+
+  .send {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+  }
+
+  .send select {
+    width: auto;
+    max-width: 180px;
+  }
+
+  .intro {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+
+  /* TermF speaks in the conversation: neither the user's bubble nor the agent's text. */
+  .termf {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--chrome);
+    font-size: var(--text-sm);
+  }
+
+  .termf p {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .termf :global(svg) {
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+
+  .termf.asks {
+    border-color: var(--waiting-ring);
+    background: var(--waiting-soft);
+  }
+
+  .termf.asks :global(svg) {
+    color: var(--waiting-ring);
+  }
+
+  .mentions {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .mentions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--panel);
+    color: inherit;
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .mentions .on button {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    font-weight: 600;
   }
 </style>
