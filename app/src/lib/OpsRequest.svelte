@@ -20,6 +20,8 @@
   const tick = setInterval(() => (now = Date.now() / 1000), 1000);
   onDestroy(() => clearInterval(tick));
   const left = $derived(secondsLeft(r.until, now));
+  // Past its deadline the agent was told no: TermF no longer takes an answer.
+  const expired = $derived(r.kind === "approve" && left === 0);
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   let busy = $state(false);
@@ -94,8 +96,8 @@
     {#if r.kind === "approve" && left !== null}<span class="muted small" role="timer">{t("opsExpiresIn", { time: clock(left) })}</span>{/if}
     <span class="acts">
       {#if r.kind === "approve"}
-        <button class="btn sm" disabled={busy} onclick={() => answer(false)}>{t("opsRefuse")}</button>
-        <button class="btn sm" class:primary disabled={busy || (asking && !password)} onclick={() => answer(true)}>
+        <button class="btn sm" disabled={busy || expired} onclick={() => answer(false)}>{t("opsRefuse")}</button>
+        <button class="btn sm" class:primary disabled={busy || expired || (asking && !password)} onclick={() => answer(true)}>
           {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{t("opsApprove")}
         </button>
       {:else}

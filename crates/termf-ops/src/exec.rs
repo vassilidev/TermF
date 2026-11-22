@@ -10,7 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::Serialize;
 use termf_vault::{Secret, Zeroizing};
 
@@ -375,10 +375,11 @@ impl Runner {
         base: &Base,
         args: &[String],
         keep: Option<&str>,
-        bytes: usize,
-        timeout: u64,
+        limits: &crate::Limits,
         secrets: Secrets,
+        opened: Option<Open>,
     ) -> Result<Raw> {
+        let (bytes, timeout) = (limits.bytes, limits.timeout_s);
         let started = Instant::now();
         let mut used = Vec::new();
         let mut secret = |name: &str| -> Result<String> {
@@ -391,6 +392,11 @@ impl Runner {
         let mut input = Zeroizing::new(String::new());
         for (header, name) in &base.stdin {
             let value = secret(name)?;
+            // A line break would end curl's quoted value and start an option of the secret's choosing.
+            ensure!(
+                !value.chars().any(char::is_control),
+                "the secret {name} holds a line break or another control character: it cannot go in a header"
+            );
             let line = format!("{header}: {value}")
                 .replace('\\', "\\\\")
                 .replace('"', "\\\"");
@@ -400,7 +406,10 @@ impl Runner {
             cmd.env(var, secret(name)?);
         }
         cmd.envs(base.vars.iter().map(|(k, v)| (k, v)));
-        let tunnel = base.tunnel.as_ref().map(|t| self.tunnel(t)).transpose()?;
+        let tunnel = match opened {
+            Some(open) => Some(open),
+            None => base.tunnel.as_ref().map(|t| self.tunnel(t)).transpose()?,
+        };
         let port = tunnel
             .as_ref()
             .map(|t| t.port.to_string())
@@ -478,9 +487,9 @@ impl Runner {
             &plan.base,
             &plan.args,
             plan.keep.as_deref(),
-            plan.limits.bytes,
-            plan.limits.timeout_s,
+            &plan.limits,
             secrets,
+            None,
         )
     }
 
@@ -567,14 +576,19 @@ impl Runner {
             )],
         };
         let target = conn.target(all);
+        // The tunnel the check opened is the one the probe goes through.
+        let mut opened = None;
         if let Some(t) = &base.tunnel {
             match self.tunnel(t) {
-                Ok(_) => checks.push(Check::new(
-                    "tunnel",
-                    true,
-                    conn.via.as_deref().unwrap_or_default(),
-                    "",
-                )),
+                Ok(open) => {
+                    opened = Some(open);
+                    checks.push(Check::new(
+                        "tunnel",
+                        true,
+                        conn.via.as_deref().unwrap_or_default(),
+                        "",
+                    ));
+                }
                 Err(e) => {
                     checks.push(Check::new(
                         "tunnel",
@@ -586,7 +600,12 @@ impl Runner {
                 }
             }
         }
-        let raw = self.launch(&base, &probe, None, 64 << 10, TEST_TIMEOUT, &known)?;
+        let limits = crate::Limits {
+            bytes: 64 << 10,
+            timeout_s: TEST_TIMEOUT,
+            ..crate::Limits::default()
+        };
+        let raw = self.launch(&base, &probe, None, &limits, &known, opened)?;
         let masked = |text: &str| crate::redact::mask_with(text, &raw.used);
         let reached = raw.exit == Some(0)
             && match conn.kind {

