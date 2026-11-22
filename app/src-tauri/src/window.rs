@@ -46,13 +46,6 @@ fn on_screen(place: &Place, screens: &[(f64, f64, f64, f64)]) -> bool {
 /// Shows the main window, created hidden, in the theme's colour and where it was.
 pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
     let file = data_dir.join("window.json");
-    let place = fs::read(&file)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Place>(&b).ok());
-    app.manage(Placement {
-        file,
-        place: Mutex::new(place),
-    });
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -69,7 +62,15 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
             (p.x, p.y, s.width, s.height)
         })
         .collect();
-    if let Some(place) = place.filter(|p| on_screen(p, &screens)) {
+    let place = fs::read(&file)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Place>(&b).ok())
+        .filter(|p| on_screen(p, &screens));
+    app.manage(Placement {
+        file,
+        place: Mutex::new(place),
+    });
+    if let Some(place) = place {
         let _ = window.set_size(LogicalSize::new(place.width, place.height));
         let _ = window.set_position(LogicalPosition::new(place.x, place.y));
         if place.maximized {
