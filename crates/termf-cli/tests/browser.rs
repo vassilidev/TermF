@@ -429,3 +429,107 @@ fn chrome_pids(profiles: &[PathBuf]) -> Vec<u32> {
         .filter_map(|l| l.split_whitespace().next()?.parse().ok())
         .collect()
 }
+
+/// Claude Code on Haiku, as the team's `qa`, with the Chrome of the machine (a few cents): `cargo test -p termf-cli
+/// --test browser -- --ignored real_claude --nocapture`.
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_claude_checks_a_page_with_its_browser() {
+    use termf_agents::{AgentEvent, Agents, SessionSpec, State};
+
+    let project = Project::new("claude", true);
+    fs::write(
+        project.repo.join("index.html"),
+        "<!doctype html><title>Invoices</title><h1>Invoices</h1>\
+         <button onclick=\"console.log('exported ' + 3 + ' invoices')\">Export CSV</button>",
+    )
+    .unwrap();
+    fs::write(
+        project.config.join("termf.toml"),
+        "[agents]\nclaude = \"claude\"\n",
+    )
+    .unwrap();
+    let agents = Agents::build(
+        project.config.clone(),
+        project.data.clone(),
+        Vec::new(),
+        |_| {},
+    );
+    let home = project.root.join("home");
+    agents.serve_mcp(
+        move |id| {
+            Ok(
+                json!({"type": "stdio", "command": env!("CARGO_BIN_EXE_termf"), "args": ["mcp"],
+                      "env": {"TERMF_MCP_SESSION": id.to_string(), "HOME": home}}),
+            )
+        },
+        |_| {},
+    );
+    let spec = SessionSpec {
+        cwd: project.repo.clone(),
+        role: Some("qa".into()),
+        model: Some("haiku".into()),
+        effort: Some("low".into()),
+        budget: Some(0.40),
+        ..SessionSpec::default()
+    };
+    let id = agents.create(spec).unwrap().id;
+    agents
+        .send(
+            id,
+            "Use only the browser tools: open the home page of the dev server, click Export CSV, then tell me \
+             what the console says.",
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(240);
+    let ended = || {
+        agents
+            .events(id, 0)
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e.event, AgentEvent::TurnEnd { .. }))
+    };
+    while !ended() || agents.session(id).unwrap().state == State::Working {
+        assert!(
+            Instant::now() < deadline,
+            "{:#?}",
+            agents.events(id, 0).unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let events = agents.events(id, 0).unwrap();
+    let used: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match &e.event {
+            AgentEvent::ToolUse { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let answer = events
+        .iter()
+        .rev()
+        .find_map(|e| match &e.event {
+            AgentEvent::TurnEnd { result, .. } => result.clone(),
+            _ => None,
+        })
+        .unwrap_or_default();
+    println!(
+        "tools: {used:?}\nanswer: {answer}\ncost: ${:.4}",
+        agents.session(id).unwrap().cost
+    );
+    for tool in ["browser_open", "browser_click", "browser_console"] {
+        assert!(
+            used.contains(&format!("mcp__termf__{tool}").as_str()),
+            "{used:?}"
+        );
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e.event, AgentEvent::Permission { .. })),
+        "the role's browser needs no approval"
+    );
+    assert!(answer.contains("exported 3 invoices"), "{answer}");
+    let _ = agents.stop(id);
+}
