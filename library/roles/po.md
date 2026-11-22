@@ -5,6 +5,7 @@ runtime: claude-code
 model: opus
 effort: high
 disallowedTools: Edit, Write, NotebookEdit
+allowedTools: mcp__termf__ask_expert
 plannable: false
 credits:
   - "bmad-code-org/BMAD-METHOD@e435a22574fe55722841086e5566420178b98df3 (MIT): skills/method/bmad-agent-po/customize.toml"

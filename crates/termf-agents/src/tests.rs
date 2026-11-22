@@ -1115,6 +1115,18 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
 #[test]
 fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
     let env = Env::new("expert-tools");
+    let po = SessionSpec {
+        role: Some("po".into()),
+        allowed_tools: vec!["mcp__termf__ask_expert".into()],
+        ..env.spec()
+    };
+    let alone = env.agents.start(po.clone(), Some("say hello")).unwrap().id;
+    env.settle(alone, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    assert!(
+        !args.contains(&"--mcp-config".into()),
+        "no app, no expert: the step still runs"
+    );
     env.agents.serve_mcp(
         |id| Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string()}})),
         |_| {},
@@ -1167,11 +1179,6 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
         );
     }
 
-    let po = SessionSpec {
-        role: Some("po".into()),
-        allowed_tools: vec!["mcp__termf__ask_expert".into()],
-        ..env.spec()
-    };
     let (args, tools) = run(po);
     assert_eq!(tools, "ask_expert");
     assert!(

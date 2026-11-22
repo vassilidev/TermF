@@ -6,6 +6,7 @@ model: opus
 effort: high
 effort_range: [high, xhigh]
 disallowedTools: Edit, Write, NotebookEdit
+allowedTools: mcp__termf__ask_expert
 credits:
   - "bmad-code-org/BMAD-METHOD@e435a22574fe55722841086e5566420178b98df3 (MIT): skills/method/bmad-agent-architect/customize.toml"
 ---
