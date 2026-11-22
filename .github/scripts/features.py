@@ -246,7 +246,8 @@ def card(f, attrs=""):
 
 
 ARTICLES = {"team.html": "The team", "how-it-works.html": "How a ticket becomes a pull request",
-            "security.html": "Security, and its limits", "download.html": "Download TermF"}
+            "security.html": "Security, and its limits", "download.html": "Download TermF",
+            "team-vs-solo.html": "The team or one session?"}
 
 written = []
 
