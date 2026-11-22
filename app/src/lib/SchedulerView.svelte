@@ -17,7 +17,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ScheduleForm from "$lib/ScheduleForm.svelte";
-  import { detail, kindLabel, toTask } from "$lib/SessionLoops.svelte";
+  import { clip, detail, kindLabel, toTask } from "$lib/SessionLoops.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
@@ -37,7 +37,7 @@
     type ExecutionStatus,
     type TaskEntry,
   } from "$lib/schedule.svelte";
-  import { app, shortPath } from "$lib/state.svelte";
+  import { app, loopClock, shortPath } from "$lib/state.svelte";
   import { focusSession } from "$lib/commands";
   import { liveLoops, tileName } from "$lib/tile-logic";
 
@@ -45,7 +45,7 @@
 
   const tasks = $derived(schedule.tasks ?? []);
   const sessionLoops = $derived(
-    app.sessions.filter((s) => s.running).flatMap((session) => liveLoops(session.loops, Date.now()).map((loop) => ({ session, loop }))),
+    app.sessions.filter((s) => s.running).flatMap((session) => liveLoops(session.loops, loopClock.now).map((loop) => ({ session, loop }))),
   );
   const current = $derived(tasks.find((e) => e.id === schedule.selected) ?? tasks[0]);
   const editing = $derived(
@@ -85,6 +85,7 @@
   function select(id: string) {
     schedule.selected = id;
     schedule.editing = null;
+    schedule.draft = null;
     confirming = false;
     loadHistory();
   }
@@ -142,6 +143,7 @@
 
   async function closeForm(id?: string) {
     schedule.editing = null;
+    schedule.draft = null;
     if (id) {
       schedule.selected = id;
       await refresh();
@@ -172,7 +174,7 @@
   <ViewHeader title={t("schedulerView")}>
     {#snippet actions()}
       {#if schedule.tab === "tasks" && tasks.length && editing === undefined}
-        <button class="btn sm primary" onclick={() => (schedule.editing = "")}>
+        <button class="btn sm primary" onclick={() => ((schedule.draft = null), (schedule.editing = ""))}>
           <Plus size={14} aria-hidden="true" />{t("schedulerNew")}
         </button>
       {/if}
@@ -251,8 +253,8 @@
                   {@const make = toTask(session, loop)}
                   <li>
                     <span class="name">{tileName(session.title, session.agent ?? "shell")} · {kindLabel(loop)}</span>
-                    <span class="desc">{detail(loop, Date.now())}</span>
-                    <pre class="prompt">{loop.prompt || t("loopsDefaultPrompt")}</pre>
+                    <span class="desc">{detail(loop, loopClock.now)}</span>
+                    <pre class="prompt">{clip(loop.prompt) || t("loopsDefaultPrompt")}</pre>
                     <span class="mono muted">{shortPath(session.cwd)}</span>
                     <span class="loop-actions">
                       <button class="btn sm" onclick={() => focusSession(session.id)}>{t("loopsShowSession")}</button>
@@ -283,7 +285,7 @@
     {:else if !tasks.length && editing === undefined}
       <div class="pane">
         <EmptyState icon={CalendarClock} title={t("schedulerEmpty")} text={t("schedulerEmptyHelp")}>
-          <button class="btn primary" onclick={() => (schedule.editing = "")}>
+          <button class="btn primary" onclick={() => ((schedule.draft = null), (schedule.editing = ""))}>
             <Plus size={14} aria-hidden="true" />{t("schedulerNew")}
           </button>
         </EmptyState>
@@ -313,7 +315,7 @@
         </ul>
         <section class="detail" aria-live="polite">
           {#if editing !== undefined}
-            {#key schedule.editing}
+            {#key `${schedule.editing}:${schedule.drafts}`}
               <ScheduleForm entry={editing} onclose={closeForm} />
             {/key}
           {:else if current}

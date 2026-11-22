@@ -185,6 +185,18 @@ export const selected = new SvelteSet<string>();
 /** Ids of the sessions ticked for broadcast. */
 export const ticked = new SvelteSet<number>();
 
+/** Now, for the tiles' loops: moved on when the first of them ends, so no timer runs without one. */
+export const loopClock = $state({ now: Date.now() });
+let loopTimer: ReturnType<typeof setTimeout> | undefined;
+
+function nextLoopEnd() {
+  clearTimeout(loopTimer);
+  const now = (loopClock.now = Date.now());
+  const ends = app.sessions.flatMap((s) => s.loops ?? []).flatMap((l) => (l.ends !== null && l.ends > now ? [l.ends] : []));
+  // setTimeout fires at once beyond 2^31 - 1 ms (about 24 days).
+  if (ends.length) loopTimer = setTimeout(nextLoopEnd, Math.min(Math.min(...ends) - now, 2 ** 31 - 1));
+}
+
 /**
  * Terminals: `all` shows every project's tiles under the current project; `broadcast` shows the ticks and the bar,
  * whose unsent message is `draft`.
@@ -213,6 +225,7 @@ export function init(): () => void {
   load().then(() => callLayouts("layouts"));
   invoke<Session[]>("pty_list").then((list) => {
     app.sessions = list;
+    nextLoopEnd();
   });
   invoke<KeepAwakeState>("keep_awake_state").then((s) => {
     app.keepAwake = s;
@@ -256,6 +269,7 @@ export function init(): () => void {
   const unlistenLoops = listen<{ id: number; loops: Loop[] }>("session-loops", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.loops = payload.loops;
+    nextLoopEnd();
   });
   const unlistenRemote = listen<{ id: number; remoteControl: boolean; remote: RemoteState | null }>("session-remote", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);

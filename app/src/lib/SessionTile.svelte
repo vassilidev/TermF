@@ -20,7 +20,7 @@
   import type { Rect, Side } from "$lib/split-logic";
   import { activate, terminals } from "$lib/tabs.svelte";
   import { liveLoops, tileName } from "$lib/tile-logic";
-  import { grid, onScreen, resetContext, ticked, type Session } from "$lib/state.svelte";
+  import { grid, loopClock, onScreen, resetContext, ticked, type Session } from "$lib/state.svelte";
 
   /**
    * `rect`: where the split sits in its tab, as fractions of the tab; none while the tab is not shown. `alone`: the
@@ -32,7 +32,7 @@
   const name = $derived(tileName(session.title, session.agent ?? "shell"));
   const asking = $derived(terminals.asking === session.id);
   const remote = $derived(session.running ? (session.remote ?? null) : null);
-  const loops = $derived(session.running ? liveLoops(session.loops, Date.now()) : []);
+  const loops = $derived(session.running ? liveLoops(session.loops, loopClock.now) : []);
   const pct = (n: number) => `${n * 100}%`;
 
   const remoteOn = () => turnOn(session.id);

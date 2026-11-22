@@ -2,12 +2,15 @@
   import { ago, t } from "$lib/i18n";
   import { scheduleLoop, when } from "$lib/schedule.svelte";
   import type { Session } from "$lib/state.svelte";
-  import { interval, loopEvery, nextRun, toCron, type Loop } from "$lib/tile-logic";
+  import { interval, loopEvery, nextRun, taskOf, type Loop } from "$lib/tile-logic";
 
   const span = (seconds: number) => {
     const { n, unit } = interval(seconds);
     return t(unit === "min" ? "loopsEveryMin" : unit === "h" ? "loopsEveryH" : "loopsEveryD", { n });
   };
+
+  /** A prompt as shown, which the loop keeps whole. */
+  export const clip = (text: string, max = 300) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
   /** What the tile's pill says of a loop: its interval. */
   export function everyLabel(l: Loop): string {
@@ -49,8 +52,8 @@
 
   /** The Scheduler's form for a new task that does what the loop does, or null when it cannot. */
   export function toTask(session: Session, l: Loop): (() => void) | null {
-    const cron = toCron(l);
-    return cron ? () => scheduleLoop({ prompt: l.prompt, dir: session.cwd, cron }) : null;
+    const task = taskOf(l);
+    return task ? () => scheduleLoop({ ...task, dir: session.cwd }) : null;
   }
 </script>
 
@@ -68,7 +71,7 @@
   let open = $state(false);
   let trigger = $state<HTMLButtonElement>();
   const lead = $derived(pill(loops));
-  const summary = $derived(loops.map((l) => `${kindLabel(l)} · ${everyLabel(l)} · ${l.prompt || t("loopsDefaultPrompt")}`).join("\n"));
+  const summary = $derived(loops.map((l) => `${kindLabel(l)} · ${everyLabel(l)} · ${clip(l.prompt, 120) || t("loopsDefaultPrompt")}`).join("\n"));
 </script>
 
 {#if lead}

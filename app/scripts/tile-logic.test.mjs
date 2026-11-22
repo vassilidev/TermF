@@ -9,6 +9,7 @@ import {
   nextRun,
   period,
   pill,
+  taskOf,
   tileName,
   toCron,
 } from "../src/lib/tile-logic.ts";
@@ -52,6 +53,12 @@ test("a loop's pill says how often it runs", () => {
   assert.equal(period("30 9 * * *"), 86400);
   assert.equal(period("0 9 * * 1-5"), null);
   assert.equal(period("0,30 * * * *"), null);
+  // Uneven: :00, :07 … :56, then :00 again; 0h, 5h … 20h, then 0h.
+  assert.equal(period("*/7 * * * *"), null);
+  assert.equal(period("*/15 * * * *"), 900);
+  assert.equal(period("0 */5 * * *"), null);
+  assert.equal(period("0 */6 * * *"), 21600);
+  assert.equal(loopEvery(loop({ cron: "*/7 * * * *", every: 420 })), 420);
   assert.deepEqual(interval(300), { n: 5, unit: "min" });
   assert.deepEqual(interval(5400), { n: 90, unit: "min" });
   assert.deepEqual(interval(7200), { n: 2, unit: "h" });
@@ -93,4 +100,11 @@ test("a loop becomes a Scheduler task with a cron TermF can run", () => {
   assert.equal(toCron(loop({ kind: "wakeup", cron: null, every: null })), null);
   assert.equal(toCron(loop({ recurring: false, cron: "45 15 22 11 *" })), null, "a reminder fires once");
   assert.equal(toCron(loop({ kind: "monitor", cron: null })), null);
+
+  const long = "check the deploy ".repeat(100);
+  assert.deepEqual(taskOf(loop({ prompt: long })), { prompt: long, cron: "*/5 * * * *" });
+  assert.equal(taskOf(loop({ prompt: "" })), null, "/loop's built-in prompt");
+  assert.equal(taskOf(loop({ prompt: "  " })), null);
+  assert.equal(taskOf(loop({ prompt: `${long.slice(0, 1000)}… [+700 chars]` })), null, "clipped by Claude Code");
+  assert.equal(taskOf(loop({ recurring: false })), null);
 });

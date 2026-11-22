@@ -32,11 +32,15 @@ export function period(cron: string): number | null {
   const f = cron.trim().split(/\s+/);
   if (f.length !== 5 || f.slice(2).some((x) => x !== "*")) return null;
   const [minute, hour] = f;
-  const step = (x: string) => (x === "*" ? 1 : Number(/^\*\/(\d+)$/.exec(x)?.[1] ?? 0));
+  // `*/7` runs at :00, :07 … :56, then :00 again: even only when the step divides its unit.
+  const step = (x: string, unit: number) => {
+    const n = x === "*" ? 1 : Number(/^\*\/(\d+)$/.exec(x)?.[1] ?? 0);
+    return n && unit % n === 0 ? n : 0;
+  };
   const fixed = (x: string) => /^\d+$/.test(x);
-  if (hour === "*") return step(minute) ? step(minute) * 60 : fixed(minute) ? 3600 : null;
+  if (hour === "*") return step(minute, 60) ? step(minute, 60) * 60 : fixed(minute) ? 3600 : null;
   if (!fixed(minute)) return null;
-  return step(hour) ? step(hour) * 3600 : fixed(hour) ? 86400 : null;
+  return step(hour, 24) ? step(hour, 24) * 3600 : fixed(hour) ? 86400 : null;
 }
 
 /** Seconds a loop waits between runs: its cron's period, else the interval it was given or chose. */
@@ -93,4 +97,11 @@ export function toCron(l: Loop): string | null {
   if (l.kind === "monitor" || !l.recurring) return null;
   if (l.kind === "cron" && l.cron) return l.cron;
   return l.every ? intervalCron(l.every) : null;
+}
+
+/** A Scheduler task doing what the loop does, or null without a schedule or the whole prompt (none for `/loop`'s
+ * built-in one, or one Claude Code clipped). */
+export function taskOf(l: Loop): { prompt: string; cron: string } | null {
+  const cron = toCron(l);
+  return cron && l.prompt.trim() && !/… \[\+\d+ chars\]$/.test(l.prompt) ? { prompt: l.prompt, cron } : null;
 }
