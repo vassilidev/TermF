@@ -3,32 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TermF · Talk only to the CTO, a team of Claude Code agents does the ticket</title>
-<meta name="description" content="TermF is a free, open source desktop app for developers who use Claude Code. Talk to one agent, the CTO, and a team of Claude Code agents takes your tickets to pull requests while you approve the plan and the delivery. For macOS, Windows and Linux.">
+<title>TermF · Talk only to the CTO, a team of AI agents does the ticket</title>
+<meta name="description" content="TermF is a free, open source desktop app for developers who use Claude Code. Talk to one agent, the CTO; a team of agents plans, builds, tests and reviews your ticket, and you approve the plan and the pull request. macOS, Windows, Linux.">
 <link rel="canonical" href="https://vassilidev.github.io/TermF/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="TermF">
 <meta property="og:title" content="TermF · Talk only to the CTO">
-<meta property="og:description" content="A desktop app for Claude Code. Talk to one agent, the CTO; a team of Claude Code agents takes your ticket to a pull request, and you approve the plan and the delivery. Free, open source, local-first.">
+<meta property="og:description" content="A desktop app for Claude Code. Talk to one agent, the CTO; a team of agents takes your ticket to a pull request, and you approve the plan and the delivery. Free, open source, runs on your machine.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Talk only to the CTO: TermF's board, with the plan waiting for approval and the front and back agents on duty">
+<meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TermF · Talk only to the CTO">
-<meta name="twitter:description" content="A desktop app for Claude Code. Talk to one agent, the CTO; a team of Claude Code agents takes your ticket to a pull request, and you approve the plan and the delivery.">
+<meta name="twitter:description" content="A desktop app for Claude Code. Talk to one agent, the CTO; a team of agents takes your ticket to a pull request, and you approve the plan and the delivery.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
-<meta name="twitter:image:alt" content="Talk only to the CTO: TermF's board, with the plan waiting for approval and the front and back agents on duty">
-<meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f15" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
-<link rel="preload" href="fonts/archivo-condensed.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
 <script type="application/ld+json">
@@ -45,6 +44,7 @@
       "url": "https://vassilidev.github.io/TermF/",
       "downloadUrl": "https://vassilidev.github.io/TermF/download.html",
       "image": "https://vassilidev.github.io/TermF/og.png",
+      "screenshot": "https://vassilidev.github.io/TermF/shots/home-light.webp",
       "license": "https://github.com/vassilidev/TermF/blob/main/LICENSE",
       "isAccessibleForFree": true,
       "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -55,6 +55,14 @@
       "@id": "https://vassilidev.github.io/TermF/#site",
       "name": "TermF",
       "url": "https://vassilidev.github.io/TermF/"
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {"@type": "Question", "name": "Is TermF free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. It is open source under the MIT license, with no account and no paid tier. Your agents run on your own Claude Code, with your subscription or your API key."}},
+        {"@type": "Question", "name": "Does my code leave my machine?", "acceptedAnswer": {"@type": "Answer", "text": "TermF has no server and no telemetry. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up."}},
+        {"@type": "Question", "name": "What do I need?", "acceptedAnswer": {"@type": "Answer", "text": "Claude Code 2.1.288 or later, signed in, and git. The GitHub CLI, signed in, for GitHub tickets, pull requests and CI. macOS, Windows x64 or Linux x86_64."}}
+      ]
     }
   ]
 }
@@ -64,14 +72,8 @@
 <a class="skip" href="#main">Skip to content</a>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
-  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
-  <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7M17 12H7"/></symbol>
-  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
-  <symbol id="i-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
 </svg>
-<!-- gen:icons --><svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="g-badge-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/></symbol><symbol id="g-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol><symbol id="g-code-xml" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></symbol><symbol id="g-git-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></symbol><symbol id="g-key-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol><symbol id="g-laptop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/></symbol><symbol id="g-layout-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol><symbol id="g-library-big" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1"/><path d="M7 3v18"/><path d="M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z"/></symbol><symbol id="g-scan-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/></symbol><symbol id="g-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="g-square-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></symbol><symbol id="g-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></symbol><symbol id="g-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol><symbol id="g-workflow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol></svg><!-- /gen:icons -->
-
+<!-- gen:icons --><svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="g-badge-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/></symbol><symbol id="g-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol><symbol id="g-code-xml" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></symbol><symbol id="g-git-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></symbol><symbol id="g-key-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol><symbol id="g-laptop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/></symbol><symbol id="g-layout-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol><symbol id="g-library-big" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1"/><path d="M7 3v18"/><path d="M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z"/></symbol><symbol id="g-scan-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/></symbol><symbol id="g-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol><symbol id="g-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="g-square-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></symbol><symbol id="g-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></symbol><symbol id="g-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol><symbol id="g-workflow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol></svg><!-- /gen:icons -->
 <header class="nav" id="nav">
   <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
   <nav class="links" aria-label="Main">
@@ -98,15 +100,15 @@
 </header>
 
 <main id="main">
-<section class="hero">
+<section class="hero" aria-labelledby="hero-h">
   <div class="wrap">
-    <div class="hero-copy">
-      <h1 class="display">Talk only to the <em>CTO.</em></h1>
-      <p class="lead">TermF is a free desktop app for developers who use Claude Code. It puts a team of Claude Code agents on your tickets, up to the pull request, and keeps all your Claude Code sessions in one window.</p>
-      <ul class="pillars">
-        <li><b>You talk to one agent, the CTO.</b> It reads your repositories and turns your request into work for the team.</li>
-        <li><b><!-- gen:count -->25<!-- /gen:count --> agents, one job each.</b> Product owner, tech lead, front, back, QA, reviewers, working in parallel.</li>
-        <li><b>Your own sessions, side by side.</b> Tabs and splits, and you see at once which one waits for you.</li>
+    <div>
+      <h1 id="hero-h">Talk only to the CTO.</h1>
+      <p class="lead">TermF is a free desktop app for developers who use Claude Code. You describe the work to one agent, the CTO. A team of AI agents plans it, codes it, tests it and reviews it, then brings you a pull request to approve.</p>
+      <ul class="points">
+        <li style="--dot:var(--waiting)"><b>One conversation per project.</b> Ask in your own words; the CTO decides who works on it and asks you before anything starts.</li>
+        <li><b><!-- gen:count -->26<!-- /gen:count --> agents, one job each.</b> Product owner, tech lead, front-end, back-end, QA, code and security reviewers, and more.</li>
+        <li style="--dot:var(--mute)"><b>All your Claude Code sessions in one window.</b> Tabs and splits, and you see at once which one waits for you.</li>
       </ul>
       <div class="cta">
         <a class="pill big" id="get" href="download.html">Download for macOS<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
@@ -116,94 +118,57 @@
             const ua = navigator.userAgent, p = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
             const os = /android|iphone|ipad|ipod/i.test(ua) || (p.includes('mac') && navigator.maxTouchPoints > 1) ? null
               : p.includes('win') ? 'Windows' : p.includes('linux') || /linux|x11|cros/i.test(ua) ? 'Linux' : 'macOS';
-            const a = document.getElementById('get');
-            a.firstChild.textContent = os ? 'Download for ' + os : 'Download TermF';
+            document.getElementById('get').firstChild.textContent = os ? 'Download for ' + os : 'Download TermF';
           })();
         </script>
-        <a class="more" href="features.html">Every feature</a>
+        <a class="btn2" href="features.html">See every feature</a>
       </div>
       <ul class="trust">
-        <li><svg aria-hidden="true"><use href="#g-badge-check"/></svg>Nothing starts or ships without your OK</li>
-        <li><svg aria-hidden="true"><use href="#g-laptop"/></svg>Runs on your machine, no TermF server</li>
-        <li><svg aria-hidden="true"><use href="#g-code-xml"/></svg>Free and open source (MIT)</li>
+        <li><svg aria-hidden="true"><use href="#g-badge-check"/></svg>Nothing ships without your OK</li>
+        <li><svg aria-hidden="true"><use href="#g-laptop"/></svg>Runs on your machine, no account</li>
+        <li><svg aria-hidden="true"><use href="#g-code-xml"/></svg>Open source, MIT</li>
       </ul>
-      <p class="note"><a href="download.html">Every platform</a>: macOS, Windows and Linux. You need Claude Code installed. Early development: the builds are unsigned pre-releases.</p>
+      <div class="cmd" id="install"><code><a href="download.html">Every file for your system, on the download page</a></code></div>
+      <p class="note">Every system, file and checksum: <a href="download.html">the download page</a>. You need Claude Code installed. Early version, not signed by Apple or Microsoft yet.</p>
     </div>
-
-    <figure class="board demo" id="run">
-      <figcaption class="demo-cap"><b>One ticket, from your request to a pull request</b><span>A sample run on acme/platform#57</span></figcaption>
-      <div class="demo-body">
-        <ol class="demo-steps">
-          <li class="now" data-kind="you"><button type="button" data-frame="0" aria-current="step"><span class="n">1</span>You ask the CTO</button></li>
-          <li data-kind="you"><button type="button" data-frame="1"><span class="n">2</span>The CTO picks the team</button></li>
-          <li data-kind="you"><button type="button" data-frame="2"><span class="n">3</span>You approve the plan</button></li>
-          <li data-kind="agents"><button type="button" data-frame="3"><span class="n">4</span>Agents work in parallel</button></li>
-          <li data-kind="agents"><button type="button" data-frame="4"><span class="n">5</span>Checks and reviews</button></li>
-          <li data-kind="you"><button type="button" data-frame="5"><span class="n">6</span>You approve the delivery</button></li>
-        </ol>
-        <div class="demo-stage">
-          <p class="say"><b>You</b><span>Start the team on #57: export invoices to CSV in the accountant's format.</span><b>CTO</b><span id="cto">I'll put the team on #57. Starting the team needs your OK.</span></p>
-          <ol class="strips" id="strips">
-            <li class="strip" data-state="waiting"><span class="cs">CTO<small>your contact</small></span><span class="what">Start the team<small>acme/platform#57</small></span><span class="st">Waits for you<button type="button" class="gate">Allow</button></span></li>
-            <li class="strip" data-state="queued"><span class="cs">PO<small>product owner</small></span><span class="what">Frames the ticket<small>after the CTO</small></span><span class="st">Next</span></li>
-            <li class="strip" data-state="queued"><span class="cs">Lead<small>tech lead</small></span><span class="what">Plans the tasks<small>after the product owner</small></span><span class="st">Next</span></li>
-          </ol>
-        </div>
+    <figure class="shot">
+      <div class="frame">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 680px">
+          <img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="(max-width: 980px) 100vw, 680px" width="1600" height="1000" fetchpriority="high" alt="TermF's project Home: the conversation with the CTO, with a plan waiting for approval, and on the right what waits for you and the agents at work">
+        </picture>
       </div>
-      <div class="demo-foot">
-        <p class="states"><span data-state="working">Working</span><span data-state="waiting">Waits for you</span><span data-state="done">Done</span></p>
-        <span class="run-ctl"><button type="button" id="play" hidden>Pause</button><button type="button" id="replay" hidden>Replay</button></span>
-      </div>
-      <p class="demo-note">Sample data. In TermF, each amber step waits for your click; here the demo moves on by itself.</p>
+      <figcaption>The project's Home: your conversation with the CTO, and next to it, what waits for you.</figcaption>
     </figure>
   </div>
 </section>
 
-<section aria-labelledby="cto-h">
-  <div class="wrap split">
-    <div class="text">
-      <h2 id="cto-h">One conversation per project</h2>
-      <p>In the app, each project opens on its Home view: a permanent conversation with the CTO, and next to it, everything that waits for you.</p>
-      <ul class="facts">
-        <li><b>Ask in your own words.</b> “Where is the team at?”, “Start the team on #482”, or a feature described from scratch.</li>
-        <li style="--h:var(--waiting)"><b>Decisions come to you.</b> The plan to approve, the questions to answer, a permission to grant: each one is a card in the conversation.</li>
-        <li><b>Reach anyone.</b> Write <code>@front</code> to talk to an agent at work, or <code>@expert</code> to ask about the project.</li>
-        <li style="--h:var(--done)"><b>It reads, you act.</b> The CTO only reads your code: no shell, no network, and every action it takes waits for your OK.</li>
-      </ul>
-      <p><a class="more" href="features/cto.html">The CTO's conversation</a></p>
-    </div>
-    <figure class="screen" style="--h:var(--waiting)">
-      <figcaption class="screen-cap">The project's Home · sample data</figcaption>
-      <div class="app">
-        <div class="bar"><span class="badge">CTO</span><b>CTO</b><span class="sub">Your way in to the team</span><span class="seg"><span class="on">CTO</span><span>Expert</span></span></div>
-        <div class="body">
-          <div class="msg"><p>Two runs are moving:</p><ul><li>#57 CSV export of invoices: the plan is ready, 3 tasks (back, front, qa). It waits for your approval.</li><li>#311 Date filter: front is fixing DateRange.tsx.</li></ul></div>
-          <div class="card">
-            <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</p>
-            <p class="ref">acme/platform#57 <span>· Export invoices to CSV in the accountant's format</span></p>
-            <p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p>
-            <div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div>
-          </div>
-          <div class="me">Start the team on #482 too, in api.</div>
-          <div class="card">
-            <p class="ct"><svg aria-hidden="true"><use href="#i-shield"/></svg>The CTO asks for your approval: Start a team run</p>
-            <p class="ref">acme/api#482 <span>· Cursor pagination on GET /invoices</span></p>
-            <div class="acts"><span class="field">Reason for refusing (optional)</span><span class="btn"><svg aria-hidden="true"><use href="#i-shield"/></svg>Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div>
-          </div>
-        </div>
-        <div class="compose"><div class="composer">Message to the CTO… (@role for someone else, Enter sends)</div></div>
-      </div>
-    </figure>
-  </div>
-</section>
-
-<section class="team-sec" aria-labelledby="team-h">
+<section aria-labelledby="path-h">
   <div class="wrap">
     <div class="sec-head">
-      <h2 id="team-h">Meet the team: <!-- gen:count -->25<!-- /gen:count --> agents</h2>
-      <p>Each agent is a Claude Code session with one job, its own model and its own permissions. You talk to the CTO; it brings in only the agents a ticket needs.</p>
+      <h2 id="path-h">From a ticket to a pull request</h2>
+      <p>You speak at the start and you decide at the key steps. In between, the team does the work.</p>
     </div>
-    <!-- gen:roster --><div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-cto"><li><a href="team.html#role-cto"><span class="mark" aria-hidden="true">CTO</span><span class="rn">CTO</span><span class="rs">Your one point of contact</span></a></li><li><a href="team.html#role-expert"><span class="mark" aria-hidden="true">EX</span><span class="rn">Project expert</span><span class="rs">Answers about the project</span></a></li></ul><div class="org-cols" style="--cols:4"><div class="org-col c-product"><p class="oh" id="org-product">Product and design</p><ul aria-labelledby="org-product"><li><a href="team.html#role-pm"><span class="mark" aria-hidden="true">PM</span><span class="rn">Product manager</span><span class="rs">Writes the PRD of a vague epic</span></a></li><li><a href="team.html#role-po"><span class="mark" aria-hidden="true">PO</span><span class="rn">Product owner</span><span class="rs">Frames the ticket</span></a></li><li><a href="team.html#role-ux"><span class="mark" aria-hidden="true">UX</span><span class="rn">UX designer</span><span class="rs">Specifies flows and states</span></a></li><li><a href="team.html#role-architect"><span class="mark" aria-hidden="true">AR</span><span class="rn">Architect</span><span class="rs">Settles design decisions</span></a></li></ul></div><div class="org-col c-build"><p class="oh" id="org-build">Plan and build</p><ul aria-labelledby="org-build"><li><a href="team.html#role-lead"><span class="mark" aria-hidden="true">LE</span><span class="rn">Tech lead</span><span class="rs">Plans the tasks</span></a></li><li><a href="team.html#role-front"><span class="mark" aria-hidden="true">FR</span><span class="rn">Front-end developer</span><span class="rs">Builds the interface</span></a></li><li><a href="team.html#role-back"><span class="mark" aria-hidden="true">BA</span><span class="rn">Back-end developer</span><span class="rs">Builds the API and the data</span></a></li><li><a href="team.html#role-devops"><span class="mark" aria-hidden="true">DE</span><span class="rn">DevOps engineer</span><span class="rs">CI, infrastructure, dependencies</span></a></li><li><a href="team.html#role-seo"><span class="mark" aria-hidden="true">SEO</span><span class="rn">SEO engineer</span><span class="rs">Search, sharing and speed</span></a></li></ul></div><div class="org-col c-quality"><p class="oh" id="org-quality">Quality and security</p><ul aria-labelledby="org-quality"><li><a href="team.html#role-qa"><span class="mark" aria-hidden="true">QA</span><span class="rn">QA engineer</span><span class="rs">Proves each criterion</span></a></li><li><a href="team.html#role-reviewer"><span class="mark" aria-hidden="true">RE</span><span class="rn">Code reviewer</span><span class="rs">Reviews the whole change</span></a></li><li><a href="team.html#role-secops"><span class="mark" aria-hidden="true">SEC</span><span class="rn">Security reviewer</span><span class="rs">Looks for vulnerabilities</span></a></li></ul></div><div class="org-col c-creative"><p class="oh" id="org-creative">Brand, words and video</p><ul aria-labelledby="org-creative"><li><a href="team.html#role-brand"><span class="mark" aria-hidden="true">BR</span><span class="rn">Brand designer</span><span class="rs">Logo, guidelines, design system</span></a></li><li><a href="team.html#role-copy"><span class="mark" aria-hidden="true">CO</span><span class="rn">UX writer</span><span class="rs">Interface text and docs</span></a></li><li><a href="team.html#role-motion"><span class="mark" aria-hidden="true">MO</span><span class="rn">Motion designer</span><span class="rs">Videos and animations</span></a></li></ul></div><div class="org-col c-specialists wide"><p class="oh" id="org-specialists">Specialists</p><ul aria-labelledby="org-specialists"><li><a href="team.html#role-dba"><span class="mark" aria-hidden="true">DBA</span><span class="rn">Database engineer</span><span class="rs">Schema, migrations, queries</span></a></li><li><a href="team.html#role-docs"><span class="mark" aria-hidden="true">DOC</span><span class="rn">Technical writer</span><span class="rs">README, API docs, changelog</span></a></li><li><a href="team.html#role-integrations"><span class="mark" aria-hidden="true">INT</span><span class="rn">Integration engineer</span><span class="rs">Payments, SSO, webhooks</span></a></li><li><a href="team.html#role-sre"><span class="mark" aria-hidden="true">SRE</span><span class="rn">Site reliability engineer</span><span class="rs">Monitoring, alerts, load tests</span></a></li><li><a href="team.html#role-a11y"><span class="mark" aria-hidden="true">A11Y</span><span class="rn">Accessibility auditor</span><span class="rs">Audits WCAG and RGAA</span></a></li><li><a href="team.html#role-ai"><span class="mark" aria-hidden="true">AI</span><span class="rn">AI engineer</span><span class="rs">Prompts, RAG, evaluations</span></a></li><li><a href="team.html#role-analytics"><span class="mark" aria-hidden="true">AN</span><span class="rn">Product analyst</span><span class="rs">Events, funnels, dashboards</span></a></li><li><a href="team.html#role-legal"><span class="mark" aria-hidden="true">LAW</span><span class="rn">Compliance analyst</span><span class="rs">Terms, privacy, consent</span></a></li></ul></div></div></div><!-- /gen:roster -->
+    <ol class="path">
+      <li class="you"><div class="node"><b>1</b></div><span class="who">You</span><h3>You ask the CTO</h3><p>“Start the team on #57: export invoices to CSV.” A ticket from GitHub or Jira, or a request in your own words.</p></li>
+      <li class="team"><div class="node"><b>2</b></div><span class="who">The CTO</span><h3>It picks the team</h3><p>It reads the code and decides who is needed: here the product owner, back-end, front-end and QA.</p></li>
+      <li class="you"><div class="node"><b>3</b></div><span class="who">You</span><h3>You approve the plan</h3><p>Open questions come with a proposed answer. Nothing is written before your OK.</p></li>
+      <li class="team"><div class="node"><b>4</b></div><span class="who">The team</span><h3>Agents work in parallel</h3><p>Each in its own copy of the repository, so they never step on each other, or on you.</p></li>
+      <li class="team"><div class="node"><b>5</b></div><span class="who">The team</span><h3>Tests and reviews</h3><p>Your checks run, a code reviewer and a security reviewer read the change; each problem goes back to its author.</p></li>
+      <li class="ship"><div class="node"><b>6</b></div><span class="who">You</span><h3>You approve the delivery</h3><p>You see the diff, the checks and the reviews. One click opens the pull request.</p></li>
+    </ol>
+    <ul class="legend"><li class="you">You decide</li><li class="team">The team works</li><li class="ship">Delivered as a pull request</li></ul>
+    <p class="after"><a class="more" href="how-it-works.html">Read the whole path, step by step</a></p>
+  </div>
+</section>
+
+<section aria-labelledby="team-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="team-h">Meet the team: <!-- gen:count -->26<!-- /gen:count --> agents</h2>
+      <p>Each agent is a Claude Code session with one job, its own model and its own permissions. You only talk to the CTO; it brings in the agents a ticket needs, and leaves the others out.</p>
+    </div>
+    <!-- gen:roster --><div class="org"><div class="org-top"><p class="org-you"><span class="mark" aria-hidden="true">You</span><span>talk to the CTO only</span></p><span class="org-arrow" aria-hidden="true"></span><a class="org-lead c-cto" href="team.html#role-cto"><span class="mark" aria-hidden="true">CTO</span><span><span class="rn">CTO</span><span class="rs">Your one point of contact</span></span></a><a class="org-lead c-cto" href="team.html#role-expert"><span class="mark" aria-hidden="true">EX</span><span><span class="rn">Project expert</span><span class="rs">Answers about the project</span></span></a></div><div class="org-groups"><section class="org-g c-product" aria-labelledby="org-product"><h3 id="org-product">Product and design<small>4</small></h3><ul><li><a class="badge-a" href="team.html#role-pm"><span class="mark" aria-hidden="true">PM</span><span><span class="rn">Product manager</span><span class="rs">Writes the PRD of a vague epic</span></span></a></li><li><a class="badge-a" href="team.html#role-po"><span class="mark" aria-hidden="true">PO</span><span><span class="rn">Product owner</span><span class="rs">Frames the ticket</span></span></a></li><li><a class="badge-a" href="team.html#role-ux"><span class="mark" aria-hidden="true">UX</span><span><span class="rn">UX designer</span><span class="rs">Specifies flows and states</span></span></a></li><li><a class="badge-a" href="team.html#role-architect"><span class="mark" aria-hidden="true">AR</span><span><span class="rn">Architect</span><span class="rs">Settles design decisions</span></span></a></li></ul></section><section class="org-g c-build" aria-labelledby="org-build"><h3 id="org-build">Plan and build<small>5</small></h3><ul><li><a class="badge-a" href="team.html#role-lead"><span class="mark" aria-hidden="true">LE</span><span><span class="rn">Tech lead</span><span class="rs">Plans the tasks</span></span></a></li><li><a class="badge-a" href="team.html#role-front"><span class="mark" aria-hidden="true">FR</span><span><span class="rn">Front-end developer</span><span class="rs">Builds the interface</span></span></a></li><li><a class="badge-a" href="team.html#role-back"><span class="mark" aria-hidden="true">BA</span><span><span class="rn">Back-end developer</span><span class="rs">Builds the API and the data</span></span></a></li><li><a class="badge-a" href="team.html#role-devops"><span class="mark" aria-hidden="true">DE</span><span><span class="rn">DevOps engineer</span><span class="rs">CI, infrastructure, dependencies</span></span></a></li><li><a class="badge-a" href="team.html#role-seo"><span class="mark" aria-hidden="true">SEO</span><span><span class="rn">SEO engineer</span><span class="rs">Search, sharing and speed</span></span></a></li></ul></section><section class="org-g c-quality" aria-labelledby="org-quality"><h3 id="org-quality">Quality and security<small>4</small></h3><ul><li><a class="badge-a" href="team.html#role-qa"><span class="mark" aria-hidden="true">QA</span><span><span class="rn">QA engineer</span><span class="rs">Proves each criterion</span></span></a></li><li><a class="badge-a" href="team.html#role-reviewer"><span class="mark" aria-hidden="true">RE</span><span><span class="rn">Code reviewer</span><span class="rs">Reviews the whole change</span></span></a></li><li><a class="badge-a" href="team.html#role-secops"><span class="mark" aria-hidden="true">SEC</span><span><span class="rn">Security reviewer</span><span class="rs">Looks for vulnerabilities</span></span></a></li><li><a class="badge-a" href="team.html#role-integrator"><span class="mark" aria-hidden="true">IN</span><span><span class="rn">Merge integrator</span><span class="rs">Brings in the latest base</span></span></a></li></ul></section><section class="org-g c-creative" aria-labelledby="org-creative"><h3 id="org-creative">Brand, words and video<small>3</small></h3><ul><li><a class="badge-a" href="team.html#role-brand"><span class="mark" aria-hidden="true">BR</span><span><span class="rn">Brand designer</span><span class="rs">Logo, guidelines, design system</span></span></a></li><li><a class="badge-a" href="team.html#role-copy"><span class="mark" aria-hidden="true">CO</span><span><span class="rn">UX writer</span><span class="rs">Interface text and docs</span></span></a></li><li><a class="badge-a" href="team.html#role-motion"><span class="mark" aria-hidden="true">MO</span><span><span class="rn">Motion designer</span><span class="rs">Videos and animations</span></span></a></li></ul></section><section class="org-g c-specialists wide" aria-labelledby="org-specialists"><h3 id="org-specialists">Specialists<small>8</small></h3><ul><li><a class="badge-a" href="team.html#role-dba"><span class="mark" aria-hidden="true">DBA</span><span><span class="rn">Database engineer</span><span class="rs">Schema, migrations, queries</span></span></a></li><li><a class="badge-a" href="team.html#role-docs"><span class="mark" aria-hidden="true">DOC</span><span><span class="rn">Technical writer</span><span class="rs">README, API docs, changelog</span></span></a></li><li><a class="badge-a" href="team.html#role-integrations"><span class="mark" aria-hidden="true">INT</span><span><span class="rn">Integration engineer</span><span class="rs">Payments, SSO, webhooks</span></span></a></li><li><a class="badge-a" href="team.html#role-sre"><span class="mark" aria-hidden="true">SRE</span><span><span class="rn">Site reliability engineer</span><span class="rs">Monitoring, alerts, load tests</span></span></a></li><li><a class="badge-a" href="team.html#role-a11y"><span class="mark" aria-hidden="true">A11Y</span><span><span class="rn">Accessibility auditor</span><span class="rs">Audits WCAG and RGAA</span></span></a></li><li><a class="badge-a" href="team.html#role-ai"><span class="mark" aria-hidden="true">AI</span><span><span class="rn">AI engineer</span><span class="rs">Prompts, RAG, evaluations</span></span></a></li><li><a class="badge-a" href="team.html#role-analytics"><span class="mark" aria-hidden="true">AN</span><span><span class="rn">Product analyst</span><span class="rs">Events, funnels, dashboards</span></span></a></li><li><a class="badge-a" href="team.html#role-legal"><span class="mark" aria-hidden="true">LAW</span><span><span class="rn">Compliance analyst</span><span class="rs">Terms, privacy, consent</span></span></a></li></ul></section></div></div><!-- /gen:roster -->
     <p class="after"><a class="more" href="team.html">Every agent: what it does, when it is called, what it never does</a></p>
   </div>
 </section>
@@ -212,61 +177,48 @@
   <div class="wrap">
     <div class="sec-head">
       <h2 id="all-h">Everything TermF does</h2>
-      <p><!-- gen:fcount -->41<!-- /gen:fcount --> features in <!-- gen:gcount -->11<!-- /gen:gcount --> groups. Each one has its own page, with what works out of the box and its limits.</p>
+      <p><!-- gen:fcount -->47<!-- /gen:fcount --> features in <!-- gen:gcount -->12<!-- /gen:gcount --> groups. Each one has its own page: what it does, how to use it, what works out of the box and its limits.</p>
     </div>
-    <div class="fams"><!-- gen:groups --><section class="fam" aria-labelledby="fam-team"><span class="gi"><svg aria-hidden="true"><use href="#g-users"/></svg></span><h3 id="fam-team"><a href="features.html#team">The CTO and the team</a></h3><p>You talk to one agent, the CTO. A team of agents with one job each does the work, and stops for you at the key steps.</p><ul><li><a href="features/cto.html">The CTO's conversation</a></li><li><a href="features/triage.html">Triage: how the team takes a ticket</a></li><li><a href="features/questionnaire.html">Questions with proposed answers</a></li><li><a href="features/roles.html">25 agents, one role each</a></li><li><a href="features/squads.html">Squads for bigger projects</a></li><li><a href="features/code-review.html">Code review and security review</a></li><li><a href="features/creative.html">Brand, copy and motion</a></li><li><a href="features/specialists.html">The specialists</a></li><li><a href="features/expert.html">The project expert</a></li><li><a href="features/budgets.html">Budgets, stop and take over</a></li><li><a href="features/agent-browser.html">The agents' browser</a></li></ul></section><section class="fam" aria-labelledby="fam-projects"><span class="gi"><svg aria-hidden="true"><use href="#g-ticket"/></svg></span><h3 id="fam-projects"><a href="features.html#projects">Projects, tickets and runs</a></h3><p>A project groups your repositories. Each ticket becomes a run, a ticket being worked on, with its own page up to the pull request.</p><ul><li><a href="features/projects.html">Projects and the setup assistant</a></li><li><a href="features/home.html">The project's Home</a></li><li><a href="features/tickets.html">Ticket sources</a></li><li><a href="features/runs.html">The run page</a></li><li><a href="features/workflows.html">Workflows and rules</a></li><li><a href="features/delivery.html">Delivery in two steps</a></li><li><a href="features/git.html">Git in the project</a></li></ul></section><section class="fam" aria-labelledby="fam-terminals"><span class="gi"><svg aria-hidden="true"><use href="#g-layout-grid"/></svg></span><h3 id="fam-terminals"><a href="features.html#terminals">Terminals</a></h3><p>Every Claude Code session in one window, in tabs and splits, with its state and how full its context is.</p><ul><li><a href="features/terminals.html">Tabs and splits</a></li><li><a href="features/status.html">Session state and context reset</a></li><li><a href="features/panels.html">Two panels, help and the tour</a></li><li><a href="features/files.html">Files, quick terminal, keep awake</a></li></ul></section><section class="fam" aria-labelledby="fam-worktrees"><span class="gi"><svg aria-hidden="true"><use href="#g-git-fork"/></svg></span><h3 id="fam-worktrees"><a href="features.html#worktrees">Worktrees</a></h3><p>Each run works in its own copy of the repository, a git worktree, with its dependencies, environment, database and ports ready.</p><ul><li><a href="features/worktrees.html">Worktrees ready to run</a></li></ul></section><section class="fam" aria-labelledby="fam-library"><span class="gi"><svg aria-hidden="true"><use href="#g-library-big"/></svg></span><h3 id="fam-library"><a href="features.html#library">Library and skills</a></h3><p>The roles, rules, skills and workflows your agents get, in layers, matched to your stack.</p><ul><li><a href="features/library.html">The library of roles, rules and skills</a></li><li><a href="features/skills.html">38 skills by stack</a></li><li><a href="features/conventions.html">Conventions in plain words</a></li><li><a href="features/scout.html">The library scout</a></li><li><a href="features/cli-skills.html">Skills for command-line tools</a></li></ul></section><section class="fam" aria-labelledby="fam-claude"><span class="gi"><svg aria-hidden="true"><use href="#g-bot"/></svg></span><h3 id="fam-claude"><a href="features.html#claude">Claude Code, artifacts and the scheduler</a></h3><p>Everything Claude Code knows on this machine, in one view, and Claude tasks on a schedule.</p><ul><li><a href="features/claude-view.html">The Claude Code view</a></li><li><a href="features/artifacts.html">claude.ai artifacts</a></li><li><a href="features/scheduler.html">The scheduler</a></li></ul></section><section class="fam" aria-labelledby="fam-ci"><span class="gi"><svg aria-hidden="true"><use href="#g-workflow"/></svg></span><h3 id="fam-ci"><a href="features.html#ci">CI/CD</a></h3><p>GitHub Actions runs and logs without leaving the app, and a failure sent back to the agent that caused it.</p><ul><li><a href="features/ci.html">CI/CD</a></li></ul></section><section class="fam" aria-labelledby="fam-visual"><span class="gi"><svg aria-hidden="true"><use href="#g-scan-eye"/></svg></span><h3 id="fam-visual"><a href="features.html#visual">Design and visual review</a></h3><p>Your design system read from the code, with its inconsistencies, and before and after screenshots of every changed screen.</p><ul><li><a href="features/visual-review.html">Visual review</a></li><li><a href="features/design-system.html">The Design system view</a></li></ul></section><section class="fam" aria-labelledby="fam-machine"><span class="gi"><svg aria-hidden="true"><use href="#g-key-round"/></svg></span><h3 id="fam-machine"><a href="features.html#machine">Keys, vault and sync</a></h3><p>SSH keys, a vault for passwords and secrets, and your settings synced across machines, encrypted.</p><ul><li><a href="features/ssh-keys.html">SSH and keys</a></li><li><a href="features/vault.html">The vault and passwords</a></li><li><a href="features/sync.html">Encrypted sync</a></li></ul></section><section class="fam" aria-labelledby="fam-security"><span class="gi"><svg aria-hidden="true"><use href="#g-shield-check"/></svg></span><h3 id="fam-security"><a href="features.html#security">Security</a></h3><p>Guard rails on your machine, and plain words about what they do not cover.</p><ul><li><a href="features/guard.html">The run guard</a></li><li><a href="features/local-api.html">The isolated local API</a></li><li><a href="features/security-input.html">Secrets and untrusted input</a></li></ul></section><section class="fam" aria-labelledby="fam-cli"><span class="gi"><svg aria-hidden="true"><use href="#g-square-terminal"/></svg></span><h3 id="fam-cli"><a href="features.html#cli">The termf command line</a></h3><p>Everything the app does, from any terminal. It ships inside the app.</p><ul><li><a href="features/cli.html">The termf command line</a></li></ul></section><a class="fam-all" href="features.html"><b>Browse all 41 features</b><span>Each with what works out of the box, what you can tune, and its limits.</span></a><!-- /gen:groups --></div>  </div>
+    <div class="fams"><!-- gen:groups --><section class="fam" aria-labelledby="fam-team"><span class="gi"><svg aria-hidden="true"><use href="#g-users"/></svg></span><h3 id="fam-team"><a href="features.html#team">The CTO and the team</a></h3><p>You talk to one agent, the CTO. A team of agents with one job each does the work, and stops for you at the key steps.</p><ul><li><a href="features/cto.html">The CTO's conversation</a></li><li><a href="features/triage.html">Triage: how the team takes a ticket</a></li><li><a href="features/questionnaire.html">Questions with proposed answers</a></li><li><a href="features/roles.html">26 agents, one role each</a></li><li><a href="features/squads.html">Squads for bigger projects</a></li><li><a href="features/code-review.html">Code review and security review</a></li><li><a href="features/integrator.html">The base kept up to date</a></li><li><a href="features/creative.html">Brand, copy and motion</a></li><li><a href="features/specialists.html">The specialists</a></li><li><a href="features/expert.html">The project expert</a></li><li><a href="features/budgets.html">Budgets, stop and take over</a></li><li><a href="features/agent-browser.html">The agents' browser</a></li></ul></section><section class="fam" aria-labelledby="fam-projects"><span class="gi"><svg aria-hidden="true"><use href="#g-ticket"/></svg></span><h3 id="fam-projects"><a href="features.html#projects">Projects, tickets and runs</a></h3><p>A project groups your repositories. Each ticket becomes a run, a ticket being worked on, with its own page up to the pull request.</p><ul><li><a href="features/projects.html">Projects and the setup</a></li><li><a href="features/home.html">The project's Home</a></li><li><a href="features/tickets.html">Ticket sources</a></li><li><a href="features/runs.html">The run page</a></li><li><a href="features/multi-repo.html">Runs across repositories</a></li><li><a href="features/workflows.html">Workflows and rules</a></li><li><a href="features/delivery.html">Delivery in two steps</a></li><li><a href="features/git.html">Git in the project</a></li></ul></section><section class="fam" aria-labelledby="fam-terminals"><span class="gi"><svg aria-hidden="true"><use href="#g-layout-grid"/></svg></span><h3 id="fam-terminals"><a href="features.html#terminals">Terminals</a></h3><p>Every Claude Code session in one window, in tabs and splits, with its state and how full its context is.</p><ul><li><a href="features/terminals.html">Tabs and splits</a></li><li><a href="features/status.html">Session state and context reset</a></li><li><a href="features/panels.html">Two panels, help and the tour</a></li><li><a href="features/files.html">Files, quick terminal, keep awake</a></li></ul></section><section class="fam" aria-labelledby="fam-worktrees"><span class="gi"><svg aria-hidden="true"><use href="#g-git-fork"/></svg></span><h3 id="fam-worktrees"><a href="features.html#worktrees">Worktrees</a></h3><p>Each run works in its own copy of the repository, a git worktree, with its dependencies, environment, database and ports ready.</p><ul><li><a href="features/worktrees.html">Worktrees ready to run</a></li></ul></section><section class="fam" aria-labelledby="fam-library"><span class="gi"><svg aria-hidden="true"><use href="#g-library-big"/></svg></span><h3 id="fam-library"><a href="features.html#library">Library and skills</a></h3><p>The roles, rules, skills and workflows your agents get, in layers, matched to your stack.</p><ul><li><a href="features/library.html">The library of roles, rules and skills</a></li><li><a href="features/skills.html">38 skills by stack</a></li><li><a href="features/language-servers.html">Language servers and evals</a></li><li><a href="features/conventions.html">Conventions in plain words</a></li><li><a href="features/scout.html">The library scout</a></li><li><a href="features/cli-skills.html">Skills for command-line tools</a></li></ul></section><section class="fam" aria-labelledby="fam-claude"><span class="gi"><svg aria-hidden="true"><use href="#g-bot"/></svg></span><h3 id="fam-claude"><a href="features.html#claude">Claude Code, other agents and the scheduler</a></h3><p>Everything Claude Code knows on this machine in one view, Codex and Gemini beside it, and Claude tasks on a schedule.</p><ul><li><a href="features/claude-view.html">The Claude Code view</a></li><li><a href="features/artifacts.html">claude.ai artifacts</a></li><li><a href="features/other-agents.html">Codex and Gemini</a></li><li><a href="features/scheduler.html">The scheduler</a></li></ul></section><section class="fam" aria-labelledby="fam-ci"><span class="gi"><svg aria-hidden="true"><use href="#g-workflow"/></svg></span><h3 id="fam-ci"><a href="features.html#ci">CI/CD</a></h3><p>GitHub Actions runs and logs without leaving the app, and a failure sent back to the agent that caused it.</p><ul><li><a href="features/ci.html">CI/CD</a></li></ul></section><section class="fam" aria-labelledby="fam-visual"><span class="gi"><svg aria-hidden="true"><use href="#g-scan-eye"/></svg></span><h3 id="fam-visual"><a href="features.html#visual">Design and visual review</a></h3><p>Your design system read from the code, with its inconsistencies, and before and after screenshots of every changed screen.</p><ul><li><a href="features/visual-review.html">Visual review</a></li><li><a href="features/design-system.html">The Design system view</a></li></ul></section><section class="fam" aria-labelledby="fam-machine"><span class="gi"><svg aria-hidden="true"><use href="#g-key-round"/></svg></span><h3 id="fam-machine"><a href="features.html#machine">Keys, vault and sync</a></h3><p>SSH keys, a vault for passwords and secrets, and your settings synced across machines, encrypted.</p><ul><li><a href="features/ssh-keys.html">SSH and keys</a></li><li><a href="features/vault.html">The vault and passwords</a></li><li><a href="features/sync.html">Encrypted sync</a></li></ul></section><section class="fam" aria-labelledby="fam-ops"><span class="gi"><svg aria-hidden="true"><use href="#g-server"/></svg></span><h3 id="fam-ops"><a href="features.html#ops">Servers, databases and logs</a></h3><p>Your servers, databases and logs, for you and, one approval at a time, for the agents, with secrets masked in what comes back.</p><ul><li><a href="features/ops.html">Connections and recipes</a></li></ul></section><section class="fam" aria-labelledby="fam-security"><span class="gi"><svg aria-hidden="true"><use href="#g-shield-check"/></svg></span><h3 id="fam-security"><a href="features.html#security">Security</a></h3><p>Guard rails on your machine, and plain words about what they do not cover.</p><ul><li><a href="features/guard.html">The run guard</a></li><li><a href="features/local-api.html">The isolated local API</a></li><li><a href="features/security-input.html">Secrets and untrusted input</a></li></ul></section><section class="fam" aria-labelledby="fam-cli"><span class="gi"><svg aria-hidden="true"><use href="#g-square-terminal"/></svg></span><h3 id="fam-cli"><a href="features.html#cli">Install, updates and the command line</a></h3><p>One command to install, updates inside the app, and everything the app does from any terminal.</p><ul><li><a href="features/updates.html">Install and updates</a></li><li><a href="features/cli.html">The termf command line</a></li></ul></section><a class="fam-all" href="features.html"><b>Browse all 47 features</b><span>Each with what works out of the box, what you can tune, and its limits.</span></a><!-- /gen:groups --></div>
+  </div>
 </section>
 
 <section aria-labelledby="term-h">
   <div class="wrap split flip">
-    <figure class="screen" style="--h:var(--working)">
-      <figcaption class="screen-cap">Terminals · tabs and splits · sample data</figcaption>
-      <div class="app">
-        <div class="tabs"><span class="tab on">api <kbd>3</kbd></span><span class="tab"><i class="dot"></i>web-dashboard <kbd>⌘2</kbd></span><span class="tab">billing-service <kbd>⌘3</kbd></span><span class="tab">+</span></div>
-        <div class="panes">
-          <div class="pane focus"><div class="ph"><span class="pill-s working"><svg aria-hidden="true"><use href="#i-spin"/></svg>working</span><b>api</b><span class="tool">claude</span><span class="gauge" style="--g:34%"><i></i>34%</span></div>
-<pre class="pt term"><span class="d">&gt;</span> Add cursor pagination to GET /invoices
-
-<span class="k">●</span> Read(src/routes/customers.ts)
-  <span class="d">⎿</span> Read 214 lines
-
-<span class="k">●</span> Update(src/routes/invoices.ts)
-  <span class="d">⎿</span> Updated with <span class="g">38 additions</span> and <span class="r">6 removals</span>
-
-<span class="k">●</span> Bash(pnpm vitest run tests/invoices)
-  <span class="d">⎿</span> Tests  12 passed (12)
-
-<span class="o">✻ Pondering…</span> <span class="d">(42s · esc to interrupt)</span></pre></div>
-          <div class="stack">
-            <div class="pane"><div class="ph"><span class="pill-s waiting"><svg aria-hidden="true"><use href="#i-bell"/></svg>waiting for you</span><b>web-dashboard</b><span class="tool">claude</span><span class="gauge" style="--g:12%"><i></i>12%</span></div>
-<pre class="pt term"><span class="k">●</span> Update(src/filters/DateRange.tsx)
-  <span class="d">⎿</span> Updated with <span class="g">4 additions</span> and <span class="r">2 removals</span>
-
-Do you want to run <span class="k">pnpm test</span>?
-<span class="k">❯ 1. Yes</span>
-  2. No</pre></div>
-            <div class="pane"><div class="ph"><b>api</b><span class="tool">shell</span></div>
-<pre class="pt term">alex@mbp api % pnpm vitest run
- <span class="g">✓</span> tests/invoices.test.ts (12 tests)
-
- Tests  <span class="g">12 passed</span> (12)
-alex@mbp api % </pre></div>
-          </div>
-        </div>
+    <figure class="shot">
+      <div class="frame">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="shots/terminals-dark-800.webp 800w, shots/terminals-dark.webp 1600w" sizes="(max-width: 980px) 100vw, 680px">
+          <img src="shots/terminals-light.webp" srcset="shots/terminals-light-800.webp 800w, shots/terminals-light.webp 1600w" sizes="(max-width: 980px) 100vw, 680px" width="1600" height="1000" loading="lazy" alt="Terminals in TermF: tabs, and two Claude Code sessions side by side above a shell, one of them waiting for an answer">
+        </picture>
       </div>
+      <figcaption>Terminals: tabs and splits, with each session's state.</figcaption>
     </figure>
     <div class="text">
-      <h2 id="term-h">Every Claude Code in one window</h2>
-      <p>Open Claude Code, or a shell, in any repository: tabs and free splits, as in the Ghostty terminal. Each session shows whether it is working, waiting for you or done, and how full its context is. A notification tells you when one needs you.</p>
+      <h2 id="term-h">Your own sessions, side by side</h2>
+      <p>Open Claude Code, Codex, Gemini or a shell in any repository, in tabs and free splits. Each session shows whether it is working, waiting for you or done, and how full its context is. A notification tells you when one needs you.</p>
       <dl class="keys">
-        <dt><kbd>⌘T</kbd></dt><dd>A new session, Claude Code or a shell, in any repository</dd>
-        <dt><kbd>⌘D</kbd> · <kbd>⌘⇧D</kbd></dt><dd>Split right, split down</dd>
-        <dt><kbd>⌥⌘</kbd> + arrows</dt><dd>Move between splits</dd>
+        <dt><kbd>⌘T</kbd></dt><dd>A new session in any repository</dd>
+        <dt><kbd>⌘D</kbd> <kbd>⌘⇧D</kbd></dt><dd>Split right, split down</dd>
         <dt><kbd>⌘J</kbd></dt><dd>The next thing waiting for you, in any project</dd>
         <dt><kbd>?</kbd></dt><dd>Every shortcut, all of them remappable</dd>
       </dl>
       <p><a class="more" href="features/terminals.html">Terminals, splits and status</a></p>
     </div>
+  </div>
+</section>
+
+<section aria-labelledby="start-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="start-h">Start in two minutes</h2>
+      <p>You need Claude Code installed and signed in, and git. Nothing else to set up.</p>
+    </div>
+    <ol class="start">
+      <li><h3>Install TermF</h3><p>One command in a terminal, or the file for your system: both are on <a href="download.html">the download page</a>, which picks them for your system.</p></li>
+      <li><h3>Create a project</h3><p>Pick your repositories. TermF reads your stack, your commands and your CI, and proposes a team, ticket sources and skills. You accept or change each one.</p></li>
+      <li><h3>Ask the CTO</h3><p>Write what you want on the project's Home, or start the team on a ticket. Approve the plan, then the delivery: the pull request opens.</p></li>
+    </ol>
   </div>
 </section>
 
@@ -277,18 +229,17 @@ alex@mbp api % </pre></div>
       <p>The team prepares the work. You decide what goes ahead, and what leaves your machine.</p>
     </div>
     <div class="trio">
-      <div><span class="gi">
-        <svg aria-hidden="true"><use href="#g-badge-check"/></svg></span>
+      <div><span class="gi"><svg aria-hidden="true"><use href="#g-badge-check"/></svg></span>
         <h3>You approve the key steps</h3>
-        <p>The team stops for you at the key steps: how it will handle the ticket, the plan, and the delivery; every action the CTO takes waits for your OK too. Its questions come with proposed answers, so you only change what does not suit you. Nothing is pushed and no pull request opens without your click.</p>
+        <p>The plan, the delivery, and every action the CTO takes wait for your click. Nothing is pushed and no pull request opens without you. Agents never see the passwords in your vault unless you allow it.</p>
       </div>
       <div><span class="gi"><svg aria-hidden="true"><use href="#g-laptop"/></svg></span>
         <h3>It runs on your machine</h3>
-        <p>No TermF server, no telemetry, no account. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up: GitHub or Jira for tickets, a remote for the sync.</p>
+        <p>No TermF server, no telemetry, no account. Your code goes where Claude Code sends it, as it would without TermF. The other connections are the ones you set up: GitHub or Jira, a sync remote.</p>
       </div>
-      <div><span class="gi"><svg aria-hidden="true"><use href="#g-code-xml"/></svg></span>
-        <h3>Open source, honest about limits</h3>
-        <p>MIT license, the whole source on GitHub. The guard rails are defense in depth on one machine, not a sandbox: a script an agent writes and then runs can still get around them. The security page says exactly what is covered.</p>
+      <div><span class="gi"><svg aria-hidden="true"><use href="#g-shield-check"/></svg></span>
+        <h3>Honest about the limits</h3>
+        <p>The guard rails stop risky commands on one machine; they are not a sandbox. The security page says exactly what is covered and what is not.</p>
         <p><a class="more" href="security.html">Security, and its limits</a></p>
       </div>
     </div>
@@ -297,14 +248,15 @@ alex@mbp api % </pre></div>
 
 <section id="faq" aria-labelledby="faq-h">
   <div class="wrap faq">
-    <div><h2 id="faq-h">Questions</h2><p class="lead">The short answers. The rest is in the <a href="https://github.com/vassilidev/TermF#readme">README</a> and the <a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">architecture</a>.</p></div>
+    <div><h2 id="faq-h">Questions</h2><p class="lead">Short answers. The rest is in the <a href="https://github.com/vassilidev/TermF#readme">README</a>.</p></div>
     <div>
-      <details><summary>Is TermF free?</summary><p>Yes. It is open source under the MIT license, with no account and no paid tier. Your agents run on your own Claude Code, with your subscription's quotas or your API key.</p></details>
+      <details><summary>Is TermF free?</summary><p>Yes. It is open source under the MIT license, with no account and no paid tier. Your agents run on your own Claude Code, with your subscription or your API key.</p></details>
       <details><summary>Does my code leave my machine?</summary><p>TermF has no server and no telemetry. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up: GitHub or Jira for tickets, and the remote you choose for the sync.</p></details>
-      <details><summary>What do I need?</summary><p>Claude Code installed and signed in, <code>git</code>, and the GitHub CLI signed in for GitHub tickets, pull requests and CI. TermF runs on macOS (Apple Silicon and Intel), Windows x64 and Linux x86_64 with WebKitGTK 4.1.</p></details>
-      <details><summary>How much does a run cost?</summary><p>Each run has a budget, 15 dollars in the default workflow, and stops when it is spent; you can change it at launch. The CTO's conversation has no budget of its own, and each gate wakes it for one turn.</p></details>
-      <details><summary>How far along is it?</summary><p>Early development. The builds are unsigned pre-releases. Most of the interface has been checked with automated tests and a simulated backend rather than by hand, and parts of the flow have run with a real Claude Code. Windows and Linux are built and tested in CI but have not been run by hand yet.</p></details>
-      <details><summary>Is it only for Claude Code?</summary><p>The CTO and the team run on Claude Code. Terminals open any command-line agent you declare, or a shell. Codex and Gemini adapters are on the roadmap.</p></details>
+      <details><summary>What do I need?</summary><p>Claude Code 2.1.288 or later, signed in, and <code>git</code>. The GitHub CLI, signed in, for GitHub tickets, pull requests and CI. TermF runs on macOS (Apple Silicon and Intel), Windows x64 and Linux x86_64 with WebKitGTK 4.1.</p></details>
+      <details><summary>How much does a run cost?</summary><p>It uses your Claude Code. Each team run has a budget, 15 dollars by default, and stops when it is spent; you can change it at launch. You can stop a run, or one agent, at any time.</p></details>
+      <details><summary>Do I have to use the team?</summary><p>No. Without the team, TermF is a terminal for Claude Code and your other agents, with tabs, splits and states, plus Git, CI/CD, a password vault and the rest. A ticket can also go to a single agent.</p></details>
+      <details><summary>Does it work with Codex or Gemini?</summary><p>The CTO and the team run on Claude Code. Codex CLI and Gemini CLI open in terminals and conversations, and a team role can be set to run on one of them. These two adapters are new and have not been tried with the real tools yet.</p></details>
+      <details><summary>How far along is it?</summary><p>Early development. The builds are not signed by Apple or Microsoft yet; the app updates itself. Most of the interface has been checked with automated tests and a simulated backend rather than by hand, and parts of the team's path have run with a real Claude Code. Windows and Linux are built and tested in CI, not yet by hand.</p></details>
     </div>
   </div>
 </section>
@@ -312,7 +264,7 @@ alex@mbp api % </pre></div>
 
 <section class="close" aria-labelledby="close-h">
   <div class="wrap">
-    <div><h2 class="display" id="close-h">Put a team on your next ticket</h2></div>
+    <h2 id="close-h">Put a team on your next ticket.</h2>
     <div><p>Free and open source, for macOS, Windows and Linux. You keep every decision.</p><a class="pill big" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a></div>
   </div>
 </section>
@@ -322,7 +274,7 @@ alex@mbp api % </pre></div>
     <div class="foot">
       <div class="foot-about">
         <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
-        <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
+        <p>Talk only to the CTO: a team of AI agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
         <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
       </div>
       <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
@@ -335,78 +287,34 @@ alex@mbp api % </pre></div>
 </footer>
 
 <script>
+// The install scripts take GitHub's latest release (the newest that is not a pre-release, else the newest one) and
+// refuse one without SHA256SUMS: the command shows only when that release has them, the link to the files otherwise
+const box = document.getElementById('install');
+const desktop = !/android|iphone|ipad|ipod/i.test(navigator.userAgent) && !((navigator.userAgentData?.platform || navigator.platform || '').toLowerCase().includes('mac') && navigator.maxTouchPoints > 1);
+if (desktop) fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(list => {
+    const shown = list.filter(r => !r.draft), latest = shown.find(r => !r.prerelease) ?? shown[0];
+    if (!latest?.assets?.some(a => a.name === 'SHA256SUMS')) return;
+    const win = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase().includes('win');
+    const text = win ? 'irm https://vassilidev.github.io/TermF/install.ps1 | iex' : 'curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh';
+    box.querySelector('code').textContent = text;
+    const b = Object.assign(document.createElement('button'), {className: 'copy', type: 'button', innerHTML: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span>'});
+    b.setAttribute('aria-label', 'Copy the install command');
+    b.onclick = async () => {
+      try { await navigator.clipboard.writeText(text); } catch { return; }
+      b.classList.add('ok'); b.lastChild.textContent = 'Copied';
+      setTimeout(() => { b.classList.remove('ok'); b.lastChild.textContent = 'Copy'; }, 1600);
+    };
+    box.append(b);
+  })
+  .catch(() => {});
 const nav = document.getElementById('nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {passive: true});
 const menu = nav.querySelector('.menu');
 menu.addEventListener('click', e => { if (e.target.closest('a')) menu.open = false; });
 addEventListener('click', e => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
 addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.open = false; menu.querySelector('summary').focus(); } });
-
-// The demo run: each frame is one moment of the run, and the numbered steps say in plain words where it is
-(() => {
-  const run = document.getElementById('run'), cto = document.getElementById('cto'), list = document.getElementById('strips');
-  const steps = [...run.querySelectorAll('.demo-steps li')], play = document.getElementById('play'), replay = document.getElementById('replay');
-  const label = {working: 'Working', waiting: 'Waits for you', done: 'Done', queued: 'Next'};
-  // [step, what the CTO says, strips: [who, model, what, detail, state, gate]]
-  const frames = [
-    [0, "I'll put the team on #57. Starting the team needs your OK.", [['CTO', 'your contact', 'Start the team', 'acme/platform#57', 'waiting', 'Allow'], ['PO', 'product owner', 'Frames the ticket', 'after the CTO', 'queued'], ['Lead', 'tech lead', 'Plans the tasks', 'after the product owner', 'queued']]],
-    [1, 'Here is how the team will handle it: the default steps and a $15 budget.', [['CTO', 'your contact', 'Team started', 'you allowed it', 'done'], ['CTO', 'your contact', 'The team and the budget', 'product owner, lead, back, front, QA, reviewers · $15', 'waiting', 'Approve'], ['PO', 'product owner', 'Frames the ticket', 'next', 'queued']]],
-    [2, "The product owner wrote 3 acceptance criteria. The lead's plan has 3 tasks, and it waits for you.", [['PO', 'product owner', '3 acceptance criteria', 'one item out of scope', 'done'], ['Lead', 'tech lead', 'The plan: 3 tasks', 'back, front, then QA', 'waiting', 'Approve the plan'], ['Back', 'back-end', 'CSV writer, accountant format', 'starts once you approve', 'queued']]],
-    [3, 'Back and front work at the same time, each in its own copy of the repository.', [['Back', 'back-end', 'CSV writer, accountant format', 'worktree team/57/back', 'working'], ['Front', 'front-end', 'Export button, Invoices page', 'worktree team/57/front', 'working'], ['QA', 'QA engineer', 'Checks each criterion', 'once back and front are done', 'queued']]],
-    [4, "Tests and the project's rules pass. The reviewer and the security reviewer go over the whole change.", [['QA', 'QA engineer', 'AC1 to AC3 covered', 'two regression tests added', 'done'], ['Review', 'code reviewer', 'Code review: no finding left', 'round 1', 'done'], ['SecOps', 'security', 'Security review', 'vulnerabilities, abuse cases', 'working']]],
-    [5, 'Ready to deliver: 6 files, 4 commits. You see exactly what will be sent first.', [['SecOps', 'security', 'Security: no finding', 'two passes', 'done'], ['Delivery', 'you', 'Ready to deliver', '6 files, 4 commits', 'waiting', 'Deliver'], ['PR', 'github', 'Pull request', 'opens when you deliver', 'queued']]],
-    [5, 'Delivered: the pull request is open.', [['SecOps', 'security', 'Security: no finding', 'two passes', 'done'], ['Delivery', 'you', 'Delivered', '6 files, 4 commits', 'done'], ['PR', 'github', 'Pull request opened', 'Closes #57', 'done']]],
-  ];
-  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let at = 0, timer = 0, paused = still;
-  // The page is served with the first frame already drawn: the first call only wires it up, with no entrance
-  function show(i, first) {
-    at = i;
-    const [step, says, strips] = frames[i];
-    cto.textContent = says;
-    list.innerHTML = strips.map(([who, model, what, sub, state, gate]) =>
-      `<li class="strip" data-state="${state}"><span class="cs">${who}<small>${model}</small></span><span class="what">${what}<small>${sub}</small></span>`
-      + `<span class="st">${label[state]}${gate ? `<button type="button" class="gate">${gate}</button>` : ''}</span></li>`).join('');
-    steps.forEach((li, n) => {
-      const b = li.firstElementChild;
-      li.className = n < step || (n === step && i === frames.length - 1) ? 'past' : n === step ? 'now' : '';
-      if (n === step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
-    });
-    const gate = list.querySelector('.gate');
-    if (gate) gate.onclick = () => next(true);
-    run.classList.remove('fresh');
-    if (!first) {
-      run.offsetWidth;
-      run.classList.add('fresh');
-    }
-    control();
-    schedule();
-  }
-  function next(manual) {
-    if (at < frames.length - 1) show(at + 1);
-    else if (manual) show(0);
-  }
-  function control() {
-    const end = at === frames.length - 1;
-    play.hidden = end && !still;
-    play.textContent = still ? (end ? 'Start again' : 'Next step') : paused ? 'Play' : 'Pause';
-    run.classList.toggle('playing', !paused && !end);
-  }
-  function schedule() {
-    clearTimeout(timer);
-    if (!paused && at < frames.length - 1) timer = setTimeout(next, 4800);
-  }
-  for (const li of steps) li.firstElementChild.onclick = e => { paused = true; show(+e.currentTarget.dataset.frame); };
-  play.onclick = () => {
-    if (still) return next(true);
-    paused = !paused;
-    control();
-    schedule();
-  };
-  replay.onclick = () => { if (!still) paused = false; show(0); };
-  play.hidden = replay.hidden = false;
-  show(0, true);
-})();
 </script>
 </body>
 </html>

@@ -96,7 +96,10 @@ for f in features:
     assert re.fullmatch(r"[a-z0-9-]+", f["slug"]), f["slug"]
     assert f["group"] in by_group, f"{f['slug']}: unknown group {f['group']}"
     assert all(r in by_slug and r != f["slug"] for r in f.get("related", [])), f"{f['slug']}: bad related"
-    assert f.get("visual", "") == "" or f["visual"] in visuals, f"{f['slug']}: unknown visual"
+    assert f.get("visual", "") == "" or f["visual"] in visuals or f["visual"].startswith("shot:"), f"{f['slug']}: unknown visual"
+    if f.get("visual", "").startswith("shot:"):
+        shot = f["visual"][5:].partition("|")[0]
+        assert all(os.path.exists(os.path.join(SITE, "shots", f"{shot}-{t}.webp")) for t in ("light", "dark", "light-800", "dark-800")), f"{f['slug']}: no shots/{shot}-*.webp"
     for key in ("name", "tagline", "problem", "how", "default", "tune", "limits", "tried"):
         assert f.get(key), f"{f['slug']}: no {key}"
 
@@ -133,7 +136,8 @@ def rebase(page, prefix):
         if re.match(r"(https?:|mailto:|data:|#|/)", url):
             return m.group(0)
         return f'{m.group(1)}="{prefix}{url[2:] if url.startswith("./") else url}"'
-    return re.sub(r'\b(href|src)="([^"]*)"', fix, page)
+    page = re.sub(r'\b(href|src)="([^"]*)"', fix, page)
+    return re.sub(r'\bsrcset="([^"]*)"', lambda m: 'srcset="' + ", ".join(prefix + u.strip() for u in m.group(1).split(",")) + '"', page)
 
 
 def page(path, title, desc, body, ld, og_type="website", current="", script=""):
@@ -162,14 +166,13 @@ def page(path, title, desc, body, ld, og_type="website", current="", script=""):
 <meta name="twitter:description" content="{esc(desc)}">
 <meta name="twitter:image" content="{BASE}og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
-<meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f15" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
-<link rel="preload" href="fonts/archivo-condensed.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
 <script type="application/ld+json">
@@ -212,7 +215,19 @@ def crumbs(*items):
     return [{"@type": "ListItem", "position": i + 1, "name": name, "item": BASE + href} for i, (name, href) in enumerate(items)]
 
 
+def picture(name, alt, sizes="(max-width: 980px) 100vw, 680px", lazy=True):
+    """A screenshot of the app from site/shots/, light and dark, 800 and 1600 px wide."""
+    def src(theme):
+        return f"shots/{name}-{theme}-800.webp 800w, shots/{name}-{theme}.webp 1600w"
+    load = ' loading="lazy"' if lazy else ""
+    return (f'<picture><source media="(prefers-color-scheme: dark)" srcset="{src("dark")}" sizes="{sizes}">'
+            f'<img src="shots/{name}-light.webp" srcset="{src("light")}" sizes="{sizes}" width="1600" height="1000"{load} alt="{esc(alt)}"></picture>')
+
+
 def figure(key, caption):
+    if key.startswith("shot:"):
+        name, _, alt = key[5:].partition("|")
+        return f'<figure class="shot"><div class="frame">{picture(name, alt or caption, lazy=False)}</div><figcaption>{esc(caption)}</figcaption></figure>'
     snippet = visuals[key].strip()
     if snippet.startswith('<div class="app'):
         return f'<figure class="shot"><div class="screen">{snippet}</div><figcaption>{esc(caption)}</figcaption></figure>'
@@ -370,7 +385,7 @@ def agent_card(r, big=False):
     dl = "".join(f"<div><dt>{k}</dt><dd>{v}</dd></div>" for k, v in rows if v)
     return (f'<article class="agent{" big" if big else ""}" id="role-{r["name"]}">'
             f'<header><span class="mark" aria-hidden="true">{r["mark"]}</span><div><h3>{r["label"]}</h3><code>{r["name"]}</code></div></header>'
-            f'<p>{r["does"]}</p><dl>{dl}</dl><ul class="chips-m" aria-label="Settings">{agent_meta(r)}</ul></article>')
+            f'<p>{r["does"]}</p><dl>{dl}</dl><ul class="chips" aria-label="Settings">{agent_meta(r)}</ul></article>')
 
 
 def team_cards():
@@ -387,22 +402,22 @@ def team_cards():
 
 
 def roster():
-    """The home's org chart: you, the CTO (and the expert beside it), then every group of the team at once."""
-    def tile(r):
-        return (f'<li><a href="team.html#role-{r["name"]}"><span class="mark" aria-hidden="true">{r["mark"]}</span>'
-                f'<span class="rn">{r["label"]}</span><span class="rs">{r["short"]}</span></a></li>')
-    head = by_crew[crew["groups"][0]["id"]]
-    cols, narrow = [], 0
-    for g in crew["groups"][1:]:
+    """The home's team: you, the CTO and the expert, then every group at once, each agent a link to its card."""
+    def who(r):
+        return f'<span class="mark" aria-hidden="true">{r["mark"]}</span><span><span class="rn">{r["label"]}</span><span class="rs">{r["short"]}</span></span>'
+    first = crew["groups"][0]
+    leads = "".join(f'<a class="org-lead c-{first["color"]}" href="team.html#role-{r["name"]}">{who(r)}</a>' for r in by_crew[first["id"]])
+    def badge(r):
+        return f'<li><a class="badge-a" href="team.html#role-{r["name"]}">{who(r)}</a></li>'
+
+    def group(g):
         members = by_crew[g["id"]]
-        if members:
-            # A large group gets a row of its own under the columns, so the columns stay wide enough to read
-            wide = len(members) > 5
-            narrow += not wide
-            cols.append(f'<div class="org-col c-{g["color"]}{" wide" if wide else ""}"><p class="oh" id="org-{g["id"]}">{g["name"]}</p>'
-                        f'<ul aria-labelledby="org-{g["id"]}">{"".join(tile(r) for r in members)}</ul></div>')
-    return (f'<div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-{crew["groups"][0]["color"]}">{"".join(tile(r) for r in head)}</ul>'
-            f'<div class="org-cols" style="--cols:{max(narrow, 1)}">{"".join(cols)}</div></div>')
+        wide = " wide" if len(members) > 6 else ""
+        return (f'<section class="org-g c-{g["color"]}{wide}" aria-labelledby="org-{g["id"]}"><h3 id="org-{g["id"]}">{g["name"]}<small>{len(members)}</small></h3>'
+                f'<ul>{"".join(badge(r) for r in members)}</ul></section>')
+    groups = "".join(group(g) for g in crew["groups"][1:] if by_crew[g["id"]])
+    return (f'<div class="org"><div class="org-top"><p class="org-you"><span class="mark" aria-hidden="true">You</span><span>talk to the CTO only</span></p>'
+            f'<span class="org-arrow" aria-hidden="true"></span>{leads}</div><div class="org-groups">{groups}</div></div>')
 
 
 def feature_grid():

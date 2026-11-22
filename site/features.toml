@@ -10,7 +10,7 @@ intro = "You talk to one agent, the CTO. A team of agents with one job each does
 icon = "users"
 article = "team.html"
 article_title = "The CTO and the team"
-not_yet = ["Runs across several repositories (one repository per run today)", "A squad editor outside the setup assistant, and the leads' sub-plans", "Re-planning after repeated failures, a daily budget, one scheduler for every team at work"]
+not_yet = ["Re-planning after repeated failures, a daily budget, one scheduler for every team at work"]
 
 [[groups]]
 id = "projects"
@@ -40,8 +40,8 @@ icon = "library-big"
 
 [[groups]]
 id = "claude"
-name = "Claude Code, artifacts and the scheduler"
-intro = "Everything Claude Code knows on this machine, in one view, and Claude tasks on a schedule."
+name = "Claude Code, other agents and the scheduler"
+intro = "Everything Claude Code knows on this machine in one view, Codex and Gemini beside it, and Claude tasks on a schedule."
 icon = "bot"
 
 [[groups]]
@@ -55,14 +55,20 @@ id = "visual"
 name = "Design and visual review"
 intro = "Your design system read from the code, with its inconsistencies, and before and after screenshots of every changed screen."
 icon = "scan-eye"
-not_yet = ["The review page: side by side, slider, overlay, heatmap, pins and a swipe mode"]
 
 [[groups]]
 id = "machine"
 name = "Keys, vault and sync"
 intro = "SSH keys, a vault for passwords and secrets, and your settings synced across machines, encrypted."
 icon = "key-round"
-not_yet = ["Importing passwords from other password managers", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
+not_yet = ["Opening the vault with a passkey, once the app is signed"]
+
+[[groups]]
+id = "ops"
+name = "Servers, databases and logs"
+intro = "Your servers, databases and logs, for you and, one approval at a time, for the agents, with secrets masked in what comes back."
+icon = "server"
+not_yet = ["A read-only SQL console", "A recipe that writes a worktree's .env from the vault"]
 
 [[groups]]
 id = "security"
@@ -74,8 +80,8 @@ article_title = "Security, and its limits"
 
 [[groups]]
 id = "cli"
-name = "The termf command line"
-intro = "Everything the app does, from any terminal. It ships inside the app."
+name = "Install, updates and the command line"
+intro = "One command to install, updates inside the app, and everything the app does from any terminal."
 icon = "square-terminal"
 
 # ---------------------------------------------------------------------------------------------------------------- team
@@ -211,8 +217,8 @@ tagline = "Split a bigger project into teams with their own scope."
 keywords = "squads teams staff lead parallel repositories paths domains"
 problem = '''<p>On a project with several repositories or areas, one flat team steps on its own toes. Squads give each area its lead, its members and how many of each, its repositories, its paths and how many tasks it runs at once. The roles that serve every squad form the staff.</p>'''
 how = [
-  "Declare squads in the project's file, or accept the ones the setup assistant proposes.",
-  "A run that spans one squad is planned by its lead; one that spans several is planned by the CTO, squad by squad.",
+  "Create squads in the project's Configuration, Team tab, or accept the ones the setup assistant proposes.",
+  "A run that spans one squad is planned by its lead; one that spans several is planned by the CTO in batches, and each squad's lead splits its batch into tasks, grafted into the run.",
   "Each task stays inside its squad's repositories and paths, and the scheduler respects each squad's limits.",
 ]
 visual = "squads"
@@ -225,7 +231,7 @@ tune = [
   "Role settings per squad: <code>[squads.roles.&lt;role&gt;]</code>.",
 ]
 commands = [["termf team squads [<project>]", "the squads, the staff and each member's settings"]]
-limits = ["Squads are read-only in the app outside the setup assistant.", "Squads per repository only really pay off with runs across repositories, which are not built yet."]
+limits = ["A large batch's sub-plan waits for your approval by default (<code>[team] subplan_gate</code>).", "Not yet tried in the app's real window."]
 tried = "Tested with automated tests; the squads view was checked with a simulated backend."
 related = ["roles", "projects", "triage"]
 read = "team.html#squads"
@@ -257,6 +263,26 @@ tried = "The review loop ran with a real Claude Code (Haiku), clean on its first
 related = ["roles", "workflows", "visual-review"]
 read = "how-it-works.html#review"
 
+
+[[features]]
+slug = "integrator"
+group = "team"
+name = "The base kept up to date"
+tagline = "When main moves on during a run, the team merges it in before you deliver."
+keywords = "merge conflicts integrator base branch update main behind rebase pull request conflict"
+problem = '''<p>Main rarely waits for a run to finish. Just before the delivery, TermF fetches the base branch and merges it into the run's work. When the merge conflicts, the merge integrator, an agent of its own, resolves each conflict so the result does what both sides meant; then the checks and the code review run again on the merge.</p>'''
+how = [
+  "Nothing to do: the step runs before the delivery gate in the default, hotfix and squads workflows.",
+  "Base unchanged: the step is done. Clean merge: the checks run again.",
+  "Conflict: the merge waits in a worktree of its own and the integrator resolves it; TermF refuses a leftover conflict marker.",
+  "If the pull request falls behind after delivery, Update with the base on the run page runs the same step again, then you deliver again, without a force-push.",
+]
+default = ["Merge, never rebase, never push.", "A conflict between the run's own tasks stays with the agent of the task, as before.", "If the integrator is stuck, it asks the CTO first, then you."]
+tune = ["Its model and effort: <code>[roles.integrator]</code>."]
+commands = []
+limits = ["Accepting a run as it is, without the base, is flagged in the definition of done."]
+tried = "The resolution ran once with a real Claude Code (Haiku) on a deliberate conflict; the rest is covered by automated tests with a fake Claude Code and a fake GitHub CLI."
+related = ["code-review", "delivery", "runs"]
 [[features]]
 slug = "creative"
 group = "team"
@@ -403,27 +429,30 @@ related = ["visual-review", "roles", "worktrees"]
 [[features]]
 slug = "projects"
 group = "projects"
-name = "Projects and the setup assistant"
-tagline = "A new project reads itself, then proposes its setup, item by item."
-keywords = "project onboarding setup assistant trust repositories conventions"
-problem = '''<p>Setting up agents for a codebase means writing conventions, picking skills, wiring tickets and CI. When you create a project from a few repositories, TermF's setup assistant reads them without changing anything, asks only what it cannot find, then proposes the whole setup for you to review.</p>'''
+name = "Projects and the setup"
+tagline = "Pick your repositories; TermF reads them and proposes the rest."
+keywords = "project new setup onboarding assistant trust repositories detection stack recommendations team conventions"
+problem = '''<p>Setting up agents for a codebase means writing conventions, picking skills, wiring tickets and CI. Creating a project in TermF is a full-screen setup, one step per screen: you pick the repositories, TermF detects what they are made of and proposes the team, the ticket sources, the worktree recipe, CI and the skills, and you accept each one in a click.</p>'''
 how = [
-  "Create a project with the + next to Projects; the assistant opens once.",
-  "It reads the repositories: stack, CI workflows, <code>CLAUDE.md</code> and agents files, Claude Code settings and MCP servers, existing skills and commands.",
-  "Claude Code then reads them read-only and asks up to ten questions; TermF adds its own on team size, squads and model.",
-  "It proposes conventions, ticket sources, worktree recipe, CI notifications, the team and the stack's skills; you accept, change or drop each.",
+  "Press + next to Projects, or <kbd>⌘O</kbd>: the repositories of your machine come first, as cards sorted by activity, with their remote, branch, uncommitted changes and stack; search or filter, and pick one or several.",
+  "The name comes from them (one repository, its name; several, their GitHub owner or their common folder); change it if you like.",
+  "As you pick, TermF shows what it detects in each: stack and versions, dev, build, test and lint commands, CI, ticket sources, monorepo parts, database, tests and infrastructure.",
+  "It proposes the team, the ticket sources, the worktree recipe, CI and the stack's skills; accept them, or set one aside to customise later.",
+  "The summary shows the exact project file before anything is written; Create opens the project's Home, with the CTO ready.",
 ]
+visual = "shot:setup|New project: what TermF proposes after reading the repositories, the agents' team, ticket sources, worktree setup, CI/CD and skills"
+caption = "Creating a project: the proposal, one block at a time. Sample data."
 default = [
-  "TermF finds the git repositories on your machine and sorts them by activity.",
-  "Trusting the repositories in Claude Code is opt-in: the box is unchecked.",
+  "Nothing is written before you click Create; Escape drops everything.",
+  "Trusting the repositories in Claude Code is opt-in, explained repository by repository: the box is unchecked.",
+  "After creation, Claude Code reads the repositories read-only in the background and proposes conventions, through the setup assistant.",
 ]
-tune = ["Run the assistant again from the project's Configuration.", "Projects are plain files, <code>projects/&lt;id&gt;.toml</code>, which you can edit by hand."]
+tune = ["Run the setup assistant again from the project's Configuration.", "Add repositories later with the same cards.", "Projects are plain files, <code>projects/&lt;id&gt;.toml</code>, which you can edit by hand."]
 commands = [["termf project trust <id> [--off]", "trust the project's repositories in Claude Code, or stop"]]
-limits = ["The analysis has not yet run with a real Claude Code, only a fake one.", "A repository added to the project later is not trusted by itself."]
-tried = "Trust was checked with a real Claude Code 2.1.330; the assistant, with a simulated backend and throwaway repositories."
+limits = ["Checked with a simulated backend and throwaway repositories; the owner has started trying it in the real window.", "A repository added to the project later is not trusted by itself."]
+tried = "Detection and the proposal are covered by automated tests on throwaway repositories; trust was checked with a real Claude Code."
 related = ["home", "squads", "skills"]
 read = "how-it-works.html#ask"
-
 [[features]]
 slug = "home"
 group = "projects"
@@ -501,6 +530,26 @@ related = ["delivery", "workflows", "worktrees"]
 read = "how-it-works.html#after"
 
 [[features]]
+slug = "multi-repo"
+group = "projects"
+name = "Runs across repositories"
+tagline = "One ticket that touches several repositories, one pull request in each."
+keywords = "multi repository monorepo several repositories pull requests linked front back"
+problem = '''<p>A feature often spans the API and the front end, in two repositories. A run's plan can name any repository of the project: each one joins the run at its first task, with its own worktree and branch, its own checks and its own base update. At the delivery, each repository gets its pull request, linked to the others.</p>'''
+how = [
+  "Start the team on a ticket as usual; the plan says which repository each task touches.",
+  "Each repository joins the run at its first task, in its own worktree.",
+  "Checks, the base update and the review run for each repository.",
+  "Deliver: one pull request per repository, linked together.",
+]
+default = ["Every repository a run touches needs an <code>origin</code> on GitHub; otherwise the plan step stops and says why."]
+tune = ["The project's repositories, in its Configuration."]
+commands = []
+limits = ["GitHub only for the linked pull requests.", "Not yet tried in the app's real window."]
+tried = "Covered by automated tests with a fake Claude Code and a fake GitHub CLI."
+related = ["runs", "squads", "delivery"]
+
+[[features]]
 slug = "workflows"
 group = "projects"
 name = "Workflows and rules"
@@ -559,26 +608,29 @@ read = "how-it-works.html#deliver"
 slug = "git"
 group = "projects"
 name = "Git in the project"
-tagline = "Branches, worktrees and the commit graph of each repository, with the everyday actions."
-keywords = "git branches graph commits worktrees fetch pull push switch rename delete upstream pull requests"
-problem = '''<p>The branches of a project, its worktrees and what the agents did should be one look away. The project's Git view shows each repository's branches, local and remote, with their upstream and how far ahead or behind they are, the worktrees with the run that owns each, the pull requests and the commit graph, and the everyday actions are one click away.</p>'''
+tagline = "The branch graph and every everyday git action, without leaving the project."
+keywords = "git branches graph commits worktrees fetch pull push switch stage hunk line commit amend stash merge rebase cherry-pick revert conflicts tags blame history reset force"
+problem = '''<p>The branches of a project, its worktrees and what the agents did should be one look away, and everyday git should not need a separate app. The project's Git view shows each repository's branches with their upstream and pull request, the worktrees with the run that owns each, and the commit graph. You stage by file, hunk or line, commit, stash, merge, rebase and resolve conflicts, tag, and read a file's history and blame.</p>'''
 how = [
   "Open Git among the project's views, or from the palette; pick the repository when the project has several.",
-  "The banner shows the current branch, its upstream, ahead and behind, and the state of the working tree.",
-  "The list holds the local branches, the remote ones and the worktrees, each worktree named after the run that owns it; the graph shows the last 200 commits, and more on demand.",
-  "Switch, fetch, pull, push, create, rename or delete a branch; deleting asks first, and lists the commits that would be lost.",
+  "Read the branches, local and remote, ahead and behind, the worktrees named after their run, and the graph of the last commits.",
+  "Open a worktree's changes: stage or discard by file, hunk or line, write the message and commit; amend only when the commit is not pushed yet.",
+  "Merge, rebase, cherry-pick or revert from a branch or a commit; on a conflict, keep one side, or open the file in TermF's editor, then continue, skip or abort.",
+  "Stash, tag, and open a file's history or blame; a commit opens with its message, files and diffs.",
 ]
+visual = "shot:git|The Git view: local and remote branches, worktrees and stashes, and the commit graph of every branch"
+caption = "The Git view of a repository. Sample data."
 default = [
   "Read when the view shows, after each action and when the window comes back to the front, never by polling.",
-  "Pull only fast-forwards and push never forces; a branch started from <code>origin/main</code> never pushes to main.",
+  "Pull only fast-forwards; force-push only with <code>--force-with-lease</code>, never on the default branch, with the branch name to type.",
+  "Every destructive action says what will be lost first: a reset, a dropped stash, a deleted branch or tag.",
   "Pull requests come from the GitHub CLI when it is signed in; without it, the rest works the same.",
 ]
 tune = ["Nothing to set: it follows the repository's own git configuration, its push remote, upstreams and SSH command."]
 commands = []
-limits = ["A first slice of git in TermF: branches, state and the everyday actions; the rest is still to come.", "Not yet tried in the app's real window."]
-tried = "The logic is covered by automated tests."
+limits = ["Not yet tried in the app's real window.", "Agents and <code>termf guard</code> are not changed by it: agents still never push."]
+tried = "Covered by automated tests on throwaway repositories with a throwaway git configuration."
 related = ["runs", "worktrees", "terminals"]
-
 # ----------------------------------------------------------------------------------------------------------- terminals
 
 [[features]]
@@ -745,6 +797,25 @@ tried = "Tested with automated tests and a fake Claude Code."
 related = ["cli-skills", "library", "worktrees"]
 
 [[features]]
+slug = "language-servers"
+group = "library"
+name = "Language servers and evals"
+tagline = "Agents see your compiler's errors as they edit, and the shipped skills and roles are tested."
+keywords = "lsp language server rust-analyzer typescript pyright gopls diagnostics evals tests skills roles quality"
+problem = '''<p>An agent that edits code without its language's diagnostics finds its mistakes late. When the language server of your stack is installed (rust-analyzer, typescript-language-server, pyright, gopls, intelephense, ruby-lsp, jdtls, kotlin-lsp, sourcekit-lsp, csharp-ls), TermF declares it to the Claude Code sessions it starts, so errors show up as the agent edits. And the skills and key roles that ship with TermF have evals, test cases a model plays and another judges, to check that they do what they say.</p>'''
+how = [
+  "Install the language server of your stack as you usually would; TermF finds it on your <code>PATH</code>.",
+  "The project's Configuration shows each server: declared to the sessions, turned off for the project, or not installed, with a link to install it.",
+  "For contributors: <code>cd app &amp;&amp; pnpm evals</code> plays the evals with a budget cap.",
+]
+default = ["On for the servers that are installed; nothing is declared when none is.", "Every pull request checks that each eval case is readable by Claude Code; running them costs money and is never automatic."]
+tune = ["<code>[lsp] enabled = false</code> in the project's file turns them off."]
+commands = []
+limits = ["Only the servers of the official Claude Code plugins are known.", "The project's card was checked with a simulated backend."]
+tried = "A real Claude Code loaded TermF's language server declaration and received the diagnostics of a Swift file; the evals ran for real on Haiku, judged by Sonnet."
+related = ["skills", "library", "cli-skills"]
+
+[[features]]
 slug = "conventions"
 group = "library"
 name = "Conventions in plain words"
@@ -819,6 +890,8 @@ how = [
   "Past sessions: resume, duplicate, purge; usage and limits; account and version.",
   "Simple settings are edited through a diff preview; secrets are masked.",
 ]
+visual = "shot:claude|The Claude view: version, account, model, permission mode and everything installed"
+caption = "Everything Claude Code knows on this machine. Sample data."
 default = ["A marketplace command is shown with its hash and runs only after you accept."]
 tune = ["Edit from the view, or with the command line."]
 commands = [["termf claude settings get | set | unset", "settings by scope"], ["termf claude mcp add | remove", "MCP servers"], ["termf claude sessions", "past sessions"]]
@@ -845,6 +918,25 @@ limits = ["The expert indexes artifacts by title and link only."]
 tried = "Checked with a simulated backend."
 related = ["claude-view", "expert", "scheduler"]
 
+
+[[features]]
+slug = "other-agents"
+group = "claude"
+name = "Codex and Gemini"
+tagline = "Codex CLI and Gemini CLI in your terminals and conversations, beside Claude Code."
+keywords = "codex gemini openai google cli agents adapters terminals headless conversations roles"
+problem = '''<p>Claude Code is not the only coding agent. When Codex CLI or Gemini CLI is installed, TermF finds it and opens it like Claude Code: in a terminal tab, with its real state (working, waiting, done), or as a conversation without a terminal. A team role can be set to run on one of them, and your library's instructions reach them without writing anything in your repository.</p>'''
+how = [
+  "Install Codex CLI or Gemini CLI as usual; TermF finds them, nothing to configure.",
+  "Pick it in the new session launcher (<kbd>⌘T</kbd>) or in the conversation form.",
+  "To give a team role to one of them, set <code>agent = \"codex\"</code> in <code>[roles.&lt;role&gt;]</code>.",
+]
+default = ["The CTO, the expert and tickets stay on Claude Code.", "TermF's tools reach them through <code>termf mcp</code>; Gemini gets rules that deny reading secret files."]
+tune = ["<code>[roles.&lt;role&gt;] agent</code>, and the model and permission mode for that role."]
+commands = [["termf agent ls | send | events | stop", "conversations, from a terminal"]]
+limits = ["New, and not tried with the real Codex or Gemini yet: built from their official documentation.", "No budget, cost or context gauge for them: they do not report it.", "A team task on Codex or Gemini is refused when it needs what only Claude Code offers (TermF's guard, permissions asked through TermF)."]
+tried = "Covered by automated tests with fake Codex and Gemini programs."
+related = ["terminals", "claude-view", "roles"]
 [[features]]
 slug = "scheduler"
 group = "claude"
@@ -879,6 +971,8 @@ how = [
   "Run again, failed jobs only, cancel, or start a workflow with its inputs.",
   "In a run, the pull request's checks show beside the work; Send the failure to the agent types a framed excerpt into its session.",
 ]
+visual = "shot:ci|CI/CD: the runs of a repository, and a failed job's log stopped on its first error"
+caption = "A failed run, its log opened on the first error. Sample data."
 default = ["Notifications for the runs that concern you.", "The guard keeps a run's agents from starting or cancelling CI."]
 tune = ["<code>[ci] notify = mine | all | off</code>."]
 commands = [["termf ci runs | view | logs --errors", "runs and logs"], ["termf ci rerun [--failed] | cancel | dispatch", "act on them"]]
@@ -892,23 +986,24 @@ related = ["runs", "guard", "scheduler"]
 slug = "visual-review"
 group = "visual"
 name = "Visual review"
-tagline = "Before and after captures of each changed screen."
-keywords = "visual review screenshots before after diff chrome gate ui"
-problem = '''<p>A diff does not show what a screen looks like. TermF's capture engine starts the project's dev server for the run and for its base, captures each changed screen with the system's Chrome, and compares the pixels and the texts. As a gate, it stops the run when the interface changed.</p>'''
+tagline = "Before and after captures of each changed screen, to approve side by side."
+keywords = "visual review screenshots before after diff chrome gate ui slider overlay heatmap pins swipe"
+problem = '''<p>A diff does not show what a screen looks like. TermF's capture engine starts the project's dev server for the run and for its base, captures each changed screen with the system's Chrome, and compares the pixels and the texts. The review page then puts each screen in front of you: side by side, with a slider, as an overlay or as a heatmap, opened on what changed.</p>'''
 how = [
-  "The dev server runs on its own port, for the run and for its base.",
-  "The screens come from your routes, the screens the agents declared, and changed stories.",
-  "Chrome captures them before and after; TermF diffs the pixels and the texts.",
-  "With the visual-review rule on, the run waits for you: approve, ask for changes, or refuse.",
+  "With the visual-review rule on, the run stops when the interface changed; the card opens the review page.",
+  "Each screen (route, device, theme) opens on its changed areas; switch between side by side, slider, overlay and heatmap, zoomed and panned together.",
+  "Pin a comment on the image, read why it changed and which texts changed, with their reason.",
+  "Approve, ask for changes or refuse each screen; with several screens, the swipe mode goes through them one card at a time, from the keyboard or the trackpad.",
 ]
-default = ["Desktop and light theme only, until you add more.", "Skipped until the visual-review rule is on."]
+visual = "shot:review|The visual review page: the before and after slider on a changed screen, a pin, the comment for the agent and the decision buttons"
+caption = "The review page, in slider mode. Sample data."
+default = ["Desktop and light theme only, until you add more.", "Skipped until the visual-review rule is on.", "Each decision is saved at once; earlier versions stay readable."]
 tune = ["<code>[visual]</code>: routes, viewports (desktop, tablet, mobile), themes, threshold, login, images on the pull request."]
 commands = [["termf review start | show | decide | pr", "reviews from a terminal"]]
-limits = ["The review page is not built: the gate asks you to look at the result in the run's worktree.", "Chrome on Linux and Windows has not been tried."]
+limits = ["Decisions are taken screen by screen: there is no approve-all button.", "Chrome on Linux and Windows has not been tried; the page was checked with a simulated backend."]
 tried = "The engine ran with a real Chrome on macOS through automated tests."
 related = ["design-system", "agent-browser", "workflows"]
 read = "how-it-works.html#visual"
-
 [[features]]
 slug = "design-system"
 group = "visual"
@@ -922,6 +1017,8 @@ how = [
   "Inconsistencies lists hard-coded values with the token to use, sizes off the scale, near-identical colours, unused or undefined tokens, an incomplete dark theme, contrasts under WCAG AA and duplicate components; each one opens at its line in TermF's editor.",
   "Fix with the team writes a message to the CTO with the findings you picked; nothing is sent or started without you.",
 ]
+visual = "shot:design|The Design system view: tokens by family and the inconsistencies found, contrast, hard-coded values, sizes off the scale"
+caption = "Tokens and inconsistencies of a repository. Sample data."
 default = [
   "Read-only: nothing from the repository runs, no Node, no git; a <code>tailwind.config</code> is read as plain text.",
   "Follows <code>.gitignore</code> and skips dependencies, builds, tests and generated files.",
@@ -965,25 +1062,28 @@ group = "machine"
 name = "The vault and passwords"
 tagline = "Secrets, logins and secure notes, per project, encrypted."
 keywords = "vault secrets passwords password manager logins notes totp 2fa generator passphrase encryption argon2 xchacha audit 1password bitwarden doppler aws"
-problem = '''<p>Secrets do not belong in agents' contexts or in plain files, and a project's logins should not live in another app. The vault keeps secrets, logins with their two-factor codes, and secure notes encrypted, per project or for all of them, with an audit log; agents can never reveal a value. A security key can be a second factor, and Touch ID or Windows Hello can open it for a few days.</p>'''
+problem = '''<p>Secrets do not belong in agents' contexts or in plain files, and a project's logins should not live in another app. The vault keeps secrets, logins with their two-factor codes, and secure notes encrypted, per project or for all of them, with an audit log; agents can never reveal a value. It imports your passwords from other managers, syncs item by item across your machines, and exports encrypted. A security key can be a second factor, and Touch ID or Windows Hello can open it for a few days.</p>'''
 how = [
   "Create the vault with a master password, in the app or with <code>termf vault init</code>.",
   "Add logins (addresses, user name, password, two-factor key) and notes, for one project or for all; secrets live in dev, staging or prod scopes, and prod asks the password again.",
   "Search, filter logins, notes and secrets; copy a password or the current two-factor code without opening the item, the clipboard cleared after 30 seconds.",
   "Generate passwords or passphrases; every reveal goes in a hash-chained audit log.",
   "In Security, add a security key (FIDO2) as a second factor, turn on Touch ID or Windows Hello, change the master password; a recovery key opens the vault if you lose the key or the password.",
+  "Import from Bitwarden, 1Password, Chrome or Edge, Firefox, Safari or KeePassXC; export the vault, or one project, to an encrypted file.",
 ]
+visual = "shot:vault|The vault: the project's logins, notes and secrets, with a GitHub login open on its two-factor code"
+caption = "The vault of a project. Sample data."
 default = [
   "Argon2id and XChaCha20-Poly1305; locks after 10 minutes, and on sleep.",
   "A revealed password hides again after 30 seconds, a note after two minutes.",
   "References point to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.",
 ]
-tune = ["<code>[vault] auto_lock_minutes</code>.", "Up to 10 security keys; Touch ID or Windows Hello for 1 to 30 days; a new recovery key at any time.", "Per item, whether agents may use it: kept for the connections and recipes still to come."]
+tune = ["<code>[vault] auto_lock_minutes</code>.", "Up to 10 security keys; Touch ID or Windows Hello for 1 to 30 days; a new recovery key at any time.", "Per item, whether agents may use it through the Ops connections and recipes."]
 commands = [["termf vault init | unlock | lock | status", "the vault"], ["termf vault items | item <id>", "logins and notes, from a terminal"], ["termf vault set | ref | reveal | audit", "secrets and the audit"]]
 limits = [
   "Never tried with a real security key: the FIDO2 code is checked against a simulated key, and the Windows path is only built, never run.",
   "Touch ID and Windows Hello are a convenience, not a cryptographic lock like a security key: the app is not signed.",
-  "No import from other password managers, no sync of the vault yet, no QR code reading.",
+  "No QR code reading for two-factor keys.",
   "On Linux and Windows, a key kept in the keychain can be read by any process of the user.",
 ]
 tried = "The command line was tried in a throwaway home folder; the interface, with a simulated backend."
@@ -993,22 +1093,21 @@ related = ["ssh-keys", "sync", "security-input"]
 slug = "sync"
 group = "machine"
 name = "Encrypted sync"
-tagline = "Your settings on every machine, encrypted end to end."
-keywords = "sync settings encryption recovery key git remote folder merge devices"
-problem = '''<p>Setting up a second machine should not mean starting over. TermF syncs your settings, projects and conventions through a git remote or a synced folder, encrypted end to end, with a recovery key.</p>'''
+tagline = "Your settings, vault and keys on every machine, encrypted end to end."
+keywords = "sync settings encryption recovery key git remote folder s3 webdav merge devices forget clone ssh keys vault"
+problem = '''<p>Setting up a second machine should not mean starting over. TermF syncs your settings, projects, conventions, vault and, if you choose, your SSH keys, through a git remote, a synced folder, S3 or WebDAV, encrypted end to end, with a recovery key. A project's repository missing on the new machine clones in one click.</p>'''
 how = [
   "Set a password; TermF gives you a recovery key.",
-  "Pick a git remote or a synced folder.",
-  "Changes merge three ways, key by key for TOML files; conflicts show side by side.",
-  "<code>local.toml</code> never leaves the machine.",
+  "Pick a git remote, a synced folder, an S3 bucket or a WebDAV server.",
+  "Changes merge three ways, key by key for TOML files; conflicts show side by side. What a pull changes applies at once.",
+  "On a new machine, Clone here fetches a project's missing repository; Forget removes a lost device, which can no longer read what follows.",
 ]
-default = ["Encrypted with Argon2id and XChaCha20-Poly1305; file names masked.", "Syncs in the background."]
-tune = ["What syncs: config, projects, conventions."]
-commands = [["termf sync setup | status | push | pull", "the sync"], ["termf sync recover | change-password", "keys and passwords"]]
-limits = ["The vault and SSH keys are not synced yet.", "S3 and WebDAV remotes are not built."]
-tried = "Tested with automated tests."
+default = ["Encrypted with Argon2id and XChaCha20-Poly1305; file names masked.", "Syncs in the background; <code>local.toml</code> never leaves the machine.", "SSH keys stay off until you turn them on and confirm the warning."]
+tune = ["What syncs: config, projects, conventions, the vault, SSH keys.", "Where: git, a folder, S3 (any compatible service) or WebDAV."]
+commands = [["termf sync setup | status | push | pull", "the sync"], ["termf sync scopes | forget <device>", "what syncs, and forget a device"], ["termf sync recover | change-password", "keys and passwords"]]
+limits = ["Not yet tried in the app's real window, or against a real S3 or WebDAV service: the tests use local stand-ins.", "Settings read at start (the API confirmation) and agents already running keep their old values until restart."]
+tried = "Tested with automated tests, including two machines syncing through a local S3 server that checks the signature as AWS does, and through WebDAV."
 related = ["vault", "ssh-keys", "library"]
-
 # ------------------------------------------------------------------------------------------------------------ security
 
 [[features]]
@@ -1075,7 +1174,58 @@ tried = "See the security page for what was verified, and how."
 related = ["guard", "local-api", "vault"]
 read = "security.html#input"
 
+
+[[features]]
+slug = "ops"
+group = "ops"
+name = "Connections and recipes"
+tagline = "Logs, servers and databases, for you and, one approval at a time, for the agents."
+keywords = "ops connections ssh postgres mysql kubernetes cloudwatch logs loki datadog recipes approval masking audit prod"
+problem = '''<p>Debugging means reading production logs or a database, and an agent should not hold the keys to them. In the project's Ops view, you declare connections (SSH, Postgres, MySQL, Kubernetes, CloudWatch, Google Cloud Logging, Loki, Datadog) and run recipes: tail the logs, list the pods, run a read-only command. An agent can ask to run a recipe too, and every request shows you the exact command, the target and the environment before it runs.</p>'''
+how = [
+  "Add a connection in Ops: its kind, its environment (dev, staging, prod) and its secrets, by name, from the vault.",
+  "Test it: the tool, the secrets, the tunnel; a database warns you when its user can write.",
+  "Run a recipe with its form; the exact command shows as you type, and the result comes back masked.",
+  "When an agent asks, an approval card shows the command, the target and the environment, with a countdown; prod asks your master password.",
+]
+visual = "shot:ops|Ops: the project's connections, a production SSH server with its checks, and the recipes that run on it"
+caption = "A connection, tested, with its recipes. Sample data."
+default = [
+  "A connection is invisible to agents until you allow it, masked or in full.",
+  "Your system's own clients run it (<code>ssh</code>, <code>psql</code>, <code>mysql</code>, <code>kubectl</code>…); keys are never read and secrets never go on the command line.",
+  "Databases open read-only when the recipe reads; the output is masked (vault values, tokens, emails, phone numbers) and each run is logged.",
+  "After a prod recipe, the session needs your OK to reach the web or other tools.",
+]
+tune = ["Connections in the project's file, <code>[[ops.connections]]</code>.", "Recipes of the project next to the shipped ones: logs, Kubernetes pods and logs, a read-only SSH command, a service restart."]
+commands = [["termf ops connections | test", "connections"], ["termf ops recipes | run <recipe>", "recipes, from a terminal"]]
+limits = ["Checked with automated tests and a simulated backend; not yet against real servers in the app.", "The read-only SQL console and a recipe for a worktree's <code>.env</code> are still to come."]
+tried = "Covered by automated tests, including command injection attempts against a real shell."
+related = ["vault", "guard", "security-input"]
 # ----------------------------------------------------------------------------------------------------------------- cli
+
+[[features]]
+slug = "updates"
+group = "cli"
+name = "Install and updates"
+tagline = "One command to install, then TermF keeps itself up to date."
+keywords = "install script curl powershell update auto-update channel beta stable checksum first launch requirements path"
+problem = '''<p>Installing an app that is not signed yet should not take a tutorial. One command downloads the latest release for your system and processor, checks it against the release's checksums and installs it, with no warning to click through. Then the app checks for updates by itself, verifies their signature and installs them when you say so. On first launch, it lists the tools it needs, git, Claude Code, the GitHub CLI, Chrome, with the official command to install each missing one.</p>'''
+how = [
+  "macOS and Linux: <code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code>. Windows: <code>irm https://vassilidev.github.io/TermF/install.ps1 | iex</code>.",
+  "Open TermF: the Home lists what is missing, with the command to copy and the official page.",
+  "In Settings, put <code>termf</code> on your <code>PATH</code> in one click.",
+  "When an update is out, a banner offers it; the app restarts on the new version.",
+]
+default = [
+  "The script checks the SHA-256 of what it downloads and refuses a release without checksums.",
+  "Stable channel; the newest pre-release while there is no stable release.",
+  "Updates are checked at start and once a day, and installed only when you click.",
+]
+tune = ["<code>[updates] channel = \"stable\" | \"beta\"</code> and <code>check</code> in <code>termf.toml</code>.", "<code>--beta</code>, <code>--format appimage|deb|rpm</code> and <code>--dry-run</code> for the script."]
+commands = [["curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh", "install or update from a terminal"]]
+limits = ["The script refuses a release that publishes no <code>SHA256SUMS</code>: such a release installs from its files, on the download page.", "The builds are not signed by Apple or Microsoft yet: a file downloaded with a browser still asks for one extra step on first launch.", "The update banner and the first-launch checks were checked with a simulated backend."]
+tried = "The script ran in CI on the three systems against a local stand-in for GitHub's API, including a real AppImage install and the refusal of an altered file."
+related = ["cli", "claude-view", "local-api"]
 
 [[features]]
 slug = "cli"
@@ -1096,7 +1246,7 @@ tune = ["<code>[api] confirm_cli</code>."]
 commands = [["termf ls | open | say | watch", "sessions"], ["termf inbox | run | runs | deliver | close", "tickets and runs"], ["termf team … | agent … | ask", "the team, the agents, the expert"]]
 limits = ["<code>termf team answer</code> and a few others do not wait for confirmation: see the security page."]
 tried = "The command line is covered by automated tests."
-related = ["local-api", "runs", "budgets"]
+related = ["updates", "local-api", "runs"]
 read = "download.html#cli"
 
 # -------------------------------------------------------------------------------------------------------- the visuals
@@ -1275,6 +1425,7 @@ recipe = '''<div class="app"><div class="list steps-list">
 
 # Lucide icons (ISC license), as in the app: the inner markup of each 24×24 stroked icon.
 [icons]
+server = '<rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/>'
 users = '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>'
 ticket = '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>'
 layout-grid = '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>'

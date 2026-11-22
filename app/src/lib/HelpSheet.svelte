@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Compass from "@lucide/svelte/icons/compass";
   import Keyboard from "@lucide/svelte/icons/keyboard";
+  import Signpost from "@lucide/svelte/icons/signpost";
   import X from "@lucide/svelte/icons/x";
   import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
@@ -31,12 +32,14 @@
     project: ["ux3t3Config", "ux3t4HelpConfig"],
     onboarding: ["obConfigure", "t6bHelpOnboarding"],
     vault: ["vaultTitle", "vaultHelp"],
-    vaultAll: ["vaultTitle", "vaultHelp"],
+    vaultAll: ["uxfT1VaultAll", "vaultHelp"],
+    ops: ["opsView", "opsIntro"],
   };
 
   let dialog: HTMLDialogElement;
   const here = about[ui.view];
   const icon = views.find((v) => v.id === ui.view)?.icon;
+  const linked = views.filter((v) => v.group === "linked");
   const groups = $derived(sheet(current(), isMac, ui.view));
   const mod = isMac ? "⌘" : "Ctrl";
 
@@ -79,6 +82,16 @@
       <li>{t("t6bTipBeside", { key: mod })}</li>
       <li>{t("t6bTipSelect", { key: mod })}</li>
     </ul>
+
+    <section class="linked" aria-labelledby="help-linked">
+      <h3 id="help-linked"><Signpost size={15} aria-hidden="true" />{t("uxfT1HelpLinked")}</h3>
+      {#each linked as view (view.id)}
+        <button class="open" onclick={() => go(view.show)}>
+          <view.icon size={16} aria-hidden="true" />
+          <span><b>{t(view.label)}</b>{#if view.hint}<span>{t(view.hint)}</span>{/if}</span>
+        </button>
+      {/each}
+    </section>
 
     <section aria-labelledby="help-keys">
       <h3 id="help-keys"><Keyboard size={15} aria-hidden="true" />{t("shortcuts")}</h3>
@@ -128,7 +141,7 @@
   }
 
   .help::backdrop {
-    background: rgb(10 12 20 / 0.18);
+    background: var(--scrim, rgb(10 12 20 / 0.3));
   }
 
   @keyframes enter {
@@ -188,6 +201,48 @@
     padding: 10px 12px 10px 28px;
     border-radius: var(--radius);
     background: var(--hover);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .linked {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 22px;
+  }
+
+  .open {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: var(--radius);
+    background: none;
+    text-align: left;
+  }
+
+  .open:hover {
+    background: var(--hover);
+  }
+
+  .open > :global(svg) {
+    flex-shrink: 0;
+    color: var(--accent-ink);
+  }
+
+  .open > span {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .open b {
+    font-weight: 500;
+  }
+
+  .open b + span {
     color: var(--muted);
     font-size: var(--text-sm);
   }
