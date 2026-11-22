@@ -99,6 +99,15 @@ impl Env {
             ("GIT_AUTHOR_EMAIL", "alex@example.invalid".into()),
             ("GIT_COMMITTER_NAME", "alex".into()),
             ("GIT_COMMITTER_EMAIL", "alex@example.invalid".into()),
+            // A fake `gh` there.
+            (
+                "PATH",
+                format!(
+                    "{}:{}",
+                    root.join("bin").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            ),
         ]
         .map(|(k, v)| (k.to_owned(), v))
         .to_vec();
@@ -683,6 +692,121 @@ fn rejecting_stops_the_run_and_keeps_its_worktree() {
     assert_eq!(run.state, RunState::Stopped);
     assert!(run.target.worktree.is_dir());
     let _ = fs::remove_dir_all(&t.env.root);
+}
+
+#[test]
+fn posts_the_images_on_the_pull_request_once_confirmed() {
+    let _serial = serial();
+    let t = TeamEnv::new("pr");
+    let env = &t.env;
+    let worktree = env.data.join("worktrees/run1");
+    fs::write(worktree.join("index.html"), PAGE_AFTER).unwrap();
+    git(&worktree, &env.env, &["commit", "-qam", "button"]);
+    // Reviewed without a team: no gate to tell.
+    let review = t
+        .visual
+        .start(Request {
+            run: Some(1),
+            ..Request::default()
+        })
+        .unwrap();
+    let (id, v1) = t.version(1);
+    assert_eq!((id, v1.step.as_deref()), (review.id, None));
+    let err = t.visual.pr_preview(id).unwrap_err().to_string();
+    assert!(err.contains("pr_images"), "{err}");
+    let file = env.config.join("projects/acme.toml");
+    fs::write(
+        &file,
+        fs::read_to_string(&file).unwrap() + "pr_images = true\n",
+    )
+    .unwrap();
+    assert!(
+        t.visual
+            .pr_preview(id)
+            .unwrap_err()
+            .to_string()
+            .contains("deliver it first")
+    );
+    let origin = env.root.join("origin.git");
+    git(
+        &env.root,
+        &env.env,
+        &["init", "-q", "--bare", &origin.to_string_lossy()],
+    );
+    git(
+        &env.repo,
+        &env.env,
+        &["remote", "add", "origin", &origin.to_string_lossy()],
+    );
+    let db = rusqlite::Connection::open(env.data.join("termf.db")).unwrap();
+    db.execute(
+        "UPDATE runs SET pr_url = 'https://github.com/acme/web/pull/7' WHERE id = 1",
+        [],
+    )
+    .unwrap();
+    assert!(
+        t.visual
+            .pr_preview(id)
+            .unwrap_err()
+            .to_string()
+            .contains("no version decided")
+    );
+    t.visual
+        .decide(id, "all", Decision::Approved, None, None)
+        .unwrap();
+
+    let preview = t.visual.pr_preview(id).unwrap();
+    assert_eq!(
+        preview.fingerprint,
+        t.visual.pr_preview(id).unwrap().fingerprint,
+        "the same images, the same commit"
+    );
+    assert_eq!(preview.branch, format!("termf-visual/{id}-v1"));
+    assert_eq!(
+        preview.files.len(),
+        2,
+        "before and after of the one screen: {:?}",
+        preview.files
+    );
+    let after = format!(
+        "https://github.com/acme/web/blob/{}/v1/01-home-desktop-light-after.png?raw=true",
+        preview.fingerprint
+    );
+    assert!(preview.body.contains(&after), "{}", preview.body);
+    assert!(
+        !preview.body.contains(&env.data.display().to_string()),
+        "no local path"
+    );
+    assert!(t.visual.pr_comment(id, "0000").is_err());
+    let gh = env.root.join("bin/gh");
+    fs::write(
+        &gh,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" > '{0}.args'\ncat > '{0}.body'\n",
+            gh.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    t.visual.pr_comment(id, &preview.fingerprint).unwrap();
+    let pushed = git(
+        &origin,
+        &env.env,
+        &["ls-tree", "-r", "--name-only", &preview.branch],
+    );
+    let mut sent = preview.files.clone();
+    sent.sort();
+    assert_eq!(pushed.lines().collect::<Vec<_>>(), sent);
+    let args = fs::read_to_string(env.root.join("bin/gh.args")).unwrap();
+    assert_eq!(
+        args.trim(),
+        "pr comment https://github.com/acme/web/pull/7 --body-file -"
+    );
+    assert_eq!(
+        fs::read_to_string(env.root.join("bin/gh.body")).unwrap(),
+        preview.body
+    );
+    let _ = fs::remove_dir_all(&env.root);
 }
 
 /// With the Chrome of the machine: `cargo test -p termf-visual -- --ignored real_chrome`.

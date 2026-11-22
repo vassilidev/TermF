@@ -20,6 +20,7 @@ pub mod browser;
 pub mod config;
 pub mod diff;
 mod env;
+mod pr;
 pub mod screens;
 mod store;
 #[cfg(all(test, unix))]
@@ -27,6 +28,7 @@ mod tests;
 
 pub use browser::{Shot, Target};
 pub use diff::Rect;
+pub use pr::PrPreview;
 pub use store::{review, reviews};
 
 use browser::Browser;
