@@ -10,6 +10,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import ClaudeBinary from "$lib/ClaudeBinary.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { openUrl } from "$lib/claude.svelte";
   import { t } from "$lib/i18n";
   import { checkTools, downloadChrome, needs } from "$lib/release.svelte";
@@ -131,6 +132,8 @@
         {/if}
       </footer>
     {/if}
+  {:else if needs.checking}
+    <Skeleton shape="list" rows={rows.length} />
   {/if}
 </section>
 

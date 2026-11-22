@@ -52,6 +52,18 @@ function watchStatus(id) {
   new MutationObserver(note).observe(tile, { subtree: true, childList: true, attributes: true });
 }
 
+/** Notes what the CTO's thread shows during a turn: the thinking dots, each length of the text as it streams. */
+function watchStream(css) {
+  const root = document.querySelector(css);
+  const seen = (window.__e2e.stream = { thinking: false, lengths: [] });
+  const note = () => {
+    if (root.querySelector(".thinking")) seen.thinking = true;
+    const live = root.querySelector(".text.live")?.textContent.length;
+    if (live && seen.lengths.at(-1) !== live) seen.lengths.push(live);
+  };
+  new MutationObserver(note).observe(root, { subtree: true, childList: true, characterData: true });
+}
+
 export const scenarios = [
   {
     name: "first launch: the guided tour, then the home",
@@ -569,6 +581,32 @@ export const scenarios = [
         what: "the CTO's answer in the conversation",
       });
       check(/claude \["-p","--input-format","stream-json"/.test(read(box.calls)), "the CTO is not a headless session");
+      await t.settled("home");
+      await t.clean();
+    },
+  },
+  {
+    name: "CTO: the answer streams word by word and the tool at work is said in plain words",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      await t.ready();
+      await t.project();
+      await t.view("home");
+      const home = t.shown("home");
+      await s.exec(watchStream, home);
+      // "slowly": the fake streams its words, then runs `npm test` for a while (e2e/fakes/claude.mjs).
+      await s.type(`${home} form.composer textarea`, "Check the tests slowly");
+      await s.click(`${home} form.composer button[type=submit]:not([disabled])`);
+      const running = await s.wait(() => s.exec((css) => document.querySelector(`${css} .tool .state`)?.closest("summary")?.textContent, home), {
+        what: "the Bash call shown at work",
+      });
+      check(/Runs\s*npm test/.test(running), `the call is not said in plain words: ${running}`);
+      await s.wait(async () => (await s.text(home))?.includes("The tests pass."), { what: "the end of the answer" });
+      const seen = await s.exec(() => window.__e2e.stream);
+      check(seen.thinking, "no thinking sign before the first word");
+      check(seen.lengths.length >= 3, `the answer came whole, not word by word: ${JSON.stringify(seen.lengths)}`);
+      check(!(await s.exec((css) => !!document.querySelector(`${css} .tool .state`), home)), "the call still shows as running");
       await t.settled("home");
       await t.clean();
     },

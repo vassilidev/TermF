@@ -37,6 +37,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import GitChanges from "$lib/GitChanges.svelte";
   import GitDiff from "$lib/GitDiff.svelte";
@@ -710,7 +711,7 @@
       <button class="btn" onclick={() => load(false)}><RefreshCw size={14} aria-hidden="true" />{t("gitRetry")}</button>
     </EmptyState>
   {:else if !snap || !graph}
-    <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("gitLoading")}</p>
+    <div class="split"><div class="list"><Skeleton shape="list" rows={8} label={t("gitLoading")} /></div></div>
   {:else}
     <div class="split">
       <nav class="list" aria-label={t("gitBranches")}>
@@ -899,7 +900,7 @@
           {#if detailError}
             <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{detailError}</span></p>
           {:else}
-            <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
+            <Skeleton rows={5} label={t("gitLoading")} />
           {/if}
         {:else if shown?.kind === "commit" && shown.commit}
           {@const c = shown.commit}
@@ -1011,7 +1012,7 @@
           </div>
           <h3>{t("gitChanges")}{#if files}<span class="n">{files.length}</span>{/if}</h3>
           {#if !files}
-            <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
+            <Skeleton label={t("gitLoading")} />
           {:else}
             <div class="files">
               {#each files as f, i (i)}
@@ -1130,7 +1131,7 @@
     onconfirm={remove}
   >
     {#if !r.unique}
-      <p role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitDeleteReading")}</p>
+      <Skeleton rows={2} label={t("gitDeleteReading")} />
     {:else if !r.unique.total}
       <p>{t("gitDeleteSafe")}</p>
     {:else}
@@ -1171,7 +1172,7 @@
     onconfirm={rebase}
   >
     {#if !r.plan}
-      <p role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitDeleteReading")}</p>
+      <Skeleton rows={2} label={t("gitDeleteReading")} />
     {:else if !r.plan.total}
       <p>{t("git2RebaseNothing", { branch: snap?.current ?? "", onto: r.onto })}</p>
     {:else}
@@ -1203,7 +1204,7 @@
     </div>
     <p>{t(modeHelp[r.mode])}</p>
     {#if !r.plan}
-      <p role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitDeleteReading")}</p>
+      <Skeleton rows={2} label={t("gitDeleteReading")} />
     {:else}
       {#if r.plan.leaving}<p>{t("git2ResetLeaving", { branch: r.plan.branch, count: r.plan.leaving })}</p>{/if}
       {#if r.plan.lost.total}
@@ -1241,7 +1242,7 @@
     onconfirm={force}
   >
     {#if !f.plan}
-      <p role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitDeleteReading")}</p>
+      <Skeleton rows={2} label={t("gitDeleteReading")} />
     {:else}
       <p>{t("git2ForceText", { remote: f.plan.remote, branch: f.branch.name })}</p>
       {#if f.plan.lost.total}
@@ -1272,7 +1273,7 @@
     onconfirm={removeTag}
   >
     {#if !r.unique}
-      <p role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitDeleteReading")}</p>
+      <Skeleton rows={2} label={t("gitDeleteReading")} />
     {:else if !r.unique.total}
       <p>{t("git2TagDeleteSafe")}</p>
     {:else}
@@ -1415,14 +1416,6 @@
 
   .pre {
     white-space: pre-line;
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin: 40px auto;
   }
 
   .list {

@@ -3,12 +3,13 @@
   import { SvelteSet } from "svelte/reactivity";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FileTree from "$lib/FileTree.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { files, openFile, type Entry } from "$lib/files.svelte";
 
   let { repo, dir, depth = 0 }: { repo: string; dir: string; depth?: number } = $props();
 
-  let entries = $state<Entry[]>([]);
+  let entries = $state<Entry[] | null>(null);
   const expanded = new SvelteSet<string>();
 
   const labels: Record<string, string> = {
@@ -22,7 +23,10 @@
     void files.version;
     invoke<Entry[]>("files_list", { repo, dir })
       .then((list) => { entries = list; })
-      .catch((e) => (files.error = String(e)));
+      .catch((e) => {
+        files.error = String(e);
+        entries ??= [];
+      });
   });
 
   /** A folder shows a dot when anything below it changed. */
@@ -39,8 +43,11 @@
   }
 </script>
 
+{#if !entries}
+  <div class="loading" style:padding-left="{8 + depth * 12}px"><Skeleton rows={depth ? 2 : 8} /></div>
+{/if}
 <ul>
-  {#each entries as entry (entry.path)}
+  {#each entries ?? [] as entry (entry.path)}
     {@const status = mark(entry)}
     <li>
       <button
@@ -76,6 +83,10 @@
     list-style: none;
     margin: 0;
     padding: 0;
+  }
+
+  .loading {
+    padding: 8px;
   }
 
   .row {

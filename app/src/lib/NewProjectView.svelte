@@ -33,6 +33,7 @@
     type TeamEdit,
     type Trackers,
   } from "$lib/onboarding-logic";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { derive, githubSlugs, gitlabRepos, projectId, unique, type Card } from "$lib/setup-logic";
   import { app, load, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
@@ -572,7 +573,7 @@
                     </ol>
                   </section>
                 {:else}
-                  <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("greenfieldReading")}</p>
+                  <Skeleton rows={4} label={t("greenfieldReading")} />
                 {/if}
               </div>
             {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import Banner from "$lib/ui/Banner.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { showRun } from "$lib/commands";
   import { ago, t } from "$lib/i18n";
   import type { Decision } from "$lib/team-run-logic";
@@ -58,6 +59,8 @@
     </ol>
   {:else if decisions}
     <p class="muted">{t("disciplineDecisionsEmpty")}</p>
+  {:else if !error}
+    <Skeleton rows={3} />
   {/if}
 </section>
 

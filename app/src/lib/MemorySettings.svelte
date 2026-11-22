@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
 
@@ -124,6 +125,8 @@
     {/each}
   </fieldset>
   <p class="help">{t("expertMemoryAuto")}</p>
+{:else if !error}
+  <Skeleton rows={5} />
 {/if}
 
 {#if error}

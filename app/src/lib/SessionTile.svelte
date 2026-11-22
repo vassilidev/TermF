@@ -7,6 +7,7 @@
   import Smartphone from "@lucide/svelte/icons/smartphone";
   import UserRound from "@lucide/svelte/icons/user-round";
   import X from "@lucide/svelte/icons/x";
+  import Action from "$lib/Action.svelte";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import RemoteSwitch from "$lib/RemoteSwitch.svelte";
   import Terminal from "$lib/Terminal.svelte";
@@ -93,7 +94,11 @@
     {#if session.role}
       <span class="role"><UserRound size={12} aria-hidden="true" />{session.role}</span>
     {/if}
-    <span class="title" title={session.cwd}><b>{name}</b><span class="tool">{session.agent ?? t("shell")}</span></span>
+    <span class="title" title={session.cwd}
+      ><b>{name}</b><span class="tool">{session.agent ?? t("shell")}</span>{#if session.action && session.running}<span class="last"
+          ><Action act={{ kind: "tool", ...session.action }} /></span
+        >{/if}</span
+    >
     {#if session.context && session.running}<ContextGauge gauge={session.context} />{/if}
     {#if remote && phase(remote) !== "off"}
       <RemoteSwitch id={session.id} rc={remote} />
@@ -251,6 +256,20 @@
   .tool {
     color: var(--muted);
     font: var(--text-sm) var(--font-mono);
+  }
+
+  /* The agent's last action, the first to give way in a narrow tile. */
+  .last {
+    display: flex;
+    flex-shrink: 20;
+    min-width: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .last::before {
+    content: "·";
+    margin-right: 6px;
   }
 
   .role {

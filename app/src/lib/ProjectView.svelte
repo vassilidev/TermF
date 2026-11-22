@@ -21,6 +21,7 @@
   import { steps, type Step } from "$lib/onboarding-logic";
   import Banner from "$lib/ui/Banner.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
@@ -47,7 +48,8 @@
   /** Bumped to read the ticket sources again, which drops their changes. */
   let round = $state(0);
   let recipe = $state<{ saved: boolean } | null>(null);
-  let setup = $state<{ step: Step; log: Log[] } | null>(null);
+  /** null while it is read, undefined if it could not be. */
+  let setup = $state<{ step: Step; log: Log[] } | null | undefined>(null);
   let question = $state<HTMLDialogElement>();
   /** What was held back while the form had changes, until the user answers: leave, or stay (and how). */
   let pending = $state<{ leave: () => void; stay?: () => void }>();
@@ -70,7 +72,7 @@
     forgetCards();
     readCards(seed.repos.map((r) => r.path)).catch(() => (unread = true));
     readRepos();
-    invoke<{ step: Step; log: Log[] }>("onboarding_state", { project: id }).then((s) => (setup = s), () => {});
+    invoke<{ step: Step; log: Log[] }>("onboarding_state", { project: id }).then((s) => (setup = s), () => (setup = undefined));
   }
 
   // Under every project, the global library; a new project is created by its setup.
@@ -369,6 +371,8 @@
                   </li>
                 {/each}
               </ol>
+            {:else if setup === null}
+              <Skeleton rows={4} />
             {/if}
             <div>
               <button

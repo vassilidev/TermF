@@ -3,6 +3,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
   import Banner from "$lib/ui/Banner.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
 
   /** The global allowlist of what agents get of the environment (`[agents] env_allow` in termf.toml). */
@@ -83,6 +84,8 @@
     <p class="base">{#each settings.base as name (name)}<code>{name}</code>{/each}</p>
     <p class="help">{t("agentenvBaseHelp")}</p>
   </section>
+{:else if !error}
+  <Skeleton rows={4} />
 {/if}
 
 <style>

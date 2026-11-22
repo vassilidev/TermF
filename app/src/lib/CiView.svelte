@@ -18,6 +18,7 @@
   import CiStatus from "$lib/CiStatus.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
@@ -364,7 +365,7 @@
       <button class="btn" onclick={load}><RefreshCw size={14} aria-hidden="true" />{t("ciRetry")}</button>
     </EmptyState>
   {:else if !runs}
-    <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ciLoading")}</p>
+    <div class="split"><div class="list"><Skeleton shape="list" rows={8} label={t("ciLoading")} /></div></div>
   {:else if !runs.length}
     <EmptyState icon={Workflow} title={t("ciEmpty")} text={t("ciEmptyHelp")}>
       <button class="btn" onclick={openForm}><Rocket size={14} aria-hidden="true" />{t("ciDispatchLong")}</button>
@@ -442,7 +443,7 @@
           {#if detailError}
             <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{detailError}</p>
           {:else if !detail}
-            <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ciLoading")}</p>
+            <Skeleton label={t("ciLoading")} />
           {:else}
             <ul class="jobs">
               {#each detail.jobs as job (job.id)}
@@ -596,14 +597,6 @@
     gap: 6px;
     margin: 0;
     font-size: var(--text-sm);
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin: 40px auto;
   }
 
   .list ul {

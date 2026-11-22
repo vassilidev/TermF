@@ -42,6 +42,8 @@ export const agents = $state({
   selected: null as number | null,
   /** The new session form is shown. */
   creating: false,
+  /** `agent_sessions` answered once, or failed to. */
+  read: false,
 });
 
 const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 3 });
@@ -159,8 +161,12 @@ export function watchAgents(): () => void {
         return known && known.updated >= s.updated ? known : s;
       });
       agents.sessions = [...agents.sessions.filter((a) => !list.some((s) => s.id === a.id)), ...read];
+      agents.read = true;
     },
-    (e) => (app.error = String(e)),
+    (e) => {
+      app.error = String(e);
+      agents.read = true;
+    },
   );
   const stop = listen<AgentSession>("agent-updated", async ({ payload }) => {
     const before = agents.sessions.find((a) => a.id === payload.id)?.state;

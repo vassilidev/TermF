@@ -25,6 +25,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { design, openAt } from "$lib/design.svelte";
@@ -256,7 +257,7 @@
     <EmptyState icon={Palette} title={t("designNoRepo")} text={t("designNoRepoHelp")} />
   {:else if !data}
     {#if loading}
-      <p class="loading muted"><LoaderCircle size={16} class="spin" aria-hidden="true" />{t("designScanning")}</p>
+      <div class="loading"><Skeleton shape="list" rows={6} label={t("designScanning")} /></div>
     {/if}
   {:else}
     <Tabs
@@ -632,11 +633,7 @@
   }
 
   .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin: 48px auto;
+    padding: 20px 28px;
   }
 
   .body {
