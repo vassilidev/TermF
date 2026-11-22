@@ -14,6 +14,8 @@ export type ItemInfo = {
   agents: boolean;
   created: number;
   updated: number;
+  /** Other versions a merge kept beside it, for the user to choose from. */
+  conflicts: number;
 };
 export type Scope = "dev" | "staging" | "prod";
 export type SecretInfo = {
@@ -24,6 +26,7 @@ export type SecretInfo = {
   created: number;
   updated: number;
   reference: string | null;
+  conflicts: number;
 };
 export type Entry = { key: string; project: string | null } & (
   | { type: "item"; item: ItemInfo }
@@ -138,4 +141,49 @@ export function strength(recipe: Recipe): number {
     (recipe.digits ? (ambiguous ? 8 : 10) : 0) +
     (recipe.symbols ? 17 : 0);
   return size ? Math.floor(recipe.length * Math.log2(size)) : 0;
+}
+
+/** What a merge (the sync, an import) does to one element: its title, never a value. */
+export type Change = "added" | "changed" | "deleted" | "conflict" | "unchanged";
+export type Merged = { key: string; kind: Kind | null; scope: Scope | null; title: string; project: string | null; change: Change };
+export type ConflictInfo = {
+  id: string;
+  at: number;
+  item: ItemInfo | null;
+  secret: SecretInfo | null;
+  differs: string[];
+};
+export type ForeignRow = {
+  index: number;
+  kind: Kind;
+  title: string;
+  username: string;
+  urls: string[];
+  folder: string;
+  hasPassword: boolean;
+  hasTotp: boolean;
+  hasNotes: boolean;
+  /** The title of the item it duplicates; "" for a line above it in the file. */
+  duplicate: string | null;
+  problem: "trash" | "totp" | null;
+};
+export type ForeignPreview = { source: string; digest: string; rows: ForeignRow[]; folders: string[]; unsupported: number };
+
+/** How many elements each change touched, the unchanged ones left out. */
+export function counts(rows: Merged[]): [Exclude<Change, "unchanged">, number][] {
+  const order = ["added", "changed", "deleted", "conflict"] as const;
+  return order
+    .map((c): [Exclude<Change, "unchanged">, number] => [c, rows.filter((r) => r.change === c).length])
+    .filter(([, n]) => n > 0);
+}
+
+/** Lines left out unless the user takes them back: a duplicate, or what sat in the other manager's trash. */
+export const leftOut = (rows: ForeignRow[]) =>
+  rows.filter((r) => r.duplicate !== null || r.problem === "trash").map((r) => r.index);
+
+/** A folder goes into the project of the same id or name, else stays global. */
+export function folderProject(folder: string, projects: { id: string; name: string }[]): string | null {
+  const name = fold(folder.split("/").pop() ?? "");
+  if (!name) return null;
+  return projects.find((p) => fold(p.id) === name || fold(p.name) === name)?.id ?? null;
 }

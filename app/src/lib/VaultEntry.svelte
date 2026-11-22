@@ -7,6 +7,7 @@
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { invoke } from "@tauri-apps/api/core";
+  import VaultConflict from "$lib/VaultConflict.svelte";
   import VaultField from "$lib/VaultField.svelte";
   import VaultTotp from "$lib/VaultTotp.svelte";
   import { ago, t } from "$lib/i18n";
@@ -104,6 +105,10 @@
       </div>
     {/if}
   </header>
+
+  {#if (item?.conflicts ?? secret?.conflicts ?? 0) > 0}
+    <VaultConflict key={entry.key} updated={item?.updated ?? secret?.updated ?? 0} reauth={() => (reauth = true)} />
+  {/if}
 
   {#if secret?.description}<p class="description">{secret.description}</p>{/if}
 

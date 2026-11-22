@@ -90,9 +90,16 @@ pub fn synced(app: &AppHandle) -> bool {
     }
 }
 
-/// A vault export sealed by its own password, for the config archive.
-pub fn sealed(app: &AppHandle, project: Option<&str>, password: &str) -> anyhow::Result<Vec<u8>> {
+/// A vault export sealed by its own password, for the config archive: the vault open, its master password
+/// typed again.
+pub fn sealed(
+    app: &AppHandle,
+    project: Option<&str>,
+    password: &str,
+    master: &str,
+) -> anyhow::Result<Vec<u8>> {
     let state = app.try_state::<VaultState>().ok_or(termf_vault::Locked)?;
+    state.vault.reauth(&Actor::human(), master)?;
     state
         .vault
         .export_sealed(&Actor::human(), project, password)

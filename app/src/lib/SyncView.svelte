@@ -48,7 +48,8 @@
   let folder = $state("");
   /** The probe's answer: the remote already holds a sync to join. null until probed. */
   let joining = $state<boolean | null>(null);
-  let chosen = $state<Scope[]>(scopes.map(([scope]) => scope));
+  // The vault only when asked, as on the command line.
+  let chosen = $state<Scope[]>(scopes.map(([scope]) => scope).filter((scope) => scope !== "vault"));
   let deviceName = $state("");
 
   let mode = $state<"" | "recover" | "password" | "disable">("");

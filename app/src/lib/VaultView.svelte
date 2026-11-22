@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
   import Bot from "@lucide/svelte/icons/bot";
   import Braces from "@lucide/svelte/icons/braces";
   import Copy from "@lucide/svelte/icons/copy";
@@ -18,6 +19,7 @@
   import VaultForm from "$lib/VaultForm.svelte";
   import VaultRecoveryKey from "$lib/VaultRecoveryKey.svelte";
   import VaultSecurity from "$lib/VaultSecurity.svelte";
+  import VaultTransfer from "$lib/VaultTransfer.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
@@ -31,6 +33,7 @@
     openEntry,
     quickReady,
     refreshVault,
+    say,
     setStatus,
     vault,
     type VaultStatus,
@@ -55,6 +58,8 @@
   let pin = $state("");
   let recovering = $state(false);
   let recoveryText = $state("");
+  let transfer = $state(false);
+  let joining = $state(false);
 
   const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
   const status = $derived(vault.status);
@@ -72,12 +77,21 @@
   function select(key: string) {
     vault.selected[view] = key;
     editing = null;
-    security = false;
+    security = transfer = false;
   }
 
   function create(kind: Kind) {
     editing = { item: null, kind };
-    security = false;
+    security = transfer = false;
+  }
+
+  async function join() {
+    try {
+      setStatus(await invoke<VaultStatus>("vault_join"));
+      say(t("vault3Joined"));
+    } catch (e) {
+      vault.error = failed(e);
+    }
   }
 
   async function unlock(e: SubmitEvent) {
@@ -164,7 +178,7 @@
   $effect(() => {
     if (!status?.unlocked) {
       editing = null;
-      security = false;
+      security = transfer = false;
     }
   });
 </script>
@@ -174,7 +188,10 @@
     {#snippet actions()}
       {#if status?.unlocked}
         <button class="btn sm primary" onclick={() => create("login")}><Plus size={14} aria-hidden="true" />{t("vaultNew")}</button>
-        <button class="btn sm" aria-pressed={security} onclick={() => ((security = !security), (editing = null))}>
+        <button class="btn sm" aria-pressed={transfer} onclick={() => ((transfer = !transfer), (security = false), (editing = null))}>
+          <ArrowDownUp size={14} aria-hidden="true" />{t("vault3Transfer")}
+        </button>
+        <button class="btn sm" aria-pressed={security} onclick={() => ((security = !security), (transfer = false), (editing = null))}>
           <ShieldCheck size={14} aria-hidden="true" />{t("vault2Security")}
         </button>
         <button class="btn sm" onclick={lock}><Lock size={14} aria-hidden="true" />{t("vaultLock")}</button>
@@ -182,9 +199,20 @@
     {/snippet}
   </ViewHeader>
 
-  {#if vault.error}
+  {#if vault.error || status?.synced === "other" || status?.synced === "newer"}
     <div class="banners">
-      <Banner kind="error" ondismiss={() => (vault.error = "")}>{vault.error}</Banner>
+      {#if vault.error}<Banner kind="error" ondismiss={() => (vault.error = "")}>{vault.error}</Banner>{/if}
+      {#if status?.synced === "other"}
+        <Banner kind="warn">
+          <strong>{t("vault3OtherTitle")}</strong>
+          {t("vault3OtherText")}
+          {#snippet action()}
+            <button class="btn sm" onclick={() => (joining = true)}>{t("vault3Join")}</button>
+          {/snippet}
+        </Banner>
+      {:else if status?.synced === "newer"}
+        <Banner kind="warn">{t("vault3NewerText")}</Banner>
+      {/if}
     </div>
   {/if}
 
@@ -198,12 +226,20 @@
     <div class="pane">
       <EmptyState
         icon={status.initialized ? Lock : VaultIcon}
-        title={recovering ? t("vault2RecoverTitle") : status.initialized ? t("vaultLocked") : t("vaultCreateTitle")}
+        title={recovering
+          ? t("vault2RecoverTitle")
+          : status.synced === "secured"
+            ? t("vault3SecuredTitle")
+            : status.initialized
+              ? t("vaultLocked")
+              : t("vaultCreateTitle")}
         text={recovering
           ? t("vault2RecoverText")
-          : status.initialized
-            ? t("vaultLockedText", { minutes: status.autoLockMinutes })
-            : t("vaultCreateText")}
+          : status.synced === "secured"
+            ? t("vault3SecuredText")
+            : status.initialized
+              ? t("vaultLockedText", { minutes: status.autoLockMinutes })
+              : t("vaultCreateText")}
       >
         <form class="unlock" onsubmit={unlock}>
           {#if status.initialized && !recovering && quickReady()}
@@ -260,6 +296,7 @@
             <p class="touch" role="status">{vault.methods?.keyPin ? t("vault2Touch") : t("vault2WindowsAsks")}</p>
           {/if}
           {#if !status.initialized}<p class="muted fine">{t("vaultCreateWarning")}</p>{/if}
+          {#if status.synced === "pending" && !recovering}<p class="muted fine">{t("vault3Pending")}</p>{/if}
           {#if recovering}
             <button type="button" class="btn quiet" onclick={() => ((recovering = false), (error = ""))}>{t("cancel")}</button>
           {:else if status.initialized && status.recovery}
@@ -312,6 +349,7 @@
                       <span class="name" class:mono={entry.type === "secret"}>{entry.type === "item" ? entry.item.title : entry.secret.name}</span>
                       {#if entry.type === "item" && entry.item.totp}<span class="badge">{t("vaultBadge2fa")}</span>{/if}
                       {#if entry.type === "item" && entry.item.agents}<span class="badge" title={t("vaultAgentsOn")}><Bot size={11} aria-label={t("vaultAgentsOn")} /></span>{/if}
+                      {#if (entry.type === "item" ? entry.item.conflicts : entry.secret.conflicts) > 0}<span class="badge conflict">{t("vault3Conflict")}</span>{/if}
                       {#if entry.type === "secret"}<span class="badge">{entry.secret.scope}</span>{/if}
                     </span>
                     <span class="desc">
@@ -357,6 +395,8 @@
       <div class="detail">
         {#if security}
           <VaultSecurity onclose={() => (security = false)} />
+        {:else if transfer}
+          <VaultTransfer project={scope} {projectName} onclose={() => (transfer = false)} />
         {:else if editing}
           {#key editing}
             <VaultForm
@@ -407,6 +447,10 @@
   onconfirm={remove}
 >
   <p>{t("vaultDeleteText")}</p>
+</ConfirmDialog>
+
+<ConfirmDialog bind:open={joining} title={t("vault3JoinTitle")} confirm={t("vault3Join")} onconfirm={join}>
+  <p>{t("vault3JoinText")}</p>
 </ConfirmDialog>
 
 <style>
@@ -601,6 +645,11 @@
     gap: 2px;
     opacity: 0;
     transition: opacity var(--dur-fast) ease-out;
+  }
+
+  .badge.conflict {
+    border-color: var(--warning);
+    color: var(--warning);
   }
 
   .row:hover .quick,

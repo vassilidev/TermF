@@ -1,6 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { entries, host, openable, secondsLeft, sections, spaced, strength, urlsOf, visible } from "../src/lib/vault-logic.ts";
+import {
+  counts,
+  entries,
+  folderProject,
+  host,
+  leftOut,
+  openable,
+  secondsLeft,
+  sections,
+  spaced,
+  strength,
+  urlsOf,
+  visible,
+} from "../src/lib/vault-logic.ts";
 
 const item = (id, title, project, extra = {}) => ({
   id,
@@ -92,4 +105,36 @@ test("strength: bits of the recipe, not of the password drawn", () => {
   assert.equal(strength({ ...all, unambiguous: true }), 123);
   assert.equal(strength({ ...all, lower: false, upper: false, digits: false, symbols: false }), 0);
   assert.equal(strength({ kind: "passphrase", words: 5, separator: "-" }), 51);
+});
+
+test("counts: what a merge changed, unchanged left out", () => {
+  const row = (change) => ({ key: change, kind: "login", scope: null, title: change, project: null, change });
+  assert.deepEqual(counts(["added", "added", "unchanged", "conflict"].map(row)), [["added", 2], ["conflict", 1]]);
+  assert.deepEqual(counts([row("unchanged")]), []);
+});
+
+test("leftOut: duplicates and the other manager's trash, by default", () => {
+  const row = (index, duplicate, problem) => ({
+    index,
+    kind: "login",
+    title: "",
+    username: "",
+    urls: [],
+    folder: "",
+    hasPassword: true,
+    hasTotp: false,
+    hasNotes: false,
+    duplicate,
+    problem,
+  });
+  const rows = [row(0, null, null), row(1, "GitHub", null), row(2, "", null), row(3, null, "trash"), row(4, null, "totp")];
+  assert.deepEqual(leftOut(rows), [1, 2, 3]);
+});
+
+test("folderProject: a folder named as a project goes there", () => {
+  const projects = [{ id: "acme-platform", name: "Acme Platform" }, { id: "docs", name: "Docs" }];
+  assert.equal(folderProject("Acme Platform", projects), "acme-platform");
+  assert.equal(folderProject("Work/docs", projects), "docs");
+  assert.equal(folderProject("Personnel", projects), null);
+  assert.equal(folderProject("", projects), null);
 });
