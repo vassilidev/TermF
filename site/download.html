@@ -220,7 +220,7 @@
         <p><a class="more" href="https://github.com/vassilidev/TermF/releases">All releases on GitHub</a></p>
       </div>
       <div>
-        <div class="notes" id="notes" tabindex="0" aria-label="Release notes">Looking for the latest release on GitHub…</div>
+        <div class="notes" id="notes-text" tabindex="0" aria-label="Release notes">Looking for the latest release on GitHub…</div>
         <ul class="releases" id="releases" aria-label="Every release"></ul>
       </div>
     </div>
@@ -301,7 +301,7 @@ function render() {
 
   document.getElementById('all-state').textContent = release ? `The files of ${release.tag_name}${release.prerelease ? ', a pre-release' : ''}, published on ${date(release.published_at)}, with their size and SHA-256.`
     : failed ? "GitHub could not be reached: every file is on the releases page." : release === null ? 'Reading the latest release from GitHub…' : 'No release is published yet: the names below are the ones the next release will have.';
-  const notes = document.getElementById('notes');
+  const notes = document.getElementById('notes-text');
   notes.textContent = release ? (release.body?.trim() || 'This release has no notes.') : failed ? 'GitHub could not be reached: the notes are on the releases page.' : release === null ? 'Looking for the latest release on GitHub…' : 'No release is published yet.';
   document.getElementById('notes-for').textContent = release ? `The notes of ${release.tag_name}, and every release, from GitHub.` : 'The notes of the latest release, and every release, from GitHub.';
   document.getElementById('releases').innerHTML = releases.map(r => `<li><a href="${esc(r.html_url)}">${esc(r.name || r.tag_name)}</a><span>${r.prerelease ? 'pre-release · ' : ''}${date(r.published_at)}</span></li>`).join('');
