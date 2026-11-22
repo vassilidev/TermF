@@ -21,6 +21,13 @@
   import Webhook from "@lucide/svelte/icons/webhook";
   import Wrench from "@lucide/svelte/icons/wrench";
   import ClaudeArtifacts from "$lib/ClaudeArtifacts.svelte";
+  import ClaudeAccount from "$lib/ClaudeAccount.svelte";
+  import ClaudeMemory from "$lib/ClaudeMemory.svelte";
+  import ClaudeNative from "$lib/ClaudeNative.svelte";
+  import ClaudeSessions from "$lib/ClaudeSessions.svelte";
+  import ClaudeUsage from "$lib/ClaudeUsage.svelte";
+  import Gauge from "@lucide/svelte/icons/gauge";
+  import History from "@lucide/svelte/icons/history";
   import ClaudeChange from "$lib/ClaudeChange.svelte";
   import ClaudeHooks from "$lib/ClaudeHooks.svelte";
   import ClaudeMcp from "$lib/ClaudeMcp.svelte";
@@ -81,12 +88,16 @@
     { id: "extensions", label: "claudeRedesignExtensions", icon: Puzzle },
     { id: "hooks", label: "claudeViewHooks", icon: Webhook },
     { id: "memory", label: "claudeViewMemory", icon: Brain },
+    { id: "sessions", label: "claudeDgSessions", icon: History },
+    { id: "usage", label: "claudeDgUsage", icon: Gauge },
     { id: "account", label: "claudeViewAccount", icon: CircleUser },
     { id: "tools", label: "claudeViewTools", icon: Wrench },
     { id: "artifacts", label: "claudeViewTabArtifacts", icon: Images },
   ];
   const section = $derived(claudeView.section);
-  const config = $derived(section !== "artifacts");
+  const config = $derived(section !== "artifacts" && section !== "usage");
+  /** Sessions have their own refresh, and nothing to export. */
+  const overviewActions = $derived(config && section !== "sessions");
   const formats: ["md" | "json", Key][] = [
     ["md", "claudeViewExportMd"],
     ["json", "claudeViewExportJson"],
@@ -556,31 +567,7 @@
 {#snippet extensionsPage(o: Overview)}
   {#snippet actions()}{@render copyButton("extensions")}{/snippet}
   {@render head(blockTitle("extensions"), t("claudeViewExtensionsHelp"), actions)}
-  {#each o.extensions as f (f.path)}
-    {#snippet summary()}
-      <span class="fold-title">{kindLabel(f.kind)}</span>
-      <span class="count">{f.items.length}</span>
-      {@render scopeBadge(f.scope)}
-      <span class="mono muted path">{f.path}</span>
-    {/snippet}
-    {#snippet body()}
-      {#if f.items.length}
-        <ul class="items">
-          {#each f.items as item (item.path)}
-            <li>
-              <span class="name mono">{f.kind === "commands" ? `/${item.name}` : item.name}</span>
-              <span class="desc">{item.description ?? ""}</span>
-            </li>
-          {/each}
-        </ul>
-      {:else}
-        <p class="empty-line">{t("claudeViewEmptyFolder")}</p>
-      {/if}
-    {/snippet}
-    {@render fold(false, summary, body)}
-  {:else}
-    <EmptyState icon={Puzzle} text={t("claudeViewNone")} />
-  {/each}
+  <ClaudeNative {o} />
 {/snippet}
 
 {#snippet hooksPage(o: Overview)}
@@ -592,39 +579,7 @@
 {#snippet memoryPage(o: Overview)}
   {#snippet actions()}{@render copyButton("memory")}{/snippet}
   {@render head(blockTitle("memory"), t("claudeViewMemoryHelp"), actions)}
-  <ul class="rows panel">
-    {#each o.memory.files as f (f.path)}
-      <li>
-        <div class="row-line">
-          <span class="what">
-            <span class="name">{fileName(f.path)}</span>
-            <span class="mono desc" title={f.path}>{f.path}</span>
-          </span>
-          {#if f.size !== null}<span class="muted small">{size(f.size)}</span>{/if}
-          {#if f.scope}{@render scopeBadge(f.scope)}{/if}
-          {@render stateBadge(f.state)}
-        </div>
-      </li>
-    {/each}
-  </ul>
-  <h4>{t("claudeViewAutoMemory")} <span class="count">{o.memory.auto.length}</span></h4>
-  {#each o.memory.auto as m (m.path)}
-    {#snippet summary()}
-      <span class="fold-title mono">{m.project || m.path}</span>
-      <span class="muted small">{t("claudeViewFileCount", { count: m.files.length })} · {size(m.files.reduce((s, [, b]) => s + b, 0))}</span>
-    {/snippet}
-    {#snippet body()}
-      <p class="mono muted small folder">{m.path}</p>
-      <ul class="items">
-        {#each m.files as [name, bytes] (name)}
-          <li><span class="name mono">{name}</span><span class="desc">{size(bytes)}</span></li>
-        {/each}
-      </ul>
-    {/snippet}
-    {@render fold(false, summary, body)}
-  {:else}
-    <p class="empty-line">{t("claudeViewNone")}</p>
-  {/each}
+  <ClaudeMemory {o} />
 {/snippet}
 
 {#snippet accountPage(o: Overview)}
@@ -656,6 +611,7 @@
     <dt>{t("claudeViewInstall")}</dt>
     <dd>{o.account.install ?? t("claudeViewUnknown")} {#if o.account.path}<span class="mono muted small">{o.account.path}</span>{/if}</dd>
   </dl>
+  <ClaudeAccount {o} />
 {/snippet}
 
 {#snippet toolsPage(o: Overview)}
@@ -686,7 +642,7 @@
       </label>
     {/if}
     {#snippet actions()}
-      {#if config}
+      {#if overviewActions}
         <button class="btn sm quiet" onclick={loadOverview} disabled={claudeView.loading}>
           <RefreshCw size={14} aria-hidden="true" class={claudeView.loading ? "spin" : ""} />{t("claudeViewRefresh")}
         </button>
@@ -752,6 +708,10 @@
       <div class="page">
         {#if section === "artifacts"}
           <ClaudeArtifacts />
+        {:else if section === "sessions"}
+          <ClaudeSessions />
+        {:else if section === "usage"}
+          <ClaudeUsage />
         {:else if !o && claudeView.loading}
           <p class="loading" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("claudeViewLoading")}</p>
         {:else if !o}
@@ -918,16 +878,6 @@
     gap: 8px;
     margin: 0;
     font-size: var(--text-md);
-    font-weight: 600;
-  }
-
-  h4 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 16px 0 6px;
-    color: var(--muted);
-    font-size: var(--text-sm);
     font-weight: 600;
   }
 
@@ -1247,29 +1197,6 @@
 
   .folder {
     margin: 0 0 6px;
-  }
-
-  .items {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .items li {
-    display: grid;
-    grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
-    gap: 16px;
-    padding: 5px 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .items li:first-child {
-    border-top: 0;
-  }
-
-  .items .desc {
-    font-size: var(--text-sm);
-    white-space: normal;
   }
 
   .files {

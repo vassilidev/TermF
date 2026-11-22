@@ -19,7 +19,9 @@ pub mod conventions;
 mod roles;
 pub mod scout;
 
-pub use claude::{Imported, Outcome, import_claude, materialize};
+pub use claude::{
+    Imported, Outcome, export_claude, export_target, export_text, import_claude, materialize,
+};
 pub use roles::{Setting, applies_to, plannable, role, role_settings};
 
 static SHIPPED: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../library");
