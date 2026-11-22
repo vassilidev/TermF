@@ -77,6 +77,20 @@
     "no-infra": "obTeamWhyNoInfra",
     "no-ui": "obTeamWhyNoUi",
     "no-web": "obTeamWhyNoWeb",
+    data: "roles2WhyData",
+    "no-data": "roles2WhyNoData",
+    llm: "roles2WhyLlm",
+    "no-llm": "roles2WhyNoLlm",
+    analytics: "roles2WhyAnalytics",
+    "no-analytics": "roles2WhyNoAnalytics",
+    integrations: "roles2WhyIntegrations",
+    "no-integrations": "roles2WhyNoIntegrations",
+    service: "roles2WhyService",
+    "no-service": "roles2WhyNoService",
+    docs: "roles2WhyDocs",
+    "no-docs": "roles2WhyNoDocs",
+    personal: "roles2WhyPersonal",
+    "no-public": "roles2WhyNoPublic",
   } as const;
   const why = (r: RoleChoice) =>
     t(whyKey[r.why as keyof typeof whyKey] ?? "obTeamWhyOwn", { detail: r.detail.join(", ") });

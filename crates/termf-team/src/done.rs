@@ -74,10 +74,13 @@ pub fn describe(ids: &[String]) -> String {
     ids.iter()
         .map(|id| match id.as_str() {
             "checks" => "the project's checks pass",
-            "review" => "the code review leaves no important finding open",
+            "review" => "the reviews (the code's, the migrations') leave no important finding open",
             "security" => "the security review confirms no vulnerability",
             "visual" => "the visual review approves the interface when it changes",
-            _ => "the documentation follows when the public behaviour changes",
+            _ => {
+                "the documentation follows when the public behaviour changes (a task for the docs role, or the \
+                 task's own)"
+            }
         })
         .collect::<Vec<_>>()
         .join("; ")
@@ -113,11 +116,10 @@ fn check(run: &TeamRun, id: &str) -> Result<String, String> {
             Ok("passed".into())
         }
         "review" => {
-            let steps = over(
-                of(StepKind::Review),
-                false,
-                "the workflow has no code review",
-            )?;
+            // A review that watches paths no task changed had nothing to review.
+            let reviews = of(StepKind::Review)
+                .filter(|s| !(s.state == StepState::Skipped && !s.paths.is_empty()));
+            let steps = over(reviews, false, "the workflow has no code review")?;
             let mut open = 0;
             let mut left = 0;
             for step in steps {
@@ -192,7 +194,7 @@ fn check(run: &TeamRun, id: &str) -> Result<String, String> {
                 .collect();
             match docs.as_slice() {
                 [] => Err(format!(
-                    "{} changed the public behaviour; no documentation changed",
+                    "{} changed the public behaviour; no documentation changed (a task for the docs role would)",
                     public.join(", ")
                 )),
                 _ => Ok(format!("documentation changed: {}", docs.join(", "))),

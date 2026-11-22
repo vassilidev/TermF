@@ -324,6 +324,16 @@ writes = ["-packages/ui/**"]
         assert_eq!(value(&settings, "effort_range").0, json!(["high", "xhigh"]));
         let shipped = [
             "Edit(**/migrations/**)",
+            "Edit(**/Migrations/**)",
+            "Edit(**/migration/**)",
+            "Edit(**/Migration/**)",
+            "Edit(**/db/migrate/**)",
+            "Edit(**/alembic/versions/**)",
+            "Edit(**/drizzle/**)",
+            "Edit(**/*.prisma)",
+            "Edit(**/schema.sql)",
+            "Edit(**/db/schema.rb)",
+            "Edit(**/db/structure.sql)",
             "Edit(**/infra/**)",
             "Edit(**/terraform/**)",
             "Edit(.github/workflows/**)",

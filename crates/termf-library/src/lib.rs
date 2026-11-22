@@ -921,6 +921,14 @@ mod tests {
                     "brand",
                     "copy",
                     "motion",
+                    "dba",
+                    "docs",
+                    "integrations",
+                    "sre",
+                    "a11y",
+                    "ai",
+                    "analytics",
+                    "legal",
                 ][..],
             ),
             (Kind::Workflow, &["default", "hotfix", "squads"]),
@@ -943,7 +951,22 @@ mod tests {
             }
         }
         let rule = find(&items, Kind::Rule, "no-text-changes");
-        assert_eq!(rule.applies_to, ["front", "back", "devops", "seo", "copy"]);
+        assert_eq!(
+            rule.applies_to,
+            [
+                "front",
+                "back",
+                "devops",
+                "seo",
+                "copy",
+                "dba",
+                "docs",
+                "integrations",
+                "sre",
+                "ai",
+                "analytics"
+            ]
+        );
         assert_eq!(rule.meta["level"], "block");
         assert_eq!(find(&items, Kind::Role, "secops").meta["effort"], "xhigh");
         let copy = list_of(find(&items, Kind::Role, "copy").meta.get("disallowedTools"));
@@ -951,11 +974,20 @@ mod tests {
             copy.iter().any(|t| t == "Bash"),
             "copy writes words, never runs commands"
         );
+        for role in ["a11y", "legal"] {
+            let tools = list_of(find(&items, Kind::Role, role).meta.get("disallowedTools"));
+            for tool in ["Edit", "Write", "NotebookEdit"] {
+                assert!(
+                    tools.iter().any(|t| t == tool),
+                    "{role} audits and advises only"
+                );
+            }
+        }
         for role in ["po", "pm", "architect", "cto"] {
             let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
             assert_eq!(tools, "mcp__termf__ask_expert", "{role} asks the expert");
         }
-        for role in ["front", "qa", "ux", "seo"] {
+        for role in ["front", "qa", "ux", "seo", "a11y"] {
             let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
             assert_eq!(
                 tools, "mcp__termf__browser_*",
@@ -963,7 +995,7 @@ mod tests {
             );
         }
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 17, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 25, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);

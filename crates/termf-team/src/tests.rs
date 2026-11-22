@@ -1720,8 +1720,16 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         "- brand: Brand designer. Use for",
         "- copy: UX writer. Use for",
         "- motion: Motion designer and video maker. Use for",
+        "- dba: Database engineer. Use for",
+        "- docs: Technical writer. Use for",
+        "- integrations: Integration engineer. Use for",
+        "- sre: Site reliability engineer. Use for",
+        "- a11y: Accessibility and front-end QA auditor. Use after",
+        "- ai: AI engineer. Use when",
+        "- analytics: Data analyst for product analytics. Use for",
+        "- legal: Compliance analyst. Use for",
         "The routing, as JSON: kind (urgent-bug, bug,",
-        "docs, brand, copy, motion, other)",
+        "docs, brand, copy, motion, database, integration, reliability, accessibility, ai, analytics, legal, other)",
         "what the whole run should cost in US dollars, at most $15.00",
         "rulings (each decision you took, one a line: `Ruling: what — why — cost if wrong`)",
         "Each question you ask is an item of a questionnaire",
@@ -2500,6 +2508,138 @@ fn no_review_when_it_is_off() {
     assert!(review.session.is_none() && run.reviews.is_empty());
 }
 
+/// A run whose one task, given to the dba, runs `script` (its attempt as `$1`); with `coded`, the code review comes
+/// first; then the dba reviews the migrations the run changed.
+fn migrated(env: &Env, coded: bool, script: &str) {
+    let (code, after) = match coded {
+        true => (
+            "[steps.review]\ntype = \"review\"\nrole = \"reviewer\"\nneeds = [\"implement\"]\n",
+            "review",
+        ),
+        false => ("", "implement"),
+    };
+    fs::write(
+        env.config.join("library/workflows/migrated.toml"),
+        format!(
+            "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+             [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n{code}\
+             [steps.migrations]\ntype = \"review\"\nrole = \"dba\"\nneeds = [\"{after}\"]\npaths = [\"**/migrations/**\"]\n\
+             [steps.deliver]\ntype = \"connector\"\nneeds = [\"migrations\"]\n"
+        ),
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "dba", &["db"], &[])])),
+    );
+    env.script("implement:T1", script);
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("migrated".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+}
+
+const MIGRATION: &str = "mkdir -p db/migrations; echo 'up and down' > db/migrations/001.sql\n";
+
+#[test]
+fn the_dba_reviews_a_run_only_when_a_task_changed_a_migration() {
+    let env = Env::new("migrations");
+    env.answer(
+        "migrations.json",
+        findings("001.sql takes no long lock and rolls back.", json!([])),
+    );
+    // What a migration tool does when the reviewer runs it: it rewrites the schema files.
+    env.script(
+        "migrations",
+        "echo rewritten > db/migrations/001.sql; echo 'version: 2' > db/schema.rb\n",
+    );
+    migrated(&env, false, MIGRATION);
+    let run = env.until("the delivery", delivery);
+    let review = env.step(&run, "migrations");
+    assert_eq!(review.state, StepState::Done);
+    assert!(
+        env.message("migrations", 1)
+            .contains("- T1 (dba): do T1; changed: db/migrations/001.sql")
+    );
+    let spec = env.agents.session(review.session.unwrap()).unwrap().spec;
+    assert_eq!(spec.role.as_deref(), Some("dba"));
+    for tool in ["Edit", "Write", "NotebookEdit"] {
+        assert!(
+            spec.disallowed_tools.iter().any(|t| t == tool),
+            "a review changes nothing: {:?}",
+            spec.disallowed_tools
+        );
+    }
+    let worktree = &env.target.worktree;
+    assert_ne!(&spec.cwd, worktree, "a throwaway copy of the run's work");
+    assert!(!spec.cwd.exists(), "removed once the review is over");
+    assert_eq!(
+        fs::read_to_string(worktree.join("db/migrations/001.sql")).unwrap(),
+        "up and down\n",
+        "what the review ran never reaches the run's worktree"
+    );
+    assert!(!worktree.join("db/schema.rb").exists());
+    assert_eq!(
+        git(worktree, &env.env, &["status", "--porcelain", "db"]),
+        ""
+    );
+    let task = env.step(&run, "implement:T1");
+    let spec = env.agents.session(task.session.unwrap()).unwrap().spec;
+    assert!(
+        !spec.disallowed_tools.iter().any(|t| t == "Edit"),
+        "the same role writes in a task"
+    );
+
+    let other = Env::new("no-migrations");
+    migrated(&other, false, "mkdir -p src/api; echo x > src/api/a.txt\n");
+    let run = other.until("the delivery", delivery);
+    let review = other.step(&run, "migrations");
+    assert_eq!(review.state, StepState::Skipped);
+    assert_eq!(
+        review.note.as_deref(),
+        Some("no task changed **/migrations/**")
+    );
+    assert!(review.session.is_none());
+}
+
+#[test]
+fn a_migration_from_an_earlier_attempt_is_still_reviewed() {
+    let env = Env::new("migrations-again");
+    env.answer(
+        "review.1.json",
+        findings(
+            "The export breaks on an empty list.",
+            json!([finding("important", "src/api/a.txt", 1, "T1")]),
+        ),
+    );
+    env.answer("review.2.json", findings("Fixed.", json!([])));
+    env.answer("migrations.json", findings("001.sql is safe.", json!([])));
+    // The first attempt adds the migration; the second, sent back by the code review, only fixes the code.
+    let script = format!(
+        "if [ \"$1\" = 1 ]; then {}; fi; mkdir -p src/api; echo \"attempt $1\" > src/api/a.txt\n",
+        MIGRATION.trim_end()
+    );
+    migrated(&env, true, &script);
+    let run = env.until("the delivery", delivery);
+    let task = env.step(&run, "implement:T1");
+    assert_eq!(task.files, ["src/api/a.txt"], "the last attempt alone");
+    let review = env.step(&run, "migrations");
+    assert_eq!(
+        review.state,
+        StepState::Done,
+        "the run's changes hold the migration: {:?}",
+        review.note
+    );
+    let log = env.steps_log();
+    let at = |line: &str| log.iter().position(|l| l == line).unwrap();
+    assert!(at("implement:T1 2 end") < at("migrations 1 begin"));
+}
+
 #[test]
 fn a_team_step_never_starts_without_the_guard() {
     let env = Env::new("no-guard");
@@ -2596,6 +2736,14 @@ fn real_team() {
         "brand",
         "copy",
         "motion",
+        "dba",
+        "docs",
+        "integrations",
+        "sre",
+        "a11y",
+        "ai",
+        "analytics",
+        "legal",
     ] {
         settings.push_str(&format!(
             "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
@@ -3207,8 +3355,9 @@ fn a_role_never_changes_a_path_it_may_not() {
     let brief = env.message("implement:T1", 1);
     assert!(
         brief.contains(
-            "Your role may not change these paths: **/migrations/**, **/infra/**, **/terraform/**, \
-             .github/workflows/**."
+            "Your role may not change these paths: **/migrations/**, **/Migrations/**, **/migration/**, \
+             **/Migration/**, **/db/migrate/**, **/alembic/versions/**, **/drizzle/**, **/*.prisma, **/schema.sql, \
+             **/db/schema.rb, **/db/structure.sql, **/infra/**, **/terraform/**, .github/workflows/**."
         ),
         "{brief}"
     );
@@ -3538,4 +3687,65 @@ fn real_discipline() {
         Vec::<String>::new(),
         "{verdict:?}"
     );
+}
+
+#[test]
+fn the_migrations_review_goes_to_the_cto_and_counts_in_the_definition_of_done() {
+    let env = Env::new("escalate-migrations");
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\ndone = [\"review\"]\n")).unwrap();
+    for n in [1, 2] {
+        env.answer(
+            &format!("migrations.{n}.json"),
+            findings(
+                "001.sql locks the invoices table.",
+                json!([finding("important", "db/migrations/001.sql", 1, "T1")]),
+            ),
+        );
+    }
+    env.answer(
+        "escalate-migrations.json",
+        json!({"decision": "accept", "role": "", "instructions": "",
+            "ruling": "Ruling: keep 001.sql — the table holds 200 rows — a short lock if wrong", "findings": []}),
+    );
+    migrated(&env, true, MIGRATION);
+    let run = env.until("the delivery", delivery);
+    let review = env.step(&run, "migrations");
+    assert!(review.escalated);
+    assert_eq!(review.state, StepState::Done);
+    assert!(
+        env.message("escalate-migrations", 1)
+            .contains("The review `migrations` ended its last round")
+    );
+    let fates: Vec<review::Fate> = run
+        .reviews
+        .iter()
+        .rfind(|r| r.step == "migrations")
+        .unwrap()
+        .findings
+        .iter()
+        .map(|f| f.fate)
+        .collect();
+    assert_eq!(fates, [review::Fate::Left]);
+    let [decision] = &decisions(&env.data, "acme").unwrap()[..] else {
+        panic!("the CTO's leave is a decision")
+    };
+    assert!(decision.text.contains("db/migrations/001.sql"));
+    let done = run.done.unwrap();
+    assert!(done.passes(), "{done:?}");
+    assert_eq!(
+        done.criteria[0].note,
+        "1 important finding(s) left as they are"
+    );
+
+    // No migration changed: the dba's review had nothing to read, and holds nothing.
+    let other = Env::new("done-no-migrations");
+    let file = other.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\ndone = [\"review\"]\n")).unwrap();
+    migrated(&other, true, "mkdir -p src/api; echo x > src/api/a.txt\n");
+    let run = other.until("the delivery", delivery);
+    assert_eq!(other.step(&run, "migrations").state, StepState::Skipped);
+    assert!(run.done.unwrap().passes());
 }

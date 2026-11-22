@@ -1,0 +1,9 @@
+- Release path: `eas.json` (EAS Build and Submit), `fastlane/Fastfile` (match, pilot, supply), or the CI workflow; keep the one the project has.
+- Rules and dates: `references/store-rules.md` of the skill, then Apple's upcoming requirements page and Play's target API page.
+- Verify: the project's lanes in a dry or local mode, the release build, `bundletool dump config` for 16 KB alignment, no key file tracked by git.
+- Google Play: new apps and updates target API 36 since 2026-08-31; updates without 16 KB page support blocked from 2027-02-01 (every React Native, Expo and Flutter app ships native code).
+- App Store: uploads built with Xcode 26+ and an iOS 26 SDK since 2026-04-28; privacy manifest for required-reason APIs.
+- fastlane `upload_to_play_store` defaults to production: set `track: "internal"`.
+- Keys (`.p8`, keystores, `key.properties`, service account JSON, `MATCH_PASSWORD`) only from the CI secret store, never in git.
+- Uploading, promoting or submitting reaches real users: only on the user's go-ahead, else `blocked` with the command.
+- Read the skill `mobile-release` before touching signing, store builds, submit profiles or a release workflow.

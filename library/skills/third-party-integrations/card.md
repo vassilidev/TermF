@@ -1,0 +1,8 @@
+- Version: the provider SDK in the lockfile and the API version the project sends (Stripe pins one per account or request).
+- Docs: the provider's current pages (Stripe https://docs.stripe.com, official skills `npx skills add https://docs.stripe.com`; GitHub webhooks; Standard Webhooks spec 1.0.0); verified 2026-11-22.
+- Verify: the project's tests; `git grep` finds no `sk_`, `rk_` or `whsec_` value; with the user's Stripe CLI, `stripe listen --events <types> --forward-to …` and `stripe trigger <event>`.
+- Keys only when the user already set them in the session, used by name, test keys only; never ask for one, never in code, logs, fixtures or tests.
+- Every create or charge carries an idempotency key reused across its retries; retry only timeouts, 429 and 5xx, with jitter, a ceiling and `Retry-After`.
+- Webhooks: signature on the raw body, constant-time compare, timestamp tolerance (Stripe: 5 min), dedupe by event id, fast 2xx then a job; delivery is at least once and unordered.
+- SSO through a maintained library: OIDC with PKCE, `state`, `nonce`, `iss`/`aud`/`exp`; SAML signature, audience, recipient, expiry, replay.
+- Read the skill `third-party-integrations` before writing or changing a client, a webhook endpoint or a sign-in with an outside service.

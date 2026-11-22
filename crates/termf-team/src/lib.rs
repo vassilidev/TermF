@@ -49,6 +49,7 @@ const ATTEMPTS: u32 = 2;
 const SHELL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Never allowed to a team's agent: TermF pushes once the user delivers.
 const DENIED: [&str; 3] = ["Bash(git push:*)", "Bash(gh pr:*)", "Bash(termf:*)"];
+const READ_ONLY: [&str; 3] = ["Edit", "Write", "NotebookEdit"];
 const CONTINUE: &str = "TermF stopped while you were working on this step. Go on with it from where the worktree is, then end with your report.";
 /// The CTO's first step of every run, and the gate where the user approves its routing.
 pub const TRIAGE: &str = "triage";
@@ -196,6 +197,9 @@ pub struct Step {
     /// A `review` step's rounds before the user last sent the work back: its rounds count from there.
     #[serde(default)]
     pub review_base: u32,
+    /// Runs only when a task changed a file these globs match.
+    #[serde(default)]
+    pub paths: Vec<String>,
     /// An escalation step: the step it decides on, as the CTO.
     #[serde(default)]
     pub escalates: Option<String>,
@@ -246,6 +250,7 @@ impl Step {
             effort: None,
             rounds: None,
             review_base: 0,
+            paths: Vec::new(),
             escalates: None,
             escalated: false,
             accepted: false,
@@ -314,6 +319,9 @@ pub struct TeamRun {
     pub done: Option<done::Done>,
     /// A task changed the interface while a rule asks for a visual review.
     pub ui_changed: bool,
+    /// What the run's worktree was on when the team started: the run's changes are the diff from it.
+    #[serde(default)]
+    pub base: Option<String>,
     pub steps: Vec<Step>,
     /// Why it waits, paused, stopped or failed.
     pub note: Option<String>,
@@ -1136,7 +1144,7 @@ impl Inner {
                 .find(|r| r.step == step.key)
                 .context("the review has no round")?;
             text.push_str(&format!(
-                "The code review `{}` ended its last round with findings still open; TermF asks you before the \
+                "The review `{}` ended its last round with findings still open; TermF asks you before the \
                  user.\n\nThe open findings:\n",
                 step.key
             ));
@@ -1484,7 +1492,9 @@ impl Inner {
             budget.is_none_or(|b| b > 0.0),
             "the budget must be more than 0"
         );
+        let base = Git(&self.env).head(&target.worktree).ok();
         let mut run = TeamRun {
+            base,
             run: target.run,
             target,
             workflow: name.clone(),
@@ -1959,7 +1969,12 @@ impl Inner {
         // A new session for each step: this one is over.
         let _ = self.agents.stop(id);
         self.costs(run);
+        // Read in the step's own folder, which a review's is until it goes.
         let refused = self.refused(run, i, &events);
+        if run.steps[i].kind == StepKind::Review {
+            self.drop_worktree(run, i);
+            run.steps[i].worktree = None;
+        }
         if !refused.is_empty() {
             let why = format!(
                 "its role may not change {}: Claude Code refused it. Revise the step without it, or give the work to \
@@ -2168,12 +2183,11 @@ impl Inner {
         match self.review_settings(run) {
             Ok(settings) if settings.on => true,
             Ok(_) => {
-                self.skip(
-                    store,
-                    run,
-                    i,
-                    "the code review is off: `[team] review = false`",
+                let note = format!(
+                    "the {} is off: `[team] review = false`",
+                    review::title(&run.steps[i].key)
                 );
+                self.skip(store, run, i, &note);
                 false
             }
             Err(e) => {
@@ -2294,8 +2308,9 @@ impl Inner {
         self.event(store, run, Some(&key), "review", &message);
         if waits {
             let note = format!(
-                "the code review needs you: {asked} finding(s) without a clear task, or still there at its last \
-                 round; say which task fixes each, or leave it with your reason"
+                "the {} needs you: {asked} finding(s) without a clear task, or still there at its last \
+                 round; say which task fixes each, or leave it with your reason",
+                review::title(&key)
             );
             if last && !run.steps[i].escalated {
                 return self.escalate(store, run, i, &note);
@@ -2352,7 +2367,7 @@ impl Inner {
             step.state = StepState::Pending;
             step.attempt = 0;
             step.note = None;
-            step.feedback = Some(review::feedback(round, &found));
+            step.feedback = Some(review::feedback(&key, round, &found));
             let task_key = step.key.clone();
             self.event(
                 store,
@@ -2360,8 +2375,9 @@ impl Inner {
                 Some(&task_key),
                 "revised",
                 &format!(
-                    "again, with {} of the code review's round {round}",
-                    ids.join(", ")
+                    "again, with {} of the {}'s round {round}",
+                    ids.join(", "),
+                    review::title(&key)
                 ),
             );
         }
@@ -2934,6 +2950,25 @@ impl Inner {
                 self.shell(run.run, key, command, run.target.worktree.clone());
             }
             StepKind::Agent | StepKind::Task | StepKind::Review => {
+                let paths = &run.steps[i].paths;
+                if !paths.is_empty() {
+                    // The run's whole diff: a task sent back starts anew, its first attempt's files merged already.
+                    // Unknown, the step runs.
+                    let changed = run.base.as_deref().and_then(|base| {
+                        let names = ["diff", "--name-only", "--no-renames", base, "HEAD"];
+                        Git(&self.env).run(&run.target.worktree, &names).ok()
+                    });
+                    let untouched = changed.is_some_and(|files| {
+                        !files
+                            .lines()
+                            .any(|f| paths.iter().any(|p| rules::glob(p, f)))
+                    });
+                    if untouched {
+                        let note = format!("no task changed {}", paths.join(", "));
+                        self.skip(store, run, i, &note);
+                        return Ok(true);
+                    }
+                }
                 if run.steps[i].kind == StepKind::Review && !self.review_on(store, run, i) {
                     return Ok(true);
                 }
@@ -3270,12 +3305,14 @@ impl Inner {
             .as_ref()
             .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()))
             .cloned();
-        if step.kind == StepKind::Task && step.worktree.is_none() {
+        // A review gets a throwaway copy of the run's work each time: what it runs never reaches what ships.
+        if (step.kind == StepKind::Task && step.worktree.is_none()) || step.kind == StepKind::Review
+        {
             let path = self
                 .data_dir
                 .join("team")
                 .join(run.run.to_string())
-                .join(step.task.as_deref().unwrap_or("task"));
+                .join(step.task.as_deref().unwrap_or(&step.key));
             let _ = fs::remove_dir_all(&path);
             let git = Git(&self.env);
             let base = git.add_worktree(&run.target.worktree, &path)?;
@@ -3326,7 +3363,16 @@ impl Inner {
             // Nobody watches a step to approve each edit; the role says otherwise when it must.
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
-            disallowed_tools: DENIED.iter().map(|d| d.to_string()).collect(),
+            // A review changes nothing, whatever its role may do in a task.
+            disallowed_tools: DENIED
+                .iter()
+                .chain(if step.kind == StepKind::Review {
+                    &READ_ONLY[..]
+                } else {
+                    &[]
+                })
+                .map(|d| d.to_string())
+                .collect(),
             // The ticket is untrusted, as in a ticket run's tile: the same hook refuses what `DENIED` misses.
             guard: true,
             rules: levels,
@@ -3777,6 +3823,7 @@ fn build_steps(defs: Vec<(String, workflow::StepDef)>) -> Vec<Step> {
             step.run = def.run;
             step.prompt = def.prompt;
             step.rounds = def.rounds;
+            step.paths = def.paths;
             step.budget = def.budget_usd.or_else(|| {
                 let budget = def.step.as_ref()?.get("budget_usd")?;
                 budget.as_float().or(budget.as_integer().map(|b| b as f64))

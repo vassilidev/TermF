@@ -1,0 +1,10 @@
+- Version: `flutter --version` (Flutter and Dart); `environment.sdk` lower bound in `pubspec.yaml` = the Dart language version the code may use; packages in `pubspec.lock`.
+- Docs for this version: `https://docs.flutter.dev/llms.txt`, `https://api.flutter.dev`, the breaking changes page per release, `https://dart.dev/resources/language/evolution`; official skills and MCP server in `flutter/agent-plugins`.
+- Verify: the project's commands, else `flutter analyze`, `dart format -o none --set-exit-if-changed .`, `flutter test`.
+- Flutter 3.50 deprecates bundled Material and Cupertino: `material_ui` and `cupertino_ui` packages, `dart fix --apply --code=migrate_design_widgets`; keep the project's imports unless the task is that migration.
+- Language features follow `environment.sdk`: dot shorthands 3.10, private named parameters 3.12, primary constructors 3.13.
+- Android with AGP 9: built-in Kotlin migration, not the `kotlin-android` plugin.
+- iOS: Swift Package Manager on by default since 3.44; CocoaPods registry read-only from 2026-12-02.
+- State management: the package the project already uses; none: view models on `ChangeNotifier` with `ListenableBuilder`.
+- `flutter pub upgrade --major-versions` rewrites `pubspec.yaml`: an upgrade task of its own.
+- Read the skill `flutter` before writing Dart, widgets, widget tests or pubspec changes.

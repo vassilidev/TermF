@@ -24,8 +24,10 @@ pub const TAGS: &[&str] = &[
     "docker",
     "dotnet",
     "echo",
+    "expo",
     "fastapi",
     "flask",
+    "flutter",
     "gcp",
     "gin",
     "github",
@@ -57,6 +59,7 @@ pub const TAGS: &[&str] = &[
     "python",
     "rails",
     "react",
+    "react-native",
     "redis",
     "rspec",
     "ruby",
@@ -102,9 +105,11 @@ const MAX_MANIFESTS: usize = 50;
 const MAX_READS: usize = 200;
 
 /// npm packages and the tag each gives, with its version.
-const NODE: [(&str, &str); 22] = [
+const NODE: [(&str, &str); 24] = [
     ("typescript", "typescript"),
     ("react", "react"),
+    ("react-native", "react-native"),
+    ("expo", "expo"),
     ("next", "nextjs"),
     ("svelte", "svelte"),
     ("@sveltejs/kit", "sveltekit"),
@@ -374,6 +379,7 @@ fn detect(repo: &Path) -> Survey {
             "pom.xml" if manifest => maven(repo, &rel, &mut found),
             "build.gradle" | "build.gradle.kts" if manifest => gradle(repo, &rel, &mut found),
             "Package.swift" if manifest => swift(repo, &rel, &mut found),
+            "pubspec.yaml" if manifest => flutter(repo, &rel, &mut found),
             "global.json" if manifest => dotnet_sdk(repo, &rel, &mut found),
             "composer.json" if manifest => php(repo, parent, &rel, &mut found),
             "Gemfile" if manifest => ruby(repo, parent, &rel, &mut found),
@@ -915,6 +921,22 @@ fn swift(repo: &Path, rel: &str, found: &mut Found) {
         .and_then(|l| l.split_once("swift-tools-version"))
         .and_then(|(_, v)| clean(v.trim_start_matches([':', ' '])));
     found.add("swift", version, rel);
+}
+
+/// A Dart package is a Flutter app when it depends on the Flutter SDK; its version: `environment.flutter`.
+fn flutter(repo: &Path, rel: &str, found: &mut Found) {
+    let Some(pubspec) = found
+        .text(repo, rel)
+        .and_then(|t| yaml_rust2::YamlLoader::load_from_str(&t).ok())
+        .and_then(|docs| docs.into_iter().next())
+        .map(crate::json)
+    else {
+        return;
+    };
+    if pubspec["dependencies"]["flutter"]["sdk"] == "flutter" {
+        let version = pubspec["environment"]["flutter"].as_str().and_then(clean);
+        found.add("flutter", version, rel);
+    }
 }
 
 fn dotnet_sdk(repo: &Path, rel: &str, found: &mut Found) {
