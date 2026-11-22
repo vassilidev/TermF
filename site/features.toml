@@ -458,6 +458,30 @@ tried = "Tested with a fake gh and a bare remote."
 related = ["guard", "runs", "local-api"]
 read = "how-it-works.html#deliver"
 
+[[features]]
+slug = "git"
+group = "projects"
+name = "Git in the project"
+tagline = "Branches, worktrees and the commit graph of each repository, with the everyday actions."
+keywords = "git branches graph commits worktrees fetch pull push switch rename delete upstream pull requests"
+problem = '''<p>The branches of a project, its worktrees and what the agents did should be one look away. The project's Git view shows each repository's branches, local and remote, with their upstream and how far ahead or behind they are, the worktrees with the run that owns each, the pull requests and the commit graph, and the everyday actions are one click away.</p>'''
+how = [
+  "Open Git among the project's views, or from the palette; pick the repository when the project has several.",
+  "The banner shows the current branch, its upstream, ahead and behind, and the state of the working tree.",
+  "The list holds the local branches, the remote ones and the worktrees, each worktree named after the run that owns it; the graph shows the last 200 commits, and more on demand.",
+  "Switch, fetch, pull, push, create, rename or delete a branch; deleting asks first, and lists the commits that would be lost.",
+]
+default = [
+  "Read when the view shows, after each action and when the window comes back to the front, never by polling.",
+  "Pull only fast-forwards and push never forces; a branch started from <code>origin/main</code> never pushes to main.",
+  "Pull requests come from the GitHub CLI when it is signed in; without it, the rest works the same.",
+]
+tune = ["Nothing to set: it follows the repository's own git configuration, its push remote, upstreams and SSH command."]
+commands = []
+limits = ["A first slice of git in TermF: branches, state and the everyday actions; the rest is still to come.", "Not yet tried in the app's real window."]
+tried = "The logic is covered by automated tests."
+related = ["runs", "worktrees", "terminals"]
+
 # ----------------------------------------------------------------------------------------------------------- terminals
 
 [[features]]
@@ -594,7 +618,7 @@ how = [
   "What a session gets goes in as a Claude Code plugin and a system prompt file.",
   "Export your setup to one archive, with a preview and a choice per item, and import it elsewhere.",
 ]
-default = ["Shipped items are off until switched on, except the skills of your stack.", "Your global and project items are on.", "The archive holds no secret."]
+default = ["Shipped items are off until switched on, except the skills that match your stack or are always on.", "Your global and project items are on.", "The archive holds no secret."]
 tune = ["Switch any item on or off; see why it applies.", "Import from <code>~/.claude</code>."]
 commands = [["termf library ls | explain | enable | disable", "the library from a terminal"], ["termf config export | import --dry-run", "your setup in one archive"]]
 limits = ["The archive is not signed.", "The shipped rules are written in French, the rest in English."]
@@ -615,13 +639,13 @@ how = [
   "Skills shipped inside npm packages, a Python virtualenv or Composer vendors switch on once you trust the repository.",
 ]
 visual = "skills"
-caption = "The 38 skills that ship with TermF."
+caption = "The 38 stack skills that ship with TermF; seven more cover the command-line tools."
 default = ["Stack skills on for the matching repositories; package skills only for trusted repositories.", "Vendors' MCP servers are offered, added only on your click."]
 tune = ["Switch any skill off, or on for a stack it does not match."]
 commands = [["termf library ls", "what is on, and where from"]]
 limits = ["A manifest changed without a commit is seen at the next commit or restart.", "Package skills only for npm, a virtualenv and Composer for now.", "The skills have not yet run with a real Claude Code."]
 tried = "Tested with automated tests and a fake Claude Code."
-related = ["library", "projects", "worktrees"]
+related = ["cli-skills", "library", "worktrees"]
 
 [[features]]
 slug = "conventions"
@@ -662,6 +686,26 @@ commands = [["termf library scout", "start a review"]]
 limits = ["Not yet run with a real Claude Code.", "No way to cancel a run once started."]
 tried = "Tested with a fake Claude Code."
 related = ["library", "conventions", "skills"]
+
+[[features]]
+slug = "cli-skills"
+group = "library"
+name = "Skills for command-line tools"
+tagline = "git, gh, curl, jq, sed and awk, make, lsof: used the right way by every agent."
+keywords = "skills cli tools git gh curl jq sed awk make lsof command line"
+problem = '''<p>Agents run command-line tools all day, and get their options wrong. Seven skills ship for the tools every role uses: git, gh, curl, jq, sed and awk, make and lsof. They favour safe options and machine-readable output, nothing interactive, commands that work on macOS and Linux, and guard rails before anything destructive.</p>'''
+how = [
+  "Every role gets them, the CTO and the reviewers included, and sessions without a role too.",
+  "git, curl, jq, sed and awk, and lsof are always on; gh turns on for a repository with a GitHub remote, make for one with a Makefile.",
+  "Their short cards go into the Stack section of each session that gets them.",
+  "They follow the run guard: no push, no pull request, reads through <code>gh api</code> GET; a command that throws work away or writes to GitHub runs only when you or the brief asked for it.",
+]
+default = ["Seven skills, on as above.", "psql, mysql, docker, kubectl and terraform stay in their stack skills."]
+tune = ["Switch any of them off in the library, like any skill."]
+commands = [["termf library ls", "what is on, and why"]]
+limits = ["A GitHub Enterprise host or an SSH alias is not recognised as GitHub."]
+tried = "Checked by the catalogue's automated controls, like the stack skills."
+related = ["skills", "library", "guard"]
 
 # -------------------------------------------------------------------------------------------------------------- claude
 
@@ -1071,7 +1115,7 @@ cli = '''<div class="app"><pre class="pt term" style="padding:14px 16px">alex@mb
    4  working   web-dashboard · claude
    4  done      web-dashboard · claude</pre></div>'''
 
-skills = '''<ul class="tags" aria-label="The 38 skills that ship with TermF"><li>accessibility</li><li>angular</li><li>cloud</li><li>csharp-dotnet</li><li>css-tailwind</li><li>django</li><li>docker</li><li>fastapi</li><li>github-actions</li><li>go</li><li>java-spring</li><li>javascript-node</li><li>junit</li><li>kotlin-android</li><li>kubernetes</li><li>mongodb</li><li>mysql</li><li>nextjs</li><li>pest</li><li>php-laravel</li><li>playwright</li><li>pytest</li><li>python</li><li>react</li><li>redis</li><li>rspec</li><li>ruby-rails</li><li>rust</li><li>security-web</li><li>seo</li><li>sql-postgres</li><li>svelte-sveltekit</li><li>swift-ios</li><li>terraform</li><li>testing-js</li><li>tests-from-criteria</li><li>typescript</li><li>vue-nuxt</li></ul>'''
+skills = '''<ul class="tags" aria-label="The 38 stack skills that ship with TermF"><li>accessibility</li><li>angular</li><li>cloud</li><li>csharp-dotnet</li><li>css-tailwind</li><li>django</li><li>docker</li><li>fastapi</li><li>github-actions</li><li>go</li><li>java-spring</li><li>javascript-node</li><li>junit</li><li>kotlin-android</li><li>kubernetes</li><li>mongodb</li><li>mysql</li><li>nextjs</li><li>pest</li><li>php-laravel</li><li>playwright</li><li>pytest</li><li>python</li><li>react</li><li>redis</li><li>rspec</li><li>ruby-rails</li><li>rust</li><li>security-web</li><li>seo</li><li>sql-postgres</li><li>svelte-sveltekit</li><li>swift-ios</li><li>terraform</li><li>testing-js</li><li>tests-from-criteria</li><li>typescript</li><li>vue-nuxt</li></ul>'''
 
 workflow = '''<div class="bay"><p class="plate">Default workflow</p><ol class="strips">
   <li class="strip" data-state="waiting"><span class="cs">Triage<small>cto</small></span><span class="what">Picks the workflow, steps, squads, budget</span><span class="st">You approve the path</span></li>

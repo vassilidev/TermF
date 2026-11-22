@@ -295,11 +295,11 @@ alex@mbp api % </pre></div>
   <div class="wrap split">
     <div class="text">
       <h2 id="stack-h">It fits your stack</h2>
-      <p>TermF reads each repository's stack and versions and turns on the matching skills. Thirty-eight ship with it; the skills your installed packages bring are picked up too, once you trust the repository. A setup assistant reads a new project and proposes its team, skills, ticket sources and worktree recipe, item by item.</p>
+      <p>TermF reads each repository's stack and versions and turns on the matching skills. Thirty-eight ship for stacks, and seven more for the command-line tools every agent uses, from git to jq; the skills your installed packages bring are picked up too, once you trust the repository. A setup assistant reads a new project and proposes its team, skills, ticket sources and worktree recipe, item by item.</p>
       <p>Each run works in a worktree inside the repository, so Claude Code's trust carries over. The project's recipe installs dependencies without copying them raw, points <code>.env</code> files to the worktree, gives it its own database copy (Postgres, MySQL, SQLite) and its own ports.</p>
       <p><a class="more" href="features/skills.html">Skills by stack</a>&nbsp;&nbsp;&nbsp;<a class="more" href="features/worktrees.html">Worktrees ready to run</a></p>
     </div>
-    <ul class="tags" aria-label="The 38 skills that ship with TermF">
+    <ul class="tags" aria-label="The 38 stack skills that ship with TermF">
       <li>accessibility</li><li>angular</li><li>cloud</li><li>csharp-dotnet</li><li>css-tailwind</li><li>django</li><li>docker</li><li>fastapi</li><li>github-actions</li><li>go</li><li>java-spring</li><li>javascript-node</li><li>junit</li><li>kotlin-android</li><li>kubernetes</li><li>mongodb</li><li>mysql</li><li>nextjs</li><li>pest</li><li>php-laravel</li><li>playwright</li><li>pytest</li><li>python</li><li>react</li><li>redis</li><li>rspec</li><li>ruby-rails</li><li>rust</li><li>security-web</li><li>seo</li><li>sql-postgres</li><li>svelte-sveltekit</li><li>swift-ios</li><li>terraform</li><li>testing-js</li><li>tests-from-criteria</li><li>typescript</li><li>vue-nuxt</li>
     </ul>
   </div>
@@ -331,7 +331,7 @@ alex@mbp api % </pre></div>
     <div class="legend">
       <div><h3>Claude Code, all of it</h3><p>Settings, permissions and hooks by scope, MCP servers, plugins, skills, memory files, past sessions, usage and limits, and a sortable table of your claude.ai artifacts. <a href="features.html#claude">All the Claude Code features</a></p></div>
       <div><h3>Keys, sync and vault</h3><p>SSH keys in every format with the agent and <code>~/.ssh/config</code>, settings synced across machines and encrypted end to end, a vault for secrets from the command line. <a href="features.html#machine">Keys, vault and sync in detail</a></p></div>
-      <div><h3>CI, schedules and files</h3><p>GitHub Actions runs and logs with the failure sent back to the agent, Claude tasks on a schedule even while TermF is closed, and a file explorer with fuzzy search, an editor and diffs. <a href="features.html#ci">CI/CD in detail</a></p></div>
+      <div><h3>Git, CI and schedules</h3><p>Each repository's branches, worktrees and commit graph with the everyday actions, GitHub Actions runs and logs with the failure sent back to the agent, Claude tasks on a schedule even while TermF is closed, and a file explorer with an editor and diffs. <a href="features/git.html">Git in the project</a> · <a href="features.html#ci">CI/CD in detail</a></p></div>
     </div>
     <p style="margin-top:28px"><a class="more" href="features.html">Every feature, with its defaults</a></p>
   </div>
