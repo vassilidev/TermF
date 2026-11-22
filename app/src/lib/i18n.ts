@@ -2221,6 +2221,9 @@ const fr = {
   apiIsoTools: "Outils autorisés",
   apiIsoModel: "Modèle",
   apiIsoPrompt: "Premier message",
+  apiIsoSay: "écrire dans la session {session}, puis Entrée",
+  apiIsoOpen: "ouvrir l'agent {agent} avec tes réglages",
+  apiIsoText: "Texte",
   // Phase 4: the code review and its rounds (review → fixes → review again).
   reviewLoopRound: "Tour {round}",
   reviewLoopClean: "aucun constat",
@@ -4462,6 +4465,9 @@ const en: Record<Key, string> = {
   apiIsoTools: "Allowed tools",
   apiIsoModel: "Model",
   apiIsoPrompt: "First message",
+  apiIsoSay: "type in session {session}, then Enter",
+  apiIsoOpen: "open agent {agent} with your settings",
+  apiIsoText: "Text",
   // Phase 4: the code review and its rounds (review → fixes → review again).
   reviewLoopRound: "Round {round}",
   reviewLoopClean: "no finding",

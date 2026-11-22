@@ -189,13 +189,23 @@ impl Api {
         let Some(mut reserved) = ipc::reserved(call).filter(|_| self.confirm_cli) else {
             return Ok(());
         };
-        if let Call::Agent(AgentCall::Answer {
-            session, request, ..
-        }) = call
-        {
-            reserved
+        match call {
+            Call::Agent(AgentCall::Answer {
+                session, request, ..
+            }) => reserved
                 .args
-                .extend(agents::permission(app, *session, request));
+                .extend(agents::permission(app, *session, request)),
+            Call::Say { session, .. } => {
+                let sessions = self.list(&app.state::<AppState>().sessions);
+                if let Ok(id) = ipc::find_session(&sessions, session) {
+                    let title = sessions
+                        .iter()
+                        .find(|s| s.id == id)
+                        .map(|s| s.title.clone());
+                    reserved.args.extend(title.map(|t| ("title", t)));
+                }
+            }
+            _ => {}
         }
         let show = |event: &str, confirm: &Confirm| {
             let _ = app.emit(event, confirm);

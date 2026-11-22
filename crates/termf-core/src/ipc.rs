@@ -549,6 +549,22 @@ pub fn reserved(call: &Call) -> Option<Reserved> {
             ],
         ),
         Call::Resume { run } => ("resume", vec![("run", Some(run.to_string()))]),
+        // Typing in a session can answer its permission or trust prompt.
+        Call::Say { session, text } => (
+            "say",
+            vec![
+                ("session", Some(session.clone())),
+                ("text", Some(text.clone())),
+            ],
+        ),
+        // A shell tile does nothing until something types in it; an agent's runs with the user's settings.
+        Call::Open {
+            path,
+            agent: Some(agent),
+        } => (
+            "open",
+            vec![("agent", Some(agent.clone())), ("cwd", Some(path.clone()))],
+        ),
         Call::Deliver { run, .. } => ("deliver", vec![("run", Some(run.to_string()))]),
         Call::Close { run, force } => {
             let action = if *force { "closeForce" } else { "close" };
@@ -1043,6 +1059,21 @@ mod tests {
             Some(("resume", args(&[("run", "7")])))
         );
         assert_eq!(
+            action(Call::Say {
+                session: "api".into(),
+                text: "1".into()
+            }),
+            Some(("say", args(&[("session", "api"), ("text", "1")]))),
+            "typing can answer a permission prompt"
+        );
+        assert_eq!(
+            action(Call::Open {
+                path: "/src/api".into(),
+                agent: Some("claude".into())
+            }),
+            Some(("open", args(&[("agent", "claude"), ("cwd", "/src/api")])))
+        );
+        assert_eq!(
             action(Call::Close {
                 run: 3,
                 force: true
@@ -1138,6 +1169,10 @@ mod tests {
         for call in [
             Call::List,
             Call::Watch,
+            Call::Open {
+                path: "/src/api".into(),
+                agent: None,
+            },
             Call::Team(TeamCall::Stop { run: None }),
             Call::Vault(VaultCall::Lock),
         ] {

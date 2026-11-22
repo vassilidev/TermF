@@ -24,6 +24,8 @@
     review: "apiIsoReview",
     allow: "apiIsoAllowAgent",
     agentStart: "apiIsoAgentStart",
+    say: "apiIsoSay",
+    open: "apiIsoOpen",
   };
   // Shown in full under the sentence: what the user allows, not only its name.
   const details: [string, Key][] = [
@@ -31,6 +33,7 @@
     ["project", "apiIsoProject"],
     ["repo", "apiIsoRepo"],
     ["title", "apiIsoSession"],
+    ["text", "apiIsoText"],
     ["tool", "apiIsoTool"],
     ["description", "apiIsoDescription"],
     ["input", "apiIsoInput"],
