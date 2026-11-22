@@ -40,7 +40,14 @@
   }
 </script>
 
-<button bind:this={trigger} class="btn sm quiet" aria-haspopup="dialog" aria-expanded={open} onclick={() => (open = !open)}>
+<button
+  bind:this={trigger}
+  class="btn sm quiet"
+  aria-haspopup="dialog"
+  aria-expanded={open}
+  title={t("uxfT3LayoutsHint")}
+  onclick={() => (open = !open)}
+>
   <LayoutGrid size={14} aria-hidden="true" />{t("layouts")}<ChevronDown size={14} aria-hidden="true" />
 </button>
 

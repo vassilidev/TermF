@@ -3015,6 +3015,10 @@ const fr = {
   uxfT3BroadcastHint: "Taper la même chose dans plusieurs terminaux à la fois",
   uxfT3RemoteHint: "Suivre et piloter cette session depuis claude.ai ou ton téléphone",
   uxfT3DispatchHint: "Lance à la main un workflow GitHub Actions qui le permet (workflow_dispatch)",
+  uxfT3LayoutsHint: "Tes terminaux ouverts, enregistrés pour les rouvrir ensemble d'un clic",
+  uxfT3WorktreesHint: "git worktree : d'autres dossiers du même dépôt, chacun sur sa branche ; les runs de l'équipe y travaillent",
+  uxfT3StagedHint: "git add : ce qui partira dans le prochain commit",
+  uxfT3UnstagedHint: "Pas encore dans le prochain commit : + pour l'y ajouter",
   // Roles brand, copy and motion: the natures of a request the CTO routes to them.
   rolesKindBrand: "Marque",
   rolesKindCopy: "Textes",
@@ -6610,6 +6614,10 @@ const en: Record<Key, string> = {
   uxfT3BroadcastHint: "Type the same thing in several terminals at once",
   uxfT3RemoteHint: "Follow and drive this session from claude.ai or your phone",
   uxfT3DispatchHint: "Starts by hand a GitHub Actions workflow that allows it (workflow_dispatch)",
+  uxfT3LayoutsHint: "Your open terminals, saved to open them together in one click",
+  uxfT3WorktreesHint: "git worktree: other folders of the same repository, each on its branch; the team's runs work there",
+  uxfT3StagedHint: "git add: what goes into the next commit",
+  uxfT3UnstagedHint: "Not in the next commit yet: + to add it",
   // Roles brand, copy and motion: the natures of a request the CTO routes to them.
   rolesKindBrand: "Brand",
   rolesKindCopy: "Copy",

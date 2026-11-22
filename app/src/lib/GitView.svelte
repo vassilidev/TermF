@@ -723,7 +723,7 @@
             {#each groups.remote as b (b.name)}{@render branchRow(b)}{/each}
           </ul>
         {/if}
-        <h2 class="section">{t("gitWorktrees")}<span class="n">{snap.worktrees.length}</span></h2>
+        <h2 class="section" title={t("uxfT3WorktreesHint")}>{t("gitWorktrees")}<span class="n">{snap.worktrees.length}</span></h2>
         <ul>
           {#each snap.worktrees as wt (wt.path)}
             {@const run = runOf(wt)}
