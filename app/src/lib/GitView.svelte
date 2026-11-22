@@ -145,15 +145,10 @@
     invoke<Pr[]>("git_prs", { repo }).then((found) => repo === git.repo && (prs = found), () => {});
   }
 
-  async function more() {
-    const repo = git.repo;
-    try {
-      const found = await invoke<Graph>("git_graph", { repo, limit: limit + STEP });
-      if (repo !== git.repo) return;
-      [graph, limit] = [found, limit + STEP];
-    } catch (e) {
-      error = String(e);
-    }
+  // Through `load`, so a refresh meanwhile cannot bring back fewer commits than asked for.
+  function more() {
+    limit += STEP;
+    return load(true);
   }
 
   async function act(name: string, run: (repo: string) => Promise<{ kind: "ok" | "warn"; text: string } | void>) {
@@ -521,7 +516,7 @@
                   <Trash size={14} aria-hidden="true" />{t("gitDelete")}
                 </button>
               {/if}
-            {:else}
+            {:else if !isDefault(b)}
               <button class="btn sm quiet-danger" onclick={() => (remoteRemoval = { branch: b, open: true })} disabled={!!busy}>
                 <Trash size={14} aria-hidden="true" />{t("gitDeleteRemote", { remote: b.remote })}
               </button>
@@ -553,7 +548,8 @@
             <p class="muted small">{wt.prunable ? t("gitWorktreeGoneHint") : t("gitNoChanges")}</p>
           {:else}
             <ul class="changes">
-              {#each wt.changes as change (change.path)}
+              <!-- A path comes twice when untracked but still in HEAD (`git rm --cached`): the letters tell them apart. -->
+              {#each wt.changes as change (change.index + change.tree + change.path)}
                 {@const kind = changeKind(change)}
                 <li class:conflict={change.conflict}>
                   <span class="letter {kind}" title={t(kindLabel[kind])}>{kindLetter[kind]}</span>
@@ -670,7 +666,7 @@
     bind:open={r.open}
     title={t("gitDeleteTitle", { name: r.branch.name })}
     confirm={t("gitDelete")}
-    danger
+    danger={!r.unique || r.unique.total > 0}
     disabled={!r.unique || (r.unique.total > 0 && r.typed !== r.branch.name)}
     onconfirm={remove}
   >

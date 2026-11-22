@@ -356,6 +356,79 @@ fn reports_conflicts_in_the_work_tree() {
 }
 
 #[test]
+fn a_file_untracked_but_still_in_head_comes_twice() {
+    let sb = Sandbox::new("rm-cached");
+    let repo = sb.clone("acme");
+    sb.git(&repo, &["rm", "-q", "--cached", "README.md"]);
+    let state = sb.git.state(&repo).unwrap();
+    let mut seen: Vec<(&str, char, char)> = state.worktrees[0]
+        .changes
+        .iter()
+        .map(|c| (c.path.as_str(), c.index, c.tree))
+        .collect();
+    seen.sort();
+    // The UI keys each change by its letters and path, never by its path alone.
+    assert_eq!(seen, [("README.md", '?', '?'), ("README.md", 'D', '.')]);
+}
+
+#[test]
+fn batch_mode_is_added_to_openssh_only() {
+    assert_eq!(
+        batch_ssh("ssh -i ~/.ssh/acme").as_deref(),
+        Some("ssh -i ~/.ssh/acme -o BatchMode=yes")
+    );
+    assert_eq!(
+        batch_ssh("/usr/bin/ssh").as_deref(),
+        Some("/usr/bin/ssh -o BatchMode=yes")
+    );
+    assert_eq!(
+        batch_ssh(r"C:\Windows\System32\OpenSSH\ssh.exe").as_deref(),
+        Some(r"C:\Windows\System32\OpenSSH\ssh.exe -o BatchMode=yes")
+    );
+    assert_eq!(batch_ssh("plink -batch"), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn ssh_never_asks_and_keeps_the_repository_command() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new("ssh");
+    let repo = sb.clone("acme");
+    // A fake ssh on the PATH that writes down how git called it, then fails like an unreachable host.
+    let log = sb.path("ssh-args");
+    let ssh = sb.path("bin").join("ssh");
+    fs::write(
+        &ssh,
+        format!("#!/bin/sh\necho \"$*\" >> '{}'\nexit 255\n", log.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+    sb.git(
+        &repo,
+        &["remote", "add", "far", "ssh://git.example.invalid/acme.git"],
+    );
+
+    assert!(sb.git.fetch(&repo).is_err());
+    sb.git(
+        &repo,
+        &[
+            "config",
+            "core.sshCommand",
+            &format!("{} -i acme-key", ssh.display()),
+        ],
+    );
+    assert!(sb.git.fetch(&repo).is_err());
+    let calls = fs::read_to_string(&log).unwrap();
+    let calls: Vec<&str> = calls.lines().collect();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(calls[0].starts_with("-o BatchMode=yes"), "{calls:?}");
+    assert!(
+        calls[1].starts_with("-i acme-key -o BatchMode=yes"),
+        "{calls:?}"
+    );
+}
+
+#[test]
 fn switch_creates_a_tracking_branch_and_relays_git_refusals() {
     let sb = Sandbox::new("switch");
     let repo = sb.clone("acme");
@@ -417,7 +490,7 @@ fn pull_fast_forwards_only() {
     sb.git(&repo, &["switch", "-q", "-c", "local-only"]);
     assert_eq!(sb.git.pull(&repo).unwrap().outcome, PullOutcome::NoUpstream);
 
-    // An upstream deleted on the remote and pruned.
+    // An upstream deleted on the remote: pull finds it out by itself, no fetch before.
     sb.git(&other, &["push", "-q", "origin", "main:gone-soon"]);
     sb.git(&repo, &["fetch", "-q", "origin"]);
     sb.git(
@@ -425,10 +498,9 @@ fn pull_fast_forwards_only() {
         &["switch", "-q", "-c", "follows", "origin/gone-soon"],
     );
     sb.git(&other, &["push", "-q", "origin", "--delete", "gone-soon"]);
-    sb.git(&repo, &["fetch", "-q", "--prune", "origin"]);
+    assert_eq!(sb.git.pull(&repo).unwrap().outcome, PullOutcome::Gone);
     let state = sb.git.state(&repo).unwrap();
     assert!(branch(&state, "follows").gone);
-    assert_eq!(sb.git.pull(&repo).unwrap().outcome, PullOutcome::Gone);
 
     sb.git(&repo, &["switch", "-q", "--detach"]);
     assert!(sb.git.pull(&repo).is_err());
@@ -576,6 +648,87 @@ fn deletes_a_remote_branch() {
             .is_empty()
     );
     assert!(sb.git.delete_remote(&repo, "origin", "-x").is_err());
+
+    // Never the remote's default branch: the target of origin/HEAD, else main or master.
+    sb.git(&repo, &["push", "-q", "origin", "main:trunk"]);
+    sb.git(&repo, &["remote", "set-head", "origin", "trunk"]);
+    let err = format!(
+        "{:#}",
+        sb.git.delete_remote(&repo, "origin", "trunk").unwrap_err()
+    );
+    assert!(err.contains("default branch"), "{err}");
+    sb.git(&repo, &["remote", "set-head", "origin", "-d"]);
+    assert!(sb.git.delete_remote(&repo, "origin", "main").is_err());
+    assert_eq!(
+        sb.git(
+            &repo,
+            &["ls-remote", "origin", "refs/heads/main", "refs/heads/trunk"]
+        )
+        .lines()
+        .count(),
+        2
+    );
+}
+
+#[test]
+fn push_goes_where_git_would_in_a_fork() {
+    let sb = Sandbox::new("fork");
+    let repo = sb.clone("acme");
+    // `upstream` is the original, `origin` the user's fork, where git pushes by `remote.pushDefault`.
+    sb.git(&repo, &["remote", "rename", "origin", "upstream"]);
+    sb.git(
+        &sb.root,
+        &["clone", "-q", "--bare", "remote.git", "fork.git"],
+    );
+    let fork = sb.path("fork.git");
+    sb.git(&repo, &["remote", "add", "origin", fork.to_str().unwrap()]);
+    sb.git(&repo, &["config", "remote.pushDefault", "origin"]);
+    sb.git(&repo, &["push", "-q", "upstream", "main:feature"]);
+    sb.git(&repo, &["fetch", "-q", "upstream"]);
+    sb.git(
+        &repo,
+        &[
+            "switch",
+            "-q",
+            "-c",
+            "feature",
+            "--track",
+            "upstream/feature",
+        ],
+    );
+    let tip = sb.commit(&repo, "fork.rs", "fork\n", "Work in the fork");
+    let original = sb.git(&repo, &["ls-remote", "upstream", "refs/heads/feature"]);
+
+    let pushed = sb.git.push(&repo, "feature").unwrap();
+    assert_eq!(
+        pushed,
+        Push {
+            remote: "origin".into(),
+            upstream_set: false
+        }
+    );
+    assert!(
+        sb.git(&repo, &["ls-remote", "origin", "refs/heads/feature"])
+            .starts_with(&tip)
+    );
+    assert_eq!(
+        sb.git(&repo, &["ls-remote", "upstream", "refs/heads/feature"]),
+        original
+    );
+    let state = sb.git.state(&repo).unwrap();
+    assert_eq!(
+        branch(&state, "feature").upstream.as_deref(),
+        Some("upstream/feature"),
+        "the triangle stays"
+    );
+
+    // The branch's own push remote comes first.
+    sb.git(&repo, &["config", "branch.feature.pushRemote", "upstream"]);
+    assert_eq!(sb.git.push(&repo, "feature").unwrap().remote, "upstream");
+    assert!(
+        sb.git(&repo, &["ls-remote", "upstream", "refs/heads/feature"])
+            .starts_with(&tip)
+    );
 }
 
 #[test]

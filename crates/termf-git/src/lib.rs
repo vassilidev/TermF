@@ -377,6 +377,14 @@ fn default_ref(refs: &[RawRef], remotes: &[String]) -> Option<String> {
         })
 }
 
+/// `command` in ssh's batch mode when it runs OpenSSH (`ssh`, from any folder); another program (plink…) may not
+/// take `-o`, so it is left alone.
+fn batch_ssh(command: &str) -> Option<String> {
+    let program = command.split_whitespace().next()?;
+    let name = program.rsplit(['/', '\\']).next()?.to_ascii_lowercase();
+    matches!(name.as_str(), "ssh" | "ssh.exe").then(|| format!("{command} -o BatchMode=yes"))
+}
+
 /// Refuses what git would take for an option.
 fn checked_name(name: &str) -> Result<&str> {
     ensure!(
@@ -423,9 +431,16 @@ impl Git {
     }
 
     fn output(&self, dir: &Path, args: &[&str]) -> Result<Output> {
+        self.output_with(dir, args, None)
+    }
+
+    fn output_with(&self, dir: &Path, args: &[&str], ssh: Option<&str>) -> Result<Output> {
+        let mut cmd = self.command(Path::new("git"));
+        if let Some(ssh) = ssh {
+            cmd.env("GIT_SSH_COMMAND", ssh);
+        }
         // No optional locks: a refresh must never make an agent's concurrent git command fail on index.lock.
-        self.command(Path::new("git"))
-            .arg("--no-optional-locks")
+        cmd.arg("--no-optional-locks")
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -435,7 +450,34 @@ impl Git {
 
     /// The output, or git's own error.
     fn run(&self, dir: &Path, args: &[&str]) -> Result<String> {
-        let out = self.output(dir, args)?;
+        self.run_with(dir, args, None)
+    }
+
+    /// A command that reaches a remote. `GIT_TERMINAL_PROMPT` does not stop ssh from asking for a passphrase or a
+    /// host key on the terminal TermF was started from: in batch mode it fails with its own error instead.
+    fn run_remote(&self, dir: &Path, args: &[&str]) -> Result<String> {
+        let var = |name: &str| {
+            self.env
+                .iter()
+                .rev()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+                .or_else(|| std::env::var(name).ok())
+        };
+        // git's own order: GIT_SSH_COMMAND, then a GIT_SSH program (left as it is), then core.sshCommand.
+        let ssh = match var("GIT_SSH_COMMAND") {
+            Some(command) => Some(command),
+            None if var("GIT_SSH").is_some() => None,
+            None => Some(
+                self.lookup(dir, &["config", "--get", "core.sshCommand"])?
+                    .unwrap_or_else(|| "ssh".into()),
+            ),
+        };
+        self.run_with(dir, args, ssh.and_then(|c| batch_ssh(&c)).as_deref())
+    }
+
+    fn run_with(&self, dir: &Path, args: &[&str], ssh: Option<&str>) -> Result<String> {
+        let out = self.output_with(dir, args, ssh)?;
         ensure!(
             out.status.success(),
             "git {} failed: {}",
@@ -685,12 +727,12 @@ impl Git {
 
     /// Fetches every remote, forgetting the branches deleted there.
     pub fn fetch(&self, repo: &Path) -> Result<()> {
-        self.run(repo, &["fetch", "--all", "--prune"])?;
+        self.run_remote(repo, &["fetch", "--all", "--prune"])?;
         Ok(())
     }
 
-    /// Fetches the current branch's upstream, then moves the branch forward to it when it has nothing of its own;
-    /// otherwise says why and changes nothing.
+    /// Fetches the current branch's upstream (forgotten when deleted on its remote), then moves the branch forward
+    /// to it when it has nothing of its own; otherwise says why and changes nothing.
     pub fn pull(&self, repo: &Path) -> Result<Pull> {
         let branch = self
             .lookup(repo, &["symbolic-ref", "-q", "--short", "HEAD"])?
@@ -708,7 +750,7 @@ impl Git {
             return Ok(answer(PullOutcome::NoUpstream, (0, 0)));
         };
         if remote != "." {
-            self.run(repo, &["fetch", &remote])?;
+            self.run_remote(repo, &["fetch", "--prune", &remote])?;
         }
         if self
             .lookup(repo, &["rev-parse", "-q", "--verify", "@{upstream}"])?
@@ -728,9 +770,10 @@ impl Git {
         Ok(answer(outcome, counts))
     }
 
-    /// Pushes a local branch to its upstream of the same name, or, without one, to its remote (the branch's push
-    /// remote, `remote.pushDefault`, `origin`, else the only one) and sets it as upstream. Never forced: git
-    /// refuses a push that would drop commits on the remote.
+    /// Pushes a local branch under its own name to its push remote, chosen as git does: the branch's `pushRemote`,
+    /// `remote.pushDefault`, its upstream's remote, then `origin` or the only remote. The upstream is kept when it
+    /// has that name or lives on another remote (a fork's triangle); otherwise the branch tracks what was pushed.
+    /// Never forced: git refuses a push that would drop commits on the remote.
     pub fn push(&self, repo: &Path, branch: &str) -> Result<Push> {
         let full = format!("refs/heads/{}", checked_name(branch)?);
         let r = self
@@ -738,25 +781,24 @@ impl Git {
             .into_iter()
             .find(|r| r.name == full)
             .with_context(|| format!("no local branch {branch}"))?;
+        let upstream =
+            (!r.upstream.is_empty() && r.upstream_remote != ".").then_some(&r.upstream_remote);
+        let remote = self.push_remote(repo, branch, upstream)?;
+        // Never under the upstream's other name: a branch started from `origin/main` must not push onto main.
+        let keep = upstream.is_some_and(|u| *u != remote || r.upstream_ref == full);
         let refspec = format!("{full}:{full}");
-        // Only an upstream of the same name is pushed to as is: a branch started from `origin/main` must not
-        // push its work onto main.
-        if !r.upstream.is_empty() && r.upstream_remote != "." && r.upstream_ref == full {
-            self.run(repo, &["push", &r.upstream_remote, &refspec])?;
-            return Ok(Push {
-                remote: r.upstream_remote,
-                upstream_set: false,
-            });
+        let mut args = vec!["push", remote.as_str(), &refspec];
+        if !keep {
+            args.insert(1, "--set-upstream");
         }
-        let remote = self.push_remote(repo, branch, &r.upstream_remote)?;
-        self.run(repo, &["push", "--set-upstream", &remote, &refspec])?;
+        self.run_remote(repo, &args)?;
         Ok(Push {
             remote,
-            upstream_set: true,
+            upstream_set: !keep,
         })
     }
 
-    fn push_remote(&self, repo: &Path, branch: &str, upstream: &str) -> Result<String> {
+    fn push_remote(&self, repo: &Path, branch: &str, upstream: Option<&String>) -> Result<String> {
         for key in [
             format!("branch.{branch}.pushRemote"),
             "remote.pushDefault".into(),
@@ -765,10 +807,10 @@ impl Git {
                 return Ok(remote);
             }
         }
-        let remotes = self.remotes(repo)?;
-        if !upstream.is_empty() && remotes.iter().any(|r| r == upstream) {
-            return Ok(upstream.to_owned());
+        if let Some(upstream) = upstream {
+            return Ok(upstream.clone());
         }
+        let remotes = self.remotes(repo)?;
         if remotes.iter().any(|r| r == "origin") {
             return Ok("origin".into());
         }
@@ -812,10 +854,21 @@ impl Git {
         Ok(())
     }
 
-    /// Deletes `branch` on `remote` (and its remote-tracking branch here).
+    /// Deletes `branch` on `remote` (and its remote-tracking branch here), never the remote's default branch: the
+    /// target of `<remote>/HEAD`, or `main` and `master` when it is unknown.
     pub fn delete_remote(&self, repo: &Path, remote: &str, branch: &str) -> Result<()> {
         let (remote, branch) = (checked_name(remote)?, checked_name(branch)?);
-        self.run(
+        let prefix = format!("refs/remotes/{remote}/");
+        let head = self.lookup(repo, &["symbolic-ref", "-q", &format!("{prefix}HEAD")])?;
+        let default = match head.as_deref().and_then(|h| h.strip_prefix(&prefix)) {
+            Some(default) => default == branch,
+            None => matches!(branch, "main" | "master"),
+        };
+        ensure!(
+            !default,
+            "{branch} is the default branch of {remote}: TermF does not delete it"
+        );
+        self.run_remote(
             repo,
             &["push", remote, "--delete", &format!("refs/heads/{branch}")],
         )?;
