@@ -1,3 +1,6 @@
+// The fake clients are shell scripts: most tests, and what only they use, are Unix-only.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
+
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fs;
