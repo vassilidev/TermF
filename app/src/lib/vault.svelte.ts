@@ -16,8 +16,8 @@ export type VaultStatus = {
   quickDays: number | null;
   quickUntil: number | null;
   confirmedUntil: number | null;
-  /** Another machine's version, brought by the sync, waits beside the vault. */
-  synced: "pending" | "secured" | "other" | "newer" | null;
+  /** Another machine's version, brought by the sync, waits beside the vault, or did not open and was set aside. */
+  synced: "pending" | "secured" | "other" | "newer" | "damaged" | null;
 };
 export type VaultView = "vault" | "vaultAll";
 export type KeyInfo = { id: string; name: string; created: number };
@@ -39,6 +39,10 @@ export const vault = $state({
   methods: null as VaultMethods | null,
   /** Shown once, until the user says it is stored; never kept past that. */
   recoveryKey: null as { key: string; reason: RecoveryReason } | null,
+  /** Counts the merges done while open, so what shows other versions reads them again. */
+  merged: 0,
+  /** The set-aside synced version was told once this session. */
+  damagedSeen: false,
 });
 
 /** Touch ID or Windows Hello by its name, when this machine has one. */
@@ -63,6 +67,7 @@ function watch() {
   });
   // Another machine's version merged while the vault is open.
   listen<Merged[]>("vault-merged", (e) => {
+    vault.merged++;
     refreshVault();
     if (counts(e.payload).length) say(t("vault3Merged", { summary: mergeText(e.payload) }));
   });

@@ -1,7 +1,10 @@
 //! The item-by-item merge of two versions of one vault, for the sync and the import. Each item and secret keeps
 //! the history of its versions (`revs`): a version that knows the other one's last replaces it, two that do not
 //! are a conflict (both kept until the user chooses), and a deletion leaves a tombstone that removes only the
-//! versions it saw. Nothing is ever dropped without one side having seen it.
+//! versions it saw. Nothing is ever dropped without one side having seen it. Another vault's export shares no
+//! history with this one: it only adds, or sets its versions beside ours ([`Content::merge_foreign`]).
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use termf_sync::crypto;
@@ -90,6 +93,14 @@ impl Conflicted {
             (Some(item), _) => item.id.clone(),
             (_, Some(secret)) => secret.key(),
             _ => String::new(),
+        }
+    }
+
+    fn revs(&self) -> &[String] {
+        match (&self.item, &self.secret) {
+            (Some(item), _) => &item.revs,
+            (_, Some(secret)) => &secret.revs,
+            _ => &[],
         }
     }
 }
@@ -233,6 +244,77 @@ impl Element for Stored {
     }
 }
 
+/// Another vault's elements: added when new, set beside ours as a conflict when they differ, never in place of
+/// ours. A fresh history for each, so neither side ever reads as knowing the other.
+fn add_foreign<T: Element>(
+    mine: &mut [T],
+    theirs: Vec<T>,
+    added: &mut Vec<T>,
+    conflicts: &mut Vec<Conflicted>,
+    now: u64,
+    rows: &mut Vec<Merged>,
+) {
+    for mut t in theirs {
+        let key = t.key();
+        *t.revs_mut() = Vec::new();
+        new_rev(t.revs_mut());
+        match mine.iter_mut().find(|m| m.key() == key) {
+            Some(m) if m.same(&t) => rows.push(m.row(Change::Unchanged)),
+            Some(m) => {
+                rows.push(m.row(Change::Conflict));
+                if m.revs().is_empty() {
+                    new_rev(m.revs_mut());
+                }
+                let known = conflicts
+                    .iter()
+                    .filter_map(T::of)
+                    .any(|c| c.key() == key && c.same(&t));
+                if !known {
+                    conflicts.push(t.into_conflict(now));
+                }
+            }
+            None if added.iter().any(|a| a.key() == key) => {}
+            None => {
+                rows.push(t.row(Change::Added));
+                added.push(t);
+            }
+        }
+    }
+}
+
+/// Two versions are the same one: same content, and histories that hold each other.
+fn alike<T: Element>(a: &T, b: &T) -> bool {
+    fn set(revs: &[String]) -> BTreeSet<&String> {
+        revs.iter().collect()
+    }
+    a.same(b)
+        && (set(a.revs()) == set(b.revs())
+            || knows(a.revs(), b.revs()) && knows(b.revs(), a.revs()))
+}
+
+/// Every version of every element, the current one and the others, by key.
+fn versions<'a, T: Element>(
+    list: &'a [T],
+    conflicts: &'a [Conflicted],
+) -> BTreeMap<String, Vec<&'a T>> {
+    let mut by_key: BTreeMap<String, Vec<&T>> = BTreeMap::new();
+    for v in list.iter().chain(conflicts.iter().filter_map(T::of)) {
+        by_key.entry(v.key()).or_default().push(v);
+    }
+    by_key
+}
+
+fn same_versions<T: Element>(a: &BTreeMap<String, Vec<&T>>, b: &BTreeMap<String, Vec<&T>>) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(key, mine)| {
+            b.get(key).is_some_and(|theirs| {
+                mine.len() == theirs.len()
+                    && mine.iter().all(|m| theirs.iter().any(|t| alike(*m, *t)))
+                    && theirs.iter().all(|t| mine.iter().any(|m| alike(*m, *t)))
+            })
+        })
+}
+
 fn merge_list<T: Element>(
     mine: &mut Vec<T>,
     theirs: Vec<T>,
@@ -295,8 +377,9 @@ fn settle<T: Element>(list: &mut Vec<T>, conflicts: &mut Vec<Conflicted>, tombs:
             continue;
         };
         let key = v.key();
+        let buried = tombs.iter().any(|t| t.key == key && t.buries(v.revs()));
         match list.iter().position(|m| m.key() == key) {
-            Some(i) if list[i].same(&v) || knows(list[i].revs(), v.revs()) => {}
+            Some(i) if buried || list[i].same(&v) || knows(list[i].revs(), v.revs()) => {}
             Some(i) if knows(v.revs(), list[i].revs()) => list[i] = v,
             Some(_) => {
                 if !kept
@@ -307,7 +390,7 @@ fn settle<T: Element>(list: &mut Vec<T>, conflicts: &mut Vec<Conflicted>, tombs:
                     kept.push(c);
                 }
             }
-            None if tombs.iter().any(|t| t.key == key && t.buries(v.revs())) => {}
+            None if buried => {}
             None => list.push(v),
         }
     }
@@ -352,6 +435,52 @@ impl Content {
         rows
     }
 
+    /// Another vault's export: what it has that this one has not is added, what differs is set beside ours as a
+    /// conflict. Never replaces nor deletes anything, whatever its histories and tombstones say.
+    pub(crate) fn merge_foreign(&mut self, theirs: Content, now: u64) -> Vec<Merged> {
+        let mut rows = Vec::new();
+        let mut items = Vec::new();
+        add_foreign(
+            &mut self.items,
+            theirs.items,
+            &mut items,
+            &mut self.conflicts,
+            now,
+            &mut rows,
+        );
+        self.items.extend(items);
+        let mut secrets = Vec::new();
+        add_foreign(
+            &mut self.secrets,
+            theirs.secrets,
+            &mut secrets,
+            &mut self.conflicts,
+            now,
+            &mut rows,
+        );
+        self.secrets.extend(secrets);
+        self.settle(now);
+        rows
+    }
+
+    /// Both hold the same versions of every element (current or other, in any order) and the same deletions:
+    /// nothing to send either way.
+    pub(crate) fn equivalent(&self, other: &Content) -> bool {
+        let tombs = |c: &Content| -> BTreeMap<String, BTreeSet<String>> {
+            c.tombstones
+                .iter()
+                .map(|t| (t.key.clone(), t.revs.iter().cloned().collect()))
+                .collect()
+        };
+        same_versions(
+            &versions(&self.items, &self.conflicts),
+            &versions(&other.items, &other.conflicts),
+        ) && same_versions(
+            &versions(&self.secrets, &self.conflicts),
+            &versions(&other.secrets, &other.conflicts),
+        ) && tombs(self) == tombs(other)
+    }
+
     /// After a merge or a change: what supersedes what, and the tombstones still worth keeping.
     pub(crate) fn settle(&mut self, now: u64) {
         settle(&mut self.items, &mut self.conflicts, &self.tombstones);
@@ -369,7 +498,8 @@ impl Content {
         self.tombstones = kept;
     }
 
-    /// A deletion: the element goes with its other versions, and its tombstone stays.
+    /// A deletion: the element goes with its other versions, and its tombstone covers every one of them, so a
+    /// machine that still shows one of the others deletes it too.
     pub(crate) fn bury(
         &mut self,
         key: String,
@@ -377,12 +507,31 @@ impl Content {
         revs: Vec<String>,
         now: u64,
     ) {
+        let others: Vec<Vec<String>> = self
+            .conflicts
+            .iter()
+            .filter(|c| c.key() == key)
+            .map(|c| c.revs().to_vec())
+            .collect();
+        let (mut seen, mut lasts) = (Vec::new(), Vec::new());
+        for history in std::iter::once(&revs).chain(&others) {
+            if let Some((last, before)) = history.split_last() {
+                seen.extend(before.iter().cloned());
+                lasts.push(last.clone());
+            }
+        }
+        // The last of each version stays in the trimmed history: what tells the tombstone covers it.
+        let mut once = BTreeSet::new();
+        lasts.retain(|r| once.insert(r.clone()));
+        seen.retain(|r| once.insert(r.clone()));
+        seen.extend(lasts);
+        trim(&mut seen);
         self.conflicts.retain(|c| c.key() != key);
         self.tombstones.retain(|t| t.key != key);
         self.tombstones.push(Tombstone {
             key,
             project,
-            revs,
+            revs: seen,
             deleted: now,
         });
     }
@@ -600,6 +749,59 @@ mod tests {
         b.merge(a, 7);
         assert_eq!(titles(&b), ["c"], "the deletion never saw this one");
         assert!(b.conflicts.is_empty());
+    }
+
+    #[test]
+    fn deleting_an_element_buries_its_other_versions_too() {
+        let mut a = content(vec![item("x", "a", &["1", "2"])]);
+        a.conflicts
+            .push(item("x", "b", &["1", "3"]).into_conflict(5));
+        let mut b = content(vec![item("x", "b", &["1", "3"])]);
+        b.conflicts
+            .push(item("x", "a", &["1", "2"]).into_conflict(5));
+        a.items.clear();
+        a.bury("x".into(), None, vec!["1".into(), "2".into()], 6);
+        assert!(a.conflicts.is_empty());
+        assert_eq!(a.tombstones[0].revs, ["1", "2", "3"]);
+        let rows = b.merge(a.clone(), 7);
+        assert!(b.items.is_empty() && b.conflicts.is_empty(), "{rows:?}");
+        a.merge(content(vec![item("x", "b", &["1", "3"])]), 8);
+        assert!(a.items.is_empty(), "the other version stays deleted");
+        // An edit the deletion never saw comes back; an other version it saw does not.
+        let mut c = content(vec![item("x", "c", &["1", "3", "4"])]);
+        c.conflicts
+            .push(item("x", "a", &["1", "2"]).into_conflict(5));
+        c.merge(a, 9);
+        assert_eq!(titles(&c), ["c"]);
+        assert!(c.conflicts.is_empty());
+    }
+
+    #[test]
+    fn another_vaults_versions_never_replace_nor_delete() {
+        let mut mine = content(vec![item("x", "mine", &[]), item("y", "kept", &["1"])]);
+        mine.bury("z".into(), None, Vec::new(), 1);
+        let mut theirs = content(vec![
+            item("x", "theirs", &["9"]),
+            item("z", "theirs z", &[]),
+        ]);
+        theirs.bury("y".into(), None, vec!["1".into()], 1);
+        let rows = mine.merge_foreign(theirs, 2);
+        assert_eq!(titles(&mine), ["kept", "mine", "theirs z"]);
+        assert_eq!(mine.conflicts.len(), 1, "{rows:?}");
+        assert_eq!(mine.conflicts[0].item.as_ref().unwrap().title, "theirs");
+    }
+
+    #[test]
+    fn equivalent_contents_hold_the_same_versions_in_any_order() {
+        let mut a = content(vec![item("x", "a", &["1", "2"]), item("y", "y", &["1"])]);
+        a.conflicts
+            .push(item("x", "b", &["1", "3"]).into_conflict(5));
+        let mut b = content(vec![item("y", "y", &["1"]), item("x", "b", &["1", "3"])]);
+        b.conflicts
+            .push(item("x", "a", &["1", "2"]).into_conflict(6));
+        assert!(a.equivalent(&b) && b.equivalent(&a));
+        b.items[0].revs.push("4".into());
+        assert!(!a.equivalent(&b), "a newer version of y");
     }
 
     #[test]

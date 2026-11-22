@@ -60,7 +60,7 @@ pub use merge::{Change, Merged, summary};
 pub use reference::check as check_reference;
 pub use synced::{ConflictInfo, Synced};
 pub use totp::{Algorithm, Totp};
-pub use transfer::{ForeignChoice, ForeignPreview, ForeignRow, digest, is_export};
+pub use transfer::{ExportWrite, ForeignChoice, ForeignPreview, ForeignRow, digest, is_export};
 
 use item::Item;
 use merge::{Conflicted, Tombstone, new_rev};
@@ -73,6 +73,9 @@ const DIR: &str = "vault";
 const FILE: &str = "vault.json";
 /// This machine's Touch ID / Windows Hello slot, never synced: the key that opens it is in this keychain.
 const QUICK: &str = "quick.json";
+/// What only this machine knows of the vault (its keychain keeps the password's key), never synced: the synced
+/// file stays the same on every machine.
+const MACHINE: &str = "machine.json";
 /// 2: the password manager's items. 3: security keys and the recovery key. 4: each element's history, the
 /// tombstones and the conflicts of the item-by-item merge, and when the way it opens last changed. A TermF that
 /// knows an older format would drop what it does not know when it writes, so it refuses a newer one.
@@ -494,8 +497,8 @@ struct VaultFile {
     salt: String,
     /// The data key, sealed by the password's key.
     key: String,
-    /// The password's key is in the system keychain.
-    #[serde(default)]
+    /// The password's key is in this machine's keychain: kept in `machine.json`, read here from older files.
+    #[serde(default, skip_serializing)]
     remembered: bool,
     /// The content, sealed by the data key.
     data: String,
@@ -537,6 +540,14 @@ struct Recovery {
     /// The data key, and the factor secret when there was one, sealed by the recovery key's key.
     key: String,
     created: u64,
+}
+
+/// `machine.json`.
+#[derive(Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct Machine {
+    vault: String,
+    remembered: bool,
 }
 
 /// `quick.json`: the session's keys, sealed by a key in this machine's keychain, until `until`.
@@ -837,15 +848,34 @@ impl Vault {
             }
             other => other?,
         };
-        let file: VaultFile = serde_json::from_slice(&bytes).map_err(|_| anyhow!(DAMAGED))?;
+        let mut file: VaultFile = serde_json::from_slice(&bytes).map_err(|_| anyhow!(DAMAGED))?;
         ensure!(
             (1..=FORMAT).contains(&file.format),
             "this vault was written by a newer TermF"
         );
+        file.remembered |= self
+            .machine()
+            .is_some_and(|m| m.vault == file.id && m.remembered);
         Ok(file)
     }
 
+    fn machine(&self) -> Option<Machine> {
+        serde_json::from_slice(&fs::read(self.dir.join(MACHINE)).ok()?).ok()
+    }
+
+    fn remember_here(&self, vault: &str, remembered: bool) -> Result<()> {
+        let machine = Machine {
+            vault: vault.into(),
+            remembered,
+        };
+        if self.machine().as_ref() == Some(&machine) {
+            return Ok(());
+        }
+        self.write_bytes(MACHINE, &serde_json::to_vec_pretty(&machine)?)
+    }
+
     fn write(&self, file: &VaultFile) -> Result<()> {
+        self.remember_here(&file.id, file.remembered)?;
         self.write_bytes(FILE, &serde_json::to_vec_pretty(file)?)
     }
 
@@ -1172,7 +1202,11 @@ impl Vault {
         };
         material.data = data_key;
         file.open(&material.data)?;
-        self.absorb(actor, &material.data, opened.as_ref())?;
+        let absorbed = self.absorb(actor, &material.data, opened.as_ref())?;
+        // The newer way to open came with a version that does not open: this machine's own file decides.
+        if matches!(absorbed, synced::Absorbed::SetAside) && opened.is_some() {
+            return self.unlock(actor, password, remember, pin);
+        }
         let detail = match (password, &file.factor) {
             (None, _) => Some("keychain"),
             (Some(_), Some(_)) => Some("security key"),

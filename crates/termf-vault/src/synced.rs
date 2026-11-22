@@ -20,6 +20,17 @@ use crate::{
 
 /// The synced version's name beside `vault.json`.
 pub const INCOMING: &str = termf_sync::VAULT_INCOMING;
+/// A synced version that does not open here, set aside (never deleted) so the vault opens without it.
+pub const DAMAGED_INCOMING: &str = "incoming.damaged.json";
+
+/// What merging the synced version did.
+pub(crate) enum Absorbed {
+    /// None to merge here (none, or another vault).
+    Nothing,
+    Merged(Vec<Merged>),
+    /// It did not open: set aside, the vault stays as it was.
+    SetAside,
+}
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -32,6 +43,8 @@ pub enum Synced {
     Other,
     /// Written by a newer TermF.
     Newer,
+    /// A version that does not open here came: set aside as `vault/incoming.damaged.json`.
+    Damaged,
 }
 
 /// How a vault file opens: what a newer security brings along.
@@ -121,19 +134,42 @@ impl Vault {
         self.dir.join(INCOMING)
     }
 
-    /// The synced version waiting here, if any.
-    fn incoming(&self) -> Result<Option<VaultFile>> {
+    /// The synced version waiting here, if any, with its bytes as they came.
+    fn incoming(&self) -> Result<Option<(Vec<u8>, VaultFile)>> {
         let bytes = match fs::read(self.incoming_path()) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             other => other?,
         };
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|_| anyhow!("the vault synced from another machine is damaged"))
+        let file = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow!("the vault synced from another machine is damaged"))?;
+        Ok(Some((bytes, file)))
+    }
+
+    /// A synced version that does not open here: renamed beside the vault, never deleted, and audited. The
+    /// vault opens without it; the status says so.
+    fn set_aside(&self, why: &str) -> Result<()> {
+        let _ = self.record(Event {
+            detail: Some(format!("{why}: set aside as vault/{DAMAGED_INCOMING}")),
+            ..Event::new(&Actor::termf(), Action::Merge)
+        });
+        Ok(fs::rename(
+            self.incoming_path(),
+            self.dir.join(DAMAGED_INCOMING),
+        )?)
     }
 
     pub(crate) fn synced(&self, file: Option<&VaultFile>) -> Option<Synced> {
-        let theirs = self.incoming().ok()??;
+        let damaged = || {
+            self.dir
+                .join(DAMAGED_INCOMING)
+                .is_file()
+                .then_some(Synced::Damaged)
+        };
+        let theirs = match self.incoming() {
+            Ok(Some((_, theirs))) => theirs,
+            Ok(None) => return damaged(),
+            Err(_) => return Some(Synced::Damaged),
+        };
         let file = file?;
         Some(if theirs.format > FORMAT {
             Synced::Newer
@@ -155,20 +191,27 @@ impl Vault {
         if self.dir.join(FILE).exists() {
             return Ok(());
         }
-        let Some(mut file) = self.incoming()? else {
-            return Ok(());
+        let (raw, mut file) = match self.incoming() {
+            Ok(Some(found)) => found,
+            Ok(None) => return Ok(()),
+            Err(e) => return self.set_aside(&e.to_string()),
         };
         ensure!(
             file.format <= FORMAT,
             "this vault was written by a newer TermF"
         );
-        // This machine's keychain keeps nothing for it.
-        file.remembered = false;
         self.record(Event {
             detail: Some("synced from another machine".into()),
             ..Event::new(&Actor::termf(), Action::Merge)
         })?;
-        self.write(&file)?;
+        // This machine's keychain keeps nothing for it; the bytes stay as synced, so nothing goes back.
+        if file.remembered || file.format != FORMAT {
+            file.remembered = false;
+            self.write(&file)?;
+        } else {
+            self.remember_here(&file.id, false)?;
+            self.write_bytes(FILE, &raw)?;
+        }
         fs::remove_file(self.incoming_path())?;
         Ok(())
     }
@@ -181,6 +224,7 @@ impl Vault {
             .incoming()
             .ok()
             .flatten()
+            .map(|(_, theirs)| theirs)
             .filter(|t| t.id == file.id && t.format <= FORMAT && t.secured > file.secured)
             .map(|t| t.opening());
         if let Some(opening) = &newer {
@@ -200,34 +244,51 @@ impl Vault {
     }
 
     /// Merges the synced version into the file, under the writers' lock: its content item by item, and how it
-    /// opens when that is newer and is what was just opened (`opened`). Says what changed; `None`: nothing to
-    /// merge (none, or another vault).
+    /// opens when that is newer and is what was just opened (`opened`). A version that does not open is set
+    /// aside: the vault stays as it was.
     pub(crate) fn absorb(
         &self,
         actor: &Actor,
         data: &Key,
         opened: Option<&Opening>,
-    ) -> Result<Option<Vec<Merged>>> {
+    ) -> Result<Absorbed> {
         let _lock = self.exclusive()?;
-        let Some(theirs) = self.incoming()? else {
-            return Ok(None);
+        let (raw, theirs) = match self.incoming() {
+            Ok(Some(found)) => found,
+            Ok(None) => return Ok(Absorbed::Nothing),
+            Err(e) => {
+                self.set_aside(&e.to_string())?;
+                return Ok(Absorbed::SetAside);
+            }
         };
         let mut file = self.read()?;
         if theirs.id != file.id || theirs.format > FORMAT {
-            return Ok(None);
+            return Ok(Absorbed::Nothing);
         }
         let newer = theirs.secured > file.secured;
         let opens_new = newer && !theirs.opens_like(&file);
         if opens_new && opened != Some(&theirs.opening()) {
             bail!("the vault changed on another machine meanwhile: unlock it again");
         }
-        let incoming = theirs
-            .open(data)
-            .context("the vault synced from another machine does not open with this one's key")?;
+        let Ok(incoming) = theirs.open(data) else {
+            self.set_aside(
+                "the vault synced from another machine does not open with this one's key",
+            )?;
+            return Ok(Absorbed::SetAside);
+        };
         let mut content = file.open(data)?;
         let before = Zeroizing::new(serde_json::to_vec(&content)?);
-        let rows = content.merge(incoming, self.clock.wall());
+        let rows = content.merge(incoming.clone(), self.clock.wall());
         let changed = *before != *Zeroizing::new(serde_json::to_vec(&content)?);
+        if newer {
+            file.set_opening(theirs.opening());
+        }
+        // This machine holds nothing the other version lacks: its bytes are taken as they came, so the remote
+        // gets nothing back and two machines never send the vault to each other forever.
+        let caught_up = content.equivalent(&incoming)
+            && theirs.format == FORMAT
+            && !theirs.remembered
+            && file.opening() == theirs.opening();
         let mut detail = format!("synced: {}", summary(&rows));
         if opens_new {
             detail.push_str("; opens as set on another machine");
@@ -236,14 +297,15 @@ impl Vault {
             detail: Some(detail),
             ..Event::new(actor, Action::Merge)
         };
-        if changed || newer {
-            if newer {
-                file.set_opening(theirs.opening());
-            }
-            if opens_new && file.remembered {
-                file.remembered = false;
-                let _ = self.store.delete(&file.id);
-            }
+        if opens_new && file.remembered {
+            file.remembered = false;
+            let _ = self.store.delete(&file.id);
+        }
+        if caught_up {
+            self.record(event)?;
+            self.remember_here(&file.id, file.remembered)?;
+            self.write_bytes(FILE, &raw)?;
+        } else if changed || newer {
             let backup = self.back_up(&mut file)?;
             file.seal(data, &content)?;
             self.record(event)?;
@@ -251,14 +313,14 @@ impl Vault {
             if let Some(backup) = backup {
                 self.drop_backup(&backup, data, &content)?;
             }
-            if opens_new {
-                self.drop_quick(&file.id);
-            }
         } else {
             self.record(event)?;
         }
+        if opens_new {
+            self.drop_quick(&file.id);
+        }
         fs::remove_file(self.incoming_path())?;
-        Ok(Some(rows))
+        Ok(Absorbed::Merged(rows))
     }
 
     /// The sync brought another machine's version while the vault is open: merged now. When the way it opens
@@ -270,7 +332,12 @@ impl Vault {
         let file = self.read()?;
         ensure!(file.id == id, Locked);
         match self.synced(Some(&file)) {
-            Some(Synced::Pending) => self.absorb(actor, &material.data, None),
+            Some(Synced::Pending | Synced::Damaged) if self.incoming_path().exists() => {
+                match self.absorb(actor, &material.data, None)? {
+                    Absorbed::Merged(rows) => Ok(Some(rows)),
+                    _ => Ok(None),
+                }
+            }
             Some(Synced::Secured) => {
                 if self.session.lock().unwrap().take().is_some() {
                     let _ = self.record(Event {
@@ -292,7 +359,7 @@ impl Vault {
     pub fn join_synced(&self, actor: &Actor) -> Result<Status> {
         let lock = self.exclusive()?;
         let file = self.read()?;
-        let mut theirs = self
+        let (_, mut theirs) = self
             .incoming()?
             .context("no vault synced from another machine")?;
         ensure!(theirs.id != file.id, "this vault is the synced one already");

@@ -30,17 +30,31 @@ const DAMAGED: &str = "this vault export is damaged or was not written by TermF"
 struct ExportFile {
     termf: String,
     format: u32,
+    /// The vault it comes from, bound to the content: another vault's export never replaces nor deletes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vault: Option<String>,
     kdf: Kdf,
     salt: String,
     data: String,
 }
+
+fn export_aad(vault: Option<&str>) -> Vec<u8> {
+    match vault {
+        Some(id) => [AAD, b" ", id.as_bytes()].concat(),
+        None => AAD.to_vec(),
+    }
+}
+
+/// What a file holds is written first; its entry, once written.
+pub type ExportWrite<'a> = &'a mut dyn FnMut(&[u8]) -> Result<()>;
 
 /// Whether `bytes` is a TermF vault export (sealed), rather than another manager's file.
 pub fn is_export(bytes: &[u8]) -> bool {
     serde_json::from_slice::<ExportFile>(bytes).is_ok_and(|f| f.termf == KIND)
 }
 
-fn read_export(bytes: &[u8], password: &str) -> Result<Content> {
+/// The vault it comes from, and its content.
+fn read_export(bytes: &[u8], password: &str) -> Result<(Option<String>, Content)> {
     let file: ExportFile = serde_json::from_slice::<ExportFile>(bytes)
         .ok()
         .filter(|f| f.termf == KIND)
@@ -52,11 +66,29 @@ fn read_export(bytes: &[u8], password: &str) -> Result<Content> {
     let salt = crypto::unhex(&file.salt).context(DAMAGED)?;
     let key = crypto::derive(password.as_bytes(), &salt, file.kdf)?;
     let plain = crypto::unhex(&file.data)
-        .and_then(|data| crypto::open(&key, AAD, &data))
+        .and_then(|data| crypto::open(&key, &export_aad(file.vault.as_deref()), &data))
         .map(Zeroizing::new)
         .context("wrong export password")?;
     // Not the parser's message: it may quote the content.
-    serde_json::from_slice(&plain).map_err(|_| anyhow!(DAMAGED))
+    let content = serde_json::from_slice(&plain).map_err(|_| anyhow!(DAMAGED))?;
+    Ok((file.vault, content))
+}
+
+impl Content {
+    /// An export merges as the sync does when it comes from this vault; from another one, it only adds.
+    fn merge_export(
+        &mut self,
+        theirs: Content,
+        from: Option<&str>,
+        here: &str,
+        now: u64,
+    ) -> Vec<Merged> {
+        if from == Some(here) {
+            self.merge(theirs, now)
+        } else {
+            self.merge_foreign(theirs, now)
+        }
+    }
 }
 
 impl Content {
@@ -94,14 +126,18 @@ fn what(items: usize, secrets: usize, project: Option<&str>) -> String {
     format!("{items} items, {secrets} secrets{project}")
 }
 
-/// A field of the CSV: quoted when it must be.
+/// A field of the CSV: quoted when it must be, and never read as a formula by a spreadsheet (an apostrophe first).
 fn cell(out: &mut String, text: &str) {
+    let mut text = Zeroizing::new(text.to_owned());
+    if text.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        text.insert(0, '\'');
+    }
     if text.contains([',', '"', '\n', '\r']) {
         out.push('"');
-        out.push_str(&text.replace('"', "\"\""));
+        out.push_str(&Zeroizing::new(text.replace('"', "\"\"")));
         out.push('"');
     } else {
-        out.push_str(text);
+        out.push_str(&text);
     }
 }
 
@@ -193,25 +229,28 @@ impl Vault {
         actor: &Actor,
         project: Option<&str>,
         password: &str,
-    ) -> Result<Vec<u8>> {
+        write: ExportWrite,
+    ) -> Result<()> {
         ensure!(
             password.chars().count() >= MIN_PASSWORD,
             "the export password needs {MIN_PASSWORD} characters or more"
         );
-        self.confirmed()?;
+        let (id, _) = self.confirmed()?;
         let part = self.open()?.part(project);
         let salt: [u8; 16] = crypto::random();
         let kdf = kdf();
         let key = crypto::derive(password.as_bytes(), &salt, kdf)?;
         let plain = Zeroizing::new(serde_json::to_vec(&part)?);
+        let sealed = crypto::seal(&key, &export_aad(Some(&id)), &plain);
         let file = ExportFile {
             termf: KIND.into(),
             format: EXPORT_FORMAT,
+            vault: Some(id),
             kdf,
             salt: crypto::hex(&salt),
-            data: crypto::hex(&crypto::seal(&key, AAD, &plain)),
+            data: crypto::hex(&sealed),
         };
-        // No entry, no export.
+        write(&serde_json::to_vec_pretty(&file)?)?;
         self.record(Event {
             detail: Some(format!(
                 "encrypted: {}",
@@ -219,13 +258,18 @@ impl Vault {
             )),
             ..Event::new(actor, Action::Export)
         })?;
-        Ok(serde_json::to_vec_pretty(&file)?)
+        Ok(())
     }
 
     /// The logins and notes (of one project, or all) in clear, as a CSV other managers read (Bitwarden's
     /// columns): only when the user asks, with the master password again, and audited. The secrets (dev,
     /// staging, prod) never go there.
-    pub fn export_csv(&self, actor: &Actor, project: Option<&str>) -> Result<Secret> {
+    pub fn export_csv(
+        &self,
+        actor: &Actor,
+        project: Option<&str>,
+        write: ExportWrite,
+    ) -> Result<()> {
         self.confirmed()?;
         let part = self.open()?.part(project);
         let mut out = Zeroizing::new(String::from(
@@ -258,31 +302,36 @@ impl Vault {
             }
             out.push('\n');
         }
+        write(out.as_bytes())?;
         self.record(Event {
             detail: Some(format!("plain CSV: {}", what(part.items.len(), 0, project))),
             ..Event::new(actor, Action::Export)
         })?;
-        Ok(Secret::new(std::mem::take(&mut *out)))
+        Ok(())
     }
 
     /// What importing an export would do, element by element: titles, never a value.
     pub fn preview_import(&self, bytes: &[u8], password: &str) -> Result<Vec<Merged>> {
-        let theirs = read_export(bytes, password)?;
+        let (from, theirs) = read_export(bytes, password)?;
+        let (here, _) = self.key()?;
         let mut content = self.open()?;
-        Ok(content.merge(theirs, self.clock.wall()))
+        Ok(content.merge_export(theirs, from.as_deref(), &here, self.clock.wall()))
     }
 
-    /// Merges an export as the sync merges another machine's version: both versions kept when both changed,
-    /// deletions only of what they saw. Writing a prod secret asks for the master password again, as by hand.
+    /// Merges an export of this vault as the sync merges another machine's version: both versions kept when
+    /// both changed, deletions only of what they saw. Another vault's only adds, or sets its versions beside
+    /// ours. Writing a prod secret asks for the master password again, as by hand.
     pub fn import_sealed(
         &self,
         actor: &Actor,
         bytes: &[u8],
         password: &str,
     ) -> Result<Vec<Merged>> {
-        let theirs = read_export(bytes, password)?;
+        let (from, theirs) = read_export(bytes, password)?;
+        let (here, _) = self.key()?;
+        let from = from.as_deref();
         let now = self.clock.wall();
-        let rows = self.open()?.merge(theirs.clone(), now);
+        let rows = self.open()?.merge_export(theirs.clone(), from, &here, now);
         let prod = rows
             .iter()
             .find(|r| r.scope == Some(crate::Scope::Prod) && r.change != Change::Unchanged);
@@ -298,7 +347,9 @@ impl Vault {
             detail: Some(format!("TermF export: {}", summary(&rows))),
             ..Event::new(actor, Action::Import)
         };
-        self.modify(event, |content| Ok(content.merge(theirs, now)))
+        self.modify(event, |content| {
+            Ok(content.merge_export(theirs, from, &here, now))
+        })
     }
 
     /// Another manager's export, read and compared with the vault: what each line would become, which ones
@@ -481,5 +532,13 @@ mod tests {
         out.push(',');
         cell(&mut out, "a, \"b\"\nc");
         assert_eq!(out, "plain,\"a, \"\"b\"\"\nc\"");
+        for formula in ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx"] {
+            let mut out = String::new();
+            cell(&mut out, formula);
+            assert!(out.trim_start_matches('"').starts_with('\''), "{out}");
+        }
+        let mut out = String::new();
+        cell(&mut out, "=HYPERLINK(\"x\", \"y\")");
+        assert_eq!(out, "\"'=HYPERLINK(\"\"x\"\", \"\"y\"\")\"");
     }
 }

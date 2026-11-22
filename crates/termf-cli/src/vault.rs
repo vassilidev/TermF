@@ -153,8 +153,9 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                     prompt("Same password again: ")? == password,
                     "the two passwords differ"
                 );
-                let sealed = vault.export_sealed(&actor, project.as_deref(), password.expose())?;
-                write_private(&out, &sealed)?;
+                export_to(&out, |write| {
+                    vault.export_sealed(&actor, project.as_deref(), password.expose(), write)
+                })?;
                 println!(
                     "Wrote {out}, sealed by its export password: termf vault import reads it."
                 );
@@ -181,6 +182,23 @@ fn write_private(path: &str, bytes: &[u8]) -> Result<()> {
     Ok(file.sync_all()?)
 }
 
+/// Writes an export, audited once written: a file left by an export that failed after is removed.
+fn export_to(
+    path: &str,
+    export: impl FnOnce(termf_vault::ExportWrite) -> Result<()>,
+) -> Result<()> {
+    let mut written = false;
+    let result = export(&mut |bytes| {
+        write_private(path, bytes)?;
+        written = true;
+        Ok(())
+    });
+    if result.is_err() && written {
+        let _ = fs::remove_file(path);
+    }
+    result
+}
+
 /// A yes typed on the terminal.
 fn confirm(question: &str) -> Result<bool> {
     print!("{question} [y/N] ");
@@ -194,13 +212,15 @@ fn export_csv(vault: &Vault, actor: &Actor, out: &str, project: Option<&str>) ->
     println!(
         "A plain CSV holds every password, TOTP secret and note of the logins in clear: anyone who reads the file has them."
     );
+    println!(
+        "A value that starts with =, +, -, @ gets an apostrophe first, so a spreadsheet never runs it as a formula."
+    );
     print!("Type plain to write it anyway: ");
     std::io::stdout().flush()?;
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
     ensure!(answer.trim() == "plain", "nothing written");
-    let text = vault.export_csv(actor, project)?;
-    write_private(out, text.expose().as_bytes())?;
+    export_to(out, |write| vault.export_csv(actor, project, write))?;
     println!("Wrote {out} in clear: delete it as soon as it is imported elsewhere.");
     Ok(())
 }

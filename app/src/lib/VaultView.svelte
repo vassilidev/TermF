@@ -199,7 +199,7 @@
     {/snippet}
   </ViewHeader>
 
-  {#if vault.error || status?.synced === "other" || status?.synced === "newer"}
+  {#if vault.error || status?.synced === "other" || status?.synced === "newer" || (status?.synced === "damaged" && !vault.damagedSeen)}
     <div class="banners">
       {#if vault.error}<Banner kind="error" ondismiss={() => (vault.error = "")}>{vault.error}</Banner>{/if}
       {#if status?.synced === "other"}
@@ -212,6 +212,8 @@
         </Banner>
       {:else if status?.synced === "newer"}
         <Banner kind="warn">{t("vault3NewerText")}</Banner>
+      {:else if status?.synced === "damaged" && !vault.damagedSeen}
+        <Banner kind="warn" ondismiss={() => (vault.damagedSeen = true)}>{t("vault3Damaged")}</Banner>
       {/if}
     </div>
   {/if}

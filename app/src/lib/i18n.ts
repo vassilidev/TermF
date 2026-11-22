@@ -2672,7 +2672,7 @@ const fr = {
   vault3PlainLink: "Exporter en clair (CSV)…",
   vault3PlainTitle: "Exporter en clair ?",
   vault3PlainText:
-    "Le fichier CSV contiendra les mots de passe, codes 2FA et notes de tes identifiants, lisibles par quiconque l'ouvre ou le récupère (sauvegarde, dossier synchronisé, pièce jointe). Ne t'en sers que pour passer à un autre gestionnaire, puis supprime-le. Les secrets dev, staging et prod n'y vont pas. L'export est inscrit au journal du coffre.",
+    "Le fichier CSV contiendra les mots de passe, codes 2FA et notes de tes identifiants, lisibles par quiconque l'ouvre ou le récupère (sauvegarde, dossier synchronisé, pièce jointe). Ne t'en sers que pour passer à un autre gestionnaire, puis supprime-le. Les secrets dev, staging et prod n'y vont pas. Une valeur qui commence par =, +, - ou @ y est précédée d'une apostrophe, pour qu'un tableur ne l'exécute jamais : retire-la si l'autre gestionnaire la garde. L'export est inscrit au journal du coffre.",
   vault3PlainRun: "Exporter en clair",
   vault3PlainDone: "Export en clair écrit : {path}. Supprime-le dès qu'il est importé ailleurs.",
   vault3ConfirmPassword: "Retape ton mot de passe maître pour exporter (valable 5 min).",
@@ -2738,6 +2738,8 @@ const fr = {
   vault3HasNotes: "Notes",
   vault3Item: "{n} élément(s)",
   vault3ConfigMaster: "Mot de passe maître du coffre",
+  vault3Damaged:
+    "Une version du coffre reçue d'une autre machine ne s'ouvre pas : elle est mise de côté (vault/incoming.damaged.json, jamais supprimée) et ton coffre s'ouvre sans elle. Les changements de l'autre machine reviennent à sa prochaine synchro.",
   vault3ConfigLocked: "Ouvre d'abord le coffre pour l'inclure à l'export.",
 
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.
@@ -5559,7 +5561,7 @@ const en: Record<Key, string> = {
   vault3PlainLink: "Export in clear (CSV)…",
   vault3PlainTitle: "Export in clear?",
   vault3PlainText:
-    "The CSV file will hold your logins' passwords, 2FA codes and notes, readable by anyone who opens or gets it (backup, synced folder, attachment). Use it only to move to another manager, then delete it. Dev, staging and prod secrets do not go in it. The export is recorded in the vault's log.",
+    "The CSV file will hold your logins' passwords, 2FA codes and notes, readable by anyone who opens or gets it (backup, synced folder, attachment). Use it only to move to another manager, then delete it. Dev, staging and prod secrets do not go in it. A value that starts with =, +, - or @ gets an apostrophe first, so a spreadsheet never runs it: remove it if the other manager keeps it. The export is recorded in the vault's log.",
   vault3PlainRun: "Export in clear",
   vault3PlainDone: "Export in clear written: {path}. Delete it as soon as it is imported elsewhere.",
   vault3ConfirmPassword: "Type your master password again to export (valid 5 min).",
@@ -5624,6 +5626,8 @@ const en: Record<Key, string> = {
   vault3HasNotes: "Notes",
   vault3Item: "{n} item(s)",
   vault3ConfigMaster: "The vault's master password",
+  vault3Damaged:
+    "A version of the vault received from another machine does not open: it is set aside (vault/incoming.damaged.json, never deleted) and your vault opens without it. The other machine's changes come back at its next sync.",
   vault3ConfigLocked: "Open the vault first to include it in the export.",
 
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.

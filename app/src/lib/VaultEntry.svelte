@@ -107,7 +107,12 @@
   </header>
 
   {#if (item?.conflicts ?? secret?.conflicts ?? 0) > 0}
-    <VaultConflict key={entry.key} updated={item?.updated ?? secret?.updated ?? 0} reauth={() => (reauth = true)} />
+    <VaultConflict
+      key={entry.key}
+      count={item?.conflicts ?? secret?.conflicts ?? 0}
+      updated={item?.updated ?? secret?.updated ?? 0}
+      reauth={() => (reauth = true)}
+    />
   {/if}
 
   {#if secret?.description}<p class="description">{secret.description}</p>{/if}

@@ -9,7 +9,7 @@ import type { Merged } from "$lib/vault-logic";
 export type Section = "awake" | "context" | "keys" | "ci" | "claude" | "config" | "sync";
 export type Transfer =
   | { kind: "exported"; files: number; skippedLinks: string[] }
-  | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean };
+  | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean; vaultDone?: boolean };
 
 export const settings = $state({
   /** Loaded once first shown, then kept mounted, like the other views. */
@@ -75,17 +75,20 @@ export async function importConfig() {
   });
 }
 
-/** `vault`: the export password of the vault the archive holds, once its items were shown. */
+/** `vault`: the export password of the vault the archive holds, once its items were shown. The vault goes first,
+ * once: a refusal there (prod asks for the master password) writes nothing, and trying again does not import it
+ * twice. */
 export async function applyImport(vault: string | null = null) {
   const transfer = settings.transfer;
   if (transfer?.kind !== "import") return;
   await busy(async () => {
-    transfer.preview = await invoke<Preview>("config_import_apply", { path: transfer.path, replace: transfer.replace });
-    if (vault) {
+    if (vault && !transfer.vaultDone) {
       const rows = await invoke<Merged[]>("vault_import_apply", { path: transfer.path, password: vault });
+      transfer.vaultDone = true;
       say(t("vault3Imported", { summary: mergeText(rows) }));
       await refreshVault();
     }
+    transfer.preview = await invoke<Preview>("config_import_apply", { path: transfer.path, replace: transfer.replace });
     transfer.done = true;
     await load();
   });

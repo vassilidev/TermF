@@ -95,6 +95,25 @@ impl Machine {
     }
 }
 
+/// The export as written, and the file only once the export is.
+fn sealed(vault: &Vault, project: Option<&str>, password: &str) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    vault.export_sealed(&human(), project, password, &mut |bytes| {
+        out = bytes.to_vec();
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+fn csv(vault: &Vault, project: Option<&str>) -> Result<String> {
+    let mut out = String::new();
+    vault.export_csv(&human(), project, &mut |bytes| {
+        out = String::from_utf8(bytes.to_vec())?;
+        Ok(())
+    })?;
+    Ok(out)
+}
+
 fn note(title: &str) -> ItemDraft {
     ItemDraft {
         kind: Kind::Note,
@@ -276,10 +295,7 @@ fn refuses_another_vault_and_says_how_to_join_it() {
     assert_eq!(a.titles(), ["GitHub"]);
 
     // To join it: export this one, take the synced one (this one is set aside), then import the export.
-    let export = b
-        .vault
-        .export_sealed(&human(), None, EXPORT_PASSWORD)
-        .unwrap();
+    let export = sealed(&b.vault, None, EXPORT_PASSWORD).unwrap();
     let before = fs::read(b.env.file()).unwrap();
     let status = b.vault.join_synced(&human()).unwrap();
     assert!(!status.unlocked && status.synced.is_none());
@@ -321,17 +337,13 @@ fn exports_sealed_by_its_own_password_and_imports_as_a_merge() {
     // The master password again first, as for changing how the vault opens.
     env.clock.awake(6 * 60);
     assert_eq!(
-        err(vault.export_sealed(&human(), None, EXPORT_PASSWORD)),
+        err(sealed(&vault, None, EXPORT_PASSWORD)),
         "this change needs the master password again"
     );
     vault.reauth(&human(), PASSWORD).unwrap();
-    assert!(err(vault.export_sealed(&human(), None, "short")).contains("8 characters"));
-    let all = vault
-        .export_sealed(&human(), None, EXPORT_PASSWORD)
-        .unwrap();
-    let acme = vault
-        .export_sealed(&human(), Some("acme"), EXPORT_PASSWORD)
-        .unwrap();
+    assert!(err(sealed(&vault, None, "short")).contains("8 characters"));
+    let all = sealed(&vault, None, EXPORT_PASSWORD).unwrap();
+    let acme = sealed(&vault, Some("acme"), EXPORT_PASSWORD).unwrap();
     let text = String::from_utf8_lossy(&all);
     for clear in ["hunter2", "GitHub", "alex", VALUE, "STRIPE_KEY"] {
         assert!(!text.contains(clear), "{clear} in the export");
@@ -391,10 +403,11 @@ fn exports_sealed_by_its_own_password_and_imports_as_a_merge() {
         "{rows:?}"
     );
 
-    // An older export does not bring back what was deleted since.
+    // An older export of this same vault does not bring back what was deleted since.
+    let own = sealed(&target, None, EXPORT_PASSWORD).unwrap();
     target.delete_item(&human(), &github.id).unwrap();
     let rows = target
-        .import_sealed(&human(), &all, EXPORT_PASSWORD)
+        .import_sealed(&human(), &own, EXPORT_PASSWORD)
         .unwrap();
     assert!(rows.iter().all(|r| r.title != "GitHub"));
     assert_eq!(target.items(None).unwrap().len(), 1);
@@ -423,10 +436,9 @@ fn exports_a_plain_csv_only_when_asked_and_reads_it_back() {
         )
         .unwrap();
     env.clock.awake(6 * 60);
-    assert!(err(vault.export_csv(&human(), None)).contains("master password again"));
+    assert!(err(csv(&vault, None)).contains("master password again"));
     vault.reauth(&human(), PASSWORD).unwrap();
-    let csv = vault.export_csv(&human(), None).unwrap();
-    let text = csv.expose();
+    let text = csv(&vault, None).unwrap();
     assert!(text.starts_with("folder,favorite,type,name,notes,fields,reprompt,login_uri,"));
     assert!(text.contains("acme,,login,\"GitHub, Inc.\",") && text.contains("hunter2-github-0123"));
     assert!(text.contains(&format!("otpauth://totp/GitHub%2C%20Inc.?secret={SEED}")));
@@ -450,6 +462,279 @@ fn exports_a_plain_csv_only_when_asked_and_reads_it_back() {
         ("GitHub, Inc.", "acme", true, None)
     );
     assert_eq!(row.duplicate.as_deref(), Some("GitHub, Inc."));
+}
+
+/// Commits on the bare remote's branch: each one is a sync that sent something.
+fn commits(root: &Path) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(root.join("remote.git"))
+        .args(["rev-list", "--count", "--all"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+fn merges(machine: &Machine) -> usize {
+    machine
+        .env
+        .actions(&machine.vault)
+        .iter()
+        .filter(|a| **a == Action::Merge)
+        .count()
+}
+
+#[test]
+fn two_machines_never_send_the_vault_to_each_other_for_nothing() {
+    let remote_env = Env::new("quiet-remote");
+    let (remote, git) = bare_remote(&remote_env.root);
+    let (a, b) = (Machine::new("quiet-a", &git), Machine::new("quiet-b", &git));
+    // The keychain keeps the key on A only: nothing of it goes into the synced file.
+    a.vault.init(&human(), PASSWORD, true).unwrap();
+    a.vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    a.setup(&remote);
+    b.setup(&remote);
+    b.vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    assert!(a.vault.status().unwrap().remembered && !b.vault.status().unwrap().remembered);
+    assert!(
+        !fs::read_to_string(a.env.file())
+            .unwrap()
+            .contains("remembered")
+    );
+
+    // A change on each side, both at once: a few rounds settle it, then nothing moves.
+    a.vault.save_item(&human(), login(None, "AWS")).unwrap();
+    b.vault.save_item(&human(), login(None, "Stripe")).unwrap();
+    for _ in 0..3 {
+        a.sync();
+        b.sync();
+    }
+    assert_eq!(a.titles(), ["AWS", "GitHub", "Stripe"]);
+    assert_eq!(b.titles(), a.titles());
+    let (sent, merged) = (commits(&remote_env.root), (merges(&a), merges(&b)));
+    for _ in 0..4 {
+        a.sync();
+        b.sync();
+    }
+    assert_eq!(
+        commits(&remote_env.root),
+        sent,
+        "no sync sends anything new"
+    );
+    assert_eq!((merges(&a), merges(&b)), merged, "nor merges anything");
+    assert_eq!(
+        fs::read(a.env.file()).unwrap(),
+        fs::read(b.env.file()).unwrap()
+    );
+
+    // Locking and opening again (the keychain on A, the password on B) sends nothing either.
+    a.vault.lock(&human()).unwrap();
+    a.vault.unlock(&human(), None, None, None).unwrap();
+    b.vault.lock(&human()).unwrap();
+    b.vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    a.sync();
+    b.sync();
+    assert_eq!(commits(&remote_env.root), sent);
+
+    // Two versions of one item, unresolved, do not keep both machines busy either.
+    let item = a.vault.items(None).unwrap();
+    let github = item.iter().find(|i| i.title == "GitHub").unwrap();
+    let from_a = with_password(login(None, "GitHub"), &github.id, "from-a-0123456789");
+    let from_b = with_password(login(None, "GitHub"), &github.id, "from-b-0123456789");
+    a.vault.save_item(&human(), from_a).unwrap();
+    b.vault.save_item(&human(), from_b).unwrap();
+    for _ in 0..3 {
+        a.sync();
+        b.sync();
+    }
+    let sent = commits(&remote_env.root);
+    for _ in 0..3 {
+        a.sync();
+        b.sync();
+    }
+    assert_eq!(commits(&remote_env.root), sent);
+    let conflicts = |m: &Machine| {
+        m.vault
+            .items(None)
+            .unwrap()
+            .iter()
+            .map(|i| i.conflicts)
+            .sum::<usize>()
+    };
+    assert_eq!((conflicts(&a), conflicts(&b)), (1, 1));
+}
+
+#[test]
+fn deleting_an_item_with_two_versions_deletes_it_everywhere() {
+    let remote_env = Env::new("bury-remote");
+    let (remote, git) = bare_remote(&remote_env.root);
+    let (a, b) = (Machine::new("bury-a", &git), Machine::new("bury-b", &git));
+    a.vault.init(&human(), PASSWORD, false).unwrap();
+    let github = a.vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    a.setup(&remote);
+    b.setup(&remote);
+    b.vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    let from_a = with_password(login(None, "GitHub"), &github.id, "from-a-0123456789");
+    let from_b = with_password(login(None, "GitHub"), &github.id, "from-b-0123456789");
+    a.vault.save_item(&human(), from_a).unwrap();
+    b.vault.save_item(&human(), from_b).unwrap();
+    a.sync();
+    b.sync();
+    a.sync();
+    let has = |m: &Machine| {
+        m.vault
+            .items(None)
+            .unwrap()
+            .iter()
+            .any(|i| i.id == github.id)
+    };
+    let shown = |m: &Machine| m.password(&github.id);
+    // Each side shows its own version, the other beside it.
+    assert_eq!(
+        shown(&a),
+        "from-b-0123456789",
+        "A took B's bytes, the same two versions"
+    );
+    assert_eq!(b.vault.conflicts(&github.id).unwrap().len(), 1);
+
+    a.vault.delete_item(&human(), &github.id).unwrap();
+    for _ in 0..2 {
+        a.sync();
+        b.sync();
+    }
+    assert!(!has(&a) && !has(&b), "gone on both machines, both versions");
+    assert!(b.vault.conflicts(&github.id).unwrap().is_empty());
+}
+
+#[test]
+fn another_vaults_export_only_adds_and_never_replaces_nor_deletes() {
+    let (here, there) = (Env::new("foreign-here"), Env::new("foreign-there"));
+    let (mine, theirs) = (here.vault(), there.vault());
+    mine.init(&human(), PASSWORD, false).unwrap();
+    theirs.init(&human(), "their own password", false).unwrap();
+    let db = id("DATABASE_URL", Scope::Dev);
+    let token = id("TOKEN", Scope::Dev);
+    mine.set(&human(), &db, Secret::new("pg://mine".into()), None)
+        .unwrap();
+    mine.set(&human(), &token, Secret::new("token-mine".into()), None)
+        .unwrap();
+    theirs
+        .set(&human(), &db, Secret::new("pg://theirs".into()), None)
+        .unwrap();
+    // A tombstone there for a secret of the same name here.
+    theirs
+        .set(&human(), &token, Secret::new("token-theirs".into()), None)
+        .unwrap();
+    theirs.delete(&human(), &token).unwrap();
+    theirs
+        .save_item(&human(), login(None, "Theirs only"))
+        .unwrap();
+    let export = sealed(&theirs, None, EXPORT_PASSWORD).unwrap();
+
+    let rows = mine.preview_import(&export, EXPORT_PASSWORD).unwrap();
+    let change = |title: &str| rows.iter().find(|r| r.title == title).map(|r| r.change);
+    assert_eq!(change("DATABASE_URL"), Some(Change::Conflict));
+    assert_eq!(change("Theirs only"), Some(Change::Added));
+    assert_eq!(change("TOKEN"), None, "their deletion deletes nothing here");
+    mine.import_sealed(&human(), &export, EXPORT_PASSWORD)
+        .unwrap();
+    let value = |id: &SecretId| {
+        mine.value(&human(), id, Access::Use)
+            .unwrap()
+            .expose()
+            .to_owned()
+    };
+    assert_eq!(
+        (value(&db), value(&token)),
+        ("pg://mine".into(), "token-mine".into())
+    );
+    let others = mine.conflicts("secret:dev::DATABASE_URL").unwrap();
+    assert_eq!(others.len(), 1, "theirs kept beside ours");
+    assert_eq!(others[0].differs, ["value"]);
+
+    // The same export again: nothing new, the other version is not piled up.
+    let rows = mine
+        .import_sealed(&human(), &export, EXPORT_PASSWORD)
+        .unwrap();
+    assert!(rows.iter().all(|r| r.change != Change::Added));
+    assert_eq!(mine.conflicts("secret:dev::DATABASE_URL").unwrap().len(), 1);
+}
+
+#[test]
+fn a_synced_version_that_does_not_open_is_set_aside_and_the_vault_opens() {
+    let remote_env = Env::new("damaged-remote");
+    let (remote, git) = bare_remote(&remote_env.root);
+    let (a, b) = (
+        Machine::new("damaged-a", &git),
+        Machine::new("damaged-b", &git),
+    );
+    a.vault.init(&human(), PASSWORD, false).unwrap();
+    a.vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    a.setup(&remote);
+    b.setup(&remote);
+    b.vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    b.vault.save_item(&human(), login(None, "Local")).unwrap();
+    b.vault.lock(&human()).unwrap();
+
+    let incoming = b.env.data().join("vault/incoming.json");
+    let aside = b.env.data().join("vault/incoming.damaged.json");
+    // Its content sealed by no key this vault has, and said to be more secure than this machine's: the
+    // password still opens this machine's own file.
+    let mut file: serde_json::Value =
+        serde_json::from_slice(&fs::read(a.env.file()).unwrap()).unwrap();
+    file["data"] = "00".repeat(80).into();
+    file["secured"] = 4_000_000_000u64.into();
+    fs::write(&incoming, file.to_string()).unwrap();
+    b.vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    assert_eq!(b.titles(), ["GitHub", "Local"]);
+    assert!(!incoming.exists() && aside.exists());
+    assert_eq!(b.vault.status().unwrap().synced, Some(Synced::Damaged));
+    let entry = b.vault.audit(10).unwrap();
+    assert!(
+        entry.iter().any(|e| e
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.ends_with("set aside as vault/incoming.damaged.json"))),
+        "{entry:?}"
+    );
+
+    // Not even JSON, while the vault is open: set aside too.
+    fs::write(&incoming, "{ not json").unwrap();
+    assert_eq!(b.vault.status().unwrap().synced, Some(Synced::Damaged));
+    assert_eq!(b.vault.merge_synced(&human()).unwrap(), None);
+    assert!(!incoming.exists());
+    assert_eq!(fs::read_to_string(&aside).unwrap(), "{ not json");
+    b.vault.lock(&human()).unwrap();
+    b.vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    assert_eq!(b.titles(), ["GitHub", "Local"]);
+}
+
+#[test]
+fn an_export_is_audited_once_written_only() {
+    let env = Env::new("export-audit");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let failed = vault.export_sealed(&human(), None, EXPORT_PASSWORD, &mut |_| {
+        anyhow::bail!("disk full")
+    });
+    assert_eq!(err(failed), "disk full");
+    let failed = vault.export_csv(&human(), None, &mut |_| anyhow::bail!("disk full"));
+    assert!(failed.is_err());
+    assert!(!env.actions(&vault).contains(&Action::Export));
+    sealed(&vault, None, EXPORT_PASSWORD).unwrap();
+    assert_eq!(env.actions(&vault).last(), Some(&Action::Export));
 }
 
 fn fixture(name: &str) -> Vec<u8> {

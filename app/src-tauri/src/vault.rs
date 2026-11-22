@@ -90,19 +90,37 @@ pub fn synced(app: &AppHandle) -> bool {
     }
 }
 
-/// A vault export sealed by its own password, for the config archive: the vault open, its master password
-/// typed again.
+/// A vault export sealed by its own password, handed to `write` (the config archive): the vault open, its
+/// master password typed again. Audited once written.
 pub fn sealed(
     app: &AppHandle,
     project: Option<&str>,
     password: &str,
     master: &str,
-) -> anyhow::Result<Vec<u8>> {
+    write: termf_vault::ExportWrite,
+) -> anyhow::Result<()> {
     let state = app.try_state::<VaultState>().ok_or(termf_vault::Locked)?;
     state.vault.reauth(&Actor::human(), master)?;
     state
         .vault
-        .export_sealed(&Actor::human(), project, password)
+        .export_sealed(&Actor::human(), project, password, write)
+}
+
+/// Writes an export, audited by `export` once written: a file left by an export that failed after is removed.
+fn export_to(
+    path: &str,
+    export: impl FnOnce(termf_vault::ExportWrite) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let mut written = false;
+    let result = export(&mut |bytes| {
+        write_private(path, bytes)?;
+        written = true;
+        Ok(())
+    });
+    if result.is_err() && written {
+        let _ = fs::remove_file(path);
+    }
+    result
 }
 
 /// A file only the user reads (Unix), written whole.
@@ -551,8 +569,14 @@ pub async fn vault_export(
 ) -> CmdResult<()> {
     let password = Secret::new(password);
     blocking(&state, move |v| {
-        let sealed = v.export_sealed(&Actor::human(), project.as_deref(), password.expose())?;
-        write_private(&path, &sealed)
+        export_to(&path, |write| {
+            v.export_sealed(
+                &Actor::human(),
+                project.as_deref(),
+                password.expose(),
+                write,
+            )
+        })
     })
     .await
 }
@@ -565,8 +589,9 @@ pub async fn vault_export_csv(
     project: Option<String>,
 ) -> CmdResult<()> {
     blocking(&state, move |v| {
-        let csv = v.export_csv(&Actor::human(), project.as_deref())?;
-        write_private(&path, csv.expose().as_bytes())
+        export_to(&path, |write| {
+            v.export_csv(&Actor::human(), project.as_deref(), write)
+        })
     })
     .await
 }

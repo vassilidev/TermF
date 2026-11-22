@@ -7,7 +7,7 @@
   import type { ConflictInfo } from "$lib/vault-logic";
 
   /** An element both machines changed: both versions are kept, the user chooses. Field names only, never a value. */
-  let { key, updated, reauth }: { key: string; updated: number; reauth: () => void } = $props();
+  let { key, count, updated, reauth }: { key: string; count: number; updated: number; reauth: () => void } = $props();
 
   let others = $state<ConflictInfo[]>([]);
   let busy = $state("");
@@ -50,7 +50,11 @@
     }
   }
 
-  load();
+  // Again when another version comes or goes: a merge, a choice made elsewhere.
+  $effect(() => {
+    void [count, updated, vault.merged];
+    load();
+  });
 </script>
 
 <section class="conflict" aria-labelledby="vault-conflict-title">
