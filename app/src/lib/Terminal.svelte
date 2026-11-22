@@ -1,10 +1,19 @@
 <script module lang="ts">
   const fontFamily = '"JetBrains Mono Variable", Menlo, Consolas, monospace';
-  /** xterm measures its cells when it opens, so terminals open (and can take the focus) once the font is there. */
-  export const fontReady = document.fonts.load(`13px ${fontFamily}`).then(
+  const fontReady = document.fonts.load(`13px ${fontFamily}`).then(
     () => {},
     () => {},
   );
+  type Modules = [typeof import("@xterm/xterm"), typeof import("@xterm/addon-fit"), typeof import("@xterm/addon-webgl")];
+  let modules: Promise<Modules> | undefined;
+  /**
+   * xterm, loaded with the first terminal shown rather than at startup, and the font, since xterm measures its cells
+   * when it opens: terminals open (and can take the focus) once this resolves.
+   */
+  export const terminalReady = () =>
+    (modules ??= fontReady.then(() =>
+      Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit"), import("@xterm/addon-webgl")]),
+    ));
 
   /** Dark in both app themes: agent TUIs pick their colours for a dark terminal. */
   const theme = {
@@ -33,17 +42,18 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from "svelte";
   import { Channel, invoke } from "@tauri-apps/api/core";
-  import { Terminal } from "@xterm/xterm";
-  import { FitAddon } from "@xterm/addon-fit";
-  import { WebglAddon } from "@xterm/addon-webgl";
   import "@xterm/xterm/css/xterm.css";
 
-  let { id }: { id: number } = $props();
+  /**
+   * `visible`: off screen, xterm is let go (ARCHITECTURE §15): the output only fills the session's scrollback, which
+   * the next xterm replays, back where the view and the selection were.
+   */
+  let { id, visible = true }: { id: number; visible?: boolean } = $props();
   let el: HTMLDivElement;
+  let kept: { top: number; bottom: boolean; selection?: [number, number, number] } | null = null;
 
-  function start(): () => void {
+  function start([{ Terminal }, { FitAddon }, { WebglAddon }]: Modules): () => void {
     const term = new Terminal({
       fontFamily,
       fontSize: 13,
@@ -63,32 +73,51 @@
       // No WebGL (some WebKitGTK setups): xterm keeps its DOM renderer.
     }
 
-    // Live output can arrive before the scrollback snapshot resolves; hold it until the replay is written.
-    const pending: Uint8Array[] = [];
-    let replayed = false;
-    const channel = new Channel<ArrayBuffer>();
-    channel.onmessage = (data) => {
-      const bytes = new Uint8Array(data);
-      if (replayed) term.write(bytes);
-      else pending.push(bytes);
-    };
-    invoke<ArrayBuffer>("pty_attach", { id, onData: channel }).then((snapshot) => {
-      term.write(new Uint8Array(snapshot));
-      pending.forEach((bytes) => term.write(bytes));
-      replayed = true;
-    });
-
     const input = term.onData((data) => invoke("pty_write", { id, data }).catch(() => {}));
     const resize = term.onResize(({ cols, rows }) =>
       invoke("pty_resize", { id, cols, rows }).catch(() => {}),
     );
     // Hidden tiles have no layout; fitting them would shrink the PTY to nothing.
-    const observer = new ResizeObserver(() => {
-      if (el.offsetParent !== null) fit.fit();
-    });
+    const fitShown = () => el.offsetParent !== null && fit.fit();
+    // Before the replay, so the history lays out at the width it was written for.
+    fitShown();
+    const observer = new ResizeObserver(fitShown);
     observer.observe(el);
 
+    const restore = () => {
+      if (!kept) return;
+      if (!kept.bottom) term.scrollToLine(kept.top);
+      if (kept.selection) term.select(...kept.selection);
+      kept = null;
+    };
+    // Live output can arrive before the scrollback snapshot resolves; hold it until the replay is written.
+    const pending: Uint8Array[] = [];
+    let replayed = false;
+    let gone = false;
+    const channel = new Channel<ArrayBuffer>();
+    channel.onmessage = (data) => {
+      if (gone) return;
+      const bytes = new Uint8Array(data);
+      if (replayed) term.write(bytes);
+      else pending.push(bytes);
+    };
+    invoke<ArrayBuffer>("pty_attach", { id, onData: channel }).then((snapshot) => {
+      if (gone) return;
+      term.write(new Uint8Array(snapshot), restore);
+      pending.forEach((bytes) => term.write(bytes));
+      replayed = true;
+    });
+
     return () => {
+      const buffer = term.buffer.active;
+      const range = term.getSelectionPosition();
+      kept = {
+        top: buffer.viewportY,
+        bottom: buffer.viewportY >= buffer.baseY,
+        selection: range && [range.start.x, range.start.y, (range.end.y - range.start.y) * term.cols + range.end.x - range.start.x],
+      };
+      gone = true;
+      invoke("pty_detach", { id }).catch(() => {});
       observer.disconnect();
       input.dispose();
       resize.dispose();
@@ -96,11 +125,12 @@
     };
   }
 
-  onMount(() => {
+  $effect(() => {
+    if (!visible) return;
     let stop: (() => void) | undefined;
     let gone = false;
-    fontReady.then(() => {
-      if (!gone) stop = start();
+    terminalReady().then((m) => {
+      if (!gone) stop = start(m);
     });
     return () => {
       gone = true;

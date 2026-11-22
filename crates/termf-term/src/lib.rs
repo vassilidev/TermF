@@ -252,6 +252,14 @@ impl Sessions {
         Ok(snapshot)
     }
 
+    /// Replaces the output sink without a snapshot: for a view gone off screen, which only wants to hear of the exit
+    /// while the output fills the scrollback for its next `attach`.
+    pub fn detach(&self, id: u32, sink: Sink) -> Result<()> {
+        let shared = self.with(id, |s| s.shared.clone())?;
+        shared.lock().unwrap().sink = Some(sink);
+        Ok(())
+    }
+
     pub fn write(&self, id: u32, data: &[u8]) -> Result<()> {
         let writer = self.with(id, |s| s.writer.clone())?;
         let mut writer = writer.lock().unwrap();
@@ -420,6 +428,35 @@ mod tests {
             sessions.list()[0].cwd,
             std::env::temp_dir().to_string_lossy()
         );
+    }
+
+    #[test]
+    fn detached_output_waits_in_the_scrollback() {
+        let sessions = Sessions::default();
+        let id = sessions
+            .spawn(spec("/bin/sh", &["-c", "read x; printf 'after %s' \"$x\"; exit 4"]))
+            .unwrap();
+        let (seen, data) = mpsc::channel();
+        sessions
+            .attach(id, Box::new(move |out| drop(seen.send(out))))
+            .unwrap();
+        let (tx, rx) = mpsc::channel();
+        sessions
+            .detach(
+                id,
+                Box::new(move |out| {
+                    if let Output::Exit(code) = out {
+                        let _ = tx.send(code);
+                    }
+                }),
+            )
+            .unwrap();
+        sessions.write(id, b"hidden\n").unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(Some(4)));
+        assert_eq!(data.try_iter().count(), 0, "the attached view heard on");
+        let (text, code) = collect(&sessions, id);
+        assert!(text.contains("after hidden"), "got {text:?}");
+        assert_eq!(code, Some(4));
     }
 
     #[test]

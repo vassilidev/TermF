@@ -10,7 +10,7 @@
   import X from "@lucide/svelte/icons/x";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import Terminal, { fontReady } from "$lib/Terminal.svelte";
+  import Terminal, { terminalReady } from "$lib/Terminal.svelte";
   import { t } from "$lib/i18n";
   import { keys } from "$lib/commands";
   import { app, onScreen, ui } from "$lib/state.svelte";
@@ -42,7 +42,7 @@
     }
     open = true;
     await tick();
-    await fontReady;
+    await terminalReady();
     panel.querySelector("textarea")?.focus();
   }
 

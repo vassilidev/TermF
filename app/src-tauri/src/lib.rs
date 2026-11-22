@@ -169,6 +169,18 @@ fn pty_attach(
     Ok(Response::new(snapshot))
 }
 
+/// The terminal went off screen (ARCHITECTURE §15): its output only fills the scrollback, replayed by the next
+/// `pty_attach`, and its exit is still told.
+#[tauri::command]
+fn pty_detach(app: AppHandle, state: State<AppState>, id: u32) -> CmdResult<()> {
+    let sink = move |out| {
+        if let Output::Exit(exit_code) = out {
+            let _ = app.emit("pty-exit", ExitEvent { id, exit_code });
+        }
+    };
+    state.sessions.detach(id, Box::new(sink)).map_err(err)
+}
+
 #[tauri::command]
 fn pty_write(app: AppHandle, state: State<AppState>, id: u32, data: String) -> CmdResult<()> {
     state.sessions.write(id, data.as_bytes()).map_err(err)?;
@@ -359,6 +371,7 @@ pub fn run() {
             workspace,
             pty_spawn,
             pty_attach,
+            pty_detach,
             pty_write,
             pty_resize,
             pty_kill,
