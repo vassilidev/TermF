@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { fill, positional } from "./fakes/claude.mjs";
+import { fill, positional, slowTurn } from "./fakes/claude.mjs";
 import { answer } from "./fakes/gh.mjs";
 
 const claude = join(dirname(fileURLToPath(import.meta.url)), "fakes", "claude.mjs");
@@ -51,6 +51,18 @@ test("the fake claude runs a stream-json conversation", () => {
   assert.deepEqual(lines.map((l) => l.type), ["system", "assistant", "result"]);
   assert.equal(lines[2].session_id, "s1");
   assert.match(lines[1].message.content[0].text, /hello/);
+});
+
+test("a slow turn streams its words, then a tool call, then the end of its answer", async () => {
+  const lines = [];
+  await slowTurn("s1", "go slowly", (l) => lines.push(l), 0);
+  const kinds = lines.map((l) => l.message?.content?.[0]?.type ?? l.event?.delta?.type ?? l.subtype ?? l.type);
+  const first = kinds.indexOf("tool_use");
+  assert.equal(kinds[0], "init");
+  assert.ok(kinds.slice(1, first - 1).every((k) => k === "text_delta") && first > 3);
+  assert.deepEqual(kinds.slice(first - 1, first + 2), ["text", "tool_use", "tool_result"]);
+  assert.equal(lines[first].message.content[0].input.command, "npm test");
+  assert.equal(kinds.at(-1), "success");
 });
 
 test("the fake gh finds the issue assigned to alex", () => {

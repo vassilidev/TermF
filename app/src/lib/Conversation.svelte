@@ -21,9 +21,11 @@
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import UserRound from "@lucide/svelte/icons/user-round";
+  import Action from "$lib/Action.svelte";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Popover from "$lib/ui/Popover.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import { apiUsd, budgetUsd, runtimes, showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
@@ -89,10 +91,15 @@
   let busy = $state("");
   let error = $state("");
   let loadError = $state("");
+  let loading = $state(true);
   let scroller = $state<HTMLElement>();
   let form = $state<HTMLFormElement>();
 
   const turns = $derived(thread(events));
+  /** A long thread draws its last turns only, until asked for all: a stream stays smooth however old the conversation. */
+  const WINDOW = 40;
+  let all = $state(false);
+  const drawn = $derived(all ? turns : turns.slice(-WINDOW));
   $effect(() => {
     notices = turns.flatMap((turn) => turn.items.filter((i): i is Notice => i.type === "notice"));
   });
@@ -114,6 +121,13 @@
   const why = $derived(to ? null : blocked(session.state));
   const turning = $derived(session.state === "working" || session.state === "waiting");
   const asking = $derived(session.state === "waiting" ? pending(events) : null);
+  /** At work with no word yet and no call running: it reads, plans, or reads what a call gave. */
+  const thinking = $derived.by(() => {
+    if (session.state !== "working" || live) return false;
+    const last = turns.at(-1);
+    const running = (items: Item[]): boolean => items.some((i) => i.type === "tool" && (i.result === null || running(i.children)));
+    return !last?.end && !running(last?.items ?? []);
+  });
 
   const efforts: Record<string, Parameters<typeof t>[0]> = {
     low: "schedulerEffortLow",
@@ -244,7 +258,24 @@
       follow(true);
     } catch (e) {
       loadError = String(e);
+    } finally {
+      loading = false;
     }
+  }
+
+  // What streams in is drawn once a frame, however fast the tokens come.
+  let queue: StoredEvent[] = [];
+  let frame = 0;
+
+  function flush() {
+    frame = 0;
+    const heard = queue;
+    queue = [];
+    const stick = atBottom();
+    live = heard.reduce(stream, live);
+    const stored = heard.filter((e) => e.id);
+    if (stored.length) events = merge(events, stored);
+    follow(stick);
   }
 
   onMount(() => {
@@ -252,14 +283,15 @@
     const off = listen<StoredEvent>("agent-event", ({ payload }) => {
       if (payload.session !== id) return;
       if (buffer) return void buffer.push(payload);
-      const stick = atBottom();
-      live = stream(live, payload);
-      if (payload.id) events = merge(events, [payload]);
-      follow(stick);
+      queue.push(payload);
+      frame ||= requestAnimationFrame(flush);
     });
     // Listening first, then reading what is stored: nothing falls in between.
     off.then(load);
-    return () => off.then((stop) => stop());
+    return () => {
+      cancelAnimationFrame(frame);
+      off.then((stop) => stop());
+    };
   });
 
   /** Runs one action at a time; the backend's refusal is shown as it is. */
@@ -463,10 +495,13 @@
         {:else}
           <Check size={14} aria-hidden="true" />
         {/if}
-        <b>{toolName(item.name)}</b>
-        <span class="sum" class:mono={!termfTools[item.name]}>
-          {termfTools[item.name] ? phrase(item.input) : summary(item.input)}
-        </span>
+        {#if termfTools[item.name]}
+          <b>{toolName(item.name)}</b>
+          <span class="sum">{phrase(item.input)}</span>
+        {:else}
+          <span class="sum said"><Action act={{ kind: "tool", name: item.name, input: item.input }} /></span>
+        {/if}
+        {#if item.result === null && now}<span class="state">{t("chatToolRunning")}</span>{/if}
         {#if item.children.length}<span class="badge">{t("chatSubagent", { count: item.children.length })}</span>{/if}
       </span>
       {#if failed && item.result}<span class="mono why-failed">{firstLine(item.result.output)}</span>{/if}
@@ -664,7 +699,9 @@
         <button class="btn sm" onclick={load}>{t("chatRetry")}</button>
       </p>
     {/if}
-    {#if session.mcp && !turns.length && !loadError}
+    {#if loading}
+      <Skeleton rows={4} />
+    {:else if session.mcp && !turns.length && !loadError}
       <div class="intro">
         <p>{expert ? t("expertIntro") : t("ctoIntro")}</p>
         {#if offerExamples && examples.length}
@@ -677,13 +714,19 @@
         {/if}
       </div>
     {/if}
-    {#each turns as turn (turn.key)}
+    {#if drawn.length < turns.length}
+      <button class="btn sm quiet earlier" onclick={() => (all = true)}>{t("liveMore", { count: turns.length })}</button>
+    {/if}
+    {#each drawn as turn (turn.key)}
       {@const now = turning && turn === turns.at(-1) && !turn.end}
       {#if turn.user !== null}<p class="user">{turn.user}</p>{/if}
       {#each turn.items as item (item.key)}{@render entry(item, now)}{/each}
       {#if turn.end}{@render ending(turn.end)}{/if}
     {/each}
     {#if live}<div class="text live">{@render rich(live)}</div>{/if}
+    {#if thinking}
+      <p class="thinking" role="status"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{t("liveThinking")}</p>
+    {/if}
   </div>
 </div>
 
@@ -1080,6 +1123,70 @@
     color: var(--muted);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .sum.said {
+    display: flex;
+    color: var(--text);
+  }
+
+  .state {
+    flex-shrink: 0;
+    color: var(--working);
+    font-size: var(--text-xs);
+  }
+
+  .earlier {
+    align-self: center;
+  }
+
+  .thinking {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .dots {
+    display: inline-flex;
+    gap: 3px;
+  }
+
+  .dots i {
+    width: 5px;
+    height: 5px;
+    border-radius: var(--radius-pill);
+    background: var(--working);
+    animation: breathe 1.2s ease-in-out infinite;
+  }
+
+  .dots i:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .dots i:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 0.25;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dots i {
+      animation: none;
+      opacity: 0.6;
+    }
   }
 
   .tool.failed {

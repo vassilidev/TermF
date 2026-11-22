@@ -27,6 +27,7 @@
   import SshPanel from "$lib/SshPanel.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
@@ -245,9 +246,9 @@
       {/key}
     {:else if !inventory}
       {#if !ssh.error}
-        <p class="loading muted" role="status">
-          <LoaderCircle size={16} aria-hidden="true" class="spin" />{t("sshLoading")}
-        </p>
+        <div class={ssh.tab === "keys" ? "split" : "table-pane"}>
+          <div class:list={ssh.tab === "keys"}><Skeleton shape="list" rows={6} label={t("sshLoading")} /></div>
+        </div>
       {/if}
     {:else if ssh.tab === "keys"}
       {#if !keys.length}
@@ -648,13 +649,6 @@
   .paths {
     margin: 4px 0 0;
     padding-left: 16px;
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 40px auto;
   }
 
   .flag {

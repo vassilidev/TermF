@@ -8,6 +8,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Send from "@lucide/svelte/icons/send";
   import CiStatus from "$lib/CiStatus.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { onScreen, type Session } from "$lib/state.svelte";
   import type { Run } from "$lib/tickets.svelte";
@@ -96,7 +97,7 @@
   {#if error}
     <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{error}</p>
   {:else if !checks}
-    <p class="muted line" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ciLoading")}</p>
+    <Skeleton label={t("ciLoading")} />
   {:else if !checks.length}
     <p class="muted line">{t("ciChecksNone")}</p>
   {:else}

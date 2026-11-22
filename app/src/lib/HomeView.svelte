@@ -31,6 +31,9 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import Action from "$lib/Action.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
+  import { activity as live, track } from "$lib/live.svelte";
   import { agentProjects, agents, ctoOf, expertOf, showConversations, showConversation } from "$lib/agents.svelte";
   import { focusSession, keys, showRun } from "$lib/commands";
   import { pinned, summary, type Item } from "$lib/conversation-logic";
@@ -198,6 +201,19 @@
   );
 
   const runs = $derived(openRuns(tickets.runs, team.runs, app.project));
+
+  /** The step of a team at work whose agent is known to do something now, and that. */
+  function liveOf(run: TeamRun | undefined) {
+    const step = run?.state === "running" ? current(run).find((s) => s.session !== null) : undefined;
+    const act = step?.session != null ? live[step.session]?.now : null;
+    return step && act ? { role: step.role ?? step.key, act } : null;
+  }
+  $effect(() => {
+    for (const o of runs) {
+      const step = o.team?.state === "running" ? current(o.team).find((s) => s.session !== null) : undefined;
+      if (step?.session != null) track(step.session);
+    }
+  });
 
   function showAll(tab: "inbox" | "runs") {
     tickets.tab = tab;
@@ -371,6 +387,7 @@
 
 {#snippet runRow(o: { run?: Run; team?: TeamRun }, everywhere: boolean)}
   {@const line = runLine(o)}
+  {@const doing = liveOf(o.team)}
   {@const key = o.team?.target.ticket ?? o.run?.ticket.key ?? ""}
   {@const id = o.team?.target.project ?? o.run?.project}
   {@const p = everywhere ? projects.find((x) => x.id === id) : undefined}
@@ -378,7 +395,9 @@
   {#snippet content()}
     <span class="t">
       <b><span class="key mono">{short(key)}</span> {o.team?.target.title ?? o.run?.title}</b>
-      {#if line.text}<span>{line.text}</span>{/if}
+      {#if doing}
+        <span class="live"><b>{doing.role}</b><Action act={doing.act} /></span>
+      {:else if line.text}<span>{line.text}</span>{/if}
     </span>
     {#if p}<span class="pm"><span class="mark" aria-hidden="true">{initial(p.name)}</span>{p.name}</span>{/if}
     <span class="state"><StatusPill status={line.pill[0]} label={line.pill[1]} hint={line.pill[2]} /></span>
@@ -486,7 +505,7 @@
           {/key}
         {:else}
           <header class="bar">{@render lead()}</header>
-          <p class="opening"><LoaderCircle size={16} aria-hidden="true" class="spin" /></p>
+          <div class="opening"><Skeleton rows={4} /></div>
         {/if}
       </section>
 
@@ -533,7 +552,7 @@
           {#each runs.slice(0, 5) as o (o.run?.id ?? o.team?.run)}
             {@render runRow(o, false)}
           {:else}
-            <p class="empty-line">{t("ux3t1NoRuns")}</p>
+            {#if tickets.runsRead}<p class="empty-line">{t("ux3t1NoRuns")}</p>{:else}<Skeleton shape="list" rows={2} />{/if}
           {/each}
         </section>
 
@@ -542,6 +561,7 @@
             {t("viewTickets")} <span class="n">{inbox.length}</span>
             {@render more(t("ux3t1Inbox"), () => showAll("inbox"))}
           </h2>
+          {#if tickets.inbox === null && tickets.loading}<Skeleton shape="list" rows={2} />{/if}
           {#each inbox.slice(0, 3) as ticket (ticket.url)}
             {@const picking = choosing?.url === ticket.url ? choosing : null}
             <div class="rrow ticket" class:open={!!picking || starting === ticket.url}>
@@ -667,11 +687,9 @@
   }
 
   .opening {
-    display: grid;
     flex: 1;
-    place-items: center;
-    margin: 0;
-    color: var(--muted);
+    max-width: 820px;
+    padding: 16px 24px;
   }
 
   /* The conversation's lead: who is spoken to, and the switch to the other. */
@@ -835,6 +853,17 @@
     font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .rrow .t > .live {
+    display: flex;
+    gap: 6px;
+  }
+
+  .live b {
+    flex-shrink: 0;
+    color: var(--working);
+    font-weight: 600;
   }
 
   .bell {

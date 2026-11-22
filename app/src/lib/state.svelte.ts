@@ -60,6 +60,8 @@ export type Session = {
   context: Gauge | null;
   /** The team role the session works for, once runs launch roles (phase 4). */
   role?: string | null;
+  /** The last tool its agent used, as its `PreToolUse` hook told (masked, only what says what it is about). */
+  action?: { name: string; input: unknown } | null;
 };
 export type ResetPhase = "idle" | "queued" | "handoff" | "clearing" | "resuming";
 export type ResetFailure =
@@ -250,6 +252,10 @@ export function init(): () => void {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.context = payload.context;
   });
+  const unlistenTool = listen<{ id: number; name: string; input: unknown }>("session-tool", ({ payload }) => {
+    const session = app.sessions.find((s) => s.id === payload.id);
+    if (session) session.action = { name: payload.name, input: payload.input };
+  });
   const unlistenRemote = listen<{ id: number; remoteControl: boolean; remote: RemoteState | null }>("session-remote", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) Object.assign(session, { remoteControl: payload.remoteControl, remote: payload.remote });
@@ -257,6 +263,7 @@ export function init(): () => void {
   return () => {
     unlisten.then((stop) => stop());
     unlistenStatus.then((stop) => stop());
+    unlistenTool.then((stop) => stop());
     unlistenOpened.then((stop) => stop());
     unlistenKeepAwake.then((stop) => stop());
     unlistenSync.then((stop) => stop());

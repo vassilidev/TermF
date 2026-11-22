@@ -21,6 +21,7 @@
   import StackSkills from "$lib/StackSkills.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import QuestionInput from "$lib/ui/QuestionInput.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { lang, t } from "$lib/i18n";
@@ -600,6 +601,8 @@
           </footer>
         </section>
       {/if}
+    {:else if !error}
+      <Skeleton rows={6} />
     {/if}
   </div>
 </div>

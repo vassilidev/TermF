@@ -379,6 +379,9 @@ impl Api {
             }
         }
         self.remote_seen(app, id, event, payload);
+        if event == "PreToolUse" {
+            let _ = app.emit("session-tool", tool_seen(id, payload));
+        }
         if event == "StatusLine" && current {
             crate::claude_native::status_line(app, id, payload);
         }
@@ -1760,9 +1763,55 @@ fn type_later(app: AppHandle, id: u32, step: u64, line: String) {
     });
 }
 
+/// The fields of a tool call that say what it is about, short and masked: what a tile shows of its agent's last
+/// action. Never a whole input: `Write` carries a file's content.
+fn tool_seen(id: u32, payload: &Value) -> Value {
+    const TELLING: &[&str] = &[
+        "command",
+        "file_path",
+        "notebook_path",
+        "path",
+        "pattern",
+        "url",
+        "query",
+        "description",
+        "skill",
+    ];
+    let input = &payload["tool_input"];
+    let mut kept = Value::Object(
+        TELLING
+            .iter()
+            .filter_map(|&key| {
+                let text = input.get(key)?.as_str()?.lines().next()?;
+                Some((
+                    key.to_owned(),
+                    text.chars().take(200).collect::<String>().into(),
+                ))
+            })
+            .collect(),
+    );
+    termf_claude::mask::mask(&mut kept);
+    serde_json::json!({ "id": id, "name": payload["tool_name"], "input": kept })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tile_shows_what_its_tool_is_about_never_a_secret_or_a_file() {
+        let payload = serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": {"command": "curl -H 'Authorization: Bearer sk-ant-api03-abcdefghijklmnop' x\nsecond line", "content": "whole file"},
+        });
+        let seen = tool_seen(7, &payload);
+        assert_eq!(seen["id"], 7);
+        assert_eq!(seen["name"], "Bash");
+        let command = seen["input"]["command"].as_str().unwrap();
+        assert!(!command.contains("sk-ant-api03"), "{command}");
+        assert!(!command.contains("second line"));
+        assert!(seen["input"].get("content").is_none());
+    }
 
     #[test]
     fn a_step_taken_over_keeps_its_project_whatever_its_folder() {

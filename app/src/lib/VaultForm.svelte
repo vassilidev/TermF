@@ -6,6 +6,7 @@
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
   import { invoke } from "@tauri-apps/api/core";
   import { onDestroy, onMount } from "svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
   import { failed, refreshVault } from "$lib/vault.svelte";
@@ -278,7 +279,7 @@
     {#if notesReady}
       <textarea class="field area" class:long={kind === "note"} rows={kind === "note" ? 10 : 3} bind:value={notes} spellcheck="false" placeholder={kind === "note" ? t("vaultNotePlaceholder") : ""}></textarea>
     {:else}
-      <span class="muted loading"><LoaderCircle size={14} class="spin" aria-hidden="true" />{t("vaultLoadingNotes")}</span>
+      <Skeleton shape="block" height={kind === "note" ? "200px" : "64px"} label={t("vaultLoadingNotes")} />
     {/if}
   </label>
 
@@ -362,13 +363,6 @@
     gap: 5px;
     font-weight: 400;
     white-space: nowrap;
-  }
-
-  .loading {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 400;
   }
 
   .generator {

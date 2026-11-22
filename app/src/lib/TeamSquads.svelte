@@ -5,6 +5,7 @@
   import X from "@lucide/svelte/icons/x";
   import SquadEditor from "$lib/SquadEditor.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { library, type Item, type Layer } from "$lib/library.svelte";
   import { app, onScreen, shortPath } from "$lib/state.svelte";
@@ -338,6 +339,8 @@
           {/if}
         </div>
       {/if}
+    {:else if !error}
+      <Skeleton shape="cards" rows={2} />
     {/if}
   </section>
 {/if}

@@ -4,6 +4,7 @@
   import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { lang, t } from "$lib/i18n";
   import { team } from "$lib/team.svelte";
   import { openUrl, tickets } from "$lib/tickets.svelte";
@@ -106,7 +107,7 @@
       {#if error}
         <p class="notice error">{error}</p>
       {:else if diffs === null}
-        <p class="muted">{t("review5bLoading")}</p>
+        <Skeleton label={t("review5bLoading")} />
       {:else if !diffs.length}
         <p class="muted">{t("review5bFilesNone")}</p>
       {:else}

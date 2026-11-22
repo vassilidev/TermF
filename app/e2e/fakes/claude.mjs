@@ -60,6 +60,33 @@ function turn(sid, prompt, schema) {
   ];
 }
 
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * A turn asked to go "slowly" streams as the real one does: its words one at a time, then a Bash call that takes a
+ * while, then the end of its answer. `delay` (ms) paces the words; the call lasts 30 of them.
+ */
+export async function slowTurn(sid, prompt, write = say, delay = 60) {
+  const main = { parent_tool_use_id: null, session_id: sid };
+  const words = async (text) => {
+    for (const word of text.match(/\S+\s*/g)) {
+      write({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: word } }, ...main });
+      await pause(delay);
+    }
+    write({ type: "assistant", message: { model: "claude-haiku-5-5", content: [{ type: "text", text }], usage }, ...main });
+  };
+  write({ type: "system", subtype: "init", session_id: sid, model: "claude-haiku-5-5", permissionMode: "default", tools: [], mcp_servers: [] });
+  await pause(delay * 5);
+  await words(`Fake Claude streams an answer to: ${prompt}. First, the tests.`.slice(0, 200));
+  const call = { type: "tool_use", id: "toolu_e2e", name: "Bash", input: { command: "npm test", description: "Run the tests" } };
+  write({ type: "assistant", message: { model: "claude-haiku-5-5", content: [call], usage }, ...main });
+  await pause(delay * 30);
+  write({ type: "user", message: { role: "user", content: [{ tool_use_id: "toolu_e2e", type: "tool_result", content: "12 passing", is_error: false }] }, ...main });
+  const end = "The tests pass.";
+  await words(end);
+  write({ type: "result", subtype: "success", is_error: false, result: end, total_cost_usd: 0.002, usage, session_id: sid });
+}
+
 // Options that take a value, so that value is never taken for the prompt (the variadic ones end at `--`).
 const VALUED = new Set(
   "--output-format --input-format --json-schema --model --fallback-model --effort --max-budget-usd --max-turns --session-id --resume --settings --plugin-dir --append-system-prompt --append-system-prompt-file --system-prompt --permission-mode --permission-prompt-tool --allowedTools --allowed-tools --disallowedTools --disallowed-tools --tools --add-dir --mcp-config --remote-control".split(" "),
@@ -92,7 +119,9 @@ async function headless() {
         const id = JSON.parse(line).request_id;
         say({ type: "control_response", response: { subtype: "success", request_id: id, response: {} } });
       } else if (line.includes('"type":"user"')) {
-        turn(sid, promptOf(line), schema).forEach(say);
+        const prompt = promptOf(line);
+        if (/\bslowly\b/i.test(prompt)) await slowTurn(sid, prompt);
+        else turn(sid, prompt, schema).forEach(say);
       }
     }
     return;
