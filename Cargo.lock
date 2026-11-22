@@ -5599,8 +5599,11 @@ dependencies = [
  "serde_json",
  "termf-core",
  "termf-library",
+ "termf-team",
  "termf-tickets",
  "termf-worktree",
+ "toml 1.2.2+spec-1.1.0",
+ "toml_edit 0.25.20+spec-1.1.0",
 ]
 
 [[package]]

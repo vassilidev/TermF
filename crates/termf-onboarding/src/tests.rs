@@ -118,6 +118,7 @@ fn keeps_only_the_well_formed_part_of_claude_s_answer() {
             question("one-option", "choice", &["a"], &["a"]),
             question("maybe", "bool", &[], &["maybe"]),
             json!({ "id": "theme", "theme": "tickets", "text": "?", "kind": "bool", "options": [], "default": ["no"] }),
+            question("team-size", "bool", &[], &["yes"]),
         ],
     });
     let claude = fake_claude(&dir, &answer);
@@ -145,9 +146,30 @@ fn keeps_only_the_well_formed_part_of_claude_s_answer() {
     assert_eq!(analysis.findings.len(), 8);
     assert_eq!(analysis.findings[0].value, "pnpm test");
     let ids: Vec<&str> = analysis.questions.iter().map(|q| q.id.as_str()).collect();
-    assert_eq!(ids, ["tests-required", "checks", "branch", "notes"]);
+    assert_eq!(
+        ids,
+        [
+            "tests-required",
+            "checks",
+            "branch",
+            "notes",
+            "team-size",
+            "team-model"
+        ],
+        "TermF's own team questions come last, and the team cannot be split here"
+    );
     assert_eq!(analysis.questions[3].default, Vec::<String>::new());
-    assert_eq!(analysis.dropped.len(), 4 + 6, "{:?}", analysis.dropped);
+    assert_eq!(
+        analysis.questions[4].text,
+        "Combien d'agents à la fois par rôle de code (front, back) ?"
+    );
+    assert_eq!(analysis.dropped.len(), 4 + 7, "{:?}", analysis.dropped);
+    assert!(
+        analysis
+            .dropped
+            .contains(&"question team-size: an id kept for TermF's own questions".into())
+    );
+    assert!(prompt.contains("Never ask about the agents' team either"));
     assert_eq!(state.step, Step::Questions);
     assert_eq!(state.answers["checks"], ["lint", "tests"]);
     assert_eq!(load(&config, &data, "acme").unwrap().answers, state.answers);
@@ -241,8 +263,12 @@ fn answers_become_the_onboarding_convention() {
         convention.source,
         "# Project setup (TermF's onboarding assistant)\n\nWhat the repositories hold:\n\
          - api: node:pnpm\n- api: Tests: pnpm test\n\nWhat the owner decided:\n\
-         - tests-required ? yes\n- checks ? lint, types\n- notes ? Small PRs only.\n"
+         - tests-required ? yes\n- checks ? lint, types\n- notes ? Small PRs only.\n\n\
+         The agents' team (proposed by the assistant):\n- devops: .github/workflows/**\n\
+         Each role gets the project's instructions that concern it.\n",
+        "TermF's team questions stay out of what the owner decided"
     );
+    assert_eq!(state.answers["team-size"], ["1"]);
     assert!(!state.edited);
 
     // Edited by hand in the library: new answers replace it only once asked to.

@@ -485,6 +485,9 @@ pub fn run() {
             onboarding::onboarding_step,
             onboarding::onboarding_seen,
             onboarding::onboarding_decide,
+            onboarding::onboarding_team,
+            onboarding::onboarding_team_preview,
+            onboarding::onboarding_team_save,
             onboarding::claude_trust,
             onboarding::claude_trust_set,
         ]))

@@ -428,7 +428,7 @@ pub fn save_keys(config_dir: &Path, keys: &BTreeMap<String, String>) -> Result<(
 }
 
 /// `parent[name]` as a table, replacing whatever else was there.
-fn table_in<'a>(parent: &'a mut Table, name: &str) -> &'a mut Table {
+pub fn table_in<'a>(parent: &'a mut Table, name: &str) -> &'a mut Table {
     let item = parent.entry(name).or_insert(toml_edit::table());
     if !item.is_table() {
         *item = toml_edit::table();
@@ -656,6 +656,58 @@ fn write_layouts(config_dir: &Path, mut layouts: Vec<Layout>) -> Result<()> {
     fs::create_dir_all(config_dir)?;
     let text = toml::to_string(&LayoutsFile { layouts })?;
     write_atomic(&config_dir.join("layouts.toml"), &text)
+}
+
+/// A line diff (`-` removed, `+` added, ` ` context) of the changed part; empty when nothing changes.
+pub fn diff(before: &str, after: &str) -> String {
+    const CONTEXT: usize = 3;
+    let (a, b): (Vec<&str>, Vec<&str>) = (before.lines().collect(), after.lines().collect());
+    let prefix = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let suffix = a[prefix..]
+        .iter()
+        .rev()
+        .zip(b[prefix..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (am, bm) = (&a[prefix..a.len() - suffix], &b[prefix..b.len() - suffix]);
+    if am.is_empty() && bm.is_empty() {
+        return String::new();
+    }
+    // Longest common subsequence of the changed middle, which is small: one block.
+    let mut lcs = vec![vec![0u32; bm.len() + 1]; am.len() + 1];
+    for i in (0..am.len()).rev() {
+        for j in (0..bm.len()).rev() {
+            lcs[i][j] = if am[i] == bm[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let mut out: Vec<String> = a[prefix.saturating_sub(CONTEXT)..prefix]
+        .iter()
+        .map(|l| format!(" {l}"))
+        .collect();
+    let (mut i, mut j) = (0, 0);
+    while i < am.len() || j < bm.len() {
+        if i < am.len() && j < bm.len() && am[i] == bm[j] {
+            out.push(format!(" {}", am[i]));
+            (i, j) = (i + 1, j + 1);
+        } else if i < am.len() && (j == bm.len() || lcs[i + 1][j] >= lcs[i][j + 1]) {
+            out.push(format!("-{}", am[i]));
+            i += 1;
+        } else {
+            out.push(format!("+{}", bm[j]));
+            j += 1;
+        }
+    }
+    let tail = a.len() - suffix;
+    out.extend(
+        a[tail..(tail + CONTEXT).min(a.len())]
+            .iter()
+            .map(|l| format!(" {l}")),
+    );
+    out.join("\n") + "\n"
 }
 
 /// Writes through a temporary file so a crash never leaves a half-written config.
