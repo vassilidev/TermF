@@ -284,7 +284,8 @@ function measure(ticket, final, base, dir, work) {
 /** A suite's measures, in the final tree itself (its dependencies are too big to copy): the project's own tests,
  * then the ticket's hidden tests, copied in for the time of their run. */
 function measureSuite(ticket, final, files) {
-  if (!existsSync(join(final, "vendor")) || !existsSync(join(final, ".env"))) setUp(final);
+  const missing = (SUITE.copy ?? []).some((sub) => !existsSync(join(final, sub)));
+  if (missing || !existsSync(join(final, ".env"))) setUp(final);
   for (const command of SUITE.measure_setup ?? []) sh("sh", ["-c", command], { cwd: final, env: gitEnv, timeout: 600_000 });
   const junit = (cwd, command) => {
     const xml = join(cwd, ".bench-junit.xml");
@@ -303,17 +304,17 @@ function measureSuite(ticket, final, files) {
   const hiddenFiles = [TICKETS[ticket].hidden].flat();
   mkdirSync(target, { recursive: true });
   for (const f of hiddenFiles) cpSync(join(SUITE.dir, "hidden", f), join(target, f));
-  const hidden = junit(final, `vendor/bin/phpunit ${hiddenFiles.map((f) => join(SUITE.hidden_dir, f)).join(" ")}`);
+  const hidden = junit(final, SUITE.hidden_run.replace("<files>", hiddenFiles.map((f) => join(SUITE.hidden_dir, f)).join(" ")));
   hidden.total = hidden.tests;
   for (const f of hiddenFiles) rmSync(join(target, f), { force: true });
-  const artisan = sh("php", ["artisan", "list"], { cwd: final, timeout: 120_000 });
+  const boot = SUITE.boot ? sh("sh", ["-c", SUITE.boot], { cwd: final, env: gitEnv, timeout: 120_000 }) : null;
   const scope = new RegExp(SUITE.in_scope);
   return {
     hidden,
     own_tests: own,
     original_tests: null,
     typecheck: null,
-    artisan_ok: artisan.status === 0,
+    boot_ok: boot ? boot.status === 0 : null,
     files,
     lines_added: files.reduce((n, f) => n + f.added, 0),
     lines_removed: files.reduce((n, f) => n + f.removed, 0),

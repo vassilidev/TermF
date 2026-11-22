@@ -72,9 +72,11 @@ read the database file for the data criteria.
 `node bench/run.mjs --suite <folder> --out <folder>` runs the bench on a project of yours, with tickets, hidden tests
 and results that never enter this repository: keep the suite and its results in a folder git ignores. `<folder>/suite.json`:
 `source` (the project, only ever cloned: `git clone --no-hardlinks`, its remote removed, a local bare `origin`),
-`copy` (what it does not commit, copied from it: `vendor`…), `env` (the clone's test `.env`: no real service, no real
-database), `setup` (commands run in the clone), `checks` (the project's tests, for the team's checks step),
-`hidden_dir` (where a hidden test is copied for its run), `describe` (one generic sentence for the judge), `in_scope`
-(a regex of the paths a ticket may touch) and `tickets` (`{ "<id>": { "kind": "real", "hidden": "<File>Test.php",
-"implicit": true } }`), with `tickets/<id>.md` and `hidden/<File>Test.php` next to it. The hidden tests and the
-project's own tests run with PHPUnit (`vendor/bin/phpunit --log-junit`), in the final tree.
+`ref` (the commit to check out), `copy` (what it does not commit, copied from it: its installed dependencies…), `env`
+(the clone's test `.env`: no real service, no real database), `setup` and `measure_setup` (commands run in the clone,
+and again before measuring), `checks` (the project's tests), `team_checks` (the team's checks step, `checks` by
+default), `hidden_dir` (where the hidden tests are copied for their run), `hidden_run` (the command that runs them,
+`<files>` replaced by their paths), `boot` (a command that says the app starts), `describe` (one generic sentence for
+the judge), `in_scope` (a regex of the paths a ticket may touch) and `tickets` (`{ "<id>": { "kind": "real",
+"hidden": ["<file>"], "implicit": true } }`), with `tickets/<id>.md` and `hidden/<file>` next to it. `checks` and
+`hidden_run` must accept `--log-junit <file>` and write a JUnit report there; the tests run in the final tree.
