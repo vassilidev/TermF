@@ -308,8 +308,8 @@ mod tests {
         assert!(!plan.exists);
         assert!(plan.commands.iter().all(|c| !c.starts_with("gh")));
         let made = create(&dir.join("config"), &spec, &env).unwrap();
-        let repo = dir.join("home/Projects/plant-care");
-        assert_eq!(made.path, repo.to_string_lossy());
+        let repo = dir.join("home").join("Projects").join("plant-care");
+        assert_eq!(PathBuf::from(&made.path), repo);
         assert_eq!(made.project, "plant-care");
         assert_eq!((made.remote, made.github_error), (None, None));
         assert_eq!(git(&repo, &["branch", "--show-current"], &env), "main");
