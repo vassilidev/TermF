@@ -23,6 +23,12 @@ The first public release: TermF installs in one command and keeps itself up to d
 - **Discipline.** A definition of done checked at the delivery, paths a role may not touch, a decision log every step
   reads, and the CTO asked before you.
 - **The agents' browser.** Front, QA, UX and SEO agents open their own pages in a throwaway headless Chrome.
+- **The agents' work, live.** The CTO's answer word by word, each tool in plain words with its state, a run's
+  *Right now* and *What's happening* panels, and the last action on each agent tile; every view shows the shape of what
+  is loading.
+- **The agents' work, live.** The CTO's answer word by word, each tool in plain words with its state, a run's
+  *Right now* and *What's happening* panels, and the last action on each agent tile; every view shows the shape of what
+  is loading.
 - **Codex and Gemini.** Codex CLI and Gemini CLI in terminals, conversations and team roles (not tried with the real
   tools yet).
 

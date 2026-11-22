@@ -1413,6 +1413,29 @@ tried = "Built for the seven targets by the release workflow; the app was launch
 related = ["updates", "cli", "panels"]
 
 [[features]]
+slug = "live"
+group = "team"
+name = "Watch the agents work, live"
+tagline = "The CTO's answer word by word, every tool in plain words, and what each step is doing right now."
+keywords = "live streaming tool calls activity feed skeleton loading progress what is happening now run page cto conversation"
+problem = '''<p>An agent that works in silence is hard to trust. TermF shows the work as it happens, in plain words: you always know who is doing what, and since when.</p>'''
+how = [
+  "In a conversation with the CTO or any agent, the answer arrives word by word; <em>Thinking…</em> shows before the first word.",
+  "Each tool appears in plain words with its state: <em>Reads src/app.ts</em>, <em>Runs npm test</em>, <em>Searches the web: …</em>, running, done or failed, with its detail one click away.",
+  "On a run's page, <em>Right now</em> lists every step at work (role, current action, for how long, usage so far), and <em>What's happening</em> tells the whole run in order.",
+  "Each agent tile shows its last action under its name; each running run on the home page says what its agent is doing.",
+]
+default = [
+  "Every view shows the shape of what is loading instead of a blank screen or a spinner, after a short delay so fast loads do not flicker.",
+  "Values from the vault are masked in everything shown live.",
+]
+tune = ["Nothing to set. Motion follows your system's <em>reduce motion</em> setting."]
+commands = []
+limits = ["Codex and Gemini tools are shown by their own names (<em>Uses …</em>).", "Checked with the end-to-end tests and a fake Claude Code that streams word by word, not yet with a real long team run."]
+tried = "An end-to-end test drives the real app on macOS: the CTO answers word by word and shows the tool it is using."
+related = ["cto", "terminals", "native-app"]
+
+[[features]]
 slug = "cli"
 group = "cli"
 name = "The termf command line"
