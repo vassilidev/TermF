@@ -119,7 +119,7 @@ p{margin:0 0 1em;text-wrap:pretty}
 .app-icon{width:84px;height:84px;margin:0 auto 26px;filter:drop-shadow(0 2px 2px rgb(40 40 140/.25)) drop-shadow(0 14px 22px rgb(63 63 198/.32))}
 .hero h1{font-size:clamp(2.7rem,7.2vw,5.4rem);line-height:1.02;font-weight:650;letter-spacing:-.035em;max-width:12em;margin:0 auto;padding-bottom:.06em}
 .hero .sub{max-width:34em;margin:20px auto 30px;color:var(--soft);font-size:clamp(1.05rem,1.4vw,1.2rem);line-height:1.55}
-.hero .cmd{width:min(100%,520px);margin:0 auto}
+.hero .cmd{width:min(100%,620px);margin:0 auto}
 .ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:18px}
 .hero .meta{margin:18px 0 0;color:var(--mute);font-size:.88rem}
 
@@ -227,7 +227,7 @@ p{margin:0 0 1em;text-wrap:pretty}
 /* The last call */
 .last{padding:clamp(48px,8vw,96px) var(--gut);text-align:center}
 .last h2{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.05;font-weight:600}
-.last .cmd{width:min(100%,520px);margin:26px auto 0}
+.last .cmd{width:min(100%,620px);margin:26px auto 0}
 .last p{margin:16px auto 0;color:var(--mute);font-size:.9rem;max-width:36em}
 
 .foot{border-top:1px solid var(--line)}
