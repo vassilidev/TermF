@@ -104,6 +104,10 @@
       if (!pending) {
         pending = { leave, stay };
         question?.showModal();
+      } else if (stay) {
+        // Asked twice at once (a run of another project opened): staying undoes both.
+        const first = pending.stay;
+        pending.stay = () => (first?.(), stay());
       }
       return true;
     });

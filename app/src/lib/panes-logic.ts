@@ -27,6 +27,15 @@ export function beside<V extends string>(p: Panes<V>, next: V): Panes<V> {
   return next === p.view ? p : { ...p, view: next, other: p.view, active: p.active === 0 ? 1 : 0 };
 }
 
+/**
+ * Leaving `page` for `back`, the view it was opened from: its panel closes when `back` is beside it (or it is the
+ * panel the keyboard is not in), else `back` comes back in its place; nothing when `page` is not on screen.
+ */
+export function leave<V extends string>(p: Panes<V>, page: V, back: V): "close" | "back" | null {
+  if (p.view !== page && p.other !== page) return null;
+  return p.other !== null && (p.other === page || p.other === back) ? "close" : "back";
+}
+
 export function close<V extends string>(p: Panes<V>, view: V): Panes<V> {
   if (p.other === null || (view !== p.view && view !== p.other)) return p;
   return { ...p, view: view === p.view ? p.other : p.view, other: null, active: 0 };

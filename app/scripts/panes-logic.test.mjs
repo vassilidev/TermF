@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { beside, clamp, close, decode, encode, go, leaves, slots } from "../src/lib/panes-logic.ts";
+import { beside, clamp, close, decode, encode, go, leave, leaves, slots } from "../src/lib/panes-logic.ts";
 
 const one = { view: "terminals", other: null, active: 0, size: 0.5 };
 const known = ["terminals", "tickets", "files"];
@@ -89,4 +89,14 @@ test("a page with unsaved changes is asked about only when a change takes it off
   assert.equal(leaves(page, aside, beside(aside, "files")), true);
   // Not shown at all: nothing to ask.
   assert.equal(leaves(page, one, go(one, "tickets")), false);
+});
+
+test("leaving a page goes back in its own panel, or closes it when where it came from is beside it", () => {
+  const alone = { view: "run", other: null, active: 0, size: 0.5 };
+  assert.equal(leave(alone, "run", "tickets"), "back");
+  const two = { view: "run", other: "terminals", active: 0, size: 0.5 };
+  assert.equal(leave(two, "run", "tickets"), "back");
+  assert.equal(leave(two, "run", "terminals"), "close");
+  assert.equal(leave({ ...two, view: "terminals", other: "run" }, "run", "tickets"), "close");
+  assert.equal(leave({ ...two, view: "tickets" }, "run", "tickets"), null);
 });
