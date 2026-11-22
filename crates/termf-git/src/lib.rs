@@ -624,7 +624,8 @@ impl Git {
             branches,
             worktrees,
             tags: self.tags(repo)?,
-            stashes: self.stashes(repo)?,
+            // A bare repository has no stash: its state is read all the same.
+            stashes: self.stashes(repo).unwrap_or_default(),
         })
     }
 
