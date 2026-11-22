@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TermF · The cockpit for Claude Code across all your repositories</title>
+<meta name="description" content="TermF is a free, open source cockpit for Claude Code: agents side by side in terminal tabs and splits, a CTO you talk to, and a team of agents that takes a ticket to a pull request. Local-first, for macOS, Windows and Linux.">
+<link rel="canonical" href="https://vassilidev.github.io/TermF/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="TermF">
+<meta property="og:title" content="TermF · The cockpit for Claude Code across all your repositories">
+<meta property="og:description" content="Talk to the CTO, let a team of agents take your tickets to pull requests, and keep every Claude Code in view. Local-first and open source.">
+<meta property="og:url" content="https://vassilidev.github.io/TermF/">
+<meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TermF, the cockpit for Claude Code across all your repositories, next to its project home with the CTO's conversation">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="TermF · The cockpit for Claude Code across all your repositories">
+<meta name="twitter:description" content="Talk to the CTO, let a team of agents take your tickets to pull requests, and keep every Claude Code in view. Local-first and open source.">
+<meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta name="twitter:image:alt" content="TermF, the cockpit for Claude Code across all your repositories, next to its project home with the CTO's conversation">
+<meta name="theme-color" content="#f7f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
+<style>
+:root{color-scheme:light dark;--bg:#f7f7f9;--panel:#fff;--sunk:#eef0f3;--line:#e2e4e9;--line2:#cdd1d8;--fg:#17181c;--soft:#3b3e46;--mut:#5a5f6a;--dim:#636874;--accent:#4a4ad9;--fill:#4a4ad9;--amber:#9a6200;--amber-fill:#f2a516;--green:#1a6e3a;--red:#c42b1c;--glass:rgba(255,255,255,.7);--glass2:rgba(255,255,255,.9);--edge:rgba(15,18,30,.08);--shade:rgba(15,18,30,.14);--glow1:rgba(74,74,217,.12);--glow2:rgba(242,165,22,.12);--glow3:rgba(26,110,58,.07);--grid:rgba(15,18,30,.045);--term:#111216;--term-bar:#1a1b20;--term-fg:#d6d8de;--term-dim:#9a9ea9;--ease:cubic-bezier(.2,.8,.2,1)}
+@media (prefers-color-scheme:dark){:root{--bg:#0c0d10;--panel:#15161b;--sunk:#101115;--line:#24262d;--line2:#363942;--fg:#e7e8eb;--soft:#c4c7cf;--mut:#9a9ea9;--dim:#8b8f9a;--accent:#a3a5ff;--fill:#5b5de8;--amber:#f2b03d;--green:#5fd08b;--red:#ff7b6e;--glass:rgba(21,22,27,.62);--glass2:rgba(21,22,27,.88);--edge:rgba(255,255,255,.08);--shade:rgba(0,0,0,.45);--glow1:rgba(91,93,232,.18);--glow2:rgba(242,165,22,.1);--glow3:rgba(95,208,139,.06);--grid:rgba(255,255,255,.025);--term:#0b0c0f;--term-bar:#141519}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:90px}
+body{margin:0;overflow-x:clip;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+code,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px}
+kbd{border:1px solid var(--line2);border-bottom-width:2px;border-radius:6px;padding:0 6px;background:var(--panel);color:var(--soft)}
+.skip{position:absolute;left:12px;top:-60px;z-index:30;padding:10px 16px;border-radius:10px;background:var(--fg);color:var(--bg);font-weight:700;text-decoration:none}
+.skip:focus{top:12px}
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+.mark{width:24px;height:24px;flex-shrink:0}
+.word{font-weight:800;letter-spacing:.01em}
+
+/* Floating navigation: a rounded bar that tightens once the page scrolls */
+.nav{position:fixed;z-index:20;top:14px;left:50%;transform:translateX(-50%);width:min(1000px,calc(100% - 24px));display:flex;align-items:center;gap:16px;padding:7px 7px 7px 18px;border:1px solid var(--edge);border-radius:999px;background:var(--glass);-webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);box-shadow:0 12px 40px var(--shade);transition:width .45s var(--ease),background .3s,box-shadow .3s;animation:drop .7s var(--ease) both}
+@keyframes drop{from{opacity:0;transform:translate(-50%,-24px)}}
+.nav.scrolled{width:min(860px,calc(100% - 24px));background:var(--glass2)}
+.nav .brand{display:flex;align-items:center;gap:9px;font-size:18px;text-decoration:none}
+.nav .links{display:flex;gap:4px;margin:0 auto;font-size:14.5px}
+.nav .links a{color:var(--mut);text-decoration:none;padding:7px 13px;border-radius:999px;transition:color .15s,background .15s}
+.nav .links a:hover{color:var(--fg);background:var(--edge)}
+.pill{display:inline-flex;align-items:center;gap:12px;padding:6px 6px 6px 18px;border-radius:999px;background:var(--fg);color:var(--bg);font-weight:700;font-size:15px;text-decoration:none;white-space:nowrap;transition:transform .2s var(--ease),box-shadow .2s}
+.pill:hover{transform:translateY(-1px);box-shadow:0 10px 30px var(--shade)}
+.pill i{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--bg);color:var(--fg);transition:transform .25s var(--ease)}
+.pill:hover i{transform:translateX(3px)}
+.pill svg{width:16px;height:16px}
+.pill.big{font-size:17px;padding:8px 8px 8px 24px}
+.pill.big i{width:40px;height:40px}
+.pill.soft{background:var(--panel);color:var(--fg);border:1px solid var(--line)}
+.pill.soft i{background:var(--sunk)}
+
+/* Hero */
+.hero{position:relative;padding:160px 0 0}
+.hero::before{content:"";position:absolute;z-index:-1;left:50%;top:420px;width:100vw;height:980px;transform:translateX(-50%);background:radial-gradient(540px 320px at 28% 40%,var(--glow1),transparent 70%),radial-gradient(540px 320px at 72% 45%,var(--glow2),transparent 70%),radial-gradient(460px 280px at 50% 72%,var(--glow3),transparent 70%);pointer-events:none}
+.kicker{display:inline-flex;align-items:center;gap:9px;margin:0 0 18px;color:var(--soft);font-size:15px;font-weight:600}
+.kicker::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--fill)}
+h1{font-size:clamp(44px,7.2vw,84px);line-height:.98;letter-spacing:-.045em;margin:0 0 24px;font-weight:800;max-width:940px}
+h1 span{color:var(--accent)}
+.lead{font-size:clamp(17px,2.1vw,20px);color:var(--soft);max-width:690px;margin:0}
+.cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px;margin-top:34px}
+.alt{font-size:14.5px;color:var(--mut);text-underline-offset:3px;transition:color .15s}
+.alt:hover{color:var(--fg)}
+.trust{display:flex;flex-wrap:wrap;gap:10px 24px;margin:26px 0 0;padding:0;list-style:none;color:var(--mut);font-size:14px}
+.trust li{display:flex;align-items:center;gap:8px}
+.trust svg{width:16px;height:16px;color:var(--soft)}
+.early{display:flex;width:fit-content;max-width:100%;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0 0 22px;padding:5px 12px 5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--mut);font-size:13.5px}
+.early b{color:var(--amber);font-weight:650}
+.early a{color:var(--soft);text-underline-offset:3px}
+.stage{margin:56px 0 0;perspective:1600px}
+.win{border-radius:14px;overflow:hidden;border:1px solid var(--line2);background:var(--panel);box-shadow:0 40px 120px var(--shade),0 0 0 1px var(--edge)}
+.stage .win{transform-origin:50% 0;will-change:transform}
+.win .chrome{height:32px;background:var(--sunk);display:flex;align-items:center;gap:7px;padding:0 13px;border-bottom:1px solid var(--line)}
+.win .chrome i{width:11px;height:11px;border-radius:50%}
+.win .chrome i:nth-child(1){background:#ff5f57}.win .chrome i:nth-child(2){background:#febc2e}.win .chrome i:nth-child(3){background:#28c840}
+.win picture,.win img{display:block;width:100%;height:auto}
+.caption{color:var(--dim);font-size:13px;margin:12px 0 0}
+
+/* The three things on the project's Home */
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:40px 0 0;padding:0;list-style:none}
+.trio li{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:22px 22px 20px}
+.trio b{display:flex;align-items:center;gap:10px;font-size:17px;letter-spacing:-.01em}
+.trio b i{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.trio p{margin:8px 0 0;color:var(--mut);font-size:15px}
+
+/* Chapters */
+section{padding:130px 0 0}
+h2{font-size:clamp(32px,4.4vw,50px);letter-spacing:-.035em;margin:0 0 14px;line-height:1.04}
+.sub{color:var(--mut);margin:0;max-width:600px;font-size:17px}
+.chapter{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:56px;align-items:center}
+.chapter.flip{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.chapter.flip .text{order:2}
+.points{display:grid;gap:16px;margin:30px 0 0;padding:0;list-style:none}
+.point{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline}
+.point i{width:10px;height:10px;border-radius:3px;transform:translateY(1px)}
+.point b{font-size:16px}
+.point p{grid-column:2;margin:0;color:var(--mut);font-size:15px}
+.c1{background:var(--fill)}.c2{background:var(--amber-fill)}.c3{background:#2ea36b}.c4{background:#9061f0}.c5{background:#3d7fe6}
+
+/* Everything around the agents */
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:40px 0 0;padding:0;list-style:none}
+.tile{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:22px 22px 24px;transition:border-color .2s,transform .25s var(--ease),box-shadow .25s}
+.tile:hover{border-color:var(--line2);transform:translateY(-2px);box-shadow:0 18px 44px var(--shade)}
+.tile svg{width:22px;height:22px;color:var(--accent)}
+.tile h3{margin:14px 0 6px;font-size:17px;line-height:1.3;letter-spacing:-.01em}
+.tile p{margin:0;color:var(--mut);font-size:15px;line-height:1.55}
+.tile p code{color:var(--soft);font-size:13px}
+.mini{margin:14px 0 0;padding:12px 14px;border-radius:12px;background:var(--term);color:var(--term-fg);font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;white-space:nowrap}
+.mini b{color:#f2b03d;font-weight:400}
+
+/* How a ticket becomes a pull request */
+.how-band{position:relative;margin-top:130px;padding:96px 0 100px;background:linear-gradient(180deg,var(--sunk),var(--bg));border-block:1px solid var(--line)}
+.how-band::before{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:48px 48px;-webkit-mask-image:radial-gradient(ellipse at 50% 30%,#000,transparent 75%);mask-image:radial-gradient(ellipse at 50% 30%,#000,transparent 75%);pointer-events:none}
+.how-band .wrap{position:relative}
+.how-band section{padding:0}
+.flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:48px 0 0;padding:0;list-style:none;counter-reset:f}
+.flow li{counter-increment:f;position:relative;border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:16px 16px 18px}
+.flow li::before{content:counter(f);display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--sunk);color:var(--fg);font-weight:700;font-size:13px}
+.flow b{display:block;margin:12px 0 2px;font-size:16px}
+.flow span{display:block;color:var(--dim);font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+.flow p{margin:8px 0 0;color:var(--mut);font-size:14px;line-height:1.5}
+.flow .gate{border-color:var(--amber-fill)}
+.flow .gate::after{content:"You approve";position:absolute;top:14px;right:14px;padding:1px 9px;border-radius:999px;background:var(--amber-fill);color:#2e1d00;font-size:12px;font-weight:700}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin:54px 0 0;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--line)}
+.stats div{background:var(--panel);padding:22px 22px 20px}
+.stats b{display:block;font-size:30px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stats span{color:var(--mut);font-size:14.5px}
+.how{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 40px;margin:40px 0 0;padding:0;list-style:none}
+.how li{color:var(--mut);font-size:15.5px;padding-left:18px;position:relative}
+.how li::before{content:"";position:absolute;left:0;top:.6em;width:8px;height:8px;border-radius:2px;background:var(--fill)}
+.how b{color:var(--fg)}
+
+/* Security */
+.guards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:40px 0 0;padding:0;list-style:none}
+.guards li{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:22px}
+.guards b{display:flex;align-items:center;gap:10px;font-size:17px}
+.guards svg{width:20px;height:20px;color:var(--green);flex-shrink:0}
+.guards p{margin:8px 0 0;color:var(--mut);font-size:15px}
+.guards code{color:var(--soft);font-size:13px}
+.limits{margin:20px 0 0;padding:18px 22px;border:1px dashed var(--line2);border-radius:16px;color:var(--mut);font-size:15px;max-width:900px}
+.limits b{color:var(--fg)}
+.limits a{color:var(--soft);text-underline-offset:3px}
+
+/* Get started */
+.install{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:24px;margin:40px 0 0}
+.card{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:28px}
+.dl h3{margin:0 0 6px;font-size:22px;letter-spacing:-.01em}
+.dl>p{margin:0 0 22px;color:var(--mut);font-size:15px}
+.steps{display:grid;margin:26px 0 0;padding:0;list-style:none;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:28px 1fr;gap:14px;padding:0 0 18px;position:relative;color:var(--mut);font-size:15px}
+.steps li::before{content:counter(s);display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--sunk);color:var(--fg);font-weight:700;font-size:13px;position:relative;z-index:1}
+.steps li:not(:last-child)::after{content:"";position:absolute;left:13.5px;top:28px;bottom:0;width:1px;background:var(--line)}
+.steps b{color:var(--fg)}
+.term{align-self:start;border-radius:18px;overflow:hidden;border:1px solid #2a2c33;background:var(--term);box-shadow:0 24px 70px var(--shade)}
+.term-bar{display:flex;align-items:center;gap:7px;height:42px;padding:0 10px 0 14px;background:var(--term-bar);border-bottom:1px solid #24262d}
+.term-bar i{width:11px;height:11px;border-radius:50%}
+.term-bar i:nth-child(1){background:#ff5f57}.term-bar i:nth-child(2){background:#febc2e}.term-bar i:nth-child(3){background:#28c840}
+.term-bar>span{margin:0 auto;color:var(--term-dim);font-size:12.5px;transform:translateX(-28px)}
+.copy{display:flex;align-items:center;gap:6px;border:1px solid #33363e;border-radius:8px;background:#1d1f25;color:#d6d8de;font:inherit;font-size:12.5px;padding:5px 10px;cursor:pointer;transition:border-color .15s,color .15s}
+.copy:hover{border-color:#4b5363;color:#fff}
+.copy svg{width:13px;height:13px}
+.copy.ok{color:#7ad9a6;border-color:#24503a}
+pre.sh{margin:0;padding:22px 24px 24px;overflow-x:auto;font:14px/1.85 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--term-fg)}
+.sh .c{color:var(--term-dim)}
+.sh .p{color:#f2b03d;user-select:none;-webkit-user-select:none}
+.sh .k{color:#7ad9a6}
+.sh .u{color:#a3a5ff}
+.more{color:var(--mut);font-size:15px;margin:22px 0 0}
+.more a{color:var(--soft);text-underline-offset:3px}
+
+/* FAQ */
+.faq{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:48px;align-items:start}
+.faq-side{position:sticky;top:110px}
+.faq-side p{color:var(--mut);margin:0}
+.faq-side a{color:var(--soft);text-underline-offset:3px}
+.faq-list{display:grid;gap:10px}
+.faq details{border:1px solid var(--line);border-radius:14px;background:var(--panel);transition:border-color .2s}
+.faq details[open]{border-color:var(--line2)}
+.faq summary{cursor:pointer;list-style:none;padding:17px 20px;font-weight:650;font-size:16px;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"";flex-shrink:0;width:9px;height:9px;border:solid var(--mut);border-width:0 1.6px 1.6px 0;transform:rotate(45deg) translateY(-3px);transition:transform .25s var(--ease)}
+.faq details[open] summary::after{transform:rotate(225deg) translateY(-3px)}
+.faq details p{margin:0;padding:0 20px 18px;color:var(--mut);font-size:15.5px}
+
+/* Closing call and footer */
+.final{margin:140px 0 0;padding:64px 40px;border-radius:28px;text-align:center;position:relative;overflow:hidden;background:radial-gradient(600px 260px at 20% 0%,var(--glow1),transparent 70%),radial-gradient(600px 260px at 80% 100%,var(--glow2),transparent 70%),var(--panel);border:1px solid var(--line)}
+.final h2{margin:0 0 12px}
+.final p{color:var(--soft);margin:0 auto 28px;max-width:540px}
+footer{margin-top:120px;border-top:1px solid var(--line);overflow:hidden}
+.foot{display:grid;grid-template-columns:minmax(0,5fr) repeat(3,minmax(0,2fr));gap:32px;padding:56px 0 0}
+.foot .brand{display:flex;align-items:center;gap:10px;font-size:20px;text-decoration:none}
+.foot-about p{color:var(--mut);margin:14px 0 22px;max-width:340px;font-size:15px}
+.foot h2{margin:4px 0 14px;font-size:14px;line-height:1.6;letter-spacing:0;color:var(--soft)}
+.foot ul{margin:0;padding:0;list-style:none;display:grid;gap:10px}
+.foot ul a{color:var(--mut);text-decoration:none;font-size:15px;transition:color .15s}
+.foot ul a:hover{color:var(--fg)}
+.giant{margin:40px 0 0;font-size:clamp(90px,19vw,250px);font-weight:800;letter-spacing:-.06em;line-height:.8;color:transparent;-webkit-text-stroke:1px var(--line2);user-select:none;white-space:nowrap}
+.foot-bottom{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:22px 0 30px;border-top:1px solid var(--line);color:var(--dim);font-size:14px}
+.foot-bottom a{color:var(--mut)}
+
+@media (max-width:960px){
+  .chapter,.chapter.flip,.install,.faq{grid-template-columns:1fr;gap:34px}
+  .chapter.flip .text{order:0}
+  .tiles,.flow{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .trio{grid-template-columns:1fr}
+  .stats{grid-template-columns:1fr 1fr}
+  .foot{grid-template-columns:1fr 1fr}
+  .foot-about{grid-column:1/-1}
+  .faq-side{position:static}
+}
+@media (max-width:720px){
+  .nav .links{display:none}
+  .nav{justify-content:space-between}
+  .hero{padding-top:120px}
+  .how,.guards{grid-template-columns:1fr}
+  section{padding-top:96px}
+  .final{padding:48px 22px}
+  /* Touch targets of at least 44 px */
+  .nav .brand,.foot .brand,.alt,.foot ul a,.foot-bottom a,.early a{display:inline-flex;align-items:center;min-height:44px}
+  .copy{min-height:44px;min-width:44px;justify-content:center}
+  .foot ul{gap:0}
+  pre.sh{white-space:pre-wrap;overflow-wrap:anywhere}
+}
+@media (max-width:640px){.tiles,.flow{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.nav{animation:none}.pill,.pill i,.nav,.tile{transition:none}.tile:hover{transform:none}}
+</style>
+<!-- Structured data. The FAQPage mirrors the FAQ section word for word: update both together. -->
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "SoftwareApplication",
+ "name": "TermF",
+ "description": "A free, open source cockpit for Claude Code across all your repositories: terminal tabs and splits, a CTO agent you talk to, and a team of agents that takes a ticket to a pull request, local-first.",
+ "url": "https://vassilidev.github.io/TermF/",
+ "downloadUrl": "https://vassilidev.github.io/TermF/download.html",
+ "applicationCategory": "DeveloperApplication",
+ "operatingSystem": "macOS, Windows, Linux",
+ "screenshot": "https://vassilidev.github.io/TermF/shots/home-light.webp",
+ "image": "https://vassilidev.github.io/TermF/og.png",
+ "featureList": [
+  "Claude Code sessions in terminal tabs and splits, with which agent waits for you",
+  "A CTO agent as the single person to talk to, one conversation per project",
+  "A team of agent roles that takes a ticket to a pull request, with plan, review and delivery gates",
+  "Tickets from GitHub Issues, GitHub Projects, Jira Cloud and MCP servers",
+  "One git worktree per run, prepared for the project's stack",
+  "A layered library of roles, rules and skills chosen by the detected stack",
+  "A project expert that searches the project's memory and answers with sources",
+  "Claude Code settings, MCP servers, plugins, hooks, sessions and usage in one view",
+  "SSH keys, an encrypted vault, encrypted settings sync, native CI/CD and a scheduler"
+ ],
+ "offers": {
+  "@type": "Offer",
+  "price": "0",
+  "priceCurrency": "USD"
+ },
+ "isAccessibleForFree": true,
+ "license": "https://github.com/vassilidev/TermF/blob/main/LICENSE",
+ "author": {
+  "@type": "Person",
+  "name": "vassilidev",
+  "url": "https://github.com/vassilidev"
+ },
+ "sameAs": [
+  "https://github.com/vassilidev/TermF"
+ ]
+}
+</script>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "Is TermF ready to use?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "It is in early development. The builds are unsigned pre-releases, and most of the interface has been checked with automated tests and a simulated backend rather than by hand. Parts of the flow have run with a real Claude Code, like a ticket opened in its worktree and a team going from plan to task reports. Expect rough edges, and please report them."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Do I need Claude Code?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "For the agents, yes: TermF starts the claude command you already have, signed in to your own account. A terminal can also run a shell or any other command line agent you declare in termf.toml."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Does my code leave my computer?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "TermF has no server and no telemetry. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up: GitHub or Jira for tickets, and the git remote or folder you pick for the encrypted sync."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can an agent push or merge on its own?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Not from a run. The termf guard hook refuses git pushes and writes to the ticket tracker in a run's sessions, and TermF opens the pull request only after you confirmed its preview. It is defense in depth, not a sandbox: a script an agent writes and then runs can still get around it."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How much does it cost?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "TermF is free and open source under the MIT license. The agents use your Claude plan or API key; each run shows what it spent and a team stops at its budget."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Which ticket trackers does it read?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "GitHub Issues and GitHub Projects through the GitHub CLI, Jira Cloud with a token kept in the system keychain, and any MCP server that lists tickets. A project can mix several sources."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Why does my system warn me when I open it?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "The builds are not signed yet. On macOS, right-click the app and choose Open, or run xattr -dr com.apple.quarantine /Applications/TermF.app once. On Windows, click More info, then Run anyway. The download page has the details."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Does it run on Windows and Linux?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "It is built and its tests run on macOS, Windows and Ubuntu on every change, but it has only been run by hand on macOS so far. On Linux it needs WebKitGTK 4.1."
+   }
+  }
+ ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav" id="nav">
+  <a class="brand" href="./" aria-label="TermF home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7.5" fill="#4a4ad9"/><path d="M9.5 10.5 15 16l-5.5 5.5M17.5 21.5H23" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="word">TermF</span></a>
+  <nav class="links" aria-label="Main">
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#security">Security</a>
+    <a href="#faq">FAQ</a>
+    <a href="https://github.com/vassilidev/TermF">GitHub</a>
+  </nav>
+  <a class="pill" href="download.html">Download<i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></i></a>
+</header>
+
+<main class="wrap" id="main">
+  <div class="hero">
+    <p class="early"><b>Early development</b>Unsigned preview builds · <a href="https://github.com/vassilidev/TermF/releases">release notes</a></p>
+    <p class="kicker">The cockpit for Claude Code across all your repositories</p>
+    <h1>Talk to the CTO. The team ships the tickets<span>.</span></h1>
+    <p class="lead">TermF keeps every Claude Code of every repository in view, in terminal tabs and splits. Ask the CTO what you want: a team of agents takes the ticket to a pull request, in its own worktree, and stops for your approval at each gate.</p>
+    <div class="cta" data-cta><a class="pill big" href="download.html">Download TermF<i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg></i></a><a class="alt" href="https://github.com/vassilidev/TermF">View the source on GitHub</a></div>
+    <ul class="trust">
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Local-first, no TermF server</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>Open source, MIT license</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Rust and Tauri, no Electron</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>macOS, Windows and Linux</li>
+    </ul>
+
+    <div class="stage">
+      <div class="win" id="hero-shot"><div class="chrome"><i></i><i></i><i></i></div><picture><source media="(prefers-color-scheme: dark)" type="image/webp" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="(max-width:1160px) calc(100vw - 48px), 1112px"><img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="(max-width:1160px) calc(100vw - 48px), 1112px" width="1600" height="1000" fetchpriority="high" alt="TermF's project home: the conversation with the CTO, a plan waiting for approval, and on the right what waits for you, the agents on duty and the runs"></picture></div>
+    </div>
+    <p class="caption">Every screenshot uses fictional data: the user alex and the acme repositories.</p>
+  </div>
+
+  <section id="features">
+    <h2>One person to talk to.</h2>
+    <p class="sub">Each project opens on its Home: the CTO's conversation in the middle, and everything that needs you on the side.</p>
+    <ul class="trio">
+      <li><b><i class="c1"></i>The CTO, your way in</b><p>Ask for a feature, a fix or where things are. The CTO reads the project, triages each run and routes it to the right workflow and squad. Write <code>@role</code> to talk to someone else directly.</p></li>
+      <li><b><i class="c2"></i>What waits for you, in one list</b><p>A plan to approve, a question from an agent, a permission to grant. <kbd>⌘J</kbd> takes you to the next one, in any project.</p></li>
+      <li><b><i class="c3"></i>The team at work</b><p>Who is on duty and on what, each run with its state, and the project's tickets ready to start.</p></li>
+    </ul>
+  </section>
+
+  <section class="chapter">
+    <div class="text">
+      <h2>Terminals, the Ghostty way.</h2>
+      <p class="sub">Open Claude Code in as many repositories as you like, side by side, and see at a glance which one waits for you.</p>
+      <ul class="points">
+        <li class="point"><i class="c1"></i><b>Tabs and free splits</b><p><kbd>⌘T</kbd> for a new session, <kbd>⌘D</kbd> and <kbd>⌘⇧D</kbd> to split, <kbd>⌥⌘</kbd> and the arrows to move. Every shortcut can be changed.</p></li>
+        <li class="point"><i class="c2"></i><b>Status from Claude Code itself</b><p>Working, waiting for you, done: read from Claude Code's hooks, with its context gauge and a notification when it needs you.</p></li>
+        <li class="point"><i class="c3"></i><b>Every repository, found for you</b><p>TermF finds the git repositories on your machine and sorts them by activity. Group them into projects, broadcast a prompt to several sessions, keep a quick terminal one shortcut away.</p></li>
+      </ul>
+    </div>
+    <div class="win"><div class="chrome"><i></i><i></i><i></i></div><picture><source media="(prefers-color-scheme: dark)" type="image/webp" srcset="shots/terminals-dark-800.webp 800w, shots/terminals-dark.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px"><img src="shots/terminals-light.webp" srcset="shots/terminals-light-800.webp 800w, shots/terminals-light.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px" width="1600" height="1000" loading="lazy" alt="TermF's terminals: three tabs, and in the first one two Claude Code sessions side by side above a shell"></picture></div>
+  </section>
+
+  <section class="chapter flip">
+    <div class="text">
+      <h2>From a ticket to a pull request.</h2>
+      <p class="sub">One page per ticket follows its run from the first step to the delivery, with or without the team.</p>
+      <ul class="points">
+        <li class="point"><i class="c2"></i><b>Questions before the work starts</b><p>The plan comes with its open questions and proposed answers. Change what doesn't suit you and send them all at once.</p></li>
+        <li class="point"><i class="c1"></i><b>A timeline you can read</b><p>Framing, plan, tasks, review, delivery: what is done, who works on what, what it cost, against the run's budget.</p></li>
+        <li class="point"><i class="c3"></i><b>Delivered when you say so</b><p>TermF shows the files and commits it would send, then opens a pull request that closes the ticket once you confirm.</p></li>
+      </ul>
+    </div>
+    <div class="win"><div class="chrome"><i></i><i></i><i></i></div><picture><source media="(prefers-color-scheme: dark)" type="image/webp" srcset="shots/run-dark-800.webp 800w, shots/run-dark.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px"><img src="shots/run-light.webp" srcset="shots/run-light-800.webp 800w, shots/run-light.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px" width="1600" height="1000" loading="lazy" alt="A ticket's run page: the steps from framing to delivery, the plan's questions with proposed answers, the budget and the log"></picture></div>
+  </section>
+
+  <section class="chapter">
+    <div class="text">
+      <h2>A team that fits the project.</h2>
+      <p class="sub">The setup assistant reads your repositories, asks a few questions and proposes the rest, item by item.</p>
+      <ul class="points">
+        <li class="point"><i class="c4"></i><b>Roles and squads</b><p>CTO, product owner, lead, front, back, QA, reviewer, security, SEO and more, each with its model and effort. Squads split the work by repository, path or domain.</p></li>
+        <li class="point"><i class="c1"></i><b>Rules you switch on</b><p>Strict scope, no unrequested text changes, visual review before and after: per project, ticket or task, at the level you choose.</p></li>
+        <li class="point"><i class="c5"></i><b>One page per project</b><p>Repositories, ticket sources, team, library, worktree setup, project memory and Claude Code trust, all in its Configuration.</p></li>
+      </ul>
+    </div>
+    <div class="win"><div class="chrome"><i></i><i></i><i></i></div><picture><source media="(prefers-color-scheme: dark)" type="image/webp" srcset="shots/config-dark-800.webp 800w, shots/config-dark.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px"><img src="shots/config-light.webp" srcset="shots/config-light-800.webp 800w, shots/config-light.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px" width="1600" height="1000" loading="lazy" alt="A project's configuration, Team section: two squads with their lead and members, and the table of roles with their model"></picture></div>
+  </section>
+
+  <section class="chapter flip">
+    <div class="text">
+      <h2>All of Claude Code, in one view.</h2>
+      <p class="sub">What configures Claude Code on your machine, read from where it lives, with secrets masked.</p>
+      <ul class="points">
+        <li class="point"><i class="c1"></i><b>Settings by scope</b><p>User, project and local settings, permissions, hooks and environment, with the scope that wins. Edit the simple ones in place.</p></li>
+        <li class="point"><i class="c4"></i><b>MCP servers and plugins</b><p>Add, remove, turn on and off, plus skills, agents, commands, output styles and memory files.</p></li>
+        <li class="point"><i class="c2"></i><b>Sessions, usage and artifacts</b><p>Resume a past conversation, see your usage and limits, and sort, open or delete your claude.ai artifacts.</p></li>
+      </ul>
+    </div>
+    <div class="win"><div class="chrome"><i></i><i></i><i></i></div><picture><source media="(prefers-color-scheme: dark)" type="image/webp" srcset="shots/claude-dark-800.webp 800w, shots/claude-dark.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px"><img src="shots/claude-light.webp" srcset="shots/claude-light-800.webp 800w, shots/claude-light.webp 1600w" sizes="(max-width:960px) calc(100vw - 48px), 640px" width="1600" height="1000" loading="lazy" alt="TermF's Claude view: the version, account, model and permission mode, an MCP server that needs a sign-in, and what is installed"></picture></div>
+  </section>
+
+  <section id="around">
+    <h2>Everything around the agents.</h2>
+    <p class="sub">The chores of a developer's machine, next to the agents that need them.</p>
+    <ul class="tiles">
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="7" r="2.5"/><path d="M6 7.5v9M18 9.5c0 4-4 5-10.5 7.5"/></svg>
+        <h3>Worktrees, ready to run</h3>
+        <p>One worktree per run, inside the repository. Dependencies, <code>.env</code> files, a copy of the database and ports are prepared from the project's recipe.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v15H6a2 2 0 0 0-2 2zM19 18v3H6"/><path d="M9 7h6M9 11h4"/></svg>
+        <h3>Skills for your stack</h3>
+        <p>TermF detects the stack and turns on the matching skills: 38 ship with it, from TypeScript and Svelte to Laravel, Go and Terraform. Turn them on or off per project.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M11 8v3l2 1.5"/></svg>
+        <h3>The project expert</h3>
+        <p>Ask how something works. It searches what the project remembers (conversations, run logs, docs, git history), indexed on your machine, and answers with its sources.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14.5 8.5l2 2"/></svg>
+        <h3>SSH keys and every key format</h3>
+        <p>Generate, convert and test keys (OpenSSH, PuTTY, JWK, PKCS#8…), manage the agent and <code>~/.ssh/config</code> with a preview, and give a repository its own key.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M3 21v-5h5"/></svg>
+        <h3>Encrypted sync</h3>
+        <p>Settings, projects and conventions follow you to your other machines through a git remote or a synced folder, end-to-end encrypted, with a recovery key.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m10 8.5 5.5 3.5-5.5 3.5z"/></svg>
+        <h3>CI/CD, natively</h3>
+        <p>GitHub Actions runs by repository, branch or pull request, logs with the errors found, rerun or cancel, and a failure sent back to the agent.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <h3>A scheduler for Claude</h3>
+        <p>Cron tasks run in a terminal or headless, with a model, a budget and a history; headless ones even while TermF is closed.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4M12 15v2"/></svg>
+        <h3>A vault for secrets</h3>
+        <p>Secrets encrypted under a master password, auto-lock, references to 1Password, Bitwarden, Doppler, AWS or HashiCorp Vault, and a hash-chained audit log. From the <code>termf</code> command line for now.</p>
+      </li>
+      <li class="tile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"/></svg>
+        <h3>A command line too</h3>
+        <p>Open sessions, start a run, follow a team or ask the expert from any terminal.</p>
+        <div class="mini" aria-hidden="true"><b>$</b> termf team status 7</div>
+      </li>
+    </ul>
+  </section>
+</main>
+
+<div class="how-band" id="how">
+  <div class="wrap">
+    <section aria-labelledby="how-title">
+      <h2 id="how-title">How a ticket becomes a pull request.</h2>
+      <p class="sub">TermF orchestrates, not a model: each step is a fresh agent session with a brief, logged and interruptible, and the steps that matter wait for you.</p>
+      <ol class="flow">
+        <li><b>Triage</b><span>cto</span><p>Picks the workflow, the steps and the squads.</p></li>
+        <li><b>Framing</b><span>po</span><p>Acceptance criteria, out of scope, questions.</p></li>
+        <li class="gate"><b>Plan</b><span>lead</span><p>Tasks by role and repository.</p></li>
+        <li><b>Tasks</b><span>front · back · qa</span><p>In parallel, each in its own worktree.</p></li>
+        <li class="gate"><b>Review</b><span>reviewer · secops</span><p>Checks, rules, code review, visual review.</p></li>
+        <li class="gate"><b>Delivery</b><span>you</span><p>A preview, then the pull request.</p></li>
+      </ol>
+      <div class="stats">
+        <div><b>14</b><span>agent roles shipped</span></div>
+        <div><b>38</b><span>skills by language and framework</span></div>
+        <div><b>3</b><span>workflow rules, at the level you set</span></div>
+        <div><b>0</b><span>servers and telemetry</span></div>
+      </div>
+      <ul class="how">
+        <li><b>A session per step</b>: the context stays small, and the next agent starts from a handoff brief instead of a long history.</li>
+        <li><b>A review loop</b>: the reviewer's findings go back to the task that must fix them, then it reviews again, under the CTO's eye.</li>
+        <li><b>Budgets</b>: each run has one, the cost of every step is counted, and an emergency stop ends every team at work.</li>
+        <li><b>Visual review</b>: when the interface changed, screens are captured before and after for you to approve, refuse or send back with changes.</li>
+        <li><b>Your workflow</b>: a default workflow and a hotfix one ship as TOML files, ready to adapt per project.</li>
+        <li><b>Headless or hands-on</b>: steps run headless, and you can take over any conversation in a terminal, then hand it back.</li>
+      </ul>
+    </section>
+  </div>
+</div>
+
+<main class="wrap">
+  <section id="security">
+    <h2>Agents work. You decide.</h2>
+    <p class="sub">Least privilege for the agents, and nothing leaves your machine that Claude Code would not send anyway.</p>
+    <ul class="guards">
+      <li><b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>A guard on every run</b><p>The <code>termf guard</code> hook refuses pushes and tracker writes in a run's sessions, and a run doesn't start without it.</p></li>
+      <li><b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>Your token stays yours</b><p>Each agent session gets its own narrow access to TermF's local API. Starting a team, approving a gate or answering for you from the command line waits for your confirmation in the app.</p></li>
+      <li><b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>Tickets are data, not orders</b><p>A ticket reaches the agent as a framed file marked untrusted. The CTO's conversation can read the repositories but has no shell and no network.</p></li>
+      <li><b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>Secrets kept out of reach</b><p><code>.env</code> files and private keys are denied to the file tools of the sessions TermF starts, and the vault and the settings sync are encrypted.</p></li>
+    </ul>
+    <p class="limits"><b>Honest limits.</b> These guards are defense in depth on one machine, not an operating system boundary: a process set on getting around them, like a script an agent writes and then runs, still can. <a href="https://github.com/vassilidev/TermF/blob/main/docs/STATUS.md#4-dettes-et-points-non-v%C3%A9rifi%C3%A9s-connus">The known gaps are listed</a> (in French).</p>
+  </section>
+
+  <section id="start">
+    <h2>Up and running in minutes.</h2>
+    <p class="sub">Claude Code installed and signed in, git, and the GitHub CLI for GitHub tickets.</p>
+    <div class="install">
+      <div class="card dl">
+        <h3>Get TermF</h3>
+        <p>macOS (Apple Silicon and Intel), Windows and Linux. Free, no account.</p>
+        <a class="pill" href="download.html">Download<i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg></i></a>
+        <ol class="steps">
+          <li><span><b>Open TermF</b>: it finds the git repositories on your machine.</span></li>
+          <li><span><b>Create a project</b> from a few repositories; the setup assistant proposes its team, skills, ticket sources and worktree recipe.</span></li>
+          <li><span><b>Talk to the CTO</b> on the project's Home, or open Claude Code in a terminal.</span></li>
+          <li><span><b>Start the team on a ticket</b>, answer its questions, approve the plan, deliver.</span></li>
+        </ol>
+      </div>
+      <div class="term">
+        <div class="term-bar"><i></i><i></i><i></i><span>termf</span><button class="copy" type="button" aria-label="Copy the commands"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+<pre class="sh" id="sh"><span class="c"># The same cockpit from any terminal</span>
+<span class="p">$ </span><span class="k">termf</span> ls
+<span class="p">$ </span><span class="k">termf</span> open ~/code/acme/api --agent claude
+<span class="p">$ </span><span class="k">termf</span> inbox --project acme
+<span class="p">$ </span><span class="k">termf</span> run <span class="u">acme/api#482</span>
+<span class="p">$ </span><span class="k">termf</span> team status 8
+<span class="p">$ </span><span class="k">termf</span> ask "How are invoices exported?"
+
+<span class="c"># Starting a run or a team from here waits for your OK in the app.</span></pre>
+      </div>
+    </div>
+    <p class="more">Installers for every platform, the <code>termf</code> command line and building from source: <a href="download.html">download TermF for macOS, Windows and Linux</a>.</p>
+  </section>
+
+  <section id="faq" class="faq">
+    <div class="faq-side">
+      <h2>Questions.</h2>
+      <p>Something else? <a href="https://github.com/vassilidev/TermF/issues">Open an issue</a> on GitHub.</p>
+    </div>
+    <div class="faq-list">
+      <details><summary>Is TermF ready to use?</summary><p>It is in early development. The builds are unsigned pre-releases, and most of the interface has been checked with automated tests and a simulated backend rather than by hand. Parts of the flow have run with a real Claude Code, like a ticket opened in its worktree and a team going from plan to task reports. Expect rough edges, and please report them.</p></details>
+      <details><summary>Do I need Claude Code?</summary><p>For the agents, yes: TermF starts the <code>claude</code> command you already have, signed in to your own account. A terminal can also run a shell or any other command line agent you declare in <code>termf.toml</code>.</p></details>
+      <details><summary>Does my code leave my computer?</summary><p>TermF has no server and no telemetry. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up: GitHub or Jira for tickets, and the git remote or folder you pick for the encrypted sync.</p></details>
+      <details><summary>Can an agent push or merge on its own?</summary><p>Not from a run. The <code>termf guard</code> hook refuses git pushes and writes to the ticket tracker in a run's sessions, and TermF opens the pull request only after you confirmed its preview. It is defense in depth, not a sandbox: a script an agent writes and then runs can still get around it.</p></details>
+      <details><summary>How much does it cost?</summary><p>TermF is free and open source under the MIT license. The agents use your Claude plan or API key; each run shows what it spent and a team stops at its budget.</p></details>
+      <details><summary>Which ticket trackers does it read?</summary><p>GitHub Issues and GitHub Projects through the GitHub CLI, Jira Cloud with a token kept in the system keychain, and any MCP server that lists tickets. A project can mix several sources.</p></details>
+      <details><summary>Why does my system warn me when I open it?</summary><p>The builds are not signed yet. On macOS, right-click the app and choose Open, or run <code>xattr -dr com.apple.quarantine /Applications/TermF.app</code> once. On Windows, click More info, then Run anyway. <a href="download.html">The download page</a> has the details.</p></details>
+      <details><summary>Does it run on Windows and Linux?</summary><p>It is built and its tests run on macOS, Windows and Ubuntu on every change, but it has only been run by hand on macOS so far. On Linux it needs WebKitGTK 4.1.</p></details>
+    </div>
+  </section>
+
+  <div class="final">
+    <h2>Your repositories, one cockpit.</h2>
+    <p>Every Claude Code in view, a CTO to talk to and a team that ships. Free and open source.</p>
+    <div class="cta" data-cta style="justify-content:center"><a class="pill big" href="download.html">Download TermF<i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg></i></a></div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="foot-about">
+        <a class="brand" href="./" aria-label="TermF home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7.5" fill="#4a4ad9"/><path d="M9.5 10.5 15 16l-5.5 5.5M17.5 21.5H23" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="word">TermF</span></a>
+        <p>The cockpit for Claude Code across all your repositories. Free and open source, for macOS, Windows and Linux.</p>
+        <a class="pill soft" href="download.html">Download TermF<i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></i></a>
+      </div>
+      <div><h2>Product</h2><ul><li><a href="#features">Features</a></li><li><a href="#how">How it works</a></li><li><a href="#security">Security</a></li><li><a href="download.html">Download</a></li><li><a href="#faq">FAQ</a></li></ul></div>
+      <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
+      <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
+    </div>
+    <p class="giant" aria-hidden="true">TermF</p>
+    <div class="foot-bottom"><span>© 2026 TermF contributors</span><span>Built by <a href="https://github.com/vassilidev">vassilidev</a></span></div>
+  </div>
+</footer>
+
+<script>
+const ARROW = '<i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg></i>';
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// The call to action names the visitor's system; iPads report a Mac platform, so touch support tells them apart
+const ua = navigator.userAgent, plat = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
+const os = /android|iphone|ipad|ipod/i.test(ua) || (plat.includes('mac') && navigator.maxTouchPoints > 1) ? null
+  : plat.includes('win') ? ['windows', 'Windows'] : plat.includes('linux') || /linux|x11|cros/i.test(ua) ? ['linux', 'Linux'] : ['macos', 'macOS'];
+if (os) for (const box of document.querySelectorAll('[data-cta]')) {
+  const pill = box.querySelector('.pill');
+  pill.href = 'download.html#' + os[0];
+  pill.innerHTML = `Download for ${os[1]}${ARROW}`;
+  if (!box.querySelector('.alt')) box.insertAdjacentHTML('beforeend', '<a class="alt" href="download.html">Other platforms</a>');
+}
+
+// The hero screenshot starts tilted back and straightens as the page scrolls; the nav tightens
+const nav = document.getElementById('nav'), shot = document.getElementById('hero-shot');
+let ticking = false;
+function onScroll() {
+  ticking = false;
+  nav.classList.toggle('scrolled', scrollY > 40);
+  if (reduced) return;
+  const p = Math.min(1, Math.max(0, scrollY / (innerHeight * .55)));
+  shot.style.transform = `rotateX(${(1 - p) * 14}deg) scale(${.95 + p * .05})`;
+}
+addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll) } }, {passive: true});
+onScroll();
+
+// The copy button gives the terminal's commands, without prompts or comments
+document.addEventListener('click', async e => {
+  const btn = e.target.closest('button.copy');
+  if (!btn) return;
+  const text = document.getElementById('sh').innerText.split('\n').filter(l => l.startsWith('$ ')).map(l => l.slice(2)).join('\n');
+  try { await navigator.clipboard.writeText(text) } catch {
+    const t = Object.assign(document.createElement('textarea'), {value: text});
+    document.body.append(t); t.select(); document.execCommand('copy'); t.remove();
+  }
+  btn.classList.add('ok'); btn.querySelector('span').textContent = 'Copied';
+  setTimeout(() => { btn.classList.remove('ok'); btn.querySelector('span').textContent = 'Copy' }, 1600);
+});
+</script>
+</body>
+</html>

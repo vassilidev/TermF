@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Download TermF for macOS, Windows and Linux · Cockpit for Claude Code</title>
+<meta name="description" content="Download TermF, the free open source cockpit for Claude Code: disk images for macOS on Apple Silicon and Intel, an installer and an MSI for Windows, an AppImage, .deb and .rpm for Linux, and the termf command line.">
+<link rel="canonical" href="https://vassilidev.github.io/TermF/download.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="TermF">
+<meta property="og:title" content="Download TermF for macOS, Windows and Linux">
+<meta property="og:description" content="The cockpit for Claude Code across all your repositories: macOS, Windows and Linux installers, and the termf command line, from the GitHub releases.">
+<meta property="og:url" content="https://vassilidev.github.io/TermF/download.html">
+<meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TermF, the cockpit for Claude Code across all your repositories, next to its project home with the CTO's conversation">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Download TermF for macOS, Windows and Linux">
+<meta name="twitter:description" content="The cockpit for Claude Code across all your repositories: macOS, Windows and Linux installers, and the termf command line, from the GitHub releases.">
+<meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta name="twitter:image:alt" content="TermF, the cockpit for Claude Code across all your repositories, next to its project home with the CTO's conversation">
+<meta name="theme-color" content="#f7f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
+<link rel="preconnect" href="https://api.github.com" crossorigin>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "BreadcrumbList",
+ "itemListElement": [
+  {
+   "@type": "ListItem",
+   "position": 1,
+   "name": "TermF",
+   "item": "https://vassilidev.github.io/TermF/"
+  },
+  {
+   "@type": "ListItem",
+   "position": 2,
+   "name": "Download",
+   "item": "https://vassilidev.github.io/TermF/download.html"
+  }
+ ]
+}
+</script>
+<style>
+:root{color-scheme:light dark;--bg:#f7f7f9;--panel:#fff;--sunk:#eef0f3;--line:#e2e4e9;--line2:#cdd1d8;--fg:#17181c;--soft:#3b3e46;--mut:#5a5f6a;--dim:#636874;--accent:#4a4ad9;--fill:#4a4ad9;--amber:#9a6200;--amber-fill:#f2a516;--green:#1a6e3a;--glass:rgba(255,255,255,.9);--edge:rgba(15,18,30,.08);--shade:rgba(15,18,30,.14);--glow1:rgba(74,74,217,.12);--glow2:rgba(242,165,22,.12);--term:#111216;--term-fg:#d6d8de;--ease:cubic-bezier(.2,.8,.2,1)}
+@media (prefers-color-scheme:dark){:root{--bg:#0c0d10;--panel:#15161b;--sunk:#101115;--line:#24262d;--line2:#363942;--fg:#e7e8eb;--soft:#c4c7cf;--mut:#9a9ea9;--dim:#8b8f9a;--accent:#a3a5ff;--fill:#5b5de8;--amber:#f2b03d;--green:#5fd08b;--glass:rgba(21,22,27,.88);--edge:rgba(255,255,255,.08);--shade:rgba(0,0,0,.45);--glow1:rgba(91,93,232,.18);--glow2:rgba(242,165,22,.1);--term:#0b0c0f}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:90px}
+body{margin:0;overflow-x:clip;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px}
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+.mark{width:24px;height:24px;flex-shrink:0}
+.word{font-weight:800;letter-spacing:.01em}
+.nav{position:fixed;z-index:20;top:14px;left:50%;transform:translateX(-50%);width:min(1000px,calc(100% - 24px));display:flex;align-items:center;gap:16px;padding:7px 7px 7px 18px;border:1px solid var(--edge);border-radius:999px;background:var(--glass);-webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);box-shadow:0 12px 40px var(--shade)}
+.nav .brand{display:flex;align-items:center;gap:9px;font-size:18px;text-decoration:none}
+.nav .links{display:flex;gap:4px;margin:0 auto;font-size:14.5px}
+.nav .links a{color:var(--mut);text-decoration:none;padding:7px 13px;border-radius:999px;transition:color .15s,background .15s}
+.nav .links a:hover{color:var(--fg);background:var(--edge)}
+.pill{display:inline-flex;align-items:center;gap:12px;padding:6px 6px 6px 18px;border-radius:999px;background:var(--fg);color:var(--bg);font-weight:700;font-size:15px;text-decoration:none;white-space:nowrap;transition:transform .2s var(--ease),box-shadow .2s}
+.pill:hover{transform:translateY(-1px);box-shadow:0 10px 30px var(--shade)}
+.pill i{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--bg);color:var(--fg)}
+.pill svg{width:16px;height:16px}
+.top{position:relative;padding:150px 0 0}
+.top::before{content:"";position:absolute;z-index:-1;left:50%;top:60px;width:100vw;height:620px;transform:translateX(-50%);background:radial-gradient(520px 300px at 30% 40%,var(--glow1),transparent 70%),radial-gradient(520px 300px at 70% 50%,var(--glow2),transparent 70%);pointer-events:none}
+h1{font-size:clamp(42px,6.4vw,74px);line-height:1;letter-spacing:-.045em;margin:0 0 20px;font-weight:800}
+h1 span{color:var(--accent)}
+.lead{font-size:clamp(17px,2vw,19px);color:var(--soft);max-width:680px;margin:0}
+.lead a{text-underline-offset:3px}
+.early{margin:18px 0 0;padding:14px 18px;border:1px solid var(--line);border-left:3px solid var(--amber-fill);border-radius:12px;background:var(--panel);color:var(--mut);font-size:15px;max-width:760px}
+.early b{color:var(--fg)}
+.platforms{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:36px 0 0}
+.plat{display:block;text-decoration:none;border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:22px 22px 20px;transition:border-color .2s,transform .2s var(--ease)}
+.plat:hover{border-color:var(--line2);transform:translateY(-2px)}
+.plat b{display:flex;align-items:center;gap:10px;font-size:20px;letter-spacing:-.01em}
+.plat span{display:block;color:var(--mut);font-size:14.5px;margin-top:4px}
+.plat.you,.file.you{border-color:var(--fill)}
+.badge{padding:1px 9px;border-radius:999px;background:var(--fill);color:#fff;font-size:12px;font-weight:650;letter-spacing:0}
+section{padding:110px 0 0}
+h2{font-size:clamp(30px,4vw,44px);letter-spacing:-.035em;margin:0 0 12px;line-height:1.05}
+h3{font-size:19px;letter-spacing:-.01em;margin:36px 0 4px}
+.sub{color:var(--mut);margin:0;max-width:660px;font-size:16.5px}
+.sub b{color:var(--soft);font-weight:600}
+.sub a,.note a{color:var(--soft);text-underline-offset:3px}
+.note{color:var(--mut);font-size:15px;margin:10px 0 0;max-width:760px}
+.note code,.sub code,.check code{color:var(--soft);overflow-wrap:anywhere}
+.files{display:grid;gap:8px;margin:16px 0 0}
+.file{display:grid;grid-template-columns:minmax(0,1.6fr) 76px minmax(0,2fr) auto;gap:18px;align-items:center;padding:14px 14px 14px 18px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.file .name{min-width:0}
+.file .name a,.file .name code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;text-decoration:none;overflow-wrap:anywhere}
+.file .name a:hover{text-decoration:underline;text-underline-offset:3px}
+.file .name span{display:block;color:var(--mut);font-size:13.5px}
+.file .size{color:var(--soft);font-size:14.5px;font-variant-numeric:tabular-nums;text-align:right}
+.hash{display:flex;align-items:center;gap:8px;min-width:0;color:var(--mut);font-size:13.5px}
+.hash code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mut);font-size:12.5px}
+.hash a{color:var(--soft);text-underline-offset:3px}
+.get{display:inline-flex;align-items:center;padding:7px 15px;border-radius:999px;background:var(--fg);color:var(--bg);font-weight:700;font-size:14px;text-decoration:none;white-space:nowrap}
+.get:hover{box-shadow:0 8px 24px var(--shade)}
+.cmd{display:flex;align-items:center;gap:12px;min-width:0;max-width:100%;margin:12px 0 0;padding:8px 8px 8px 18px;border:1px solid #2a2c33;border-radius:14px;background:var(--term);color:var(--term-fg);font:14.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+.cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:none;font-size:14px;padding:4px 0}
+.cmd code::-webkit-scrollbar{display:none}
+.cmd code::before{content:"$ ";color:#f2b03d}
+.copy{display:flex;align-items:center;gap:6px;flex-shrink:0;border:1px solid #33363e;border-radius:8px;background:#1d1f25;color:#d6d8de;font:inherit;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-size:12.5px;padding:5px 10px;cursor:pointer;transition:border-color .15s,color .15s}
+.copy:hover{border-color:#4b5363;color:#fff}
+.copy svg{width:13px;height:13px}
+.copy.ok{color:#7ad9a6;border-color:#24503a}
+.hash .copy{border-color:var(--line);background:var(--sunk);color:var(--soft)}
+.copy.icon span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.card{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:26px 28px;margin:24px 0 0}
+.card h3{margin-top:0}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.grid2 .card{margin:0}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.grid3 .card{margin:0}
+.check{display:grid;gap:8px;margin:16px 0 0;padding:0;list-style:none;color:var(--mut);font-size:15px}
+.check li{padding-left:22px;position:relative}
+.check li::before{content:"";position:absolute;left:2px;top:.55em;width:9px;height:5px;border:solid var(--green);border-width:0 0 2px 2px;transform:rotate(-45deg)}
+.check b{color:var(--fg);font-weight:600}
+footer{margin-top:120px;border-top:1px solid var(--line)}
+.foot-bottom{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:26px 0 32px;color:var(--dim);font-size:14px}
+.foot-bottom a{color:var(--mut);text-decoration:none}
+.foot-bottom a:hover{color:var(--fg)}
+.foot-bottom span a{text-decoration:underline;text-underline-offset:3px}
+.foot-bottom nav{display:flex;gap:18px;flex-wrap:wrap}
+@media (max-width:860px){
+  .platforms,.grid2,.grid3{grid-template-columns:minmax(0,1fr)}
+  .file{grid-template-columns:minmax(0,1fr) auto;gap:8px 14px}
+  .file .size{text-align:left;grid-row:2}
+  .file .hash{grid-column:1/-1}
+  .file .get{grid-column:2;grid-row:1}
+}
+@media (max-width:720px){
+  .nav .links{display:none}
+  .nav{justify-content:space-between}
+  .top{padding-top:120px}
+  section{padding-top:84px}
+  .card{padding:22px 18px}
+  /* Touch targets of at least 44 px */
+  .nav .brand,.foot-bottom a{display:inline-flex;align-items:center;min-height:44px}
+  .copy{min-height:44px;min-width:44px;justify-content:center}
+  .get{min-height:44px}
+  .file .name a,.hash a{display:inline-block;padding:12px 0}
+  .cmd code{white-space:pre-wrap;overflow-wrap:anywhere}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.pill,.plat{transition:none}}
+</style>
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="./" aria-label="TermF home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7.5" fill="#4a4ad9"/><path d="M9.5 10.5 15 16l-5.5 5.5M17.5 21.5H23" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="word">TermF</span></a>
+  <nav class="links" aria-label="Download sections">
+    <a href="#macos">macOS</a>
+    <a href="#windows">Windows</a>
+    <a href="#linux">Linux</a>
+    <a href="#cli">Command line</a>
+    <a href="#source">Source</a>
+  </nav>
+  <a class="pill" href="https://github.com/vassilidev/TermF">GitHub<i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></i></a>
+</header>
+
+<main class="wrap">
+  <div class="top">
+    <h1>Download TermF<span>.</span></h1>
+    <p class="lead">TermF is a free, open source cockpit for Claude Code across all your repositories (<a href="./">see what it does</a>). <span id="release">Every file comes from the <a href="https://github.com/vassilidev/TermF/releases">GitHub releases</a>, built by CI.</span></p>
+    <p class="early"><b>Early development.</b> The builds are pre-releases and are not signed yet, so your system asks for one extra step the first time you open TermF: it's explained under each platform.</p>
+    <div class="platforms">
+      <a class="plat" href="#macos" data-os="mac"><b>macOS</b><span>Apple Silicon and Intel</span></a>
+      <a class="plat" href="#windows" data-os="windows"><b>Windows</b><span>64-bit installer or MSI</span></a>
+      <a class="plat" href="#linux" data-os="linux"><b>Linux</b><span>x86_64: AppImage, .deb, .rpm</span></a>
+    </div>
+    <div class="card">
+      <h3>What TermF needs</h3>
+      <ul class="check">
+        <li><b>Claude Code</b>, installed and signed in: TermF starts the <code>claude</code> command you already use.</li>
+        <li><b>git</b>, for your repositories and the worktrees of each run.</li>
+        <li><b>The GitHub CLI</b> (<code>gh</code>), signed in, for GitHub tickets, pull requests and CI/CD. Jira and MCP sources don't need it.</li>
+      </ul>
+    </div>
+  </div>
+
+  <section id="macos">
+    <h2>TermF for macOS</h2>
+    <p class="sub">A disk image for Apple Silicon and one for Intel Macs.</p>
+    <div class="files" data-files="mac"></div>
+    <ul class="check">
+      <li><b>Drag TermF into Applications</b> from the disk image.</li>
+      <li><b>The first time</b>, right-click TermF in Applications, choose Open, then Open again. Or run this once:</li>
+    </ul>
+    <div class="cmd"><code>xattr -dr com.apple.quarantine /Applications/TermF.app</code><button class="copy" type="button" data-copy="xattr -dr com.apple.quarantine /Applications/TermF.app" aria-label="Copy the command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+  </section>
+
+  <section id="windows">
+    <h2>TermF for Windows</h2>
+    <p class="sub">An installer and an MSI package, for 64-bit Windows.</p>
+    <div class="files" data-files="windows"></div>
+    <ul class="check">
+      <li><b>Run the installer</b>, or the MSI if you deploy software that way.</li>
+      <li><b>On the SmartScreen warning</b>, click More info, then Run anyway.</li>
+    </ul>
+  </section>
+
+  <section id="linux">
+    <h2>TermF for Linux</h2>
+    <p class="sub">An AppImage for any distribution, and packages for Debian and Fedora families. x86_64 only; TermF needs <b>WebKitGTK 4.1</b>, which the packages bring.</p>
+    <div class="files" data-files="linux"></div>
+    <div data-linux></div>
+  </section>
+
+  <section id="cli">
+    <h2>The termf command line</h2>
+    <p class="sub">It ships with the app: <code>termf ls</code>, <code>termf run</code>, <code>termf team status</code>, <code>termf ask</code> and the rest work from any terminal. Commands that start a run or a team, or answer for you, wait for your confirmation in the app.</p>
+    <div class="grid3" style="margin-top:24px">
+      <div class="card">
+        <h3>macOS</h3>
+        <p class="note">Inside the app, at <code>TermF.app/Contents/MacOS/termf</code>. Put it on your <code>PATH</code>:</p>
+        <div class="cmd"><code>sudo ln -s /Applications/TermF.app/Contents/MacOS/termf /usr/local/bin/termf</code></div>
+      </div>
+      <div class="card">
+        <h3>Linux</h3>
+        <p class="note">The .deb and .rpm packages install it as <code>/usr/bin/termf</code>, already on your <code>PATH</code>. The AppImage keeps it inside.</p>
+      </div>
+      <div class="card">
+        <h3>Windows</h3>
+        <p class="note">In TermF's install folder, next to the app's executable. Add that folder to your <code>PATH</code> to call <code>termf</code> from anywhere.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="source">
+    <h2>Build from source</h2>
+    <p class="sub">Rust (stable), Node 22 or later, pnpm, and the <a href="https://tauri.app/start/prerequisites/">Tauri prerequisites</a> for your system.</p>
+    <div class="grid2" style="margin-top:24px">
+      <div class="card">
+        <h3>Run it</h3>
+        <div class="cmd"><code>git clone https://github.com/vassilidev/TermF.git &amp;&amp; cd TermF/app</code></div>
+        <div class="cmd"><code>pnpm install &amp;&amp; pnpm tauri dev</code></div>
+        <p class="note">On first launch TermF creates <code>termf.toml</code> in your config folder and looks for repositories in your home folder.</p>
+      </div>
+      <div class="card">
+        <h3>Package it</h3>
+        <div class="cmd"><code>pnpm bundle</code></div>
+        <p class="note">Builds the installers for your system with the <code>termf</code> command line inside. <code>pnpm tauri build</code> alone leaves it out.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="verify">
+    <h2>Verify your download</h2>
+    <p class="sub">The SHA-256 of every file is listed above, as published on its GitHub release. Compute yours and compare.</p>
+    <div class="grid3" style="margin-top:24px">
+      <div class="card"><h3>macOS</h3><div class="cmd"><code>shasum -a 256 TermF_*.dmg</code></div></div>
+      <div class="card"><h3>Linux</h3><div class="cmd"><code>sha256sum TermF*.AppImage</code></div><p class="note">Same for the .deb or the .rpm.</p></div>
+      <div class="card"><h3>Windows</h3><div class="cmd"><code>Get-FileHash .\TermF_*-setup.exe</code></div><p class="note">In PowerShell; it computes SHA-256 by default.</p></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-bottom">
+    <span>© 2026 TermF contributors · <a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></span>
+    <nav aria-label="Footer">
+      <a href="./">TermF, the cockpit for Claude Code</a>
+      <a href="https://github.com/vassilidev/TermF/releases">All releases</a>
+      <a href="https://github.com/vassilidev/TermF">Source code</a>
+      <a href="https://github.com/vassilidev/TermF/issues">Report an issue</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+const REPO = 'https://github.com/vassilidev/TermF';
+const COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+// The asset names the release workflow (tauri-action) publishes, with the version in the middle
+const FILES = {
+  mac: [
+    {re: /_aarch64\.dmg$/, name: 'TermF_‹version›_aarch64.dmg', what: 'Apple Silicon (M1 and later)'},
+    {re: /_x64\.dmg$/, name: 'TermF_‹version›_x64.dmg', what: 'Intel'},
+  ],
+  windows: [
+    {re: /_x64-setup\.exe$/, name: 'TermF_‹version›_x64-setup.exe', what: 'Installer, 64-bit'},
+    {re: /_x64_en-US\.msi$/, name: 'TermF_‹version›_x64_en-US.msi', what: 'MSI package, 64-bit'},
+  ],
+  linux: [
+    {re: /_amd64\.AppImage$/, name: 'TermF_‹version›_amd64.AppImage', what: 'Any distribution', run: n => `chmod +x ${n} && ./${n}`},
+    {re: /_amd64\.deb$/, name: 'TermF_‹version›_amd64.deb', what: 'Debian, Ubuntu, Mint, Pop!_OS', run: n => `sudo apt install ./${n}`},
+    {re: /\.x86_64\.rpm$/, name: 'TermF-‹version›-1.x86_64.rpm', what: 'Fedora, openSUSE, Rocky, Alma', run: n => `sudo dnf install ./${n}`},
+  ],
+};
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Same detection as the home page; iPads report a Mac platform, so touch support tells them apart
+const ua = navigator.userAgent, plat = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
+const os = /android|iphone|ipad|ipod/i.test(ua) || (plat.includes('mac') && navigator.maxTouchPoints > 1) ? 'mobile'
+  : plat.includes('win') ? 'windows' : plat.includes('linux') || /linux|x11|cros/i.test(ua) ? 'linux' : 'mac';
+// null while loading, then the newest published release (pre-releases included: TermF only has those so far), or false
+let release = null;
+const find = f => release?.assets.find(a => f.re.test(a.name));
+const mb = n => (n / 1e6).toLocaleString('en-US', {maximumFractionDigits: 1}) + ' MB';
+function fileRow(f, mine) {
+  const a = find(f), sha = a?.digest?.replace(/^sha256:/, '');
+  const url = a?.browser_download_url ?? `${REPO}/releases/latest`;
+  const hash = sha
+    ? `<code title="${sha}">${sha}</code><button class="copy icon" type="button" data-copy="${sha}" aria-label="Copy the SHA-256 of ${esc(a.name)}">${COPY}<span>Copy</span></button>`
+    : release === null ? 'Loading…' : a ? `<a href="${esc(release.html_url)}">See the release page</a>` : 'Not published yet';
+  return `<div class="file${mine ? ' you' : ''}">
+    <div class="name">${a ? `<a href="${esc(url)}">${esc(a.name)}</a>` : `<code>${esc(f.name)}</code>`}<span>${esc(f.what)}</span></div>
+    <div class="size">${a ? mb(a.size) : ''}</div>
+    <div class="hash">${hash}</div>
+    <a class="get" href="${esc(url)}" aria-label="${a ? 'Download ' + esc(a.name) : 'Open the latest release'}">${a ? 'Download' : 'Releases'}</a>
+  </div>`;
+}
+function cmdBox(c) {
+  return `<div class="cmd"><code>${esc(c)}</code><button class="copy" type="button" data-copy="${esc(c)}" aria-label="Copy the command">${COPY}<span>Copy</span></button></div>`;
+}
+function render() {
+  for (const p of document.querySelectorAll('.plat')) {
+    const mine = p.dataset.os === os;
+    p.classList.toggle('you', mine);
+    p.querySelector('.badge')?.remove();
+    if (mine) p.querySelector('b').insertAdjacentHTML('beforeend', '<span class="badge">Your system</span>');
+  }
+  for (const box of document.querySelectorAll('[data-files]')) {
+    const key = box.dataset.files;
+    box.innerHTML = FILES[key].map((f, i) => fileRow(f, os === key && i === 0)).join('');
+  }
+  document.querySelector('[data-linux]').innerHTML = FILES.linux.map(f => `<h3>${esc(f.what)}</h3>${cmdBox(f.run(find(f)?.name ?? f.name))}`).join('');
+}
+render();
+fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=10')
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(releases => {
+    release = releases.find(r => !r.draft && r.assets?.length) ?? false;
+    const box = document.getElementById('release');
+    if (release) {
+      const date = new Date(release.published_at).toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'});
+      box.innerHTML = `Latest release: <a href="${esc(release.html_url)}">${esc(release.tag_name)}</a>${release.prerelease ? ' (pre-release)' : ''}, ${date}. <a href="${REPO}/releases">All releases and notes</a>.`;
+    } else {
+      box.innerHTML = `No release is published yet: <a href="${REPO}/releases">watch the releases</a>, or <a href="#source">build it from source</a>.`;
+    }
+    render();
+  })
+  .catch(() => { release = false; render() });
+// Copy buttons copy their data-copy text
+document.addEventListener('click', async e => {
+  const btn = e.target.closest('button.copy');
+  if (!btn) return;
+  const text = btn.dataset.copy;
+  try { await navigator.clipboard.writeText(text) } catch {
+    const t = Object.assign(document.createElement('textarea'), {value: text});
+    document.body.append(t); t.select(); document.execCommand('copy'); t.remove();
+  }
+  btn.classList.add('ok'); btn.querySelector('span').textContent = 'Copied';
+  setTimeout(() => { btn.classList.remove('ok'); btn.querySelector('span').textContent = 'Copy' }, 1600);
+});
+</script>
+<noscript><p class="wrap note">The file list needs JavaScript: every file is also on the <a href="https://github.com/vassilidev/TermF/releases">releases page</a>.</p></noscript>
+</body>
+</html>
