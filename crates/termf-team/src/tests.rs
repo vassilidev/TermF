@@ -4269,10 +4269,11 @@ fn real_integrator() {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
     };
+    // Nobody is there to answer a permission: every command of this throwaway repository is allowed.
     put(
         config.join("termf.toml"),
         "[agents]\nclaude = \"claude\"\n[team]\ntriage = false\n[roles.integrator]\nmodel = \"haiku\"\n\
-         effort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
+         effort = \"low\"\neffort_range = [\"low\", \"low\"]\nallowedTools = [\"+Bash\"]\n"
             .into(),
     );
     put(
