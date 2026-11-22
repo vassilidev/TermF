@@ -57,8 +57,7 @@
 
   // Each card is read once per visit; the stack's survey is kept by the backend, so a second visit is quick.
   $effect(() => {
-    const paths = all.map((c) => c.path).filter((p) => !cards[p]);
-    if (paths.length) readCards(paths).catch((e) => (error = String(e)));
+    readCards(all.map((c) => c.path)).catch((e) => (error = String(e)));
   });
 
   function toggle(path: string) {

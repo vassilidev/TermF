@@ -63,6 +63,11 @@ fn reads_the_branch_and_the_changes() {
 fn finds_ticket_keys_cited_in_commits() {
     let subjects = "ACME-12 fix login\n[ACME-14] tests\nUTF-8 everywhere\nUTF-8 again\nOPS-3 deploy\nAcme-1 no\nACME-15";
     assert_eq!(ticket_keys(subjects), ["ACME"]);
+    assert_eq!(
+        ticket_keys("Merge ACME-142-fix-login\nOPS-3 deploy\nOPS-4-retry"),
+        ["OPS"]
+    );
+    assert_eq!(ticket_keys("ACME-142-fix-login\nACME-143-docs"), ["ACME"]);
     assert!(ticket_keys("bump to ES-2022, ES-2023").is_empty());
 }
 
@@ -143,6 +148,16 @@ fn cards_tell_the_branch_remote_changes_and_stack() {
     assert_eq!(found[1].name, "scratch");
     assert_eq!(found[1].remote, None);
     fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn keeps_facts_per_test_globs() {
+    let dir = temp("facts");
+    put(&dir.join("src/a.spec.ts"), "test\n");
+    put(&dir.join("src/b.test.ts"), "test\n");
+    let spec = facts_of(&dir, &["**/*.spec.ts".into()]);
+    let test = facts_of(&dir, &["**/*.test.ts".into()]);
+    assert_ne!(spec.tests, test.tests, "{:?} {:?}", spec.tests, test.tests);
 }
 
 #[test]

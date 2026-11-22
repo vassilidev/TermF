@@ -96,7 +96,9 @@ const SCRIPT_KINDS: [&str; 4] = ["dev", "build", "test", "lint"];
 const FACTS_FOR: Duration = Duration::from_secs(120);
 
 fn git(repo: &Path, args: &[&str]) -> Option<String> {
+    // No optional locks: reading a repository must never hold `index.lock` while an agent commits there.
     let out = Command::new("git")
+        .arg("--no-optional-locks")
         .arg("-C")
         .arg(repo)
         .args(args)
@@ -268,7 +270,9 @@ fn scripts(repo: &Path, recipe: &RepoRecipe) -> Vec<Script> {
 fn ticket_keys(subjects: &str) -> Vec<String> {
     let mut count: BTreeMap<String, usize> = BTreeMap::new();
     for word in subjects.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')) {
-        let Some((prefix, number)) = word.split_once('-') else {
+        // `ACME-142-fix-login`, a branch name in a subject, counts as `ACME-142`.
+        let mut parts = word.split('-');
+        let (Some(prefix), Some(number)) = (parts.next(), parts.next()) else {
             continue;
         };
         let key = prefix.len() >= 2
@@ -298,10 +302,12 @@ fn library(config_dir: &Path, stack: Vec<RepoStack>) -> Result<Vec<Item>> {
     termf_library::resolve(config_dir, &scope)
 }
 
-static FACTS: Mutex<BTreeMap<PathBuf, (Instant, Facts)>> = Mutex::new(BTreeMap::new());
+type FactsKey = (PathBuf, Vec<String>);
+static FACTS: Mutex<BTreeMap<FactsKey, (Instant, Facts)>> = Mutex::new(BTreeMap::new());
 
 fn facts_of(path: &Path, tests: &[String]) -> Facts {
-    if let Some((at, facts)) = FACTS.lock().unwrap_or_else(|e| e.into_inner()).get(path)
+    let key = (path.to_path_buf(), tests.to_vec());
+    if let Some((at, facts)) = FACTS.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
         && at.elapsed() < FACTS_FOR
     {
         return facts.clone();
@@ -311,10 +317,9 @@ fn facts_of(path: &Path, tests: &[String]) -> Facts {
         .map_or_else(|| path.to_string_lossy(), |n| n.to_string_lossy())
         .into_owned();
     let facts = crate::facts(&name, path, tests);
-    FACTS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(path.to_path_buf(), (Instant::now(), facts.clone()));
+    let mut kept = FACTS.lock().unwrap_or_else(|e| e.into_inner());
+    kept.retain(|_, (at, _)| at.elapsed() < FACTS_FOR);
+    kept.insert(key, (Instant::now(), facts.clone()));
     facts
 }
 

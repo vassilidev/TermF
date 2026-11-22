@@ -15,7 +15,7 @@
   import Users from "@lucide/svelte/icons/users";
   import Workflow from "@lucide/svelte/icons/workflow";
   import X from "@lucide/svelte/icons/x";
-  import type { Component } from "svelte";
+  import { untrack, type Component } from "svelte";
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import RepoDetection, { type Detected } from "$lib/RepoDetection.svelte";
   import RepoPicker from "$lib/RepoPicker.svelte";
@@ -67,10 +67,12 @@
   let editing = $state(false);
   let found = $state<Record<string, Detected | string>>({});
   let draft = $state<Draft | null>(null);
+  /** The selection the draft, or the request for it, is for. */
   let draftFor = "";
   let draftError = $state("");
   let aside = $state<Block[]>([]);
-  let trust = $state(false);
+  /** The selection trusted on the Trust step: another one is trusted only once seen there. */
+  let trustedFor = $state<string | null>(null);
   let notify = $state<Notify>("mine");
   let preview = $state("");
   let busy = $state(false);
@@ -109,6 +111,9 @@
   const kept = $derived(draft?.roles.filter((r) => r.keep) ?? []);
   const left = $derived(draft?.roles.filter((r) => !r.keep) ?? []);
   const id = $derived(projectId(name, projects.map((p) => p.id)));
+  const trust = $derived(trustedFor !== null && trustedFor === chosen.join("\n"));
+  /** Creating waits for the proposal of the current selection, unless its team is set aside. */
+  const waiting = $derived(!draft && !aside.includes("team"));
   const toTrust = $derived(draft?.trust.filter((r) => !r.trusted).length ?? 0);
   const blocks: Block[] = ["team", "tickets", "worktree", "ci", "skills"];
   const blockLabel: Record<Block, Key> = {
@@ -140,9 +145,12 @@
   // The proposal follows the repositories once the owner gets past the detection.
   $effect(() => {
     const key = chosen.join("\n");
-    if (index < 1 || !chosen.length || key === draftFor) return;
-    draftFor = key;
+    if (key === draftFor) return;
+    draft = null;
     draftError = "";
+    draftFor = "";
+    if (index < 1 || !chosen.length) return;
+    draftFor = key;
     invoke<Draft>("setup_draft", { repos: [...chosen] }).then(
       (d) => {
         if (draftFor === key) draft = d;
@@ -151,6 +159,17 @@
         if (draftFor === key) ((draftError = String(e)), (draftFor = ""));
       },
     );
+  });
+
+  // Another selection than the one trusted: back to the Trust step before creating.
+  $effect(() => {
+    if (trustedFor === null || trustedFor === chosen.join("\n")) return;
+    trustedFor = null;
+    const at = steps.findIndex((s) => s.id === "trust");
+    untrack(() => {
+      reached = Math.min(reached, at);
+      if (index > at) step = "trust";
+    });
   });
 
   const writes = $derived({
@@ -187,7 +206,7 @@
 
   /** Creates the project, applies what was kept of the proposal, then hands over to the Home or the assistant. */
   async function create() {
-    if (busy || !name || !chosen.length) return;
+    if (busy || !name || !chosen.length || waiting) return;
     busy = true;
     error = "";
     let project: string | null = null;
@@ -196,14 +215,15 @@
       const after = await invoke<Project[]>("project_save", { id: null, name, repos: chosen });
       app.workspace!.projects = after;
       project = added(before, after);
-      if (!project) throw new Error("no project created");
-      // The setup replaces the assistant's first opening.
-      await invoke("onboarding_seen", { project });
     } catch (e) {
       error = String(e);
+    }
+    if (!project) {
+      error ||= t("setupNotCreated");
       busy = false;
       return;
     }
+    // From here the project exists: a step that fails is reported, never a reason to create it again.
     const failed: string[] = [];
     const attempt = async (what: () => Promise<unknown>) => {
       try {
@@ -212,6 +232,8 @@
         failed.push(String(e));
       }
     };
+    // The setup replaces the assistant's first opening.
+    await attempt(() => invoke("onboarding_seen", { project }));
     const decide = (proposal: string, detail = "") =>
       invoke("onboarding_decide", { project, proposal, decision: "accepted", detail });
     if (writes.team) await attempt(() => invoke("onboarding_team_save", { project, edit: writes.team }));
@@ -440,7 +462,11 @@
                   <p class="notice ok">{t("setupTrustAll")}</p>
                 {:else}
                   <label class="agree" class:on={trust}>
-                    <input type="checkbox" bind:checked={trust} />
+                    <input
+                      type="checkbox"
+                      checked={trust}
+                      onchange={(e) => (trustedFor = e.currentTarget.checked ? chosen.join("\n") : null)}
+                    />
                     <span>
                       <b>{t("obTrustConfirm")}</b>
                       <span class="muted">{t("obTrustNote")}</span>
@@ -563,13 +589,25 @@
 
       <div class="grow"></div>
       {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+      {#if step === "create" && waiting}
+        {#if draftError}
+          <p class="notice error" role="alert">{draftError}</p>
+        {:else}
+          <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("setupProposing")}</p>
+        {/if}
+      {/if}
       <div class="actions">
         {#if index > 0}
           <button type="button" class="btn back" disabled={busy} onclick={() => go(steps[index - 1].id)}>
             <ArrowLeft size={14} aria-hidden="true" />{t("obBack")}
           </button>
         {/if}
-        <button type="button" class="btn primary go" disabled={!chosen.length || !name || busy} onclick={next}>
+        <button
+          type="button"
+          class="btn primary go"
+          disabled={!chosen.length || !name || busy || (step === "create" && waiting)}
+          onclick={next}
+        >
           {#if busy}
             <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("setupCreating")}
           {:else if step === "create"}

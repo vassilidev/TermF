@@ -152,7 +152,8 @@
     // Escape typed in a terminal (the quick terminal over the page) is the terminal's.
     if ((e.target as Element | null)?.closest?.(".xterm")) return;
     e.preventDefault();
-    closeProject();
+    if (adding) adding = false;
+    else closeProject();
   }
 
   /** A repository as the setup shows it: what the project or discovery knows, then its card once read. */
@@ -321,13 +322,14 @@
                   </button>
                 </li>
               </ul>
-              {#if adding}
-                <div id="config-add" class="adding">
-                  <RepoPicker bind:chosen project={id} autofocus />
-                </div>
-              {/if}
             </div>
           </form>
+          <!-- Outside the form: Enter in its search must not save the project. -->
+          {#if adding}
+            <div id="config-add" class="adding">
+              <RepoPicker bind:chosen project={id} autofocus />
+            </div>
+          {/if}
 
           {#if stacks.some((s) => s.mcp.length || s.sources.length)}
             <div class="offers">
@@ -569,8 +571,9 @@
     border-top: 1px solid var(--border);
   }
 
+  /* Right under the list it adds to. */
   .adding {
-    margin-top: 12px;
+    margin-top: -4px;
   }
 
   .add {
