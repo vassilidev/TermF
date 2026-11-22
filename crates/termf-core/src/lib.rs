@@ -12,6 +12,7 @@ pub mod cli_agents;
 pub mod context;
 pub mod ipc;
 pub mod process;
+pub mod rng;
 pub mod shell;
 pub mod squads;
 pub mod taint;
