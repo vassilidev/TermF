@@ -1436,6 +1436,28 @@ tried = "An end-to-end test drives the real app on macOS: the CTO answers word b
 related = ["cto", "terminals", "native-app"]
 
 [[features]]
+slug = "session-loops"
+group = "terminals"
+name = "See the loops of your Claude sessions"
+tagline = "A badge on each tile with a /loop or a scheduled task, and one click to make it last."
+keywords = "loop /loop cron croncreate schedulewakeup monitor recurring scheduled task session badge scheduler"
+problem = '''<p>Claude Code's <code>/loop</code> and the tasks a session schedules live only as long as that session: easy to forget, and gone when you close it. TermF shows them where you can see them.</p>'''
+how = [
+  "A tile running a <code>/loop</code> or a scheduled task shows a badge such as <em>↻ 5 min</em>; click it for each loop's prompt, interval and next run.",
+  "<em>Make it a Scheduler task</em> fills the Scheduler's form with the same prompt, folder and schedule, so it keeps running when the session closes, even with the app closed.",
+  "The Scheduler lists every loop of the open sessions in one place.",
+]
+default = [
+  "Read from the hooks TermF already receives: nothing to install, nothing sent anywhere.",
+  "The CTO and the team do not use loops: their runs are driven by TermF; a loop an agent creates anyway is shown on the run's page.",
+]
+tune = ["Nothing to set."]
+commands = []
+limits = ["A loop can be seen, not created or stopped from outside its session: that is how Claude Code works.", "The next run of a fixed-interval loop shows only when Claude Code gives it."]
+tried = "A real Claude Code session ran <code>/loop 1m</code>: TermF saw the loop, then its end."
+related = ["terminals", "scheduler", "live"]
+
+[[features]]
 slug = "cli"
 group = "cli"
 name = "The termf command line"

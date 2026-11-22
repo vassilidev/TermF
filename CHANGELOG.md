@@ -29,6 +29,8 @@ The first public release: TermF installs in one command and keeps itself up to d
 - **The agents' work, live.** The CTO's answer word by word, each tool in plain words with its state, a run's
   *Right now* and *What's happening* panels, and the last action on each agent tile; every view shows the shape of what
   is loading.
+- **Your sessions' loops, visible.** A badge on each tile running a `/loop` or a scheduled task, its detail, and one
+  click to turn it into a Scheduler task that outlives the session.
 - **Codex and Gemini.** Codex CLI and Gemini CLI in terminals, conversations and team roles (not tried with the real
   tools yet).
 
