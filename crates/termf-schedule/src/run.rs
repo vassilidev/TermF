@@ -68,11 +68,12 @@ pub fn headless_command(agent: &str, task: &Task) -> Command {
 }
 
 /// Runs the task headless with `cmd` (see [`headless_command`]) and says how it ended. `started` gets the
-/// process id.
+/// process id; what the process said when it failed starts with `who`.
 pub(crate) fn headless(
     cmd: Command,
     task: &Task,
     timeout: Duration,
+    who: &str,
     started: impl FnOnce(u32),
 ) -> Outcome {
     let dir = termf_core::expand_tilde(&task.dir);
@@ -80,12 +81,18 @@ pub(crate) fn headless(
         return failed(format!("the folder {} does not exist", dir.display()));
     }
     match execute(cmd, &task.prompt, timeout, started) {
-        Ok((success, stdout, stderr)) => outcome(success, &stdout, &stderr),
+        Ok((success, stdout, stderr)) => {
+            let mut outcome = outcome(success, &stdout, &stderr);
+            if let Some(error) = &mut outcome.error {
+                *error = format!("{who}: {error}");
+            }
+            outcome
+        }
         Err(e) => failed(format!("{e:#}")),
     }
 }
 
-fn failed(error: String) -> Outcome {
+pub(crate) fn failed(error: String) -> Outcome {
     Outcome {
         status: Status::Failed,
         cost: None,
@@ -206,12 +213,6 @@ fn scratch_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn tail(text: &str) -> String {
-    let text = text.trim();
-    let start = text.char_indices().rev().nth(2000).map_or(0, |(i, _)| i);
-    text[start..].into()
-}
-
 /// Reads Claude Code's JSON result: the whole output, else its last JSON line (a shell profile may print first).
 pub(crate) fn outcome(success: bool, stdout: &str, stderr: &str) -> Outcome {
     let json = |text: &str| {
@@ -222,7 +223,7 @@ pub(crate) fn outcome(success: bool, stdout: &str, stderr: &str) -> Outcome {
     let result = json(stdout).or_else(|| stdout.lines().rev().find_map(json));
     let Some(result) = result else {
         let said = [stderr, stdout]
-            .map(tail)
+            .map(termf_core::process::excerpt)
             .into_iter()
             .find(|t| !t.is_empty());
         return failed(said.unwrap_or_else(|| "Claude Code gave no answer".into()));
@@ -241,7 +242,7 @@ pub(crate) fn outcome(success: bool, stdout: &str, stderr: &str) -> Outcome {
         .clone()
         .filter(|a| !a.trim().is_empty())
         .or_else(|| result["subtype"].as_str().map(str::to_owned))
-        .or_else(|| Some(tail(stderr)).filter(|t| !t.is_empty()))
+        .or_else(|| Some(termf_core::process::excerpt(stderr)).filter(|t| !t.is_empty()))
         .unwrap_or_else(|| "Claude Code stopped with an error".into());
     Outcome {
         status: Status::Failed,

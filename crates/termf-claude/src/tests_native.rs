@@ -45,6 +45,7 @@ fn tree(name: &str) -> (PathBuf, Env) {
         managed_dir: root.join("managed"),
         repo: Some(root.join("repo")),
         path: Some(root.join("bin").into_os_string()),
+        home: Some(root.join("home")),
         claude: "claude".into(),
     };
     (root, env)

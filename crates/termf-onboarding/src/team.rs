@@ -731,8 +731,8 @@ fn part(repo: &Path, rel: &str) -> Option<Part> {
 }
 
 pub(crate) struct RoleInfo {
-    name: String,
-    plannable: bool,
+    pub(crate) name: String,
+    pub(crate) plannable: bool,
 }
 
 pub(crate) fn roles(items: &[Item]) -> Vec<RoleInfo> {
@@ -966,7 +966,7 @@ fn globs(mine: &[&str], others: &[&str]) -> Vec<String> {
     found.into_iter().collect()
 }
 
-fn propose(
+pub(crate) fn propose(
     repos: &[Facts],
     roles: &[RoleInfo],
     given: &Choices,
@@ -1358,7 +1358,7 @@ fn strings(list: &[String]) -> Array {
     list.iter().map(String::as_str).collect()
 }
 
-fn render(text: &str, edit: &Edit) -> Result<String> {
+pub(crate) fn render(text: &str, edit: &Edit) -> Result<String> {
     let mut doc: DocumentMut = text.parse().context("invalid project file")?;
     if let Some(workflow) = &edit.workflow {
         termf_core::table_in(doc.as_table_mut(), "workflows").insert("default", value(workflow));

@@ -14,6 +14,7 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { lang, t } from "$lib/i18n";
   import { display } from "$lib/keymap.svelte";
+  import { newProject } from "$lib/newproject.svelte";
   import { editProject } from "$lib/project.svelte";
   import {
     ask,
@@ -223,7 +224,7 @@
   {#if !tab && !files.repo}
     {@const project = currentProject()}
     <EmptyState icon={FolderTree} title={t("noRepos")} text={t("t6bFilesNoRepo")}>
-      <button class="btn" onclick={() => editProject(project?.id ?? "")}>
+      <button class="btn" onclick={() => (project ? editProject(project.id) : newProject())}>
         <Pencil size={14} aria-hidden="true" />{t(project ? "ticketsEditProject" : "newProject")}
       </button>
     </EmptyState>

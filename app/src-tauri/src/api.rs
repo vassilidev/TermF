@@ -952,6 +952,11 @@ fn launch(
             }
             c
         });
+        // Last: a path with a space would be cut by `after_program`.
+        let command = match command {
+            Some(c) if is_claude => Some(claude::in_command(&c, shell_quote)?.0),
+            other => other,
+        };
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
             title: title.clone(),

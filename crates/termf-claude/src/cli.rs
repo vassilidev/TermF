@@ -9,6 +9,8 @@ use anyhow::{Result, bail};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use termf_core::claude::{Found, Origin};
+
 use crate::{Env, mask};
 
 /// `claude mcp list` checks every server's health, which can take a while.
@@ -57,9 +59,25 @@ pub(crate) fn claude_with(
     input: &[u8],
     timeout: Duration,
 ) -> Result<Output> {
-    let program = which(env, &env.claude)
-        .map_or_else(|| env.claude.clone(), |p| p.to_string_lossy().into_owned());
-    run_with(env, &program, args, input, timeout)
+    run_with(env, &program(env), args, input, timeout)
+}
+
+/// The Claude Code `env.claude` stands for, as sessions find it (`termf_core::claude::find`).
+pub fn binary(env: &Env) -> Found {
+    let path = env
+        .path
+        .clone()
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default();
+    termf_core::claude::find_in(&env.claude, env.home.as_deref(), &path)
+}
+
+/// Its path, whatever its version: `claude update` is what fixes one too old.
+pub fn program(env: &Env) -> String {
+    binary(env).install.map_or_else(
+        || env.claude.clone(),
+        |i| i.path.to_string_lossy().into_owned(),
+    )
 }
 
 pub(crate) fn failure(out: &Output) -> String {
@@ -68,7 +86,7 @@ pub(crate) fn failure(out: &Output) -> String {
     } else {
         &out.stderr
     };
-    mask::mask_text(&termf_core::process::tail(text))
+    mask::mask_text(&termf_core::process::excerpt(text))
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -292,6 +310,8 @@ pub struct Account {
     /// `native`, `npm`, `homebrew` or `other`.
     pub install: Option<String>,
     pub path: Option<String>,
+    /// Where that Claude Code comes from, whether it is too old, and the other installs.
+    pub binary: Found,
 }
 
 /// `claude auth status` exits with 1 when logged out, and still prints its JSON.
@@ -326,10 +346,26 @@ fn fs_canonical(path: &Path) -> PathBuf {
 }
 
 pub fn account(env: &Env) -> Account {
-    let (auth, version) = std::thread::scope(|s| {
+    let (auth, binary, wrapped) = std::thread::scope(|s| {
         let auth = s.spawn(|| claude(env, &["auth", "status"], QUICK));
-        let version = claude(env, &["--version"], QUICK);
-        (auth.join().unwrap_or_else(|_| bail!("panicked")), version)
+        let binary = binary(env);
+        // A program set in [agents] that does not tell its version, such as a wrapper: what it runs does.
+        let wrapped = binary
+            .install
+            .as_ref()
+            .filter(|i| i.origin == Origin::Setting && i.version.is_none())
+            .map(|_| {
+                let version = claude(env, &["--version"], QUICK).ok().filter(|o| o.ok);
+                (
+                    version.and_then(|o| first_version(&o.stdout)),
+                    which(env, &env.claude),
+                )
+            });
+        (
+            auth.join().unwrap_or_else(|_| bail!("panicked")),
+            binary,
+            wrapped,
+        )
     });
     let (auth, auth_error) = match auth {
         Ok(out) => match parse_auth(&out.stdout) {
@@ -338,16 +374,20 @@ pub fn account(env: &Env) -> Account {
         },
         Err(e) => (None, Some(format!("{e:#}"))),
     };
-    let path = which(env, &env.claude);
+    let (version, path) = wrapped.unwrap_or_else(|| {
+        let installed = binary.install.as_ref();
+        (
+            installed.and_then(|i| i.version.clone()),
+            installed.map(|i| i.path.clone()),
+        )
+    });
     Account {
         auth,
         auth_error,
-        version: version
-            .ok()
-            .filter(|o| o.ok)
-            .and_then(|o| first_version(&o.stdout)),
+        version,
         install: path.as_deref().map(|p| install_method(p).to_owned()),
         path: path.map(|p| p.to_string_lossy().into_owned()),
+        binary,
     }
 }
 
