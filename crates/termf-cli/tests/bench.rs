@@ -96,7 +96,10 @@ fn team_arm() {
     )
     .unwrap();
     let env: Vec<(String, String)> = vec![
-        ("GIT_CONFIG_GLOBAL".into(), gitconfig.to_string_lossy().into()),
+        (
+            "GIT_CONFIG_GLOBAL".into(),
+            gitconfig.to_string_lossy().into(),
+        ),
         ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
     ];
     let mut termf = format!("[agents]\nclaude = {CLAUDE:?}\n");
@@ -106,7 +109,9 @@ fn team_arm() {
     std::fs::write(config.join("termf.toml"), termf).unwrap();
     std::fs::write(
         config.join("projects/bench.toml"),
-        format!("name = \"Bench\"\n[[repos]]\nname = \"app\"\npath = {repo:?}\nchecks = \"npm test\"\n"),
+        format!(
+            "name = \"Bench\"\n[[repos]]\nname = \"app\"\npath = {repo:?}\nchecks = \"npm test\"\n"
+        ),
     )
     .unwrap();
 
@@ -116,7 +121,7 @@ fn team_arm() {
     tickets.home = root.join("home");
     let request = std::fs::read_to_string(&ticket).unwrap();
     let run = tickets.start_request(&request, "bench", None).unwrap();
-    let target = termf_team::Target::of(&run, &config, &data).unwrap();
+    let target = || termf_team::Target::of(&run, &config, &data).unwrap();
     let (notifier, inbox) = termf_team::channel();
     let agents = Agents::build(config.clone(), data.clone(), env.clone(), move |u| {
         if let termf_agents::Update::Session(s) = u {
@@ -124,16 +129,24 @@ fn team_arm() {
         }
     });
     agents.serve_guard(env!("CARGO_BIN_EXE_termf").into());
-    let team = Team::build(config, data, agents.clone(), inbox, env, |_| {});
-    let options = Options {
+    let team = Team::build(
+        config.clone(),
+        data.clone(),
+        agents.clone(),
+        inbox,
+        env,
+        |_| {},
+    );
+    let options = || Options {
         budget: Some(budget),
         ..Options::default()
     };
-    team.start(target, options).unwrap();
+    team.start(target(), options()).unwrap();
 
     let deadline = started + Duration::from_secs(minutes * 60);
     let (mut seen, mut approved, mut answered, mut permissions) = (0, vec![], vec![], vec![]);
     let (mut timed_out, mut gave_up, mut revised) = (false, false, BTreeMap::new());
+    let mut raised = Vec::new();
     let done = loop {
         for e in team.events(run.id, seen).unwrap() {
             seen = e.id;
@@ -142,6 +155,12 @@ fn team_arm() {
             println!("  [{}] {step} {}", e.kind, message.replace('\n', " / "));
         }
         let now = team.run(run.id).unwrap();
+        // The CTO's advised budget is spent: the user lets it go on, up to the bench's cap.
+        if now.state == RunState::Budget && now.cost < budget {
+            raised.push(now.budget.unwrap_or_default());
+            team.start(target(), options()).unwrap();
+            continue;
+        }
         if !matches!(now.state, RunState::Running | RunState::Waiting) {
             break now;
         }
@@ -157,10 +176,15 @@ fn team_arm() {
             if session.state != termf_agents::State::Waiting {
                 continue;
             }
-            let asked = agents.events(session.id, 0).unwrap().into_iter().rev().find_map(|e| match e.event {
-                AgentEvent::Permission { request, tool, .. } => Some((request, tool)),
-                _ => None,
-            });
+            let asked = agents
+                .events(session.id, 0)
+                .unwrap()
+                .into_iter()
+                .rev()
+                .find_map(|e| match e.event {
+                    AgentEvent::Permission { request, tool, .. } => Some((request, tool)),
+                    _ => None,
+                });
             if let Some((request, tool)) = asked {
                 permissions.push(tool);
                 let _ = agents.answer(session.id, &request, true, None);
@@ -192,6 +216,7 @@ fn team_arm() {
         "state": done.state.as_str(),
         "timed_out": timed_out,
         "gave_up": gave_up,
+        "budget_raised_from": raised,
         "wall_s": wall,
         "cost_usd": done.cost,
         "sessions": ids.len(),

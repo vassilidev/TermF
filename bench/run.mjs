@@ -11,7 +11,7 @@
 // --cap (3, US dollars per trial), --minutes (40 per trial), --judge-model (sonnet), --keep (keep the trial folders).
 // Needs Node 22.18+, git, cargo, and Claude Code signed in. Spends real money on your Claude Code account.
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,8 +78,13 @@ function run(cmd, args, { cwd, env, log, minutes }) {
     const started = Date.now();
     const child = spawn(cmd, args, { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (out += d));
+    const keep = (d) => {
+      out += d;
+      appendFileSync(log, d);
+    };
+    writeFileSync(log, "");
+    child.stdout.on("data", keep);
+    child.stderr.on("data", keep);
     const timer = setTimeout(() => {
       try {
         process.kill(-child.pid, "SIGKILL");
@@ -87,7 +92,6 @@ function run(cmd, args, { cwd, env, log, minutes }) {
     }, minutes * 60_000);
     child.on("close", (code) => {
       clearTimeout(timer);
-      writeFileSync(log, out);
       done({ code, out, wall_s: (Date.now() - started) / 1000 });
     });
   });
@@ -135,13 +139,13 @@ function teamBinary() {
   return benchBinary;
 }
 
-async function team(ticket, repo, o, dir) {
+async function team(ticket, repo, o, dir, work) {
   const out = join(dir, "team.json");
   const env = {
     ...gitEnv,
     TERMF_BENCH_REPO: repo,
     TERMF_BENCH_TICKET: join(BENCH, "tickets", `${ticket}.md`),
-    TERMF_BENCH_ROOT: join(dir, "termf"),
+    TERMF_BENCH_ROOT: join(work, "termf"),
     TERMF_BENCH_OUT: out,
     TERMF_BENCH_MODEL: o.model,
     TERMF_BENCH_BUDGET: String(o.cap),
@@ -321,7 +325,7 @@ async function trial(t, o, results) {
   console.log(`start  ${t.ticket} ${t.arm} #${t.n}  (${work})`);
   let arm;
   try {
-    arm = await (t.arm === "solo" ? solo : team)(t.ticket, repo, o, dir);
+    arm = await (t.arm === "solo" ? solo : team)(t.ticket, repo, o, dir, work);
   } catch (e) {
     arm = { state: `failed: ${e.message}`, wall_s: 0, cost_usd: 0, final: repo };
   }
