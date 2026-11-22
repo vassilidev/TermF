@@ -541,6 +541,50 @@ fn a_gh_that_exits_without_reading_its_input_says_why() {
     assert!(format!("{error:#}").contains("HTTP 403"), "{error:#}");
 }
 
+/// GitHub's search answers with no ETag (`Cache-Control: no-cache`, seen on 2026-11-22): its answer is read again
+/// for a minute without asking, unless refreshed. A gh signed in without a token it can read makes `@me` nobody:
+/// told as such, not as "HTTP 422".
+#[cfg(unix)]
+#[test]
+fn a_search_is_kept_a_minute_and_a_token_gh_cannot_read_is_told() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new("search-cache");
+    let gh = sb.root.join("gh");
+    let script = format!(
+        "#!/bin/sh\necho x >> '{log}'\n[ -e '{root}/locked' ] && {{ printf 'HTTP/2.0 422\\n\\n%s\\n' \
+         '{{\"message\":\"Validation Failed\",\"errors\":[{{\"message\":\"The listed users cannot be searched either \
+         because the users do not exist or you do not have permission to view the users.\"}}]}}'; \
+         echo 'gh: Validation Failed (HTTP 422)' >&2; exit 1; }}\n\
+         printf 'HTTP/2.0 200 OK\\nCache-Control: no-cache\\n\\n%s\\n' '{{\"total_count\":0,\"items\":[]}}'\n",
+        log = sb.root.join("calls").display(),
+        root = sb.root.display()
+    );
+    fs::write(&gh, script).unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    let github = GitHub {
+        program: gh,
+        env: vec![],
+        board: None,
+        etags: Default::default(),
+    };
+    let calls = || {
+        fs::read_to_string(sb.root.join("calls"))
+            .unwrap()
+            .lines()
+            .count()
+    };
+    let query = "is:issue is:open assignee:@me";
+    assert!(github.issues(query, false).unwrap().is_empty());
+    assert!(github.issues(query, false).unwrap().is_empty());
+    assert_eq!(calls(), 1, "the second read within a minute asks nothing");
+    github.issues(query, true).unwrap();
+    assert_eq!(calls(), 2, "a refresh asks again");
+
+    fs::write(sb.root.join("locked"), "").unwrap();
+    let error = format!("{:#}", github.issues(query, true).unwrap_err());
+    assert!(error.contains("gh auth status"), "{error}");
+}
+
 /// A clone of `acme/front` whose GitHub address leads to a local bare repository, and git may reach nothing
 /// else (GIT_ALLOW_PROTOCOL). Returns the clone and the bare repository.
 #[cfg(unix)]
@@ -1206,6 +1250,100 @@ fn tells_a_pull_request_in_conflict_or_behind_its_base() {
     fs::write(sb.root.join("pr-state"), "merged").unwrap();
     t.after_merge(false, |_| false, |_| {}).unwrap();
     assert_eq!(t.pr_merge(id).unwrap(), None, "merged: nothing to update");
+}
+
+/// A double click, or the app and the CLI at once: both runs start, each on a branch of its own.
+/// A worktree that cannot be made (here a `post-checkout` hook that fails) fails the run once, and leaves neither
+/// its branch nor its folder.
+#[cfg(unix)]
+#[test]
+fn a_worktree_that_cannot_be_made_leaves_nothing_behind() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new("hook");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let hook = front.join(".git/hooks/post-checkout");
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, "#!/bin/sh\necho 'no checkout today' >&2\nexit 1\n").unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    let t = sb.tickets();
+    let refused = match t.start("front#42", None, None) {
+        Ok(_) => panic!("the worktree could not be made"),
+        Err(e) => format!("{e:#}"),
+    };
+    assert!(refused.contains("no checkout today"), "{refused}");
+    assert_eq!(sb.git(&front, &["branch", "--list", "termf/*"]), "");
+    assert_eq!(
+        sb.git(&front, &["worktree", "list", "--porcelain"])
+            .matches("worktree ")
+            .count(),
+        1
+    );
+    assert!(
+        !front
+            .join(".claude/worktrees/termf-1-42-fix-the-login-button")
+            .exists()
+    );
+    assert_eq!(t.run(1).unwrap().status, RunStatus::Failed);
+}
+
+/// Two repositories of a project cloned from the same GitHub repository: the run of the second does not take the
+/// branch of the first, which it could not see before that one is pushed.
+#[cfg(unix)]
+#[test]
+fn two_clones_of_one_repository_get_two_branches() {
+    let sb = Sandbox::new("clones");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    let copy = sb.root.join("repos/front-copy");
+    let url = "https://github.com/acme/front.git";
+    sb.git(&sb.root, &["clone", "-q", url, &path(&copy)]);
+    sb.project(
+        "acme",
+        &format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"front\"\npath = {front:?}\n[[repos]]\nname = \"copy\"\npath = {copy:?}\n"
+        ),
+    );
+    let t = sb.tickets();
+    let run = t.start("acme/front#42", None, Some("front")).unwrap().run;
+    let child = t.open_repo(run.id, "copy").unwrap();
+    let branch = run.branch.unwrap();
+    assert_eq!(child.branch, Some(format!("{branch}-2")));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_same_ticket_started_twice_at_once_gets_two_branches() {
+    let sb = Sandbox::new("twice");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let started: Vec<Result<Launch, String>> = std::thread::scope(|s| {
+        let start = || {
+            let t = sb.tickets();
+            t.start("front#42", None, None)
+                .map_err(|e| format!("{e:#}"))
+        };
+        let runs = [s.spawn(start), s.spawn(start), s.spawn(start)];
+        runs.into_iter().map(|r| r.join().unwrap()).collect()
+    });
+    let mut branches: Vec<String> = started
+        .iter()
+        .map(|r| r.as_ref().unwrap().run.branch.clone().unwrap())
+        .collect();
+    branches.sort();
+    let stem = "termf/42-fix-the-login-button";
+    assert_eq!(
+        branches,
+        [stem.to_owned(), format!("{stem}-2"), format!("{stem}-3")]
+    );
 }
 
 #[cfg(unix)]
@@ -2835,4 +2973,216 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
             number: 12
         }
     );
+}
+
+/// The whole run of a ticket against a real GitHub repository the tester owns and may write to
+/// (`TERMF_GH_SANDBOX=owner/name`, with the real `gh` signed in): an issue with an awkward title, the inbox and
+/// its ETag, a worktree in a folder with spaces and accents, the delivery's push and pull request, the comment on
+/// the issue, then the pull request closed and the run cleaned up. Everything it creates on GitHub is removed.
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_github_sandbox() {
+    let Ok(slug) = std::env::var("TERMF_GH_SANDBOX") else {
+        eprintln!("TERMF_GH_SANDBOX=owner/name is not set: skipped");
+        return;
+    };
+    let gh = |args: &[&str]| -> String {
+        let out = Command::new("gh").args(args).output().unwrap();
+        assert!(out.status.success(), "gh {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let mut sb = Sandbox::new("real-github");
+    sb.env.retain(|(k, _)| k != "GIT_ALLOW_PROTOCOL");
+    let gitconfig =
+        "[credential \"https://github.com\"]\n\thelper = \n\thelper = !gh auth git-credential\n";
+    fs::write(sb.root.join("gitconfig"), gitconfig).unwrap();
+    let mut t = sb.tickets();
+    t.gh = "gh".into();
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let title = format!("QA « déjà vu » café 🚀 {stamp}");
+    let body = "Line one\r\nLine two with `code` and <b>tags</b>\r\n\r\nNo final newline";
+    let url = gh(&[
+        "issue",
+        "create",
+        "-R",
+        &slug,
+        "--title",
+        &title,
+        "--body",
+        body,
+        "--assignee",
+        "@me",
+    ]);
+    let number = url.rsplit('/').next().unwrap().to_owned();
+    let created_branch = Mutex::new(None);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let repo = sb.root.join("dépôts avec espaces/sandbox");
+        fs::create_dir_all(repo.parent().unwrap()).unwrap();
+        let clone_url = format!("https://github.com/{slug}.git");
+        sb.git(&sb.root, &["clone", "-q", &clone_url, &path(&repo)]);
+        let project = format!(
+            "name = \"QA\"\n[[repos]]\npath = {repo:?}\n[trackers.github]\ncomment = true\n"
+        );
+        sb.project("qa", &project);
+
+        // GitHub's search sees a new issue after a few seconds.
+        let key = format!("{}#{number}", slug.to_lowercase());
+        let has = |inbox: &Inbox| {
+            let mut tickets = inbox.tickets.iter();
+            tickets
+                .find(|i| i.reference.key.to_lowercase() == key)
+                .cloned()
+        };
+        let mut inbox = t.inbox(Some("qa"), true).unwrap();
+        for _ in 0..30 {
+            if has(&inbox).is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            inbox = t.inbox(Some("qa"), true).unwrap();
+        }
+        assert_eq!(inbox.errors, []);
+        assert_eq!(
+            has(&inbox).map(|i| i.title),
+            Some(title.clone()),
+            "{inbox:?}"
+        );
+        assert_eq!(
+            t.inbox(Some("qa"), false).unwrap(),
+            inbox,
+            "asked again with its ETag"
+        );
+
+        let input = format!("#{number}");
+        let run = t.start_without_session(&input, Some("qa"), None).unwrap();
+        let branch = run.branch.clone().unwrap();
+        assert_eq!(branch, format!("termf/{number}-qa-d-j-vu-caf-{stamp}"));
+        *created_branch.lock().unwrap() = Some(branch.clone());
+        let worktree = PathBuf::from(run.worktree.clone().unwrap());
+        let brief = fs::read_to_string(t.brief_dir(run.id).unwrap().join("prompt.md")).unwrap();
+        assert!(
+            brief.contains(&title) && brief.contains("No final newline"),
+            "{brief}"
+        );
+
+        fs::write(worktree.join(format!("qa-{stamp}.txt")), "é\r\nno newline").unwrap();
+        let preview = t.deliver_preview(run.id).unwrap();
+        assert_eq!(preview.files.len(), 1, "{preview:?}");
+        let delivery = t.deliver(run.id, &preview.fingerprint).unwrap();
+        assert_eq!(delivery.warning, None);
+        let pr = delivery.run.pr_url.clone().unwrap();
+        let fields = ".body+\"|\"+.headRefName+\"|\"+.title";
+        let sent = gh(&[
+            "pr",
+            "view",
+            &pr,
+            "--json",
+            "body,headRefName,title",
+            "-q",
+            fields,
+        ]);
+        assert_eq!(sent, format!("Closes #{number}|{branch}|{title}"));
+        let comments = ".comments[].body";
+        let issue = [
+            "issue", "view", &number, "-R", &slug, "--json", "comments", "-q", comments,
+        ];
+        assert_eq!(gh(&issue), format!("Pull request: {pr}"));
+        let merge = t.pr_merge(run.id).unwrap().unwrap();
+        assert!(!merge.conflict, "{merge:?}");
+        let open = t.cleanup(run.id, || {}).unwrap_err().to_string();
+        assert!(open.contains("is open"), "{open}");
+
+        gh(&["pr", "close", &pr]);
+        let check = t.after_merge(true, |_| false, |_| {}).unwrap();
+        assert_eq!(check.errors, []);
+        assert_eq!(check.cleanups.len(), 1);
+        assert_eq!(check.cleanups[0].run.pr_state.as_deref(), Some("closed"));
+        assert!(
+            !check.cleanups[0].cleaned,
+            "a closed pull request is only told"
+        );
+        let closed = t.cleanup(run.id, || {}).unwrap();
+        assert_eq!(closed.status, RunStatus::Closed);
+        assert!(!worktree.exists());
+        assert_eq!(sb.git(&repo, &["branch", "--list", &branch]), "");
+    }));
+    if let Some(branch) = created_branch.lock().unwrap().take() {
+        let refs = format!("repos/{slug}/git/refs/heads/{branch}");
+        let _ = Command::new("gh")
+            .args(["api", "-X", "DELETE", &refs])
+            .output();
+    }
+    let delete = ["issue", "delete", &number, "-R", &slug, "--yes"];
+    let _ = Command::new("gh").args(delete).output();
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+/// A run's conversation resumed with the real Claude Code (Haiku, a cent or two): the session starts with the
+/// arguments `start` gives, TermF finds its transcript where Claude Code keeps it (no warning), and `--resume`
+/// takes the same conversation up again. The throwaway folder's transcripts are removed with `claude purge`.
+/// `cargo test -p termf-tickets -- --ignored real_resume --nocapture`
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_resume() {
+    let sb = Sandbox::new("real-resume");
+    let repo = sb.repo("api", "https://github.com/acme/api.git");
+    sb.git(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {repo:?}\n"),
+    );
+    let mut t = sb.tickets();
+    t.claude_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| termf_core::expand_tilde("~/.claude"));
+    let run = t.start_request("Say ready.", "acme", None).unwrap();
+    let worktree = PathBuf::from(run.worktree.clone().unwrap());
+    let conversation = uuid::Uuid::new_v4().to_string();
+    t.conversation(run.id, &conversation).unwrap();
+    let claude = |args: &[&str]| -> String {
+        let out = Command::new("claude")
+            .current_dir(&worktree)
+            .args(["-p", "--model", "haiku", "--max-budget-usd", "0.05"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "claude {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    // The transcripts go whatever happens.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let first = claude(&[
+            "--session-id",
+            &conversation,
+            "Remember the word kumquat. Reply with the single word: ready",
+        ]);
+        let resumed = t.resume(run.id).unwrap();
+        assert_eq!(resumed.warning, None, "the transcript is where TermF looks");
+        assert_eq!(resumed.args, ["--resume", conversation.as_str()]);
+        let args: Vec<&str> = resumed.args.iter().map(String::as_str).collect();
+        let again = claude(
+            &[
+                &args[..],
+                &["Which word did I ask you to remember? One word."],
+            ]
+            .concat(),
+        );
+        println!("real_resume: {first:?} then {again:?}");
+        assert!(again.to_lowercase().contains("kumquat"), "{again}");
+    }));
+    let _ = Command::new("claude")
+        .args(["purge", &path(&worktree), "-y"])
+        .output();
+    let _ = fs::remove_dir_all(&sb.root);
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
 }

@@ -4,7 +4,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
@@ -278,11 +278,7 @@ impl Store {
         fs::create_dir_all(data_dir)
             .with_context(|| format!("cannot create {}", data_dir.display()))?;
         let file = data_dir.join("termf.db");
-        let conn =
-            Connection::open(&file).with_context(|| format!("cannot open {}", file.display()))?;
-        // The app and the CLI may write at the same time.
-        conn.busy_timeout(Duration::from_secs(5))?;
-        let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
+        let conn = termf_core::db::open(&file)?;
         conn.execute_batch(SCHEMA)?;
         let has = |column: &str| -> rusqlite::Result<bool> {
             conn.query_row(
@@ -633,5 +629,30 @@ pub(crate) fn iso_utc(text: &str) -> String {
             )
         }
         None => text.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The new database opened from several threads at once, as the app's first launch and the CLI may.
+    #[test]
+    fn a_new_database_opened_from_several_threads_at_once() {
+        for round in 0..20 {
+            let name = format!("termf-store-{}-{round}", std::process::id());
+            let dir = std::env::temp_dir().join(name);
+            let _ = fs::remove_dir_all(&dir);
+            let opened: Vec<Result<Store>> = std::thread::scope(|s| {
+                let threads: Vec<_> = (0..8).map(|_| s.spawn(|| Store::open(&dir))).collect();
+                threads.into_iter().map(|t| t.join().unwrap()).collect()
+            });
+            for store in opened {
+                if let Err(e) = store {
+                    panic!("round {round}: {e:?}");
+                }
+            }
+            let _ = fs::remove_dir_all(&dir);
+        }
     }
 }

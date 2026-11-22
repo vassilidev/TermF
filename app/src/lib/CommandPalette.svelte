@@ -116,6 +116,7 @@
           <div
             id="palette-{i}"
             class="option"
+            data-testid="command-{command.id}"
             role="option"
             aria-selected={i === index}
             tabindex="-1"
