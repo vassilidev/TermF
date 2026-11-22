@@ -6,10 +6,10 @@ description: >-
   API, French case law through JudiLibre (both on PISTE, with credentials the user already set), and EU law
   through the Publications Office's Cellar (SPARQL and content negotiation by CELEX or ELI, no key). Each
   citation gives the article, its version in force, the official URL and the date read; what has no source is
-  marked "to check"; the deliverable ends with the validation line. Use when a task asks what the law requires
-  of a product: mandatory notices, terms of use, GDPR, cookie consent rules, sector rules (fintech, health), a
-  deadline, a fine or a regulator's guidance. Not for writing the pages or the banner wording (ux-writing), nor
-  for security flaws in the code (security-web).
+  marked "to check"; the deliverable ends with the validation line. Use it before answering whenever a task or a
+  question asks what the law requires of a product: mandatory notices, terms of use, GDPR, cookie consent rules,
+  sector rules (fintech, health), a deadline, a fine or a regulator's guidance. Not for writing the pages or the
+  banner wording (ux-writing), nor for security flaws in the code (security-web).
 license: MIT
 metadata:
   termf-stacks: "*"

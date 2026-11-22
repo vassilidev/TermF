@@ -1,11 +1,11 @@
 ---
 name: git
 description: >-
-  Runs git from an agent's shell without hanging on an editor or a prompt and without losing work: status,
-  diffs and history in a stable format, commits, rebases and merges with no editor, undoing a change the safe
-  way, stash and worktrees, conflicts, finding when a line changed. Use whenever a task runs git or asks to
-  commit, branch, rebase, squash, undo, reset, stash, clean or search the history. Not for pull requests,
-  issues, releases or the GitHub API (gh), nor for CI workflow files (github-actions).
+  Runs git from an agent's shell without hanging on an editor or a prompt and without losing work: status, diffs
+  and history in a stable format, commits, rebases and merges with no editor, undoing a change the safe way,
+  stash and worktrees, conflicts, finding when a line changed. Use it before answering whenever a task runs git,
+  or asks which git commands commit, branch, rebase, squash, undo, reset, stash, clean or search the history.
+  Not for pull requests, issues, releases or the GitHub API (gh), nor for CI workflow files (github-actions).
 license: MIT
 metadata:
   termf-stacks: "*"

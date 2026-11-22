@@ -156,6 +156,7 @@ function main(argv) {
       cases: (result?.cases ?? []).map((c) => ({
         name: c.name,
         score: c.aggregates?.score,
+        failed: [...new Set((c.arms?.with ?? []).flatMap((r) => (r.graders ?? []).filter((g) => !g.passed).map((g) => g.name)))],
         error: c.arms?.with?.find((r) => r.error)?.error ?? null,
       })),
     });
