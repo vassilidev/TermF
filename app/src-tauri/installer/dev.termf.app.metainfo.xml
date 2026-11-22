@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.termf.app</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>TermF</name>
+  <summary>The cockpit for Claude Code across all your repositories</summary>
+  <description>
+    <p>Talk to the CTO, and a team of agents takes your tickets to pull requests, each run in its own worktree, stopping for your approval at every gate.</p>
+    <p>Every Claude Code stays in view, in terminal tabs and splits. Local-first, built with Rust and Tauri.</p>
+  </description>
+  <developer id="dev.termf">
+    <name>TermF contributors</name>
+  </developer>
+  <launchable type="desktop-id">TermF.desktop</launchable>
+  <url type="homepage">https://vassilidev.github.io/TermF/</url>
+  <url type="bugtracker">https://github.com/vassilidev/TermF/issues</url>
+  <url type="vcs-browser">https://github.com/vassilidev/TermF</url>
+  <categories>
+    <category>Development</category>
+  </categories>
+  <keywords>
+    <keyword>terminal</keyword>
+    <keyword>agent</keyword>
+    <keyword>AI</keyword>
+    <keyword>Claude</keyword>
+    <keyword>git</keyword>
+    <keyword>worktree</keyword>
+  </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#4a4ad9</color>
+    <color type="primary" scheme_preference="dark">#3f3fc6</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+</component>

@@ -4,6 +4,7 @@ use std::process::Command;
 
 use super::*;
 
+mod edge;
 mod work;
 
 /// A throwaway HOME and git config, a bare remote and a clone of it: never the developer's config or repositories.
