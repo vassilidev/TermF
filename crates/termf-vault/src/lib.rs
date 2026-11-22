@@ -33,7 +33,8 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use termf_sync::KeyStore;
 use termf_sync::crypto::{self, Kdf, Key};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroize;
+pub use zeroize::Zeroizing;
 
 pub mod audit;
 pub mod fido;
@@ -59,7 +60,7 @@ pub use merge::{Change, Merged, summary};
 pub use reference::check as check_reference;
 pub use synced::{ConflictInfo, Synced};
 pub use totp::{Algorithm, Totp};
-pub use transfer::{ForeignChoice, ForeignPreview, ForeignRow, is_export};
+pub use transfer::{ForeignChoice, ForeignPreview, ForeignRow, digest, is_export};
 
 use item::Item;
 use merge::{Conflicted, Tombstone, new_rev};

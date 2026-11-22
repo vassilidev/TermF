@@ -2,8 +2,9 @@
 //! through `vault_reveal`, when the user asks; the local API never gives one (see `call`).
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -12,8 +13,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use termf_core::ipc::VaultCall;
 use termf_sync::OsKeyStore;
 use termf_vault::{
-    Access, Actor, Entry, Field, ItemDraft, ItemInfo, KEYCHAIN, KeyInfo, Recipe, Scope, Secret,
-    SecretId, SecretInfo, Status, SystemClock, Vault, Verification,
+    Access, Actor, ConflictInfo, Entry, Field, ForeignChoice, ForeignPreview, ItemDraft, ItemInfo,
+    KEYCHAIN, KeyInfo, Merged, Recipe, Scope, Secret, SecretId, SecretInfo, Status, SystemClock,
+    Vault, Verification, Zeroizing, digest,
 };
 
 use crate::biometry;
@@ -26,6 +28,8 @@ const TICK: Duration = Duration::from_secs(15);
 pub struct VaultState {
     vault: Arc<Vault>,
     config_dir: PathBuf,
+    /// The other manager's file last imported, and its digest: the only one TermF offers to delete.
+    imported: Arc<Mutex<Option<(PathBuf, String)>>>,
 }
 
 pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultState {
@@ -59,7 +63,65 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
             std::thread::sleep(TICK);
         }
     });
-    VaultState { vault, config_dir }
+    VaultState {
+        vault,
+        config_dir,
+        imported: Arc::default(),
+    }
+}
+
+/// Another machine's version of the vault waits beside it: merged now if it is open (it locks instead when the
+/// way it opens changed there), else when it opens. Returns whether something was merged.
+pub fn synced(app: &AppHandle) -> bool {
+    let Some(state) = app.try_state::<VaultState>() else {
+        return false;
+    };
+    if state.vault.status().is_ok_and(|s| s.synced.is_none()) {
+        return false;
+    }
+    let merged = state.vault.merge_synced(&Actor::termf());
+    emit(app, &state.vault);
+    match merged {
+        Ok(Some(rows)) => {
+            let _ = app.emit("vault-merged", rows);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// A vault export sealed by its own password, for the config archive.
+pub fn sealed(app: &AppHandle, project: Option<&str>, password: &str) -> anyhow::Result<Vec<u8>> {
+    let state = app.try_state::<VaultState>().ok_or(termf_vault::Locked)?;
+    state
+        .vault
+        .export_sealed(&Actor::human(), project, password)
+}
+
+/// A file only the user reads (Unix), written whole.
+fn write_private(path: &str, bytes: &[u8]) -> anyhow::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    file.write_all(bytes)?;
+    Ok(file.sync_all()?)
+}
+
+/// A file to import: a TermF vault export, alone or inside a config archive, or another manager's export.
+fn import_bytes(path: &str) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    let bytes = Zeroizing::new(fs::read(path)?);
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        let vault = termf_library::archive::vault(Path::new(path))?;
+        return Ok(Zeroizing::new(anyhow::Context::context(
+            vault,
+            "this configuration export holds no vault",
+        )?));
+    }
+    Ok(bytes)
 }
 
 /// The vault's values to hide from what TermF stores or hands an agent; none while it is locked.
@@ -442,6 +504,151 @@ pub async fn vault_recover(
             status,
             recovery_key: new.expose().to_owned(),
         })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_join(state: State<'_, VaultState>) -> CmdResult<Status> {
+    blocking(&state, |v| v.join_synced(&Actor::human())).await
+}
+
+#[tauri::command]
+pub async fn vault_conflicts(
+    state: State<'_, VaultState>,
+    key: String,
+) -> CmdResult<Vec<ConflictInfo>> {
+    blocking(&state, move |v| v.conflicts(&key)).await
+}
+
+/// `keep`: the other version's id; absent: the current one.
+#[tauri::command]
+pub async fn vault_resolve(
+    state: State<'_, VaultState>,
+    key: String,
+    keep: Option<String>,
+) -> CmdResult<()> {
+    blocking(&state, move |v| {
+        v.resolve(&Actor::human(), &key, keep.as_deref())
+    })
+    .await
+}
+
+/// The vault, or one project's part, sealed by its own export password.
+#[tauri::command]
+pub async fn vault_export(
+    state: State<'_, VaultState>,
+    path: String,
+    project: Option<String>,
+    password: String,
+) -> CmdResult<()> {
+    let password = Secret::new(password);
+    blocking(&state, move |v| {
+        let sealed = v.export_sealed(&Actor::human(), project.as_deref(), password.expose())?;
+        write_private(&path, &sealed)
+    })
+    .await
+}
+
+/// In clear: only when the user asked, past a warning.
+#[tauri::command]
+pub async fn vault_export_csv(
+    state: State<'_, VaultState>,
+    path: String,
+    project: Option<String>,
+) -> CmdResult<()> {
+    blocking(&state, move |v| {
+        let csv = v.export_csv(&Actor::human(), project.as_deref())?;
+        write_private(&path, csv.expose().as_bytes())
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ImportFile {
+    /// A TermF vault export: its password first.
+    Termf,
+    /// Another manager's export, in clear.
+    Foreign { preview: ForeignPreview },
+}
+
+#[tauri::command]
+pub async fn vault_import_read(
+    state: State<'_, VaultState>,
+    path: String,
+) -> CmdResult<ImportFile> {
+    blocking(&state, move |v| {
+        let bytes = import_bytes(&path)?;
+        if termf_vault::is_export(&bytes) {
+            return Ok(ImportFile::Termf);
+        }
+        Ok(ImportFile::Foreign {
+            preview: v.preview_foreign(&bytes)?,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_import_preview(
+    state: State<'_, VaultState>,
+    path: String,
+    password: String,
+) -> CmdResult<Vec<Merged>> {
+    let password = Secret::new(password);
+    blocking(&state, move |v| {
+        v.preview_import(&import_bytes(&path)?, password.expose())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_import_apply(
+    state: State<'_, VaultState>,
+    path: String,
+    password: String,
+) -> CmdResult<Vec<Merged>> {
+    let password = Secret::new(password);
+    blocking(&state, move |v| {
+        v.import_sealed(&Actor::human(), &import_bytes(&path)?, password.expose())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_import_foreign(
+    state: State<'_, VaultState>,
+    path: String,
+    choice: ForeignChoice,
+) -> CmdResult<usize> {
+    let imported = state.imported.clone();
+    blocking(&state, move |v| {
+        let bytes = import_bytes(&path)?;
+        let count = v.import_foreign(&Actor::human(), &bytes, &choice)?;
+        *imported.lock().unwrap() = Some((PathBuf::from(&path), digest(&bytes)));
+        Ok(count)
+    })
+    .await
+}
+
+/// Deletes the other manager's export just imported, which holds every password in clear: only that file,
+/// unchanged, and only when the user asks.
+#[tauri::command]
+pub async fn vault_import_delete(state: State<'_, VaultState>, path: String) -> CmdResult<()> {
+    let imported = state.imported.clone();
+    blocking(&state, move |_| {
+        let mut last = imported.lock().unwrap();
+        let same = last.as_ref().is_some_and(|(p, d)| {
+            *p == Path::new(&path) && fs::read(p).is_ok_and(|b| digest(&Zeroizing::new(b)) == *d)
+        });
+        anyhow::ensure!(
+            same,
+            "TermF deletes only the file it just imported, unchanged"
+        );
+        fs::remove_file(&path)?;
+        *last = None;
+        Ok(())
     })
     .await
 }

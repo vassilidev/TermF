@@ -3,14 +3,17 @@
 //! from TermF, whose local API gives none. `unlock`, `lock` and `status` act on TermF's own vault session. With
 //! security keys enrolled, a key is touched too, after its PIN (Windows asks for it in its own window).
 
-use std::io::{IsTerminal, Read};
+use std::fs;
+use std::io::{IsTerminal, Read, Write};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::Value;
 use termf_core::ipc::{self, Call, VaultCall};
 use termf_sync::OsKeyStore;
 use termf_vault::{
-    Access, Actor, ActorKind, Field, KEYCHAIN, Scope, Secret, SecretId, SystemClock, Vault,
+    Access, Actor, ActorKind, Change, Field, ForeignChoice, KEYCHAIN, Scope, Secret, SecretId,
+    SystemClock, Vault, Zeroizing,
 };
 
 use crate::{Client, take_flag, take_opt};
@@ -32,6 +35,8 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
     let scope = scope.as_deref().map(Scope::parse).transpose()?;
     let project = take_opt(&mut args, "--project")?;
     let description = take_opt(&mut args, "--description")?;
+    let out = take_opt(&mut args, "-o")?;
+    let csv = take_flag(&mut args, "--csv");
     let id = |name: &str| SecretId::new(name, scope.unwrap_or(Scope::Dev), project.as_deref());
     match args.as_slice() {
         ["init"] => {
@@ -136,7 +141,148 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
             );
         }
         ["audit", rest @ ..] => audit(&vault, rest.to_vec())?,
+        ["export"] => {
+            let out = out.context("give the file to write: -o <file>")?;
+            open(&vault, &actor)?;
+            if csv {
+                export_csv(&vault, &actor, &out, project.as_deref())?;
+            } else {
+                let password =
+                    prompt("Export password (8 characters or more, for this export only): ")?;
+                ensure!(
+                    prompt("Same password again: ")? == password,
+                    "the two passwords differ"
+                );
+                let sealed = vault.export_sealed(&actor, project.as_deref(), password.expose())?;
+                write_private(&out, &sealed)?;
+                println!(
+                    "Wrote {out}, sealed by its export password: termf vault import reads it."
+                );
+            }
+        }
+        ["import", file] => import(&vault, &actor, file, project.as_deref())?,
         _ => bail!(crate::USAGE),
+    }
+    Ok(())
+}
+
+/// A file only the user reads (Unix), written whole.
+fn write_private(path: &str, bytes: &[u8]) -> Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("cannot write {path}"))?;
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    file.write_all(bytes)?;
+    Ok(file.sync_all()?)
+}
+
+/// A yes typed on the terminal.
+fn confirm(question: &str) -> Result<bool> {
+    print!("{question} [y/N] ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    Ok(matches!(answer.trim(), "y" | "Y" | "yes"))
+}
+
+fn export_csv(vault: &Vault, actor: &Actor, out: &str, project: Option<&str>) -> Result<()> {
+    println!(
+        "A plain CSV holds every password, TOTP secret and note of the logins in clear: anyone who reads the file has them."
+    );
+    print!("Type plain to write it anyway: ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    ensure!(answer.trim() == "plain", "nothing written");
+    let text = vault.export_csv(actor, project)?;
+    write_private(out, text.expose().as_bytes())?;
+    println!("Wrote {out} in clear: delete it as soon as it is imported elsewhere.");
+    Ok(())
+}
+
+/// A TermF export (alone or in a config archive), merged; or another manager's, after its preview.
+fn import(vault: &Vault, actor: &Actor, file: &str, project: Option<&str>) -> Result<()> {
+    let mut bytes = Zeroizing::new(fs::read(file).with_context(|| format!("cannot read {file}"))?);
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        let sealed = termf_library::archive::vault(Path::new(file))?;
+        bytes = Zeroizing::new(sealed.context("this configuration export holds no vault")?);
+    }
+    open(vault, actor)?;
+    if termf_vault::is_export(&bytes) {
+        let password = prompt("Export password: ")?;
+        let rows = vault.preview_import(&bytes, password.expose())?;
+        for row in rows.iter().filter(|r| r.change != Change::Unchanged) {
+            let change = serde_json::to_value(row.change)?;
+            let what = row.scope.map_or("item", Scope::as_str);
+            let project = row.project.as_deref().unwrap_or("global");
+            println!(
+                "{:<9}  {what:<7}  {project:<12}  {}",
+                change.as_str().unwrap_or_default(),
+                row.title
+            );
+        }
+        println!("{}", termf_vault::summary(&rows));
+        if confirm("Import?")? {
+            let rows = vault.import_sealed(actor, &bytes, password.expose())?;
+            println!("Imported: {}.", termf_vault::summary(&rows));
+        }
+        return Ok(());
+    }
+    let preview = vault.preview_foreign(&bytes)?;
+    let mut skip = Vec::new();
+    for row in &preview.rows {
+        let note = match (&row.duplicate, row.problem) {
+            (_, Some("trash")) => "in the trash: left out".to_owned(),
+            (Some(title), _) if title.is_empty() => "same as a line above: left out".to_owned(),
+            (Some(title), _) => format!("already here as {title}: left out"),
+            (None, Some("totp")) => "TOTP kept in the notes".to_owned(),
+            _ => String::new(),
+        };
+        if row.duplicate.is_some() || row.problem == Some("trash") {
+            skip.push(row.index);
+        }
+        println!(
+            "{:>4}  {:<32}  {:<24}  {:<16}  {note}",
+            row.index, row.title, row.username, row.folder
+        );
+    }
+    if preview.unsupported > 0 {
+        println!(
+            "{} elements TermF has no place for (cards, identities, documents) are left out.",
+            preview.unsupported
+        );
+    }
+    let into = project.unwrap_or("global");
+    if !confirm(&format!(
+        "Import {} items from {} into {into}?",
+        preview.rows.len() - skip.len(),
+        preview.source
+    ))? {
+        return Ok(());
+    }
+    let projects = preview
+        .folders
+        .iter()
+        .map(|f| (f.clone(), project.map(str::to_owned)))
+        .collect();
+    let choice = ForeignChoice {
+        digest: preview.digest.clone(),
+        skip,
+        projects,
+    };
+    let count = vault.import_foreign(actor, &bytes, &choice)?;
+    println!("Imported {count} items.");
+    println!("{file} holds these passwords in clear.");
+    if confirm(&format!("Delete {file} now?"))? {
+        fs::remove_file(file)?;
+        println!("Deleted.");
+    } else {
+        println!("Delete it yourself once you no longer need it.");
     }
     Ok(())
 }

@@ -154,7 +154,8 @@ pub struct ForeignChoice {
     pub projects: BTreeMap<String, Option<String>>,
 }
 
-fn digest(bytes: &[u8]) -> String {
+/// A file's fingerprint: what tells a previewed or imported file from another.
+pub fn digest(bytes: &[u8]) -> String {
     crypto::hex(&Sha256::digest(bytes)[..16])
 }
 

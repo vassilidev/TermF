@@ -93,9 +93,35 @@ pub async fn library_import_claude(
     termf_library::import_claude(&from, &library, overwrite).map_err(err)
 }
 
+/// The vault in a config export: sealed by its own password, the whole vault or one project's part.
+#[derive(serde::Deserialize)]
+pub struct VaultPart {
+    password: String,
+    project: Option<String>,
+}
+
 #[tauri::command]
-pub async fn config_export(state: State<'_, AppState>, path: String) -> CmdResult<Exported> {
-    archive::export(&state.config_dir, Path::new(&path)).map_err(err)
+pub async fn config_export(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    vault: Option<VaultPart>,
+) -> CmdResult<Exported> {
+    let sealed = match vault {
+        Some(part) => {
+            let password = termf_vault::Secret::new(part.password);
+            let (app, project) = (app.clone(), part.project);
+            let sealed = tauri::async_runtime::spawn_blocking(move || {
+                crate::vault::sealed(&app, project.as_deref(), password.expose())
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(err)?;
+            Some(sealed)
+        }
+        None => None,
+    };
+    archive::export_with_vault(&state.config_dir, Path::new(&path), sealed.as_deref()).map_err(err)
 }
 
 #[tauri::command]
