@@ -44,7 +44,7 @@ pub fn materialize(
         .map(|p| owned_hooks(config_dir, p))
         .unwrap_or_default();
     let items = resolve(config_dir, scope)?;
-    prompt.push_str(&stack_card(&items, &scope.stack));
+    prompt.push_str(&stack_card(&items, scope));
     for item in items {
         let level = match scope.rules.get(&item.name) {
             Some(level) if item.kind == Kind::Rule => Some(level.as_str()),
@@ -116,12 +116,35 @@ pub fn materialize(
     Ok(Some(file))
 }
 
+/// A skill's card (25 lines at most) under its name, or a line naming it.
+fn skill_card(item: &Item) -> String {
+    const MAX_LINES: usize = 25;
+    let mut text = format!("\n#### {}\n\n", item.name);
+    match crate::item_file(item, Some("card.md")) {
+        Some(card) => {
+            for line in card.trim().lines().take(MAX_LINES) {
+                text += line;
+                text.push('\n');
+            }
+        }
+        None => text += &format!("The skill `{}` covers this stack.\n", item.name),
+    }
+    text
+}
+
 /// What every session learns of its repositories' stack, whatever its role: the detected tags and versions, the
 /// official skills and docs their packages bring once Claude Code trusts the repository, then the card of each
-/// active skill for that stack (25 lines at most), or a line naming it.
-pub fn stack_card(items: &[Item], stack: &[RepoStack]) -> String {
-    const MAX_LINES: usize = 25;
+/// active skill for that stack. The card of a skill for every stack (`termf-stacks: "*"`) goes only to the roles
+/// it is for.
+pub fn stack_card(items: &[Item], scope: &Scope) -> String {
+    let stack: &[RepoStack] = &scope.stack;
     let mut text = String::new();
+    let mut skills: Vec<&Item> = items
+        .iter()
+        .filter(|i| i.kind == Kind::Skill && i.active && i.layer != Layer::Package)
+        .collect();
+    skills.sort_by(|a, b| a.name.cmp(&b.name));
+    let any = |item: &Item| crate::metadata_list(item, "termf-stacks").iter().any(|t| t == crate::ANY);
     for repo in stack.iter().filter(|r| !r.tags.is_empty()) {
         if stack.len() > 1 {
             text += &format!("### {}\n\n", repo.name);
@@ -153,37 +176,22 @@ pub fn stack_card(items: &[Item], stack: &[RepoStack]) -> String {
                 );
             }
         }
-        let mut skills: Vec<&Item> = items
-            .iter()
-            .filter(|i| i.kind == Kind::Skill && i.active && i.layer != Layer::Package)
-            .collect();
-        skills.sort_by(|a, b| a.name.cmp(&b.name));
-        for item in skills {
-            let tags: Vec<&crate::stack::Tag> = crate::metadata_list(item, "termf-stacks")
-                .iter()
-                .filter_map(|n| repo.tags.iter().find(|t| &t.name == n))
-                .collect();
-            if tags.is_empty() {
+        for item in skills.iter().filter(|i| !any(i)) {
+            let wanted = crate::metadata_list(item, "termf-stacks");
+            if !wanted.iter().any(|n| repo.tags.iter().any(|t| &t.name == n)) {
                 continue;
             }
-            text += &format!("\n#### {}\n\n", item.name);
-            match crate::item_file(item, Some("card.md")) {
-                Some(card) => {
-                    for line in card.trim().lines().take(MAX_LINES) {
-                        text += line;
-                        text.push('\n');
-                    }
-                }
-                None => text += &format!("The skill `{}` covers this stack.\n", item.name),
-            }
+            text += &skill_card(item);
+            // The range of `termf-versions` is that of the first tag of `termf-stacks`.
             let range = crate::metadata_list(item, "termf-versions").join(" ");
-            if let Some(tag) = tags.iter().find(|t| t.version.is_some())
+            if let Some(tag) = wanted.first().and_then(|n| repo.tags.iter().find(|t| &t.name == n))
                 && let Some(version) = &tag.version
                 && !range.is_empty()
+                && range != crate::ANY
                 && crate::stack::covers(&range, version) == Some(false)
             {
                 text += &format!(
-                    "The skill `{}` is verified for {range}; this repository has {} {version}: check each step against \
+                    "The skill `{}` is verified for {} {range}; this repository has {version}: check each step against \
                      the docs of that version.\n",
                     item.name, tag.name
                 );
@@ -191,10 +199,17 @@ pub fn stack_card(items: &[Item], stack: &[RepoStack]) -> String {
         }
         text.push('\n');
     }
-    if text.is_empty() {
-        return text;
+    let role = scope.role.as_deref();
+    for item in skills.iter().filter(|i| any(i)) {
+        let roles = crate::metadata_list(item, "termf-roles");
+        if role.is_none_or(|r| crate::applies_to(&roles, r, scope.squad.as_deref())) {
+            text += &skill_card(item);
+        }
     }
-    format!("## Stack\n\n{}\n", text.trim_end())
+    if text.trim().is_empty() {
+        return String::new();
+    }
+    format!("## Stack\n\n{}\n\n", text.trim())
 }
 
 /// Copies each rule into the plugin and registers its script, `hook: { event, matcher, run }`, in
@@ -566,6 +581,118 @@ mod tests {
             ..Scope::default()
         };
         assert!(materialize(&dir, &unknown, &session).is_err());
+    }
+
+    #[test]
+    fn gives_each_role_its_stack_skills_and_every_session_the_stack_card() {
+        use crate::stack::{Guide, Package, PackageSkill, Tag};
+        let dir = temp_dir("materialize-stack");
+        let (config, session, repo) = (dir.join("config"), dir.join("session"), dir.join("repo"));
+        let skills = config.join("library/skills");
+        put(
+            &skills.join("react-app/SKILL.md"),
+            "---\nname: react-app\nmetadata:\n  termf-stacks: \"react nextjs\"\n  termf-roles: \"front qa\"\n  termf-versions: \">=19\"\n---\nBuild it.\n",
+        );
+        let card: String = (1..=30).map(|n| format!("- line {n}\n")).collect();
+        put(&skills.join("react-app/card.md"), &card);
+        put(
+            &skills.join("vue-app/SKILL.md"),
+            "---\nmetadata:\n  termf-stacks: vue\n---\n",
+        );
+        put(
+            &skills.join("tests-first/SKILL.md"),
+            "---\nmetadata:\n  termf-stacks: \"*\"\n  termf-roles: \"qa back\"\n  termf-versions: \"*\"\n---\n",
+        );
+        put(
+            &skills.join("tests-first/card.md"),
+            "- Write each test from a criterion.\n",
+        );
+        put(
+            &repo.join("node_modules/ai/skills/ai-sdk/SKILL.md"),
+            "---\nname: ai-sdk\n---\n",
+        );
+        let stack = |trusted: bool| RepoStack {
+            name: "acme".into(),
+            path: repo.clone(),
+            tags: [("react", Some("18.3.1")), ("web", None)]
+                .iter()
+                .map(|(name, version)| Tag {
+                    name: (*name).into(),
+                    version: version.map(Into::into),
+                    source: "package.json".into(),
+                })
+                .collect(),
+            skills: vec![PackageSkill {
+                name: "ai-sdk".into(),
+                path: repo.join("node_modules/ai/skills/ai-sdk"),
+                package: Package {
+                    name: "ai".into(),
+                    version: Some("7.0.177".into()),
+                },
+            }],
+            guides: vec![Guide {
+                package: Package {
+                    name: "next".into(),
+                    version: Some("16.4.6".into()),
+                },
+                path: "node_modules/next/dist/docs".into(),
+            }],
+            trusted,
+        };
+        let session_for = |role: Option<&str>, trusted: bool| {
+            let _ = fs::remove_dir_all(&session);
+            let scope = Scope {
+                role: role.map(Into::into),
+                stack: vec![stack(trusted)],
+                ..Scope::default()
+            };
+            let prompt = materialize(&config, &scope, &session)
+                .unwrap()
+                .map(|f| fs::read_to_string(f).unwrap())
+                .unwrap_or_default();
+            let mut skills: Vec<String> = fs::read_dir(session.join("plugin/skills"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            skills.sort();
+            (prompt, skills)
+        };
+
+        let (prompt, skills) = session_for(Some("front"), true);
+        assert_eq!(skills, ["ai-sdk", "react-app", "vue-app"]);
+        assert!(
+            prompt.contains(
+                "\n\n## Stack\n\nDetected: react 18.3.1, web.\nThe official skill `ai-sdk` of ai 7.0.177 is loaded"
+            ),
+            "{prompt}"
+        );
+        assert!(prompt.contains("next 16.4.6 ships docs for agents in `node_modules/next/dist/docs`"));
+        assert!(prompt.contains("#### react-app\n\n- line 1\n"));
+        assert!(prompt.contains("- line 25\n") && !prompt.contains("- line 26"), "25 lines a card");
+        assert!(prompt.contains(
+            "The skill `react-app` is verified for react >=19; this repository has 18.3.1"
+        ));
+        assert!(!prompt.contains("#### vue-app"), "not this repository's stack");
+        assert!(!prompt.contains("#### tests-first"), "not for front");
+
+        let (prompt, skills) = session_for(Some("back"), true);
+        assert_eq!(skills, ["ai-sdk", "tests-first", "vue-app"]);
+        assert!(prompt.contains("#### react-app"), "every role gets the card");
+        assert!(prompt.contains("#### tests-first\n\n- Write each test from a criterion."));
+
+        let (prompt, skills) = session_for(Some("lead"), true);
+        assert_eq!(skills, ["ai-sdk", "vue-app"], "the planners get the card only");
+        assert!(prompt.contains("#### react-app") && !prompt.contains("#### tests-first"));
+
+        let (prompt, skills) = session_for(None, false);
+        assert_eq!(skills, ["react-app", "tests-first", "vue-app"]);
+        assert!(prompt.contains("#### tests-first"), "no role: every card");
+        assert!(
+            !prompt.contains("ai-sdk") && !prompt.contains("ships docs"),
+            "an untrusted repository's packages are offered, never loaded: {prompt}"
+        );
     }
 
     #[test]

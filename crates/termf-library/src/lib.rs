@@ -289,28 +289,8 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
         toggles.push((Layer::Project, read_toggles(&file)?));
     }
     toggles.push((Layer::Run, scope.overrides.clone()));
-    let tags: Vec<&str> = scope
-        .stack
-        .iter()
-        .flat_map(|r| &r.tags)
-        .map(|t| t.name.as_str())
-        .collect();
     for item in items.values_mut() {
-        if item.layer == Layer::Shipped {
-            item.activated_by = stack_tags_of(item)
-                .into_iter()
-                .filter(|t| tags.contains(&t.as_str()))
-                .collect();
-            item.activated_by.dedup();
-        }
-        item.active = match item.layer {
-            Layer::Global | Layer::Project => true,
-            Layer::Shipped => !item.activated_by.is_empty(),
-            Layer::Package => scope.stack.iter().any(|r| {
-                r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path))
-            }),
-            Layer::Repo | Layer::Run => false,
-        };
+        item.active = starts_on(item, scope);
         for (layer, list) in &toggles {
             if let Some(on) = toggle(list, item.kind, &item.name) {
                 item.toggles.insert(*layer, on);
@@ -319,6 +299,37 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
         }
     }
     Ok(items.into_values().collect())
+}
+
+/// Where an item stands before the toggles: on for the user's own layers; a shipped one when its
+/// `metadata.termf-stacks` names a tag of the stack (noted in `activated_by`), or always for `*`; a package's
+/// skill where Claude Code trusts its repository; off for a repository's.
+fn starts_on(item: &mut Item, scope: &Scope) -> bool {
+    match item.layer {
+        Layer::Global | Layer::Project => true,
+        Layer::Shipped if stack_tags_of(item).iter().any(|t| t == ANY) => {
+            item.activated_by = vec![ANY.into()];
+            true
+        }
+        Layer::Shipped => {
+            let stack: Vec<&str> = scope
+                .stack
+                .iter()
+                .flat_map(|r| &r.tags)
+                .map(|t| t.name.as_str())
+                .collect();
+            item.activated_by = stack_tags_of(item)
+                .into_iter()
+                .filter(|t| stack.contains(&t.as_str()))
+                .collect();
+            item.activated_by.dedup();
+            !item.activated_by.is_empty()
+        }
+        Layer::Package => scope.stack.iter().any(|r| {
+            r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path))
+        }),
+        Layer::Repo | Layer::Run => false,
+    }
 }
 
 /// Whether a preference or a rule applies to a session that plays `role` in `squad`. No role: those of every
@@ -548,6 +559,9 @@ pub fn metadata_list(item: &Item, key: &str) -> Vec<String> {
         .map(str::to_owned)
         .collect()
 }
+
+/// `termf-stacks: "*"`: a skill for every stack, such as a testing method. `termf-versions: "*"`: any version.
+pub const ANY: &str = "*";
 
 fn stack_tags_of(item: &Item) -> Vec<String> {
     metadata_list(item, "termf-stacks")
@@ -1053,5 +1067,151 @@ mod tests {
         assert_eq!(Kind::parse("skills"), Some(Kind::Skill));
         assert_eq!(Kind::parse("preference"), Some(Kind::Preference));
         assert_eq!(Kind::parse("nope"), None);
+    }
+
+    fn stack(path: &Path, tags: &[&str], trusted: bool) -> stack::RepoStack {
+        stack::RepoStack {
+            name: "acme".into(),
+            path: path.into(),
+            tags: tags
+                .iter()
+                .map(|t| stack::Tag {
+                    name: (*t).into(),
+                    version: None,
+                    source: "package.json".into(),
+                })
+                .collect(),
+            trusted,
+            ..stack::RepoStack::default()
+        }
+    }
+
+    #[test]
+    fn the_stack_switches_on_the_shipped_skills_it_names() {
+        let skill = "---\nname: nextjs\nmetadata:\n  termf-stacks: \"nextjs react\"\n---\n";
+        let shipped = |stack_tags: &[&str], layer: Layer| {
+            let mut item = parse(Kind::Skill, "nextjs".into(), skill, layer, None, String::new());
+            let scope = Scope {
+                stack: vec![stack(Path::new("/r"), stack_tags, false)],
+                ..Scope::default()
+            };
+            (starts_on(&mut item, &scope), item.activated_by)
+        };
+        assert_eq!(shipped(&["react", "web"], Layer::Shipped), (true, vec!["react".into()]));
+        assert_eq!(
+            shipped(&["nextjs", "react"], Layer::Shipped),
+            (true, vec!["nextjs".into(), "react".into()])
+        );
+        assert_eq!(shipped(&["vue"], Layer::Shipped), (false, vec![]));
+        let mut always = parse(
+            Kind::Skill,
+            "tests-first".into(),
+            "---\nmetadata:\n  termf-stacks: \"*\"\n---\n",
+            Layer::Shipped,
+            None,
+            String::new(),
+        );
+        assert!(
+            starts_on(&mut always, &Scope::default()),
+            "a skill for every stack, whatever was detected"
+        );
+        assert_eq!(always.activated_by, [ANY]);
+        assert_eq!(
+            shipped(&["nextjs"], Layer::Repo),
+            (false, vec![]),
+            "a repository's skill waits to be switched on"
+        );
+        assert!(shipped(&[], Layer::Global).0, "the user's own skills start on");
+    }
+
+    #[test]
+    fn offers_the_skills_of_installed_packages_and_the_toggles_keep_the_last_word() {
+        let dir = temp_dir("package-layer");
+        let repo = dir.join("repo");
+        put(
+            &repo.join("node_modules/ai/skills/ai-sdk/SKILL.md"),
+            "---\nname: ai-sdk\ndescription: Builds with the AI SDK.\n---\nUse it.\n",
+        );
+        put(
+            &repo.join("node_modules/ai/skills/mine/SKILL.md"),
+            "---\ndescription: package\n---\n",
+        );
+        put(
+            &dir.join("library/skills/mine/SKILL.md"),
+            "---\ndescription: global\n---\n",
+        );
+        let mut on_disk = stack(&repo, &["react"], false);
+        on_disk.skills = ["ai-sdk", "mine"]
+            .iter()
+            .map(|name| stack::PackageSkill {
+                name: (*name).into(),
+                path: repo.join("node_modules/ai/skills").join(name),
+                package: stack::Package {
+                    name: "ai".into(),
+                    version: Some("7.0.177".into()),
+                },
+            })
+            .collect();
+        let scope = |trusted: bool| Scope {
+            stack: vec![stack::RepoStack {
+                trusted,
+                ..on_disk.clone()
+            }],
+            ..Scope::default()
+        };
+
+        let items = resolve(&dir, &scope(false)).unwrap();
+        let ai = find(&items, Kind::Skill, "ai-sdk");
+        assert_eq!(ai.layer, Layer::Package);
+        assert!(!ai.active, "offered, off until the repository is trusted");
+        assert_eq!(ai.description.as_deref(), Some("Builds with the AI SDK."));
+        assert_eq!(ai.package.as_ref().unwrap().version.as_deref(), Some("7.0.177"));
+        let mine = find(&items, Kind::Skill, "mine");
+        assert_eq!(
+            (mine.layer, mine.description.as_deref()),
+            (Layer::Global, Some("global")),
+            "the user's own skill passes before a package's"
+        );
+        assert_eq!(mine.shadows, [Layer::Package]);
+
+        assert!(explain(&dir, &scope(true), Kind::Skill, "ai-sdk").unwrap().active);
+        set_toggle(&dir, None, Kind::Skill, "ai-sdk", Some(false)).unwrap();
+        assert!(!explain(&dir, &scope(true), Kind::Skill, "ai-sdk").unwrap().active);
+        set_toggle(&dir, None, Kind::Skill, "ai-sdk", Some(true)).unwrap();
+        assert!(
+            explain(&dir, &scope(false), Kind::Skill, "ai-sdk").unwrap().active,
+            "switched on in one click"
+        );
+    }
+
+    #[test]
+    fn a_scope_reads_the_stack_of_its_repository_or_of_its_project() {
+        let dir = temp_dir("scope-stack");
+        let (web, api) = (dir.join("web"), dir.join("api"));
+        put(&web.join("package.json"), r#"{"dependencies": {"react": "19.3.1"}}"#);
+        put(&api.join("go.mod"), "module api\n\ngo 1.27\n");
+        fs::create_dir_all(web.join(".git")).unwrap();
+        put(
+            &dir.join("projects/acme.toml"),
+            &format!(
+                "name = \"Acme\"\n[[repos]]\nname = \"front\"\npath = {:?}\n[[repos]]\npath = {:?}\n",
+                web.to_string_lossy(),
+                api.to_string_lossy()
+            ),
+        );
+        let scope = Scope::new(&dir, Some(&web.join("src")), None).unwrap();
+        assert_eq!(scope.stack.len(), 1);
+        assert_eq!(scope.stack[0].name, "front");
+        assert_eq!(scope.stack[0].tags[0].name, "react");
+        assert_eq!(scope.stack[0].tags[0].version.as_deref(), Some("19.3.1"));
+
+        let project = Scope::new(&dir, None, Some("acme".into())).unwrap();
+        let tags: Vec<&str> = project
+            .stack
+            .iter()
+            .flat_map(|r| r.tags.iter().map(|t| t.name.as_str()))
+            .collect();
+        assert_eq!(tags, ["react", "go"]);
+        assert!(Scope::new(&dir, None, None).unwrap().stack.is_empty());
     }
 }

@@ -846,7 +846,8 @@ fn compose_file(repo: &Path, rel: &str, found: &mut Found) {
         let (name, tag) = image.split_once(':').unwrap_or((image, ""));
         let name = name.rsplit('/').next().unwrap_or(name);
         if let Some((_, db)) = IMAGES.iter().find(|(i, _)| *i == name) {
-            found.add(db, clean(tag), rel);
+            // `17-alpine`: the variant is not part of the version.
+            found.add(db, clean(tag.split('-').next().unwrap_or(tag)), rel);
         }
     }
 }
@@ -1121,7 +1122,10 @@ fn installed(repo: &Path, manifests: &[String]) -> (Vec<PackageSkill>, Vec<Guide
                 ("npm", "@angular/core") => fs::read_to_string(root.join("package.json"))
                     .ok()
                     .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-                    .and_then(|v| v["angular"]["bestPractices"]["path"].as_str().map(|p| root.join(p))),
+                    .and_then(|v| {
+                        let path = v["angular"]["bestPractices"]["path"].as_str()?;
+                        (!path.contains("..")).then(|| root.join(path.trim_start_matches("./")))
+                    }),
                 ("composer", _) => Some(root.join("resources/boost/guidelines")),
                 _ => None,
             };
@@ -1260,3 +1264,6 @@ pub fn offers(stack: &RepoStack) -> (Vec<McpOffer>, Vec<SkillSource>) {
     }
     (mcp, sources)
 }
+
+#[cfg(test)]
+mod tests;
