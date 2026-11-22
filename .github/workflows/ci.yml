@@ -5,12 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to a pull request cancels its older run; main keeps every run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# macOS runners are scarce: pull requests run on Linux and Windows, main on all three.
 jobs:
   check:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-24.04, windows-latest]
+        os: ${{ github.event_name == 'push' && fromJSON('["macos-latest", "ubuntu-24.04", "windows-latest"]') || fromJSON('["ubuntu-24.04", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -87,7 +93,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-24.04, windows-latest]
+        os: ${{ github.event_name == 'push' && fromJSON('["macos-latest", "ubuntu-24.04", "windows-latest"]') || fromJSON('["ubuntu-24.04", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
