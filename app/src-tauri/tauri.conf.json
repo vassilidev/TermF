@@ -86,6 +86,9 @@
     },
     "linux": {
       "deb": {
+        "depends": [
+          "libayatana-appindicator3-1 | libappindicator3-1"
+        ],
         "section": "devel",
         "recommends": [
           "git"
@@ -96,6 +99,9 @@
         }
       },
       "rpm": {
+        "depends": [
+          "libayatana-appindicator-gtk3"
+        ],
         "recommends": [
           "git"
         ],

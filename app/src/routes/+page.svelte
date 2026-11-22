@@ -32,6 +32,7 @@
   import { creating } from "$lib/newproject.svelte";
   import { views } from "$lib/views";
   import { visual, watchVisual } from "$lib/visual.svelte";
+  import { watchTray } from "$lib/remote.svelte";
   import { watchUpdates } from "$lib/release.svelte";
   import { watchMenu } from "$lib/menu";
 
@@ -51,9 +52,10 @@
     const stopOps = watchOps();
     const stopVisual = watchVisual();
     const stopSync = watchSync();
+    const stopTray = watchTray();
     const stopUpdates = watchUpdates();
     const stopMenu = watchMenu();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopVisual(), stopSync(), stopUpdates(), stopMenu());
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu());
   });
 
   function drag(e: PointerEvent) {
