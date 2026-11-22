@@ -288,6 +288,7 @@ fn drive(
 ) -> (TeamRun, Drive) {
     let deadline = Instant::now() + Duration::from_secs(minutes * 60);
     let (mut seen, mut drive) = (0, Drive::default());
+    let mut answered = std::collections::HashSet::new();
     loop {
         for e in team.events(id, seen).unwrap() {
             seen = e.id;
@@ -348,14 +349,14 @@ fn drive(
             if session.state != termf_agents::State::Waiting {
                 continue;
             }
-            let events = agents.events(session.id, 0).unwrap();
-            let asked = events.into_iter().rev().find_map(|e| match e.event {
-                AgentEvent::Permission { request, tool, .. } => Some((request, tool)),
-                _ => None,
-            });
-            if let Some((request, tool)) = asked {
-                drive.permissions.push(tool);
-                let _ = agents.answer(session.id, &request, true, None);
+            // Each request once: an old one, already answered, is never answered again.
+            for event in agents.events(session.id, 0).unwrap() {
+                if let AgentEvent::Permission { request, tool, .. } = event.event
+                    && answered.insert((session.id, request.clone()))
+                {
+                    drive.permissions.push(tool);
+                    let _ = agents.answer(session.id, &request, true, None);
+                }
             }
         }
         std::thread::sleep(Duration::from_millis(700));
@@ -793,9 +794,6 @@ fn real_sandbox_sub_plans_over_two_repositories() {
                    - client, in the repository web: create index.html with a heading \"Multiply\" and two number \
                    inputs.\nEverything is decided.";
     let run = t.start_request(request, "qa", Some("sandbox")).unwrap();
-    // Both repositories are the sandbox on GitHub: web's run must not take the branch name of the first, which
-    // it cannot see before that one is pushed (its push was refused, 2026-11-22).
-    lab.git(&web, &["branch", run.branch.as_deref().unwrap()]);
     let target = termf_team::Target::of(&run, &lab.config, &lab.data).unwrap();
     let (agents, team) = lab.team();
     let options = Options {

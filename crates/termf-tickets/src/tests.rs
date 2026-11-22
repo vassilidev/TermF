@@ -1209,6 +1209,68 @@ fn tells_a_pull_request_in_conflict_or_behind_its_base() {
 }
 
 /// A double click, or the app and the CLI at once: both runs start, each on a branch of its own.
+/// A worktree that cannot be made (here a `post-checkout` hook that fails) fails the run once, and leaves neither
+/// its branch nor its folder.
+#[cfg(unix)]
+#[test]
+fn a_worktree_that_cannot_be_made_leaves_nothing_behind() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new("hook");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let hook = front.join(".git/hooks/post-checkout");
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, "#!/bin/sh\necho 'no checkout today' >&2\nexit 1\n").unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    let t = sb.tickets();
+    let refused = match t.start("front#42", None, None) {
+        Ok(_) => panic!("the worktree could not be made"),
+        Err(e) => format!("{e:#}"),
+    };
+    assert!(refused.contains("no checkout today"), "{refused}");
+    assert_eq!(sb.git(&front, &["branch", "--list", "termf/*"]), "");
+    assert_eq!(
+        sb.git(&front, &["worktree", "list", "--porcelain"])
+            .matches("worktree ")
+            .count(),
+        1
+    );
+    assert!(
+        !front
+            .join(".claude/worktrees/termf-1-42-fix-the-login-button")
+            .exists()
+    );
+    assert_eq!(t.run(1).unwrap().status, RunStatus::Failed);
+}
+
+/// Two repositories of a project cloned from the same GitHub repository: the run of the second does not take the
+/// branch of the first, which it could not see before that one is pushed.
+#[cfg(unix)]
+#[test]
+fn two_clones_of_one_repository_get_two_branches() {
+    let sb = Sandbox::new("clones");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    let copy = sb.root.join("repos/front-copy");
+    let url = "https://github.com/acme/front.git";
+    sb.git(&sb.root, &["clone", "-q", url, &path(&copy)]);
+    sb.project(
+        "acme",
+        &format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"front\"\npath = {front:?}\n[[repos]]\nname = \"copy\"\npath = {copy:?}\n"
+        ),
+    );
+    let t = sb.tickets();
+    let run = t.start("acme/front#42", None, Some("front")).unwrap().run;
+    let child = t.open_repo(run.id, "copy").unwrap();
+    let branch = run.branch.unwrap();
+    assert_eq!(child.branch, Some(format!("{branch}-2")));
+}
+
 #[cfg(unix)]
 #[test]
 fn the_same_ticket_started_twice_at_once_gets_two_branches() {
@@ -2965,25 +3027,32 @@ fn real_resume() {
         assert!(out.status.success(), "claude {args:?}: {out:?}");
         String::from_utf8_lossy(&out.stdout).into_owned()
     };
-    let first = claude(&[
-        "--session-id",
-        &conversation,
-        "Remember the word kumquat. Reply with the single word: ready",
-    ]);
-    let resumed = t.resume(run.id).unwrap();
-    assert_eq!(resumed.warning, None, "the transcript is where TermF looks");
-    assert_eq!(resumed.args, ["--resume", conversation.as_str()]);
-    let args: Vec<&str> = resumed.args.iter().map(String::as_str).collect();
-    let again = claude(
-        &[
-            &args[..],
-            &["Which word did I ask you to remember? One word."],
-        ]
-        .concat(),
-    );
+    // The transcripts go whatever happens.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let first = claude(&[
+            "--session-id",
+            &conversation,
+            "Remember the word kumquat. Reply with the single word: ready",
+        ]);
+        let resumed = t.resume(run.id).unwrap();
+        assert_eq!(resumed.warning, None, "the transcript is where TermF looks");
+        assert_eq!(resumed.args, ["--resume", conversation.as_str()]);
+        let args: Vec<&str> = resumed.args.iter().map(String::as_str).collect();
+        let again = claude(
+            &[
+                &args[..],
+                &["Which word did I ask you to remember? One word."],
+            ]
+            .concat(),
+        );
+        println!("real_resume: {first:?} then {again:?}");
+        assert!(again.to_lowercase().contains("kumquat"), "{again}");
+    }));
     let _ = Command::new("claude")
         .args(["purge", &path(&worktree), "-y"])
         .output();
-    println!("real_resume: {first:?} then {again:?}");
-    assert!(again.to_lowercase().contains("kumquat"), "{again}");
+    let _ = fs::remove_dir_all(&sb.root);
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
 }
