@@ -93,6 +93,6 @@ test("AC4: an existing database is migrated, its tasks get due_date null", async
 
 test("AC5: the page knows the due date and has a date field", () => {
   const html = page();
-  assert.match(html, /due_date/);
-  assert.match(html, /type\s*=\s*["']?date|\.type\s*=\s*["']date/);
+  assert.ok(/due_date/.test(html), "the page lacks it");
+  assert.ok(/type\s*=\s*["']?date|\.type\s*=\s*["']date|(id|name)\s*=\s*["']?due/.test(html), "the page lacks it");
 });

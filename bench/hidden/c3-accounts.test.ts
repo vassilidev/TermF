@@ -170,8 +170,8 @@ test("AC7: tasks from before accounts stay stored but nobody sees them", async (
 
 test("AC8: the page signs in and sends the token", () => {
   const html = page();
-  assert.match(html, /Authorization/);
-  assert.match(html, /Bearer/);
-  assert.match(html, /\/api\/sessions/);
-  assert.match(html, /\/api\/users/);
+  assert.ok(/Authorization/.test(html), "the page lacks it");
+  assert.ok(/Bearer/.test(html), "the page lacks it");
+  assert.ok(/\/api\/sessions/.test(html), "the page lacks it");
+  assert.ok(/\/api\/users/.test(html), "the page lacks it");
 });

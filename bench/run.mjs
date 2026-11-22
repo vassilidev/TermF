@@ -6,6 +6,7 @@
 //   node bench/run.mjs --arms team --tickets s1     one arm only
 //   node bench/run.mjs --out bench/results/<date>   go on with a results folder: trials already there are kept
 //   node bench/run.mjs --summary bench/results/<date>   only print the summary of a results folder
+//   node bench/run.mjs --remeasure bench/results/<date> measure each trial again from its diff.patch, no judge
 //
 // Options: --model (sonnet), --trials (2), --parallel (4), --budget (25, US dollars in all, judge included),
 // --cap (3, US dollars per trial), --minutes (40 per trial), --judge-model (sonnet), --keep (keep the trial folders).
@@ -36,7 +37,8 @@ export const IN_SCOPE = /^(src|test|public)\/|^README\.md$/;
 /** Claude Code with none of the tester's settings, CLAUDE.md, skills, plugins or MCP servers. */
 const BARE = ["--setting-sources", "project,local", "--strict-mcp-config"];
 
-const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 << 20, ...opts });
+// SIGKILL: a test runner busy formatting a huge failure ignores SIGTERM, and spawnSync would wait on it forever.
+const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 << 20, killSignal: "SIGKILL", ...opts });
 const git = (dir, ...args) => {
   const r = sh("git", ["-C", dir, ...args], { env: gitEnv });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
@@ -110,7 +112,8 @@ async function solo(ticket, repo, o, dir) {
   const u = j.usage ?? {};
   return {
     state: j.is_error ? `error: ${j.subtype}` : r.code === 0 ? "done" : `exit ${r.code}`,
-    wall_s: r.wall_s,
+    // Claude Code's own clock: the runner's loop may be busy measuring another trial when this one ends.
+    wall_s: j.duration_ms ? j.duration_ms / 1000 : r.wall_s,
     cost_usd: j.total_cost_usd ?? 0,
     sessions: 1,
     turns: j.num_turns ?? 0,
@@ -227,7 +230,8 @@ function measure(ticket, final, base, dir, work) {
 
 function tap(text) {
   const n = (k) => Number(new RegExp(`^# ${k} (\\d+)`, "m").exec(text)?.[1] ?? 0);
-  return { pass: n("pass"), fail: n("fail"), tests: n("tests") };
+  const failed = [...text.matchAll(/^not ok \d+ - (.*)$/gm)].map((m) => m[1]);
+  return { pass: n("pass"), fail: n("fail"), tests: n("tests"), failed };
 }
 
 function nodeTest(cwd, files) {
@@ -399,8 +403,35 @@ function print(summary) {
   }
 }
 
+/** Measures every trial of a results folder again (the hidden tests may have changed) from its `diff.patch`. */
+function remeasure(results) {
+  for (const r of load(results)) {
+    const dir = join(results, `${r.ticket}-${r.arm}-${r.n}`);
+    const work = mkdtempSync(join(tmpdir(), "termf-bench-remeasure-"));
+    const { repo, base } = prepare(work);
+    const patch = readFileSync(join(dir, "diff.patch"), "utf8");
+    if (patch.trim()) git(repo, "apply", "--whitespace=nowarn", join(dir, "diff.patch"));
+    const log = join(dir, "solo.log");
+    if (r.arm === "solo" && existsSync(log)) {
+      const text = readFileSync(log, "utf8");
+      const ms = JSON.parse(text.slice(text.indexOf("{"))).duration_ms;
+      if (ms) r.wall_s = ms / 1000;
+    }
+    const { patch: _, ...m } = measure(r.ticket, repo, base, dir, work);
+    writeFileSync(join(dir, "result.json"), JSON.stringify({ ...r, ...m }, null, 2));
+    rmSync(work, { recursive: true, force: true });
+    console.log(`${r.ticket} ${r.arm} #${r.n}: hidden ${m.hidden.pass}/${m.hidden.total} ${m.hidden.failed.join("; ")}`);
+  }
+}
+
 async function main() {
   const o = options(process.argv.slice(2));
+  if (o.remeasure) {
+    const results = resolve(o.remeasure);
+    gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: join(results, ".gitconfig"), GIT_CONFIG_NOSYSTEM: "1" };
+    writeFileSync(gitEnv.GIT_CONFIG_GLOBAL, "[user]\n\tname = Bench\n\temail = bench@termf.invalid\n");
+    return remeasure(results);
+  }
   if (o.summary) {
     const summary = summarize(load(o.summary));
     writeFileSync(join(o.summary, "summary.json"), JSON.stringify(summary, null, 2));
@@ -430,8 +461,9 @@ async function main() {
   await new Promise((finish) => {
     const next = () => {
       while (running < o.parallel && queue.length) {
-        // Each running trial may still spend up to its cap.
+        // Each running trial may still spend up to its cap: wait for them; stop once even one trial no longer fits.
         if (spent + (running + 1) * o.cap > o.budget) {
+          if (running) break;
           console.log(`budget: $${spent.toFixed(2)} spent, ${queue.length} trials left undone`);
           queue.length = 0;
           break;

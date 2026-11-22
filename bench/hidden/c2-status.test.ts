@@ -125,7 +125,7 @@ test("AC3: the migrated database keeps working after a restart", async () => {
 
 test("AC7: the page uses a status select", () => {
   const html = page();
-  assert.match(html, /status/);
-  assert.match(html, /<select|createElement\(\s*["']select/);
-  assert.match(html, /doing/);
+  assert.ok(/status/.test(html), "the page lacks it");
+  assert.ok(/<select|createElement\(\s*["']select/.test(html), "the page lacks it");
+  assert.ok(/doing/.test(html), "the page lacks it");
 });

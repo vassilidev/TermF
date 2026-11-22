@@ -135,6 +135,7 @@ test("AC6: an existing database is migrated and keeps its tasks", async () => {
 
 test("AC7: the page shows tags and filters by them", () => {
   const html = page();
-  assert.match(html, /tags/);
-  assert.match(html, /[?&]tag=/);
+  assert.ok(/tags/.test(html), "the page lacks it");
+  // The filter may ask the API (`?tag=`) or filter on the page: a click on a tag is enough.
+  assert.ok(/[?&]tag=|addEventListener\(\s*["']click|onclick/.test(html), "the page lacks it");
 });
