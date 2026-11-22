@@ -15,18 +15,18 @@
   type Key = Parameters<typeof t>[0];
 
   const about: Partial<Record<ViewId, [Key, Key]>> = {
+    home: ["ux3t1Home", "ux3t4HelpHome"],
     terminals: ["viewTerminals", "t6bHelpTerminals"],
     conversations: ["chatView", "t6bHelpConversations"],
     tickets: ["viewTickets", "t6bHelpTickets"],
     files: ["viewFiles", "t6bHelpFiles"],
-    team: ["t5Team", "t6bHelpTeam"],
     library: ["viewLibrary", "t6bHelpLibrary"],
     ci: ["viewCi", "t6bHelpCi"],
     scheduler: ["schedulerView", "t6bHelpScheduler"],
     claude: ["claudeViewTitle", "t6bHelpClaude"],
     ssh: ["viewSsh", "t6bHelpSsh"],
     settings: ["settings", "t6bHelpSettings"],
-    project: ["t5ProjectSettings", "t6bHelpProject"],
+    project: ["ux3t3Config", "ux3t4HelpConfig"],
     onboarding: ["obConfigure", "t6bHelpOnboarding"],
   };
 
@@ -67,11 +67,11 @@
       <section class="here" aria-labelledby="help-here">
         <h3 id="help-here">{#if Icon}<Icon size={15} aria-hidden="true" />{/if}{t(here[0])}</h3>
         <p>{t(here[1])}</p>
-        {#if ui.view === "team"}<p>{t("teamRunsHelp")}</p>{/if}
       </section>
     {/if}
 
     <ul class="tips">
+      <li>{t("ux3t4TipElsewhere")}</li>
       <li>{t("t6bTipBeside", { key: mod })}</li>
       <li>{t("t6bTipSelect", { key: mod })}</li>
     </ul>

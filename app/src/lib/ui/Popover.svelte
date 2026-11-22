@@ -5,6 +5,7 @@
   let {
     open = $bindable(),
     trigger,
+    anchor,
     label,
     align = "start",
     width,
@@ -13,6 +14,8 @@
   }: {
     open: boolean;
     trigger: HTMLElement | undefined;
+    /** Where it opens, when not under the trigger; the focus still comes back to the trigger. */
+    anchor?: HTMLElement;
     label: string;
     /** Which edge of the trigger the popover lines up with. */
     align?: "start" | "end";
@@ -27,9 +30,9 @@
 
   $effect(() => {
     if (!open || !trigger) return;
-    const anchor = trigger;
+    const at = anchor ?? trigger;
     const place = () => {
-      const r = anchor.getBoundingClientRect();
+      const r = at.getBoundingClientRect();
       const side = align === "start" ? `left: ${r.left}px` : `right: ${innerWidth - r.right}px`;
       style = `${side}; top: ${r.bottom + 4}px; max-height: ${innerHeight - r.bottom - 12}px;${width ? ` width: ${width}px;` : ""}`;
     };

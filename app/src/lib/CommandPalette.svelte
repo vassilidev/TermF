@@ -28,7 +28,8 @@
     sessions: t("navSessions"),
     repos: project ? t("navProjectRepos", { project: project.name }) : t("repos"),
     others: t("repos"),
-    views: t("navViews"),
+    views: project ? t("ux3t4ProjectViews", { project: project.name }) : t("navViews"),
+    machine: t("settingsContext"),
     actions: t("navActions"),
   };
   const previous = document.activeElement as HTMLElement | null;

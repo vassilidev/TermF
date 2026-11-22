@@ -87,7 +87,6 @@ export type ViewId =
   | "ci"
   | "scheduler"
   | "claude"
-  | "team"
   | "project"
   | "run"
   | "settings"

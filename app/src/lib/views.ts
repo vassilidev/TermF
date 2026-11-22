@@ -10,10 +10,9 @@ import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import SettingsIcon from "@lucide/svelte/icons/settings";
 import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
 import Ticket from "@lucide/svelte/icons/ticket";
-import Users from "@lucide/svelte/icons/users";
 import Workflow from "@lucide/svelte/icons/workflow";
 import type { t } from "$lib/i18n";
-import { agents, showConversations, waitingAgents } from "$lib/agents.svelte";
+import { agents, showConversations } from "$lib/agents.svelte";
 import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
 import { files, showFiles } from "$lib/files.svelte";
@@ -23,8 +22,7 @@ import { showConfig } from "$lib/project.svelte";
 import { schedule, showScheduler } from "$lib/schedule.svelte";
 import { settings, showSettings } from "$lib/settings.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
-import { app, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
-import { showTeam, team } from "$lib/team.svelte";
+import { app, ui, type ViewId } from "$lib/state.svelte";
 import { showTickets, tickets } from "$lib/tickets.svelte";
 
 type Key = Parameters<typeof t>[0];
@@ -35,8 +33,11 @@ export type View = {
   /** The palette's command that shows it. */
   command: Key;
   icon: Component;
-  /** "foot": at the bottom of the navigation, out of the groups. */
-  group: "work" | "project" | "machine" | "foot";
+  /**
+   * "project": under the current project in the navigation; "linked": out of it, reached from the project's pages
+   * (Home, Configuration) and the palette; "machine": under "This machine", at the bottom.
+   */
+  group: "project" | "linked" | "machine";
   show: () => void;
   /** Mounted once first shown, then kept: terminals keep their scrollback, views their state. */
   loaded: () => boolean;
@@ -57,7 +58,7 @@ export const views: View[] = [
     label: "ux3t1Home",
     command: "ux3t1ShowHome",
     icon: House,
-    group: "work",
+    group: "project",
     show: showHome,
     loaded: () => true,
     load: () => import("$lib/HomeView.svelte"),
@@ -69,31 +70,17 @@ export const views: View[] = [
     label: "viewTerminals",
     command: "showTerminals",
     icon: LayoutGrid,
-    group: "work",
+    group: "project",
     show: showTerminals,
     loaded: () => true,
     load: () => import("$lib/SessionGrid.svelte"),
-    count: () => waitingSessions().length || undefined,
-    hot: true,
-  },
-  {
-    id: "conversations",
-    label: "chatView",
-    command: "chatShow",
-    icon: MessagesSquare,
-    group: "work",
-    show: showConversations,
-    loaded: () => agents.loaded,
-    load: () => import("$lib/ConversationsView.svelte"),
-    count: () => waitingAgents().length || undefined,
-    hot: true,
   },
   {
     id: "tickets",
     label: "viewTickets",
     command: "showTickets",
     icon: Ticket,
-    group: "work",
+    group: "project",
     show: showTickets,
     loaded: () => tickets.loaded,
     load: () => import("$lib/TicketsView.svelte"),
@@ -104,31 +91,10 @@ export const views: View[] = [
     label: "viewFiles",
     command: "showFiles",
     icon: FolderTree,
-    group: "work",
+    group: "project",
     show: showFiles,
     loaded: () => files.loaded,
     load: () => import("$lib/FilesView.svelte"),
-  },
-  {
-    id: "team",
-    label: "t5Team",
-    command: "t5ShowTeam",
-    icon: Users,
-    group: "project",
-    show: showTeam,
-    loaded: () => team.loaded,
-    load: () => import("$lib/TeamView.svelte"),
-    count: () => team.roles.filter((r) => r.active).length || undefined,
-  },
-  {
-    id: "library",
-    label: "viewLibrary",
-    command: "showLibrary",
-    icon: LibraryBig,
-    group: "project",
-    show: showLibrary,
-    loaded: () => library.loaded,
-    load: () => import("$lib/LibraryView.svelte"),
   },
   {
     id: "ci",
@@ -141,16 +107,6 @@ export const views: View[] = [
     load: () => import("$lib/CiView.svelte"),
   },
   {
-    id: "scheduler",
-    label: "schedulerView",
-    command: "schedulerShow",
-    icon: CalendarClock,
-    group: "project",
-    show: showScheduler,
-    loaded: () => schedule.loaded,
-    load: () => import("$lib/SchedulerView.svelte"),
-  },
-  {
     id: "project",
     label: "ux3t3Config",
     command: "ticketsEditProject",
@@ -160,6 +116,36 @@ export const views: View[] = [
     // Mounted apart by +page.svelte, once per project and only while shown: it holds a form.
     loaded: () => false,
     load: () => import("$lib/ProjectView.svelte"),
+  },
+  {
+    id: "conversations",
+    label: "chatView",
+    command: "chatShow",
+    icon: MessagesSquare,
+    group: "linked",
+    show: showConversations,
+    loaded: () => agents.loaded,
+    load: () => import("$lib/ConversationsView.svelte"),
+  },
+  {
+    id: "library",
+    label: "viewLibrary",
+    command: "showLibrary",
+    icon: LibraryBig,
+    group: "linked",
+    show: showLibrary,
+    loaded: () => library.loaded,
+    load: () => import("$lib/LibraryView.svelte"),
+  },
+  {
+    id: "settings",
+    label: "settings",
+    command: "settings",
+    icon: SettingsIcon,
+    group: "machine",
+    show: () => showSettings(),
+    loaded: () => settings.loaded,
+    load: () => import("$lib/SettingsView.svelte"),
   },
   {
     id: "claude",
@@ -182,20 +168,14 @@ export const views: View[] = [
     load: () => import("$lib/SshView.svelte"),
   },
   {
-    id: "settings",
-    label: "settings",
-    command: "settings",
-    icon: SettingsIcon,
-    group: "foot",
-    show: () => showSettings(),
-    loaded: () => settings.loaded,
-    load: () => import("$lib/SettingsView.svelte"),
+    id: "scheduler",
+    label: "schedulerView",
+    command: "schedulerShow",
+    icon: CalendarClock,
+    group: "machine",
+    show: showScheduler,
+    loaded: () => schedule.loaded,
+    load: () => import("$lib/SchedulerView.svelte"),
   },
 ];
-
-export const groups = [
-  ["work", "navWork"],
-  ["project", "navProject"],
-  ["machine", "navMachine"],
-] as const satisfies [View["group"], Key][];
 

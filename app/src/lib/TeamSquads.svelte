@@ -72,7 +72,7 @@
   // Again on coming back: the project's file or the library may have changed meanwhile.
   $effect(() => {
     void library.version;
-    if (!onScreen("team") && !onScreen("project")) return;
+    if (!onScreen("project")) return;
     if (!project) {
       view = null;
       return;
