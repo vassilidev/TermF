@@ -422,11 +422,20 @@ impl Scheduler {
     /// Runs a claimed headless run to its end with `agent`, the command of a Claude Code agent.
     pub fn run_headless(&self, run: &Execution, task: &Task, agent: &str) -> Result<Execution> {
         let store = self.store()?;
-        let outcome = run::headless(headless_command(agent, task), task, TIMEOUT, |pid| {
-            if let Err(e) = store.set_pid(run.id, pid) {
-                eprintln!("termf: scheduled run {}: {e:#}", run.id);
-            }
-        });
+        let outcome = match termf_core::claude::in_command(agent, termf_term::shell_quote) {
+            Ok((agent, claude)) => run::headless(
+                headless_command(&agent, task),
+                task,
+                TIMEOUT,
+                &format!("Claude Code {claude}"),
+                |pid| {
+                    if let Err(e) = store.set_pid(run.id, pid) {
+                        eprintln!("termf: scheduled run {}: {e:#}", run.id);
+                    }
+                },
+            ),
+            Err(e) => run::failed(format!("{e:#}")),
+        };
         self.finish(run.id, &outcome)
     }
 

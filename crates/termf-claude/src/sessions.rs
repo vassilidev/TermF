@@ -243,9 +243,7 @@ pub fn check_background(id: &str) -> Result<()> {
 
 /// Through its resolved path: on Windows `claude` is often a `claude.cmd` that `Command` would not find.
 pub(crate) fn claude(env: &Env, args: &[&str], timeout: Duration) -> Result<Output> {
-    let program = cli::which(env, &env.claude)
-        .map_or_else(|| env.claude.clone(), |p| p.to_string_lossy().into_owned());
-    cli::run(env, &program, args, timeout)
+    cli::run(env, &cli::program(env), args, timeout)
 }
 
 /// What a command printed, masked; its error output when it failed.

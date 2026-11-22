@@ -14,6 +14,7 @@
   import Popover from "$lib/ui/Popover.svelte";
   import { keys } from "$lib/commands";
   import { t } from "$lib/i18n";
+  import { newProject } from "$lib/newproject.svelte";
   import { editProject, tallies } from "$lib/project.svelte";
   import { app, setProject, ui } from "$lib/state.svelte";
 
@@ -117,7 +118,7 @@
     {/each}
   </ul>
   <footer>
-    <button class="btn sm" onclick={() => editProject("")}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
+    <button class="btn sm" onclick={newProject}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
     {#if current}
       <button class="btn sm quiet" onclick={() => editProject(current.id)}>
         <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}

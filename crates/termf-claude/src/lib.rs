@@ -40,6 +40,8 @@ pub struct Env {
     pub repo: Option<PathBuf>,
     /// `PATH` for the commands; `None`: the current one.
     pub path: Option<OsString>,
+    /// Where Claude Code's installer puts it is looked for under it.
+    pub home: Option<PathBuf>,
     /// The program that runs Claude Code.
     pub claude: String,
 }
@@ -50,7 +52,8 @@ impl Env {
             claude_dir: claude_dir(),
             managed_dir: managed_dir(),
             repo,
-            path: termf_core::shell::login_path().map(OsString::from),
+            path: Some(termf_core::claude::search_path()),
+            home: Some(termf_core::expand_tilde("~")),
             claude,
         }
     }

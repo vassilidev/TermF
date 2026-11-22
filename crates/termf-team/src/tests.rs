@@ -17,6 +17,7 @@ use super::*;
 /// `cost`, cents (1 by default).
 /// It logs each step's begin and end, and the messages.
 const FAKE: &str = r#"
+[ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
 prev=
 for a in "$@"; do
   if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi

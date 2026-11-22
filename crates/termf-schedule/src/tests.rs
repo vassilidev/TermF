@@ -397,7 +397,7 @@ fn runs_headless_with_a_fake_claude() {
         // Never the user's own shell profile.
         cmd.env("HOME", &home);
         let mut pid = None;
-        let done = run::headless(cmd, &task, std::time::Duration::from_secs(60), |p| {
+        let done = run::headless(cmd, &task, std::time::Duration::from_secs(60), WHO, |p| {
             pid = Some(p)
         });
         assert_eq!(done.status, Status::Succeeded, "{agent}: {:?}", done.error);
@@ -420,9 +420,12 @@ fn runs_headless_with_a_fake_claude() {
     fake_claude(&tilde, "echo 'Error: not logged in' >&2\nexit 1");
     let mut cmd = headless_command("~/bin/claude", &task);
     cmd.env("HOME", &home);
-    let failed = run::headless(cmd, &task, std::time::Duration::from_secs(60), |_| {});
+    let failed = run::headless(cmd, &task, std::time::Duration::from_secs(60), WHO, |_| {});
     assert_eq!(failed.status, Status::Failed);
-    assert!(failed.error.unwrap().ends_with("Error: not logged in"));
+    // An interactive bash adds its own lines on Linux.
+    let error = failed.error.unwrap();
+    assert!(error.starts_with(&format!("{WHO}: ")), "{error}");
+    assert!(error.ends_with("Error: not logged in"), "{error}");
 
     let started = env.root.join("started");
     fake_claude(
@@ -431,13 +434,30 @@ fn runs_headless_with_a_fake_claude() {
     );
     let mut cmd = headless_command("~/bin/claude", &task);
     cmd.env("HOME", &home);
-    let slow = run::headless(cmd, &task, std::time::Duration::from_secs(2), |_| {});
+    let slow = run::headless(cmd, &task, std::time::Duration::from_secs(2), WHO, |_| {});
     assert_eq!(slow.status, Status::Failed);
     let error = slow.error.unwrap();
     assert!(error.starts_with("stopped after"), "{error}");
     let pid = fs::read_to_string(&started).unwrap();
     assert!(gone(pid.trim()), "what it started is stopped with it");
+
+    let mut lost = task.clone();
+    lost.dir = env.root.join("gone").to_string_lossy().into_owned();
+    let missing = run::headless(
+        headless_command("~/bin/claude", &lost),
+        &lost,
+        std::time::Duration::from_secs(2),
+        WHO,
+        |_| {},
+    );
+    assert!(
+        missing.error.unwrap().starts_with("the folder "),
+        "not from Claude Code"
+    );
 }
+
+#[cfg(unix)]
+const WHO: &str = "Claude Code 2.1.330 at ~/bin/claude";
 
 /// Within 5 s: dead, or a zombie its new parent has not reaped yet.
 #[cfg(unix)]

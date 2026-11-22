@@ -1,6 +1,6 @@
 //! Where the encrypted files live. Every remote is seen through a local folder: a plain folder is used in place,
-//! a git repository through a clone under the config folder. An object store (S3, WebDAV, HTTPS) would mirror
-//! its objects into such a folder in `begin` and upload the differences in `commit`.
+//! a git repository through a clone under the config folder, an object store (S3, WebDAV) through a mirror of
+//! its objects (`objects.rs`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +16,52 @@ pub enum RemoteSpec {
     Git { url: String },
     /// A folder another tool syncs: iCloud Drive, Dropbox, Syncthing, a network share.
     Folder { path: String },
+    /// An S3 bucket (AWS, R2, MinIO, B2…), path-style: `<endpoint>/<bucket>/<prefix><object>`.
+    S3 {
+        endpoint: String,
+        bucket: String,
+        region: String,
+        #[serde(default)]
+        prefix: String,
+        /// Given when setting up only: kept in the system keychain, never written with the rest.
+        #[serde(default, skip_serializing)]
+        credentials: Option<Credentials>,
+    },
+    /// A WebDAV folder (Nextcloud, ownCloud, Apache, rclone…), over HTTPS or HTTP.
+    Webdav {
+        url: String,
+        #[serde(default, skip_serializing)]
+        credentials: Option<Credentials>,
+    },
+}
+
+impl RemoteSpec {
+    /// What the user knows the remote by; also its credentials' name in the keychain.
+    pub fn label(&self) -> String {
+        match self {
+            RemoteSpec::Git { url } | RemoteSpec::Webdav { url, .. } => url.clone(),
+            RemoteSpec::Folder { path } => path.clone(),
+            RemoteSpec::S3 {
+                endpoint,
+                bucket,
+                prefix,
+                ..
+            } => format!("{}/{bucket}/{prefix}", endpoint.trim_end_matches('/')),
+        }
+    }
+}
+
+/// S3: access key id and secret access key; WebDAV: user name and password.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct Credentials {
+    pub user: String,
+    pub secret: String,
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Credentials({}, …)", self.user)
+    }
 }
 
 pub trait Remote {
@@ -24,6 +70,10 @@ pub trait Remote {
     fn begin(&mut self) -> Result<()>;
     /// Publishes what was written in `root`. `Ok(false)`: another machine published first; begin again.
     fn commit(&mut self) -> Result<bool>;
+    /// Refuses a remote that could let a machine overwrite another's sync, before it is set up.
+    fn check(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct Folder(pub PathBuf);

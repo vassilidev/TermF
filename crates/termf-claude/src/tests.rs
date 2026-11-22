@@ -33,6 +33,7 @@ fn tree(name: &str) -> (PathBuf, Env) {
         managed_dir: root.join("managed"),
         repo: Some(root.join("repo")),
         path: Some(root.join("bin").into_os_string()),
+        home: Some(root.join("home")),
         claude: "claude".into(),
     };
     fs::create_dir_all(root.join("bin")).unwrap();
@@ -355,6 +356,27 @@ fn fake(bin: &Path, name: &str, body: &str) {
     let path = bin.join(name);
     fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A wrapper set in `[agents]` is asked its version, and found on PATH.
+#[cfg(unix)]
+#[test]
+fn a_wrapper_tells_its_version_and_path() {
+    let (root, mut env) = tree("wrapper");
+    let bin = root.join("bin");
+    fake(
+        &bin,
+        "cc-wrap",
+        r#"case "$*" in "--version") echo '2.1.330 (Claude Code)' ;; "auth status") echo '{"loggedIn": false}' ;; esac"#,
+    );
+    env.claude = "cc-wrap".into();
+    let account = crate::cli::account(&env);
+    assert_eq!(account.version.as_deref(), Some("2.1.330"));
+    assert_eq!(
+        account.path,
+        Some(bin.join("cc-wrap").to_string_lossy().into_owned())
+    );
+    assert_eq!(account.binary.install.unwrap().version, None);
 }
 
 /// The whole overview with fake `claude`, `gh` and `git` on PATH, and nothing secret in what leaves the crate.
