@@ -35,7 +35,8 @@
   import Popover from "$lib/ui/Popover.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { usd } from "$lib/agents.svelte";
+  import { apiUsd, budgetUsd, usd } from "$lib/agents.svelte";
+  import { budgetLabel, costHelp } from "$lib/usage.svelte";
   import { closeRun, showReview } from "$lib/commands";
   import { reviewOf } from "$lib/visual.svelte";
   import { ago, lang, t } from "$lib/i18n";
@@ -588,12 +589,12 @@
 
           {#if teamRun && spent}
             <section class="panel" aria-labelledby="run-budget">
-              <h3 id="run-budget">{t("chatBudget")}</h3>
-              <p class="figures">
-                <b>{usd(teamRun.cost)}</b> {t("teamRunsSpent")}
+              <h3 id="run-budget">{budgetLabel(t("chatBudget"))}</h3>
+              <p class="figures" title={costHelp()}>
+                <b>{apiUsd(teamRun.cost)}</b> {t("teamRunsSpent")}
                 <span class="muted">
                   · {teamRun.budget !== null && spent.left !== null
-                    ? t("chatBudgetLeft", { left: usd(spent.left), budget: usd(teamRun.budget) })
+                    ? t("chatBudgetLeft", { left: budgetUsd(spent.left), budget: budgetUsd(teamRun.budget) })
                     : t("teamRunsNoBudget")}
                 </span>
               </p>

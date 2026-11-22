@@ -23,7 +23,7 @@ pub const ENV_MCP_TOOLS: &str = "TERMF_MCP_TOOLS";
 
 /// The tools of `termf mcp` that only read, and those that act: each action waits for the user's approval
 /// (an `ask` rule in the session's settings).
-pub const MCP_READ: [&str; 7] = [
+pub const MCP_READ: [&str; 8] = [
     "project",
     "team_runs",
     "team_run",
@@ -31,6 +31,7 @@ pub const MCP_READ: [&str; 7] = [
     "inbox",
     "waiting",
     "ask_expert",
+    "usage",
 ];
 /// The project expert's own tools: searching and reading the project memory.
 pub const MCP_EXPERT: [&str; 2] = ["memory_search", "memory_read"];
@@ -163,6 +164,8 @@ pub enum McpCall {
     TicketRuns {},
     Inbox {},
     Waiting {},
+    /// How the account pays and how much of its usage limits is left.
+    Usage {},
     /// The team of a ticket run (`run`), of a ticket that gets a run (`ticket`, `repo`), or of a request
     /// without a ticket (`request`).
     StartTeamRun {

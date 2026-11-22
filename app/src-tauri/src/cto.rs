@@ -458,6 +458,7 @@ fn run_tool(
         }
         McpCall::Inbox {} => serde_json::to_value(tickets(app).inbox(Some(id), false)?)?,
         McpCall::Waiting {} => waiting(app, agents, id)?,
+        McpCall::Usage {} => crate::claude_native::usage_for_agents(app),
         McpCall::StartTeamRun {
             run,
             ticket,

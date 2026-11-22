@@ -1,34 +1,36 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import Info from "@lucide/svelte/icons/info";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import ContextGauge from "$lib/ContextGauge.svelte";
+  import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
-  import { agents, usd } from "$lib/agents.svelte";
+  import { agents, budgetUsd, usd } from "$lib/agents.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import { attempt, type LimitWindow, type Usage } from "$lib/claude-native.svelte";
+  import type { SeenWindow } from "$lib/claude-native.svelte";
+  import { live, pressure } from "$lib/usage-logic";
+  import { billingText, costHelp, isSubscribed, loadBilling, resetClock, usage as store, windowName } from "$lib/usage.svelte";
 
-  let usage = $state<Usage | null>(null);
-
-  onMount(() => {
-    attempt(() => invoke<Usage>("claude_usage")).then((u) => (usage = u ?? null));
-    const stop = listen<Usage>("claude-usage", ({ payload }) => (usage = payload));
-    return () => void stop.then((f) => f());
-  });
-
+  const usage = $derived(store.data);
+  let reading = $state(false);
   const limits = $derived(usage?.limits ?? null);
+  const warn = $derived(pressure(limits));
+  const costLabel = $derived(isSubscribed() ? t("usage2Cost") : t("claudeDgCost"));
+  /** Windows past their reset are left out: what they said no longer holds. */
   const windows = $derived(
     limits
       ? ([
-          ["claudeDgFiveHour", limits.limits.fiveHour],
-          ["claudeDgSevenDay", limits.limits.sevenDay],
-          ["claudeDgSpend", limits.limits.spendLimit],
-        ] as const).filter((w): w is [typeof w[0], LimitWindow] => w[1] !== null)
+          ["claudeDgFiveHour", limits.fiveHour],
+          ["claudeDgSevenDay", limits.sevenDay],
+          ["claudeDgSpend", limits.spendLimit],
+        ] as const).filter((w): w is [typeof w[0], SeenWindow] => live(w[1]))
       : [],
   );
-  const source = $derived(limits ? app.sessions.find((s) => s.id === limits.session)?.title : undefined);
+  /** Where a window was read: each keeps its own source. */
+  const source = (w: SeenWindow) =>
+    w.conversation !== null
+      ? t("usage2FromConversation", { session: agents.sessions.find((a) => a.id === w.conversation)?.title ?? `#${w.conversation}`, when: ago(w.at) })
+      : t("claudeDgLimitsSource", { session: app.sessions.find((s) => s.id === w.session)?.title ?? `#${w.session}`, when: ago(w.at) });
 
   /** Claude Code tiles TermF started: they report through the status line. */
   const tiles = $derived(app.sessions.filter((s) => s.context));
@@ -49,11 +51,38 @@
 <header class="page-head">
   <h2>{t("claudeDgUsage")}</h2>
   <p class="lead">{t("claudeDgUsageHelp")}</p>
+  <p class="billing">
+    <b>{billingText(store.billing)}</b>
+    {#if isSubscribed()}<span class="muted">{t("usage2Help")}</span>{/if}
+    <button
+      class="icon-btn"
+      aria-label={t("usage2Refresh")}
+      title={t("usage2Refresh")}
+      disabled={reading}
+      onclick={async () => ((reading = true), await loadBilling(true), (reading = false))}
+    >
+      <RefreshCw size={14} aria-hidden="true" />
+    </button>
+  </p>
 </header>
+
+{#if warn}
+  <Banner kind="warn">
+    {warn.window.usedPercentage >= 100
+      ? warn.window.resetsAt
+        ? t("usage2Reached", { window: windowName(warn.name), time: resetClock(warn.window.resetsAt) })
+        : t("usage2ReachedNoTime", { window: windowName(warn.name) })
+      : t("usage2NearlyUsed", {
+          window: windowName(warn.name),
+          percent: percent.format(warn.window.usedPercentage),
+          time: warn.window.resetsAt ? resetClock(warn.window.resetsAt) : "—",
+        })}
+  </Banner>
+{/if}
 
 <section class="block" aria-labelledby="claude-limits">
   <h3 id="claude-limits">{t("claudeDgLimits")}</h3>
-  {#if windows.length && limits}
+  {#if windows.length}
     <div class="meters">
       {#each windows as [label, w] (label)}
         <div class="meter {level(w.usedPercentage)}">
@@ -65,16 +94,13 @@
             <span style="width: {Math.min(100, w.usedPercentage)}%"></span>
           </div>
           <span class="muted small">
-            {#if w.usedUsd !== null && w.limitUsd !== null}{usd(w.usedUsd)} / {usd(w.limitUsd)} · {/if}
-            {w.resetsAt ? t("claudeDgResets", { when: ago(w.resetsAt) }) : ""}
+            {#if w.usedUsd !== null && w.limitUsd !== null}{budgetUsd(w.usedUsd)} / {budgetUsd(w.limitUsd)} · {/if}
+            {w.resetsAt ? t("usage2ResetsAt", { time: resetClock(w.resetsAt), when: ago(w.resetsAt) }) : ""}
           </span>
+          <span class="source muted small"><Info size={13} aria-hidden="true" />{source(w)}</span>
         </div>
       {/each}
     </div>
-    <p class="source muted small">
-      <Info size={13} aria-hidden="true" />
-      {t("claudeDgLimitsSource", { session: source ?? `#${limits.session}`, when: ago(limits.at) })}
-    </p>
   {:else}
     <p class="empty muted">{t("claudeDgNoLimits")}</p>
   {/if}
@@ -89,7 +115,7 @@
           <th>{t("claudeDgSession")}</th>
           <th>{t("claudeRedesignModel")}</th>
           <th>{t("claudeDgContext")}</th>
-          <th class="num">{t("claudeDgCost")}</th>
+          <th class="num" title={costHelp()}>{costLabel}</th>
         </tr>
       </thead>
       <tbody>
@@ -129,7 +155,7 @@
           <th>{t("claudeDgSession")}</th>
           <th>{t("claudeDgState")}</th>
           <th>{t("claudeDgWhen")}</th>
-          <th class="num">{t("claudeDgCost")}</th>
+          <th class="num" title={costHelp()}>{costLabel}</th>
         </tr>
       </thead>
       <tbody>
@@ -138,7 +164,7 @@
             <td class="title">{a.title}{#if a.role}<span class="badge role">{a.role}</span>{/if}</td>
             <td><StatusPill status={a.state} /></td>
             <td class="muted">{ago(a.updated)}</td>
-            <td class="num">{usd(a.cost)}{#if a.budget}<span class="muted">{` / ${usd(a.budget)}`}</span>{/if}</td>
+            <td class="num">{usd(a.cost)}{#if a.budget}<span class="muted">{` / ${budgetUsd(a.budget)}`}</span>{/if}</td>
           </tr>
         {/each}
       </tbody>
@@ -165,6 +191,21 @@
     max-width: 72ch;
     margin: 0;
     color: var(--muted);
+  }
+
+  .billing {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    max-width: 90ch;
+    margin: 10px 0 0;
+    font-size: var(--text-sm);
+  }
+
+  .billing .icon-btn {
+    width: 24px;
+    height: 24px;
   }
 
   .block {

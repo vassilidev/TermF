@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::native::{self, Deleted, Text};
 use termf_claude::sessions::{self, Background, Project};
 use termf_claude::settings::{Preview, Scope};
-use termf_claude::usage::{self, Limits};
+use termf_claude::usage::{self, Billing, Limits, Window};
 use termf_claude::{Env, Files, account};
 use termf_core::claude::start;
 use termf_core::ipc::SessionSummary;
@@ -27,6 +27,7 @@ use crate::{AppState, CmdResult, api, err};
 pub struct NativeState {
     trash: PathBuf,
     usage: Mutex<Usage>,
+    billing: Mutex<Option<Billing>>,
 }
 
 impl NativeState {
@@ -34,6 +35,7 @@ impl NativeState {
         Self {
             trash: data_dir.join("trash/claude"),
             usage: Mutex::default(),
+            billing: Mutex::default(),
         }
     }
 }
@@ -313,13 +315,71 @@ pub async fn claude_background_stop(state: State<'_, AppState>, id: String) -> C
 
 // Usage.
 
-#[derive(Serialize, Clone)]
+/// One window as Claude Code last told it, with when and where: the status line of a tile (`session`), or the
+/// `rate_limit_event` of a headless conversation (`conversation`). Each window keeps its own.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Seen {
+    #[serde(flatten)]
+    window: Window,
+    at: u64,
+    session: Option<u32>,
+    conversation: Option<i64>,
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SeenLimits {
-    limits: Limits,
-    /// When the status line said so, and from which tile.
-    at: u64,
-    session: u32,
+    five_hour: Option<Seen>,
+    seven_day: Option<Seen>,
+    spend_limit: Option<Seen>,
+}
+
+impl SeenLimits {
+    /// Takes the windows a reading has and keeps the others with their own source; true when one changed.
+    fn take(
+        &mut self,
+        limits: Limits,
+        at: u64,
+        session: Option<u32>,
+        conversation: Option<i64>,
+    ) -> bool {
+        let mut changed = false;
+        for (slot, window) in [
+            (&mut self.five_hour, limits.five_hour),
+            (&mut self.seven_day, limits.seven_day),
+            (&mut self.spend_limit, limits.spend_limit),
+        ] {
+            let Some(window) = window else { continue };
+            changed |= slot.as_ref().is_none_or(|s| s.window != window);
+            *slot = Some(Seen {
+                window,
+                at,
+                session,
+                conversation,
+            });
+        }
+        changed
+    }
+
+    /// Without the windows reset by `now`.
+    fn live(&self, now: u64) -> SeenLimits {
+        let keep = |s: &Option<Seen>| s.clone().filter(|s| s.window.live(now));
+        SeenLimits {
+            five_hour: keep(&self.five_hour),
+            seven_day: keep(&self.seven_day),
+            spend_limit: keep(&self.spend_limit),
+        }
+    }
+
+    fn limits(&self) -> Limits {
+        let window = |s: &Option<Seen>| s.as_ref().map(|s| s.window.clone());
+        Limits {
+            five_hour: window(&self.five_hour),
+            seven_day: window(&self.seven_day),
+            spend_limit: window(&self.spend_limit),
+        }
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -334,7 +394,7 @@ pub struct SessionUsage {
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
-    limits: Option<SeenLimits>,
+    limits: SeenLimits,
     /// By tile.
     sessions: BTreeMap<u32, SessionUsage>,
 }
@@ -346,19 +406,7 @@ pub fn status_line(app: &AppHandle, id: u32, payload: &Value) {
     let snapshot = {
         let mut usage = state.usage.lock().unwrap();
         let at = now();
-        let limits = !reading.limits.is_empty();
-        let mut changed = limits
-            && usage
-                .limits
-                .as_ref()
-                .is_none_or(|l| l.limits != reading.limits);
-        if limits {
-            usage.limits = Some(SeenLimits {
-                limits: reading.limits,
-                at,
-                session: id,
-            });
-        }
+        let mut changed = usage.limits.take(reading.limits, at, Some(id), None);
         changed |= usage
             .sessions
             .get(&id)
@@ -378,9 +426,113 @@ pub fn status_line(app: &AppHandle, id: u32, payload: &Value) {
     }
 }
 
+/// A headless session told how full a window is, or that it neared or hit it (`rate_limit_event`): that window is
+/// updated, the others kept with their own source.
+pub fn rate_limit(
+    app: &AppHandle,
+    conversation: i64,
+    status: &str,
+    window: Option<&str>,
+    resets_at: Option<u64>,
+    used: Option<f64>,
+) {
+    let Some(used) = used.or((status == "rejected").then_some(100.0)) else {
+        return;
+    };
+    let seen = Window {
+        used_percentage: used,
+        resets_at,
+        used_usd: None,
+        limit_usd: None,
+    };
+    let Some(state) = app.try_state::<NativeState>() else {
+        return;
+    };
+    let mut reading = Limits::default();
+    match window {
+        Some("five_hour") => reading.five_hour = Some(seen),
+        Some("seven_day") => reading.seven_day = Some(seen),
+        _ => return,
+    }
+    let snapshot = {
+        let mut usage = state.usage.lock().unwrap();
+        let changed = usage.limits.take(reading, now(), None, Some(conversation));
+        changed.then(|| usage.clone())
+    };
+    if let Some(usage) = snapshot {
+        let _ = app.emit("claude-usage", usage);
+    }
+}
+
 #[tauri::command]
 pub fn claude_usage(native_state: State<NativeState>) -> Usage {
     native_state.usage.lock().unwrap().clone()
+}
+
+/// How the account pays, read once and kept; `refresh` reads it again (after logging in or out).
+#[tauri::command]
+pub async fn claude_billing(
+    state: State<'_, AppState>,
+    native_state: State<'_, NativeState>,
+    refresh: Option<bool>,
+) -> CmdResult<Billing> {
+    if !refresh.unwrap_or(false)
+        && let Some(billing) = native_state.billing.lock().unwrap().clone()
+    {
+        return Ok(billing);
+    }
+    let env = env(&state.config_dir, None);
+    let billing = blocking(move || Ok(account::billing(&env))).await?;
+    *native_state.billing.lock().unwrap() = Some(billing.clone());
+    Ok(billing)
+}
+
+/// What the CTO reads before it starts a team (`usage` of `termf mcp`): how the account pays, the limits last
+/// seen, and the window nearly used up, if any.
+pub fn usage_for_agents(app: &AppHandle) -> Value {
+    let native = app.state::<NativeState>();
+    let billing = native.billing_or(|| {
+        let state = app.state::<AppState>();
+        account::billing(&env(&state.config_dir, None))
+    });
+    let seen = native.usage.lock().unwrap().limits.clone();
+    for_agents(&billing, &seen, now())
+}
+
+impl NativeState {
+    /// The billing mode kept, else `read` and kept. No lock is held while `read` runs.
+    fn billing_or(&self, read: impl FnOnce() -> Billing) -> Billing {
+        let kept = self.billing.lock().unwrap().clone();
+        if let Some(billing) = kept {
+            return billing;
+        }
+        let billing = read();
+        *self.billing.lock().unwrap() = Some(billing.clone());
+        billing
+    }
+}
+
+fn for_agents(billing: &Billing, seen: &SeenLimits, now: u64) -> Value {
+    let live = seen.live(now);
+    let limits = live.limits();
+    let nearly = limits
+        .pressure(usage::NEARLY_USED, now)
+        .map(|(window, w)| serde_json::json!({"window": window, "usedPercentage": w.used_percentage, "resetsAt": w.resets_at}));
+    let advice = match (&nearly, billing.mode) {
+        (Some(_), _) => {
+            "A usage window is nearly used up: do not start a team run; answer directly, or advise a direct conversation with one role on a lighter model (sonnet or haiku, low effort), and tell the user why."
+        }
+        (None, "subscription") => {
+            "The subscription's limits are fine. Dollar amounts are API-equivalent list prices: the subscription is not billed per use, it draws on these limits."
+        }
+        _ => "Dollar amounts are what the account is billed.",
+    };
+    serde_json::json!({
+        "billing": billing,
+        "limits": live,
+        "nearlyUsedUp": nearly,
+        "advice": advice,
+    })
 }
 
 // Account and installation.
@@ -418,4 +570,103 @@ pub async fn claude_update(state: State<'_, AppState>) -> CmdResult<String> {
 pub async fn claude_doctor(state: State<'_, AppState>, repo: Option<String>) -> CmdResult<String> {
     let env = env(&state.config_dir, repo);
     blocking(move || account::doctor(&env)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(used: f64, resets_at: u64) -> Option<Window> {
+        Some(Window {
+            used_percentage: used,
+            resets_at: Some(resets_at),
+            used_usd: None,
+            limit_usd: None,
+        })
+    }
+
+    fn both(five: f64, seven: f64) -> Limits {
+        Limits {
+            five_hour: window(five, 1_000),
+            seven_day: window(seven, 9_000),
+            spend_limit: None,
+        }
+    }
+
+    #[test]
+    fn the_billing_mode_is_read_once_without_holding_its_lock() {
+        let state = NativeState::new(&std::env::temp_dir());
+        let api = Billing {
+            mode: "api",
+            plan: None,
+        };
+        // `read` runs with the lock free: it may take it itself, as `claude_billing` does.
+        let read = state.billing_or(|| {
+            assert!(state.billing.try_lock().is_ok(), "the lock is held");
+            api.clone()
+        });
+        assert_eq!(read, api);
+        assert_eq!(state.billing_or(|| unreachable!("kept")), api);
+    }
+
+    #[test]
+    fn each_window_keeps_its_own_source_and_time() {
+        let mut seen = SeenLimits::default();
+        assert!(seen.take(both(40.0, 20.0), 10, Some(3), None));
+        assert!(
+            !seen.take(both(40.0, 20.0), 11, Some(3), None),
+            "same values"
+        );
+        let only_five = Limits {
+            five_hour: window(85.0, 1_000),
+            ..Limits::default()
+        };
+        assert!(seen.take(only_five, 20, None, Some(7)));
+        let five = seen.five_hour.as_ref().unwrap();
+        assert_eq!(
+            (
+                five.window.used_percentage,
+                five.at,
+                five.session,
+                five.conversation
+            ),
+            (85.0, 20, None, Some(7))
+        );
+        let seven = seen.seven_day.as_ref().unwrap();
+        assert_eq!(
+            (
+                seven.window.used_percentage,
+                seven.at,
+                seven.session,
+                seven.conversation
+            ),
+            (20.0, 11, Some(3), None)
+        );
+    }
+
+    #[test]
+    fn the_cto_stops_holding_back_once_a_window_resets_or_empties() {
+        let subscription = Billing {
+            mode: "subscription",
+            plan: Some("max".into()),
+        };
+        let mut seen = SeenLimits::default();
+        seen.take(both(100.0, 20.0), 10, None, Some(7));
+        let before = for_agents(&subscription, &seen, 500);
+        assert_eq!(before["nearlyUsedUp"]["window"], "five_hour");
+        assert!(before["advice"].as_str().unwrap().contains("do not start"));
+
+        let after_reset = for_agents(&subscription, &seen, 1_000);
+        assert!(after_reset["nearlyUsedUp"].is_null(), "{after_reset}");
+        assert!(after_reset["limits"]["fiveHour"].is_null());
+        assert_eq!(after_reset["limits"]["sevenDay"]["usedPercentage"], 20.0);
+
+        // An `allowed` reading of the same window empties it before its reset.
+        let emptied = Limits {
+            five_hour: window(5.0, 1_000),
+            ..Limits::default()
+        };
+        seen.take(emptied, 600, None, Some(8));
+        assert!(for_agents(&subscription, &seen, 600)["nearlyUsedUp"].is_null());
+    }
 }

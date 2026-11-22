@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { approxUsd } from "$lib/usage.svelte";
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Bot from "@lucide/svelte/icons/bot";
@@ -269,7 +270,7 @@
         <div>
           <p>
             {t("wtDraft")}
-            {#if view.draft.cost != null}<span class="muted">· {t("convCost", { cost: money.format(view.draft.cost) })}</span>{/if}
+            {#if view.draft.cost != null}<span class="muted">· {t("convCost", { cost: approxUsd(money.format(view.draft.cost)) })}</span>{/if}
           </p>
           {#if view.draft.dropped.length}
             <details>

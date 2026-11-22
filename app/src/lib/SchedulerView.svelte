@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { approxUsd, budgetLabel } from "$lib/usage.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import CalendarClock from "@lucide/svelte/icons/calendar-clock";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
@@ -376,7 +377,7 @@
                 {current.permissions ? (permissions[current.permissions] ? t(permissions[current.permissions]) : current.permissions) : t("schedulerDefault")}
               </dd>
               {#if current.mode === "headless"}
-                <dt>{t("schedulerMetaBudget")}</dt>
+                <dt>{budgetLabel(t("schedulerMetaBudget"))}</dt>
                 <dd>{current.budget !== null ? cost(current.budget) : "—"}</dd>
               {/if}
               <dt>{t("schedulerMetaCatchup")}</dt>
@@ -396,7 +397,7 @@
                       <time datetime={new Date(run.started * 1000).toISOString()}>{when(run.started)}</time>
                       <span class="muted">{t(triggers[run.trigger])}</span>
                       <span class="facts muted">
-                        {dots(duration(run), run.cost !== null && cost(run.cost))}
+                        {dots(duration(run), run.cost !== null && approxUsd(cost(run.cost)))}
                       </span>
                     </summary>
                     {#if run.error}

@@ -6,6 +6,7 @@ import { lang, t } from "$lib/i18n";
 import { projectsOf } from "$lib/nav-logic";
 import { app, setProject, ui, type Gauge } from "$lib/state.svelte";
 import { tickets } from "$lib/tickets.svelte";
+import { approxUsd, equivalent } from "$lib/usage.svelte";
 
 /** A headless session, as `agent_sessions` and `agent-updated` give it. */
 export type AgentSession = {
@@ -44,7 +45,11 @@ export const agents = $state({
 });
 
 const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 3 });
-export const usd = (amount: number) => money.format(amount);
+export const usd = (amount: number) => approxUsd(money.format(amount));
+/** "≈ 0,12 $ en équivalent API" for a subscriber. */
+export const apiUsd = (amount: number) => equivalent(money.format(amount));
+/** Exact: a budget, what is left of it, a gateway's spend limit. */
+export const budgetUsd = (amount: number) => money.format(amount);
 
 /** Codex CLI and Gemini CLI say how many tokens a turn used, not what it cost: their name stands in for a cost. */
 export const runtimes: Record<string, Parameters<typeof t>[0]> = { codex: "adaptersCodex", gemini: "adaptersGemini" };

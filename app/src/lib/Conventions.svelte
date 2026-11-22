@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { approxUsd } from "$lib/usage.svelte";
   import { onMount, type Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Check from "@lucide/svelte/icons/check";
@@ -402,7 +403,7 @@
             <h3>{t("convReview")}</h3>
             <span class="muted">
               {t("convReviewCounts", { total: draft.items.length, accepted, pending })}
-              {#if draft.cost !== undefined}· {t("convCost", { cost: money.format(draft.cost) })}{/if}
+              {#if draft.cost !== undefined}· {t("convCost", { cost: approxUsd(money.format(draft.cost)) })}{/if}
             </span>
           </div>
           <p class="muted lead">{t("convReviewHelp")}</p>

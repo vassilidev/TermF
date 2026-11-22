@@ -64,3 +64,67 @@ pub fn read(status_line: &Value) -> Reading {
         },
     }
 }
+
+/// From it, a window is nearly used up: TermF warns, and the CTO stays light.
+pub const NEARLY_USED: f64 = 80.0;
+
+impl Window {
+    /// Once it has reset, what it said no longer holds.
+    pub fn live(&self, now: u64) -> bool {
+        self.resets_at.is_none_or(|at| at > now)
+    }
+}
+
+impl Limits {
+    /// The fuller of the 5-hour and 7-day windows not reset yet at `now`, named, when it is at `threshold` percent
+    /// or more.
+    pub fn pressure(&self, threshold: f64, now: u64) -> Option<(&'static str, &Window)> {
+        [
+            ("five_hour", &self.five_hour),
+            ("seven_day", &self.seven_day),
+        ]
+        .into_iter()
+        .filter_map(|(name, w)| Some((name, w.as_ref()?)))
+        .filter(|(_, w)| w.live(now) && w.used_percentage >= threshold)
+        .max_by(|a, b| a.1.used_percentage.total_cmp(&b.1.used_percentage))
+    }
+}
+
+/// How the account pays for what Claude Code spends. Its dollars are always list prices: real money only with
+/// an API key; a subscription draws on its usage limits instead.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Billing {
+    /// `subscription` (claude.ai), `api` (an API key, a key helper or a gateway), `cloud` (Bedrock, Vertex,
+    /// Foundry: billed by that cloud), `none` (logged out) or `unknown`.
+    pub mode: &'static str,
+    /// The subscription's plan as `claude auth status` names it: `pro`, `max`, `team`, `enterprise`…
+    pub plan: Option<String>,
+}
+
+/// From `claude auth status` (code.claude.com/docs/en/cli-reference: `authMethod` is `none`, `claude.ai`,
+/// `oauth_token`, `api_key`, `api_key_helper` or `third_party`; `apiProvider` and `subscriptionType` are not
+/// documented but printed by 2.1.330).
+pub fn billing(auth: Option<&Value>) -> Billing {
+    let Some(auth) = auth else {
+        return Billing {
+            mode: "unknown",
+            plan: None,
+        };
+    };
+    let provider = auth["apiProvider"].as_str().unwrap_or("firstParty");
+    let mode = match auth["authMethod"].as_str() {
+        _ if provider != "firstParty" => "cloud",
+        Some("third_party") => "cloud",
+        Some("claude.ai" | "oauth_token") => "subscription",
+        Some("api_key" | "api_key_helper") => "api",
+        _ if auth["loggedIn"] == false => "none",
+        Some("none") => "none",
+        _ => "unknown",
+    };
+    let plan = auth["subscriptionType"]
+        .as_str()
+        .filter(|p| mode == "subscription" && !p.is_empty())
+        .map(str::to_owned);
+    Billing { mode, plan }
+}
