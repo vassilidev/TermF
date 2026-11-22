@@ -88,6 +88,18 @@
     <a href="https://github.com/vassilidev/TermF">GitHub</a>
   </nav>
   <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+  <details class="menu">
+    <summary aria-label="Menu"><svg class="i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg><svg class="i-close" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></summary>
+    <nav class="menu-links" aria-label="Menu">
+      <a href="features.html">Features</a>
+      <a href="team.html" aria-current="page">Team</a>
+      <a href="how-it-works.html">How it works</a>
+      <a href="security.html">Security</a>
+      <a href="./#faq">FAQ</a>
+      <a href="https://github.com/vassilidev/TermF">GitHub</a>
+      <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+    </nav>
+  </details>
 </header>
 
 <main id="main">
@@ -106,40 +118,41 @@
 <section class="wrap flow-sec" aria-labelledby="flow-h">
   <div class="sec-head">
     <h2 id="flow-h">How they work together on a ticket</h2>
-    <p>The default workflow, step by step. The amber steps wait for you; nothing moves on until you click.</p>
+    <p>The same six steps as the demo on the home page, with the agents behind each one. The amber steps wait for you; nothing moves on until you click.</p>
   </div>
   <ol class="flow">
     <li style="--i:0">
-      <h3><span class="n">1</span>You ask</h3>
+      <h3><span class="n">1</span>You ask the CTO</h3>
       <p class="marks"><span class="mark you">You</span><span class="mark c-cto">CTO</span></p>
-      <p>You describe the work or pick a ticket. The CTO picks the steps, the agents and the budget.</p>
+      <p>You describe the work in your own words, or pick a ticket. The CTO asks before it starts the team.</p>
       <p class="gate-tag">You approve</p>
     </li>
     <li style="--i:1">
-      <h3><span class="n">2</span>Frame</h3>
-      <p class="marks"><span class="mark c-product">PO</span><span class="mark c-product opt">PM</span><span class="mark c-product opt">UX</span><span class="mark c-product opt">AR</span></p>
-      <p>The product owner writes the acceptance criteria and asks you what is still open.</p>
+      <h3><span class="n">2</span>The CTO picks the team</h3>
+      <p class="marks"><span class="mark c-cto">CTO</span></p>
+      <p>It picks the steps, the agents and the budget for this ticket.</p>
+      <p class="gate-tag">You approve</p>
     </li>
     <li style="--i:2">
-      <h3><span class="n">3</span>Plan</h3>
-      <p class="marks"><span class="mark c-build">LE</span></p>
-      <p>The tech lead splits the work into tasks, one agent each.</p>
+      <h3><span class="n">3</span>You approve the plan</h3>
+      <p class="marks"><span class="mark c-product">PO</span><span class="mark c-product opt">PM</span><span class="mark c-product opt">UX</span><span class="mark c-product opt">AR</span><span class="mark c-build">LE</span></p>
+      <p>The product owner writes the acceptance criteria and asks what is still open; the tech lead splits the work into tasks.</p>
       <p class="gate-tag">You approve</p>
     </li>
     <li style="--i:3">
-      <h3><span class="n">4</span>Build</h3>
+      <h3><span class="n">4</span>Agents work in parallel</h3>
       <p class="marks"><span class="mark c-build">FR</span><span class="mark c-build">BA</span><span class="mark c-build">DE</span><span class="mark c-build">SEO</span><span class="mark c-creative opt">BR</span><span class="mark c-creative opt">CO</span><span class="mark c-creative opt">MO</span><span class="mark c-quality">QA</span></p>
-      <p>Up to four agents at once, each in its own copy of the repository. QA comes last and proves each criterion.</p>
+      <p>Up to four at once, each in its own copy of the repository. On medium and large tickets, QA comes last and proves each criterion.</p>
     </li>
     <li style="--i:4">
-      <h3><span class="n">5</span>Check</h3>
+      <h3><span class="n">5</span>Checks and reviews</h3>
       <p class="marks"><span class="mark c-quality">RE</span><span class="mark c-quality">SEC</span></p>
       <p>The repository's tests and rules run, then the code review and the security review.</p>
     </li>
     <li style="--i:5">
-      <h3><span class="n">6</span>Deliver</h3>
+      <h3><span class="n">6</span>You approve the delivery</h3>
       <p class="marks"><span class="mark you">You</span></p>
-      <p>You see the files and commits, then the pull request opens.</p>
+      <p>You see the files and commits that will be sent, then the pull request opens.</p>
       <p class="gate-tag">You approve</p>
     </li>
   </ol>
@@ -252,6 +265,10 @@ max_parallel = 2</code></pre>
 <script>
 const nav = document.getElementById('nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {passive: true});
+const menu = nav.querySelector('.menu');
+menu.addEventListener('click', e => { if (e.target.closest('a')) menu.open = false; });
+addEventListener('click', e => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.open = false; menu.querySelector('summary').focus(); } });
 
 const toc = [...document.querySelectorAll('.toc a')];
 if (toc.length) {

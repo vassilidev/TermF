@@ -65,6 +65,20 @@ p{margin:0 0 1em}
 .brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none}
 .brand img{width:28px;height:28px}
 .brand span{font:850 1.45rem/1 var(--display);text-transform:uppercase;letter-spacing:.01em}
+/* The phone menu: a <details>, so it opens without JavaScript; the script only adds Escape and outside clicks */
+.menu{display:none}
+.menu summary{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;list-style:none;color:var(--ink);cursor:pointer}
+.menu summary::-webkit-details-marker{display:none}
+.menu summary:hover,.menu[open] summary{background:var(--hover)}
+.menu summary svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.menu .i-close,.menu[open] .i-open{display:none}
+.menu[open] .i-close{display:block}
+.menu-links{position:absolute;left:0;right:0;top:calc(100% + 8px);display:grid;gap:2px;padding:8px;border:1px solid var(--line);border-radius:24px;background:var(--nav);box-shadow:var(--shadow);max-height:calc(100dvh - 100px);overflow-y:auto}
+.menu-links a:not(.pill){display:flex;align-items:center;gap:10px;min-height:48px;padding:0 16px;border-radius:16px;color:var(--ink);font-size:1.02rem;font-weight:550;text-decoration:none}
+.menu-links a:not(.pill):hover{background:var(--hover)}
+.menu-links a[aria-current=page]{background:var(--hover);font-weight:700}
+.menu-links a[aria-current=page]::after{content:"";width:8px;height:8px;margin-left:auto;border-radius:50%;background:var(--waiting)}
+.menu-links .pill{justify-content:space-between;margin-top:8px;padding-left:20px}
 .nav .links{display:flex;gap:2px;margin:0 auto}
 .nav .links a{padding:8px 13px;border-radius:999px;color:var(--soft);font-size:.9rem;font-weight:550;text-decoration:none;transition:color .15s,background .15s}
 .nav .links a:hover,.nav .links a[aria-current=page]{color:var(--ink);background:var(--hover)}
@@ -638,7 +652,9 @@ footer{margin-top:144px;border-top:1px solid var(--line);overflow:hidden}
 @media (max-width:720px){
   .wrap{padding:0 18px}
   .nav .links{display:none}
-  .nav{justify-content:space-between}
+  .nav{gap:6px}
+  .nav>.pill{margin-left:auto}
+  .menu{display:block}
   section{padding-top:96px}
   .hero{padding-top:108px}
   .hero h1{margin-top:8px}
@@ -661,7 +677,9 @@ footer{margin-top:144px;border-top:1px solid var(--line);overflow:hidden}
   .flow,.fams,.agents,.org-cols,.cards.three,.dt{grid-template-columns:minmax(0,1fr)}
   .flow li::after{display:none}
   .dt>div+div{border-left:0;border-top:1px solid var(--line)}
-  .agent.big{grid-column:auto;padding:22px}
+  .agent.big{grid-column:auto;grid-template-columns:minmax(0,1fr);padding:22px}
+  .agent.big dl{grid-column:auto;grid-row:auto}
+  .dl-card .pill{white-space:normal;max-width:100%}
   .org-head{grid-template-columns:minmax(0,1fr)}
   .org-head li:first-child{grid-column:auto}
   .org-head li:nth-child(2){justify-self:stretch}
@@ -683,6 +701,10 @@ footer{margin-top:144px;border-top:1px solid var(--line);overflow:hidden}
   /* Touch targets of at least 44 px */
   .brand,.foot ul a,.foot-bottom a,.crumbs a,.toc a{display:inline-flex;align-items:center;min-height:44px}
   .foot ul{gap:0}
+}
+@media (max-width:359px){
+  .nav>.pill{display:none}
+  .menu{margin-left:auto}
 }
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}

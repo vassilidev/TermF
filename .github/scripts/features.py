@@ -185,7 +185,11 @@ def page(path, title, desc, body, ld, og_type="website", current="", script=""):
 
 <script>
 const nav = document.getElementById('nav');
-addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {{passive: true}});{script}
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {{passive: true}});
+const menu = nav.querySelector('.menu');
+menu.addEventListener('click', e => {{ if (e.target.closest('a')) menu.open = false; }});
+addEventListener('click', e => {{ if (menu.open && !menu.contains(e.target)) menu.open = false; }});
+addEventListener('keydown', e => {{ if (e.key === 'Escape' && menu.open) {{ menu.open = false; menu.querySelector('summary').focus(); }} }});{script}
 </script>
 </body>
 </html>

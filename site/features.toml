@@ -175,7 +175,7 @@ read = "how-it-works.html#questions"
 [[features]]
 slug = "roles"
 group = "team"
-name = "{roles} roles"
+name = "{roles} agents, one role each"
 tagline = "From the product owner to the security reviewer, each a file you can change."
 keywords = "agents roles cto lead po pm architect ux front back devops qa seo secops reviewer expert brand copy motion model effort"
 problem = '''<p>One general agent doing everything drifts. TermF ships {roles} roles, each with a mission, a model, an effort and permissions: {role_names}. Most planners and reviewers run on opus, most builders on sonnet.</p>'''
