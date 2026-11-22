@@ -517,9 +517,18 @@ impl Runner {
         let (stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
         let child = Arc::new(Mutex::new(child));
         let errors = std::thread::spawn(move || {
-            let mut said = Vec::new();
+            // Read to its end, keeping only the last of it: a full pipe would stop the client.
+            let (mut said, mut buf) = (Vec::new(), [0u8; 8192]);
             if let Some(err) = stderr.as_mut() {
-                let _ = std::io::Read::read_to_end(&mut err.take(MIN_READ), &mut said);
+                while let Ok(n) = err.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    said.extend_from_slice(&buf[..n]);
+                    if said.len() > 64 << 10 {
+                        said.drain(..said.len() - (16 << 10));
+                    }
+                }
             }
             let said = String::from_utf8_lossy(&said).into_owned();
             termf_core::process::tail(&said)
