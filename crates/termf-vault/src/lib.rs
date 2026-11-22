@@ -650,11 +650,19 @@ impl Vault {
 
     /// The data key, unless locked: counts as activity.
     fn key(&self) -> Result<(String, Key)> {
+        self.key_for(true)
+    }
+
+    /// `active: false`: a use that must not keep the vault open, like a TOTP code shown on screen, refreshed
+    /// while nobody is there.
+    fn key_for(&self, active: bool) -> Result<(String, Key)> {
         self.check();
         let now = self.now();
         let mut session = self.session.lock().unwrap();
         let session = session.as_mut().ok_or(Locked)?;
-        session.last = now;
+        if active {
+            session.last = now;
+        }
         Ok((session.id.clone(), session.key.key()))
     }
 
@@ -795,7 +803,11 @@ impl Vault {
     }
 
     fn open(&self) -> Result<Content> {
-        let (id, key) = self.key()?;
+        self.open_for(true)
+    }
+
+    fn open_for(&self, active: bool) -> Result<Content> {
+        let (id, key) = self.key_for(active)?;
         let file = self.read()?;
         ensure!(file.id == id, Locked);
         file.open(&key)
@@ -1070,7 +1082,7 @@ impl Vault {
             return Err(self.refuse(refused, "only the user reveals a secret"));
         }
         let item = self
-            .open()?
+            .open_for(field != Field::Totp)?
             .items
             .into_iter()
             .find(|i| i.id == id)

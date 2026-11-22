@@ -1071,6 +1071,25 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
 }
 
 #[test]
+fn a_totp_code_on_screen_does_not_keep_the_vault_open() {
+    let env = Env::new("totp-idle");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let github = vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    for _ in 0..19 {
+        env.clock.awake(30);
+        vault
+            .item_value(&human(), &github.id, Field::Totp, Access::Reveal)
+            .unwrap();
+    }
+    env.clock.awake(30);
+    let err = vault
+        .item_value(&human(), &github.id, Field::Totp, Access::Reveal)
+        .unwrap_err();
+    assert!(err.downcast_ref::<Locked>().is_some());
+}
+
+#[test]
 fn hashes_an_entry_without_an_item_as_before() {
     let env = Env::new("audit-compat");
     let vault = env.vault();
