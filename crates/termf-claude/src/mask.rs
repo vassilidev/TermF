@@ -96,6 +96,24 @@ pub fn secret_key(key: &str) -> bool {
         })
 }
 
+/// `${API_KEY}`, `${API_KEY:-}`, `$API_KEY`: where the secret comes from, not the secret. A default value
+/// (`${API_KEY:-…}`) may be one, and so may a word that only starts with `$` (`$Up3rS3cret`).
+fn reference(value: &str) -> bool {
+    let name = match value.strip_prefix("${") {
+        // In free text the closing brace is already cut off as punctuation.
+        Some(rest) => {
+            let inner = rest.strip_suffix('}').unwrap_or(rest);
+            inner.strip_suffix(":-").unwrap_or(inner)
+        }
+        None => match value.strip_prefix('$') {
+            Some(name) if !name.contains(|c: char| c.is_ascii_lowercase()) => name,
+            _ => return false,
+        },
+    };
+    name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 pub fn secret_value(value: &str) -> bool {
     let v = value.trim();
     let lower = v.to_ascii_lowercase();
@@ -131,7 +149,7 @@ pub fn mask_text(text: &str) -> String {
         let start = word.find(core).unwrap_or(0);
         let (before, after) = (&word[..start], &word[start + core.len()..]);
         let scheme = ["bearer", "basic", "token"].contains(&core.to_ascii_lowercase().as_str());
-        let masked = if mask_next && !core.is_empty() && !scheme {
+        let masked = if mask_next && !core.is_empty() && !scheme && !reference(core) {
             MASK.to_owned()
         } else {
             mask_word(core)
@@ -156,6 +174,9 @@ fn secret_flag(word: &str) -> bool {
 }
 
 fn mask_word(word: &str) -> String {
+    if reference(word) {
+        return word.to_owned();
+    }
     if word.contains("://") {
         return mask_url(word);
     }
@@ -164,7 +185,7 @@ fn mask_word(word: &str) -> String {
         && i > 0
     {
         let (key, value) = (&word[..i], &word[i + 1..]);
-        if !value.is_empty() && (secret_key(key) || secret_value(value)) {
+        if !value.is_empty() && !reference(value) && (secret_key(key) || secret_value(value)) {
             return format!("{key}{}{MASK}", &word[i..=i]);
         }
         return word.to_owned();
@@ -217,7 +238,15 @@ pub fn mask(value: &mut Value) {
     match value {
         Value::Object(map) => {
             for (key, v) in map.iter_mut() {
-                if secret_key(key) && matches!(v, Value::String(_) | Value::Number(_)) {
+                // `Bearer ${API_KEY}`: names where the secret comes from.
+                let named = v.as_str().is_some_and(|s| {
+                    s.split_whitespace().any(reference)
+                        && s.split_whitespace().all(|w| {
+                            reference(w)
+                                || ["bearer", "basic", "token"].contains(&w.to_lowercase().as_str())
+                        })
+                });
+                if secret_key(key) && matches!(v, Value::String(_) | Value::Number(_)) && !named {
                     *v = MASK.into();
                 } else {
                     mask(v);
@@ -313,6 +342,10 @@ mod tests {
             mask_text("ssh://git@github.com/acme/api https://x-access-token:abc@github.com"),
             format!("ssh://git@github.com/acme/api https://x-access-token:{MASK}@github.com")
         );
+        assert_eq!(
+            mask_text("Authorization: Bearer ${API_KEY} API_TOKEN=${TOKEN:-}"),
+            "Authorization: Bearer ${API_KEY} API_TOKEN=${TOKEN:-}"
+        );
         let plain = "/Users/me/.claude/statusline.sh --short";
         assert_eq!(mask_text(plain), plain);
         assert_eq!(mask_text("claude-opus-4-8"), "claude-opus-4-8");
@@ -326,6 +359,7 @@ mod tests {
             "apiKeyHelper": "~/bin/key.sh",
             "args": ["--token", "ghp_0123456789abcdefghij0123456789abcd"],
             "argv": ["--api-key", "short", "--port", "8080"],
+            "GITHUB_TOKEN": "${GITHUB_TOKEN}",
         });
         mask(&mut v);
         assert_eq!(v["env"]["OPENAI_API_KEY"], MASK);
@@ -335,5 +369,41 @@ mod tests {
         assert_eq!(v["apiKeyHelper"], "~/bin/key.sh");
         assert_eq!(v["args"][1], MASK);
         assert_eq!(v["argv"], json!(["--api-key", MASK, "--port", "8080"]));
+        assert_eq!(
+            v["GITHUB_TOKEN"], "${GITHUB_TOKEN}",
+            "a reference, not a secret"
+        );
+    }
+
+    #[test]
+    fn a_reference_hides_nothing_but_its_default_may() {
+        let masked = |key: &str, value: &str| {
+            let mut v = json!({ key: value });
+            mask(&mut v);
+            v[key] != value
+        };
+        for value in [
+            "${API_KEY}",
+            "${API_KEY:-}",
+            "$API_KEY",
+            "Bearer ${API_KEY}",
+        ] {
+            assert!(!masked("API_KEY", value), "{value}");
+            assert!(!masked("Authorization", value), "{value}");
+        }
+        for value in [
+            "${API_KEY:-sk-ant-api03-abcdefghijklmnop}",
+            "${API_KEY:-hunter2}",
+            "$Up3rS3cret",
+            "$hunter2",
+            "Bearer ${API_KEY:-abc}",
+        ] {
+            assert!(masked("API_KEY", value), "{value}");
+        }
+        assert_eq!(
+            mask_text("API_KEY=${API_KEY:-hunter2} TOKEN=$Up3rS3cret OK=${KEY:-}"),
+            format!("API_KEY={MASK}}} TOKEN={MASK} OK=${{KEY:-}}")
+        );
+        assert!(!masked("BASE_URL", "${BASE_URL:-https://api.acme.dev}"));
     }
 }
