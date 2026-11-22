@@ -16,6 +16,11 @@ use serde_json::{Value, json};
 use termf_library::conventions;
 use termf_library::{Layer, Scope};
 
+mod team;
+pub use team::{
+    Choices, Edit, Part, Preview, Team, preview as team_preview, save as team_save, team,
+};
+
 /// The convention the answers become.
 pub const SLUG: &str = "onboarding";
 /// What one analysis may spend, in USD.
@@ -26,7 +31,9 @@ const MAX_OPTIONS: usize = 8;
 const MAX_ANSWER: usize = 500;
 /// The proposals outside the library that the assistant records a decision for.
 /// `skills`: a skill the stack switches on, removed or put back; `mcp`: a framework's MCP server added.
-const PROPOSALS: [&str; 6] = ["tickets", "worktree", "ci", "trust", "skills", "mcp"];
+const PROPOSALS: [&str; 7] = [
+    "tickets", "worktree", "ci", "trust", "team", "skills", "mcp",
+];
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -41,7 +48,7 @@ pub enum Step {
 
 /// What TermF finds in a repository by itself.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Facts {
     pub name: String,
     pub path: String,
@@ -53,6 +60,14 @@ pub struct Facts {
     pub instructions: Vec<String>,
     /// Claude Code config the repository brings: `.claude/settings.json`, `.mcp.json`, `.claude/skills`…
     pub claude: Vec<String>,
+    /// The monorepo tool whose workspace lists packages: `pnpm`, `npm`, `yarn`, `cargo`, `go`.
+    pub workspace: Option<String>,
+    /// Its code, by part: the packages, the first-level folders with a manifest, the repository itself.
+    pub parts: Vec<Part>,
+    /// The test globs (qa's `writes`) that match files of the repository.
+    pub tests: Vec<String>,
+    /// Its CI and infrastructure, for devops; a folder ends with `/`.
+    pub infra: Vec<String>,
 }
 
 /// What Claude Code found that matters to agents, such as the test command.
@@ -150,12 +165,15 @@ pub struct State {
     pub analysis: Option<Analysis>,
     /// By question id.
     pub answers: BTreeMap<String, Vec<String>>,
-    /// The decision on each proposal outside the library (`tickets`, `worktree`, `ci`, `trust`).
+    /// The decision on each proposal outside the library (`tickets`, `worktree`, `ci`, `trust`, `team`).
     pub decisions: BTreeMap<String, Decision>,
     /// What the assistant applied, oldest first.
     pub log: Vec<Logged>,
     /// The convention text the answers last became.
     pub source: String,
+    /// What the assistant last wrote of each part of the team (`team`, `workflow`, `roles.<name>`) in the
+    /// project's file, to tell a hand edit from its own.
+    pub team: BTreeMap<String, Value>,
     /// The `onboarding` convention's text is no longer the one the assistant wrote: someone edited it in the
     /// library, and new answers would replace it.
     #[serde(skip_deserializing)]
@@ -310,7 +328,7 @@ fn listed(dir: &Path, keep: impl Fn(&str) -> bool) -> Vec<String> {
     names
 }
 
-fn facts(name: &str, path: &Path) -> Facts {
+fn facts(name: &str, path: &Path, tests: &[String]) -> Facts {
     let present = |files: &[&str]| -> Vec<String> {
         files
             .iter()
@@ -318,7 +336,7 @@ fn facts(name: &str, path: &Path) -> Facts {
             .map(|f| f.to_string())
             .collect()
     };
-    Facts {
+    let mut facts = Facts {
         name: name.into(),
         path: path.to_string_lossy().into_owned(),
         stack: termf_worktree::detect(path, &[]).stack,
@@ -339,34 +357,43 @@ fn facts(name: &str, path: &Path) -> Facts {
             ".claude/agents",
             ".claude/rules",
         ]),
-    }
+        ..Facts::default()
+    };
+    team::survey(path, &mut facts, tests);
+    facts
 }
 
-/// What TermF finds by itself, reading files and the project's config only.
-pub fn survey(config_dir: &Path, data_dir: &Path, project: &str) -> Result<Analysis> {
-    termf_core::project_file(config_dir, project)?;
+/// The facts of each of the project's repositories; `tests`: the test globs to look for.
+fn repos(config_dir: &Path, project: &str, tests: &[String]) -> Result<Vec<Facts>> {
     let found = termf_core::load_projects(config_dir)?
         .into_iter()
         .find(|p| p.id == project)
         .with_context(|| format!("unknown project {project}"))?;
     ensure!(!found.repos.is_empty(), "this project has no repository");
+    Ok(found
+        .repos
+        .iter()
+        .map(|r| facts(&r.name, Path::new(&r.path), tests))
+        .collect())
+}
+
+/// What TermF finds by itself, reading files and the project's config only.
+pub fn survey(config_dir: &Path, data_dir: &Path, project: &str) -> Result<Analysis> {
+    termf_core::project_file(config_dir, project)?;
     let tickets = termf_tickets::Tickets::new(config_dir.into(), data_dir.into());
     let scope = Scope {
         project: Some(project.into()),
         ..Scope::default()
     };
-    let library = termf_library::resolve(config_dir, &scope)?
-        .into_iter()
+    let items = termf_library::resolve(config_dir, &scope)?;
+    let library = items
+        .iter()
         .filter(|i| i.layer == Layer::Project && i.active)
         .map(|i| format!("{} {}", i.kind, i.name))
         .collect();
     Ok(Analysis {
         at: now(),
-        repos: found
-            .repos
-            .iter()
-            .map(|r| facts(&r.name, Path::new(&r.path)))
-            .collect(),
+        repos: repos(config_dir, project, &team::test_globs(&items))?,
         github: tickets.sources(project)?.github_repos,
         tickets: tickets
             .configured(Some(project))?
@@ -400,6 +427,8 @@ pub fn analyze(
     analysis.lang = if lang == "fr" { "fr" } else { "en" }.into();
     let (model, effort) = conventions::settings(config_dir);
     analysis.model = model.clone();
+    let asked = team::questions(&analysis.repos);
+    analysis.questions = asked.clone();
     change(config_dir, data_dir, project, |s| {
         if s.analysis.is_none() {
             s.analysis = Some(analysis.clone());
@@ -429,7 +458,7 @@ pub fn analyze(
     analysis.cost = cost;
     analysis.findings = findings;
     analysis.dropped = dropped;
-    analysis.questions = questions;
+    analysis.questions = questions.into_iter().chain(asked).collect();
     drop(running);
     change(config_dir, data_dir, project, |s| {
         s.answers = analysis
@@ -481,7 +510,8 @@ fn prompt(analysis: &Analysis) -> String {
          agents' rules, skills, commands and roles, such as which checks must pass before a change is delivered, \
          whether every change needs tests, branch and commit conventions, what agents may change without asking. \
          Never ask what the files already answer, nor about ticket trackers, worktree setup or CI notifications: \
-         TermF sets those up apart. At most {MAX_QUESTIONS}. Each has a unique `id` (lowercase letters, digits \
+         TermF sets those up apart. Never ask about the agents' team either (its roles, squads, size or \
+         models): TermF asks that itself. At most {MAX_QUESTIONS}. Each has a unique `id` (lowercase letters, digits \
          and dashes), a `theme` (quality, tests, workflow, agents, other), a short `text`, a `kind` and a \
          proposed answer in `default`, the most likely one given the repositories: `choice` takes one of \
          `options` (2 to {MAX_OPTIONS}) and `default` is that one option; `multi` takes any of `options` and \
@@ -616,6 +646,8 @@ fn validate(answer: &Value, repos: &[String]) -> (Vec<Finding>, Vec<Question>, V
                     "too many questions"
                 } else if !valid_id(&q.id) || questions.iter().any(|o| o.id == q.id) {
                     "invalid or repeated id"
+                } else if q.id.starts_with("team-") {
+                    "an id kept for TermF's own questions"
                 } else if !fits(&q.text, 300) {
                     "empty or too long"
                 } else if !options_ok {
@@ -671,7 +703,13 @@ pub fn answer(
         replace || !state.edited,
         "the onboarding convention was edited in the library since: replace it to go on"
     );
-    let text = source(&analysis, &given);
+    let scope = Scope {
+        project: Some(project.into()),
+        ..Scope::default()
+    };
+    let items = termf_library::resolve(config_dir, &scope)?;
+    let folders = team::folders(&items, &analysis.repos, &analysis.questions, &given);
+    let text = source(&analysis, &given, &folders);
     if convention_text(config_dir, project) != text {
         conventions::save_source(config_dir, project, SLUG, &text)?;
     }
@@ -689,8 +727,13 @@ pub fn answer(
     })
 }
 
-/// The convention's text: what the repositories hold, then what the owner decided, one sentence per line.
-fn source(analysis: &Analysis, answers: &BTreeMap<String, Vec<String>>) -> String {
+/// The convention's text: what the repositories hold, what the owner decided, then the team's roles that have
+/// folders of their own, one sentence per line.
+fn source(
+    analysis: &Analysis,
+    answers: &BTreeMap<String, Vec<String>>,
+    folders: &[(String, Vec<String>)],
+) -> String {
     let fr = analysis.lang == "fr";
     let pick = |fr_text: &'static str, en_text: &'static str| if fr { fr_text } else { en_text };
     let mut text = format!(
@@ -713,6 +756,7 @@ fn source(analysis: &Analysis, answers: &BTreeMap<String, Vec<String>>) -> Strin
     let decided: Vec<String> = analysis
         .questions
         .iter()
+        .filter(|q| !q.id.starts_with("team-"))
         .filter_map(|q| {
             let value = answers.get(&q.id)?;
             let shown = match q.kind {
@@ -733,6 +777,22 @@ fn source(analysis: &Analysis, answers: &BTreeMap<String, Vec<String>>) -> Strin
             )
         );
         text += &decided.concat();
+    }
+    if !folders.is_empty() {
+        text += &format!(
+            "\n{}\n",
+            pick(
+                "L'équipe d'agents (proposée par l'assistant) :",
+                "The agents' team (proposed by the assistant):"
+            )
+        );
+        for (role, globs) in folders {
+            text += &format!("- {role}: {}\n", globs.join(", "));
+        }
+        text += pick(
+            "Chaque rôle reçoit les consignes du projet qui le concernent.\n",
+            "Each role gets the project's instructions that concern it.\n",
+        );
     }
     text
 }

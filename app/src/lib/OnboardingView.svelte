@@ -13,10 +13,12 @@
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import Conventions from "$lib/Conventions.svelte";
+  import OnboardingTeam from "$lib/OnboardingTeam.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
   import StackOffers from "$lib/StackOffers.svelte";
   import StackSkills from "$lib/StackSkills.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import QuestionInput from "$lib/ui/QuestionInput.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, lang, t } from "$lib/i18n";
@@ -25,7 +27,6 @@
   import {
     byTheme,
     githubIssues,
-    pick,
     reachable,
     recipeLines,
     steps,
@@ -38,7 +39,17 @@
   } from "$lib/onboarding-logic";
   import { app, shortPath } from "$lib/state.svelte";
 
-  type Facts = { name: string; path: string; stack: string[]; workflows: string[]; instructions: string[]; claude: string[] };
+  type Facts = {
+    name: string;
+    path: string;
+    stack: string[];
+    workflows: string[];
+    instructions: string[];
+    claude: string[];
+    parts?: { path: string; name: string; role: string }[];
+    tests?: string[];
+    infra?: string[];
+  };
   type Analysis = {
     at: number;
     lang: string;
@@ -118,6 +129,7 @@
     worktree: "obRecipeTitle",
     ci: "obCiTitle",
     trust: "obTrustTitle",
+    team: "obTeamTitle",
     skills: "stackSkillsTitle",
     mcp: "stackMcpTitle",
   } as const;
@@ -259,12 +271,32 @@
     if (!error) await decide("ci", "accepted", notify);
   }
 
+  type Key = Parameters<typeof t>[0];
+  const teamOptions: Record<string, Key> = {
+    one: "obTeamOneSquad",
+    split: "obTeamPerPart",
+    own: "obTeamQOwn",
+    sonnet: "obTeamQThrifty",
+    opus: "obTeamQQuality",
+  };
+  // TermF's own questions come as translation keys and option codes, Claude Code's as text.
+  const ours = (q: Question) => q.id.startsWith("team-");
+  const qText = (q: Question) => (ours(q) ? t(q.text as Key) : q.text);
+  const optionText = (q: Question, option: string) =>
+    ours(q) && option in teamOptions ? t(teamOptions[option]) : option;
   const none = (list: string[]) => (list.length ? list.join(", ") : t("obNothing"));
   /** A repository's facts that are there; an empty one says nothing. */
   const rows = (r: Facts) =>
-    ([["obCi", r.workflows], ["obInstructions", r.instructions], ["obClaudeConfig", r.claude]] as const).filter(
-      ([, list]) => list.length,
-    );
+    (
+      [
+        ["obCi", r.workflows],
+        ["obInstructions", r.instructions],
+        ["obClaudeConfig", r.claude],
+        ["obTeamParts", (r.parts ?? []).map((p) => `${p.path || r.name} (${p.role})`)],
+        ["obTeamTests", r.tests ?? []],
+        ["obTeamInfra", r.infra ?? []],
+      ] as const
+    ).filter(([, list]) => list.length);
 </script>
 
 {#snippet decided(proposal: string)}
@@ -330,38 +362,14 @@
 {/snippet}
 
 {#snippet answer(q: Question)}
-  {@const value = answers[q.id] ?? q.default}
-  {#if q.kind === "text"}
-    <input
-      class="field"
-      value={value[0] ?? ""}
-      aria-label={q.text}
-      oninput={(e) => (answers[q.id] = [e.currentTarget.value])}
-    />
-  {:else if q.kind === "multi"}
-    <div class="chips" role="group" aria-label={q.text}>
-      {#each q.options as option (option)}
-        <label class="chip" class:on={value.includes(option)}>
-          <input type="checkbox" checked={value.includes(option)} onchange={() => (answers[q.id] = pick(q, value, option))} />
-          {option}
-        </label>
-      {/each}
-    </div>
-  {:else}
-    {@const options = q.kind === "bool" ? ["yes", "no"] : q.options}
-    <div class="segmented" role="radiogroup" aria-label={q.text}>
-      {#each options as option (option)}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={value[0] === option}
-          onclick={() => (answers[q.id] = pick(q, value, option))}
-        >
-          {q.kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : option}
-        </button>
-      {/each}
-    </div>
-  {/if}
+  <QuestionInput
+    kind={q.kind}
+    options={q.options}
+    label={qText(q)}
+    optionLabel={(o) => optionText(q, o)}
+    value={answers[q.id] ?? q.default}
+    onchange={(v) => (answers[q.id] = v)}
+  />
 {/snippet}
 
 <div class="onboarding">
@@ -432,7 +440,7 @@
                 <legend>{t(themeLabel[theme])}</legend>
                 {#each list as q (q.id)}
                   <div class="question">
-                    <span class="q-text">{q.text}</span>
+                    <span class="q-text">{qText(q)}</span>
                     {@render answer(q)}
                   </div>
                 {/each}
@@ -463,6 +471,8 @@
 
           <StackSkills project={project.id} {stacks} ondecide={(decision, detail) => decide("skills", decision, detail)} />
           <StackOffers {stacks} ondecide={(detail) => decide("mcp", "accepted", detail)} />
+
+          <OnboardingTeam project={project.id} decision={ob.decisions.team} ondecided={(s) => (ob = s as Onboarding)} />
 
           <article class="proposal">
             <h3><Ticket size={15} aria-hidden="true" />{t("obTicketsTitle")} {@render decided("tickets")}</h3>
@@ -836,40 +846,8 @@
     font-weight: 500;
   }
 
-  .question .field {
-    width: min(100%, 480px);
-  }
-
   .segmented {
     flex-wrap: wrap;
-  }
-
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 26px;
-    padding: 0 10px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-pill);
-    font-size: var(--text-sm);
-    cursor: pointer;
-  }
-
-  .chip input {
-    margin: 0;
-  }
-
-  .chip.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--accent-ink);
   }
 
   .proposal {

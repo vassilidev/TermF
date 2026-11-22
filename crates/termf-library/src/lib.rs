@@ -617,7 +617,7 @@ fn packaged(stack: &[stack::RepoStack]) -> Vec<Item> {
 }
 
 /// A frontmatter list. Claude Code accepts a comma-separated string where a list is expected.
-fn list_of(value: Option<&Value>) -> Vec<String> {
+pub fn list_of(value: Option<&Value>) -> Vec<String> {
     match value {
         Some(Value::String(s)) => s
             .split(',')

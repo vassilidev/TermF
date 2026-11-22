@@ -938,6 +938,200 @@ fn refuses_what_cannot_start() {
     assert!(env.agents.sessions().unwrap().is_empty());
 }
 
+fn arg_after<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    let i = args.iter().position(|a| a == flag)?;
+    args.get(i + 1).map(String::as_str)
+}
+
+#[test]
+fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
+    let env = Env::new("mcp");
+    let other = env.root.join("api");
+    fs::create_dir_all(&other).unwrap();
+    let config = env.root.join("config");
+    fs::create_dir_all(config.join("projects")).unwrap();
+    fs::write(
+        config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n[[repos]]\npath = \"{}\"\n",
+            env.dir.display(),
+            other.display()
+        ),
+    )
+    .unwrap();
+    let spec = SessionSpec {
+        project: Some("acme".into()),
+        role: Some("cto".into()),
+        permission_mode: Some("bypassPermissions".into()),
+        mcp: true,
+        ..env.spec()
+    };
+    let error = env.agents.start(spec.clone(), Some("hi")).unwrap_err();
+    assert!(error.to_string().contains("needs the app"), "{error}");
+
+    // Each process gets a token of its own; `live` holds the ones not voided yet.
+    let live: Arc<Mutex<Vec<(i64, u32)>>> = Arc::default();
+    let issued = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let (given, gone) = (live.clone(), live.clone());
+    env.agents.serve_mcp(
+        move |id| {
+            let n = issued.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            given.lock().unwrap().retain(|(s, _)| *s != id);
+            given.lock().unwrap().push((id, n));
+            Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string(), "TERMF_MCP_TOKEN": format!("cap-{n}")}}))
+        },
+        move |id| gone.lock().unwrap().retain(|(s, _)| *s != id),
+    );
+    let session = env.agents.create(spec).unwrap();
+    assert_eq!(
+        session.state,
+        State::Stopped,
+        "no process until its first message"
+    );
+    assert!(env.args().is_empty(), "no process yet: {:?}", env.args());
+    assert_eq!(session.spec.permission_mode.as_deref(), Some("manual"));
+    let id = session.id;
+    env.agents.send(id, "say hello").unwrap();
+    env.settle(id, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    assert_eq!(arg_after(&args, "--permission-mode"), Some("manual"));
+    assert!(args.contains(&"--restricted".into()), "{args:?}");
+    assert!(args.contains(&"--strict-mcp-config".into()), "{args:?}");
+    assert_eq!(arg_after(&args, "--tools"), Some("Read,Grep,Glob"));
+    assert_eq!(arg_after(&args, "--add-dir"), Some(other.to_str().unwrap()));
+    let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
+    let names = |key: &str| -> Vec<String> {
+        serde_json::from_value(settings["permissions"][key].clone()).unwrap()
+    };
+    let ask: Vec<String> = termf_core::ipc::MCP_ACTIONS
+        .iter()
+        .map(|t| format!("mcp__termf__{t}"))
+        .collect();
+    assert_eq!(names("ask"), ask, "every action waits for the user");
+    assert!(names("allow").iter().all(|t| !ask.contains(t)));
+    for tool in ["Bash", "WebFetch", "WebSearch", "Edit", "Write"] {
+        assert!(names("deny").contains(&tool.to_string()), "{tool}");
+    }
+    let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
+    let config: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        config["mcpServers"]["termf"]["env"]["TERMF_MCP_SESSION"],
+        id.to_string()
+    );
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(&file).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600, "it holds the session's token");
+
+    let error = env.agents.takeover(id).unwrap_err();
+    assert!(error.to_string().contains("stays in TermF"), "{error}");
+    assert_eq!(env.session(id).state, State::Idle);
+
+    assert_eq!(*live.lock().unwrap(), [(id, 1)]);
+    env.agents.stop(id).unwrap();
+    env.until("the token voided", || live.lock().unwrap().is_empty());
+    assert!(!file.exists(), "its config goes with the process");
+    env.agents.send(id, "say hello").unwrap();
+    env.settle(id, 2, State::Idle);
+    assert_eq!(
+        *live.lock().unwrap(),
+        [(id, 2)],
+        "a new token, never the old one"
+    );
+    // A process that ends on its own takes its token with it.
+    env.agents.send(id, "crash").unwrap();
+    env.until("the crash", || env.session(id).state == State::Error);
+    env.until("the token voided", || live.lock().unwrap().is_empty());
+
+    let plain = env.agents.start(env.spec(), Some("say hello")).unwrap();
+    env.settle(plain.id, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    for flag in ["--restricted", "--mcp-config", "--tools", "--settings"] {
+        assert!(
+            !args.contains(&flag.into()),
+            "{flag} only with TermF's tools"
+        );
+    }
+}
+
+#[test]
+fn termf_notices_reach_the_agent_apart_from_the_user() {
+    let env = Env::new("notices");
+    let notice = |about: &str, text: &str| Notice {
+        about: about.into(),
+        run: Some(3),
+        text: text.into(),
+        ..Notice::default()
+    };
+    let session = env.agents.create(env.spec()).unwrap();
+    let id = session.id;
+    env.agents
+        .notify(
+            id,
+            notice("waiting", "Run 3: the gate approve-plan waits."),
+            true,
+        )
+        .unwrap();
+    assert!(
+        env.args().is_empty(),
+        "a session without a process is never woken"
+    );
+    env.agents.send(id, "say hello").unwrap();
+    env.settle(id, 1, State::Idle);
+    let stdin = env.log("stdin");
+    assert!(
+        stdin.contains("<termf-notices>\\nRun 3: the gate approve-plan waits.\\n</termf-notices>"),
+        "{stdin}"
+    );
+    assert!(
+        stdin.contains("The user's message follows.\\n\\nsay hello"),
+        "{stdin}"
+    );
+    assert_eq!(
+        env.events(id)
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::User { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        ["say hello"],
+        "the user's own words only"
+    );
+    assert_eq!(env.kinds(id)[..3], ["notice", "started", "user"]);
+
+    env.agents
+        .notify(id, notice("direct", "The user wrote to back."), false)
+        .unwrap();
+    env.agents
+        .notify(id, notice("blocked", "Run 3: step t1 is blocked."), true)
+        .unwrap();
+    env.settle(id, 2, State::Idle);
+    let stdin = env.log("stdin");
+    let last = stdin.lines().last().unwrap();
+    assert!(
+        last.contains("The user wrote to back.\\nRun 3: step t1 is blocked."),
+        "{last}"
+    );
+    assert!(last.contains("act only on their answer"), "{last}");
+    assert_eq!(env.kinds(id).iter().filter(|k| *k == "user").count(), 1);
+
+    env.agents.send(id, "slow").unwrap();
+    env.until("the slow turn", || env.log("stdin").contains("slow"));
+    env.agents
+        .notify(id, notice("waiting", "Run 3: the gate visual waits."), true)
+        .unwrap();
+    env.agents.interrupt(id).unwrap();
+    env.settle(id, 4, State::Idle);
+    assert!(
+        env.log("stdin")
+            .lines()
+            .last()
+            .unwrap()
+            .contains("the gate visual waits"),
+        "read once the turn under way ended"
+    );
+}
+
 /// Checks the stream-json format against the real Claude Code, with Haiku, for a few cents. Writes a
 /// transcript for a throwaway folder, removed with `claude purge`; never touches the config.
 /// `cargo test -p termf-agents -- --ignored real_claude`

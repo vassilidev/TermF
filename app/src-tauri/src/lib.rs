@@ -6,6 +6,7 @@ mod claude;
 mod claude_native;
 mod config;
 mod context;
+mod cto;
 mod files;
 mod keep_awake;
 mod library;
@@ -503,6 +504,9 @@ pub fn run() {
             agents::agent_sessions,
             agents::agent_events,
             team::team_start,
+            team::team_route,
+            team::team_answer,
+            team::team_workflows,
             team::team_approve,
             team::team_revise,
             team::team_stop,
@@ -511,6 +515,8 @@ pub fn run() {
             team::team_run,
             team::team_events,
             team::team_squads,
+            cto::cto_open,
+            cto::cto_address,
             visual::visual_start,
             visual::visual_reviews,
             visual::visual_review,
@@ -523,6 +529,9 @@ pub fn run() {
             onboarding::onboarding_step,
             onboarding::onboarding_seen,
             onboarding::onboarding_decide,
+            onboarding::onboarding_team,
+            onboarding::onboarding_team_preview,
+            onboarding::onboarding_team_save,
             onboarding::claude_trust,
             onboarding::claude_trust_set,
             vault::vault_status,
