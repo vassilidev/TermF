@@ -8,6 +8,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::conventions::owned_hooks;
+use crate::stack::RepoStack;
 use crate::{Item, Kind, Layer, Scope, copy_item, copy_path, resolve, write_file};
 
 const FIRST_NAME: &str = "{{ user.first_name }}";
@@ -42,7 +43,9 @@ pub fn materialize(
         .as_deref()
         .map(|p| owned_hooks(config_dir, p))
         .unwrap_or_default();
-    for item in resolve(config_dir, scope)? {
+    let items = resolve(config_dir, scope)?;
+    prompt.push_str(&stack_card(&items, &scope.stack));
+    for item in items {
         let level = match scope.rules.get(&item.name) {
             Some(level) if item.kind == Kind::Rule => Some(level.as_str()),
             _ => item.meta.get("level").and_then(Value::as_str),
@@ -60,8 +63,18 @@ pub fn materialize(
             continue;
         }
         let file = format!("{}.md", item.name);
+        // A skill goes to the roles its `metadata.termf-roles` names; a session without a role gets them all.
+        let for_role = scope.role.as_deref().is_none_or(|role| {
+            crate::applies_to(
+                &crate::metadata_list(&item, "termf-roles"),
+                role,
+                scope.squad.as_deref(),
+            )
+        });
         match item.kind {
-            Kind::Skill => copy_item(&item, &plugin.join("skills").join(&item.name))?,
+            Kind::Skill if named || for_role => {
+                copy_item(&item, &plugin.join("skills").join(&item.name))?
+            }
             Kind::Command => copy_item(&item, &plugin.join("commands").join(file))?,
             Kind::Role => copy_item(&item, &plugin.join("agents").join(file))?,
             Kind::Preference | Kind::Rule
@@ -101,6 +114,87 @@ pub fn materialize(
     let file = session_dir.join("system-prompt.md");
     write_file(&file, prompt.trim_end().as_bytes())?;
     Ok(Some(file))
+}
+
+/// What every session learns of its repositories' stack, whatever its role: the detected tags and versions, the
+/// official skills and docs their packages bring once Claude Code trusts the repository, then the card of each
+/// active skill for that stack (25 lines at most), or a line naming it.
+pub fn stack_card(items: &[Item], stack: &[RepoStack]) -> String {
+    const MAX_LINES: usize = 25;
+    let mut text = String::new();
+    for repo in stack.iter().filter(|r| !r.tags.is_empty()) {
+        if stack.len() > 1 {
+            text += &format!("### {}\n\n", repo.name);
+        }
+        let named = |name: &str, version: &Option<String>| match version {
+            Some(v) => format!("{name} {v}"),
+            None => name.to_owned(),
+        };
+        let detected: Vec<String> = repo.tags.iter().map(|t| named(&t.name, &t.version)).collect();
+        text += &format!("Detected: {}.\n", detected.join(", "));
+        if repo.trusted {
+            for skill in &repo.skills {
+                let loaded = items.iter().any(|i| {
+                    i.kind == Kind::Skill && i.layer == Layer::Package && i.name == skill.name && i.active
+                });
+                if loaded {
+                    text += &format!(
+                        "The official skill `{}` of {} is loaded: follow it first for what it covers.\n",
+                        skill.name,
+                        named(&skill.package.name, &skill.package.version)
+                    );
+                }
+            }
+            for guide in &repo.guides {
+                text += &format!(
+                    "{} ships docs for agents in `{}`: read the page for the task there.\n",
+                    named(&guide.package.name, &guide.package.version),
+                    guide.path
+                );
+            }
+        }
+        let mut skills: Vec<&Item> = items
+            .iter()
+            .filter(|i| i.kind == Kind::Skill && i.active && i.layer != Layer::Package)
+            .collect();
+        skills.sort_by(|a, b| a.name.cmp(&b.name));
+        for item in skills {
+            let tags: Vec<&crate::stack::Tag> = crate::metadata_list(item, "termf-stacks")
+                .iter()
+                .filter_map(|n| repo.tags.iter().find(|t| &t.name == n))
+                .collect();
+            if tags.is_empty() {
+                continue;
+            }
+            text += &format!("\n#### {}\n\n", item.name);
+            match crate::item_file(item, Some("card.md")) {
+                Some(card) => {
+                    for line in card.trim().lines().take(MAX_LINES) {
+                        text += line;
+                        text.push('\n');
+                    }
+                }
+                None => text += &format!("The skill `{}` covers this stack.\n", item.name),
+            }
+            let range = crate::metadata_list(item, "termf-versions").join(" ");
+            if let Some(tag) = tags.iter().find(|t| t.version.is_some())
+                && let Some(version) = &tag.version
+                && !range.is_empty()
+                && crate::stack::covers(&range, version) == Some(false)
+            {
+                text += &format!(
+                    "The skill `{}` is verified for {range}; this repository has {} {version}: check each step against \
+                     the docs of that version.\n",
+                    item.name, tag.name
+                );
+            }
+        }
+        text.push('\n');
+    }
+    if text.is_empty() {
+        return text;
+    }
+    format!("## Stack\n\n{}\n", text.trim_end())
 }
 
 /// Copies each rule into the plugin and registers its script, `hook: { event, matcher, run }`, in

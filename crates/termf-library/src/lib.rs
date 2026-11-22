@@ -18,6 +18,7 @@ mod claude;
 pub mod conventions;
 mod roles;
 pub mod scout;
+pub mod stack;
 
 pub use claude::{
     Imported, Outcome, export_claude, export_target, export_text, import_claude, materialize,
@@ -87,6 +88,9 @@ impl fmt::Display for Kind {
 pub enum Layer {
     /// Built into TermF, from the `library/` folder of its repository.
     Shipped,
+    /// Skills the installed packages of the repository ship (`node_modules`, `vendor`, a virtualenv). They start
+    /// on where Claude Code trusts the repository, and pass before a shipped skill of the same name.
+    Package,
     /// `<config>/library/`, switched on and off in `termf.toml`.
     Global,
     /// `<config>/projects/<id>/library/`, switched on and off in `projects/<id>.toml`.
@@ -102,6 +106,7 @@ impl fmt::Display for Layer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad(match self {
             Layer::Shipped => "shipped",
+            Layer::Package => "package",
             Layer::Global => "global",
             Layer::Project => "project",
             Layer::Repo => "repo",
@@ -137,6 +142,10 @@ pub struct Item {
     pub toggles: BTreeMap<Layer, bool>,
     /// Global and project items start on, shipped and repository ones off; the most specific toggle decides.
     pub active: bool,
+    /// The tags of the stack its `metadata.termf-stacks` names, which switch a shipped item on.
+    pub activated_by: Vec<String>,
+    /// The installed package that ships it, for the package layer.
+    pub package: Option<stack::Package>,
     /// Path inside its layer, to copy a shipped item.
     #[serde(skip)]
     rel: String,
@@ -160,6 +169,9 @@ pub struct Scope {
     /// The squad the session works in: its `[squads.roles.<name>]` settings, and the preferences and rules
     /// whose `applies_to` says `squad:<id>`.
     pub squad: Option<String>,
+    /// The session's repository, or each repository of the project without one: their tags switch the shipped
+    /// skills on, and their installed packages bring skills.
+    pub stack: Vec<stack::RepoStack>,
 }
 
 impl Scope {
@@ -167,8 +179,20 @@ impl Scope {
     /// project that lists it.
     pub fn new(config_dir: &Path, path: Option<&Path>, project: Option<String>) -> Result<Scope> {
         let Some(path) = path else {
+            let repos = match &project {
+                Some(id) => termf_core::load_projects(config_dir)?
+                    .into_iter()
+                    .find(|p| &p.id == id)
+                    .map(|p| p.repos)
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            };
             return Ok(Scope {
                 project,
+                stack: repos
+                    .iter()
+                    .map(|r| stack_of(&r.name, Path::new(&r.path)))
+                    .collect(),
                 ..Scope::default()
             });
         };
@@ -176,20 +200,39 @@ impl Scope {
             .ancestors()
             .find(|d| d.join(".git").exists())
             .unwrap_or(path);
+        let projects = termf_core::load_projects(config_dir)?;
         let project = match project {
             Some(id) => Some(id),
             // shortcut: a repository listed in several projects gets the first one, until sessions know their project.
-            None => termf_core::load_projects(config_dir)?
-                .into_iter()
+            None => projects
+                .iter()
                 .find(|p| p.repos.iter().any(|r| path.starts_with(&r.path)))
-                .map(|p| p.id),
+                .map(|p| p.id.clone()),
         };
+        let name = projects
+            .iter()
+            .flat_map(|p| &p.repos)
+            .find(|r| path.starts_with(&r.path))
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| repo.file_name().unwrap_or_default().to_string_lossy().into_owned());
         Ok(Scope {
             project,
             repo: Some(repo.to_path_buf()),
+            stack: vec![stack_of(&name, repo)],
             ..Scope::default()
         })
     }
+}
+
+/// The repository's stack, with Claude Code's trust read only when its packages bring something.
+fn stack_of(name: &str, path: &Path) -> stack::RepoStack {
+    let mut repo = stack::RepoStack::read(name, path);
+    if !repo.skills.is_empty() || !repo.guides.is_empty() {
+        let file = termf_claude::trust::file();
+        repo.trusted = termf_claude::trust::state(&file, &[(name.into(), path.into())])
+            .is_ok_and(|t| t.first().is_some_and(|t| t.trusted));
+    }
+    repo
 }
 
 /// `<config>/library`, or a project's `<config>/projects/<id>/library`.
@@ -222,7 +265,11 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
     ];
     let mut items: BTreeMap<(Kind, String), Item> = BTreeMap::new();
     for (layer, source) in sources {
-        for mut item in source.map(|s| s.scan(layer)).unwrap_or_default() {
+        let mut scanned = source.map(|s| s.scan(layer)).unwrap_or_default();
+        if layer == Layer::Shipped {
+            scanned.extend(packaged(&scope.stack));
+        }
+        for mut item in scanned {
             let key = (item.kind, item.name.clone());
             // Otherwise a cloned repository could swap the content of an item you enabled by name.
             if layer == Layer::Repo && items.contains_key(&key) {
@@ -242,8 +289,28 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
         toggles.push((Layer::Project, read_toggles(&file)?));
     }
     toggles.push((Layer::Run, scope.overrides.clone()));
+    let tags: Vec<&str> = scope
+        .stack
+        .iter()
+        .flat_map(|r| &r.tags)
+        .map(|t| t.name.as_str())
+        .collect();
     for item in items.values_mut() {
-        item.active = matches!(item.layer, Layer::Global | Layer::Project);
+        if item.layer == Layer::Shipped {
+            item.activated_by = stack_tags_of(item)
+                .into_iter()
+                .filter(|t| tags.contains(&t.as_str()))
+                .collect();
+            item.activated_by.dedup();
+        }
+        item.active = match item.layer {
+            Layer::Global | Layer::Project => true,
+            Layer::Shipped => !item.activated_by.is_empty(),
+            Layer::Package => scope.stack.iter().any(|r| {
+                r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path))
+            }),
+            Layer::Repo | Layer::Run => false,
+        };
         for (layer, list) in &toggles {
             if let Some(on) = toggle(list, item.kind, &item.name) {
                 item.toggles.insert(*layer, on);
@@ -463,8 +530,51 @@ fn parse(
         shadows: Vec::new(),
         toggles: BTreeMap::new(),
         active: false,
+        activated_by: Vec::new(),
+        package: None,
         rel,
     }
+}
+
+/// A space- or comma-separated value of the frontmatter's `metadata`, such as `termf-stacks`.
+pub fn metadata_list(item: &Item, key: &str) -> Vec<String> {
+    item.meta
+        .get("metadata")
+        .and_then(|m| m.get(key))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .split([' ', ','])
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn stack_tags_of(item: &Item) -> Vec<String> {
+    metadata_list(item, "termf-stacks")
+}
+
+/// The skills the installed packages of the stack's repositories ship, once each.
+fn packaged(stack: &[stack::RepoStack]) -> Vec<Item> {
+    let mut items: Vec<Item> = Vec::new();
+    for skill in stack.iter().flat_map(|r| &r.skills) {
+        if items.iter().any(|i| i.name == skill.name) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(skill.path.join("SKILL.md")) else {
+            continue;
+        };
+        let mut item = parse(
+            Kind::Skill,
+            skill.name.clone(),
+            &text,
+            Layer::Package,
+            Some(skill.path.clone()),
+            String::new(),
+        );
+        item.package = Some(skill.package.clone());
+        items.push(item);
+    }
+    items
 }
 
 /// A frontmatter list. Claude Code accepts a comma-separated string where a list is expected.
