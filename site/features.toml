@@ -62,7 +62,7 @@ id = "machine"
 name = "Keys, vault and sync"
 intro = "SSH keys, a vault for passwords and secrets, and your settings synced across machines, encrypted."
 icon = "key-round"
-not_yet = ["Touch ID and Windows Hello for the vault, changing its master password, importing from other password managers", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
+not_yet = ["Importing passwords from other password managers", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
 
 [[groups]]
 id = "security"
@@ -937,22 +937,24 @@ group = "machine"
 name = "The vault and passwords"
 tagline = "Secrets, logins and secure notes, per project, encrypted."
 keywords = "vault secrets passwords password manager logins notes totp 2fa generator passphrase encryption argon2 xchacha audit 1password bitwarden doppler aws"
-problem = '''<p>Secrets do not belong in agents' contexts or in plain files, and a project's logins should not live in another app. The vault keeps secrets, logins with their two-factor codes, and secure notes encrypted, per project or for all of them, with an audit log; agents can never reveal a value.</p>'''
+problem = '''<p>Secrets do not belong in agents' contexts or in plain files, and a project's logins should not live in another app. The vault keeps secrets, logins with their two-factor codes, and secure notes encrypted, per project or for all of them, with an audit log; agents can never reveal a value. A security key can be a second factor, and Touch ID or Windows Hello can open it for a few days.</p>'''
 how = [
   "Create the vault with a master password, in the app or with <code>termf vault init</code>.",
   "Add logins (addresses, user name, password, two-factor key) and notes, for one project or for all; secrets live in dev, staging or prod scopes, and prod asks the password again.",
   "Search, filter logins, notes and secrets; copy a password or the current two-factor code without opening the item, the clipboard cleared after 30 seconds.",
   "Generate passwords or passphrases; every reveal goes in a hash-chained audit log.",
+  "In Security, add a security key (FIDO2) as a second factor, turn on Touch ID or Windows Hello, change the master password; a recovery key opens the vault if you lose the key or the password.",
 ]
 default = [
   "Argon2id and XChaCha20-Poly1305; locks after 10 minutes, and on sleep.",
   "A revealed password hides again after 30 seconds, a note after two minutes.",
   "References point to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.",
 ]
-tune = ["<code>[vault] auto_lock_minutes</code>.", "Per item, whether agents may use it: kept for the connections and recipes still to come."]
+tune = ["<code>[vault] auto_lock_minutes</code>.", "Up to 10 security keys; Touch ID or Windows Hello for 1 to 30 days; a new recovery key at any time.", "Per item, whether agents may use it: kept for the connections and recipes still to come."]
 commands = [["termf vault init | unlock | lock | status", "the vault"], ["termf vault items | item <id>", "logins and notes, from a terminal"], ["termf vault set | ref | reveal | audit", "secrets and the audit"]]
 limits = [
-  "No Touch ID or Windows Hello, no password change: a forgotten password means a lost vault.",
+  "Never tried with a real security key: the FIDO2 code is checked against a simulated key, and the Windows path is only built, never run.",
+  "Touch ID and Windows Hello are a convenience, not a cryptographic lock like a security key: the app is not signed.",
   "No import from other password managers, no sync of the vault yet, no QR code reading.",
   "On Linux and Windows, a key kept in the keychain can be read by any process of the user.",
 ]
