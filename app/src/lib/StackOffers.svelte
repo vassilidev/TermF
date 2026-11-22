@@ -33,16 +33,18 @@
     }
     return [...byName.values()];
   });
-  let lspOn = $state(true);
+  /** `null` until the project's file is read: the switch waits for it. */
+  let lspOn = $state<boolean | null>(null);
   $effect(() => {
-    if (project) invoke<boolean>("library_lsp", { project }).then((on) => (lspOn = on), () => {});
+    if (project) invoke<boolean>("library_lsp", { project }).then((on) => (lspOn = on), (e) => (error = String(e)));
   });
 
-  async function setLsp(on: boolean) {
+  async function setLsp(input: HTMLInputElement) {
     error = "";
     try {
-      lspOn = await invoke<boolean>("library_lsp", { project, enabled: on });
+      lspOn = await invoke<boolean>("library_lsp", { project, enabled: input.checked });
     } catch (e) {
+      input.checked = !!lspOn;
       error = String(e);
     }
   }
@@ -103,6 +105,7 @@
 
 {#if error}<p class="error" role="alert">{error}</p>{/if}
 
+{#if !project || sources.length}
 <article class="proposal">
   <h3><Store size={15} aria-hidden="true" />{t("stackOfficialTitle")}</h3>
   <p class="hint">{t("stackOfficialHint")}</p>
@@ -128,7 +131,9 @@
     {/each}
   </ul>
 </article>
+{/if}
 
+{#if !project || servers.length}
 <article class="proposal">
   <h3><Plug size={15} aria-hidden="true" />{t("stackMcpTitle")}</h3>
   <p class="hint">{t("stackMcpHint")}</p>
@@ -159,6 +164,7 @@
     {/each}
   </ul>
 </article>
+{/if}
 
 {#if project && languageServers.length}
   <article class="proposal">
@@ -169,8 +175,9 @@
         type="checkbox"
         role="switch"
         class="switch"
-        checked={lspOn}
-        onchange={(e) => setLsp(e.currentTarget.checked)}
+        checked={!!lspOn}
+        disabled={lspOn === null}
+        onchange={(e) => setLsp(e.currentTarget)}
       />
       {t("evalsLspSwitch")}
     </label>
@@ -182,7 +189,7 @@
             <span class="badge">{server.for}</span>
             {#if many}<span class="muted">{repos.join(", ")}</span>{/if}
             {#if server.installed}
-              <span class={lspOn ? "done" : "muted"}>{lspOn ? t("evalsLspOn") : t("evalsLspOff")}</span>
+              <span class={lspOn === false ? "muted" : "done"}>{lspOn === false ? t("evalsLspOff") : t("evalsLspOn")}</span>
             {:else}
               <span class="badge warn">{t("evalsLspMissing")}</span>
             {/if}
@@ -226,7 +233,7 @@
   }
 
   .error {
-    color: var(--danger-text);
+    color: var(--danger);
   }
 
   .offers {
