@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TermF · Talk only to the CTO, a team of Claude Code agents does the ticket</title>
-<meta name="description" content="TermF is a free, open source cockpit for Claude Code. Talk to one agent, the CTO, and a team of Claude Code agents takes your tickets to pull requests, each task in its own worktree, while you approve the path, the plan and the delivery. For macOS, Windows and Linux.">
+<meta name="description" content="TermF is a free, open source desktop app for developers who use Claude Code. Talk to one agent, the CTO, and a team of Claude Code agents takes your tickets to pull requests while you approve the plan and the delivery. For macOS, Windows and Linux.">
 <link rel="canonical" href="https://vassilidev.github.io/TermF/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="TermF">
 <meta property="og:title" content="TermF · Talk only to the CTO">
-<meta property="og:description" content="One conversation per project. The CTO puts a team of Claude Code agents on your ticket and the run stops for you at the path, the plan and the delivery. Free, open source, local-first.">
+<meta property="og:description" content="A desktop app for Claude Code. Talk to one agent, the CTO; a team of Claude Code agents takes your ticket to a pull request, and you approve the plan and the delivery. Free, open source, local-first.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta property="og:image:type" content="image/png">
@@ -18,7 +18,7 @@
 <meta property="og:image:alt" content="Talk only to the CTO: TermF's board, with the plan waiting for approval and the front and back agents on duty">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TermF · Talk only to the CTO">
-<meta name="twitter:description" content="One conversation per project. The CTO puts a team of Claude Code agents on your ticket and the run stops for you at the path, the plan and the delivery.">
+<meta name="twitter:description" content="A desktop app for Claude Code. Talk to one agent, the CTO; a team of Claude Code agents takes your ticket to a pull request, and you approve the plan and the delivery.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="Talk only to the CTO: TermF's board, with the plan waiting for approval and the front and back agents on duty">
 <meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
@@ -39,7 +39,7 @@
       "@type": "SoftwareApplication",
       "@id": "https://vassilidev.github.io/TermF/#app",
       "name": "TermF",
-      "description": "A local cockpit for Claude Code across all your repositories: one conversation with a CTO agent per project, a team of agents that takes a ticket to a pull request, and every Claude Code session in terminal tabs and splits.",
+      "description": "A desktop app for developers who use Claude Code: one conversation with a CTO agent per project, a team of agents that takes a ticket to a pull request, and every Claude Code session in terminal tabs and splits.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Windows, Linux",
       "url": "https://vassilidev.github.io/TermF/",
@@ -66,32 +66,48 @@
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
-  <symbol id="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
-  <symbol id="i-pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="2.6 3"/></symbol>
   <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7M17 12H7"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
-  <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.63l-19 6.5a.5.5 0 0 0-.02.93l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
   <symbol id="i-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
 </svg>
+<!-- gen:icons --><svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="g-badge-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/></symbol><symbol id="g-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol><symbol id="g-code-xml" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></symbol><symbol id="g-git-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></symbol><symbol id="g-key-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol><symbol id="g-laptop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/></symbol><symbol id="g-layout-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol><symbol id="g-library-big" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1"/><path d="M7 3v18"/><path d="M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z"/></symbol><symbol id="g-scan-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/></symbol><symbol id="g-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="g-square-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></symbol><symbol id="g-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></symbol><symbol id="g-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol><symbol id="g-workflow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol></svg><!-- /gen:icons -->
 
 <header class="nav" id="nav">
   <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
   <nav class="links" aria-label="Main">
     <a href="features.html">Features</a>
+    <a href="team.html">Team</a>
     <a href="how-it-works.html">How it works</a>
     <a href="security.html">Security</a>
     <a href="#faq">FAQ</a>
     <a href="https://github.com/vassilidev/TermF">GitHub</a>
   </nav>
   <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+  <details class="menu">
+    <summary aria-label="Menu"><svg class="i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg><svg class="i-close" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></summary>
+    <nav class="menu-links" aria-label="Menu">
+      <a href="features.html">Features</a>
+      <a href="team.html">Team</a>
+      <a href="how-it-works.html">How it works</a>
+      <a href="security.html">Security</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/vassilidev/TermF">GitHub</a>
+      <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+    </nav>
+  </details>
 </header>
 
 <main id="main">
 <section class="hero">
   <div class="wrap">
-    <div>
-      <h1>Talk only to the <em>CTO.</em></h1>
-      <p class="lead">One conversation per project. The CTO picks the path and puts a team of Claude Code agents on your ticket, each task in its own worktree. You approve the path, the plan and the delivery.</p>
+    <div class="hero-copy">
+      <h1 class="display">Talk only to the <em>CTO.</em></h1>
+      <p class="lead">TermF is a free desktop app for developers who use Claude Code. It puts a team of Claude Code agents on your tickets, up to the pull request, and keeps all your Claude Code sessions in one window.</p>
+      <ul class="pillars">
+        <li><b>You talk to one agent, the CTO.</b> It reads your repositories and turns your request into work for the team.</li>
+        <li><b><!-- gen:count -->25<!-- /gen:count --> agents, one job each.</b> Product owner, tech lead, front, back, QA, reviewers, working in parallel.</li>
+        <li><b>Your own sessions, side by side.</b> Tabs and splits, and you see at once which one waits for you.</li>
+      </ul>
       <div class="cta">
         <a class="pill big" id="get" href="download.html">Download for macOS<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
         <script>
@@ -104,50 +120,57 @@
             a.firstChild.textContent = os ? 'Download for ' + os : 'Download TermF';
           })();
         </script>
-        <a class="more" href="how-it-works.html">How a ticket becomes a pull request</a>
+        <a class="more" href="features.html">Every feature</a>
       </div>
-      <p class="cta note"><span><b>Free and open source</b> (MIT), for macOS, Windows and Linux.<br>Early development: the builds are unsigned pre-releases.</span></p>
+      <ul class="trust">
+        <li><svg aria-hidden="true"><use href="#g-badge-check"/></svg>Nothing starts or ships without your OK</li>
+        <li><svg aria-hidden="true"><use href="#g-laptop"/></svg>Runs on your machine, no TermF server</li>
+        <li><svg aria-hidden="true"><use href="#g-code-xml"/></svg>Free and open source (MIT)</li>
+      </ul>
+      <p class="note"><a href="download.html">Every platform</a>: macOS, Windows and Linux. You need Claude Code installed. Early development: the builds are unsigned pre-releases.</p>
     </div>
 
-    <figure class="board run" id="run" aria-label="Demo of a run, with sample data">
-      <div class="say"><b>You</b><span>Start the team on #57: export invoices to CSV in the accountant's format.</span><b>CTO</b><span id="cto">The plan is ready: three tasks. It waits for your approval.</span></div>
-      <div class="bay"><p class="plate">Yours</p><ol class="slots strips" data-bay="wait" style="--n:1">
-        <li class="strip cocked" data-state="waiting"><span class="cs">Lead<small>opus · high</small></span><span class="what">The plan: 3 tasks<small>covers AC1 to AC3</small></span><span class="st">Waits for you<br><button type="button" class="gate">Approve the plan</button></span></li>
-      </ol></div>
-      <div class="bay empty"><p class="plate">On duty</p><ol class="slots strips" data-bay="duty" style="--n:2"></ol><p class="idle">Nobody on duty right now.</p></div>
-      <div class="bay"><p class="plate">Done</p><ol class="slots strips" data-bay="done" style="--n:2">
-        <li class="strip" data-state="done"><span class="cs">PO<small>opus · high</small></span><span class="what">3 acceptance criteria<small>one item out of scope</small></span><span class="st">Done</span></li>
-        <li class="strip" data-state="done"><span class="cs">CTO<small>opus · high</small></span><span class="what">Path approved<small>default workflow, one squad</small></span><span class="st">Done</span></li>
-      </ol></div>
-      <figcaption class="run-foot"><span>A demo run with sample data. Clear the gates yourself.</span><span class="run-ctl"><button type="button" id="play" hidden>Pause</button><button type="button" id="replay" hidden>Replay</button></span></figcaption>
+    <figure class="board demo" id="run">
+      <figcaption class="demo-cap"><b>One ticket, from your request to a pull request</b><span>A sample run on acme/platform#57</span></figcaption>
+      <div class="demo-body">
+        <ol class="demo-steps">
+          <li class="now" data-kind="you"><button type="button" data-frame="0" aria-current="step"><span class="n">1</span>You ask the CTO</button></li>
+          <li data-kind="you"><button type="button" data-frame="1"><span class="n">2</span>The CTO picks the team</button></li>
+          <li data-kind="you"><button type="button" data-frame="2"><span class="n">3</span>You approve the plan</button></li>
+          <li data-kind="agents"><button type="button" data-frame="3"><span class="n">4</span>Agents work in parallel</button></li>
+          <li data-kind="agents"><button type="button" data-frame="4"><span class="n">5</span>Checks and reviews</button></li>
+          <li data-kind="you"><button type="button" data-frame="5"><span class="n">6</span>You approve the delivery</button></li>
+        </ol>
+        <div class="demo-stage">
+          <p class="say"><b>You</b><span>Start the team on #57: export invoices to CSV in the accountant's format.</span><b>CTO</b><span id="cto">I'll put the team on #57. Starting the team needs your OK.</span></p>
+          <ol class="strips" id="strips">
+            <li class="strip" data-state="waiting"><span class="cs">CTO<small>your contact</small></span><span class="what">Start the team<small>acme/platform#57</small></span><span class="st">Waits for you<button type="button" class="gate">Allow</button></span></li>
+            <li class="strip" data-state="queued"><span class="cs">PO<small>product owner</small></span><span class="what">Frames the ticket<small>after the CTO</small></span><span class="st">Next</span></li>
+            <li class="strip" data-state="queued"><span class="cs">Lead<small>tech lead</small></span><span class="what">Plans the tasks<small>after the product owner</small></span><span class="st">Next</span></li>
+          </ol>
+        </div>
+      </div>
+      <div class="demo-foot">
+        <p class="states"><span data-state="working">Working</span><span data-state="waiting">Waits for you</span><span data-state="done">Done</span></p>
+        <span class="run-ctl"><button type="button" id="play" hidden>Pause</button><button type="button" id="replay" hidden>Replay</button></span>
+      </div>
+      <p class="demo-note">Sample data. In TermF, each amber step waits for your click; here the demo moves on by itself.</p>
     </figure>
   </div>
 </section>
 
-<section aria-labelledby="changes">
-  <div class="wrap">
-    <h2 id="changes">One person to talk to, a team on every ticket</h2>
-    <div class="legend">
-      <div><h3>You talk to one agent</h3><p>Each project opens on its Home, with a permanent conversation with the CTO. Ask where something lives, where a run is at, or for a feature in your own words; write <code>@front</code> to talk to someone else. The CTO reads your repositories but has no shell and no network, and every action it takes waits on a card you approve.</p></div>
-      <div><h3>A team takes the ticket</h3><p>Triage, framing, plan, tasks in parallel, checks, code review, security review, delivery. Each step is a fresh Claude Code session with a brief, each task works in its own worktree, and each run has a budget. Seventeen roles ship with TermF, from the product owner to the security reviewer and the brand designer.</p></div>
-      <div><h3>You decide at the gates</h3><p>The CTO's path, the plan and the delivery wait for you, and so does the visual review once you turn its rule on. Questions come with proposed answers, so you only change what does not suit you. The delivery shows the files and commits first, and the pull request opens when you confirm.</p></div>
-      <div><h3>Every Claude Code stays in view</h3><p>Sessions sit in terminal tabs and free splits. Each one shows whether it is working, waiting for you or done, read from Claude Code's own hooks, with its context gauge. <kbd>⌘J</kbd> jumps to the next thing waiting, in any project.</p></div>
-    </div>
-  </div>
-</section>
-
-<section aria-labelledby="cto">
+<section aria-labelledby="cto-h">
   <div class="wrap split">
     <div class="text">
-      <h2 id="cto">One conversation per project</h2>
-      <p>The CTO is your way in to the team. It knows the project's repositories, its runs and what waits for you, and it answers in place.</p>
+      <h2 id="cto-h">One conversation per project</h2>
+      <p>In the app, each project opens on its Home view: a permanent conversation with the CTO, and next to it, everything that waits for you.</p>
       <ul class="facts">
         <li><b>Ask in your own words.</b> “Where is the team at?”, “Start the team on #482”, or a feature described from scratch.</li>
-        <li style="--h:var(--waiting)"><b>Decisions come to you.</b> The plan to approve, the questions to answer, a permission to grant: cards in the conversation, and in “Waiting for you” beside it.</li>
-        <li><b>Reach anyone.</b> <code>@role</code> writes to a role at work, <code>@expert</code> to the project expert, who answers from the project's memory with its sources.</li>
-        <li style="--h:var(--done)"><b>It reads, you act.</b> The CTO reads with Read, Grep and Glob only, and acts through TermF's tools, each behind your approval.</li>
+        <li style="--h:var(--waiting)"><b>Decisions come to you.</b> The plan to approve, the questions to answer, a permission to grant: each one is a card in the conversation.</li>
+        <li><b>Reach anyone.</b> Write <code>@front</code> to talk to an agent at work, or <code>@expert</code> to ask about the project.</li>
+        <li style="--h:var(--done)"><b>It reads, you act.</b> The CTO only reads your code: no shell, no network, and every action it takes waits for your OK.</li>
       </ul>
-      <a class="more" href="team.html">Meet the CTO and the team</a>
+      <p><a class="more" href="features/cto.html">The CTO's conversation</a></p>
     </div>
     <figure class="screen" style="--h:var(--waiting)">
       <figcaption class="screen-cap">The project's Home · sample data</figcaption>
@@ -159,7 +182,6 @@
             <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</p>
             <p class="ref">acme/platform#57 <span>· Export invoices to CSV in the accountant's format</span></p>
             <p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p>
-            <div class="inset">Export a period's invoices to CSV in the format the accounting firm expects, from the API and the Invoices page.<small>3 tasks</small></div>
             <div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div>
           </div>
           <div class="me">Start the team on #482 too, in api.</div>
@@ -175,67 +197,24 @@
   </div>
 </section>
 
-<section aria-labelledby="run-h">
+<section class="team-sec" aria-labelledby="team-h">
   <div class="wrap">
-    <h2 id="run-h">From ticket to pull request</h2>
-    <p class="lead">A ticket from GitHub Issues, GitHub Projects, Jira Cloud or an MCP server becomes a run with a page of its own. This is the default workflow; the CTO adapts it to each ticket, and you can write your own.</p>
-    <div class="split flip" style="margin-top:40px">
-      <div class="board">
-        <div class="bay"><p class="plate">Default workflow</p><ol class="strips">
-          <li class="strip" data-state="waiting"><span class="cs">Triage<small>cto</small></span><span class="what">Picks the workflow, the steps, the squads and the budget</span><span class="st">You approve the path</span></li>
-          <li class="strip" data-state="working"><span class="cs">Frame<small>po</small></span><span class="what">Acceptance criteria, what is out of scope, the questions</span><span class="st">Reads, changes nothing</span></li>
-          <li class="strip" data-state="waiting"><span class="cs">Plan<small>lead</small></span><span class="what">Tasks per role, with what each one covers and needs</span><span class="st">You approve the plan</span></li>
-          <li class="strip" data-state="working"><span class="cs">Tasks<small>front, back, qa…</small></span><span class="what">In parallel, up to four at once, each in its own worktree</span><span class="st">Your agents work</span></li>
-          <li class="strip" data-state="working"><span class="cs">Checks<small>shell, rules</small></span><span class="what">The repository's checks, then the project's rules</span><span class="st">Automatic</span></li>
-          <li class="strip" data-state="working"><span class="cs">Review<small>reviewer, secops</small></span><span class="what">Each finding goes back to its task; then the security review</span><span class="st">Up to two rounds</span></li>
-          <li class="strip" data-state="waiting"><span class="cs">Deliver<small>you</small></span><span class="what">The files and commits it will send, then the pull request</span><span class="st">You confirm</span></li>
-        </ol></div>
-      </div>
-      <figure class="screen" style="--h:var(--waiting)">
-        <figcaption class="screen-cap">A ticket's run page · sample data</figcaption>
-        <div class="app">
-          <div class="steps"><span class="s done"><svg aria-hidden="true"><use href="#i-done"/></svg>Framing</span><i></i><span class="s now"><svg aria-hidden="true"><use href="#i-bell"/></svg>Plan</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Tasks</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Review</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Delivery</span></div>
-          <div class="body">
-            <div class="card">
-              <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan has questions</p>
-              <p class="help">The proposed answers are filled in: change what does not suit you, then send them all at once.</p>
-              <div class="q"><span class="theme">Scope</span><p>Is the default period “last 30 days” everywhere?</p><p class="why">Why: DateRange also reads the period saved in the user's preferences.</p><span class="opts"><span class="on">Last 30 days everywhere</span><span>The period from the preferences</span></span><div class="acts"><span class="field">Another answer (optional)</span></div></div>
-              <div class="q" style="margin-top:10px"><span class="theme">Interface</span><p>Should the customer filter reset too?</p><span class="opts"><span>Yes</span><span class="on">No</span></span></div>
-              <div class="acts" style="margin-top:12px"><span class="grow"></span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Answer in free text</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-send"/></svg>Send the answers</span></div>
-            </div>
-          </div>
-        </div>
-      </figure>
+    <div class="sec-head">
+      <h2 id="team-h">Meet the team: <!-- gen:count -->25<!-- /gen:count --> agents</h2>
+      <p>Each agent is a Claude Code session with one job, its own model and its own permissions. You talk to the CTO; it brings in only the agents a ticket needs.</p>
     </div>
-    <p style="margin-top:28px"><a class="more" href="how-it-works.html">Read the whole run, step by step</a></p>
+    <!-- gen:roster --><div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-cto"><li><a href="team.html#role-cto"><span class="mark" aria-hidden="true">CTO</span><span class="rn">CTO</span><span class="rs">Your one point of contact</span></a></li><li><a href="team.html#role-expert"><span class="mark" aria-hidden="true">EX</span><span class="rn">Project expert</span><span class="rs">Answers about the project</span></a></li></ul><div class="org-cols" style="--cols:4"><div class="org-col c-product"><p class="oh" id="org-product">Product and design</p><ul aria-labelledby="org-product"><li><a href="team.html#role-pm"><span class="mark" aria-hidden="true">PM</span><span class="rn">Product manager</span><span class="rs">Writes the PRD of a vague epic</span></a></li><li><a href="team.html#role-po"><span class="mark" aria-hidden="true">PO</span><span class="rn">Product owner</span><span class="rs">Frames the ticket</span></a></li><li><a href="team.html#role-ux"><span class="mark" aria-hidden="true">UX</span><span class="rn">UX designer</span><span class="rs">Specifies flows and states</span></a></li><li><a href="team.html#role-architect"><span class="mark" aria-hidden="true">AR</span><span class="rn">Architect</span><span class="rs">Settles design decisions</span></a></li></ul></div><div class="org-col c-build"><p class="oh" id="org-build">Plan and build</p><ul aria-labelledby="org-build"><li><a href="team.html#role-lead"><span class="mark" aria-hidden="true">LE</span><span class="rn">Tech lead</span><span class="rs">Plans the tasks</span></a></li><li><a href="team.html#role-front"><span class="mark" aria-hidden="true">FR</span><span class="rn">Front-end developer</span><span class="rs">Builds the interface</span></a></li><li><a href="team.html#role-back"><span class="mark" aria-hidden="true">BA</span><span class="rn">Back-end developer</span><span class="rs">Builds the API and the data</span></a></li><li><a href="team.html#role-devops"><span class="mark" aria-hidden="true">DE</span><span class="rn">DevOps engineer</span><span class="rs">CI, infrastructure, dependencies</span></a></li><li><a href="team.html#role-seo"><span class="mark" aria-hidden="true">SEO</span><span class="rn">SEO engineer</span><span class="rs">Search, sharing and speed</span></a></li></ul></div><div class="org-col c-quality"><p class="oh" id="org-quality">Quality and security</p><ul aria-labelledby="org-quality"><li><a href="team.html#role-qa"><span class="mark" aria-hidden="true">QA</span><span class="rn">QA engineer</span><span class="rs">Proves each criterion</span></a></li><li><a href="team.html#role-reviewer"><span class="mark" aria-hidden="true">RE</span><span class="rn">Code reviewer</span><span class="rs">Reviews the whole change</span></a></li><li><a href="team.html#role-secops"><span class="mark" aria-hidden="true">SEC</span><span class="rn">Security reviewer</span><span class="rs">Looks for vulnerabilities</span></a></li></ul></div><div class="org-col c-creative"><p class="oh" id="org-creative">Brand, words and video</p><ul aria-labelledby="org-creative"><li><a href="team.html#role-brand"><span class="mark" aria-hidden="true">BR</span><span class="rn">Brand designer</span><span class="rs">Logo, guidelines, design system</span></a></li><li><a href="team.html#role-copy"><span class="mark" aria-hidden="true">CO</span><span class="rn">UX writer</span><span class="rs">Interface text and docs</span></a></li><li><a href="team.html#role-motion"><span class="mark" aria-hidden="true">MO</span><span class="rn">Motion designer</span><span class="rs">Videos and animations</span></a></li></ul></div><div class="org-col c-specialists wide"><p class="oh" id="org-specialists">Specialists</p><ul aria-labelledby="org-specialists"><li><a href="team.html#role-dba"><span class="mark" aria-hidden="true">DBA</span><span class="rn">Database engineer</span><span class="rs">Schema, migrations, queries</span></a></li><li><a href="team.html#role-docs"><span class="mark" aria-hidden="true">DOC</span><span class="rn">Technical writer</span><span class="rs">README, API docs, changelog</span></a></li><li><a href="team.html#role-integrations"><span class="mark" aria-hidden="true">INT</span><span class="rn">Integration engineer</span><span class="rs">Payments, SSO, webhooks</span></a></li><li><a href="team.html#role-sre"><span class="mark" aria-hidden="true">SRE</span><span class="rn">Site reliability engineer</span><span class="rs">Monitoring, alerts, load tests</span></a></li><li><a href="team.html#role-a11y"><span class="mark" aria-hidden="true">A11Y</span><span class="rn">Accessibility auditor</span><span class="rs">Audits WCAG and RGAA</span></a></li><li><a href="team.html#role-ai"><span class="mark" aria-hidden="true">AI</span><span class="rn">AI engineer</span><span class="rs">Prompts, RAG, evaluations</span></a></li><li><a href="team.html#role-analytics"><span class="mark" aria-hidden="true">AN</span><span class="rn">Product analyst</span><span class="rs">Events, funnels, dashboards</span></a></li><li><a href="team.html#role-legal"><span class="mark" aria-hidden="true">LAW</span><span class="rn">Compliance analyst</span><span class="rs">Terms, privacy, consent</span></a></li></ul></div></div></div><!-- /gen:roster -->
+    <p class="after"><a class="more" href="team.html">Every agent: what it does, when it is called, what it never does</a></p>
   </div>
 </section>
 
-<section aria-labelledby="team-h">
-  <div class="wrap split">
-    <div class="text">
-      <h2 id="team-h">Seventeen roles, ready on day one</h2>
-      <p>The CTO triages, the product owner frames, the lead plans; front, back, DevOps, QA and SEO build; the reviewer and the security reviewer check. The product manager, the architect and the UX designer step in when a ticket needs them, brand, copy and motion when it asks for an identity, words or a video, and the expert answers questions about the project.</p>
-      <p>Each role is a Markdown file with its model, effort and permissions, and you can change any of them for one project. Squads split a bigger project: each has its lead, its members, its repositories and its paths.</p>
-      <a class="more" href="team.html">Roles, squads, review and the expert</a>
+<section aria-labelledby="all-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="all-h">Everything TermF does</h2>
+      <p><!-- gen:fcount -->41<!-- /gen:fcount --> features in <!-- gen:gcount -->11<!-- /gen:gcount --> groups. Each one has its own page, with what works out of the box and its limits.</p>
     </div>
-    <figure class="screen" style="--h:var(--working)">
-      <figcaption class="screen-cap">Configuration · the project's squads · sample data</figcaption>
-      <div class="app">
-        <div class="squads">
-          <div class="sq"><p class="sqh">billing <span>At most 2 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">back ×2</span></dd><dt>Repositories</dt><dd class="mono">billing-service</dd><dt>Paths</dt><dd class="mono">src/**, tests/**</dd></dl></div>
-          <div class="sq"><p class="sqh">web <span>At most 1 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">front</span></dd><dt>Repositories</dt><dd class="mono">web-dashboard</dd><dt>Paths</dt><dd class="mono">web/**</dd></dl></div>
-        </div>
-        <div class="list">
-          <div class="row"><span class="ini">CT</span><span class="t"><b>cto</b><span>The one point of contact; triages every run, never codes</span></span><span class="chip">opus · high</span></div>
-          <div class="row"><span class="ini">PO</span><span class="t"><b>po</b><span>Frames the ticket: criteria, out of scope, questionnaire</span></span><span class="chip">opus · high</span></div>
-          <div class="row"><span class="ini">FR</span><span class="t"><b>front</b><span>Screens, components, styles, client logic, accessibility</span></span><span class="chip">sonnet · high</span></div>
-          <div class="row"><span class="ini">BA</span><span class="t"><b>back</b><span>API, business logic, database and migrations, with tests</span></span><span class="chip">sonnet · high</span></div>
-          <div class="row"><span class="ini">SE</span><span class="t"><b>secops</b><span>Reviews the run's diff for vulnerabilities and abuse</span></span><span class="chip">opus · xhigh</span></div>
-        </div>
-      </div>
-    </figure>
-  </div>
+    <div class="fams"><!-- gen:groups --><section class="fam" aria-labelledby="fam-team"><span class="gi"><svg aria-hidden="true"><use href="#g-users"/></svg></span><h3 id="fam-team"><a href="features.html#team">The CTO and the team</a></h3><p>You talk to one agent, the CTO. A team of agents with one job each does the work, and stops for you at the key steps.</p><ul><li><a href="features/cto.html">The CTO's conversation</a></li><li><a href="features/triage.html">Triage: how the team takes a ticket</a></li><li><a href="features/questionnaire.html">Questions with proposed answers</a></li><li><a href="features/roles.html">25 agents, one role each</a></li><li><a href="features/squads.html">Squads for bigger projects</a></li><li><a href="features/code-review.html">Code review and security review</a></li><li><a href="features/creative.html">Brand, copy and motion</a></li><li><a href="features/specialists.html">The specialists</a></li><li><a href="features/expert.html">The project expert</a></li><li><a href="features/budgets.html">Budgets, stop and take over</a></li><li><a href="features/agent-browser.html">The agents' browser</a></li></ul></section><section class="fam" aria-labelledby="fam-projects"><span class="gi"><svg aria-hidden="true"><use href="#g-ticket"/></svg></span><h3 id="fam-projects"><a href="features.html#projects">Projects, tickets and runs</a></h3><p>A project groups your repositories. Each ticket becomes a run, a ticket being worked on, with its own page up to the pull request.</p><ul><li><a href="features/projects.html">Projects and the setup assistant</a></li><li><a href="features/home.html">The project's Home</a></li><li><a href="features/tickets.html">Ticket sources</a></li><li><a href="features/runs.html">The run page</a></li><li><a href="features/workflows.html">Workflows and rules</a></li><li><a href="features/delivery.html">Delivery in two steps</a></li><li><a href="features/git.html">Git in the project</a></li></ul></section><section class="fam" aria-labelledby="fam-terminals"><span class="gi"><svg aria-hidden="true"><use href="#g-layout-grid"/></svg></span><h3 id="fam-terminals"><a href="features.html#terminals">Terminals</a></h3><p>Every Claude Code session in one window, in tabs and splits, with its state and how full its context is.</p><ul><li><a href="features/terminals.html">Tabs and splits</a></li><li><a href="features/status.html">Session state and context reset</a></li><li><a href="features/panels.html">Two panels, help and the tour</a></li><li><a href="features/files.html">Files, quick terminal, keep awake</a></li></ul></section><section class="fam" aria-labelledby="fam-worktrees"><span class="gi"><svg aria-hidden="true"><use href="#g-git-fork"/></svg></span><h3 id="fam-worktrees"><a href="features.html#worktrees">Worktrees</a></h3><p>Each run works in its own copy of the repository, a git worktree, with its dependencies, environment, database and ports ready.</p><ul><li><a href="features/worktrees.html">Worktrees ready to run</a></li></ul></section><section class="fam" aria-labelledby="fam-library"><span class="gi"><svg aria-hidden="true"><use href="#g-library-big"/></svg></span><h3 id="fam-library"><a href="features.html#library">Library and skills</a></h3><p>The roles, rules, skills and workflows your agents get, in layers, matched to your stack.</p><ul><li><a href="features/library.html">The library of roles, rules and skills</a></li><li><a href="features/skills.html">38 skills by stack</a></li><li><a href="features/conventions.html">Conventions in plain words</a></li><li><a href="features/scout.html">The library scout</a></li><li><a href="features/cli-skills.html">Skills for command-line tools</a></li></ul></section><section class="fam" aria-labelledby="fam-claude"><span class="gi"><svg aria-hidden="true"><use href="#g-bot"/></svg></span><h3 id="fam-claude"><a href="features.html#claude">Claude Code, artifacts and the scheduler</a></h3><p>Everything Claude Code knows on this machine, in one view, and Claude tasks on a schedule.</p><ul><li><a href="features/claude-view.html">The Claude Code view</a></li><li><a href="features/artifacts.html">claude.ai artifacts</a></li><li><a href="features/scheduler.html">The scheduler</a></li></ul></section><section class="fam" aria-labelledby="fam-ci"><span class="gi"><svg aria-hidden="true"><use href="#g-workflow"/></svg></span><h3 id="fam-ci"><a href="features.html#ci">CI/CD</a></h3><p>GitHub Actions runs and logs without leaving the app, and a failure sent back to the agent that caused it.</p><ul><li><a href="features/ci.html">CI/CD</a></li></ul></section><section class="fam" aria-labelledby="fam-visual"><span class="gi"><svg aria-hidden="true"><use href="#g-scan-eye"/></svg></span><h3 id="fam-visual"><a href="features.html#visual">Design and visual review</a></h3><p>Your design system read from the code, with its inconsistencies, and before and after screenshots of every changed screen.</p><ul><li><a href="features/visual-review.html">Visual review</a></li><li><a href="features/design-system.html">The Design system view</a></li></ul></section><section class="fam" aria-labelledby="fam-machine"><span class="gi"><svg aria-hidden="true"><use href="#g-key-round"/></svg></span><h3 id="fam-machine"><a href="features.html#machine">Keys, vault and sync</a></h3><p>SSH keys, a vault for passwords and secrets, and your settings synced across machines, encrypted.</p><ul><li><a href="features/ssh-keys.html">SSH and keys</a></li><li><a href="features/vault.html">The vault and passwords</a></li><li><a href="features/sync.html">Encrypted sync</a></li></ul></section><section class="fam" aria-labelledby="fam-security"><span class="gi"><svg aria-hidden="true"><use href="#g-shield-check"/></svg></span><h3 id="fam-security"><a href="features.html#security">Security</a></h3><p>Guard rails on your machine, and plain words about what they do not cover.</p><ul><li><a href="features/guard.html">The run guard</a></li><li><a href="features/local-api.html">The isolated local API</a></li><li><a href="features/security-input.html">Secrets and untrusted input</a></li></ul></section><section class="fam" aria-labelledby="fam-cli"><span class="gi"><svg aria-hidden="true"><use href="#g-square-terminal"/></svg></span><h3 id="fam-cli"><a href="features.html#cli">The termf command line</a></h3><p>Everything the app does, from any terminal. It ships inside the app.</p><ul><li><a href="features/cli.html">The termf command line</a></li></ul></section><a class="fam-all" href="features.html"><b>Browse all 41 features</b><span>Each with what works out of the box, what you can tune, and its limits.</span></a><!-- /gen:groups --></div>  </div>
 </section>
 
 <section aria-labelledby="term-h">
@@ -277,8 +256,8 @@ alex@mbp api % </pre></div>
       </div>
     </figure>
     <div class="text">
-      <h2 id="term-h">Every Claude Code in view</h2>
-      <p>Terminals work like Ghostty: tabs, free splits, and a second panel beside any view. Each Claude Code session shows its state and its context gauge, and a notification tells you when one needs you. When a session fills its context, TermF can hand it off, clear it and resume, on its own.</p>
+      <h2 id="term-h">Every Claude Code in one window</h2>
+      <p>Open Claude Code, or a shell, in any repository: tabs and free splits, as in the Ghostty terminal. Each session shows whether it is working, waiting for you or done, and how full its context is. A notification tells you when one needs you.</p>
       <dl class="keys">
         <dt><kbd>⌘T</kbd></dt><dd>A new session, Claude Code or a shell, in any repository</dd>
         <dt><kbd>⌘D</kbd> · <kbd>⌘⇧D</kbd></dt><dd>Split right, split down</dd>
@@ -286,54 +265,33 @@ alex@mbp api % </pre></div>
         <dt><kbd>⌘J</kbd></dt><dd>The next thing waiting for you, in any project</dd>
         <dt><kbd>?</kbd></dt><dd>Every shortcut, all of them remappable</dd>
       </dl>
-      <a class="more" href="features/terminals.html" style="margin-top:24px">Terminals, splits and status</a>
+      <p><a class="more" href="features/terminals.html">Terminals, splits and status</a></p>
     </div>
-  </div>
-</section>
-
-<section aria-labelledby="stack-h">
-  <div class="wrap split">
-    <div class="text">
-      <h2 id="stack-h">It fits your stack</h2>
-      <p>TermF reads each repository's stack and versions and turns on the matching skills. Thirty-eight ship for stacks, seven for the command-line tools every agent uses, from git to jq, and five for brand, words and video; the skills your installed packages bring are picked up too, once you trust the repository. A setup assistant reads a new project and proposes its team, skills, ticket sources and worktree recipe, item by item.</p>
-      <p>Each run works in a worktree inside the repository, so Claude Code's trust carries over. The project's recipe installs dependencies without copying them raw, points <code>.env</code> files to the worktree, gives it its own database copy (Postgres, MySQL, SQLite) and its own ports.</p>
-      <p><a class="more" href="features/skills.html">Skills by stack</a>&nbsp;&nbsp;&nbsp;<a class="more" href="features/worktrees.html">Worktrees ready to run</a></p>
-    </div>
-    <ul class="tags" aria-label="The 38 stack skills that ship with TermF">
-      <li>accessibility</li><li>angular</li><li>cloud</li><li>csharp-dotnet</li><li>css-tailwind</li><li>django</li><li>docker</li><li>fastapi</li><li>github-actions</li><li>go</li><li>java-spring</li><li>javascript-node</li><li>junit</li><li>kotlin-android</li><li>kubernetes</li><li>mongodb</li><li>mysql</li><li>nextjs</li><li>pest</li><li>php-laravel</li><li>playwright</li><li>pytest</li><li>python</li><li>react</li><li>redis</li><li>rspec</li><li>ruby-rails</li><li>rust</li><li>security-web</li><li>seo</li><li>sql-postgres</li><li>svelte-sveltekit</li><li>swift-ios</li><li>terraform</li><li>testing-js</li><li>tests-from-criteria</li><li>typescript</li><li>vue-nuxt</li>
-    </ul>
   </div>
 </section>
 
 <section aria-labelledby="safe-h">
-  <div class="wrap split flip">
-    <div class="board">
-      <div class="bay"><p class="plate">Guard rails</p><ol class="strips">
-        <li class="strip" data-state="done"><span class="cs">Guard<small>termf guard</small></span><span class="what">Refuses pushes, pull requests and tracker writes in a run's sessions; no run starts without it</span><span class="st">Every run</span></li>
-        <li class="strip" data-state="done"><span class="cs">Delivery<small>two steps</small></span><span class="what">A preview of the files and commits, then your confirmation</span><span class="st">Every pull request</span></li>
-        <li class="strip" data-state="done"><span class="cs">Local API<small>per session</small></span><span class="what">A narrow token per agent; the actions that matter wait for you in the app</span><span class="st">Every session</span></li>
-        <li class="strip" data-state="done"><span class="cs">Tickets<small>untrusted</small></span><span class="what">A ticket reaches the agent as a framed file, marked as data</span><span class="st">Every brief</span></li>
-        <li class="strip" data-state="done"><span class="cs">Secrets<small>denied</small></span><span class="what"><code>.env</code> files and private keys are kept from the sessions TermF starts</span><span class="st">Every session</span></li>
-      </ol></div>
-    </div>
-    <div class="text">
-      <h2 id="safe-h">Safe by default, honest about limits</h2>
-      <p>No TermF server and no telemetry. Your code goes where Claude Code sends it, to the model, as it would without TermF; the other connections are the ones you set up, GitHub or Jira for tickets and the remote you pick for the sync.</p>
-      <p>The guard rails are defense in depth on one machine, not an operating system boundary: a script an agent writes and then runs can still get around them. The security page says exactly what is covered and what is not.</p>
-      <a class="more" href="security.html">Security, and its limits</a>
-    </div>
-  </div>
-</section>
-
-<section aria-labelledby="rest-h">
   <div class="wrap">
-    <h2 id="rest-h">And the chores around the agents</h2>
-    <div class="legend">
-      <div><h3>Claude Code, all of it</h3><p>Settings, permissions and hooks by scope, MCP servers, plugins, skills, memory files, past sessions, usage and limits, and a sortable table of your claude.ai artifacts. <a href="features.html#claude">All the Claude Code features</a></p></div>
-      <div><h3>Keys, sync and vault</h3><p>SSH keys in every format with the agent and <code>~/.ssh/config</code>, settings synced across machines and encrypted end to end, and a vault for secrets, logins and secure notes. <a href="features.html#machine">Keys, vault and sync in detail</a></p></div>
-      <div><h3>Git, CI and schedules</h3><p>Each repository's branches, worktrees and commit graph with the everyday actions, GitHub Actions runs and logs with the failure sent back to the agent, Claude tasks on a schedule even while TermF is closed, and a file explorer with an editor and diffs. <a href="features/git.html">Git in the project</a> · <a href="features.html#ci">CI/CD in detail</a></p></div>
+    <div class="sec-head">
+      <h2 id="safe-h">You stay in control</h2>
+      <p>The team prepares the work. You decide what goes ahead, and what leaves your machine.</p>
     </div>
-    <p style="margin-top:28px"><a class="more" href="features.html">Every feature, with its defaults</a></p>
+    <div class="trio">
+      <div><span class="gi">
+        <svg aria-hidden="true"><use href="#g-badge-check"/></svg></span>
+        <h3>You approve the key steps</h3>
+        <p>The team stops for you at the key steps: how it will handle the ticket, the plan, and the delivery; every action the CTO takes waits for your OK too. Its questions come with proposed answers, so you only change what does not suit you. Nothing is pushed and no pull request opens without your click.</p>
+      </div>
+      <div><span class="gi"><svg aria-hidden="true"><use href="#g-laptop"/></svg></span>
+        <h3>It runs on your machine</h3>
+        <p>No TermF server, no telemetry, no account. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up: GitHub or Jira for tickets, a remote for the sync.</p>
+      </div>
+      <div><span class="gi"><svg aria-hidden="true"><use href="#g-code-xml"/></svg></span>
+        <h3>Open source, honest about limits</h3>
+        <p>MIT license, the whole source on GitHub. The guard rails are defense in depth on one machine, not a sandbox: a script an agent writes and then runs can still get around them. The security page says exactly what is covered.</p>
+        <p><a class="more" href="security.html">Security, and its limits</a></p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -354,7 +312,7 @@ alex@mbp api % </pre></div>
 
 <section class="close" aria-labelledby="close-h">
   <div class="wrap">
-    <div><h2 id="close-h">Put a team on your next ticket</h2></div>
+    <div><h2 class="display" id="close-h">Put a team on your next ticket</h2></div>
     <div><p>Free and open source, for macOS, Windows and Linux. You keep every decision.</p><a class="pill big" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a></div>
   </div>
 </section>
@@ -367,7 +325,7 @@ alex@mbp api % </pre></div>
         <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
         <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
       </div>
-      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
       <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
       <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
     </div>
@@ -379,112 +337,75 @@ alex@mbp api % </pre></div>
 <script>
 const nav = document.getElementById('nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {passive: true});
+const menu = nav.querySelector('.menu');
+menu.addEventListener('click', e => { if (e.target.closest('a')) menu.open = false; });
+addEventListener('click', e => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.open = false; menu.querySelector('summary').focus(); } });
 
-// The demo run: strips move between bays by transform only, so the board never shifts the page
+// The demo run: each frame is one moment of the run, and the numbered steps say in plain words where it is
 (() => {
-  const run = document.getElementById('run'), cto = document.getElementById('cto'), play = document.getElementById('play'), replay = document.getElementById('replay');
-  const bays = {}, held = {wait: [], duty: [], done: []}, strips = {};
-  for (const ol of run.querySelectorAll('[data-bay]')) bays[ol.dataset.bay] = ol;
-  const who = {cto: ['CTO', 'opus · high'], po: ['PO', 'opus · high'], lead: ['Lead', 'opus · high'], back: ['Back', 'sonnet · high'],
-    front: ['Front', 'sonnet · high'], qa: ['QA', 'sonnet · high'], checks: ['Checks', 'shell · rules'], rev: ['Reviewer', 'opus · high'],
-    sec: ['SecOps', 'opus · xhigh'], pr: ['Delivery', 'you']};
-  const label = {working: 'Working', waiting: 'Waits for you', done: 'Done'};
-  function put(id, bay, state, what, sub, gate) {
-    let s = strips[id];
-    if (!s) {
-      s = strips[id] = document.createElement('div');
-      s.className = 'strip';
-      s.dataset.fresh = 1;
-      run.append(s);
-    }
-    for (const b in held) held[b] = held[b].filter(x => x !== id);
-    if (bay === 'done') held.done.unshift(id); else held[bay].push(id);
-    s.dataset.state = state;
-    s.classList.toggle('cocked', bay === 'wait');
-    s.innerHTML = `<span class="cs">${who[id][0]}<small>${who[id][1]}</small></span><span class="what">${what}<small>${sub}</small></span>`
-      + `<span class="st">${label[state]}${gate ? `<br><button type="button" class="gate">${gate}</button>` : ''}</span>`;
-    if (gate) s.querySelector('.gate').onclick = e => { e.currentTarget.disabled = true; next(); };
-  }
-  // Steps slide the strips; a resize (fonts, window) puts them in place at once
-  function layout(still) {
-    const box = run.getBoundingClientRect(), css = getComputedStyle(run);
-    const h = parseFloat(css.getPropertyValue('--slot')), gap = parseFloat(css.getPropertyValue('--slot-gap'));
-    for (const bay in held) {
-      const r = bays[bay].getBoundingClientRect(), keep = +bays[bay].style.getPropertyValue('--n');
-      bays[bay].parentNode.classList.toggle('empty', !held[bay].length);
-      held[bay].forEach((id, i) => {
-        const s = strips[id], fresh = s.dataset.fresh || still === true;
-        if (fresh) s.style.transition = 'none';
-        s.style.width = r.width + 'px';
-        s.style.setProperty('--x', r.left - box.left + 'px');
-        s.style.setProperty('--y', r.top - box.top + i * (h + gap) + 'px');
-        if (fresh) { s.offsetWidth; s.style.transition = ''; delete s.dataset.fresh; }
-        s.style.opacity = i < keep ? 1 : 0;
-      });
-      // Strips pushed out of a full bay fade, then leave
-      for (const id of held[bay].splice(keep)) { const s = strips[id]; delete strips[id]; setTimeout(() => s.remove(), 600); }
-    }
-  }
-  const say = t => { cto.textContent = t; };
-  const steps = [
-    () => { say("I'll start the team on #57. Starting a run needs your approval."); put('cto', 'wait', 'waiting', 'Start a team run', 'acme/platform#57', 'Allow'); },
-    () => { say('Triaging #57: the workflow, the steps, the squads, the budget.'); put('cto', 'duty', 'working', 'Triage of #57', 'reads the repositories'); },
-    () => { say('Here is the path I propose. It waits for you.'); put('cto', 'wait', 'waiting', 'Path: default workflow', 'one squad, a $15 budget', 'Approve the path'); },
-    () => { say('The product owner is framing the ticket.'); put('cto', 'done', 'done', 'Path approved', 'default workflow, one squad'); put('po', 'duty', 'working', 'Framing the ticket', 'reads the code, changes nothing'); },
-    () => { say('The lead is planning the tasks.'); put('po', 'done', 'done', '3 acceptance criteria', 'one item out of scope'); put('lead', 'duty', 'working', 'Planning the tasks', 'what each covers and needs'); },
-    () => { say('The plan is ready: three tasks. It waits for your approval.'); put('lead', 'wait', 'waiting', 'The plan: 3 tasks', 'covers AC1 to AC3', 'Approve the plan'); },
-    () => { say('Back and front work in parallel, each in its own worktree.'); put('lead', 'done', 'done', 'Plan approved', 'back, front, then qa'); put('back', 'duty', 'working', 'CSV writer, accountant format', 'worktree team/57/back'); put('front', 'duty', 'working', 'Export button, Invoices page', 'worktree team/57/front'); },
-    () => { say('Back is done and merged into the run. Front is still at it.'); put('back', 'done', 'done', 'CSV writer', 'merged into the run'); },
-    () => { say('QA checks each acceptance criterion with evidence.'); put('front', 'done', 'done', 'Export button', 'merged into the run'); put('qa', 'duty', 'working', 'Checks AC1 to AC3', 'with evidence, adds tests'); },
-    () => { say("Running the repository's checks, then the project's rules."); put('qa', 'done', 'done', 'AC1 to AC3 covered', 'two regression tests added'); put('checks', 'duty', 'working', 'Lint, tests, build, rules', "on the run's worktree"); },
-    () => { say('The reviewer reads the integrated diff.'); put('checks', 'done', 'done', 'Checks and rules passed', "on the run's worktree"); put('rev', 'duty', 'working', 'Code review of the run', 'criteria and conventions'); },
-    () => { say('Review clean. The security reviewer goes over the diff.'); put('rev', 'done', 'done', 'Review: no finding left', 'round 1'); put('sec', 'duty', 'working', 'Security review', 'vulnerabilities, abuse cases'); },
-    () => { say('Ready to deliver. You see what it will send, then you confirm.'); put('sec', 'done', 'done', 'Security: no finding', 'two passes'); put('pr', 'wait', 'waiting', 'Ready to deliver', '6 files, 4 commits', 'Deliver'); },
-    () => { say('Delivered: the pull request is open.'); put('pr', 'done', 'done', 'Pull request opened', 'Closes #57'); },
+  const run = document.getElementById('run'), cto = document.getElementById('cto'), list = document.getElementById('strips');
+  const steps = [...run.querySelectorAll('.demo-steps li')], play = document.getElementById('play'), replay = document.getElementById('replay');
+  const label = {working: 'Working', waiting: 'Waits for you', done: 'Done', queued: 'Next'};
+  // [step, what the CTO says, strips: [who, model, what, detail, state, gate]]
+  const frames = [
+    [0, "I'll put the team on #57. Starting the team needs your OK.", [['CTO', 'your contact', 'Start the team', 'acme/platform#57', 'waiting', 'Allow'], ['PO', 'product owner', 'Frames the ticket', 'after the CTO', 'queued'], ['Lead', 'tech lead', 'Plans the tasks', 'after the product owner', 'queued']]],
+    [1, 'Here is how the team will handle it: the default steps and a $15 budget.', [['CTO', 'your contact', 'Team started', 'you allowed it', 'done'], ['CTO', 'your contact', 'The team and the budget', 'product owner, lead, back, front, QA, reviewers · $15', 'waiting', 'Approve'], ['PO', 'product owner', 'Frames the ticket', 'next', 'queued']]],
+    [2, "The product owner wrote 3 acceptance criteria. The lead's plan has 3 tasks, and it waits for you.", [['PO', 'product owner', '3 acceptance criteria', 'one item out of scope', 'done'], ['Lead', 'tech lead', 'The plan: 3 tasks', 'back, front, then QA', 'waiting', 'Approve the plan'], ['Back', 'back-end', 'CSV writer, accountant format', 'starts once you approve', 'queued']]],
+    [3, 'Back and front work at the same time, each in its own copy of the repository.', [['Back', 'back-end', 'CSV writer, accountant format', 'worktree team/57/back', 'working'], ['Front', 'front-end', 'Export button, Invoices page', 'worktree team/57/front', 'working'], ['QA', 'QA engineer', 'Checks each criterion', 'once back and front are done', 'queued']]],
+    [4, "Tests and the project's rules pass. The reviewer and the security reviewer go over the whole change.", [['QA', 'QA engineer', 'AC1 to AC3 covered', 'two regression tests added', 'done'], ['Review', 'code reviewer', 'Code review: no finding left', 'round 1', 'done'], ['SecOps', 'security', 'Security review', 'vulnerabilities, abuse cases', 'working']]],
+    [5, 'Ready to deliver: 6 files, 4 commits. You see exactly what will be sent first.', [['SecOps', 'security', 'Security: no finding', 'two passes', 'done'], ['Delivery', 'you', 'Ready to deliver', '6 files, 4 commits', 'waiting', 'Deliver'], ['PR', 'github', 'Pull request', 'opens when you deliver', 'queued']]],
+    [5, 'Delivered: the pull request is open.', [['SecOps', 'security', 'Security: no finding', 'two passes', 'done'], ['Delivery', 'you', 'Delivered', '6 files, 4 commits', 'done'], ['PR', 'github', 'Pull request opened', 'Closes #57', 'done']]],
   ];
-  // With reduced motion the run never moves on its own: each step waits for a click
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let at = 0, timer = 0, paused = still;
-  const gate = () => run.querySelector('.cocked .gate:not(:disabled)');
-  function control() {
-    play.hidden = at === steps.length;
-    play.textContent = gate() ? 'Continue' : still ? 'Next step' : paused ? 'Play' : 'Pause';
-  }
-  function schedule() {
-    clearTimeout(timer);
-    if (!paused && at < steps.length && !gate()) timer = setTimeout(next, 1700);
-  }
-  function next() {
-    if (at >= steps.length) return;
-    steps[at++]();
-    layout();
+  // The page is served with the first frame already drawn: the first call only wires it up, with no entrance
+  function show(i, first) {
+    at = i;
+    const [step, says, strips] = frames[i];
+    cto.textContent = says;
+    list.innerHTML = strips.map(([who, model, what, sub, state, gate]) =>
+      `<li class="strip" data-state="${state}"><span class="cs">${who}<small>${model}</small></span><span class="what">${what}<small>${sub}</small></span>`
+      + `<span class="st">${label[state]}${gate ? `<button type="button" class="gate">${gate}</button>` : ''}</span></li>`).join('');
+    steps.forEach((li, n) => {
+      const b = li.firstElementChild;
+      li.className = n < step || (n === step && i === frames.length - 1) ? 'past' : n === step ? 'now' : '';
+      if (n === step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+    });
+    const gate = list.querySelector('.gate');
+    if (gate) gate.onclick = () => next(true);
+    run.classList.remove('fresh');
+    if (!first) {
+      run.offsetWidth;
+      run.classList.add('fresh');
+    }
     control();
     schedule();
   }
-  // The page opens on the plan's gate, the steps before it already played, as the static board shows them
-  for (const ol of Object.values(bays)) ol.textContent = '';
-  run.classList.add('on');
-  while (at < 6) steps[at++]();
-  layout();
-  control();
-  replay.hidden = false;
+  function next(manual) {
+    if (at < frames.length - 1) show(at + 1);
+    else if (manual) show(0);
+  }
+  function control() {
+    const end = at === frames.length - 1;
+    play.hidden = end && !still;
+    play.textContent = still ? (end ? 'Start again' : 'Next step') : paused ? 'Play' : 'Pause';
+    run.classList.toggle('playing', !paused && !end);
+  }
+  function schedule() {
+    clearTimeout(timer);
+    if (!paused && at < frames.length - 1) timer = setTimeout(next, 4800);
+  }
+  for (const li of steps) li.firstElementChild.onclick = e => { paused = true; show(+e.currentTarget.dataset.frame); };
   play.onclick = () => {
-    const g = gate();
-    if (g) return g.click();
-    if (still) return next();
+    if (still) return next(true);
     paused = !paused;
     control();
     schedule();
   };
-  replay.onclick = () => {
-    clearTimeout(timer);
-    for (const id in strips) { strips[id].remove(); delete strips[id]; }
-    for (const b in held) held[b] = [];
-    at = 0;
-    next();
-  };
-  // The board's height moves with the fonts and the width with the window: place the strips again each time
-  new ResizeObserver(() => layout(true)).observe(run);
+  replay.onclick = () => { if (!still) paused = false; show(0); };
+  play.hidden = replay.hidden = false;
+  show(0, true);
 })();
 </script>
 </body>

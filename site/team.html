@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>The CTO and the team · TermF</title>
-<meta name="description" content="How TermF's team of Claude Code agents is built: the CTO you talk to, the 17 roles that ship with their models and effort, squads for bigger projects, the code review loop, the security review and the project expert with its memory.">
+<title>The team · TermF, the CTO and its Claude Code agents</title>
+<meta name="description" content="Meet TermF's team of Claude Code agents: the CTO you talk to, then the product, build, quality, security and creative agents, each with its job, its model, its permissions and what it never does, and how they work together on a ticket.">
 <link rel="canonical" href="https://vassilidev.github.io/TermF/team.html">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="TermF">
-<meta property="og:title" content="The CTO and the team of agents, in TermF">
-<meta property="og:description" content="One agent you talk to, 17 roles that ship, squads, a review loop and a project expert that answers from the project's memory.">
+<meta property="og:title" content="The team of Claude Code agents in TermF">
+<meta property="og:description" content="The CTO you talk to, and an agent for every job: what each one does, when it is called, what it never does, and how they work together on a ticket.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/team.html">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta property="og:image:type" content="image/png">
@@ -17,8 +17,8 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="The CTO and the team of agents, in TermF">
-<meta name="twitter:description" content="One agent you talk to, 17 roles that ship, squads, a review loop and a project expert that answers from the project's memory.">
+<meta name="twitter:title" content="The team of Claude Code agents in TermF">
+<meta name="twitter:description" content="The CTO you talk to, and an agent for every job: what each one does, when it is called, what it never does, and how they work together on a ticket.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
@@ -37,8 +37,8 @@
   "@graph": [
     {
       "@type": "TechArticle",
-      "headline": "The CTO and the team",
-      "description": "The CTO, the 17 shipped roles, squads, the review loop and the project expert of TermF.",
+      "headline": "The team",
+      "description": "The CTO and the team of Claude Code agents of TermF: each agent's job, model and permissions, and how they work together on a ticket.",
       "url": "https://vassilidev.github.io/TermF/team.html",
       "datePublished": "2026-11-22",
       "dateModified": "2026-11-22",
@@ -62,7 +62,7 @@
         {
           "@type": "ListItem",
           "position": 2,
-          "name": "The CTO and the team",
+          "name": "The team",
           "item": "https://vassilidev.github.io/TermF/team.html"
         }
       ]
@@ -75,104 +75,120 @@
 <a class="skip" href="#main">Skip to content</a>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
-  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
-  <symbol id="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
-  <symbol id="i-pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="2.6 3"/></symbol>
-  <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7M17 12H7"/></symbol>
-  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
-  <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.63l-19 6.5a.5.5 0 0 0-.02.93l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
-  <symbol id="i-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
-  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
-  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
-  <symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2M13 17v2M13 11v2"/></symbol>
-  <symbol id="i-files" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 5a2 2 0 0 0 2 2h3"/><path d="M3 3v13a2 2 0 0 0 2 2h3"/></symbol>
-  <symbol id="i-ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
-  <symbol id="i-git" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="16" r="1"/><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></symbol>
-  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
-  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
-  <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
 </svg>
 
 <header class="nav" id="nav">
   <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
   <nav class="links" aria-label="Main">
     <a href="features.html">Features</a>
+    <a href="team.html" aria-current="page">Team</a>
     <a href="how-it-works.html">How it works</a>
     <a href="security.html">Security</a>
     <a href="./#faq">FAQ</a>
     <a href="https://github.com/vassilidev/TermF">GitHub</a>
   </nav>
   <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+  <details class="menu">
+    <summary aria-label="Menu"><svg class="i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg><svg class="i-close" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></summary>
+    <nav class="menu-links" aria-label="Menu">
+      <a href="features.html">Features</a>
+      <a href="team.html" aria-current="page">Team</a>
+      <a href="how-it-works.html">How it works</a>
+      <a href="security.html">Security</a>
+      <a href="./#faq">FAQ</a>
+      <a href="https://github.com/vassilidev/TermF">GitHub</a>
+      <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+    </nav>
+  </details>
 </header>
 
 <main id="main">
 <header class="page-head">
   <div class="wrap">
-    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><a href="features.html">Features</a><span aria-hidden="true">/</span><span>The CTO and the team</span></p>
-    <h1>The CTO and the team</h1>
-    <p class="lead">You talk to one agent. Behind it, a team of Claude Code agents with a role each, sized to the ticket, working in parallel and checking each other's work.</p>
+    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><span>The team</span></p>
+    <h1>The team: <!-- gen:count -->25<!-- /gen:count --> agents, and you talk to one</h1>
+    <p class="lead">Each agent is a Claude Code session with one job, its own model and its own permissions. You talk to the CTO: it reads your request, brings in the agents the ticket needs, and comes back to you at the key steps.</p>
   </div>
 </header>
 
-<div class="wrap article">
-  <nav class="toc" aria-label="On this page">
-    <p>On this page</p>
+<div class="wrap team-org" id="roles">
+<!-- gen:roster --><div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-cto"><li><a href="team.html#role-cto"><span class="mark" aria-hidden="true">CTO</span><span class="rn">CTO</span><span class="rs">Your one point of contact</span></a></li><li><a href="team.html#role-expert"><span class="mark" aria-hidden="true">EX</span><span class="rn">Project expert</span><span class="rs">Answers about the project</span></a></li></ul><div class="org-cols" style="--cols:4"><div class="org-col c-product"><p class="oh" id="org-product">Product and design</p><ul aria-labelledby="org-product"><li><a href="team.html#role-pm"><span class="mark" aria-hidden="true">PM</span><span class="rn">Product manager</span><span class="rs">Writes the PRD of a vague epic</span></a></li><li><a href="team.html#role-po"><span class="mark" aria-hidden="true">PO</span><span class="rn">Product owner</span><span class="rs">Frames the ticket</span></a></li><li><a href="team.html#role-ux"><span class="mark" aria-hidden="true">UX</span><span class="rn">UX designer</span><span class="rs">Specifies flows and states</span></a></li><li><a href="team.html#role-architect"><span class="mark" aria-hidden="true">AR</span><span class="rn">Architect</span><span class="rs">Settles design decisions</span></a></li></ul></div><div class="org-col c-build"><p class="oh" id="org-build">Plan and build</p><ul aria-labelledby="org-build"><li><a href="team.html#role-lead"><span class="mark" aria-hidden="true">LE</span><span class="rn">Tech lead</span><span class="rs">Plans the tasks</span></a></li><li><a href="team.html#role-front"><span class="mark" aria-hidden="true">FR</span><span class="rn">Front-end developer</span><span class="rs">Builds the interface</span></a></li><li><a href="team.html#role-back"><span class="mark" aria-hidden="true">BA</span><span class="rn">Back-end developer</span><span class="rs">Builds the API and the data</span></a></li><li><a href="team.html#role-devops"><span class="mark" aria-hidden="true">DE</span><span class="rn">DevOps engineer</span><span class="rs">CI, infrastructure, dependencies</span></a></li><li><a href="team.html#role-seo"><span class="mark" aria-hidden="true">SEO</span><span class="rn">SEO engineer</span><span class="rs">Search, sharing and speed</span></a></li></ul></div><div class="org-col c-quality"><p class="oh" id="org-quality">Quality and security</p><ul aria-labelledby="org-quality"><li><a href="team.html#role-qa"><span class="mark" aria-hidden="true">QA</span><span class="rn">QA engineer</span><span class="rs">Proves each criterion</span></a></li><li><a href="team.html#role-reviewer"><span class="mark" aria-hidden="true">RE</span><span class="rn">Code reviewer</span><span class="rs">Reviews the whole change</span></a></li><li><a href="team.html#role-secops"><span class="mark" aria-hidden="true">SEC</span><span class="rn">Security reviewer</span><span class="rs">Looks for vulnerabilities</span></a></li></ul></div><div class="org-col c-creative"><p class="oh" id="org-creative">Brand, words and video</p><ul aria-labelledby="org-creative"><li><a href="team.html#role-brand"><span class="mark" aria-hidden="true">BR</span><span class="rn">Brand designer</span><span class="rs">Logo, guidelines, design system</span></a></li><li><a href="team.html#role-copy"><span class="mark" aria-hidden="true">CO</span><span class="rn">UX writer</span><span class="rs">Interface text and docs</span></a></li><li><a href="team.html#role-motion"><span class="mark" aria-hidden="true">MO</span><span class="rn">Motion designer</span><span class="rs">Videos and animations</span></a></li></ul></div><div class="org-col c-specialists wide"><p class="oh" id="org-specialists">Specialists</p><ul aria-labelledby="org-specialists"><li><a href="team.html#role-dba"><span class="mark" aria-hidden="true">DBA</span><span class="rn">Database engineer</span><span class="rs">Schema, migrations, queries</span></a></li><li><a href="team.html#role-docs"><span class="mark" aria-hidden="true">DOC</span><span class="rn">Technical writer</span><span class="rs">README, API docs, changelog</span></a></li><li><a href="team.html#role-integrations"><span class="mark" aria-hidden="true">INT</span><span class="rn">Integration engineer</span><span class="rs">Payments, SSO, webhooks</span></a></li><li><a href="team.html#role-sre"><span class="mark" aria-hidden="true">SRE</span><span class="rn">Site reliability engineer</span><span class="rs">Monitoring, alerts, load tests</span></a></li><li><a href="team.html#role-a11y"><span class="mark" aria-hidden="true">A11Y</span><span class="rn">Accessibility auditor</span><span class="rs">Audits WCAG and RGAA</span></a></li><li><a href="team.html#role-ai"><span class="mark" aria-hidden="true">AI</span><span class="rn">AI engineer</span><span class="rs">Prompts, RAG, evaluations</span></a></li><li><a href="team.html#role-analytics"><span class="mark" aria-hidden="true">AN</span><span class="rn">Product analyst</span><span class="rs">Events, funnels, dashboards</span></a></li><li><a href="team.html#role-legal"><span class="mark" aria-hidden="true">LAW</span><span class="rn">Compliance analyst</span><span class="rs">Terms, privacy, consent</span></a></li></ul></div></div></div><!-- /gen:roster -->
+</div>
+
+<section class="wrap flow-sec" aria-labelledby="flow-h">
+  <div class="sec-head">
+    <h2 id="flow-h">How they work together on a ticket</h2>
+    <p>The same six steps as the demo on the home page, with the agents behind each one. The amber steps wait for you; nothing moves on until you click.</p>
+  </div>
+  <ol class="flow">
+    <li style="--i:0">
+      <h3><span class="n">1</span>You ask the CTO</h3>
+      <p class="marks"><span class="mark you">You</span><span class="mark c-cto">CTO</span></p>
+      <p>You describe the work in your own words, or pick a ticket. The CTO asks before it starts the team.</p>
+      <p class="gate-tag">You approve</p>
+    </li>
+    <li style="--i:1">
+      <h3><span class="n">2</span>The CTO picks the team</h3>
+      <p class="marks"><span class="mark c-cto">CTO</span></p>
+      <p>It picks the steps, the agents and the budget for this ticket.</p>
+      <p class="gate-tag">You approve</p>
+    </li>
+    <li style="--i:2">
+      <h3><span class="n">3</span>You approve the plan</h3>
+      <p class="marks"><span class="mark c-product">PO</span><span class="mark c-product opt">PM</span><span class="mark c-product opt">UX</span><span class="mark c-product opt">AR</span><span class="mark c-build">LE</span></p>
+      <p>The product owner writes the acceptance criteria and asks what is still open; the tech lead splits the work into tasks.</p>
+      <p class="gate-tag">You approve</p>
+    </li>
+    <li style="--i:3">
+      <h3><span class="n">4</span>Agents work in parallel</h3>
+      <p class="marks"><span class="mark c-build">FR</span><span class="mark c-build">BA</span><span class="mark c-build">DE</span><span class="mark c-build">SEO</span><span class="mark c-creative opt">BR</span><span class="mark c-creative opt">CO</span><span class="mark c-creative opt">MO</span><span class="mark c-quality">QA</span></p>
+      <p>Up to four at once, each in its own copy of the repository. On medium and large tickets, QA comes last and proves each criterion.</p>
+    </li>
+    <li style="--i:4">
+      <h3><span class="n">5</span>Checks and reviews</h3>
+      <p class="marks"><span class="mark c-quality">RE</span><span class="mark c-quality">SEC</span><span class="mark c-specialists opt">DBA</span></p>
+      <p>The repository's tests and rules run, then the code review and the security review; the database engineer reviews any migration.</p>
+    </li>
+    <li style="--i:5">
+      <h3><span class="n">6</span>You approve the delivery</h3>
+      <p class="marks"><span class="mark you">You</span></p>
+      <p>You see the files and commits that will be sent, then the pull request opens.</p>
+      <p class="gate-tag">You approve</p>
+    </li>
+  </ol>
+  <p class="flow-note">The faded marks join only when a ticket needs them: the product manager for a vague epic, UX when the interface changes without a design, the architect for a large decision, brand, copy and motion when it asks for an identity, words or a video, and the specialists when it touches their field.</p>
+</section>
+
+<div class="wrap crews">
+<p class="crews-key">Each card says what the agent does, when it is called, what it never does, the Claude model it runs on and how much effort it puts in, and what it may touch.</p>
+<!-- gen:team --><section class="crew c-cto" id="contact" aria-labelledby="crew-contact"><header><h2 id="crew-contact">The CTO and the expert</h2><p>The CTO is your one point of contact. The expert answers your questions about the project.</p></header><div class="agents"><article class="agent big" id="role-cto"><header><span class="mark" aria-hidden="true">CTO</span><div><h3>CTO</h3><code>cto</code></div></header><p>Reads each request, decides how the team takes it on, and brings back what the team needs from you.</p><dl><div><dt>Called</dt><dd>First, on every request: it triages the run, and plans the squads' work when there are several.</dd></div><div><dt>Never</dt><dd>Writes code or edits a file: it only reads the repositories.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li></ul></article><article class="agent" id="role-expert"><header><span class="mark" aria-hidden="true">EX</span><div><h3>Project expert</h3><code>expert</code></div></header><p>Answers questions about the project, how a part works, why, where it lives, what was decided, with its sources.</p><dl><div><dt>Called</dt><dd>When you switch the Home's conversation to Expert, and when the CTO, the product owner, the product manager or the architect has a doubt.</dd></div><div><dt>Never</dt><dd>Edits a file, runs a command or browses the web. It is never given a task.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li><li>No shell</li><li>No web</li></ul></article></div></section>
+<section class="crew c-product" id="product" aria-labelledby="crew-product"><header><h2 id="crew-product">Product and design</h2><p>They settle what to build and how it should work, before any code.</p></header><div class="agents"><article class="agent" id="role-pm"><header><span class="mark" aria-hidden="true">PM</span><div><h3>Product manager</h3><code>pm</code></div></header><p>Turns a vague request into a short PRD: the problem, measurable goals, non-goals, risks, and questions for you.</p><dl><div><dt>Called</dt><dd>Before the product owner, for a vague epic. Optional.</dd></div><div><dt>Never</dt><dd>Touches code, the ticket or the acceptance criteria.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li></ul></article><article class="agent" id="role-po"><header><span class="mark" aria-hidden="true">PO</span><div><h3>Product owner</h3><code>po</code></div></header><p>Frames the ticket before any work: testable acceptance criteria with their source, what is out of scope, and a questionnaire for what is left open.</p><dl><div><dt>Called</dt><dd>On every run, right after the triage. Skipped only for an obvious urgent fix.</dd></div><div><dt>Never</dt><dd>Touches code, or changes the ticket without your approval.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li></ul></article><article class="agent" id="role-ux"><header><span class="mark" aria-hidden="true">UX</span><div><h3>UX designer</h3><code>ux</code></div></header><p>Specifies how the change looks and behaves: flows, screens, every state, keyboard and screen reader.</p><dl><div><dt>Called</dt><dd>When the interface changes and the ticket gives no design: before the plan, or before the front-end tasks.</dd></div><div><dt>Never</dt><dd>Writes code, or invents visible text the ticket did not give.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · medium</li><li>Reads only</li><li>Uses a browser</li></ul></article><article class="agent" id="role-architect"><header><span class="mark" aria-hidden="true">AR</span><div><h3>Architect</h3><code>architect</code></div></header><p>Settles a design decision: options with their trade-offs, a proposed decision, and the contracts the other tasks build on.</p><dl><div><dt>Called</dt><dd>For a large task or a decision that crosses modules or squads: before the plan, or first in it.</dd></div><div><dt>Never</dt><dd>Writes code. Not called for a change that fits one module's existing design.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li></ul></article></div></section>
+<section class="crew c-build" id="build" aria-labelledby="crew-build"><header><h2 id="crew-build">Plan and build</h2><p>The lead plans the tasks; the builders write the code, each in its own copy of the repository.</p></header><div class="agents"><article class="agent" id="role-lead"><header><span class="mark" aria-hidden="true">LE</span><div><h3>Tech lead</h3><code>lead</code></div></header><p>Turns the ticket into a plan of tasks per role, each with its files, the criteria it covers and its dependencies.</p><dl><div><dt>Called</dt><dd>After the framing, on every run, and again when a step fails or a question blocks.</dd></div><div><dt>Never</dt><dd>Edits a file, or takes a task itself.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li></ul></article><article class="agent" id="role-front"><header><span class="mark" aria-hidden="true">FR</span><div><h3>Front-end developer</h3><code>front</code></div></header><p>Builds screens, components, styles and client-side logic, with accessibility.</p><dl><div><dt>Called</dt><dd>For interface work, after the UX designer when there is no design.</dd></div><div><dt>Never</dt><dd>Changes metadata or social cards (the SEO engineer's job), or text the ticket did not ask for.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Edits files</li><li>Uses a browser</li></ul></article><article class="agent" id="role-back"><header><span class="mark" aria-hidden="true">BA</span><div><h3>Back-end developer</h3><code>back</code></div></header><p>Builds the API, business logic, database and migrations, with their tests.</p><dl><div><dt>Called</dt><dd>For server work.</dd></div><div><dt>Never</dt><dd>Touches CI, infrastructure or dependency upgrades (DevOps), or screens (front).</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Edits files</li></ul></article><article class="agent" id="role-devops"><header><span class="mark" aria-hidden="true">DE</span><div><h3>DevOps engineer</h3><code>devops</code></div></header><p>Changes CI/CD pipelines, infrastructure as code, builds and dependencies, with the smallest change that works.</p><dl><div><dt>Called</dt><dd>For CI, infrastructure, build and dependency work.</dd></div><div><dt>Never</dt><dd>Touches application code or its tests.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · medium</li><li>Edits files</li></ul></article><article class="agent" id="role-seo"><header><span class="mark" aria-hidden="true">SEO</span><div><h3>SEO engineer</h3><code>seo</code></div></header><p>Metadata, sitemaps, structured data, social cards and their images, Lighthouse and Core Web Vitals.</p><dl><div><dt>Called</dt><dd>When the ticket changes public pages.</dd></div><div><dt>Never</dt><dd>Changes a page's content or layout, or any text the ticket did not give.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Edits files</li><li>Uses a browser</li></ul></article></div></section>
+<section class="crew c-quality" id="quality" aria-labelledby="crew-quality"><header><h2 id="crew-quality">Quality and security</h2><p>They check the work before it reaches you, and send each problem back to the task that made it.</p></header><div class="agents"><article class="agent" id="role-qa"><header><span class="mark" aria-hidden="true">QA</span><div><h3>QA engineer</h3><code>qa</code></div></header><p>Checks every acceptance criterion on the merged work, with evidence, and adds the missing regression tests.</p><dl><div><dt>Called</dt><dd>Last in a medium or large plan, once the code tasks are done.</dd></div><div><dt>Never</dt><dd>Changes production code, CI, or an existing test's assertions.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Writes tests only</li><li>Uses a browser</li></ul></article><article class="agent" id="role-reviewer"><header><span class="mark" aria-hidden="true">RE</span><div><h3>Code reviewer</h3><code>reviewer</code></div></header><p>Reviews the run's whole diff against the criteria, the contracts and the project's conventions; each finding goes back to the task that must fix it.</p><dl><div><dt>Called</dt><dd>On every run, after the tasks and the checks, for up to two rounds.</dd></div><div><dt>Never</dt><dd>Edits a file: the task that made the problem fixes it.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li></ul></article><article class="agent" id="role-secops"><header><span class="mark" aria-hidden="true">SEC</span><div><h3>Security reviewer</h3><code>secops</code></div></header><p>Reviews the run's diff for vulnerabilities, abuse cases and vulnerable dependencies, in two passes: find, then confirm.</p><dl><div><dt>Called</dt><dd>On every run, after the code review.</dd></div><div><dt>Never</dt><dd>Edits a file: the developers fix what it finds.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · xhigh</li><li>Reads only</li></ul></article></div></section>
+<section class="crew c-creative" id="creative" aria-labelledby="crew-creative"><header><h2 id="crew-creative">Brand, words and video</h2><p>They join a run when a ticket asks for an identity, words or a video.</p></header><div class="agents"><article class="agent" id="role-brand"><header><span class="mark" aria-hidden="true">BR</span><div><h3>Brand designer</h3><code>brand</code></div></header><p>Makes the visual identity: a logo and its variants, guidelines in PDF, the design system as code, and every export.</p><dl><div><dt>Called</dt><dd>When a ticket asks for an identity.</dd></div><div><dt>Never</dt><dd>Builds screens and features, or writes product text the ticket did not give.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Edits files</li></ul></article><article class="agent" id="role-copy"><header><span class="mark" aria-hidden="true">CO</span><div><h3>UX writer</h3><code>copy</code></div></header><p>Writes the words the ticket asks for: interface text, pages, README, glossary, in every language the project ships.</p><dl><div><dt>Called</dt><dd>When a ticket asks for words.</dd></div><div><dt>Never</dt><dd>Rewords existing text the ticket does not name, or changes layout and code.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · medium</li><li>Edits files</li><li>No shell</li><li>No web</li></ul></article><article class="agent" id="role-motion"><header><span class="mark" aria-hidden="true">MO</span><div><h3>Motion designer</h3><code>motion</code></div></header><p>Makes launch videos, product demos, animations and GIFs, from a storyboard you approve first.</p><dl><div><dt>Called</dt><dd>When a ticket asks for a video or an animation.</dd></div><div><dt>Never</dt><dd>Touches the product's code or the app's own transitions.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Edits files</li></ul></article></div></section>
+<section class="crew c-specialists" id="specialists" aria-labelledby="crew-specialists"><header><h2 id="crew-specialists">Specialists</h2><p>One field each. The plan brings them in when a ticket touches it; the database engineer also reviews every migration.</p></header><div class="agents"><article class="agent" id="role-dba"><header><span class="mark" aria-hidden="true">DBA</span><div><h3>Database engineer</h3><code>dba</code></div></header><p>Keeps the schema sound: tables, constraints and indexes, migrations that are reversible and safe on a live database, queries read in their execution plans.</p><dl><div><dt>Called</dt><dd>When the plan gives it the schema, and as a review step on every run that changes a migration.</dd></div><div><dt>Never</dt><dd>Touches the API and business logic around the data (back), database servers and hosting (DevOps), or any database but the run's own.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Edits files</li></ul></article><article class="agent" id="role-docs"><header><span class="mark" aria-hidden="true">DOC</span><div><h3>Technical writer</h3><code>docs</code></div></header><p>Writes the documentation the ticket asks for: README, API reference, changelog, guides, the decision log and the conventions the other agents read.</p><dl><div><dt>Called</dt><dd>When a ticket asks for documentation.</dd></div><div><dt>Never</dt><dd>Writes the words of the interface (copy), or rewords docs the ticket does not name.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · medium</li><li>Edits files</li></ul></article><article class="agent" id="role-integrations"><header><span class="mark" aria-hidden="true">INT</span><div><h3>Integration engineer</h3><code>integrations</code></div></header><p>Connects the product to outside services, payments, single sign-on, outside APIs and webhooks, with idempotency, retries, signature checks and the provider's test mode.</p><dl><div><dt>Called</dt><dd>When a ticket connects the product to a third-party service.</dd></div><div><dt>Never</dt><dd>Touches the project's own API and business logic (back), the infrastructure (DevOps), or a real account or production endpoint of the provider.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Edits files</li></ul></article><article class="agent" id="role-sre"><header><span class="mark" aria-hidden="true">SRE</span><div><h3>Site reliability engineer</h3><code>sre</code></div></header><p>Makes the service observable and reliable: logs, metrics and traces, service level objectives and alerts, load tests, post-mortems.</p><dl><div><dt>Called</dt><dd>For performance and reliability work.</dd></div><div><dt>Never</dt><dd>Touches CI, infrastructure and deployments (DevOps), or any production system or real credentials.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Edits files</li></ul></article><article class="agent" id="role-a11y"><header><span class="mark" aria-hidden="true">A11Y</span><div><h3>Accessibility auditor</h3><code>a11y</code></div></header><p>Audits the changed screens against WCAG 2.2 AA and the RGAA, keyboard, screen readers, contrast, zoom, responsive layouts and browsers, with evidence for each finding.</p><dl><div><dt>Called</dt><dd>After the front-end tasks, on the screens they changed.</dd></div><div><dt>Never</dt><dd>Changes a file: the front-end developer fixes what it finds.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Reads only</li><li>Uses a browser</li></ul></article><article class="agent" id="role-ai"><header><span class="mark" aria-hidden="true">AI</span><div><h3>AI engineer</h3><code>ai</code></div></header><p>Makes the product's use of language models measurably good: prompts and structured outputs, retrieval, evaluations, token costs and caching, the choice of model.</p><dl><div><dt>Called</dt><dd>When the product calls language models.</dd></div><div><dt>Never</dt><dd>Touches the product's code that does not call a model, or any real API key or paid account.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · high</li><li>Edits files</li></ul></article><article class="agent" id="role-analytics"><header><span class="mark" aria-hidden="true">AN</span><div><h3>Product analyst</h3><code>analytics</code></div></header><p>Makes the product measurable: the tracking plan, events sent with the project's analytics SDK after the user's consent, funnels and KPI dashboards.</p><dl><div><dt>Called</dt><dd>When a ticket needs a tracking plan.</dd></div><div><dt>Never</dt><dd>Touches server logs, metrics and alerts (SRE), the legal reading of consent (compliance), or a real analytics account.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>sonnet · medium</li><li>Edits files</li></ul></article><article class="agent" id="role-legal"><header><span class="mark" aria-hidden="true">LAW</span><div><h3>Compliance analyst</h3><code>legal</code></div></header><p>Says what the law asks of the change, terms of use, privacy and the GDPR, cookies and consent, mandatory notices, sector rules, each point sourced from an official text and to be checked by a legal professional.</p><dl><div><dt>Called</dt><dd>When a ticket touches what the law asks of the product.</dd></div><div><dt>Never</dt><dd>Changes a file: copy or docs write the pages it advises on.</dd></div></dl><ul class="chips-m" aria-label="Settings"><li>opus · high</li><li>Reads only</li></ul></article></div></section><!-- /gen:team -->
+</div>
+
+<div class="wrap article" id="details">
+  <nav class="toc" aria-label="Under the hood">
+    <p>Under the hood</p>
     <ol>
-      <li><a href="#cto">The CTO</a></li>
-      <li><a href="#roles">Seventeen roles</a></li>
+      <li><a href="#cto">The CTO's tools and cost</a></li>
       <li><a href="#role-file">A role is a file</a></li>
       <li><a href="#squads">Squads</a></li>
       <li><a href="#review">The review loop</a></li>
-      <li><a href="#expert">The project expert</a></li>
+      <li><a href="#expert">The expert's memory</a></li>
       <li><a href="#control">Budgets, stop, take over</a></li>
       <li><a href="#tried">What has been tried</a></li>
     </ol>
   </nav>
 
   <article class="prose">
-    <h2 id="cto">The CTO, your one point of contact</h2>
+    <h2 id="cto">The CTO's tools and cost</h2>
     <p>The CTO is a role like the others, with one job: being the person you talk to. Each project has a permanent conversation with it, on the project's Home. It triages every team run, routes it or asks you first, relays what the team needs from you, and never writes code.</p>
     <p>It reads the project's repositories with Read, Grep and Glob. It has no shell and no network, and it acts only through TermF's own tools: it can read the project, the runs, the tickets and what waits for you, and it can start a team run, answer a question, request changes, approve, stop, or send a message to a role. Every one of these actions waits on your approval card.</p>
-    <figure>
-      <div class="screen" style="--h:var(--waiting)">
-        <p class="screen-cap">The project's Home · sample data</p>
-        <div class="app">
-          <div class="bar"><span class="badge">CTO</span><b>CTO</b><span class="sub">Your way in to the team</span><span class="seg"><span class="on">CTO</span><span>Expert</span></span></div>
-          <div class="body">
-            <div class="me">@front can the export button sit next to the filters?</div>
-            <div class="msg"><p>Sent to front: it reads it between two turns, and its answer comes back here.</p></div>
-          </div>
-          <div class="compose"><div class="composer">Message to the CTO… (@role for someone else, Enter sends)</div></div>
-        </div>
-      </div>
-      <figcaption><code>@role</code> reaches a role at work without leaving the conversation.</figcaption>
-    </figure>
     <p>Two things are worth knowing about its cost. The conversation has no budget of its own, unlike a run. And every gate of a run wakes the CTO for one turn, so it can tell you what the gate is about; it runs on opus at high effort by default, which you can change with <code>[roles.cto]</code>.</p>
-
-    <h2 id="roles">Seventeen roles</h2>
-    <p>These ship with TermF. Most planners and reviewers run on opus, most builders on sonnet, and the effort of a task follows its size, within the range of its role. Brand, copy and motion join a run only when the request calls for them.</p>
-    <ul class="roster">
-      <li><b>CTO</b><small>opus · high</small><span>Your one point of contact: triages every run, routes it or asks you. Never codes.</span></li>
-      <li><b>Lead</b><small>opus · high</small><span>Plans a squad's work as tasks per role, and plans again what a failed step affects.</span></li>
-      <li><b>PO</b><small>opus · high</small><span>Frames the ticket: criteria with their source, what is out of scope, the questions.</span></li>
-      <li><b>PM</b><small>opus · high</small><span>Optional: a short PRD for a vague epic, before the framing.</span></li>
-      <li><b>Architect</b><small>opus · high</small><span>For a large task or a decision across modules: options, a decision, the contracts.</span></li>
-      <li><b>UX</b><small>opus · medium</small><span>Before the front-end work when there is no design: flows, every state, accessibility.</span></li>
-      <li><b>Front</b><small>sonnet · high</small><span>Screens, components, styles, client-side logic, accessibility.</span></li>
-      <li><b>Back</b><small>sonnet · high</small><span>API, business logic, database and migrations, with their tests.</span></li>
-      <li><b>DevOps</b><small>sonnet · medium</small><span>CI/CD, infrastructure as code, build and dependency changes.</span></li>
-      <li><b>QA</b><small>sonnet · high</small><span>Last in a larger plan: checks each criterion with evidence, adds the missing regression tests.</span></li>
-      <li><b>SEO</b><small>sonnet · high</small><span>Metadata, structured data, social cards, Lighthouse and Core Web Vitals.</span></li>
-      <li><b>SecOps</b><small>opus · xhigh</small><span>Security review of the run's diff: vulnerabilities, abuse cases, dependencies.</span></li>
-      <li><b>Reviewer</b><small>opus · high</small><span>Code review of the integrated diff against the criteria, contracts and conventions.</span></li>
-      <li><b>Expert</b><small>opus · high</small><span>Answers questions about the project from its memory, then the code, with sources.</span></li>
-      <li><b>Brand</b><small>opus · high</small><span>The identity: three directions to choose from, guidelines in PDF, the design system as code, logos and exports.</span></li>
-      <li><b>Copy</b><small>opus · medium</small><span>The words the ticket asks for, in every language of the project; never rewrites an existing text.</span></li>
-      <li><b>Motion</b><small>sonnet · high</small><span>Videos, demos, animations and GIFs, from a storyboard you approve first.</span></li>
-    </ul>
-    <p>Each step of a run is a fresh Claude Code session with a brief: the role's instructions, the task, the criteria, your answers and the reports of the steps before. Turns are capped by the task's size, at 60, 120 or 240. The roles that only read, the CTO, the planners and the reviewers, cannot edit a file.</p>
+    <p>Each step of a run is a fresh Claude Code session with a brief: the role's instructions, the task, the criteria, your answers and the reports of the steps before. Turns are capped by the task's size, at 60, 120 or 240. Most planners and reviewers run on opus, most builders on sonnet, and the effort of a task follows its size, within the range of its role.</p>
 
     <h2 id="role-file">A role is a file</h2>
     <p>Every role is a Markdown file with a frontmatter, in the format of Claude Code's own agents. This is the start of the front-end role:</p>
@@ -195,19 +211,7 @@ skills = ["+accessibility"]</code></pre>
     <p>A repository can only pick a model or an effort and add to what is denied; it can never widen what a role may do.</p>
 
     <h2 id="squads">Squads</h2>
-    <p>A small project needs nothing: one implicit squad has every role, with no limit. A bigger one can split into squads, each with its lead, its members and how many of each, its repositories, its paths and how many tasks it runs at once. The roles that serve every squad, like the product owner or the security reviewer, form the staff.</p>
-    <figure>
-      <div class="screen" style="--h:var(--working)">
-        <p class="screen-cap">Configuration · the project's squads · sample data</p>
-        <div class="app">
-          <div class="squads">
-            <div class="sq"><p class="sqh">billing <span>At most 2 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">back ×2</span></dd><dt>Repositories</dt><dd class="mono">billing-service</dd><dt>Paths</dt><dd class="mono">src/**, tests/**</dd><dt>Domains</dt><dd>billing</dd></dl></div>
-            <div class="sq"><p class="sqh">web <span>At most 1 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">front</span></dd><dt>Repositories</dt><dd class="mono">billing-service, web-dashboard</dd><dt>Paths</dt><dd class="mono">web/**</dd><dt>Domains</dt><dd>interface</dd></dl></div>
-          </div>
-        </div>
-      </div>
-      <figcaption>Two squads and their limits, as the project's Configuration shows them.</figcaption>
-    </figure>
+    <p>A small project needs nothing: one implicit squad has every role, with no limit. A bigger one can split into squads, a team per area of the project, each with its lead, its members and how many of each, its repositories, its paths and how many tasks it runs at once. The roles that serve every squad, like the product owner or the security reviewer, form the staff.</p>
 <pre><code>[team]
 staff = ["po", "secops"]
 
@@ -223,21 +227,20 @@ max_parallel = 2</code></pre>
     <p>Once the tasks are merged and the checks have run, the reviewer reads the whole diff of the run. Each finding says where it is, what breaks and how to fix it, and it is either important or a nit. Important findings go back to the task that owns them, in a fresh session with the finding, and the reviewer looks again, up to two rounds by default. Nits are reported rather than fixed, unless you ask for fixes. A finding that no task clearly owns, or one still open after the last round, becomes a question for you; leaving it as it is asks for a reason, which stays in the run's report.</p>
     <p>The security reviewer follows, on opus at extra high effort, in two passes: one to find, one to confirm, so you do not get false positives. Neither review can be skipped by the CTO; <code>[team] review</code> is yours to turn off.</p>
 
-    <h2 id="expert">The project expert</h2>
-    <p>The expert answers questions about the project, how something works, why it is so, where it lives, what was decided and when, and gives its sources. It answers from the project's memory first, then from the code.</p>
-    <p>The memory is a local index in TermF's data folder. It holds the Claude Code conversations of the project's repositories and worktrees, the agents' conversations and the run logs, the library, the <code>CLAUDE.md</code> files and rules, the docs, and the last 2,000 commits; for claude.ai artifacts, the title and the link only. Secrets are masked before anything is written. It is indexed a minute after TermF starts, every 15 minutes, and before each question.</p>
-    <p>You can talk to it on the Home, switching the conversation from CTO to Expert, or with <code>termf ask</code>. The product owner, the product manager, the architect and the CTO call it before searching on their own. It reads only, with no shell and no web. The index stays on your machine; the passages the expert reads go to the model, as in any Claude Code session.</p>
+    <h2 id="expert">The expert's memory</h2>
+    <p>The expert answers from the project's memory first, then from the code. The memory is a local index in TermF's data folder. It holds the Claude Code conversations of the project's repositories and worktrees, the agents' conversations and the run logs, the library, the <code>CLAUDE.md</code> files and rules, the docs, and the last 2,000 commits; for claude.ai artifacts, the title and the link only. Secrets are masked before anything is written. It is indexed a minute after TermF starts, every 15 minutes, and before each question.</p>
+    <p>You can talk to it on the Home, switching the conversation from CTO to Expert, or with <code>termf ask</code>. The index stays on your machine; the passages the expert reads go to the model, as in any Claude Code session.</p>
 
     <h2 id="control">Budgets, stop and taking over</h2>
     <p>Each run has a budget, 15 dollars in the default workflow. Each step gets the smaller of its own budget and its share of what is left, and when the budget is spent, the agents stop and the run waits for you. The emergency stop interrupts every agent of a run, then stops them and kills their commands; you can start the team again afterwards. After a restart of TermF, a working team is paused, so nothing spends without you.</p>
     <p>Between two turns, Take over opens any step's conversation in a terminal, with the same model, effort and permission mode; Hand back returns it to the team. There is never more than one process on a conversation.</p>
 
     <h2 id="tried">What has been tried</h2>
-    <p>With a real Claude Code, on Haiku, through automated tests: the triage, the plan, the tasks and their reports, the guard and the code review; the CTO's tools; the expert answering through <code>ask_expert</code>. With a fake Claude Code: the gates, the rules, resuming, the budget and the emergency stop. The interface: with a simulated backend, not yet in the app's real window. Not built yet: runs across several repositories, a squad editor, the leads' sub-plans.</p>
+    <p>With a real Claude Code, on Haiku, through automated tests: the triage, the plan, the tasks and their reports, the guard and the code review; the CTO's tools; the expert answering through <code>ask_expert</code>. With a fake Claude Code: the gates, the rules, resuming, the budget and the emergency stop. The interface: with a simulated backend, not yet in the app's real window. Brand, copy, motion and the specialists have not run in a real run yet. Not built yet: runs across several repositories, a squad editor, the leads' sub-plans.</p>
 
     <nav class="next-read" aria-label="Read next">
       <a href="how-it-works.html"><span>Read next</span><b>How a ticket becomes a pull request</b></a>
-      <a href="features/skills.html"><span>Feature</span><b>38 skills by stack</b></a>
+      <a href="features/roles.html"><span>Feature</span><b>The roles, and how to change them</b></a>
     </nav>
   </article>
 </div>
@@ -251,7 +254,7 @@ max_parallel = 2</code></pre>
         <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
         <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
       </div>
-      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
       <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
       <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
     </div>
@@ -263,6 +266,10 @@ max_parallel = 2</code></pre>
 <script>
 const nav = document.getElementById('nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {passive: true});
+const menu = nav.querySelector('.menu');
+menu.addEventListener('click', e => { if (e.target.closest('a')) menu.open = false; });
+addEventListener('click', e => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.open = false; menu.querySelector('summary').focus(); } });
 
 const toc = [...document.querySelectorAll('.toc a')];
 if (toc.length) {
