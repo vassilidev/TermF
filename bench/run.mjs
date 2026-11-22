@@ -90,6 +90,7 @@ function prepare(dir, fixture = "fixture") {
   if (fixture === SUITE?.source) {
     git(dir, "clone", "-q", "--no-hardlinks", SUITE.source, repo);
     git(repo, "remote", "remove", "origin");
+    if (SUITE.ref) git(repo, "checkout", "-q", "-B", "bench", SUITE.ref);
     setUp(repo);
   } else {
     cpSync(join(BENCH, fixture), repo, { recursive: true });
@@ -284,10 +285,11 @@ function measure(ticket, final, base, dir, work) {
  * then the ticket's hidden tests, copied in for the time of their run. */
 function measureSuite(ticket, final, files) {
   if (!existsSync(join(final, "vendor")) || !existsSync(join(final, ".env"))) setUp(final);
-  const junit = (cwd, args) => {
+  for (const command of SUITE.measure_setup ?? []) sh("sh", ["-c", command], { cwd: final, env: gitEnv, timeout: 600_000 });
+  const junit = (cwd, command) => {
     const xml = join(cwd, ".bench-junit.xml");
     rmSync(xml, { force: true });
-    const r = sh("php", ["vendor/bin/phpunit", "--log-junit", xml, ...args], { cwd, timeout: 900_000 });
+    const r = sh("sh", ["-c", `${command} --log-junit .bench-junit.xml`], { cwd, env: gitEnv, timeout: 900_000 });
     const text = existsSync(xml) ? readFileSync(xml, "utf8") : "";
     rmSync(xml, { force: true });
     const top = /<testsuite[^>]*>/.exec(text)?.[0] ?? "";
@@ -296,14 +298,14 @@ function measureSuite(ticket, final, files) {
     const tests = n("tests");
     return { ok: r.status === 0, tests, pass: tests - n("failures") - n("errors") - n("skipped"), fail: n("failures") + n("errors"), failed };
   };
-  const own = junit(final, []);
+  const own = junit(final, SUITE.checks);
   const target = join(final, SUITE.hidden_dir);
-  const file = TICKETS[ticket].hidden;
+  const hiddenFiles = [TICKETS[ticket].hidden].flat();
   mkdirSync(target, { recursive: true });
-  cpSync(join(SUITE.dir, "hidden", file), join(target, file));
-  const hidden = junit(final, [join(SUITE.hidden_dir, file)]);
+  for (const f of hiddenFiles) cpSync(join(SUITE.dir, "hidden", f), join(target, f));
+  const hidden = junit(final, `vendor/bin/phpunit ${hiddenFiles.map((f) => join(SUITE.hidden_dir, f)).join(" ")}`);
   hidden.total = hidden.tests;
-  rmSync(join(target, file), { force: true });
+  for (const f of hiddenFiles) rmSync(join(target, f), { force: true });
   const artisan = sh("php", ["artisan", "list"], { cwd: final, timeout: 120_000 });
   const scope = new RegExp(SUITE.in_scope);
   return {
