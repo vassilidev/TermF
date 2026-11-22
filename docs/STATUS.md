@@ -65,10 +65,10 @@ Règles communes des agents et outillage de captures : `.claude/reviews/tools/br
 
 **Demandes du propriétaire des 2026-11-21 et 22 : toutes livrées** (assistant de mise en route et équipe proposée, Terminaux façon Ghostty, passe clarté, allègement, artifacts, rôles complets et squads, CTO chef d'orchestre et seul interlocuteur, questionnaire avant tâche, revue dans l'équipe, expert du projet et mémoire, système universel et 38 skills par stack, tests utiles, refonte UI « le projet d'abord », README et site — voir §1 et §2). Le panneau « ponytail » dans Claude Code vient du plugin ponytail de l'utilisateur (pas de TermF) : se désactive par `/plugin`.
 
-**Impératif (demande du propriétaire du 2026-11-22), à cadrer avec lui avant de coder :**
-- **Git entièrement intégré au projet** : les branches visibles proprement dans la vue du projet (un bel arbre des branches, leur état, etc.) et toutes les fonctionnalités de git accessibles depuis TermF.
-- **Des agents experts des outils CLI** (git, etc.) : TermF doit être une solution très propre partout.
-- **Des outils propres pour piloter Chrome**, et les autres outils du même ordre.
+**Impératif (demande du propriétaire du 2026-11-22), cadré avec lui le 2026-11-22 :**
+- **Git entièrement intégré au projet** : les branches visibles proprement dans la vue du projet (un bel arbre des branches, leur état, etc.) et toutes les fonctionnalités de git accessibles depuis TermF. Cadrage : une vue « Git » du projet, par la CLI git, **en deux tranches** : T1 arbre des branches et des commits, état, PR liée, worktrees des runs, actions courantes (brief `.claude/reviews/work/git-t1-brief.md`, branche `git/t1-branches`) ; T2 staging par hunk, commit, stash, merge/rebase avec conflits, tags, blame.
+- **Des agents experts des outils CLI** (git, etc.) : TermF doit être une solution très propre partout. Cadrage : **des skills livrées par outil**, actives par défaut (pas d'assistant dans les terminaux, pas de rôle dédié) (brief `cli-skills-brief.md`, branche `skills/cli-tools`).
+- **Des outils propres pour piloter Chrome**, et les autres outils du même ordre. Cadrage : **pour les agents** (profil jetable, origines autorisées, branché sur la revue visuelle), pas de panneau navigateur dans l'app (brief `agent-browser-brief.md`, branche `agents/browser`).
 
 **Reste à faire, dans l'ordre :**
 1. **Essai réel dans la vraie fenêtre** de tout ce qui a été livré la nuit du 2026-11-22 (Accueil, CTO, équipe, questionnaire, revue, page Run, Configuration, navigation, coffre CLI, confirmation des actions réservées), sur `vassilidev/termf-sandbox`, puis Windows et Linux.
