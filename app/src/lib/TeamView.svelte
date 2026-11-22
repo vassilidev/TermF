@@ -7,6 +7,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import TeamSquads from "$lib/TeamSquads.svelte";
   import { focusSession } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { currentProject } from "$lib/files.svelte";
@@ -176,6 +177,8 @@
         </ul>
       </section>
     {/if}
+
+    <TeamSquads />
 
     <section aria-labelledby="team-roles">
       <h2 id="team-roles">{t("metaRoles")}</h2>

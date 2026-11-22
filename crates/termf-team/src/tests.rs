@@ -1331,10 +1331,11 @@ effort_range = ["high", "high"]
     assert_eq!(spec("plan").role.as_deref(), Some("cto"));
 }
 
-/// The team against the real Claude Code, its roles on Haiku, for a few cents: the orchestrator's plan, then a
-/// task that writes a file, each answer through `--json-schema` on a stream-json session. Permission requests
-/// are allowed. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
-/// `cargo test -p termf-team -- --ignored real_team`
+/// The team against the real Claude Code, for a few cents: the shipped roles put on Haiku by `[roles.*]`, the
+/// `squads` workflow on a project of two squads (the PO's framing, the CTO's plan, one task per squad, the
+/// security review), each answer through `--json-schema` on a stream-json session. Permission requests are
+/// allowed. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
+/// `cargo test -p termf-team -- --ignored --nocapture real_team`
 #[test]
 #[ignore]
 fn real_team() {
@@ -1371,34 +1372,25 @@ fn real_team() {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
     };
-    put(
-        config.join("termf.toml"),
-        "[agents]\nclaude = \"claude\"\n".into(),
-    );
+    let mut settings = "[agents]\nclaude = \"claude\"\n".to_owned();
+    for role in ["po", "cto", "back", "front", "secops"] {
+        settings.push_str(&format!(
+            "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
+        ));
+    }
+    put(config.join("termf.toml"), settings);
     put(
         config.join("projects/acme.toml"),
         format!(
-            "name = \"Acme\"\n[[repos]]\nname = \"api\"\npath = \"{}\"\n",
+            "name = \"Acme\"\n[[repos]]\nname = \"api\"\npath = \"{}\"\n\
+             [[squads]]\nid = \"server\"\nroles = {{ back = 1 }}\npaths = [\"api/**\"]\ndomains = [\"server\"]\n\
+             [[squads]]\nid = \"client\"\nroles = {{ front = 1 }}\npaths = [\"web/**\"]\ndomains = [\"interface\"]\n",
             repo.display()
         ),
     );
-    for (role, extra) in [
-        (
-            "orchestrator",
-            "disallowedTools: Edit, Write, NotebookEdit\n",
-        ),
-        ("back", ""),
-    ] {
-        put(
-            config.join(format!("library/roles/{role}.md")),
-            format!(
-                "---\nname: {role}\ndescription: The {role} of the team\nmodel: haiku\neffort: low\n{extra}---\nYou are the {role} of the team. Be brief.\n"
-            ),
-        );
-    }
     put(
         config.join("library/workflows/real.toml"),
-        "budget_usd = 1\n[steps.plan]\ntype = \"agent\"\nrole = \"orchestrator\"\nbudget_usd = 0.3\n[steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\nstep = { budget_usd = 0.3 }\n".into(),
+        "extends = \"squads\"\nbudget_usd = 1.5\n[steps.approve-plan]\nenabled = false\n[steps.visual]\nenabled = false\n[steps.deliver]\nenabled = false\n".into(),
     );
     let target = Target {
         run: 1,
@@ -1407,8 +1399,8 @@ fn real_team() {
         repo_path: repo.clone(),
         worktree: worktree.clone(),
         ticket: "acme/api#1".into(),
-        title: "Add hello.txt".into(),
-        brief: "<ticket source=\"https://example.invalid/1\">\n# Add hello.txt\n\nCreate a file hello.txt at the root of the repository, containing the single word hi. One task, for the back role. No question.\n</ticket>".into(),
+        title: "Add hello.txt on both sides".into(),
+        brief: "<ticket source=\"https://example.invalid/1\">\n# Add hello.txt on both sides\n\nCreate api/hello.txt and web/hello.txt, each containing the single word hi. One small task per squad: the server squad writes api/hello.txt, the client squad web/hello.txt. Nothing else, no question.\n</ticket>".into(),
     };
     let (notifier, inbox) = channel();
     let agents = Agents::build(config.clone(), data.clone(), Vec::new(), move |u| {
@@ -1470,6 +1462,12 @@ fn real_team() {
             )
         })
     });
+    let specs: Vec<SessionSpec> = run
+        .steps
+        .iter()
+        .flat_map(|s| s.sessions.clone())
+        .map(|id| agents.session(id).unwrap().spec)
+        .collect();
     team.shutdown();
     agents.shutdown();
     for folder in folders {
@@ -1477,18 +1475,28 @@ fn real_team() {
             .args(["purge", &folder.to_string_lossy(), "-y"])
             .output();
     }
-    let hello = fs::read_to_string(worktree.join("hello.txt"));
+    let hello = ["api/hello.txt", "web/hello.txt"].map(|f| fs::read_to_string(worktree.join(f)));
     let _ = fs::remove_dir_all(&root);
 
+    eprintln!("real_team: ${:.4}, {} sessions", run.cost, specs.len());
     assert_eq!(run.state, RunState::Done, "{events:#?}");
     assert!(structured, "each answer came through --json-schema");
-    assert!(hello.unwrap().contains("hi"));
+    for file in hello {
+        assert!(file.unwrap().contains("hi"));
+    }
+    assert!(
+        specs.iter().all(|s| s.model.as_deref() == Some("haiku")),
+        "[roles.*] put every role on Haiku"
+    );
     let plan = run.plan.unwrap();
-    assert_eq!(plan.tasks.len(), 1, "{plan:#?}");
+    let mut squads: Vec<&str> = plan.tasks.iter().map(|t| t.squad.as_str()).collect();
+    squads.sort();
+    assert_eq!(squads, ["client", "server"], "{plan:#?}");
     assert!(
         run.steps
             .iter()
-            .all(|s| s.report.is_some() || s.plan || s.kind == StepKind::Foreach)
+            .filter(|s| s.agent() && !s.plan)
+            .all(|s| s.report.is_some())
     );
-    assert!(run.cost > 0.0 && run.cost < 1.0, "{}", run.cost);
+    assert!(run.cost > 0.0 && run.cost < 1.5, "{}", run.cost);
 }
