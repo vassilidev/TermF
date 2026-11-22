@@ -15,6 +15,7 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 mod agent;
 mod ci;
 mod claude;
+mod mcp;
 mod schedule;
 mod scout;
 mod ssh;
@@ -33,6 +34,8 @@ usage:
   termf hook <event>                    forward a Claude Code hook (JSON on stdin)
   termf statusline [<file>]             Claude Code status line of TermF sessions: reports the context,
                                         then runs the status line command saved in <file>
+  termf mcp                             MCP server (stdio) of TermF's tools, for the CTO conversation
+                                        TermF starts; serves nothing otherwise
   termf library ls [--kind <kind>] [--repo <path>] [--project <id>]
                                         list the library: each item's layer, state and why
   termf library explain <name> [--kind <kind>] [--repo <path>] [--project <id>]
@@ -266,6 +269,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["team", rest @ ..] => team::run(rest.to_vec())?,
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["vault", rest @ ..] => vault::run(rest.to_vec())?,
+        ["mcp"] => mcp::serve()?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,
