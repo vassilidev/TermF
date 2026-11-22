@@ -3,7 +3,7 @@
 The same tickets, on the same small project, done twice: once by **TermF's agent team** (the CTO triages, the team
 frames, plans, implements, checks, reviews; every gate approved as a hurried user would, delivery stopped before the
 pull request), once by **one plain Claude Code session** (`claude -p "Implement this ticket…"`, no skill, no plugin,
-no subagent, none of your settings). Same model, same starting commit, same ticket text, same budget cap per trial.
+no subagent, none of your settings). Same model, same starting commit, same ticket text, same usage cap per trial.
 The report is [`docs/BENCHMARK.md`](../docs/BENCHMARK.md).
 
 ## Run it
@@ -14,10 +14,11 @@ node bench/run.mjs                                                # 6 tickets x 
 node bench/run.mjs --summary bench/results/<date>                 # the table again, from the results
 ```
 
-Needs Node.js 22.18 or later, git, cargo, and Claude Code signed in: **both arms spend real money on your Claude
-Code account**. The bench never runs in CI. Options: `--model` (`sonnet`), `--trials` (2), `--parallel` (4),
-`--budget` (25 US dollars in all, the judge included: no trial starts once what is spent plus the cap of each
-running trial would pass it), `--cap` (3 US dollars per trial), `--minutes` (40 per trial), `--judge-model`
+Needs Node.js 22.18 or later, git, cargo, and Claude Code signed in: **both arms use your Claude Code account**. Every
+amount in US dollars is the API-equivalent cost Claude Code computes (`total_cost_usd`): with a claude.ai subscription
+nothing more is billed, the runs use your usage quota; with an API key, it is what you pay. The bench never runs in CI. Options: `--model` (`sonnet`), `--trials` (2), `--parallel` (4),
+`--budget` (25 US dollars API-equivalent in all, the judge included: no trial starts once what is spent plus the cap of each
+running trial would pass it), `--cap` (a usage cap of 3 US dollars API-equivalent per trial), `--minutes` (40 per trial), `--judge-model`
 (`sonnet`), `--arms solo,team`, `--out <folder>` (go on with a results folder: trials already in it are kept),
 `--keep` (keep the trial folders in the temporary folder), `--no-tsc` (no `tsc` on the PATH), `--remeasure <folder>`
 (measure each trial again from its `diff.patch`, no judge). The bench machine has TypeScript installed: `tsc` from
