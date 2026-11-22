@@ -601,11 +601,9 @@ fn launch(
                 claude::write_plugin(&plugin, termf, run.is_some())?;
                 // The status line is what measures the context.
                 let settings = claude::write_settings(dir, termf, &cwd, &claude_dir())?;
-                if let Some(Value::Object(more)) = task.and_then(|t| t.settings.as_ref()) {
+                if let Some(more @ Value::Object(_)) = task.and_then(|t| t.settings.as_ref()) {
                     let mut all: Value = serde_json::from_str(&fs::read_to_string(&settings)?)?;
-                    if let Value::Object(map) = &mut all {
-                        map.extend(more.clone());
-                    }
+                    claude::merge_settings(&mut all, more);
                     fs::write(&settings, serde_json::to_string_pretty(&all)?)?;
                 }
                 extra.push(format!(
@@ -629,6 +627,14 @@ fn launch(
                     shell_quote(&prompt.to_string_lossy())
                 ));
             }
+        }
+        // Without TermF's hooks (no local API, no termf CLI), the secret files stay denied all the same.
+        if is_claude && hooks.is_none() {
+            let settings = claude::write_deny_settings(&termf_core::default_data_dir()?)?;
+            extra.push(format!(
+                "--settings {}",
+                shell_quote(&settings.to_string_lossy())
+            ));
         }
         if remote_control {
             extra.push(format!("--remote-control {}", shell_quote(&title)));
@@ -849,6 +855,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         }
         Call::Agent(call) => agents::call(app, call)?,
         Call::Team(call) => team::call(app, call)?,
+        Call::Vault(call) => crate::vault::call(app, call)?,
         Call::Review(call) => visual::call(app, call)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })

@@ -5499,6 +5499,7 @@ dependencies = [
  "termf-team",
  "termf-term",
  "termf-tickets",
+ "termf-vault",
  "termf-visual",
  "termf-worktree",
 ]
@@ -5546,6 +5547,7 @@ dependencies = [
  "termf-sync",
  "termf-team",
  "termf-tickets",
+ "termf-vault",
  "termf-visual",
  "termf-worktree",
 ]
@@ -5712,6 +5714,22 @@ dependencies = [
  "toml 1.2.2+spec-1.1.0",
  "toml_edit 0.25.20+spec-1.1.0",
  "uuid",
+]
+
+[[package]]
+name = "termf-vault"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "termf-claude",
+ "termf-core",
+ "termf-sync",
+ "zeroize",
 ]
 
 [[package]]

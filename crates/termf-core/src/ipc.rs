@@ -72,8 +72,29 @@ pub enum Call {
     Agent(AgentCall),
     /// Drives the agent team of a ticket run (crate `termf-team`).
     Team(TeamCall),
+    /// The app's vault session (crate `termf-vault`). Never a secret's value: whoever holds the token may be
+    /// an agent.
+    Vault(VaultCall),
     /// Visual reviews before / after (crate `termf-visual`).
     Review(ReviewCall),
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum VaultCall {
+    Status,
+    Unlock { password: String },
+    Lock,
+}
+
+impl std::fmt::Debug for VaultCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Status => "Status",
+            Self::Unlock { .. } => "Unlock",
+            Self::Lock => "Lock",
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

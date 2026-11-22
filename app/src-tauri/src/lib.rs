@@ -15,6 +15,7 @@ mod ssh;
 mod sync;
 mod team;
 mod tickets;
+mod vault;
 mod visual;
 mod worktree;
 
@@ -286,6 +287,7 @@ pub fn run() {
                 config_dir.clone(),
                 data_dir.clone(),
             ));
+            app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
             app.manage(AppState {
                 config_dir,
                 sessions: api.sessions(app.handle().clone()),
@@ -500,6 +502,20 @@ pub fn run() {
             onboarding::onboarding_decide,
             onboarding::claude_trust,
             onboarding::claude_trust_set,
+            vault::vault_status,
+            vault::vault_init,
+            vault::vault_unlock,
+            vault::vault_lock,
+            vault::vault_reauth,
+            vault::vault_list,
+            vault::vault_set,
+            vault::vault_ref,
+            vault::vault_reveal,
+            vault::vault_delete,
+            vault::vault_audit,
+            vault::vault_audit_verify,
+            vault::vault_audit_export,
+            vault::vault_auto_lock_set,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

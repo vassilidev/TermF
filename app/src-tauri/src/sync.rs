@@ -40,6 +40,7 @@ pub const WRITES: &[&str] = &[
     "conventions_discard",
     "conventions_apply",
     "conventions_switch",
+    "vault_auto_lock_set",
 ];
 
 enum Wake {
@@ -53,7 +54,7 @@ pub struct SyncState {
 }
 
 pub fn start(app: &AppHandle, config_dir: PathBuf) -> SyncState {
-    let engine = Arc::new(Engine::new(config_dir, Box::new(OsKeyStore)));
+    let engine = Arc::new(Engine::new(config_dir, Box::new(OsKeyStore::SYNC)));
     let (tx, rx) = mpsc::channel();
     let (app, background) = (app.clone(), engine.clone());
     std::thread::spawn(move || run(app, background, rx));

@@ -8,14 +8,17 @@ pub trait KeyStore: Send + Sync {
     fn delete(&self, account: &str) -> Result<()>;
 }
 
-const SERVICE: &str = "dev.termf.sync";
+/// macOS Keychain, Windows Credential Manager or the Secret Service (GNOME Keyring, KWallet) on Linux, under
+/// the service name given.
+pub struct OsKeyStore(pub &'static str);
 
-/// macOS Keychain, Windows Credential Manager or the Secret Service (GNOME Keyring, KWallet) on Linux.
-pub struct OsKeyStore;
+impl OsKeyStore {
+    pub const SYNC: Self = Self("dev.termf.sync");
+}
 
 impl KeyStore for OsKeyStore {
     fn get(&self, account: &str) -> Result<Option<Vec<u8>>> {
-        match keyring::Entry::new(SERVICE, account)?.get_secret() {
+        match keyring::Entry::new(self.0, account)?.get_secret() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.into()),
@@ -23,11 +26,11 @@ impl KeyStore for OsKeyStore {
     }
 
     fn set(&self, account: &str, secret: &[u8]) -> Result<()> {
-        Ok(keyring::Entry::new(SERVICE, account)?.set_secret(secret)?)
+        Ok(keyring::Entry::new(self.0, account)?.set_secret(secret)?)
     }
 
     fn delete(&self, account: &str) -> Result<()> {
-        match keyring::Entry::new(SERVICE, account)?.delete_credential() {
+        match keyring::Entry::new(self.0, account)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.into()),
         }
