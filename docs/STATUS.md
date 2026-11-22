@@ -65,6 +65,11 @@ Règles communes des agents et outillage de captures : `.claude/reviews/tools/br
 
 **Demandes du propriétaire des 2026-11-21 et 22 : toutes livrées** (assistant de mise en route et équipe proposée, Terminaux façon Ghostty, passe clarté, allègement, artifacts, rôles complets et squads, CTO chef d'orchestre et seul interlocuteur, questionnaire avant tâche, revue dans l'équipe, expert du projet et mémoire, système universel et 38 skills par stack, tests utiles, refonte UI « le projet d'abord », README et site — voir §1 et §2). Le panneau « ponytail » dans Claude Code vient du plugin ponytail de l'utilisateur (pas de TermF) : se désactive par `/plugin`.
 
+**Impératif (demande du propriétaire du 2026-11-22), à cadrer avec lui avant de coder :**
+- **Git entièrement intégré au projet** : les branches visibles proprement dans la vue du projet (un bel arbre des branches, leur état, etc.) et toutes les fonctionnalités de git accessibles depuis TermF.
+- **Des agents experts des outils CLI** (git, etc.) : TermF doit être une solution très propre partout.
+- **Des outils propres pour piloter Chrome**, et les autres outils du même ordre.
+
 **Reste à faire, dans l'ordre :**
 1. **Essai réel dans la vraie fenêtre** de tout ce qui a été livré la nuit du 2026-11-22 (Accueil, CTO, équipe, questionnaire, revue, page Run, Configuration, navigation, coffre CLI, confirmation des actions réservées), sur `vassilidev/termf-sandbox`, puis Windows et Linux.
 2. **Phase 5b** : page de revue visuelle (côte à côte, curseur, calque, heatmap, épingles, mode swipe) sur les contrats de `termf-visual` (PR #42).
