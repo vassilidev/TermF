@@ -191,7 +191,16 @@ fn replace(
     if install.origin == Origin::Setting || install.path == Path::new(program) {
         return Ok((command.to_owned(), install));
     }
-    let path = quote(&install.path.to_string_lossy());
+    let path = install.path.to_string_lossy();
+    // Unquoted when it can be: cmd.exe drops the first and last quotes of a command that starts with one.
+    let plain = path
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/\\._-:+@".contains(c));
+    let path = if plain {
+        path.into_owned()
+    } else {
+        quote(&path)
+    };
     Ok((format!("{path}{}", &trimmed[end..]), install))
 }
 
@@ -449,9 +458,17 @@ mod tests {
         let (command, install) = replace("  claude --model opus | tee log", quote, find).unwrap();
         assert_eq!(
             command,
-            format!("'{}' --model opus | tee log", native.display())
+            format!("{} --model opus | tee log", native.display())
         );
         assert_eq!(install.origin, Origin::Native);
+        let spaced = b.claude("my tools/claude", "2.1.400");
+        let (command, _) = replace("claude -c", quote, |p: &str| b.find(p, &["my tools"])).unwrap();
+        assert_eq!(
+            command,
+            format!("'{}' -c", spaced.display()),
+            "quoted only when it must be"
+        );
+        fs::remove_file(&spaced).unwrap();
         for same in [
             "~/bin/claude -c",
             "/bin/echo claude",
