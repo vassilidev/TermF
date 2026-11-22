@@ -103,6 +103,12 @@ pub fn tile_exited(app: &AppHandle, id: u32) {
 fn takeover(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<SessionSummary> {
     let agents = agents(app);
     let takeover = agents.takeover(id)?;
+    let spec = agents.session(id).map(|s| s.spec).unwrap_or_default();
+    let remote = || api::Remote {
+        project: spec.project.as_deref(),
+        role: spec.role.as_deref(),
+        ..api::Remote::default()
+    };
     let state = app.state::<AppState>();
     let spawned = match takeover.guard {
         true => api::spawn_guarded(
@@ -111,6 +117,7 @@ fn takeover(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<SessionSum
             takeover.cwd,
             takeover.title,
             (cols, rows),
+            remote(),
             &takeover.args,
         ),
         false => api::spawn(
@@ -120,7 +127,7 @@ fn takeover(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<SessionSum
             takeover.title,
             cols,
             rows,
-            false,
+            remote(),
             None,
             &takeover.args,
         ),

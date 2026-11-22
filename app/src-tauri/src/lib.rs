@@ -18,12 +18,14 @@ mod memory;
 mod onboarding;
 mod ops;
 mod quick_terminal;
+mod remote;
 mod schedule;
 mod ssh;
 mod sync;
 mod team;
 mod tickets;
 mod tools;
+mod tray;
 mod updates;
 mod vault;
 mod visual;
@@ -123,7 +125,6 @@ async fn pty_spawn(
     rows: u16,
     remote_control: Option<bool>,
 ) -> CmdResult<SessionSummary> {
-    let remote_control = remote_control.unwrap_or(false);
     let session = api::spawn(
         &state,
         agent.as_deref(),
@@ -131,7 +132,10 @@ async fn pty_spawn(
         title,
         cols,
         rows,
-        remote_control,
+        api::Remote {
+            on: remote_control,
+            ..api::Remote::default()
+        },
         None,
         &[],
     )
@@ -282,6 +286,7 @@ pub fn run() {
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new(settings.api.confirm_cli);
+            app.manage(tray::Tray::new(settings.tray));
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(claude::ClaudeState::new(&data_dir));
             app.manage(updates::Updates::new(&data_dir));
@@ -457,6 +462,12 @@ pub fn run() {
             context::context_reset,
             api::api_confirms,
             api::api_confirm,
+            remote::remote_set,
+            remote::remote_cut_all,
+            remote::remote_policy_save,
+            tray::tray_update,
+            tray::tray_settings,
+            tray::tray_settings_set,
             tickets::tickets_sources,
             tickets::tickets_sources_save,
             tickets::tickets_source_test,

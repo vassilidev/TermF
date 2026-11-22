@@ -5795,6 +5795,7 @@ dependencies = [
  "getrandom 0.3.4",
  "interprocess",
  "keepawake",
+ "libloading",
  "objc2",
  "objc2-foundation",
  "semver",

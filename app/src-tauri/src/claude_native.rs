@@ -257,7 +257,7 @@ pub async fn claude_session_open(
         title,
         120,
         32,
-        false,
+        api::Remote::default(),
         None,
         &args,
     )
