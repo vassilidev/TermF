@@ -11,6 +11,7 @@ pub mod claude;
 pub mod context;
 pub mod ipc;
 pub mod process;
+pub mod remote;
 pub mod shell;
 pub mod squads;
 
@@ -371,6 +372,8 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub repos: Vec<Repo>,
+    #[serde(rename = "remoteControl")]
+    pub remote: remote::Policy,
 }
 
 #[derive(Deserialize)]
@@ -378,6 +381,8 @@ struct ProjectFile {
     name: String,
     #[serde(default)]
     repos: Vec<RepoEntry>,
+    remote_control: Option<toml::Value>,
+    remote_control_roles: Option<toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -564,6 +569,10 @@ pub fn load_projects(config_dir: &Path) -> Result<Vec<Project>> {
             id: path.file_stem().unwrap().to_string_lossy().into_owned(),
             name: file.name,
             repos,
+            remote: remote::Policy::read(
+                file.remote_control.as_ref(),
+                file.remote_control_roles.as_ref(),
+            ),
         });
     }
     projects.sort_by_key(|p| p.name.to_lowercase());
