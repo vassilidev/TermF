@@ -13,6 +13,7 @@
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import Conventions from "$lib/Conventions.svelte";
+  import OnboardingTeam from "$lib/OnboardingTeam.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
@@ -36,7 +37,17 @@
   } from "$lib/onboarding-logic";
   import { app, shortPath } from "$lib/state.svelte";
 
-  type Facts = { name: string; path: string; stack: string[]; workflows: string[]; instructions: string[]; claude: string[] };
+  type Facts = {
+    name: string;
+    path: string;
+    stack: string[];
+    workflows: string[];
+    instructions: string[];
+    claude: string[];
+    parts?: { path: string; name: string; role: string }[];
+    tests?: string[];
+    infra?: string[];
+  };
   type Analysis = {
     at: number;
     lang: string;
@@ -110,7 +121,13 @@
   };
   const notifyLabel = { mine: "ciNotifyMine", all: "ciNotifyAll", off: "ciNotifyOff" } as const;
   const notifyOptions: Notify[] = ["mine", "all", "off"];
-  const logLabel = { tickets: "obTicketsTitle", worktree: "obRecipeTitle", ci: "obCiTitle", trust: "obTrustTitle" } as const;
+  const logLabel = {
+    tickets: "obTicketsTitle",
+    worktree: "obRecipeTitle",
+    ci: "obCiTitle",
+    trust: "obTrustTitle",
+    team: "obTeamTitle",
+  } as const;
 
   onMount(async () => {
     if (!project) return closeSetup();
@@ -249,9 +266,16 @@
   const none = (list: string[]) => (list.length ? list.join(", ") : t("obNothing"));
   /** A repository's facts that are there; an empty one says nothing. */
   const rows = (r: Facts) =>
-    ([["obCi", r.workflows], ["obInstructions", r.instructions], ["obClaudeConfig", r.claude]] as const).filter(
-      ([, list]) => list.length,
-    );
+    (
+      [
+        ["obCi", r.workflows],
+        ["obInstructions", r.instructions],
+        ["obClaudeConfig", r.claude],
+        ["obTeamParts", (r.parts ?? []).map((p) => `${p.path || r.name} (${p.role})`)],
+        ["obTeamTests", r.tests ?? []],
+        ["obTeamInfra", r.infra ?? []],
+      ] as const
+    ).filter(([, list]) => list.length);
 </script>
 
 {#snippet decided(proposal: string)}
@@ -447,6 +471,8 @@
             <p class="hint">{t("obLibraryHint")}</p>
             <Conventions {project} only="onboarding" />
           </article>
+
+          <OnboardingTeam project={project.id} decision={ob.decisions.team} ondecided={(s) => (ob = s as Onboarding)} />
 
           <article class="proposal">
             <h3><Ticket size={15} aria-hidden="true" />{t("obTicketsTitle")} {@render decided("tickets")}</h3>

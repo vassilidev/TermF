@@ -3,9 +3,14 @@ import assert from "node:assert/strict";
 import {
   byTheme,
   githubIssues,
+  globList,
+  members,
   pick,
   reachable,
   recipeLines,
+  replacesHand,
+  teamEdit,
+  teamKeys,
   ticketProposal,
   trustState,
 } from "../src/lib/onboarding-logic.ts";
@@ -79,4 +84,39 @@ test("a recipe in a few words per repository", () => {
     { repo: "api", parts: ["pnpm install", ".env", ".env", "TERMF_PORT_WEB", "pnpm db:migrate"] },
     { repo: "docs", parts: [] },
   ]);
+});
+
+const squad = { id: "main", lead: "lead", roles: { front: 2, qa: 1 }, repos: [], paths: [], domains: [] };
+const proposal = {
+  team: { squads: [squad], staff: ["architect"] },
+  workflow: "default",
+  roles: { qa: { writes: ["**/*.test.*"] }, front: { model: "opus" } },
+};
+
+test("team: reviewed part by part, only the accepted parts written, as changed", () => {
+  assert.deepEqual(teamKeys(proposal), ["team", "workflow", "roles.qa", "roles.front"]);
+  assert.deepEqual(teamKeys({ team: null, workflow: null, roles: {} }), []);
+  const decisions = { team: "accepted", workflow: "rejected", "roles.qa": "accepted" };
+  assert.deepEqual(teamEdit(proposal, decisions, { roles: {} }), {
+    team: proposal.team,
+    workflow: null,
+    roles: { qa: { writes: ["**/*.test.*"] } },
+  });
+  const changes = { workflow: "squads", roles: { qa: { writes: ["tests/**"], effort: "high" } } };
+  const changed = teamEdit(proposal, { ...decisions, workflow: "accepted" }, changes);
+  assert.equal(changed.workflow, "squads");
+  assert.deepEqual(changed.roles.qa, { writes: ["tests/**"], effort: "high" });
+  assert.deepEqual(teamEdit(proposal, {}, changes), { team: null, workflow: null, roles: {} });
+});
+
+test("team: replacing a hand edit only when an accepted part was changed by hand", () => {
+  const status = { team: "edited", workflow: "same", "roles.qa": "changed" };
+  assert.equal(replacesHand({ team: proposal.team, workflow: null, roles: {} }, status), true);
+  assert.equal(replacesHand({ team: null, workflow: "default", roles: { qa: {} } }, status), false);
+});
+
+test("team: globs and members in a few words", () => {
+  assert.deepEqual(globList(" apps/web/** \n\npackages/ui/**, apps/web/**,"), ["apps/web/**", "packages/ui/**"]);
+  assert.deepEqual(globList("  "), []);
+  assert.deepEqual(members({ front: 2, qa: 1 }), ["front ×2", "qa"]);
 });
