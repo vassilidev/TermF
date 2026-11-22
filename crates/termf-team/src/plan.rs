@@ -379,14 +379,9 @@ pub fn check_plan(
     let mut ids = HashSet::new();
     for task in &plan.tasks {
         let id = &task.id;
-        // A dot joins a batch's id and its sub-plan's: `T2.1`.
-        if id.is_empty()
-            || !id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-        {
+        if !task_id(id) {
             problems.push(format!(
-                "task id {id:?} is not made of letters, digits, - or _"
+                "task id {id:?} is not made of letters, digits, - or _, with a dot only between two of them"
             ));
         }
         if !ids.insert(id.as_str()) {
@@ -493,6 +488,17 @@ pub fn check_plan(
     }
     problems.extend(check_questions(&plan.questions));
     problems
+}
+
+/// Whether `id` names a task: letters, digits, `-` and `_`, and a dot only between two such parts, as a grafted
+/// task's `T2.1` (never `.` nor `..`: an id names the task's folder).
+pub fn task_id(id: &str) -> bool {
+    id.split('.').all(|part| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
+    })
 }
 
 /// What is wrong with a questionnaire beyond its schema.
@@ -814,6 +820,29 @@ repos = ["acme-api"]
 "#,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_task_id_never_names_a_folder_outside_its_own() {
+        for good in ["T1", "T2.1", "T2.QA", "back-1_b"] {
+            assert!(task_id(good), "{good}");
+        }
+        for bad in ["", ".", "..", ".T1", "T1.", "T1..2", "a/b", "../x", "T 1"] {
+            assert!(!task_id(bad), "{bad}");
+        }
+        let all = check_plan(
+            &plan(vec![task("..", &[]), task(".", &[])]),
+            &repos(&["back"]),
+            &[],
+            &repos(&["api"]),
+            &small(),
+        )
+        .join("\n");
+        assert!(
+            all.contains("task id \"..\" is not made of letters, digits, - or _, with a dot only between two of them")
+                && all.contains("task id \".\""),
+            "{all}"
+        );
     }
 
     #[test]

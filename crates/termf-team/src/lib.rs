@@ -2178,7 +2178,9 @@ impl Inner {
             self.drop_worktree(run, i);
             run.steps[i].worktree = None;
             for repo in &run.repos {
-                Git(&self.env).remove_worktree(&repo.worktree, &self.copy_of(run, i, repo));
+                if let Ok(copy) = self.copy_of(run, i, repo) {
+                    Git(&self.env).remove_worktree(&repo.worktree, &copy);
+                }
             }
         }
         let stopped = outcome == Outcome::Done
@@ -3262,11 +3264,7 @@ impl Inner {
                     "the run's worktree{which} has changes not committed, in the way of {base}: commit them or set \
                      them aside, then revise {key}\n{dirty}"
                 );
-                let path = self
-                    .data_dir
-                    .join("team")
-                    .join(run.run.to_string())
-                    .join(&key);
+                let path = self.run_dir(run.run, &key)?;
                 let _ = fs::remove_dir_all(&path);
                 git.add_worktree(&dir, &path)?;
                 run.steps[i].worktree = Some(path.clone());
@@ -3414,12 +3412,23 @@ impl Inner {
     }
 
     /// Where a review step `i` reads the work of the run's repository `repo`, other than its own.
-    fn copy_of(&self, run: &TeamRun, i: usize, repo: &RunRepo) -> PathBuf {
-        let name = format!("{}@{}", run.steps[i].key, repo.name);
-        self.data_dir
-            .join("team")
-            .join(run.run.to_string())
-            .join(name)
+    fn copy_of(&self, run: &TeamRun, i: usize, repo: &RunRepo) -> Result<PathBuf> {
+        self.run_dir(run.run, &format!("{}@{}", run.steps[i].key, repo.name))
+    }
+
+    /// The folder `name` of run `run`, in `<data>/team/<run>/`, which TermF empties before use: refused when the
+    /// name would lead anywhere else.
+    fn run_dir(&self, run: i64, name: &str) -> Result<PathBuf> {
+        let mut parts = Path::new(name).components();
+        let single = matches!(
+            (parts.next(), parts.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        );
+        ensure!(
+            single && !name.contains(['/', '\\']),
+            "{name:?} cannot name a folder of the run"
+        );
+        Ok(self.data_dir.join("team").join(run.to_string()).join(name))
     }
 
     /// The other repositories of the project, for a step other than a task's: the run's own work (unless the step
@@ -3445,7 +3454,7 @@ impl Inner {
             }
             let dir = match run.repos.iter().find(|r| r.name == repo.name) {
                 Some(joined) if review => {
-                    let copy = self.copy_of(run, i, joined);
+                    let copy = self.copy_of(run, i, joined)?;
                     let _ = fs::remove_dir_all(&copy);
                     Git(&self.env).add_worktree(&joined.worktree, &copy)?;
                     copy
@@ -4142,11 +4151,7 @@ impl Inner {
         }
         let step = &run.steps[i];
         if fresh || step.kind == StepKind::Review {
-            let path = self
-                .data_dir
-                .join("team")
-                .join(run.run.to_string())
-                .join(step.task.as_deref().unwrap_or(&step.key));
+            let path = self.run_dir(run.run, step.task.as_deref().unwrap_or(&step.key))?;
             let _ = fs::remove_dir_all(&path);
             let git = Git(&self.env);
             let base = git.add_worktree(&run.home(i), &path)?;
@@ -4362,7 +4367,7 @@ impl Inner {
                     text.push_str(&format!(
                         "\nThe run's work in repository {} is in {}: read it there, as here.\n",
                         joined.name,
-                        self.copy_of(run, i, joined).display()
+                        self.copy_of(run, i, joined)?.display()
                     ));
                 }
             }

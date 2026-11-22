@@ -1447,9 +1447,19 @@ fn a_change_over_two_repositories_opens_a_pull_request_in_each() {
         log()
     );
     assert_eq!(t.run(run.id).unwrap().status, RunStatus::Running);
+    let empty = t.deliver_preview(run.id).unwrap();
+    let nothing = format!("{:#}", t.deliver(run.id, &empty.fingerprint).unwrap_err());
+    assert!(
+        nothing.contains("in this repository; the change is in run 2"),
+        "{nothing}"
+    );
 
+    // Work left in the change's own repository: nothing of the change closes, its other repositories neither.
     let tree = PathBuf::from(run.worktree.clone().unwrap());
     fs::write(tree.join("button.txt"), "Export\n").unwrap();
+    assert!(t.close(run.id, false, || {}).is_err());
+    assert_eq!(t.run(child.id).unwrap().status, RunStatus::Delivered);
+    assert!(child_tree.exists());
     let preview = t.deliver_preview(run.id).unwrap();
     let delivered = t.deliver(run.id, &preview.fingerprint).unwrap();
     assert_eq!(delivered.warning, None);
