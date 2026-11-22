@@ -1702,6 +1702,7 @@ const fr = {
   claudeDgDoctorHelp: "Installation, fichiers de réglages et Remote Control, en lecture seule (claude doctor).",
   claudeDgDoctorRun: "Lancer",
   claudeDgNoOutput: "La commande n'a rien affiché.",
+  claudeDgEdit: "Modifier",
 };
 
 type Key = keyof typeof fr;
@@ -3392,6 +3393,7 @@ const en: Record<Key, string> = {
   claudeDgDoctorHelp: "Installation, settings files and Remote Control, read-only (claude doctor).",
   claudeDgDoctorRun: "Run",
   claudeDgNoOutput: "The command printed nothing.",
+  claudeDgEdit: "Edit",
 };
 
 const messages = { fr, en };

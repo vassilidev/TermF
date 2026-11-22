@@ -87,7 +87,9 @@
     { id: "artifacts", label: "claudeViewTabArtifacts", icon: Images },
   ];
   const section = $derived(claudeView.section);
-  const config = $derived(section !== "artifacts");
+  const config = $derived(section !== "artifacts" && section !== "usage");
+  /** Sessions have their own refresh, and nothing to export. */
+  const overviewActions = $derived(config && section !== "sessions");
   const formats: ["md" | "json", Key][] = [
     ["md", "claudeViewExportMd"],
     ["json", "claudeViewExportJson"],
@@ -710,7 +712,7 @@
       </label>
     {/if}
     {#snippet actions()}
-      {#if config}
+      {#if overviewActions}
         <button class="btn sm quiet" onclick={loadOverview} disabled={claudeView.loading}>
           <RefreshCw size={14} aria-hidden="true" class={claudeView.loading ? "spin" : ""} />{t("claudeViewRefresh")}
         </button>

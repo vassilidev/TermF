@@ -173,7 +173,7 @@ pub fn claude_export_preview(
         Ok(ExportPreview {
             dest: dest.to_string_lossy().into_owned(),
             exists: dest.exists(),
-            diff: native::mask_lines(&termf_claude::settings::diff(&before, &after)),
+            diff: native::mask_lines(&native::line_diff(&before, &after)),
         })
     })()
     .map_err(err)

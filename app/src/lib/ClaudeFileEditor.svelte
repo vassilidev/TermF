@@ -97,7 +97,7 @@
     {#if file?.readOnly}<span class="badge">{t("claudeViewReadOnly")}</span>{/if}
     {#if file?.masked && !editing}<span class="badge warn">{t("claudeDgMasked")}</span>{/if}
     {#if file && !file.readOnly && !editing}
-      <button class="btn sm" onclick={edit}><Pencil size={13} aria-hidden="true" />{t("claudeViewEdit")}</button>
+      <button class="btn sm" onclick={edit}><Pencil size={13} aria-hidden="true" />{t("claudeDgEdit")}</button>
     {/if}
     <button class="icon-btn sm" onclick={onclose} aria-label={t("claudeDgClose")} title={t("claudeDgClose")}>
       <X size={14} aria-hidden="true" />

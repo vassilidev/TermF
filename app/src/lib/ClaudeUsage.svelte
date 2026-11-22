@@ -4,6 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import Info from "@lucide/svelte/icons/info";
   import ContextGauge from "$lib/ContextGauge.svelte";
+  import StatusPill from "$lib/ui/StatusPill.svelte";
   import { agents, usd } from "$lib/agents.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
@@ -95,14 +96,14 @@
             <td class="title">{s.title}</td>
             <td class="muted">{u?.model ?? "—"}</td>
             <td>{#if s.context}<ContextGauge gauge={s.context} />{/if}</td>
-            <td class="num mono">{u?.cost != null ? usd(u.cost) : "—"}</td>
+            <td class="num">{u?.cost != null ? usd(u.cost) : "—"}</td>
           </tr>
         {/each}
       </tbody>
       <tfoot>
         <tr>
           <td colspan="3">{t("claudeDgTotal")}</td>
-          <td class="num mono">{usd(tileCost)}</td>
+          <td class="num">{usd(tileCost)}</td>
         </tr>
       </tfoot>
     </table>
@@ -116,8 +117,8 @@
   <h3 id="claude-headless">{t("claudeDgHeadless")} <span class="count">{headless.length}</span></h3>
   {#if headless.length}
     <dl class="totals">
-      <div><dt>{t("claudeDgToday")}</dt><dd class="mono">{usd(todayCost)}</dd></div>
-      <div><dt>{t("claudeDgAllRuns")}</dt><dd class="mono">{usd(headlessCost)}</dd></div>
+      <div><dt>{t("claudeDgToday")}</dt><dd>{usd(todayCost)}</dd></div>
+      <div><dt>{t("claudeDgAllRuns")}</dt><dd>{usd(headlessCost)}</dd></div>
     </dl>
     <table>
       <thead>
@@ -132,9 +133,9 @@
         {#each headless.slice(0, 12) as a (a.id)}
           <tr>
             <td class="title">{a.title}{#if a.role}<span class="badge role">{a.role}</span>{/if}</td>
-            <td class="muted">{a.state}</td>
+            <td><StatusPill status={a.state} /></td>
             <td class="muted">{ago(a.updated)}</td>
-            <td class="num mono">{usd(a.cost)}{#if a.budget}<span class="muted"> / {usd(a.budget)}</span>{/if}</td>
+            <td class="num">{usd(a.cost)}{#if a.budget}<span class="muted"> / {usd(a.budget)}</span>{/if}</td>
           </tr>
         {/each}
       </tbody>
@@ -303,9 +304,10 @@
   }
 
   .num {
-    width: 120px;
+    width: 170px;
     text-align: right;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   .title {
@@ -338,6 +340,7 @@
 
   .totals dd {
     margin: 0;
+    font-variant-numeric: tabular-nums;
     font-size: var(--text-lg);
     font-weight: 650;
   }

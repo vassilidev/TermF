@@ -345,3 +345,15 @@ esac"#,
     );
     assert!(sessions::background(&env).error.is_some());
 }
+
+#[test]
+fn diffs_documents_line_by_line() {
+    let before = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\n";
+    let after = "a\nB\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n";
+    assert_eq!(
+        native::line_diff(before, after),
+        " a\n-b\n+B\n c\n d\n e\n…\n i\n j\n k\n+l\n"
+    );
+    assert_eq!(native::line_diff("x\n", "x\n"), "");
+    assert_eq!(native::line_diff("", "new\n"), "+new\n");
+}

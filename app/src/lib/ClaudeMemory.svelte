@@ -16,6 +16,8 @@
   let deleting = $state<{ name: string; path: string } | null>(null);
   let confirmDelete = $state(false);
 
+  /** Claude Code's folder for the chosen repository: its memory opens first. */
+  const repoFolder = $derived(claudeView.repo.replace(/[^A-Za-z0-9]/g, "-"));
   const join = (dir: string, name: string) => `${dir}${dir.includes("\\") ? "\\" : "/"}${name}`;
 
   async function remove() {
@@ -65,7 +67,7 @@
 <h3 class="title">{t("claudeViewAutoMemory")} <span class="count">{o.memory.auto.length}</span></h3>
 <p class="muted lead">{t("claudeDgAutoHelp")}</p>
 {#each o.memory.auto as m (m.path)}
-  <details class="fold" open={o.memory.auto.length === 1}>
+  <details class="fold" open={o.memory.auto.length === 1 || m.project === repoFolder}>
     <summary>
       <ChevronRight size={14} aria-hidden="true" class="chevron" />
       <span class="fold-title mono">{m.project || m.path}</span>

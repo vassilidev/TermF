@@ -180,9 +180,65 @@ pub fn preview(
     };
     Ok(settings::Preview {
         path: path.to_string_lossy().into_owned(),
-        diff: settings::diff(before.as_deref().unwrap_or_default(), &text),
+        diff: line_diff(before.as_deref().unwrap_or_default(), &text),
         text,
     })
+}
+
+/// A line diff of a whole document (`-` removed, `+` added, ` ` context), three lines of context around each
+/// change and `…` between distant ones; empty when nothing changes. Too big to compare line by line, it is one
+/// block of removed then added lines.
+pub fn line_diff(before: &str, after: &str) -> String {
+    let (a, b): (Vec<&str>, Vec<&str>) = (before.lines().collect(), after.lines().collect());
+    let (n, m) = (a.len(), b.len());
+    if n.saturating_mul(m) > 4_000_000 {
+        return settings::diff(before, after);
+    }
+    // Longest common subsequence from the end, so the walk below goes forward.
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if a[i] == b[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let mut ops = Vec::with_capacity(n + m);
+    let (mut i, mut j) = (0, 0);
+    while i < n || j < m {
+        if i < n && j < m && a[i] == b[j] {
+            ops.push((' ', a[i]));
+            (i, j) = (i + 1, j + 1);
+        } else if i < n && (j == m || lcs[i + 1][j] >= lcs[i][j + 1]) {
+            ops.push(('-', a[i]));
+            i += 1;
+        } else {
+            ops.push(('+', b[j]));
+            j += 1;
+        }
+    }
+    let mut shown = vec![false; ops.len()];
+    for (k, _) in ops.iter().enumerate().filter(|(_, (c, _))| *c != ' ') {
+        shown[k.saturating_sub(3)..(k + 4).min(ops.len())].fill(true);
+    }
+    let mut out = String::new();
+    let mut gap = false;
+    for ((c, line), show) in ops.into_iter().zip(shown) {
+        if !show {
+            gap = true;
+            continue;
+        }
+        if gap && !out.is_empty() {
+            out.push_str("…\n");
+        }
+        gap = false;
+        out.push(c);
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 pub fn save(env: &Env, path: &Path, text: &str, base: Option<&str>) -> Result<settings::Preview> {

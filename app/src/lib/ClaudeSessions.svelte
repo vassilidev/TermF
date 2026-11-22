@@ -11,6 +11,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import { ago, t } from "$lib/i18n";
   import type { Session } from "$lib/state.svelte";
   import { claudeView, size } from "$lib/claude.svelte";
@@ -95,7 +96,8 @@
   }
 
   const where = (p: SessionProject) => p.cwd ?? p.folder;
-  const stateTone: Record<string, string> = { working: "busy", blocked: "warn", done: "ok", failed: "error", stopped: "" };
+  /** `claude agents --json` states, as the app shows a status. */
+  const pill: Record<string, Status> = { working: "working", blocked: "waiting", done: "done", failed: "failed", stopped: "stopped" };
 </script>
 
 <header class="page-head">
@@ -122,7 +124,7 @@
               <span class="mono desc">{b.cwd ?? ""}</span>
             </div>
             {#if b.waitingFor}<span class="muted small">{b.waitingFor}</span>{/if}
-            {#if b.state}<span class="badge tone-{stateTone[b.state] ?? ''}">{b.state}</span>{:else if b.status}<span class="badge">{b.status}</span>{/if}
+            {#if b.state && b.state in pill}<StatusPill status={pill[b.state]} />{/if}
             {#if b.startedAt}<span class="muted small when">{ago(Math.floor(b.startedAt / 1000))}</span>{/if}
             {#if b.id}
               <button class="btn sm quiet" onclick={() => attach(b)}><SquareTerminal size={13} aria-hidden="true" />{t("claudeDgAttach")}</button>
@@ -347,29 +349,9 @@
     white-space: nowrap;
   }
 
-  .tone-ok {
-    border-color: transparent;
-    background: var(--done-soft);
-    color: var(--done);
-  }
 
-  .tone-warn {
-    border-color: transparent;
-    background: var(--waiting-soft);
-    color: var(--warning);
-  }
 
-  .tone-error {
-    border-color: transparent;
-    background: var(--danger-soft);
-    color: var(--danger);
-  }
 
-  .tone-busy {
-    border-color: transparent;
-    background: var(--working-soft);
-    color: var(--working);
-  }
 
   .icon-btn.danger:hover:not(:disabled) {
     color: var(--danger);
