@@ -196,7 +196,7 @@ async function team(ticket, repo, o, dir, work) {
     ...gitEnv,
     TERMF_BENCH_REPO: repo,
     TERMF_BENCH_TICKET: ticketFile(ticket),
-    TERMF_BENCH_CHECKS: TICKETS[ticket].suite ? SUITE.checks : "npm test",
+    TERMF_BENCH_CHECKS: TICKETS[ticket].suite ? (SUITE.team_checks ?? SUITE.checks) : "npm test",
     TERMF_BENCH_ROOT: join(work, "termf"),
     TERMF_BENCH_OUT: out,
     TERMF_BENCH_MODEL: o.model,
