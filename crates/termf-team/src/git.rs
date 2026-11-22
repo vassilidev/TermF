@@ -113,7 +113,7 @@ impl Git<'_> {
 
     /// Puts back each `AGENTS.md` and `CLAUDE.md` of `dir` whose only change is a block a tool manages on its own
     /// (`next dev` writes `<!-- BEGIN:nextjs-agent-rules -->`…), unless `asked` says the ticket asks for that
-    /// file: what it put back.
+    /// path: what it put back. During a merge, what the merged work brings stays.
     pub fn set_aside_managed(
         &self,
         dir: &Path,
@@ -121,13 +121,18 @@ impl Git<'_> {
     ) -> Result<Vec<String>> {
         let changed = self.run(dir, &["diff", "--name-only", "-z", "HEAD"])?;
         let new = self.run(dir, &["ls-files", "-o", "--exclude-standard", "-z"])?;
+        let merged = match self.run(dir, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]) {
+            Ok(_) => self.run(dir, &["diff", "--name-only", "-z", "HEAD", "MERGE_HEAD"])?,
+            Err(_) => String::new(),
+        };
+        let merged: Vec<&str> = merged.split('\0').collect();
         let mut kept = Vec::new();
         for path in changed.split('\0').chain(new.split('\0')) {
             let name = Path::new(path)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
-            if !matches!(name, "AGENTS.md" | "CLAUDE.md") || asked(name) {
+            if !matches!(name, "AGENTS.md" | "CLAUDE.md") || asked(path) || merged.contains(&path) {
                 continue;
             }
             let Ok(now) = std::fs::read_to_string(dir.join(path)) else {

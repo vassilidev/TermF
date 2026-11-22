@@ -1165,6 +1165,9 @@ fn leaves_a_merge_conflict_to_the_task_agent() {
     );
 }
 
+/// The block `next dev` writes in `AGENTS.md`, as `printf` takes it.
+const NEXT_BLOCK: &str = "<!-- BEGIN:nextjs-agent-rules -->\\n\\n## This is NOT the Next.js you know\\n\\n<!-- END:nextjs-agent-rules -->\\n";
+
 #[test]
 fn leaves_the_block_next_dev_writes_out_of_a_task_commit() {
     let env = Env::new("managed");
@@ -1178,7 +1181,7 @@ fn leaves_the_block_next_dev_writes_out_of_a_task_commit() {
         "plan.json",
         env.plan(json!([task("T1", "back", &["src/api"], &[]), t2])),
     );
-    let block = "<!-- BEGIN:nextjs-agent-rules -->\\n\\n## This is NOT the Next.js you know\\n\\n<!-- END:nextjs-agent-rules -->\\n";
+    let block = NEXT_BLOCK;
     env.script(
         "implement:T1",
         &format!(
@@ -1220,6 +1223,81 @@ fn leaves_the_block_next_dev_writes_out_of_a_task_commit() {
         ["web/AGENTS.md"],
         "the task asks for it"
     );
+}
+
+#[test]
+fn a_merge_keeps_the_block_another_task_was_asked_for() {
+    let env = Env::new("managed-merge");
+    let mut t1 = task("T1", "back", &["a"], &[]);
+    t1["goal"] = json!("Add the Next.js agent rules to AGENTS.md");
+    env.answer(
+        "plan.json",
+        env.plan(json!([t1, task("T2", "back", &["b"], &[])])),
+    );
+    env.script(
+        "implement:T1",
+        &format!("echo one > shared.txt\nprintf '{NEXT_BLOCK}' > AGENTS.md\n"),
+    );
+    // T2 meets T1's work in a conflict: the merge it resolves brings T1's AGENTS.md.
+    env.script(
+        "implement:T2",
+        "case $1 in 1) sleep 1; echo two > shared.txt ;; *) echo both > shared.txt ;; esac\n",
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Done);
+    let t2 = env.step(&run, "implement:T2");
+    assert_eq!(t2.attempt, 2, "it resolved the conflict");
+    let said = t2.report.as_ref().unwrap().out_of_scope_findings.join("\n");
+    assert!(!said.contains("AGENTS.md"), "{said}");
+    let agents = fs::read_to_string(env.target.worktree.join("AGENTS.md")).unwrap();
+    assert!(
+        agents.contains("BEGIN:nextjs-agent-rules"),
+        "T1's work stays"
+    );
+}
+
+#[test]
+fn termf_notes_never_explain_a_file_out_of_scope() {
+    let env = Env::new("managed-scope");
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api"], &[])])),
+    );
+    env.script(
+        "implement:T1",
+        &format!(
+            "mkdir -p src/api app; echo a > src/api/a.txt; printf '{NEXT_BLOCK}' > app/AGENTS.md\n\
+             if [ \"$1\" = 1 ]; then echo '# Notes' > AGENTS.md; else rm -f AGENTS.md; fi\n"
+        ),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        rules: [("scope-strict".to_owned(), Level::Block)].into(),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Done);
+    let t1 = env.step(&run, "implement:T1");
+    assert_eq!(t1.attempt, 2, "the scope rule sent it back once");
+    let retry = env.message("implement:T1", 2);
+    assert!(
+        retry.contains("scope-strict — AGENTS.md: not among the files planned for task T1"),
+        "{retry}"
+    );
+    assert_eq!(t1.files, ["src/api/a.txt"]);
+}
+
+#[test]
+fn names_a_file_whole() {
+    assert!(names("Update AGENTS.md.", "AGENTS.md"));
+    assert!(names("see `web/agents.md`", "web/AGENTS.md"));
+    assert!(!names("Update web/AGENTS.md", "AGENTS.md"));
+    assert!(!names("the subagents.md file", "AGENTS.md"));
+    assert!(!names("AGENTS.md", "web/AGENTS.md"));
 }
 
 #[test]
@@ -1281,17 +1359,33 @@ fn the_brief_puts_the_documents_first_and_caps_the_turns() {
     let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
     assert!(args.contains("--max-turns 7"), "{args}");
 
-    fs::write(
-        env.config.join("projects/acme.toml"),
-        fs::read_to_string(env.config.join("projects/acme.toml"))
-            .unwrap()
-            .replace("M = 0", "M = -1"),
-    )
-    .unwrap();
-    let inner = &env.team.inner;
-    let error = format!("{:#}", inner.max_turns(&run, plan::Size::M).unwrap_err());
-    assert!(error.contains("`[team] max_turns.M`"), "{error}");
-    assert_eq!(inner.max_turns(&run, plan::Size::L).unwrap(), Some(240));
+    let project = fs::read_to_string(env.config.join("projects/acme.toml")).unwrap();
+    let caps = |line: &str| {
+        let text = project.replace("max_turns = { M = 0, S = 7 }", line);
+        fs::write(env.config.join("projects/acme.toml"), text).unwrap();
+        env.team.inner.max_turns(&run, plan::Size::M)
+    };
+    for bad in [
+        "max_turns = { M = -1 }",
+        "max_turns = 30",
+        "max_turns = { m = 30 }",
+    ] {
+        let error = format!("{:#}", caps(bad).unwrap_err());
+        assert!(
+            error.contains("`[team] max_turns` in") && error.contains("a table of S, M and L"),
+            "{bad}: {error}"
+        );
+    }
+    assert_eq!(
+        caps("max_turns = { L = 9 }").unwrap(),
+        Some(120),
+        "M: the default"
+    );
+    assert_eq!(
+        caps("max_turns = { M = 9 }\n[broken").unwrap(),
+        Some(120),
+        "a file that does not parse is its readers' to report"
+    );
 }
 
 #[test]
@@ -1567,6 +1661,7 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         &["finance", "clients"],
         &["finance"]
     )]);
+    asks["rulings"] = json!(["Ruling: an early guess — before the answers — wrong"]);
     env.answer("triage.2.json", asks);
     let mut good = routing("default", &["api"]);
     // prd is off anyway: left out of the routing.
@@ -1598,6 +1693,7 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         r.steps[0].state == StepState::Blocked
     });
     assert_eq!(run.steps[0].attempt, 2, "one correction");
+    assert!(run.steps[0].report.is_none(), "no ruling until it routes");
     let second = env.message("triage", 2);
     for expected in [
         "no squad ops in the project",
@@ -1736,15 +1832,18 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
 fn you_change_the_routing_and_the_cto_plans_several_squads() {
     let env = Env::new("triage-changed");
     triage_project(&env);
-    env.answer("triage.json", routing("default", &["api"]));
+    let mut cto = routing("default", &["api"]);
+    cto["rulings"] = json!(["Ruling: workflow default — one squad — a plan too many"]);
+    env.answer("triage.json", cto);
     let run = env
         .team
         .start(env.target.clone(), Options::default())
         .unwrap();
     assert_eq!(run.routing, None);
-    env.until("the routing gate", |r| {
+    let run = env.until("the routing gate", |r| {
         r.steps[1].state == StepState::Waiting
     });
+    assert!(run.steps[0].report.is_some(), "the CTO's rulings");
     let mut mine: Routing = serde_json::from_value(routing("lean", &["web", "api"])).unwrap();
     mine.squads.push("ops".into());
     let refused = env
@@ -1758,6 +1857,10 @@ fn you_change_the_routing_and_the_cto_plans_several_squads() {
     let run = env.team.route(1, mine, None).unwrap();
     let applied = run.routing.clone().unwrap();
     assert!(applied.changed);
+    assert!(
+        applied.rulings.is_empty() && run.steps[0].report.is_none(),
+        "the CTO's rulings were about its own routing"
+    );
     assert_eq!(run.workflow, "lean");
     assert_eq!(
         run.budget,
@@ -1781,6 +1884,7 @@ fn you_change_the_routing_and_the_cto_plans_several_squads() {
         plan.contains("- web: roles front") && plan.contains("- api: roles back"),
         "{plan}"
     );
+    assert!(!plan.contains("Ruling:"), "{plan}");
     assert!(
         env.team.route(1, applied, None).is_err(),
         "applied: no longer open"

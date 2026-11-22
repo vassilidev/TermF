@@ -663,6 +663,9 @@ impl Team {
             routing.budget_usd = budget;
         }
         routing.changed = true;
+        // The CTO's rulings were about its own routing, not this one.
+        routing.rulings.clear();
+        run.steps[t].report = None;
         inner.normalize(&run, &mut routing);
         run.routing = Some(routing);
         for i in [t, g] {
@@ -1151,18 +1154,9 @@ impl Inner {
             .collect();
         self.normalize(run, &mut routing);
         let mut summary = route::describe(&routing);
-        // The CTO's rulings are its step's report: the run's detail shows them, the later steps read them.
         let rulings = routing.rulings.join("\n");
-        run.steps[i].report = (!rulings.is_empty()).then(|| Report {
-            status: ReportStatus::Done,
-            summary: rulings.clone(),
-            covers: Vec::new(),
-            text_changes: Vec::new(),
-            affected_views: Vec::new(),
-            out_of_scope_findings: Vec::new(),
-            questions: Vec::new(),
-        });
         run.routing = Some(routing);
+        run.steps[i].report = None;
         if !questions.is_empty() {
             let note = format!(
                 "the CTO has questions before it routes the run; answer them:\n- {}",
@@ -1170,7 +1164,17 @@ impl Inner {
             );
             return self.block(store, run, i, &note);
         }
+        // The CTO's rulings are its step's report: the run's detail shows them, the later steps read them.
         if !rulings.is_empty() {
+            run.steps[i].report = Some(Report {
+                status: ReportStatus::Done,
+                summary: rulings.clone(),
+                covers: Vec::new(),
+                text_changes: Vec::new(),
+                affected_views: Vec::new(),
+                out_of_scope_findings: Vec::new(),
+                questions: Vec::new(),
+            });
             summary = format!("{summary}\n{rulings}");
         }
         self.done(store, run, i, &summary);
@@ -2015,21 +2019,12 @@ impl Inner {
             .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()))
             .cloned()
             .context("the task is not in the plan")?;
-        let asked = |name: &str| {
-            let name = name.to_lowercase();
+        let asked = |path: &str| {
             [&run.target.brief, &task.goal]
                 .iter()
-                .any(|t| t.to_lowercase().contains(&name))
+                .any(|t| names(t, path))
         };
         let kept = git.set_aside_managed(&worktree, asked)?;
-        if let Some(report) = run.steps[i].report.as_mut() {
-            for file in kept {
-                report.out_of_scope_findings.push(format!(
-                    "{file}: TermF left out of this task's commit the block a tool such as `next dev` writes there \
-                     on its own, as the ticket does not ask for it"
-                ));
-            }
-        }
         self.commit(run, i)?;
         let (files, diff, lines) = git.changes(&worktree, &base)?;
         let report = run.steps[i]
@@ -2071,6 +2066,15 @@ impl Inner {
                     message,
                     blocking: blocking && rule.level == Level::Block,
                 });
+            }
+        }
+        // Added once the rules have read the report: TermF's words never explain a file the agent changed.
+        if let Some(report) = run.steps[i].report.as_mut() {
+            for file in kept {
+                report.out_of_scope_findings.push(format!(
+                    "{file}: TermF left out of this task's commit the block a tool such as `next dev` writes there \
+                     on its own, as the ticket does not ask for it"
+                ));
             }
         }
         let key = run.steps[i].key.clone();
@@ -2841,28 +2845,33 @@ impl Inner {
         let key = format!("{size:?}");
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         for file in [project, self.config_dir.join("termf.toml")] {
-            let Ok(text) = fs::read_to_string(&file) else {
-                continue;
-            };
-            let table: toml::Table =
-                toml::from_str(&text).with_context(|| format!("invalid {}", file.display()))?;
-            let Some(value) = table
-                .get("team")
-                .and_then(|t| t.get("max_turns"))
-                .and_then(|t| t.get(&key))
+            // A file that does not parse is reported by its own readers; it caps nothing here.
+            let Some(table) = fs::read_to_string(&file)
+                .ok()
+                .and_then(|text| toml::from_str::<toml::Table>(&text).ok())
             else {
                 continue;
             };
-            let turns = value
-                .as_integer()
-                .and_then(|n| u32::try_from(n).ok())
+            let Some(caps) = table.get("team").and_then(|t| t.get("max_turns")) else {
+                continue;
+            };
+            let turns = |v: &toml::Value| v.as_integer().and_then(|n| u32::try_from(n).ok());
+            let caps = caps
+                .as_table()
+                .filter(|t| {
+                    t.iter()
+                        .all(|(k, v)| ["S", "M", "L"].contains(&k.as_str()) && turns(v).is_some())
+                })
                 .with_context(|| {
                     format!(
-                        "`[team] max_turns.{key}` in {} must be a number of turns, 0 for no cap",
+                        "`[team] max_turns` in {} must be a table of S, M and L, each a number of turns (0 for \
+                         no cap), such as {{ S = 60, M = 120, L = 240 }}",
                         file.display()
                     )
                 })?;
-            return Ok((turns > 0).then_some(turns));
+            if let Some(n) = caps.get(&key).and_then(turns) {
+                return Ok((n > 0).then_some(n));
+            }
         }
         Ok(Some(size.turns()))
     }
@@ -3248,6 +3257,18 @@ fn labelled(label: &str, items: &[String]) -> String {
         true => String::new(),
         false => format!("{label}{}", items.join(", ")),
     }
+}
+
+/// Whether `text` names the file `path` (relative to the repository) whole, whatever the case: `web/AGENTS.md`
+/// names neither `AGENTS.md` nor `subagents.md`.
+fn names(text: &str, path: &str) -> bool {
+    let (text, path) = (text.to_lowercase(), path.to_lowercase());
+    let part = |c: char| c.is_alphanumeric() || "_-/".contains(c);
+    text.match_indices(&path).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + path.len()..].chars().next();
+        before.is_none_or(|c| !part(c) && c != '.') && after.is_none_or(|c| !part(c))
+    })
 }
 
 /// `effort` within the role's `effort_range`, when it has one.
