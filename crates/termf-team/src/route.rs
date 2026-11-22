@@ -406,10 +406,18 @@ mod tests {
                     step: "checks".into(),
                     effort: "huge".into(),
                 },
+                Effort {
+                    step: "review".into(),
+                    effort: "xhigh".into(),
+                },
             ],
             ..routing()
         };
         let all = check(&efforts, &workflows, &team, any).join("\n");
+        assert!(
+            !all.contains("review"),
+            "the CTO sets the review's effort too: {all}"
+        );
         for expected in [
             "efforts: frame is not an agent step that runs in workflow default",
             "effort huge of step checks is not one of",

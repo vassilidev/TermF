@@ -91,6 +91,8 @@ export type Finding = {
   /** Why it stays as it is, when someone said. */
   reason: string | null;
 };
+/** The answer that leaves a finding of the review as it is. */
+export const LEAVE = "leave";
 /** A round of a review step. */
 export type Review = { step: string; round: number; summary: string; findings: Finding[]; at: number };
 export type Step = {

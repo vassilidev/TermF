@@ -2145,6 +2145,11 @@ const fr = {
   reviewLoopFix: "Correction attendue : {fix}",
   reviewLoopAsk: "La revue de code attend ta décision",
   reviewLoopNotice: "Run {run} · revue de code : un tour est terminé",
+  reviewLoopWho: "Qui corrige {id} ({severity}), {where} ? {scenario}",
+  reviewLoopWhyLast: "c'était le dernier tour de la revue, à toi de décider. Correction attendue : {fix}",
+  reviewLoopWhyNoTask: "aucune tâche du plan n'en est clairement chargée. Correction attendue : {fix}",
+  reviewLoopFixedBy: "{task} ({role}) le corrige dans une nouvelle tentative, puis les contrôles et la revue repassent",
+  reviewLoopLeaveImplies: "personne ne le corrige : il reste dans le rapport du run, avec ta raison dans « Autre chose à dire »",
 };
 
 type Key = keyof typeof fr;
@@ -4278,6 +4283,11 @@ const en: Record<Key, string> = {
   reviewLoopFix: "Fix expected: {fix}",
   reviewLoopAsk: "The code review waits for your decision",
   reviewLoopNotice: "Run {run} · code review: a round ended",
+  reviewLoopWho: "Who fixes {id} ({severity}), {where}? {scenario}",
+  reviewLoopWhyLast: "it was the review's last round: you decide. Fix expected: {fix}",
+  reviewLoopWhyNoTask: "no task of the plan clearly owns it. Fix expected: {fix}",
+  reviewLoopFixedBy: "{task} ({role}) fixes it in a new attempt, then the checks and the review run again",
+  reviewLoopLeaveImplies: "nobody fixes it: it stays in the run's report, with your reason under “Anything else to say”",
 };
 
 const messages = { fr, en };

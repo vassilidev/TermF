@@ -1982,6 +1982,20 @@ fn the_review_sends_each_finding_to_its_task_then_looks_again() {
         args.lines().all(|l| l.contains(r#""args":["guard"]"#)),
         "every step's session has the guard hook: {args}"
     );
+
+    // Changes asked at the delivery go to the work the review looked at, never to the reviewer.
+    let run = env
+        .team
+        .revise(1, "deliver", "Name the file after the period")
+        .unwrap();
+    let asked: Vec<&Step> = run
+        .steps
+        .iter()
+        .filter(|s| s.feedback.as_deref() == Some("Name the file after the period"))
+        .collect();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].kind, StepKind::Task);
+    assert_eq!(env.step(&run, "review").state, StepState::Pending);
 }
 
 #[test]

@@ -2444,7 +2444,8 @@ impl Inner {
         let mut queue: std::collections::VecDeque<&String> = run.steps[i].needs.iter().collect();
         while let Some(key) = queue.pop_front() {
             let j = run.index(key).ok()?;
-            if run.steps[j].agent() {
+            // The reviewer changes nothing: what the user asks goes on to the work it reviewed.
+            if run.steps[j].agent() && run.steps[j].kind != StepKind::Review {
                 return Some(j);
             }
             // The triage is behind the routing gate: a step of the routed workflow never takes it up again.

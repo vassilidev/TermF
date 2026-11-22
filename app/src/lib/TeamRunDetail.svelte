@@ -71,8 +71,10 @@
     progress,
     rounds,
     tally,
+    LEAVE,
     type Ask,
     type Finding,
+    type Question,
     type Review,
     type TeamRun,
   } from "$lib/team-run-logic";
@@ -152,6 +154,24 @@
       : f.fate === "asked"
         ? t("reviewLoopAsked")
         : t(f.fate === "reported" ? "reviewLoopReported" : "reviewLoopLeft");
+
+  /** The questions TermF asks about the findings of its review, said in the user's language from the findings. */
+  function questionsOf(ask: Ask): Question[] {
+    const last = ask.step.kind === "review" ? rounds(run, ask.step.key).at(-1) : undefined;
+    if (!last) return ask.questions;
+    const role = (task: string) => run.plan?.tasks.find((x) => x.id === task)?.role ?? "";
+    return ask.questions.map((q) => {
+      const f = last.findings.find((x) => x.id === q.id);
+      if (!f) return q;
+      const severity = t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit").toLowerCase();
+      return {
+        ...q,
+        question: t("reviewLoopWho", { id: f.id, severity, where: `${f.file}:${f.line}`, scenario: f.scenario }),
+        why: t(f.to ? "reviewLoopWhyLast" : "reviewLoopWhyNoTask", { fix: f.fix }),
+        implications: q.options.map((o) => (o === LEAVE ? t("reviewLoopLeaveImplies") : t("reviewLoopFixedBy", { task: o, role: role(o) }))),
+      };
+    });
+  }
 
   function roundLine(review: Review): string {
     const n = tally(review);
@@ -402,7 +422,7 @@
             {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
           {:else}
             <!-- Never stuck in the form: accept as it is, answer in free text, or set the path yourself. -->
-            <TeamQuestionnaire {run} step={key} questions={ask.questions}>
+            <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)}>
               {#if ask.accept}
                 <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
                   {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
