@@ -26,7 +26,8 @@
   import Popover from "$lib/ui/Popover.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
-  import { runtimes, showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import { apiUsd, budgetUsd, runtimes, showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import { budgetLabel, costHelp, resetClock, windowName } from "$lib/usage.svelte";
   import { focusSession } from "$lib/commands";
   import {
     addressed,
@@ -355,7 +356,7 @@
       }
       if (field === "repo") return t("ticketInRepo", { repo: value });
       if (field === "workflow") return t("teamRunsWorkflowName", { name: value });
-      if (field === "budget") return `${t("chatBudget")} ${usd(Number(value))}`;
+      if (field === "budget") return `${budgetLabel(t("chatBudget"))} ${budgetUsd(Number(value))}`;
       if (field === "id") return `#${value}`;
       return value;
     });
@@ -406,6 +407,18 @@
     <p class="sys failed">
       <ShieldX size={14} aria-hidden="true" />
       <span>{t("chatDenied", { tool: item.tool })}<span class="muted">{" · "}{item.message}</span></span>
+    </p>
+  {:else if item.type === "limit"}
+    {@const win = item.window ? windowName(item.window) : t("usage2AnyWindow")}
+    <p class="notice" class:error={item.reached} role="status">
+      <CircleAlert size={14} aria-hidden="true" />
+      <span>
+        {#if item.reached}
+          {item.resetsAt ? t("usage2Reached", { window: win, time: resetClock(item.resetsAt) }) : t("usage2ReachedNoTime", { window: win })}
+        {:else}
+          {item.resetsAt ? t("usage2Near", { window: win, time: resetClock(item.resetsAt) }) : t("usage2NearNoTime", { window: win })}
+        {/if}
+      </span>
     </p>
   {:else if item.type === "error"}
     <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{t("chatProcessError", { message: item.message })}</span></p>
@@ -540,7 +553,7 @@
     {#if runtime}
       <span>{t("adaptersTurnTokens", { input: end.usage.input.toLocaleString(lang), output: end.usage.output.toLocaleString(lang) })}</span>
     {:else}
-      <span>{t("chatTurnCost", { cost: usd(end.cost), total: usd(end.total) })}</span>
+      <span title={costHelp()}>{t("chatTurnCost", { cost: usd(end.cost), total: usd(end.total) })}</span>
     {/if}
     {#if end.context}<ContextGauge gauge={end.context} />{/if}
   </div>
@@ -590,9 +603,9 @@
     <span><small>{t("metaModel")}</small> {model || t("schedulerDefault")}</span>
     <span><small>{t("metaEffort")}</small> {session.effort ? (efforts[session.effort] ? t(efforts[session.effort]) : session.effort) : t("schedulerDefault")}</span>
     <span><small>{t("chatMode")}</small> {mode ? (modes[mode] ? t(modes[mode]) : mode) : t("schedulerDefault")}</span>
-    {#if !runtime}<span><small>{t("chatCost")}</small> {usd(session.cost)}</span>{/if}
+    {#if !runtime}<span title={costHelp()}><small>{t("chatCost")}</small> {apiUsd(session.cost)}</span>{/if}
     {#if left !== null && session.budget !== null}
-      <span><small>{t("chatBudget")}</small> {t("chatBudgetLeft", { left: usd(left), budget: usd(session.budget) })}</span>
+      <span><small>{budgetLabel(t("chatBudget"))}</small> {t("chatBudgetLeft", { left: usd(left), budget: budgetUsd(session.budget) })}</span>
     {/if}
     {#if session.context}<ContextGauge gauge={session.context} />{/if}
   </p>

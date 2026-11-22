@@ -31,6 +31,7 @@
   import { tour } from "$lib/tour.svelte";
   import { views, type View } from "$lib/views";
   import Popover from "$lib/ui/Popover.svelte";
+  import UsageGauge from "$lib/UsageGauge.svelte";
   import { isMac } from "$lib/files.svelte";
   import { closePanel, openBeside } from "$lib/panes.svelte";
 
@@ -241,6 +242,7 @@
         <SettingsIcon size={16} aria-hidden="true" />
         {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
       </button>
+      <UsageGauge />
       {#if app.keepAwake?.active}
         <button
           class="icon-btn awake"

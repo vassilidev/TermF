@@ -30,7 +30,8 @@
 </script>
 
 <script lang="ts">
-  import { usd } from "$lib/agents.svelte";
+  import { budgetUsd } from "$lib/agents.svelte";
+  import { isSubscribed } from "$lib/usage.svelte";
   import type { Routing } from "$lib/team-run-logic";
   import { stepTitle } from "$lib/team.svelte";
 
@@ -64,8 +65,8 @@
       <dt>{t("ctoEntryEfforts")}</dt>
       <dd>{routing.efforts.map((e) => `${stepTitle(e.step)} ${e.effort}`).join(", ")}</dd>
     {/if}
-    <dt>{t("ctoEntryBudget")}</dt>
-    <dd>{routing.budget_usd > 0 ? usd(routing.budget_usd) : t("ctoEntryNoAdvice")}</dd>
+    <dt>{isSubscribed() ? t("usage2CapAdvised") : t("ctoEntryBudget")}</dt>
+    <dd>{routing.budget_usd > 0 ? budgetUsd(routing.budget_usd) : t("ctoEntryNoAdvice")}</dd>
   </dl>
 </div>
 

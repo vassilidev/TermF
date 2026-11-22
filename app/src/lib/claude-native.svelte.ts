@@ -23,7 +23,7 @@ export type Background = { sessions: BackgroundSession[]; error: string | null }
 export type LimitWindow = { usedPercentage: number; resetsAt: number | null; usedUsd: number | null; limitUsd: number | null };
 export type Limits = { fiveHour: LimitWindow | null; sevenDay: LimitWindow | null; spendLimit: LimitWindow | null };
 export type Usage = {
-  limits: { limits: Limits; at: number; session: number } | null;
+  limits: { limits: Limits; at: number; session: number | null; conversation: number | null } | null;
   sessions: Record<string, { cost: number | null; model: string | null; at: number }>;
 };
 export type ExportPreview = { dest: string; exists: boolean; diff: string };

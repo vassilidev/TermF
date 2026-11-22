@@ -4,6 +4,7 @@
   import type { Item } from "$lib/library.svelte";
   import { budgetError } from "$lib/team-run-logic";
   import { usd } from "$lib/agents.svelte";
+  import { budgetLabel } from "$lib/usage.svelte";
 
   /** The workflow and budget a team starts with; a team going on keeps its workflow (`resume`). */
   let {
@@ -52,7 +53,7 @@
     </label>
   {/if}
   <label class="labelled budget">
-    <span>{t("teamRunsBudget")}</span>
+    <span>{budgetLabel(t("teamRunsBudget"))}</span>
     <input
       class="field"
       type="number"

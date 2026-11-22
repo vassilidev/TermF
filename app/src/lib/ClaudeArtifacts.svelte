@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { approxUsd } from "$lib/usage.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
@@ -97,7 +98,7 @@
   };
 
   const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", maximumFractionDigits: 3 });
-  const cost = (usd: number | null) => (usd === null ? "" : t("claudeViewCost", { cost: money.format(usd) }));
+  const cost = (usd: number | null) => (usd === null ? "" : t("claudeViewCost", { cost: approxUsd(money.format(usd)) }));
 
   /** The account's date when it reads as one, as the account gave it otherwise. */
   function updated(a: Artifact): { text: string; title: string } | null {
