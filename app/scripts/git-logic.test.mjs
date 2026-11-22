@@ -1,6 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeKind, lanes, localFor, onRemote, path, prFor, samePath, sorted, tally } from "../src/lib/git-logic.ts";
+import {
+  changeKind,
+  joinMessage,
+  lanes,
+  localFor,
+  onRemote,
+  path,
+  picks,
+  prFor,
+  runs,
+  samePath,
+  sides,
+  sorted,
+  span,
+  splitMessage,
+  tally,
+  uncommitted,
+  within,
+} from "../src/lib/git-logic.ts";
 
 const c = (oid, ...parents) => ({ oid, parents });
 const strokes = (row) => row.lines.map((l) => `${l.kind}:${l.from}>${l.to}`).sort();
@@ -116,4 +134,56 @@ test("paths compare whatever the slashes", () => {
   assert.ok(samePath("/w/acme/.claude/worktrees/termf-1", "/w/acme/.claude/worktrees/termf-1/"));
   assert.ok(samePath("C:/w/acme", "C:\\w\\acme\\"));
   assert.ok(!samePath("/w/acme", "/w/acme-api"));
+});
+
+test("changes split into conflicts, staged and the work tree's", () => {
+  const ch = (path, index, tree, conflict = false) => ({ path, from: null, index, tree, conflict });
+  const { conflicts, staged, unstaged } = sides([
+    ch("both.rs", "M", "M"),
+    ch("staged.rs", "A", "."),
+    ch("new.md", "?", "?"),
+    ch("fight.rs", "U", "U", true),
+    ch("README.md", "D", "."),
+  ]);
+  assert.deepEqual(conflicts.map((c) => c.path), ["fight.rs"]);
+  assert.deepEqual(staged.map((c) => c.path), ["both.rs", "staged.rs", "README.md"]);
+  assert.deepEqual(unstaged.map((c) => c.path), ["both.rs", "new.md"], "a file staged and changed again comes twice");
+});
+
+test("picked lines become one pick per hunk, in order", () => {
+  assert.deepEqual(picks(["1:4", "0:3", "1:2", "0:1"]), [
+    { hunk: 0, lines: [1, 3] },
+    { hunk: 1, lines: [2, 4] },
+  ]);
+  assert.deepEqual(picks([]), []);
+  const lines = [{ kind: " " }, { kind: "-" }, { kind: "+" }, { kind: " " }, { kind: "+" }];
+  assert.deepEqual(span(2, lines, 4, 0), ["2:1", "2:2", "2:4"], "a range keeps the changed lines only");
+});
+
+test("a blame groups the lines of one commit", () => {
+  const r = runs([{ oid: "a" }, { oid: "a" }, { oid: "b" }, { oid: "a" }]);
+  assert.deepEqual(r, [
+    { oid: "a", start: 0, count: 2 },
+    { oid: "b", start: 2, count: 1 },
+    { oid: "a", start: 3, count: 1 },
+  ]);
+  assert.ok(uncommitted("0000000000000000000000000000000000000000"));
+  assert.ok(!uncommitted("a0"));
+});
+
+test("a message splits into a subject and a body, and back", () => {
+  assert.deepEqual(splitMessage("Add the API\n\nFirst version.\nWith tests.\n"), {
+    subject: "Add the API",
+    body: "First version.\nWith tests.",
+  });
+  assert.deepEqual(splitMessage("One line"), { subject: "One line", body: "" });
+  assert.equal(joinMessage(" Fix ", ""), "Fix");
+  assert.equal(joinMessage("Fix", "Because.\n"), "Fix\n\nBecause.");
+});
+
+test("a worktree's folder relative to the repository's", () => {
+  assert.equal(within("/w/acme", "/w/acme"), "");
+  assert.equal(within("/w/acme/", "/w/acme/.claude/worktrees/run-7"), ".claude/worktrees/run-7");
+  assert.equal(within("C:\\w\\acme", "C:/w/acme/wt"), "wt");
+  assert.equal(within("/w/acme", "/w/acme-other"), null);
 });
