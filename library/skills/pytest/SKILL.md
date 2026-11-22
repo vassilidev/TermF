@@ -30,7 +30,7 @@ metadata:
 - `strict = true` (pytest 9) turns on strict markers, strict config, strict parametrize ids and strict xfail: a new marker must be registered in `markers` before use, or the run fails.
 - pytest 9.2: `indirect`, `ids` and `scope` of `@pytest.mark.parametrize` are keyword-only (a positional value raises `TypeError`). pytest 9.1 deprecates generators as parametrize values (pass a list) and class-scoped fixtures written as instance methods (`@classmethod`). `yield_fixture` is scheduled for removal: `@pytest.fixture` with `yield`.
 - pytest 9 errors on a sync test that requests an async fixture and on marks applied to fixtures. The `subtests` fixture is built in (`def test_x(subtests): with subtests.test(i=i): ...`); the pytest-subtests plugin is no longer needed.
-- pytest-asyncio 1.x removed the `event_loop` fixture. In its default strict mode, an async test runs only with `@pytest.mark.asyncio` (or `asyncio_mode = "auto"` in the config); a shared loop is `@pytest.mark.asyncio(loop_scope="module")`. An async test without the mark is skipped with a warning, which looks like a pass.
+- pytest-asyncio 1.x removed the `event_loop` fixture. In its default strict mode, an async test runs only with `@pytest.mark.asyncio` (or `asyncio_mode = "auto"` in the config); a shared loop is `@pytest.mark.asyncio(loop_scope="module")`. Without the mark the plugin leaves the test alone and pytest fails it ("async def functions are not natively supported").
 - pytest-django blocks database access unless the test has `@pytest.mark.django_db` (`transaction=True` when the code commits or uses `on_commit`).
 
 ## Verify

@@ -1,0 +1,8 @@
+- Version: `fastapi` in the lockfile; entrypoint in `[tool.fastapi] entrypoint` of `pyproject.toml`.
+- Docs for this version: the official skill in the package, `<site-packages>/fastapi/.agents/skills/fastapi/SKILL.md` (0.133.1+), then `https://fastapi.tiangolo.com/release-notes/`.
+- Verify: the project's commands, else `uv run pytest`, `uv run ruff check`, `fastapi dev`.
+- Pydantic v2 only (0.128+), Python 3.11+ (0.162.6+); `Annotated` dependencies declared once as aliases.
+- Return types give fast JSON; `ORJSONResponse` is deprecated. SSE is built in (`fastapi.sse.EventSourceResponse`).
+- Bodies are unlimited unless `max_body_size` is set (0.164+).
+- Tests through `TestClient` or `AsyncClient` + `ASGITransport`, real test database, `dependency_overrides` only for outside services.
+- Read the skill `fastapi` before changing a FastAPI app.
