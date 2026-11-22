@@ -175,7 +175,7 @@ export function shown(ticket: Ticket | null | undefined, team?: Team | null): Sh
   if (ticket && (ticket.status === "closed" || ticket.status === "failed")) return { status: ticket.status, label: null };
   if (ticket?.status === "delivered") {
     if (ticket.prState === "merged") return { status: "delivered", label: "ticketsUiReady", hint: "uxfT1ReadyHint" };
-    if (ticket.prState) return { status: "delivered", label: "uxfT2ClosedClean", hint: "uxfT2ClosedHint" };
+    if (ticket.prState) return { status: "delivered", label: "uxfT1ClosedReady", hint: "uxfT2ClosedHint" };
     return { status: "delivered", label: null };
   }
   if (!team) return { status: ticket?.status ?? "running", label: null };

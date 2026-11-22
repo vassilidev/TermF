@@ -607,7 +607,6 @@
     .find kbd,
     .wait kbd,
     .group h2,
-    .group [aria-haspopup],
     .nav :global(.side),
     .nav :global(.tally),
     .machine :global(.chev) {
@@ -623,8 +622,9 @@
       white-space: nowrap;
     }
 
+    /* Stacked, both stay in reach: the search is also where Escape gives the focus back after ⌘O. */
     .group {
-      justify-content: center;
+      flex-direction: column;
       padding: 0;
     }
 

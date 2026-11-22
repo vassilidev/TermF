@@ -3541,6 +3541,7 @@ const fr = {
   uxfT1NoProjectBody: "Un projet regroupe tes dépôts : TermF y ouvre des terminaux, des agents et l'équipe.",
   uxfT1VaultAll: "Tous les coffres",
   uxfT1ReadyHint: "PR fusionnée : supprime le worktree et la branche du run",
+  uxfT1ClosedReady: "PR fermée, à nettoyer",
   uxfT1HintHome: "Le CTO, ce qui t'attend et qui travaille",
   uxfT1HintTerminals: "Tes sessions d'agents et de shells, en onglets",
   uxfT1HintTickets: "Tes tickets et les runs de l'équipe",
@@ -3569,7 +3570,6 @@ const fr = {
   uxfT2CtoHint: "Le CTO pilote l'équipe : il lance des runs et te demande ton accord",
   uxfT2ExpertHint: "L'expert répond aux questions sur ton code, sans rien modifier",
   uxfT2GaugeHint: "Part du contexte de l'agent déjà utilisée",
-  uxfT2ClosedClean: "Fermée, à nettoyer",
   uxfT2ClosedHint: "PR fermée sans fusion : supprime le worktree et la branche du run",
   // Release: TermF's own updates (stable and beta channels), what the machine needs, the termf CLI on the PATH.
   releaseUpdates: "Mises à jour",
@@ -7160,6 +7160,7 @@ const en: Record<Key, string> = {
   uxfT1NoProjectBody: "A project groups your repositories: TermF opens terminals, agents and the team in it.",
   uxfT1VaultAll: "All vaults",
   uxfT1ReadyHint: "Pull request merged: delete the run's worktree and branch",
+  uxfT1ClosedReady: "PR closed, ready to clean up",
   uxfT1HintHome: "The CTO, what waits for you and who is working",
   uxfT1HintTerminals: "Your agent and shell sessions, in tabs",
   uxfT1HintTickets: "Your tickets and the team's runs",
@@ -7188,7 +7189,6 @@ const en: Record<Key, string> = {
   uxfT2CtoHint: "The CTO runs the team: it starts runs and asks for your approval",
   uxfT2ExpertHint: "The expert answers questions about your code, without changing anything",
   uxfT2GaugeHint: "Share of the agent's context already used",
-  uxfT2ClosedClean: "Closed, ready to clean up",
   uxfT2ClosedHint: "Pull request closed without merging: delete the run's worktree and branch",
   // Release: TermF's own updates (stable and beta channels), what the machine needs, the termf CLI on the PATH.
   releaseUpdates: "Updates",
