@@ -580,6 +580,7 @@ pub fn run() {
             visual::visual_review,
             visual::visual_decide,
             visual::visual_image,
+            visual::visual_files,
             visual::visual_pr_comment,
             design::design_scan,
             design::design_pdf,
