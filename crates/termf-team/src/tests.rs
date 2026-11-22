@@ -933,8 +933,9 @@ fn asks_the_last_task_again_from_the_visual_gate() {
     env.answer(
         "plan.json",
         env.plan(json!([
-            task("T1", "front", &["web"], &[]),
-            task("T2", "back", &["src"], &[])
+            // T1 last: should both finish within the same second on a loaded machine, the later step wins.
+            task("T2", "back", &["src"], &[]),
+            task("T1", "front", &["web"], &[])
         ])),
     );
     env.script(
