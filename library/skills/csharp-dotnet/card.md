@@ -1,0 +1,8 @@
+- Version: `<TargetFramework>` in each `.csproj` (`net10.0` LTS, `net11.0` STS; .NET 8 and 9 are out of support since 2026-11-10), SDK pin and test runner in `global.json`.
+- Docs for this version: Microsoft Learn with the version selector, or the Learn MCP server `https://learn.microsoft.com/api/mcp`; Microsoft's evaluated skills: `dotnet/skills` (marketplace `dotnet-agent-skills`).
+- Verify: the solution's build script or CI steps, else `dotnet build`, `dotnet test`, `dotnet format --verify-no-changes`.
+- C# 15 (unions, `closed` classes, extension indexers) only on `net11.0`; `net10.0` is C# 14.
+- `dotnet test` defaults to VSTest; with `"test": { "runner": "Microsoft.Testing.Platform" }` in `global.json`, xUnit v3 filters are `--filter-class` / `--filter-method`, not `FullyQualifiedName~`.
+- Integration tests: `WebApplicationFactory<Program>` and the production database engine, not the EF Core in-memory provider.
+- `FromSqlRaw` with string building is SQL injection: `FromSql` with an interpolated string.
+- Read the skill `csharp-dotnet` before writing or testing C# code.
