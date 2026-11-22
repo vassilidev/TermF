@@ -91,7 +91,9 @@ export type ViewId =
   | "project"
   | "run"
   | "settings"
-  | "onboarding";
+  | "onboarding"
+  | "vault"
+  | "vaultAll";
 
 const projectKey = "termf.project";
 
