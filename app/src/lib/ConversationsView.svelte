@@ -17,6 +17,7 @@
     ctoOf,
     expertOf,
     listed,
+    runtimes,
     showCto,
     showExpert,
     upsert,
@@ -235,7 +236,9 @@
               {#if pinned(session)}<Pin size={12} class="pin" aria-label={t("ctoPinned")} />{/if}
               {#if session.role && !pinned(session)}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
             </span>
-            <span class="desc">{usd(session.cost)} · {ago(session.updated)}</span>
+            <span class="desc"
+              >{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}</span
+            >
           </button>
           <StatusPill status={session.state} />
         </li>

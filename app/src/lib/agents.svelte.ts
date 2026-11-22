@@ -46,6 +46,9 @@ export const agents = $state({
 const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 3 });
 export const usd = (amount: number) => money.format(amount);
 
+/** Codex CLI and Gemini CLI say how many tokens a turn used, not what it cost: their name stands in for a cost. */
+export const runtimes: Record<string, Parameters<typeof t>[0]> = { codex: "adaptersCodex", gemini: "adaptersGemini" };
+
 export function agentProjects(session: AgentSession): string[] {
   const ids = projectsOf(session.cwd, app.workspace?.projects ?? [], tickets.runs);
   return session.project && !ids.includes(session.project) ? [session.project, ...ids] : ids;
