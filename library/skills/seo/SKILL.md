@@ -12,7 +12,7 @@ license: MIT
 metadata:
   termf-stacks: "web"
   termf-roles: "seo front"
-  termf-versions: "google-search 2026-11"
+  termf-versions: "*"
   termf-verified: "2026-11-22 Google Search Central docs and updates log"
   termf-sources: "https://developers.google.com/search/updates https://developers.google.com/search/docs/fundamentals/ai-optimization-guide https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag https://developers.google.com/search/docs/crawling-indexing/control-what-you-share https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics https://developers.google.com/search/docs/appearance/structured-data/faqpage https://developers.google.com/search/docs/appearance/structured-data/search-gallery https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers https://web.dev/articles/vitals"
 ---

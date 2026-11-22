@@ -11,9 +11,9 @@ license: MIT
 metadata:
   termf-stacks: "terraform opentofu"
   termf-roles: "devops"
-  termf-versions: "terraform>=1.5 opentofu>=1.6"
+  termf-versions: ">=1.5"
   termf-verified: "2026-11-22 terraform@1.17.2 opentofu@1.13.9 tflint@0.66.0 hashicorp/agent-skills@main"
-  termf-sources: "https://github.com/hashicorp/terraform/releases https://github.com/hashicorp/terraform/blob/v1.17/CHANGELOG.md https://github.com/opentofu/opentofu/releases/tag/v1.13.0 https://developer.hashicorp.com/terraform/language/upgrade-guides https://github.com/hashicorp/agent-skills (official, MPL-2.0) https://github.com/terraform-linters/tflint"
+  termf-sources: "https://github.com/hashicorp/terraform/releases https://github.com/hashicorp/terraform/blob/v1.17/CHANGELOG.md https://github.com/opentofu/opentofu/releases/tag/v1.13.0 https://developer.hashicorp.com/terraform/language/upgrade-guides https://github.com/hashicorp/agent-skills https://github.com/terraform-linters/tflint"
 ---
 # Terraform and OpenTofu
 

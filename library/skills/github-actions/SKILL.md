@@ -11,7 +11,7 @@ license: MIT
 metadata:
   termf-stacks: "github-actions"
   termf-roles: "devops secops"
-  termf-versions: "github.com 2026-11"
+  termf-versions: "*"
   termf-verified: "2026-11-22 actions/checkout@v7.0.1 zizmor@1.32.0 actionlint@1.7.12 gh-actions-lock@main"
   termf-sources: "https://docs.github.com/llms.txt https://docs.github.com/en/actions/reference/security/secure-use https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles https://github.blog/changelog/2026-10-28-github-actions-workflow-lockfiles-are-generally-available https://github.blog/changelog/2026-11-02-pull_request_target-blocked-by-default-december-2 https://github.com/actions/checkout https://docs.zizmor.sh/audits/ https://github.com/rhysd/actionlint"
 ---

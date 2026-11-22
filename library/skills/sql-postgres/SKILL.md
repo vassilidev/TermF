@@ -11,9 +11,9 @@ license: MIT
 metadata:
   termf-stacks: "postgres"
   termf-roles: "back devops"
-  termf-versions: ">=14"
+  termf-versions: "*"
   termf-verified: "2026-11-22 postgresql@19.0 postgresql@18.7 supabase/agent-skills@main timescale/pg-aiguide@main"
-  termf-sources: "https://www.postgresql.org/docs/19/release-19.html https://www.postgresql.org/docs/18/release-18.html https://www.postgresql.org/support/versioning/ https://www.postgresql.org/docs/current/sql-createindex.html https://www.postgresql.org/docs/current/sql-altertable.html https://github.com/supabase/agent-skills (official Supabase, MIT) https://github.com/timescale/pg-aiguide (official Timescale, Apache-2.0)"
+  termf-sources: "https://www.postgresql.org/docs/19/release-19.html https://www.postgresql.org/docs/18/release-18.html https://www.postgresql.org/support/versioning/ https://www.postgresql.org/docs/current/sql-createindex.html https://www.postgresql.org/docs/current/sql-altertable.html https://github.com/supabase/agent-skills https://github.com/timescale/pg-aiguide"
 ---
 # PostgreSQL
 

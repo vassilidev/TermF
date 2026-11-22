@@ -11,9 +11,9 @@ license: MIT
 metadata:
   termf-stacks: "redis valkey"
   termf-roles: "back devops"
-  termf-versions: "redis>=7.0 valkey>=7.2"
+  termf-versions: "*"
   termf-verified: "2026-11-22 redis@8.10.3 valkey@9.2.0 redis/agent-skills@main valkey-io/valkey-skills@main"
-  termf-sources: "https://redis.io/llms.txt https://redis.io/legal/licenses/ https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.0-release-notes/ https://github.com/redis/agent-skills (official, MIT) https://github.com/valkey-io/valkey-skills (official, BSD-3-Clause) https://github.com/valkey-io/valkey/releases"
+  termf-sources: "https://redis.io/llms.txt https://redis.io/legal/licenses/ https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.0-release-notes/ https://github.com/redis/agent-skills https://github.com/valkey-io/valkey-skills https://github.com/valkey-io/valkey/releases"
 ---
 # Redis and Valkey
 

@@ -11,9 +11,9 @@ license: MIT
 metadata:
   termf-stacks: "docker compose"
   termf-roles: "devops back"
-  termf-versions: "engine>=25 compose>=2"
+  termf-versions: ">=25"
   termf-verified: "2026-11-22 docker-engine@29.10.0 compose@5.8.0 docker/skills@main"
-  termf-sources: "https://docs.docker.com/llms.txt https://docs.docker.com/engine/release-notes/29/ https://github.com/docker/compose/releases https://docs.docker.com/build/checks/ https://docs.docker.com/reference/compose-file/version-and-name/ https://github.com/docker/skills (official, Apache-2.0)"
+  termf-sources: "https://docs.docker.com/llms.txt https://docs.docker.com/engine/release-notes/29/ https://github.com/docker/compose/releases https://docs.docker.com/build/checks/ https://docs.docker.com/reference/compose-file/version-and-name/ https://github.com/docker/skills"
 ---
 # Docker and Compose
 

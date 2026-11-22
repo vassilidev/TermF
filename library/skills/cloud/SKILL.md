@@ -13,9 +13,9 @@ license: MIT
 metadata:
   termf-stacks: "aws gcp azure"
   termf-roles: "devops back"
-  termf-versions: "aws-cli>=2 azure-cli>=2"
+  termf-versions: "*"
   termf-verified: "2026-11-22 aws-cli@2.42.1 azure-cli@2.93.0 aws/agent-toolkit-for-aws@main google/skills@main microsoft/azure-skills@main"
-  termf-sources: "https://github.com/aws/agent-toolkit-for-aws (official, Apache-2.0) https://docs.aws.amazon.com/llms.txt https://github.com/google/skills (official, Apache-2.0) https://github.com/microsoft/azure-skills (official, MIT) https://github.com/microsoft/mcp (official, MIT)"
+  termf-sources: "https://github.com/aws/agent-toolkit-for-aws https://docs.aws.amazon.com/llms.txt https://github.com/google/skills https://github.com/microsoft/azure-skills https://github.com/microsoft/mcp"
 ---
 # Cloud: AWS, Google Cloud, Azure
 
