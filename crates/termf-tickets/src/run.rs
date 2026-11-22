@@ -613,7 +613,20 @@ impl Tickets {
             run.parent = Some(parent);
         }
         let conversation = uuid::Uuid::new_v4().to_string();
-        let (path, branch, base) = match self.worktree(&run, &chosen.name, ticket) {
+        // A repository of the change cloned from the same GitHub repository as another must not reuse its branch,
+        // which it sees only once pushed: both would push to it.
+        let mut taken = Vec::new();
+        if let Some(parent) = parent {
+            let mine = self.slug(&chosen.path).ok();
+            let mut family = vec![store.run(parent)?];
+            family.extend(store.children(parent)?);
+            taken = family
+                .into_iter()
+                .filter(|r| r.id != run.id && mine.is_some() && self.slug(&r.repo).ok() == mine)
+                .filter_map(|r| r.branch)
+                .collect();
+        }
+        let (path, branch, base) = match self.worktree(&run, &chosen.name, ticket, &taken) {
             Ok(created) => created,
             Err(e) => {
                 store.fail(run.id, &format!("{e:#}"))?;
@@ -733,7 +746,13 @@ impl Tickets {
 
     /// Creates `<repo>/.claude/worktrees/termf-<run>-<branch>`, or `<data>/worktrees/<project>/<run>/<repo>` as
     /// `[tickets] worktrees` says, and returns its path, its branch and its base.
-    fn worktree(&self, run: &Run, name: &str, ticket: &Ticket) -> Result<(String, String, String)> {
+    fn worktree(
+        &self,
+        run: &Run,
+        name: &str,
+        ticket: &Ticket,
+        others: &[String],
+    ) -> Result<(String, String, String)> {
         let settings = termf_core::load_settings(&self.config_dir).unwrap_or_default();
         let place = settings.tickets.worktrees;
         let git = Git(&self.env);
@@ -742,45 +761,59 @@ impl Tickets {
         let _ = git.output(repo, &["fetch", "-q", "origin"]);
         let base = base_ref(&git, repo)?;
         let stem = branch_stem(&ticket.reference.key, &ticket.title, run.id);
-        let branch = (1..)
-            .map(|n| match n {
+        // A branch pushed by an earlier run of the ticket counts too, even once its run is closed.
+        let taken = |b: &str| {
+            git.has(repo, &format!("refs/heads/{b}"))
+                || git.has(repo, &format!("refs/remotes/origin/{b}"))
+        };
+        if place == TicketWorktrees::Repo {
+            exclude_worktrees(&git, repo)?;
+        }
+        for n in 1..=100 {
+            let branch = match n {
                 1 => stem.clone(),
                 n => format!("{stem}-{n}"),
-            })
-            // A branch pushed by an earlier run of the ticket counts too, even once its run is closed.
-            .find(|b| {
-                !git.has(repo, &format!("refs/heads/{b}"))
-                    && !git.has(repo, &format!("refs/remotes/origin/{b}"))
-            })
-            .unwrap();
-        let path = match place {
-            TicketWorktrees::Repo => {
-                exclude_worktrees(&git, repo)?;
-                let name = branch.strip_prefix("termf/").unwrap_or(&branch);
-                let folder = repo.join(".claude").join("worktrees");
-                folder.join(format!("termf-{}-{name}", run.id))
+            };
+            if taken(&branch) || others.contains(&branch) {
+                continue;
             }
-            TicketWorktrees::Data => self.data_worktrees(run).join(match slug(name) {
-                s if s.is_empty() => "repo".to_owned(),
-                s => s,
-            }),
-        };
-        fs::create_dir_all(path.parent().context("no parent folder")?)?;
-        let path = path.to_string_lossy().into_owned();
-        git.run(
-            repo,
-            &[
-                "worktree",
-                "add",
-                "-q",
-                "--no-track",
-                "-b",
-                &branch,
-                &path,
-                &base,
-            ],
-        )?;
-        Ok((path, branch, base))
+            // The branch first, on its own: only a name another run took meanwhile (a double click, the app and
+            // the CLI at once) is tried again.
+            match git.run(repo, &["branch", "--no-track", &branch, &base]) {
+                Ok(_) => {}
+                Err(_) if taken(&branch) => continue,
+                Err(e) => return Err(e),
+            }
+            let path = match place {
+                TicketWorktrees::Repo => {
+                    let name = branch.strip_prefix("termf/").unwrap_or(&branch);
+                    let folder = repo.join(".claude").join("worktrees");
+                    folder.join(format!("termf-{}-{name}", run.id))
+                }
+                TicketWorktrees::Data => self.data_worktrees(run).join(match slug(name) {
+                    s if s.is_empty() => "repo".to_owned(),
+                    s => s,
+                }),
+            };
+            let added = fs::create_dir_all(path.parent().context("no parent folder")?)
+                .map_err(anyhow::Error::from)
+                .and_then(|_| {
+                    let path = path.to_string_lossy();
+                    git.run(repo, &["worktree", "add", "-q", &path, &branch])
+                });
+            if let Err(e) = added {
+                // A hook that failed, a folder in the way: nothing of the run is left behind.
+                if path.exists() {
+                    let path = path.to_string_lossy();
+                    let _ = git.run(repo, &["worktree", "remove", "--force", &path]);
+                }
+                let _ = git.run(repo, &["worktree", "prune"]);
+                let _ = git.run(repo, &["branch", "-D", &branch]);
+                return Err(e);
+            }
+            return Ok((path.to_string_lossy().into_owned(), branch, base));
+        }
+        bail!("no free branch name for {stem} in {}", repo.display())
     }
 
     fn data_worktrees(&self, run: &Run) -> PathBuf {

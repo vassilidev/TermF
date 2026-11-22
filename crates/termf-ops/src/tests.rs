@@ -1093,3 +1093,650 @@ fn the_user_types_the_environment_to_run_a_recipe_that_writes() {
     );
     assert!(agent_tried.is_err());
 }
+
+/// A psql that refuses to answer unless TermF opened a read-only transaction with the timeout before the query.
+#[cfg(unix)]
+const PSQL: &str = r#"
+ro=""; to=""; scs=""; q=""; prev=""
+for a in "$@"; do
+  if [ "$prev" = "-c" ]; then
+    case "$a" in
+      "START TRANSACTION READ ONLY") ro=1;;
+      "SET LOCAL statement_timeout = 15000") [ -n "$ro" ] && to=1;;
+      "SET LOCAL standard_conforming_strings = on") scs=1;;
+      *) [ -n "$to" ] && [ -n "$scs" ] || { echo "the query came before the read-only transaction" >&2; exit 3; }; q="$a";;
+    esac
+  fi
+  prev="$a"
+done
+case "$PGOPTIONS" in *default_transaction_read_only=on*statement_timeout=15000*) ;; *) echo "no read-only session: $PGOPTIONS" >&2; exit 3;; esac
+[ -n "$q" ] || { echo "no query" >&2; exit 3; }
+printf '%s' "$q" > "@DIR@/psql.query"
+echo 'id,email,plan'
+echo '1,alice@example.com,pro'
+echo '2,bob@example.com,"team, yearly"'
+"#;
+
+/// The same for mysql: the session and the transaction read only, the timeout, then the query.
+#[cfg(unix)]
+const MYSQL: &str = r#"
+init=""; script=""; prev=""
+for a in "$@"; do
+  case "$a" in --init-command=*) init="${a#--init-command=}";; esac
+  [ "$prev" = "-e" ] && script="$a"
+  prev="$a"
+done
+[ "$init" = "SET SESSION TRANSACTION READ ONLY" ] || { echo "no read-only session" >&2; exit 3; }
+case "$script" in
+  "SET SESSION max_execution_time = 15000;
+START TRANSACTION READ ONLY;
+SELECT"*) ;;
+  *) echo "no timeout or read-only transaction before the query: $script" >&2; exit 3;;
+esac
+printf '%s' "$script" > "@DIR@/mysql.script"
+printf 'id\temail\n1\talice@example.com\n'
+"#;
+
+#[cfg(unix)]
+#[test]
+fn the_sql_console_runs_one_read_in_a_read_only_transaction_and_refuses_the_rest() {
+    let env = Fixture::new("sql");
+    env.fake("psql", PSQL);
+    env.fake("mysql", MYSQL);
+    env.connection(
+        r#"
+name = "acme-db"
+kind = "postgres"
+env = "prod"
+ai_access = "redacted"
+host = "db.acme.test"
+database = "acme"
+user = "readonly"
+"#,
+    );
+    env.connection(
+        r#"
+name = "acme-legacy"
+kind = "mysql"
+env = "staging"
+host = "legacy.acme.test"
+database = "acme"
+user = "readonly"
+"#,
+    );
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let human = Actor::human();
+    let query = params(&[("query", "select id, email, plan from users")]);
+    let (plan, out) = ops
+        .run("acme", &human, "sql-readonly", "acme-db", &query, None)
+        .unwrap();
+    assert_eq!(out.exit, Some(0), "{}", out.errors);
+    assert_eq!(
+        plan.params["query"],
+        "select id, email, plan from users LIMIT 500"
+    );
+    assert_eq!(
+        fs::read_to_string(env.root.join("psql.query")).unwrap(),
+        plan.params["query"],
+        "the client runs the query checked"
+    );
+    assert!(
+        plan.command.contains("-c 'START TRANSACTION READ ONLY'"),
+        "{}",
+        plan.command
+    );
+    let table = out.table.clone().unwrap();
+    assert_eq!(table.columns, ["id", "email", "plan"]);
+    assert_eq!(
+        table.rows,
+        [
+            vec!["1", "[email]", "pro"],
+            vec!["2", "[email]", "team, yearly"]
+        ]
+    );
+    assert!(!out.text.contains("alice@example.com"), "{}", out.text);
+
+    let (_, out) = ops
+        .run(
+            "acme",
+            &human,
+            "sql-readonly",
+            "acme-legacy",
+            &params(&[("query", "SELECT id, email FROM users")]),
+            None,
+        )
+        .unwrap();
+    assert_eq!(out.exit, Some(0), "{}", out.errors);
+    assert_eq!(out.table.unwrap().rows, [vec!["1", "[email]"]]);
+    assert!(
+        fs::read_to_string(env.root.join("mysql.script"))
+            .unwrap()
+            .ends_with("SELECT id, email FROM users LIMIT 500")
+    );
+
+    let runs = ops.history("acme", 50).unwrap().len();
+    for (query, why) in [
+        ("DELETE FROM users", "DELETE is not a read"),
+        (
+            "WITH gone AS (DELETE FROM users RETURNING *) SELECT * FROM gone",
+            "DELETE is not a read",
+        ),
+        ("SELECT 1; DROP TABLE users", "one statement at a time"),
+        ("EXPLAIN ANALYZE DELETE FROM users", "EXPLAIN ANALYZE runs"),
+        ("SELECT pg_terminate_backend(42)", "pg_terminate_backend()"),
+    ] {
+        let e = ops
+            .run(
+                "acme",
+                &human,
+                "sql-readonly",
+                "acme-db",
+                &params(&[("query", query)]),
+                None,
+            )
+            .unwrap_err();
+        assert!(e.to_string().contains(why), "{query}: {e}");
+    }
+    assert_eq!(
+        ops.history("acme", 50).unwrap().len(),
+        runs,
+        "nothing ran for a refused query"
+    );
+
+    let approvals = Arc::new(Approvals::default());
+    let user = answer_soon(approvals.clone(), true);
+    let answer = ops
+        .agent_run(
+            "acme",
+            &agent(),
+            "sql-readonly",
+            None,
+            &query,
+            &approvals,
+            APPROVAL_WAIT,
+            &|_, _| {},
+            &|| false,
+        )
+        .unwrap();
+    let request = user.join().unwrap().unwrap();
+    assert!(
+        request.plan.command.contains("LIMIT 500"),
+        "the card shows the query that runs"
+    );
+    let output = answer["output"].as_str().unwrap();
+    assert!(
+        output.contains("[email]") && !output.contains("alice@example.com"),
+        "{output}"
+    );
+    let refused = ops
+        .agent_run(
+            "acme",
+            &agent(),
+            "sql-readonly",
+            None,
+            &params(&[("query", "UPDATE users SET plan = 'free'")]),
+            &approvals,
+            APPROVAL_WAIT,
+            &|_, _| {},
+            &|| false,
+        )
+        .unwrap_err();
+    assert!(refused.to_string().contains("UPDATE is not a read"));
+    assert!(approvals.list().is_empty(), "no card for a refused query");
+}
+
+#[cfg(unix)]
+const DOTENV: &str = "# Acme prod\nDATABASE_URL=postgres://app:Pg-4f8a9c2e7b1d@db/acme\nSTRIPE_KEY=sk_live_51HabcdefGHIJ\nAPP_ENV=production\n";
+
+#[cfg(unix)]
+#[test]
+fn a_production_env_is_masked_revealed_one_by_one_and_an_agent_gets_only_its_names() {
+    let env = Fixture::new("dotenv");
+    env.fake("ssh", SSH);
+    fs::write(env.root.join("prod.env"), DOTENV).unwrap();
+    env.connection(PROD_SSH);
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let path = env.root.join("prod.env").to_string_lossy().into_owned();
+    let given = params(&[("path", &path)]);
+    let (plan, out) = ops
+        .run(
+            "acme",
+            &Actor::human(),
+            "env-fetch",
+            "acme-prod",
+            &given,
+            None,
+        )
+        .unwrap();
+    assert_eq!(out.keys, ["DATABASE_URL", "STRIPE_KEY", "APP_ENV"]);
+    assert_eq!(
+        out.hidden.iter().map(Secret::expose).collect::<Vec<_>>(),
+        [
+            "postgres://app:Pg-4f8a9c2e7b1d@db/acme",
+            "sk_live_51HabcdefGHIJ",
+            "production"
+        ]
+    );
+    let shown = serde_json::to_string(&out).unwrap();
+    for value in ["Pg-4f8a9c2e7b1d", "sk_live_51HabcdefGHIJ", "production"] {
+        assert!(!shown.contains(value), "{value} in {shown}");
+    }
+    assert!(
+        out.text.starts_with("DATABASE_URL=••••••\n"),
+        "{}",
+        out.text
+    );
+
+    ops.record_use("acme", &plan, Use::Reveal, "STRIPE_KEY", 21, None)
+        .unwrap();
+    ops.record_use("acme", &plan, Use::Write(42), "STRIPE_KEY", 21, None)
+        .unwrap();
+    let details: Vec<String> = ops
+        .history("acme", 10)
+        .unwrap()
+        .iter()
+        .map(|e| e.detail.clone().unwrap_or_default())
+        .collect();
+    assert!(
+        details[0].contains("\"event\":\"write\"") && details[0].contains("\"run\":42"),
+        "{details:?}"
+    );
+    assert!(details[1].contains("\"event\":\"reveal\"") && details[1].contains("STRIPE_KEY"));
+    assert!(!details.concat().contains("sk_live"), "{details:?}");
+
+    let local =
+        env::parse("DATABASE_URL=postgres://dev@localhost/acme\nAPP_ENV=production\nDEBUG=1\n");
+    let prod: Vec<(String, Secret)> = out.keys.iter().cloned().zip(out.hidden).collect();
+    let states: Vec<(String, env::State)> = env::compare(&prod, &local)
+        .into_iter()
+        .map(|d| (d.key, d.state))
+        .collect();
+    assert_eq!(
+        states,
+        [
+            ("DATABASE_URL".into(), env::State::Different),
+            ("STRIPE_KEY".into(), env::State::Prod),
+            ("APP_ENV".into(), env::State::Same),
+            ("DEBUG".into(), env::State::Local),
+        ]
+    );
+
+    let approvals = Arc::new(Approvals::default());
+    let user = answer_soon(approvals.clone(), true);
+    let answer = ops
+        .agent_run(
+            "acme",
+            &agent(),
+            "env-fetch",
+            None,
+            &given,
+            &approvals,
+            APPROVAL_WAIT,
+            &|_, _| {},
+            &|| false,
+        )
+        .unwrap();
+    user.join().unwrap().unwrap();
+    assert_eq!(
+        answer["keys"],
+        serde_json::json!(["DATABASE_URL", "STRIPE_KEY", "APP_ENV"])
+    );
+    let said = answer.to_string();
+    for value in ["Pg-4f8a9c2e7b1d", "sk_live_51HabcdefGHIJ", "production"] {
+        assert!(!said.contains(value), "{value} given to the agent: {said}");
+    }
+    assert!(answer.get("output").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_value_written_into_a_run_worktree_is_private_hidden_from_git_and_goes_with_it() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    let env = Fixture::new("envwrite");
+    let repo = env.root.join("acme-api");
+    let git = |dir: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .current_dir(dir)
+            .args(["-c", "user.name=alex", "-c", "user.email=alex@acme.test"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "start"]);
+    let worktree = env.root.join("wt-42");
+    let path = worktree.to_string_lossy().into_owned();
+    git(&repo, &["worktree", "add", "-q", "-b", "termf/42", &path]);
+    // A quoted value over several lines, replaced whole: none of its lines is left to break the file.
+    fs::write(
+        worktree.join(".env"),
+        "APP_ENV=development\nPEM=\"-----BEGIN KEY-----\nAAAA\n-----END KEY-----\"\nDEBUG=1\n",
+    )
+    .unwrap();
+
+    env::write(
+        &worktree,
+        "STRIPE_KEY",
+        &Secret::new("sk_live 51H'x".into()),
+    )
+    .unwrap();
+    env::write(&worktree, "APP_ENV", &Secret::new("production".into())).unwrap();
+    env::write(&worktree, "PEM", &Secret::new("line 1\nline 2".into())).unwrap();
+    let file = worktree.join(".env");
+    let written = fs::read_to_string(&file).unwrap();
+    assert!(
+        !written.contains("AAAA") && !written.contains("END KEY"),
+        "{written}"
+    );
+    assert_eq!(
+        env::parse(&written),
+        [
+            ("DEBUG".to_owned(), "1".to_owned()),
+            ("STRIPE_KEY".to_owned(), "sk_live 51H'x".to_owned()),
+            ("APP_ENV".to_owned(), "production".to_owned()),
+            ("PEM".to_owned(), "line 1\nline 2".to_owned()),
+        ]
+    );
+    assert_eq!(
+        fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(
+        fs::read_to_string(repo.join(".git/info/exclude"))
+            .unwrap()
+            .lines()
+            .any(|l| l == "/.env")
+    );
+    assert_eq!(
+        git(&worktree, &["status", "--porcelain"]),
+        "",
+        "git sees it"
+    );
+    // The run's cleanup removes its worktree, and the .env with it.
+    git(&repo, &["worktree", "remove", &path]);
+    assert!(!file.exists());
+
+    fs::write(repo.join(".env"), "X=1\n").unwrap();
+    git(&repo, &["add", "-f", ".env"]);
+    let tracked = env::write(&repo, "X", &Secret::new("2".into())).unwrap_err();
+    assert!(tracked.to_string().contains("tracked by git"), "{tracked}");
+}
+
+#[cfg(unix)]
+#[test]
+fn logs_are_followed_masked_until_stopped_and_never_by_an_agent() {
+    let env = Fixture::new("follow");
+    env.fake("ssh", SSH);
+    env.fake(
+        "journalctl",
+        r#"echo $$ > "@DIR@/journal.pid"
+echo "10:00:01 api: login ok for alice@example.com"
+echo "10:00:02 api: ERROR payment failed"
+exec sleep 30"#,
+    );
+    env.connection(PROD_SSH);
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&got);
+    let (plan, following) = ops
+        .follow(
+            "acme",
+            "logs-follow",
+            "acme-prod",
+            &params(&[("unit", "api.service")]),
+            move |s| sink.lock().unwrap().push(s),
+        )
+        .unwrap();
+    assert!(
+        plan.remote
+            .as_deref()
+            .unwrap()
+            .contains("-f -u api.service"),
+        "{:?}",
+        plan.remote
+    );
+    let lines = || -> Vec<String> {
+        got.lock()
+            .unwrap()
+            .iter()
+            .flat_map(|s| match s {
+                Streamed::Lines { lines, .. } => lines.clone(),
+                Streamed::End { .. } => Vec::new(),
+            })
+            .collect()
+    };
+    for _ in 0..100 {
+        if lines().iter().any(|l| l.contains("ERROR")) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let seen = lines();
+    assert!(
+        seen.iter().any(|l| l.contains("ERROR payment failed")),
+        "{seen:?}"
+    );
+    assert!(
+        seen.iter().any(|l| l.contains("[email]")) && !seen.concat().contains("alice@"),
+        "{seen:?}"
+    );
+    let pid = fs::read_to_string(env.root.join("journal.pid")).unwrap();
+    let alive = || {
+        std::process::Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(alive());
+    assert!(following.stop(), "a running client is stopped");
+    drop(following);
+    for _ in 0..100 {
+        if !alive() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!alive(), "the followed client outlived its stop");
+    let history = ops.history("acme", 5).unwrap();
+    assert!(
+        history[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("\"event\":\"follow\"")
+    );
+
+    let seen = ops.seen("acme").unwrap();
+    assert!(!seen.recipes.iter().any(|r| r.name == "logs-follow"));
+    let refused = ops
+        .agent_run(
+            "acme",
+            &agent(),
+            "logs-follow",
+            None,
+            &params(&[("unit", "api.service")]),
+            &Approvals::default(),
+            APPROVAL_WAIT,
+            &|_, _| {},
+            &|| false,
+        )
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("no recipe logs-follow"),
+        "{refused}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stream_that_ended_is_never_signalled_and_one_that_cannot_start_is_not_audited() {
+    let env = Fixture::new("ended");
+    env.fake("ssh", SSH);
+    env.fake("journalctl", r#"echo "10:00:01 api: started"; exit 0"#);
+    env.connection(PROD_SSH);
+    env.connection(
+        r#"
+name = "acme-loki"
+kind = "loki"
+env = "prod"
+url = "https://loki.acme.test"
+"#,
+    );
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&got);
+    let (_, following) = ops
+        .follow(
+            "acme",
+            "logs-follow",
+            "acme-prod",
+            &BTreeMap::new(),
+            move |s| sink.lock().unwrap().push(s),
+        )
+        .unwrap();
+    let ended = || {
+        got.lock().unwrap().iter().find_map(|s| match s {
+            Streamed::End { exit, .. } => Some(*exit),
+            Streamed::Lines { .. } => None,
+        })
+    };
+    for _ in 0..100 {
+        if ended().is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(ended(), Some(Some(0)), "{:?}", got.lock().unwrap());
+    // Its number (and its group's) may be another program's by now.
+    assert!(!following.stop(), "an ended client was signalled");
+    drop(following);
+
+    let entries = ops.history("acme", 50).unwrap().len();
+    let missing = ops
+        .follow(
+            "acme",
+            "logs-follow",
+            "acme-loki",
+            &params(&[("query", "{app=\"web\"}")]),
+            |_| {},
+        )
+        .err()
+        .expect("no logcli in the test's PATH");
+    assert!(
+        missing.to_string().contains("logcli is not installed"),
+        "{missing}"
+    );
+    assert_eq!(
+        ops.history("acme", 50).unwrap().len(),
+        entries,
+        "audited a stream that never started"
+    );
+    let plan = ops
+        .plan(
+            "acme",
+            "env-fetch",
+            "acme-prod",
+            &params(&[("path", "/srv/.env")]),
+        )
+        .unwrap();
+    ops.record_use(
+        "acme",
+        &plan,
+        Use::Write(42),
+        "APP_ENV",
+        10,
+        Some(".env is tracked by git".into()),
+    )
+    .unwrap();
+    let last = ops.history("acme", 1).unwrap().remove(0);
+    let detail = last.detail.unwrap();
+    assert!(
+        detail.contains("\"event\":\"write\"") && detail.contains("tracked by git"),
+        "{detail}"
+    );
+}
+
+#[test]
+fn a_query_without_rows_is_an_empty_table_and_a_cut_one_says_so() {
+    let limits = Limits {
+        rows: Some(500),
+        ..Limits::default()
+    };
+    let raw = |stdout: &str, exit: Option<i32>, stopped: Option<&str>| Raw {
+        stdout: stdout.into(),
+        exit,
+        stopped: stopped.map(Into::into),
+        ..Raw::default()
+    };
+    let none = redact::table(raw("", Some(0), None), Kind::Mysql, None, &[], &limits);
+    let table = none.table.expect("a query without rows has a table");
+    assert!(table.rows.is_empty() && !none.truncated);
+    let failed = redact::table(raw("", Some(1), None), Kind::Mysql, None, &[], &limits);
+    assert!(failed.table.is_none(), "a failed query has no table");
+    let cut = redact::table(
+        raw("id,total\n1,1240.00\n2,12", Some(0), None),
+        Kind::Postgres,
+        None,
+        &[],
+        &limits,
+    );
+    assert_eq!(cut.table.unwrap().rows, [vec!["1", "1240.00"]]);
+    assert!(cut.truncated);
+    // A long last line stopped in pieces: each looks whole, the last is not shown.
+    let stopped = redact::table(
+        raw(
+            "id\tnote\n1\tshort\n2\taaaaaaaa\n",
+            None,
+            Some("stopped past 20 bytes"),
+        ),
+        Kind::Mysql,
+        None,
+        &[],
+        &limits,
+    );
+    assert_eq!(stopped.table.unwrap().rows, [vec!["1", "short"]]);
+    assert!(stopped.truncated);
+}

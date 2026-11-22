@@ -227,22 +227,40 @@ fn route(run: &TeamRun) {
 /// A questionnaire: each question with its id, why it matters, its options and the answer proposed.
 fn questions(list: &[termf_team::Question]) {
     for q in list {
-        println!("  ? {} [{}] {}", q.id, q.theme, q.question);
-        if !q.why.is_empty() {
-            println!("      why: {}", q.why);
-        }
-        for (n, option) in q.options.iter().enumerate() {
-            let implies = q
-                .implications
-                .get(n)
-                .map(|i| format!(": {i}"))
-                .unwrap_or_default();
-            println!("      - {option}{implies}");
-        }
-        if !q.proposed.is_empty() {
-            println!("      proposed: {}", q.proposed.join(", "));
+        for line in question_lines(q) {
+            println!("{line}");
         }
     }
+}
+
+/// A question as `termf team` prints it: its options with what each implies; a yes/no question's two answers with
+/// theirs; a free text's implications under it.
+fn question_lines(q: &termf_team::Question) -> Vec<String> {
+    use termf_team::plan::QuestionKind;
+    let mut lines = vec![format!("  ? {} [{}] {}", q.id, q.theme, q.question)];
+    if !q.why.is_empty() {
+        lines.push(format!("      why: {}", q.why));
+    }
+    let yes_no = ["yes".to_owned(), "no".to_owned()];
+    let options = match q.kind {
+        QuestionKind::Bool if q.implications.len() == 2 => &yes_no[..],
+        _ => &q.options[..],
+    };
+    for (n, option) in options.iter().enumerate() {
+        let implies = q
+            .implications
+            .get(n)
+            .map(|i| format!(": {i}"))
+            .unwrap_or_default();
+        lines.push(format!("      - {option}{implies}"));
+    }
+    if q.kind == QuestionKind::Text {
+        lines.extend(q.implications.iter().map(|i| format!("      - {i}")));
+    }
+    if !q.proposed.is_empty() {
+        lines.push(format!("      proposed: {}", q.proposed.join(", ")));
+    }
+    lines
 }
 
 /// The squads and staff of a project, or of every one, each role with its settings and where each comes from.
@@ -409,5 +427,39 @@ fn status(run: &TeamRun) {
                 .unwrap_or_default();
             println!("            ! {} ({level}): {file}{}", v.rule, v.message);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use termf_team::Question;
+    use termf_team::plan::QuestionKind;
+
+    fn question(kind: QuestionKind, implications: &[&str]) -> Question {
+        Question {
+            id: "Q1".into(),
+            theme: "product".into(),
+            question: "Public?".into(),
+            why: String::new(),
+            kind,
+            options: Vec::new(),
+            proposed: vec!["yes".into()],
+            implications: implications.iter().map(|i| i.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn prints_what_each_answer_implies_whatever_the_kind() {
+        let bool = question(QuestionKind::Bool, &["a public link", "signed-in only"]);
+        assert_eq!(
+            super::question_lines(&bool)[1..],
+            [
+                "      - yes: a public link",
+                "      - no: signed-in only",
+                "      proposed: yes"
+            ]
+        );
+        let text = question(QuestionKind::Text, &["matches the page"]);
+        assert_eq!(super::question_lines(&text)[1], "      - matches the page");
     }
 }

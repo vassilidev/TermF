@@ -158,11 +158,13 @@ pub fn schema() -> Value {
 }
 
 /// The findings of `answer`, each with the task it goes to when that is clear: a task of the plan by its id, or
-/// the role of exactly one of them. `role`: whether a name is a role of the library. Else what is wrong.
+/// the role of exactly one of them. `role`: whether a name is a role of the library; `file`: whether a path is a
+/// file of the repository (a finding on `git history` or a commit is one no task can fix). Else what is wrong.
 pub fn check(
     answer: &Answer,
     tasks: &[Task],
     role: impl Fn(&str) -> bool,
+    file: impl Fn(&str) -> bool,
 ) -> Result<Vec<(Proposed, Option<String>)>, Vec<String>> {
     let mut problems = Vec::new();
     if answer.summary.trim().is_empty() {
@@ -177,6 +179,11 @@ pub fn check(
         if f.file.trim().is_empty() || rooted || path.components().any(|c| c.as_os_str() == "..") {
             problems.push(format!(
                 "{at}: the file must be a path inside the repository"
+            ));
+        } else if !file(&f.file) {
+            problems.push(format!(
+                "{at}: {} is no file of the repository; a finding is on a file the run changed or reads",
+                f.file
             ));
         }
         if f.line == 0 {
@@ -416,6 +423,7 @@ mod tests {
             ]),
             &tasks,
             role,
+            |_| true,
         )
         .unwrap();
         let to: Vec<Option<&str>> = found.iter().map(|(_, t)| t.as_deref()).collect();
@@ -431,13 +439,19 @@ mod tests {
                 proposed("../x.rs", 1, "T1"),
                 proposed("src/a.rs", 0, "T1"),
                 proposed("src/a.rs", 2, "T9"),
+                proposed("git history", 1, "T1"),
             ]),
             &tasks,
             role,
+            |f| f != "git history",
         )
         .unwrap_err();
-        assert_eq!(wrong.len(), 4, "{wrong:?}");
+        assert_eq!(wrong.len(), 5, "{wrong:?}");
         assert!(wrong[3].contains("T9 is neither a task"), "{wrong:?}");
+        assert!(
+            wrong[4].contains("git history is no file of the repository"),
+            "{wrong:?}"
+        );
     }
 
     #[test]

@@ -651,6 +651,12 @@ pub fn run() {
             ops::ops_history,
             ops::ops_requests,
             ops::ops_answer,
+            ops::ops_env_copy,
+            ops::ops_env_write,
+            ops::ops_env_compare,
+            ops::ops_sql_export,
+            ops::ops_follow_start,
+            ops::ops_follow_stop,
             onboarding::setup_repos,
             onboarding::setup_detect,
             onboarding::setup_draft,
@@ -703,6 +709,7 @@ pub fn run() {
                 team::shutdown(app);
                 visual::shutdown(app);
                 agents::shutdown(app);
+                ops::shutdown(app);
             }
         });
 }
