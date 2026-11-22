@@ -2801,15 +2801,18 @@ fn real_github_sandbox() {
         fs::create_dir_all(repo.parent().unwrap()).unwrap();
         let clone_url = format!("https://github.com/{slug}.git");
         sb.git(&sb.root, &["clone", "-q", &clone_url, &path(&repo)]);
-        let project =
-            format!("name = \"QA\"\n[[repos]]\npath = {repo:?}\n[trackers.github]\ncomment = true\n");
+        let project = format!(
+            "name = \"QA\"\n[[repos]]\npath = {repo:?}\n[trackers.github]\ncomment = true\n"
+        );
         sb.project("qa", &project);
 
         // GitHub's search sees a new issue after a few seconds.
         let key = format!("{}#{number}", slug.to_lowercase());
         let has = |inbox: &Inbox| {
             let mut tickets = inbox.tickets.iter();
-            tickets.find(|i| i.reference.key.to_lowercase() == key).cloned()
+            tickets
+                .find(|i| i.reference.key.to_lowercase() == key)
+                .cloned()
         };
         let mut inbox = t.inbox(Some("qa"), true).unwrap();
         for _ in 0..30 {
@@ -2820,8 +2823,16 @@ fn real_github_sandbox() {
             inbox = t.inbox(Some("qa"), true).unwrap();
         }
         assert_eq!(inbox.errors, []);
-        assert_eq!(has(&inbox).map(|i| i.title), Some(title.clone()), "{inbox:?}");
-        assert_eq!(t.inbox(Some("qa"), false).unwrap(), inbox, "asked again with its ETag");
+        assert_eq!(
+            has(&inbox).map(|i| i.title),
+            Some(title.clone()),
+            "{inbox:?}"
+        );
+        assert_eq!(
+            t.inbox(Some("qa"), false).unwrap(),
+            inbox,
+            "asked again with its ETag"
+        );
 
         let input = format!("#{number}");
         let run = t.start_without_session(&input, Some("qa"), None).unwrap();
@@ -2830,7 +2841,10 @@ fn real_github_sandbox() {
         *created_branch.lock().unwrap() = Some(branch.clone());
         let worktree = PathBuf::from(run.worktree.clone().unwrap());
         let brief = fs::read_to_string(t.brief_dir(run.id).unwrap().join("prompt.md")).unwrap();
-        assert!(brief.contains(&title) && brief.contains("No final newline"), "{brief}");
+        assert!(
+            brief.contains(&title) && brief.contains("No final newline"),
+            "{brief}"
+        );
 
         fs::write(worktree.join(format!("qa-{stamp}.txt")), "é\r\nno newline").unwrap();
         let preview = t.deliver_preview(run.id).unwrap();
@@ -2839,10 +2853,20 @@ fn real_github_sandbox() {
         assert_eq!(delivery.warning, None);
         let pr = delivery.run.pr_url.clone().unwrap();
         let fields = ".body+\"|\"+.headRefName+\"|\"+.title";
-        let sent = gh(&["pr", "view", &pr, "--json", "body,headRefName,title", "-q", fields]);
+        let sent = gh(&[
+            "pr",
+            "view",
+            &pr,
+            "--json",
+            "body,headRefName,title",
+            "-q",
+            fields,
+        ]);
         assert_eq!(sent, format!("Closes #{number}|{branch}|{title}"));
         let comments = ".comments[].body";
-        let issue = ["issue", "view", &number, "-R", &slug, "--json", "comments", "-q", comments];
+        let issue = [
+            "issue", "view", &number, "-R", &slug, "--json", "comments", "-q", comments,
+        ];
         assert_eq!(gh(&issue), format!("Pull request: {pr}"));
         let merge = t.pr_merge(run.id).unwrap().unwrap();
         assert!(!merge.conflict, "{merge:?}");
@@ -2854,7 +2878,10 @@ fn real_github_sandbox() {
         assert_eq!(check.errors, []);
         assert_eq!(check.cleanups.len(), 1);
         assert_eq!(check.cleanups[0].run.pr_state.as_deref(), Some("closed"));
-        assert!(!check.cleanups[0].cleaned, "a closed pull request is only told");
+        assert!(
+            !check.cleanups[0].cleaned,
+            "a closed pull request is only told"
+        );
         let closed = t.cleanup(run.id, || {}).unwrap();
         assert_eq!(closed.status, RunStatus::Closed);
         assert!(!worktree.exists());
@@ -2862,11 +2889,69 @@ fn real_github_sandbox() {
     }));
     if let Some(branch) = created_branch.lock().unwrap().take() {
         let refs = format!("repos/{slug}/git/refs/heads/{branch}");
-        let _ = Command::new("gh").args(["api", "-X", "DELETE", &refs]).output();
+        let _ = Command::new("gh")
+            .args(["api", "-X", "DELETE", &refs])
+            .output();
     }
     let delete = ["issue", "delete", &number, "-R", &slug, "--yes"];
     let _ = Command::new("gh").args(delete).output();
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic);
     }
+}
+
+/// A run's conversation resumed with the real Claude Code (Haiku, a cent or two): the session starts with the
+/// arguments `start` gives, TermF finds its transcript where Claude Code keeps it (no warning), and `--resume`
+/// takes the same conversation up again. The throwaway folder's transcripts are removed with `claude purge`.
+/// `cargo test -p termf-tickets -- --ignored real_resume --nocapture`
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_resume() {
+    let sb = Sandbox::new("real-resume");
+    let repo = sb.repo("api", "https://github.com/acme/api.git");
+    sb.git(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {repo:?}\n"),
+    );
+    let mut t = sb.tickets();
+    t.claude_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| termf_core::expand_tilde("~/.claude"));
+    let run = t.start_request("Say ready.", "acme", None).unwrap();
+    let worktree = PathBuf::from(run.worktree.clone().unwrap());
+    let conversation = uuid::Uuid::new_v4().to_string();
+    t.conversation(run.id, &conversation).unwrap();
+    let claude = |args: &[&str]| -> String {
+        let out = Command::new("claude")
+            .current_dir(&worktree)
+            .args(["-p", "--model", "haiku", "--max-budget-usd", "0.05"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "claude {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let first = claude(&[
+        "--session-id",
+        &conversation,
+        "Remember the word kumquat. Reply with the single word: ready",
+    ]);
+    let resumed = t.resume(run.id).unwrap();
+    assert_eq!(resumed.warning, None, "the transcript is where TermF looks");
+    assert_eq!(resumed.args, ["--resume", conversation.as_str()]);
+    let args: Vec<&str> = resumed.args.iter().map(String::as_str).collect();
+    let again = claude(
+        &[
+            &args[..],
+            &["Which word did I ask you to remember? One word."],
+        ]
+        .concat(),
+    );
+    let _ = Command::new("claude")
+        .args(["purge", &path(&worktree), "-y"])
+        .output();
+    println!("real_resume: {first:?} then {again:?}");
+    assert!(again.to_lowercase().contains("kumquat"), "{again}");
 }
