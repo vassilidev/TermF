@@ -123,7 +123,7 @@ def crumbs(*items):
 
 def figure(key, caption):
     snippet = visuals[key].strip()
-    if snippet.startswith('<div class="app"'):
+    if snippet.startswith('<div class="app'):
         inner = f'<div class="screen"><p class="screen-cap">{esc(caption)}</p>{snippet}</div>'
     elif snippet.startswith('<div class="bay"'):
         inner = f'<div class="board">{snippet}</div><figcaption>{esc(caption)}</figcaption>'

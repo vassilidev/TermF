@@ -1021,7 +1021,7 @@ expert = '''<div class="app">
   </div>
 </div>'''
 
-nav = '''<div class="app" style="display:flex"><div class="nav-a">
+nav = '''<div class="app duo"><div class="nav-a">
   <span class="w"><svg aria-hidden="true"><use href="#i-bell"/></svg>3 waiting<kbd>⌘J</kbd></span>
   <span class="h">PROJECTS</span>
   <span class="i"><span class="av">A</span><b>Acme platform</b><span class="n wait">2</span></span>
