@@ -23,11 +23,12 @@ struct Hosts {
     hosts: BTreeMap<String, HostEntry>,
 }
 
-/// `ssh/hosts.toml` as this machine has it. An alias written by hand here keeps the version last synced, so
-/// the sync neither carries nor deletes it.
+/// `ssh/hosts.toml` as this machine has it. What the sync could not write here keeps the version last synced,
+/// so it is neither sent back changed nor deleted: an alias written by hand here, and a key path outside
+/// `~/.ssh` (`synced_identity`).
 pub fn read_hosts(ssh: &Ssh, base: Option<&Record>) -> Result<Entry> {
     let mut hosts = Hosts::default();
-    for host in ssh.marked_hosts() {
+    for host in ssh.marked_hosts()? {
         hosts.hosts.insert(host.alias.clone(), host);
     }
     let synced: Hosts = base
@@ -35,8 +36,19 @@ pub fn read_hosts(ssh: &Ssh, base: Option<&Record>) -> Result<Entry> {
         .and_then(|e| toml::from_str(std::str::from_utf8(&e.bytes).ok()?).ok())
         .unwrap_or_default();
     for (alias, host) in synced.hosts {
-        if !hosts.hosts.contains_key(&alias) && ssh.hand_written(&alias) {
-            hosts.hosts.insert(alias, host);
+        match hosts.hosts.get_mut(&alias) {
+            Some(mine) => {
+                if mine.identity_file.is_none()
+                    && host
+                        .identity_file
+                        .as_deref()
+                        .is_some_and(|f| !termf_ssh::synced_identity(f))
+                {
+                    mine.identity_file = host.identity_file;
+                }
+            }
+            None if ssh.hand_written(&alias)? => _ = hosts.hosts.insert(alias, host),
+            None => {}
         }
     }
     Ok(Entry {

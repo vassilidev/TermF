@@ -18,3 +18,11 @@ test("a chosen folder gets the repository's own name", () => {
   assert.equal(expandHome("~/a/b", "C:\\Users\\alex"), "C:\\Users\\alex\\a\\b");
   assert.equal(expandHome("~alex/a", "/home/alex"), "~alex/a");
 });
+
+test("nothing is proposed before the home folder is known", () => {
+  assert.equal(expandHome("~/work/acme/api", ""), "");
+  assert.equal(cloneTarget("~/work/acme/api", [], ""), "");
+  assert.equal(cloneTarget("~/work/acme/api", ["~/code/acme/web"], ""), "");
+  assert.equal(cloneTarget("~/work/acme/api", ["/srv/acme/web"], ""), "/srv/acme/api");
+  assert.equal(cloneTarget("/srv/acme/api", [], ""), "/srv/acme/api");
+});

@@ -6,9 +6,10 @@ function separator(path: string): string {
   return path.includes("\\") && !path.includes("/") ? "\\" : "/";
 }
 
-/** `~/x` as a full path under `home`. */
+/** `~/x` as a full path under `home`; "" when home is not known yet. */
 export function expandHome(path: string, home: string): string {
   if (path !== "~" && !/^~[\\/]/.test(path)) return path;
+  if (!home) return "";
   return home.replace(/[\\/]+$/, "") + separator(home) + path.slice(2).replace(/[\\/]/g, separator(home));
 }
 
@@ -20,12 +21,11 @@ export function inside(folder: string, path: string): string {
 
 /**
  * Where to clone a missing repository: beside the repositories of its project that are on this machine, else
- * where the other machine has it.
+ * where the other machine has it. "" when that needs the home folder and it is not known yet.
  */
 export function cloneTarget(path: string, present: string[], home: string): string {
-  const sibling = present[0];
+  const sibling = present.map((p) => expandHome(p, home)).find(Boolean);
   if (!sibling) return expandHome(path, home);
-  const full = expandHome(sibling, home);
-  const parent = full.replace(/[\\/]+[^\\/]+[\\/]*$/, "");
+  const parent = sibling.replace(/[\\/]+[^\\/]+[\\/]*$/, "");
   return inside(parent, path);
 }

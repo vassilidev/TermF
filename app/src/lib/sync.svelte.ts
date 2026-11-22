@@ -71,6 +71,9 @@ export function showSync() {
   sync.error = "";
 }
 
+/** The repositories being cloned (`project + "\n" + path`), while `sync_clone` runs. */
+export const clones = new Set<string>();
+
 /** Reloads what a pull may have changed (projects, shortcuts, layouts, library, settings) and follows clones. */
 export function watchSync(): () => void {
   const stopPulled = listen<Pulled>("sync-pulled", ({ payload }) => {
@@ -83,7 +86,9 @@ export function watchSync(): () => void {
     if (payload.restart.length || payload.sessions) sync.pulled = payload;
   });
   const stopClone = listen<{ project: string; path: string; line: string }>("sync-clone", ({ payload }) => {
-    sync.cloning[payload.project + "\n" + payload.path] = payload.line;
+    const key = payload.project + "\n" + payload.path;
+    // A line that arrives after the clone ended would bring its spinner back and hide its error.
+    if (clones.has(key)) sync.cloning[key] = payload.line;
   });
   return () => {
     stopPulled.then((stop) => stop());

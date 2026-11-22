@@ -28,21 +28,46 @@ pub fn valid_name(name: &str) -> bool {
         && !NOT_KEYS.contains(&name)
 }
 
+/// An `IdentityFile` another machine's block may set here: a file under `~/.ssh`, in a subfolder or not.
+pub fn synced_identity(path: &str) -> bool {
+    path.strip_prefix("~/.ssh/").is_some_and(|rest| {
+        !rest.is_empty()
+            && !rest.contains('\\')
+            && !rest.chars().any(char::is_control)
+            && rest
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != "..")
+    })
+}
+
 impl Ssh {
     /// The private keys right in `~/.ssh` (symlinks left out: their target may be anyone's file), with
-    /// their `.pub` when it is a plain file too.
+    /// their `.pub` when it is a plain file too. A file that cannot be read is an error, never a missing key:
+    /// the sync would take it as deleted.
     pub fn pairs(&self) -> Result<Vec<Pair>> {
         let mut pairs = Vec::new();
-        let Ok(entries) = fs::read_dir(&self.dir) else {
-            return Ok(pairs);
+        let entries = match fs::read_dir(&self.dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(pairs),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", self.dir.display())),
         };
         let plain = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file());
-        let mut paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        let mut paths = Vec::new();
+        for entry in entries {
+            paths.push(entry?.path());
+        }
         paths.sort();
         for path in paths {
             let name = file_name(&path);
-            if !valid_name(&name) || !plain(&path) || !matches!(read_private(&path), Ok(Some(_))) {
+            if !valid_name(&name) || !plain(&path) {
                 continue;
+            }
+            match read_private(&path) {
+                Ok(Some(_)) => {}
+                Ok(None) => continue,
+                // A key ssh-key cannot parse is still a key: it travels as it is.
+                Err(e) if e.downcast_ref::<std::io::Error>().is_none() => {}
+                Err(e) => return Err(e.context(format!("cannot read {}", path.display()))),
             }
             let public = path.with_file_name(format!("{name}.pub"));
             pairs.push(Pair {
@@ -78,27 +103,30 @@ impl Ssh {
         Ok(())
     }
 
+    /// `~/.ssh/config`, empty when there is none. Unreadable (not UTF-8, no access) is an error, never empty:
+    /// the sync would take its blocks as deleted.
+    fn config_text(&self) -> Result<String> {
+        match fs::read_to_string(self.config()) {
+            Ok(text) => Ok(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(e).context("cannot read ~/.ssh/config"),
+        }
+    }
+
     /// The blocks of `~/.ssh/config` TermF added.
-    pub fn marked_hosts(&self) -> Vec<HostEntry> {
-        config::marked(&fs::read_to_string(self.config()).unwrap_or_default())
+    pub fn marked_hosts(&self) -> Result<Vec<HostEntry>> {
+        Ok(config::marked(&self.config_text()?))
     }
 
     /// Whether `alias` has a block written by hand, which the sync never touches.
-    pub fn hand_written(&self, alias: &str) -> bool {
-        config::hand_written(
-            &fs::read_to_string(self.config()).unwrap_or_default(),
-            alias,
-        )
+    pub fn hand_written(&self, alias: &str) -> Result<bool> {
+        Ok(config::hand_written(&self.config_text()?, alias))
     }
 
     /// Makes TermF's blocks those of `hosts`: added, updated, or removed when gone. A block written by hand
-    /// for the same alias is left as it is, and a key path outside `~/.ssh` is dropped.
+    /// for the same alias is left as it is, and a key path outside `~/.ssh` is not written (`synced_identity`).
     pub fn apply_hosts(&self, hosts: &[HostEntry]) -> Result<()> {
-        let before = match fs::read_to_string(self.config()) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(e).context("cannot read ~/.ssh/config"),
-        };
+        let before = self.config_text()?;
         let mut after = before.clone();
         for old in config::marked(&before) {
             if !hosts
@@ -113,11 +141,7 @@ impl Ssh {
                 continue;
             }
             let mut host = host.clone();
-            host.identity_file = host.identity_file.filter(|f| {
-                f.strip_prefix("~/.ssh/").is_some_and(|name| {
-                    !name.is_empty() && !name.contains(['/', '\\']) && name != ".."
-                })
-            });
+            host.identity_file = host.identity_file.filter(|f| synced_identity(f));
             after = config::upsert(&after, &host)?;
         }
         if after != before {

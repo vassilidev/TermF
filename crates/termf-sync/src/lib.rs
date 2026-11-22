@@ -451,7 +451,7 @@ pub struct Engine {
     store: Box<dyn KeyStore>,
     /// The password's key for this process: a cache of the keychain, or its only copy without one.
     memory: Mutex<Option<(String, Key)>>,
-    /// Extra environment for git, so tests never read the user's git config.
+    /// Extra environment for git and curl, so tests never read the user's git or curl config.
     git_env: Vec<(String, String)>,
     /// `<data>/vault`, for the vault scope.
     vault_dir: Option<PathBuf>,
@@ -574,11 +574,13 @@ impl Engine {
                 prefix,
                 &self.remote_credentials(spec)?,
                 work,
+                self.git_env.clone(),
             )?),
             RemoteSpec::Webdav { url, .. } => Box::new(http::Webdav::new(
                 url,
                 self.remote_credentials(spec).ok().as_ref(),
                 work,
+                self.git_env.clone(),
             )?),
         };
         Ok(Box::new(objects::Objects::new(
@@ -812,9 +814,7 @@ impl Engine {
         let mut remote = self.remote(&state.remote)?;
         remote.begin()?;
         let keys = read_keys(remote.root())?.context("the remote holds no TermF sync data")?;
-        if keys.forgotten.contains(&forgotten_tag(&state.device_id)) {
-            return Err(Forgotten.into());
-        }
+        self.not_forgotten(&keys, &mut state)?;
         let kek = keys.derive(&keys.password, password)?;
         ensure!(
             keys.unwrap(&keys.password, &kek).is_some(),
@@ -824,6 +824,18 @@ impl Engine {
         state.sync_id = keys.sync_id;
         state.needs_password = false;
         self.save(&state)
+    }
+
+    /// Refuses a machine the key file says was forgotten, and keeps it for `status` (whatever the command).
+    fn not_forgotten(&self, keys: &KeyFile, state: &mut State) -> Result<()> {
+        if !keys.forgotten.contains(&forgotten_tag(&state.device_id)) {
+            return Ok(());
+        }
+        if !state.forgotten {
+            state.forgotten = true;
+            self.save(state)?;
+        }
+        Err(Forgotten.into())
     }
 
     /// Pulls, merges, and with `publish` pushes this machine's changes. Errors are kept for `status`.
@@ -853,12 +865,7 @@ impl Engine {
             let root = remote.root().to_path_buf();
             let keys_file =
                 read_keys(&root)?.context("the remote holds no TermF sync data anymore")?;
-            if keys_file
-                .forgotten
-                .contains(&forgotten_tag(&state.device_id))
-            {
-                return Err(Forgotten.into());
-            }
+            self.not_forgotten(&keys_file, state)?;
             let keys = self.data_keys(&keys_file)?;
             let theirs = read_files(&root, &keys)?;
             let before = mapping.clone();
@@ -959,10 +966,18 @@ impl Engine {
                 outgoing.push(record);
             }
             if let Some(ssh) = ssh {
-                let keys = ssh::sync_keys(ssh, &theirs, &mut base, &mut pulled, &state.device_id)?;
-                outgoing.extend(keys.outgoing);
-                conflicts.extend(keys.conflicts);
-                skipped.extend(keys.skipped);
+                // Unreadable keys skip the keys this time: never taken as deleted.
+                match ssh::sync_keys(ssh, &theirs, &mut base, &mut pulled, &state.device_id) {
+                    Ok(keys) => {
+                        outgoing.extend(keys.outgoing);
+                        conflicts.extend(keys.conflicts);
+                        skipped.extend(keys.skipped);
+                    }
+                    Err(e) => skipped.push(Skipped {
+                        path: "ssh/keys".into(),
+                        error: format!("{e:#}"),
+                    }),
+                }
             }
             // What came from the remote is in place: kept even if publishing fails.
             self.save_base(&base)?;
@@ -1039,6 +1054,7 @@ impl Engine {
         let mut remote = self.remote(&state.remote)?;
         remote.begin()?;
         let keys_file = read_keys(remote.root())?.context("the remote holds no TermF sync data")?;
+        self.not_forgotten(&keys_file, &mut state)?;
         let keys = self.data_keys(&keys_file)?;
         let theirs = read_files(remote.root(), &keys)?
             .remove(path)
@@ -1081,10 +1097,11 @@ impl Engine {
     }
 
     pub fn devices(&self) -> Result<Vec<Device>> {
-        let (_lock, state) = self.locked()?;
+        let (_lock, mut state) = self.locked()?;
         let mut remote = self.remote(&state.remote)?;
         remote.begin()?;
         let keys_file = read_keys(remote.root())?.context("the remote holds no TermF sync data")?;
+        self.not_forgotten(&keys_file, &mut state)?;
         let keys = self.data_keys(&keys_file)?;
         let mut devices = read_devices(remote.root(), &keys)?;
         for device in &mut devices {
@@ -1141,6 +1158,7 @@ impl Engine {
             remote.begin()?;
             let root = remote.root().to_path_buf();
             let old_file = read_keys(&root)?.context("the remote holds no TermF sync data")?;
+            self.not_forgotten(&old_file, &mut state)?;
             let old = old_file.data_keys(&open(&old_file)?)?;
             let files = read_files(&root, &old)?;
             let mut devices = read_devices(&root, &old)?;

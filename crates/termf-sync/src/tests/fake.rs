@@ -13,7 +13,7 @@ pub const ACCESS: &str = "AKIDTERMFTEST";
 pub const SECRET: &str = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
 pub const REGION: &str = "eu-west-3";
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
     S3,
     Webdav,
@@ -27,6 +27,8 @@ pub struct Store {
     pub dirs: BTreeSet<String>,
     version: u64,
     pub ignore_conditions: bool,
+    /// Honors `If-None-Match` but not `If-Match`.
+    pub ignore_if_match: bool,
     pub bad_signatures: u32,
     pub requests: u32,
 }
@@ -223,9 +225,10 @@ fn handle(stream: TcpStream, kind: Kind, store: &Mutex<Store>) -> std::io::Resul
             let current = store.files.get(&key).map(|(_, e)| e.clone());
             let refused = !store.ignore_conditions
                 && (request.header("if-none-match") == Some("*") && current.is_some()
-                    || request
-                        .header("if-match")
-                        .is_some_and(|m| Some(m) != current.as_deref()));
+                    || !store.ignore_if_match
+                        && request
+                            .header("if-match")
+                            .is_some_and(|m| Some(m) != current.as_deref()));
             if refused {
                 respond(
                     stream,
@@ -240,7 +243,19 @@ fn handle(stream: TcpStream, kind: Kind, store: &Mutex<Store>) -> std::io::Resul
             store.files.insert(key, (request.body, etag.clone()));
             respond(stream, 200, &[("ETag", etag)], b"");
         }
+        (_, "HEAD") => match store.files.get(&key) {
+            Some((_, etag)) => respond(stream, 200, &[("ETag", etag.clone())], b""),
+            None => respond(stream, 404, &[], b""),
+        },
         (_, "DELETE") => {
+            let current = store.files.get(&key).map(|(_, e)| e.clone());
+            if request
+                .header("if-match")
+                .is_some_and(|m| Some(m) != current.as_deref())
+            {
+                respond(stream, 412, &[], b"");
+                return Ok(());
+            }
             let status = if store.files.remove(&key).is_some() {
                 204
             } else {

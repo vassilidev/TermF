@@ -896,13 +896,13 @@ fn only_the_blocks_termf_added_are_synced() {
     let by_hand = "Host mine\n  User me\n\n";
     let text = fs::read_to_string(ssh.config()).unwrap();
     fs::write(ssh.config(), format!("{by_hand}{text}")).unwrap();
-    let marked = ssh.marked_hosts();
+    let marked = ssh.marked_hosts().unwrap();
     assert_eq!(marked.len(), 1);
     assert_eq!(
         (marked[0].alias.as_str(), marked[0].user.as_deref()),
         ("gh-work", Some("git"))
     );
-    assert!(ssh.hand_written("mine") && !ssh.hand_written("gh-work"));
+    assert!(ssh.hand_written("mine").unwrap() && !ssh.hand_written("gh-work").unwrap());
 
     // Another machine's blocks: one updated, one added with a key path out of ~/.ssh (dropped), and one
     // for an alias written by hand here (left alone).
@@ -933,7 +933,7 @@ fn only_the_blocks_termf_added_are_synced() {
         text.contains("  Port 443") && !text.contains("/etc/passwd"),
         "{text}"
     );
-    assert_eq!(ssh.marked_hosts().len(), 2);
+    assert_eq!(ssh.marked_hosts().unwrap().len(), 2);
 
     // Gone on the other machine: removed here, mark included.
     ssh.apply_hosts(&incoming[1..2]).unwrap();
@@ -941,4 +941,19 @@ fn only_the_blocks_termf_added_are_synced() {
         fs::read_to_string(ssh.config()).unwrap(),
         "Host mine\n  User me\n"
     );
+
+    assert!(synced_identity("~/.ssh/work/id_ed25519") && synced_identity("~/.ssh/id"));
+    for bad in [
+        "/etc/passwd",
+        "~/.ssh/../x",
+        "~/.ssh/",
+        "~/.ssh/a//b",
+        "~/.ssh/a\\b",
+    ] {
+        assert!(!synced_identity(bad), "{bad}");
+    }
+    // Unreadable is an error, never "no blocks": the sync would delete them elsewhere.
+    fs::write(ssh.config(), b"# Written by TermF\nHost caf\xe9\n").unwrap();
+    assert!(ssh.marked_hosts().is_err());
+    assert!(ssh.hand_written("x").is_err() && ssh.apply_hosts(&[]).is_err());
 }

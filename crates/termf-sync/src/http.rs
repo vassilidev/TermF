@@ -72,6 +72,8 @@ pub struct Curl {
     /// `user:secret`.
     user: Option<String>,
     sigv4: Option<String>,
+    /// Extra environment, so that tests never read the user's curl config.
+    env: Vec<(String, String)>,
 }
 
 /// A curl config value: quoted, with the escapes curl reads back.
@@ -88,17 +90,23 @@ fn quoted(value: &str) -> Result<String> {
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 
+/// curl without the user's `.curlrc` (`-q`, which must come first): a `--fail` there would turn a lost race
+/// (412) into an error.
+fn curl(args: &[&str]) -> Command {
+    let mut cmd = Command::new("curl");
+    cmd.arg("-q").args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 impl Curl {
     pub fn command() -> Command {
-        let mut cmd = Command::new("curl");
-        cmd.args(["--config", "-"]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-        cmd
+        curl(&["--config", "-"])
     }
 
     /// What curl reads on its standard input for `request`: the only place the credentials go.
@@ -111,7 +119,12 @@ impl Curl {
             "connect-timeout = 20".to_owned(),
             "max-time = 300".to_owned(),
             format!("url = {}", quoted(&request.url)?),
-            format!("request = {}", quoted(request.method)?),
+            // `request = HEAD` would wait for the body the headers announce.
+            if request.method == "HEAD" {
+                "head".to_owned()
+            } else {
+                format!("request = {}", quoted(request.method)?)
+            },
             format!("header = {}", quoted("Expect:")?),
             format!("output = {}", quoted(&output.to_string_lossy())?),
             format!("dump-header = {}", quoted(&head.to_string_lossy())?),
@@ -147,6 +160,7 @@ impl Curl {
         let output = request.output.map_or(body.clone(), Path::to_path_buf);
         let config = self.config(&request, &output, &head)?;
         let mut child = Self::command()
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -182,6 +196,47 @@ impl Curl {
             body: bytes,
         })
     }
+
+    /// The ETag of `url`, or `None` when nothing is there.
+    fn etag(&self, url: String, what: &str) -> Result<Option<String>> {
+        let response = self.run(Request {
+            method: "HEAD",
+            url,
+            headers: Vec::new(),
+            upload: None,
+            output: None,
+        })?;
+        match response.status {
+            200 => Ok(response.header("etag")),
+            404 => Ok(None),
+            _ => Err(response.error(&format!("cannot read {what}"))),
+        }
+    }
+
+    /// Deletes `url` only while it is still the version `expect`, when the server takes a condition on a
+    /// delete. `Ok(false)`: another machine changed it since, so it stays.
+    fn delete(&self, url: String, expect: Option<&str>, what: &str) -> Result<bool> {
+        let mut headers: Vec<String> = expect
+            .map(|e| format!("If-Match: {e}"))
+            .into_iter()
+            .collect();
+        loop {
+            let response = self.run(Request {
+                method: "DELETE",
+                url: url.clone(),
+                headers: headers.clone(),
+                upload: None,
+                output: None,
+            })?;
+            match response.status {
+                200 | 202 | 204 | 404 => return Ok(true),
+                412 => return Ok(false),
+                // A server that takes no condition on a delete.
+                400 | 501 if !headers.is_empty() => headers.clear(),
+                _ => return Err(response.error(&format!("cannot delete {what}"))),
+            }
+        }
+    }
 }
 
 pub fn parse_version(text: &str) -> Option<(u32, u32, u32)> {
@@ -200,8 +255,7 @@ fn curl_version() -> Result<(u32, u32, u32)> {
     static VERSION: OnceLock<Result<(u32, u32, u32), String>> = OnceLock::new();
     VERSION
         .get_or_init(|| {
-            let out = Command::new("curl")
-                .arg("--version")
+            let out = curl(&["--version"])
                 .stdin(Stdio::null())
                 .output()
                 .map_err(|_| "cannot run curl: is it installed?".to_owned())?;
@@ -321,6 +375,7 @@ impl S3 {
         prefix: &str,
         credentials: &Credentials,
         work: PathBuf,
+        env: Vec<(String, String)>,
     ) -> Result<Self> {
         check_s3_curl(curl_version()?)?;
         let endpoint = http_url(endpoint)?;
@@ -345,6 +400,7 @@ impl S3 {
                 work,
                 user: Some(format!("{}:{}", credentials.user, credentials.secret)),
                 sigv4: Some(format!("aws:amz:{region}:s3")),
+                env,
             },
             base: format!("{}/{bucket}", endpoint.trim_end_matches('/')),
             prefix: if prefix.is_empty() {
@@ -435,18 +491,12 @@ impl Store for S3 {
         }
     }
 
-    fn delete(&self, name: &str) -> Result<()> {
-        let response = self.curl.run(Request {
-            method: "DELETE",
-            url: self.url(name),
-            headers: Vec::new(),
-            upload: None,
-            output: None,
-        })?;
-        match response.status {
-            200 | 204 | 404 => Ok(()),
-            _ => Err(response.error(&format!("cannot delete {name}"))),
-        }
+    fn head(&self, name: &str) -> Result<Option<String>> {
+        self.curl.etag(self.url(name), name)
+    }
+
+    fn delete(&self, name: &str, expect: Option<&str>) -> Result<bool> {
+        self.curl.delete(self.url(name), expect, name)
     }
 }
 
@@ -459,7 +509,12 @@ pub struct Webdav {
 }
 
 impl Webdav {
-    pub fn new(url: &str, credentials: Option<&Credentials>, work: PathBuf) -> Result<Self> {
+    pub fn new(
+        url: &str,
+        credentials: Option<&Credentials>,
+        work: PathBuf,
+        env: Vec<(String, String)>,
+    ) -> Result<Self> {
         let url = http_url(url)?;
         Ok(Self {
             curl: Curl {
@@ -468,6 +523,7 @@ impl Webdav {
                     .filter(|c| !c.user.is_empty())
                     .map(|c| format!("{}:{}", c.user, c.secret)),
                 sigv4: None,
+                env,
             },
             base: format!("{}/", url.trim_end_matches('/')),
         })
@@ -594,12 +650,13 @@ impl Store for Webdav {
         }
     }
 
-    fn delete(&self, name: &str) -> Result<()> {
-        let response = self.simple("DELETE", format!("{}{name}", self.base), Vec::new())?;
-        match response.status {
-            200 | 204 | 404 => Ok(()),
-            _ => Err(response.error(&format!("cannot delete {name}"))),
-        }
+    fn head(&self, name: &str) -> Result<Option<String>> {
+        self.curl.etag(format!("{}{name}", self.base), name)
+    }
+
+    fn delete(&self, name: &str, expect: Option<&str>) -> Result<bool> {
+        self.curl
+            .delete(format!("{}{name}", self.base), expect, name)
     }
 }
 
@@ -613,12 +670,17 @@ mod tests {
             work: PathBuf::from("w"),
             user: Some("AKID:se\"cr\\et".into()),
             sigv4: Some("aws:amz:us-east-1:s3".into()),
+            env: Vec::new(),
         };
         let args: Vec<_> = Curl::command()
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(args, ["--config", "-"]);
+        assert_eq!(
+            args,
+            ["-q", "--config", "-"],
+            "the user's .curlrc is never read"
+        );
         let request = Request {
             method: "PUT",
             url: "https://s3.example.com/b/files/x".into(),

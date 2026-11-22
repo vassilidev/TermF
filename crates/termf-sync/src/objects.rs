@@ -26,7 +26,11 @@ pub trait Store {
     fn get(&self, name: &str, to: &Path) -> Result<()>;
     /// `expect`: the ETag the object must still have, or `None` for an object that must not exist yet.
     fn put(&self, name: &str, from: &Path, expect: Option<&str>) -> Result<Written>;
-    fn delete(&self, name: &str) -> Result<()>;
+    /// The object's ETag as its headers give it, `None` when it is not there.
+    fn head(&self, name: &str) -> Result<Option<String>>;
+    /// Deletes the object while it still has the ETag `expect` (when the server takes the condition).
+    /// `Ok(false)`: it changed since, and stays.
+    fn delete(&self, name: &str, expect: Option<&str>) -> Result<bool>;
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -47,6 +51,9 @@ pub struct Objects {
     index_file: PathBuf,
     label: String,
     index: Index,
+    /// The key file's ETag at `begin`: a commit that finds another one lost to a password change or a
+    /// forgotten device, and must not count what it wrote with the old key.
+    keys_etag: Option<String>,
 }
 
 /// What TermF puts on a remote: anything else there is left alone.
@@ -76,6 +83,7 @@ impl Objects {
             root,
             label,
             index: Index::default(),
+            keys_etag: None,
         }
     }
 
@@ -164,6 +172,7 @@ impl Remote for Objects {
             );
         }
         self.index = index;
+        self.keys_etag = self.store.head(crate::KEYS)?;
         self.save()
     }
 
@@ -176,7 +185,7 @@ impl Remote for Objects {
         // The key file last: an interruption never leaves it naming blobs that are not there yet.
         let mut names: Vec<&String> = mirrored.keys().collect();
         names.sort_by_key(|name| *name == crate::KEYS);
-        let mut lost = false;
+        let (mut lost, mut wrote, mut wrote_keys) = (false, false, false);
         for name in names {
             let bytes = fs::read(&mirrored[name])?;
             let sha = sha256(&bytes);
@@ -194,6 +203,8 @@ impl Remote for Objects {
             };
             match self.store.put(name, &mirrored[name], expect.as_deref())? {
                 Written::Done(etag) => {
+                    wrote = true;
+                    wrote_keys |= name == crate::KEYS;
                     self.index
                         .seen
                         .insert(name.clone(), Seen { etag, sha256: sha });
@@ -204,16 +215,22 @@ impl Remote for Objects {
                 }
             }
         }
+        // The key file changed since `begin` (a new password, a forgotten device): what was just written
+        // with the old key counts for nothing, so this sync begins again.
+        if !lost && wrote && !wrote_keys && self.store.head(crate::KEYS)? != self.keys_etag {
+            lost = true;
+        }
         if !lost {
-            let gone: Vec<String> = self
+            let gone: Vec<(String, Option<String>)> = self
                 .index
                 .seen
-                .keys()
-                .filter(|name| !mirrored.contains_key(*name))
-                .cloned()
+                .iter()
+                .filter(|(name, _)| !mirrored.contains_key(*name))
+                .map(|(name, seen)| (name.clone(), seen.etag.clone()))
                 .collect();
-            for name in gone {
-                self.store.delete(&name)?;
+            for (name, etag) in gone {
+                // An object another machine changed since `begin` stays.
+                self.store.delete(&name, etag.as_deref())?;
                 self.index.seen.remove(&name);
             }
         }
@@ -221,30 +238,40 @@ impl Remote for Objects {
         Ok(!lost)
     }
 
-    /// Writes a probe object twice, the second time as if another machine had not seen the first: a server
-    /// that accepts both would let two machines overwrite each other.
+    /// Writes a probe object twice, the second time as if another machine had not seen the first, then over
+    /// a version that is not there: a server that accepts either would let two machines overwrite each other.
     fn check(&mut self) -> Result<()> {
         fs::create_dir_all(&self.root)?;
         let probe = self.root.with_extension("check");
         fs::write(&probe, b"termf")?;
-        let first = self.store.put(CHECK, &probe, None);
-        let second = first
-            .as_ref()
-            .ok()
-            .map(|_| self.store.put(CHECK, &probe, None));
-        let _ = self.store.delete(CHECK);
+        let result = (|| -> Result<()> {
+            // Lost at once: left over from an interrupted check, which shows the server refuses it.
+            if let Written::Done(_) = self
+                .store
+                .put(CHECK, &probe, None)
+                .context("cannot write to the remote")?
+                && let Written::Done(_) = self.store.put(CHECK, &probe, None)?
+            {
+                bail!(
+                    "{} ignores conditional writes (If-None-Match): two machines could overwrite each other's sync. \
+                     TermF needs a server that honors them",
+                    self.label
+                );
+            }
+            if let Written::Done(_) =
+                self.store
+                    .put(CHECK, &probe, Some("\"termf-not-this-version\""))?
+            {
+                bail!(
+                    "{} ignores conditional writes (If-Match): two machines could overwrite each other's sync. \
+                     TermF needs a server that honors them",
+                    self.label
+                );
+            }
+            Ok(())
+        })();
+        let _ = self.store.delete(CHECK, None);
         let _ = fs::remove_file(&probe);
-        if let Written::Lost = first.context("cannot write to the remote")? {
-            // Left over from an interrupted check: the server does refuse a second creation.
-            return Ok(());
-        }
-        match second.expect("the first write succeeded")? {
-            Written::Lost => Ok(()),
-            Written::Done(_) => bail!(
-                "{} ignores conditional writes (If-None-Match): two machines could overwrite each other's sync. \
-                 TermF needs a server that honors them",
-                self.label
-            ),
-        }
+        result
     }
 }

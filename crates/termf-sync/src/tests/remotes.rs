@@ -57,8 +57,31 @@ fn webdav(fake: &Fake) -> RemoteSpec {
     }
 }
 
+/// A home whose curl config says `--fail`, which would turn a lost race (412) into an error if TermF read it.
+fn hostile_curlrc(sandbox: &Sandbox) -> Vec<(String, String)> {
+    let home = sandbox.root.join("curl-home");
+    fs::create_dir_all(&home).unwrap();
+    for name in [".curlrc", "_curlrc"] {
+        fs::write(home.join(name), "--fail\n").unwrap();
+    }
+    let home = home.to_string_lossy().into_owned();
+    [
+        "HOME",
+        "CURL_HOME",
+        "XDG_CONFIG_HOME",
+        "USERPROFILE",
+        "APPDATA",
+    ]
+    .iter()
+    .map(|k| (k.to_string(), home.clone()))
+    .collect()
+}
+
 fn converge(sandbox: &Sandbox, remote: &RemoteSpec, secret: &str) {
-    let (a, b) = (sandbox.machine("a"), sandbox.machine("b"));
+    let (mut a, mut b) = (sandbox.machine("a"), sandbox.machine("b"));
+    for m in [&mut a, &mut b] {
+        m.engine.git_env.extend(hostile_curlrc(sandbox));
+    }
     a.put("termf.toml", "scan_depth = 3\n");
     a.put("library/skills/s/SKILL.md", "from a\n");
     a.setup(remote);
@@ -168,48 +191,88 @@ fn a_server_ignoring_conditions_is_refused() {
     assert!(!a.engine.enabled());
 }
 
+#[test]
+fn a_server_ignoring_if_match_is_refused() {
+    if !any_curl() {
+        return;
+    }
+    let fake = Fake::start(Kind::Webdav);
+    fake.store.lock().unwrap().ignore_if_match = true;
+    let sandbox = Sandbox::new("no-if-match");
+    let a = sandbox.machine("a");
+    let error = a
+        .engine
+        .setup(webdav(&fake), PASSWORD, &Scope::DEFAULT, None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("(If-Match)"), "{error}");
+    assert!(!a.engine.enabled());
+}
+
+/// The kinds of object store this system's curl can test.
+fn kinds() -> Vec<Kind> {
+    let mut kinds = Vec::new();
+    if any_curl() {
+        kinds.push(Kind::Webdav);
+        if s3_curl() {
+            kinds.push(Kind::S3);
+        }
+    }
+    kinds
+}
+
+/// One machine's view of the fake server, as the engine has it, with a `.curlrc` that must not be read.
+fn objects(kind: Kind, fake: &Fake, sandbox: &Sandbox, machine: &str) -> Objects {
+    let work = sandbox.root.join(machine).join("http");
+    let env = hostile_curlrc(sandbox);
+    let store: Box<dyn Store> = match kind {
+        Kind::S3 => Box::new(
+            http::S3::new(&fake.url, "termf", REGION, "", &credentials(), work, env).unwrap(),
+        ),
+        Kind::Webdav => Box::new(
+            http::Webdav::new(
+                &format!("{}/dav", fake.url),
+                Some(&credentials()),
+                work,
+                env,
+            )
+            .unwrap(),
+        ),
+    };
+    Objects::new(
+        store,
+        sandbox.root.join(machine).join("objects"),
+        "fake".into(),
+    )
+}
+
+/// What the fake server holds under `name`.
+fn on_server(fake: &Fake, name: &str) -> Option<String> {
+    let store = fake.store.lock().unwrap();
+    store
+        .files
+        .iter()
+        .find(|(k, _)| k.ends_with(&format!("/{name}")))
+        .map(|(_, (bytes, _))| String::from_utf8(bytes.clone()).unwrap())
+}
+
 /// Two machines that began from the same state: the second to publish is told to begin again, and nothing
 /// the first wrote is overwritten, whether the object is new or changed.
 #[test]
 fn the_second_writer_never_overwrites_the_first() {
-    for kind in [Kind::Webdav, Kind::S3] {
-        if kind == Kind::S3 && !s3_curl() || !any_curl() {
-            continue;
-        }
+    for kind in kinds() {
         let fake = Fake::start(kind);
         let sandbox = Sandbox::new(if kind == Kind::S3 {
             "race-s3"
         } else {
             "race-dav"
         });
-        let open = |machine: &str| {
-            let work = sandbox.root.join(machine).join("http");
-            let store: Box<dyn Store> = match kind {
-                Kind::S3 => Box::new(
-                    http::S3::new(&fake.url, "termf", REGION, "", &credentials(), work).unwrap(),
-                ),
-                Kind::Webdav => Box::new(
-                    http::Webdav::new(&format!("{}/dav", fake.url), Some(&credentials()), work)
-                        .unwrap(),
-                ),
-            };
-            Objects::new(
-                store,
-                sandbox.root.join(machine).join("objects"),
-                "fake".into(),
-            )
-        };
-        let (mut one, mut two) = (open("one"), open("two"));
+        let (mut one, mut two) = (
+            objects(kind, &fake, &sandbox, "one"),
+            objects(kind, &fake, &sandbox, "two"),
+        );
         let blob = format!("files/{}", "a".repeat(32));
-        let server = || {
-            let store = fake.store.lock().unwrap();
-            let (_, (bytes, _)) = store
-                .files
-                .iter()
-                .find(|(k, _)| k.ends_with(&blob))
-                .unwrap();
-            String::from_utf8(bytes.clone()).unwrap()
-        };
+        let server = || on_server(&fake, &blob).unwrap();
         for round in ["created", "changed"] {
             one.begin().unwrap();
             two.begin().unwrap();
@@ -224,6 +287,59 @@ fn the_second_writer_never_overwrites_the_first() {
                 format!("two {round}")
             );
         }
+    }
+}
+
+/// A rotates the data key (a password change, a forgotten device) while B, which began before it, writes a
+/// file: A never deletes B's version, and B, finding a new key file, begins again instead of counting it.
+#[test]
+fn a_key_rotation_never_loses_what_another_machine_wrote() {
+    for kind in kinds() {
+        let fake = Fake::start(kind);
+        let sandbox = Sandbox::new(if kind == Kind::S3 {
+            "rotate-s3"
+        } else {
+            "rotate-dav"
+        });
+        let (mut a, mut b) = (
+            objects(kind, &fake, &sandbox, "a"),
+            objects(kind, &fake, &sandbox, "b"),
+        );
+        let blob = |c: char| format!("files/{}", c.to_string().repeat(32));
+        let (x, y, z) = (blob('a'), blob('b'), blob('c'));
+        a.begin().unwrap();
+        fs::write(a.root().join(KEYS), "key 1").unwrap();
+        fs::write(a.root().join(&x), "x by a").unwrap();
+        assert!(a.commit().unwrap());
+
+        // B writes after A began its rotation but before A deletes the old generation.
+        a.begin().unwrap();
+        b.begin().unwrap();
+        fs::write(b.root().join(&x), "x by b").unwrap();
+        assert!(b.commit().unwrap());
+        fs::remove_file(a.root().join(&x)).unwrap();
+        fs::write(a.root().join(&y), "y, new key").unwrap();
+        fs::write(a.root().join(KEYS), "key 2").unwrap();
+        assert!(a.commit().unwrap());
+        assert_eq!(on_server(&fake, &x).as_deref(), Some("x by b"), "{kind:?}");
+        assert_eq!(on_server(&fake, KEYS).as_deref(), Some("key 2"));
+
+        // B began before A's next rotation, and writes after it: told to begin again.
+        b.begin().unwrap();
+        a.begin().unwrap();
+        fs::remove_file(a.root().join(&y)).unwrap();
+        fs::write(a.root().join(&z), "z, newer key").unwrap();
+        fs::write(a.root().join(KEYS), "key 3").unwrap();
+        assert!(a.commit().unwrap());
+        assert_eq!(
+            on_server(&fake, &y),
+            None,
+            "unchanged since A's begin: deleted"
+        );
+        fs::write(b.root().join(&x), "x by b, again").unwrap();
+        assert!(!b.commit().unwrap(), "{kind:?}: the key file changed");
+        b.begin().unwrap();
+        assert_eq!(fs::read_to_string(b.root().join(KEYS)).unwrap(), "key 3");
     }
 }
 
@@ -370,6 +486,115 @@ fn ssh_keys_travel_sealed_and_never_replace_a_key() {
     b.push();
     let config = fs::read_to_string(b_ssh.dir().join("config")).unwrap_or_default();
     assert!(!config.contains("acme-prod"), "{config}");
+}
+
+/// What cannot be read here is left out of the sync, never taken as deleted.
+#[test]
+fn unreadable_ssh_files_are_skipped_not_deleted_elsewhere() {
+    use termf_ssh::KeyType;
+    let sandbox = Sandbox::new("ssh-unreadable");
+    let remote = sandbox.folder();
+    let (a, a_ssh) = ssh_machine(&sandbox, "a");
+    let (b, b_ssh) = ssh_machine(&sandbox, "b");
+    a_ssh
+        .generate("id_work", KeyType::Ed25519, "alex@work", None)
+        .unwrap();
+    let block = format!(
+        "{}\nHost acme-prod\n  HostName prod.acme.test\n",
+        termf_ssh::MARK
+    );
+    fs::write(a_ssh.dir().join("config"), &block).unwrap();
+    a.setup(&remote);
+    b.setup(&remote);
+    let b_config = b_ssh.dir().join("config");
+    assert!(fs::read_to_string(&b_config).unwrap().contains("acme-prod"));
+
+    // Latin-1 in ~/.ssh/config: not valid UTF-8.
+    fs::write(
+        a_ssh.dir().join("config"),
+        [block.as_bytes(), b"# caf\xe9\n"].concat(),
+    )
+    .unwrap();
+    let report = a.push();
+    assert!(
+        report.skipped.iter().any(|s| s.path == "ssh/hosts.toml"),
+        "{:?}",
+        report.skipped
+    );
+    b.push();
+    assert!(fs::read_to_string(&b_config).unwrap().contains("acme-prod"));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let key = a_ssh.dir().join("id_work");
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o000)).unwrap();
+        let unreadable = fs::read(&key).is_err();
+        let report = a.push();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
+        // Root reads anything: nothing to check then.
+        if unreadable {
+            assert!(
+                report.skipped.iter().any(|s| s.path == "ssh/keys"),
+                "{:?}",
+                report.skipped
+            );
+            let (c, c_ssh) = ssh_machine(&sandbox, "c");
+            c.setup(&remote);
+            assert!(
+                c_ssh.dir().join("id_work").exists(),
+                "never offered as deleted"
+            );
+        }
+    }
+}
+
+/// A key path another machine's block has that cannot be written here stays as synced, so it is never sent
+/// back without it; one in a folder of ~/.ssh is written.
+#[test]
+fn identity_files_survive_a_round_trip() {
+    let sandbox = Sandbox::new("ssh-identity");
+    let remote = sandbox.folder();
+    let (a, a_ssh) = ssh_machine(&sandbox, "a");
+    let (b, b_ssh) = ssh_machine(&sandbox, "b");
+    let mark = termf_ssh::MARK;
+    let config = format!(
+        "{mark}\nHost deploy-box\n  HostName box.acme.test\n  IdentityFile ~/.ssh/work/id_ed25519\n\n\
+         {mark}\nHost legacy\n  HostName old.acme.test\n  IdentityFile /opt/keys/legacy\n"
+    );
+    fs::write(a_ssh.dir().join("config"), &config).unwrap();
+    a.setup(&remote);
+    b.setup(&remote);
+    let on_b = fs::read_to_string(b_ssh.dir().join("config")).unwrap();
+    assert!(
+        on_b.contains("IdentityFile ~/.ssh/work/id_ed25519") && !on_b.contains("/opt/keys"),
+        "{on_b}"
+    );
+    assert!(b.push().pushed.is_empty(), "nothing sent back");
+    a.push();
+    assert_eq!(
+        fs::read_to_string(a_ssh.dir().join("config")).unwrap(),
+        config
+    );
+    assert!(a.engine.status().unwrap().conflicts.is_empty());
+}
+
+#[test]
+fn a_forgotten_machine_without_a_keychain_says_so_at_unlock() {
+    let sandbox = Sandbox::new("forget-no-keychain");
+    let remote = sandbox.folder();
+    let a = sandbox.machine("a");
+    let d = sandbox.machine_with("d", Box::new(NoKeychain));
+    a.setup(&remote);
+    d.setup(&remote);
+    let id = d.engine.status().unwrap().device_id.unwrap();
+    a.engine.forget(&id, PASSWORD).unwrap();
+    // TermF started again on d: no key in memory, the password is asked.
+    let restarted = Engine::new(d.dir.clone(), Box::new(NoKeychain));
+    assert!(!restarted.status().unwrap().unlocked);
+    let error = restarted.unlock(PASSWORD).unwrap_err();
+    assert!(error.downcast_ref::<Forgotten>().is_some(), "{error:#}");
+    assert!(restarted.status().unwrap().forgotten);
 }
 
 #[test]

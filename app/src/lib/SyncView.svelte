@@ -36,6 +36,7 @@
     sync,
     syncCall,
     syncNow,
+    clones,
     type Device,
     type MissingRepo,
     type Remote,
@@ -223,15 +224,19 @@
 
   async function clone(r: MissingRepo) {
     const key = repoKey(r);
+    const target = proposed(r);
+    if (!target) return;
     cloneErrors[key] = "";
+    clones.add(key);
     sync.cloning[key] = "";
     try {
-      app.sync = await invoke<SyncStatus>("sync_clone", { project: r.project, path: r.path, target: proposed(r) });
+      app.sync = await invoke<SyncStatus>("sync_clone", { project: r.project, path: r.path, target });
       delete targets[key];
       load();
     } catch (e) {
       cloneErrors[key] = String(e);
     } finally {
+      clones.delete(key);
       delete sync.cloning[key];
     }
   }
@@ -710,6 +715,7 @@
             {#each status.missingRepos as repo (repo.project + repo.path)}
               {@const key = repoKey(repo)}
               {@const cloning = key in sync.cloning}
+              {@const target = repo.remote ? proposed(repo) : ""}
               <li class="wrap">
                 <FolderGit2 size={14} aria-hidden="true" class="muted" />
                 <div class="grow">
@@ -719,7 +725,7 @@
                     {#if repo.remote}<span class="mono"> · {repo.remote}</span>{/if}
                   </span>
                   {#if repo.remote}
-                    <span class="sub target">{t("sync2CloneInto", { path: proposed(repo) })}</span>
+                    {#if target}<span class="sub target">{t("sync2CloneInto", { path: target })}</span>{/if}
                   {/if}
                   {#if cloning}
                     <span class="sub progress" aria-live="polite">
@@ -734,7 +740,7 @@
                     <button class="btn sm quiet" onclick={() => elsewhere(repo)} disabled={cloning}>
                       {t("sync2CloneElsewhere")}
                     </button>
-                    <button class="btn sm" onclick={() => clone(repo)} disabled={cloning}>
+                    <button class="btn sm" onclick={() => clone(repo)} disabled={cloning || !target}>
                       <FolderDown size={14} aria-hidden="true" />{t("sync2Clone")}
                     </button>
                   </div>
