@@ -33,7 +33,7 @@ type NoticeRef = { key: number; about: string; run?: number; step?: string };
 
 /**
  * Where each step waiting for the user shows its card in the CTO's thread: in place of the latest notice that told of
- * it, else after the thread (`rest`, oldest first), when the conversation began after the step started waiting.
+ * it, else at the head of the thread (`rest`), when the step waited before the conversation could be told.
  */
 export function place(notices: NoticeRef[], asks: { run: number; step: string }[]): { at: Map<number, string>; rest: string[] } {
   const open = new Set(asks.map((a) => askKey(a.run, a.step)));
@@ -50,14 +50,13 @@ export function place(notices: NoticeRef[], asks: { run: number; step: string }[
 }
 
 /**
- * The card whose action is the screen's primary one: the most recent decision of the thread. None while the CTO itself
- * waits for an answer, its permission being the last thing it said.
+ * The card whose action is the screen's primary one: the most recent decision told in the thread, else the last of
+ * those at its head. None while the CTO itself waits for an answer, its permission being the last thing it said.
  */
 export function primary(placed: { at: Map<number, string>; rest: string[] }, ctoAsks: boolean): string | null {
   if (ctoAsks) return null;
-  if (placed.rest.length) return placed.rest.at(-1) ?? null;
   const last = Math.max(-1, ...placed.at.keys());
-  return placed.at.get(last) ?? null;
+  return placed.at.get(last) ?? placed.rest.at(-1) ?? null;
 }
 
 type RunIn = { id: number; project: string; status: string; updated: number };

@@ -52,8 +52,8 @@
 
   /**
    * `embedded`: in the Home, without the session's header; `lead` goes in its place and the session's details in a
-   * popover. `card` replaces a notice of the thread (`fallback` draws it as usual), `top` and `tail` go before and after
-   * the thread; `notices` tells the caller which notices the thread has.
+   * popover. `card` replaces a notice of the thread (`fallback` draws it as usual), `top` goes at its head; `notices`
+   * tells the caller which notices the thread has.
    */
   let {
     session,
@@ -61,7 +61,6 @@
     lead,
     card,
     top,
-    tail,
     notices = $bindable([]),
   }: {
     session: AgentSession;
@@ -69,7 +68,6 @@
     lead?: Snippet;
     card?: Snippet<[Notice, Snippet<[Notice]>]>;
     top?: Snippet;
-    tail?: Snippet;
     notices?: Notice[];
   } = $props();
 
@@ -556,7 +554,6 @@
       {#if turn.end}{@render ending(turn.end)}{/if}
     {/each}
     {#if live}<p class="text live">{live}</p>{/if}
-    {@render tail?.()}
   </div>
 </div>
 

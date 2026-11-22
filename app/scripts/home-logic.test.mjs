@@ -28,7 +28,7 @@ test("waits: live tiles first, then the most recent first, the CTO's permission 
   assert.deepEqual(waits([], [], []), []);
 });
 
-test("place: a card takes the latest notice of its step, a step nobody told of goes after the thread", () => {
+test("place: a card takes the latest notice of its step, a step nobody told of goes at the head of the thread", () => {
   const notices = [
     { key: 10, about: "waiting", run: 7, step: "approve-plan" },
     { key: 14, about: "direct", role: "back" },
@@ -47,9 +47,10 @@ test("place: a card takes the latest notice of its step, a step nobody told of g
   assert.deepEqual(place([], []), { at: new Map(), rest: [] });
 });
 
-test("primary: the last decision of the thread, none while the CTO asks", () => {
+test("primary: the last decision told in the thread, else the last at its head, none while the CTO asks", () => {
   assert.equal(primary({ at: new Map([[20, "ask:7:a"], [30, "ask:8:b"]]), rest: [] }, false), "ask:8:b");
-  assert.equal(primary({ at: new Map([[30, "ask:8:b"]]), rest: ["ask:6:t", "ask:5:d"] }, false), "ask:5:d");
+  assert.equal(primary({ at: new Map([[30, "ask:8:b"]]), rest: ["ask:6:t", "ask:5:d"] }, false), "ask:8:b");
+  assert.equal(primary({ at: new Map(), rest: ["ask:6:t", "ask:5:d"] }, false), "ask:5:d");
   assert.equal(primary({ at: new Map([[30, "ask:8:b"]]), rest: [] }, true), null);
   assert.equal(primary({ at: new Map(), rest: [] }, false), null);
 });

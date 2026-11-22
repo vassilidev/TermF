@@ -314,7 +314,7 @@
       {#if line.text}<span>{line.text}</span>{/if}
     </span>
     {#if p}<span class="pm"><span class="mark" aria-hidden="true">{initial(p.name)}</span>{p.name}</span>{/if}
-    <StatusPill status={line.pill[0]} label={line.pill[1]} />
+    <span class="state"><StatusPill status={line.pill[0]} label={line.pill[1]} /></span>
   </button>
 {/snippet}
 
@@ -332,11 +332,7 @@
 
 {#snippet card(item: Notice, fallback: Snippet<[Notice]>)}
   {@const key = placed.at.get(item.key)}
-  {#if key}{@render cards(key)}{:else}{@render fallback(item)}{/if}
-{/snippet}
-
-{#snippet tail()}
-  {#each placed.rest as key (key)}{@render cards(key)}{/each}
+  {#if key}{@render cards(key)}{:else}<div class="told">{@render fallback(item)}</div>{/if}
 {/snippet}
 
 {#snippet cards(key: string)}
@@ -375,6 +371,7 @@
       </ol>
     </article>
   {/if}
+  {#each placed.rest as key (key)}{@render cards(key)}{/each}
 {/snippet}
 
 <div class="home-view">
@@ -402,7 +399,6 @@
               embedded
               {lead}
               card={home.with === "cto" ? card : undefined}
-              tail={home.with === "cto" ? tail : undefined}
               top={home.with === "cto" ? top : undefined}
               bind:notices
             />
@@ -619,6 +615,7 @@
   .who.term {
     border-radius: var(--radius-sm);
     background: var(--term-bg);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     color: #e7e8eb;
   }
 
@@ -844,6 +841,16 @@
     background: var(--hover);
   }
 
+  /* A notice whose step was answered no longer asks: amber stays for what waits. */
+  .told :global(.termf.asks) {
+    border-color: var(--border);
+    background: var(--chrome);
+  }
+
+  .told :global(.termf.asks svg) {
+    color: var(--muted);
+  }
+
   /* A new project's setup, at the head of the thread. */
   .setup {
     display: flex;
@@ -974,9 +981,6 @@
     border-radius: 0;
   }
 
-  .table > * + * {
-    border-top: 1px solid var(--border);
-  }
 
   .table .rrow + .rrow {
     margin-top: 0;
@@ -1002,6 +1006,17 @@
 
   .trow:hover {
     background: var(--hover);
+  }
+
+  .table > * + * {
+    border-top: 1px solid var(--border);
+  }
+
+  .table .state {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    width: 140px;
   }
 
   .trow.th {
