@@ -5,15 +5,18 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::ipc::TeamCall;
-use termf_team::{Inbox, Level, Options, Target, Team, TeamEvent, TeamRun, TeamUpdate};
+use termf_team::route::WorkflowView;
+use termf_team::{
+    Inbox, Level, Options, Request, Routing, Target, Team, TeamEvent, TeamRun, TeamUpdate,
+};
 
-use crate::CmdResult;
 use crate::agents::AgentsState;
-use crate::tickets::{blocking, tickets};
+use crate::tickets::{blocking, tickets, updated};
+use crate::{AppState, CmdResult, api};
 
 pub struct TeamState {
     team: Team,
@@ -61,10 +64,43 @@ pub fn shutdown(app: &AppHandle) {
     }
 }
 
-pub(crate) fn start(app: &AppHandle, run: i64, options: Options) -> Result<TeamRun> {
+/// The team of a ticket run, or of a request in a new run of its own (prepared without a session, as a ticket
+/// run for a team is): its triage starts at once.
+pub(crate) fn start(
+    app: &AppHandle,
+    run: Option<i64>,
+    request: Option<Request>,
+    options: Options,
+) -> Result<TeamRun> {
     let state = state_of(app);
-    let target = Target::of(&tickets(app).run(run)?, &state.config_dir, &state.data_dir)?;
-    state.team.start(target, options)
+    let begin = |run: &termf_tickets::Run| {
+        let target = Target::of(run, &state.config_dir, &state.data_dir)?;
+        state.team.start(target, options)
+    };
+    match (run, request) {
+        (Some(run), None) => begin(&tickets(app).run(run)?),
+        (None, Some(r)) => {
+            api::run_guard(&app.state::<AppState>())?;
+            let run = tickets(app).start_request(&r.text, &r.project, r.repo.as_deref())?;
+            updated(app, &run);
+            closed_on_error(begin(&run), || {
+                crate::tickets::close(app, run.id, false).map(|_| ())
+            })
+        }
+        _ => bail!("give the team a run, or a request"),
+    }
+}
+
+/// A request's run exists only for its team: when the team does not start, the run is closed (as
+/// `tickets_close` without force) so that no worktree or branch is left behind; then the error goes back.
+fn closed_on_error<T>(started: Result<T>, close: impl FnOnce() -> Result<()>) -> Result<T> {
+    let Err(e) = started else {
+        return started;
+    };
+    match close() {
+        Ok(()) => Err(e),
+        Err(left) => Err(e.context(format!("its run is still open: {left:#}"))),
+    }
 }
 
 fn levels(rules: impl IntoIterator<Item = (String, String)>) -> Result<BTreeMap<String, Level>> {
@@ -78,8 +114,21 @@ fn levels(rules: impl IntoIterator<Item = (String, String)>) -> Result<BTreeMap<
 pub fn call(app: &AppHandle, call: TeamCall) -> Result<Value> {
     let team = &state_of(app).team;
     Ok(match call {
-        TeamCall::Start { run, options } => {
-            serde_json::to_value(start(app, run, serde_json::from_value(options)?)?)?
+        TeamCall::Start {
+            run,
+            request,
+            options,
+        } => {
+            let request = request.map(serde_json::from_value).transpose()?;
+            serde_json::to_value(start(app, run, request, serde_json::from_value(options)?)?)?
+        }
+        TeamCall::Answer {
+            run,
+            step,
+            answers,
+            note,
+        } => {
+            serde_json::to_value(team.answer(run, &step, answers.into_iter().collect(), &note)?)?
         }
         TeamCall::Approve { run, step } => serde_json::to_value(team.approve(run, &step)?)?,
         TeamCall::Revise {
@@ -97,8 +146,50 @@ pub fn call(app: &AppHandle, call: TeamCall) -> Result<Value> {
 // Starting sessions, git and the database: off the UI thread.
 
 #[tauri::command]
-pub async fn team_start(app: AppHandle, run: i64, options: Option<Options>) -> CmdResult<TeamRun> {
-    blocking(app, move |app| start(app, run, options.unwrap_or_default())).await
+pub async fn team_start(
+    app: AppHandle,
+    run: Option<i64>,
+    request: Option<Request>,
+    options: Option<Options>,
+) -> CmdResult<TeamRun> {
+    blocking(app, move |app| {
+        start(app, run, request, options.unwrap_or_default())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn team_route(
+    app: AppHandle,
+    run: i64,
+    routing: Routing,
+    budget: Option<f64>,
+) -> CmdResult<TeamRun> {
+    blocking(app, move |app| {
+        state_of(app).team.route(run, routing, budget)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn team_answer(
+    app: AppHandle,
+    run: i64,
+    step: String,
+    answers: BTreeMap<String, Vec<String>>,
+    note: Option<String>,
+) -> CmdResult<TeamRun> {
+    blocking(app, move |app| {
+        state_of(app)
+            .team
+            .answer(run, &step, answers, note.as_deref().unwrap_or_default())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn team_workflows(app: AppHandle, run: i64) -> CmdResult<Vec<WorkflowView>> {
+    blocking(app, move |app| state_of(app).team.workflows(run)).await
 }
 
 #[tauri::command]
@@ -167,4 +258,34 @@ pub async fn team_squads(app: AppHandle, project: String) -> CmdResult<termf_tea
         termf_team::squads::view(&state_of(app).config_dir, &project)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_request_whose_team_does_not_start_closes_its_run() {
+        let closed = std::cell::Cell::new(false);
+        let close = || {
+            closed.set(true);
+            Ok(())
+        };
+        let started: Result<i32> = closed_on_error(Ok(1), close);
+        assert_eq!(started.unwrap(), 1);
+        assert!(!closed.get(), "a team at work keeps its run");
+
+        let failed: Result<i32> = closed_on_error(Err(anyhow::anyhow!("bad budget")), close);
+        assert_eq!(failed.unwrap_err().to_string(), "bad budget");
+        assert!(closed.get());
+
+        let stuck: Result<i32> = closed_on_error(Err(anyhow::anyhow!("bad budget")), || {
+            Err(anyhow::anyhow!("uncommitted work"))
+        });
+        let text = format!("{:#}", stuck.unwrap_err());
+        assert!(
+            text.contains("its run is still open: uncommitted work") && text.contains("bad budget"),
+            "{text}"
+        );
+    }
 }

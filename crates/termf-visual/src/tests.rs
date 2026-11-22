@@ -521,7 +521,11 @@ impl TeamEnv {
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(
             config.join("termf.toml"),
-            format!("[agents]\nclaude = \"{}\"\n", fake.display()),
+            // The visual gate, not the CTO's triage, is what these tests drive.
+            format!(
+                "[agents]\nclaude = \"{}\"\n[team]\ntriage = false\n",
+                fake.display()
+            ),
         )
         .unwrap();
         fs::create_dir_all(config.join("library/workflows")).unwrap();

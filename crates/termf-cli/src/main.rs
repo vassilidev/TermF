@@ -133,6 +133,13 @@ usage:
   termf team run <run> [--workflow <name>] [--rule <rule>=<level>]... [--budget <usd>]
                                         start the run's team, or go on with it (paused, stopped,
                                         out of budget); levels: off, advise, warn, block
+  termf team run --request <text> [--project <id>] [--repo <name>] [--workflow <name>] [--budget <usd>]
+                                        start the team on a request written here, in a new run of its
+                                        own (the project by default: the one of this folder)
+  termf team route <run>                the CTO's routing: workflow, steps, squads, budget, why
+  termf team answer <run> <step> <question>=<answer>... [--note <text>]
+                                        answer a step's questions at once (a multiple choice:
+                                        the question once per option; none: <question>=)
   termf team status <run>               its plan, its steps, what waits for you, what the rules found
   termf team events <run> [--after <n>] what happened, step by step
   termf team approve <run> <step>       let a gate pass, or accept a blocked step as it is

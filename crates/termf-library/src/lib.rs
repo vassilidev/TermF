@@ -747,7 +747,7 @@ mod tests {
         assert_eq!(rule.applies_to, ["front", "back", "devops", "seo"]);
         assert_eq!(rule.meta["level"], "block");
         assert_eq!(find(&items, Kind::Role, "secops").meta["effort"], "xhigh");
-        for role in ["po", "pm", "architect"] {
+        for role in ["po", "pm", "architect", "cto"] {
             let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
             assert_eq!(tools, "mcp__termf__ask_expert", "{role} asks the expert");
         }
