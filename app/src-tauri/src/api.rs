@@ -15,7 +15,8 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::artifacts::Policy;
-use termf_core::claude;
+use termf_core::claude::{self, Tool};
+use termf_core::cli_agents;
 use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{
     self, AgentCall, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent,
@@ -38,6 +39,8 @@ struct Meta {
     /// A session TermF runs for itself, with no tile until it needs the user.
     hidden: bool,
     policy: Option<Policy>,
+    /// Codex CLI says when a turn ends, not when one starts: Enter at its prompt starts one.
+    enter_starts: bool,
 }
 
 /// Lets the agent get back to its prompt before TermF types in it.
@@ -512,7 +515,10 @@ impl Api {
             .unwrap()
             .get(&id)
             .is_some_and(|m| m.status == Some(Status::Waiting));
-        if waiting && ipc::answers_prompt(input) {
+        let starts = self.meta.lock().unwrap().get(&id).is_some_and(|m| {
+            m.enter_starts && m.status == Some(Status::Idle) && input.contains(&b'\r')
+        });
+        if (waiting && ipc::answers_prompt(input)) || starts {
             self.set_status(app, id, Status::Working);
         } else if !waiting && ipc::is_typing(input) {
             self.reset(app, id, Reset::typed);
@@ -776,6 +782,7 @@ pub fn spawn_command(
                 reset: None,
                 hidden: false,
                 policy: None,
+                enter_starts: false,
             },
         );
         Ok(SpawnSpec {
@@ -818,11 +825,12 @@ fn launch(
     guard: bool,
     args: &[String],
 ) -> Result<SessionSummary> {
-    let is_claude = command.as_deref().is_some_and(claude::is_claude);
+    let tool = command.as_deref().and_then(Tool::of);
+    let is_claude = tool == Some(Tool::Claude);
     let remote_control = remote_control && is_claude;
     // Session folders live with the local API, which clears them at startup.
     let sessions_dir = match &state.api.endpoint {
-        Some(endpoint) if is_claude => Some(endpoint.data_dir.join("sessions")),
+        Some(endpoint) if tool.is_some() => Some(endpoint.data_dir.join("sessions")),
         _ => None,
     };
     // Status needs the local API and the CLI the hooks run.
@@ -845,18 +853,53 @@ fn launch(
             id,
             Meta {
                 title: title.clone(),
-                status: hooks.is_some().then_some(Status::Starting),
+                // Codex CLI and Gemini CLI start at their prompt.
+                status: hooks
+                    .is_some()
+                    .then_some(if is_claude { Status::Starting } else { Status::Idle }),
                 since: Instant::now(),
                 remote_control,
                 agent_session_id: None,
                 dir: dir.clone(),
-                reset: hooks.is_some().then(Reset::default),
+                reset: (hooks.is_some() && is_claude).then(Reset::default),
                 hidden: task.is_some_and(|t| t.hidden),
                 policy: task.and_then(|t| t.policy.clone()),
+                enter_starts: hooks.is_some() && tool == Some(Tool::Codex),
             },
         );
         let mut extra = Vec::new();
-        if let Some(dir) = &dir {
+        let mut env: Vec<(String, String)> = run
+            .as_ref()
+            .map(|r| r.env.clone().into_iter().collect())
+            .unwrap_or_default();
+        if let (Some(dir), Some(tool @ (Tool::Codex | Tool::Gemini))) = (&dir, tool) {
+            let prompt = library(state, &cwd, dir, None);
+            // What Codex reads with `-c` is the text itself; Gemini gets it from its `SessionStart` hook.
+            if tool == Tool::Codex {
+                if let Some(termf) = &hooks {
+                    let notify = cli_agents::codex_notify(termf, &cli_agents::codex_home());
+                    extra.push(format!("-c {}", shell_quote(&notify)));
+                }
+                let text = prompt.as_ref().and_then(|p| fs::read_to_string(p).ok());
+                if let Some(text) = text.filter(|t| !t.trim().is_empty()) {
+                    let instructions = cli_agents::codex_instructions(&text);
+                    extra.push(format!("-c {}", shell_quote(&instructions)));
+                }
+            } else {
+                let settings =
+                    cli_agents::gemini_settings(dir, hooks.as_deref(), prompt.as_deref(), None)?;
+                env.push((
+                    cli_agents::GEMINI_SETTINGS_ENV.into(),
+                    settings.to_string_lossy().into_owned(),
+                ));
+                let policy = cli_agents::write_gemini_policy(dir)?;
+                extra.push(format!(
+                    "--policy {}",
+                    shell_quote(&policy.to_string_lossy())
+                ));
+            }
+        }
+        if let Some(dir) = dir.as_ref().filter(|_| is_claude) {
             let plugin = dir.join("plugin");
             if let Some(termf) = &hooks {
                 claude::write_plugin(&plugin, termf, guard)?;
@@ -949,7 +992,7 @@ fn launch(
         });
         // Last: a path with a space would be cut by `after_program`.
         let command = match command {
-            Some(c) if is_claude => Some(claude::in_command(&c, shell_quote)?.0),
+            Some(c) if tool.is_some() => Some(claude::in_command(&c, shell_quote)?.0),
             other => other,
         };
         let (program, args) = shell_command(command.as_deref());
@@ -961,10 +1004,7 @@ fn launch(
             agent: agent.map(str::to_owned),
             cols,
             rows,
-            env: run
-                .as_ref()
-                .map(|r| r.env.clone().into_iter().collect())
-                .unwrap_or_default(),
+            env,
         })
     });
     if spawned.is_err()
