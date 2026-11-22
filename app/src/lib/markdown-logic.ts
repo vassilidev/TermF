@@ -1,16 +1,20 @@
 // No imports, so `pnpm test` runs it in plain Node.
 
 /** A piece of a line, shown as text: nothing in it is ever read as HTML. */
-export type Span = { kind: "text" | "strong" | "code"; text: string } | { kind: "link"; text: string; url: string };
+export type Span =
+  | { kind: "text" | "code"; text: string }
+  | { kind: "strong"; spans: Span[] }
+  | { kind: "link"; text: string; url: string };
 /** `start` is null for a bulleted list. */
 export type Block =
   | { kind: "paragraph"; spans: Span[] }
   | { kind: "list"; start: number | null; items: Span[][] }
   | { kind: "code"; text: string };
 
-// `code`, **bold** (no `*` inside), [label](http…), a bare http(s) address without the punctuation that ends a sentence.
+// `code`, **bold** (no `*` inside), [label](http…), a bare http(s) address without the punctuation that ends a
+// sentence. An address may hold one level of balanced parentheses, as Wikipedia's do.
 const inline =
-  /`([^`\n]+)`|\*\*([^*\s](?:[^*\n]*[^*\s])?)\*\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]»]/g;
+  /`([^`\n]+)`|\*\*([^*\s](?:[^*\n]*[^*\s])?)\*\*|\[([^\]\n]+)\]\((https?:\/\/(?:[^\s()]|\([^\s()]*\))+)\)|https?:\/\/(?:[^\s<>"'`()]|\([^\s<>"'`()]*\))*(?:[^\s<>"'`().,;:!?\]»]|\([^\s<>"'`()]*\))/g;
 const item = /^\s*(?:[-*+]|(\d{1,9})[.)])\s+(.*)$/;
 const fence = /^\s*```/;
 
@@ -20,7 +24,7 @@ export function spans(text: string): Span[] {
   for (const m of text.matchAll(inline)) {
     if (m.index > at) out.push({ kind: "text", text: text.slice(at, m.index) });
     if (m[1] !== undefined) out.push({ kind: "code", text: m[1] });
-    else if (m[2] !== undefined) out.push({ kind: "strong", text: m[2] });
+    else if (m[2] !== undefined) out.push({ kind: "strong", spans: spans(m[2]) });
     else if (m[3] !== undefined) out.push({ kind: "link", text: m[3], url: m[4] });
     else out.push({ kind: "link", text: m[0], url: m[0] });
     at = m.index + m[0].length;

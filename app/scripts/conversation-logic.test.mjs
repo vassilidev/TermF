@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addressed, blocked, fields, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, stream, summary, thread, ticketNamed } from "../src/lib/conversation-logic.ts";
+import { addressed, blocked, fields, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, stream, summary, thread, ticketNamed, unsaid } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -182,7 +182,22 @@ test("the arguments of TermF's tools read as a sentence, in its order; the rest 
   ]);
   assert.deepEqual(fields(null), []);
   assert.deepEqual(fields("ACME-57"), []);
-  assert.deepEqual(fields({ id: 3, offset: 0, flag: true }), []);
+  assert.deepEqual(fields({ id: 3, offset: 0, flag: true }), [["id", "3"]]);
+  assert.deepEqual(fields({ run: 7, step: "plan", answers: "La période par défaut." }), [
+    ["run", "7"],
+    ["step", "plan"],
+    ["answers", "La période par défaut."],
+  ]);
+});
+
+test("what a sentence cannot say, a call's answers or lists, stays visible entry by entry", () => {
+  assert.deepEqual(unsaid({ run: 7, step: "plan", answers: { q1: "30 jours", q2: ["client", "période"], q3: true, q4: { a: 1 } } }), [
+    ["answers", [["q1", "30 jours"], ["q2", "client, période"], ["q3", "true"], ["q4", '{"a":1}']]],
+  ]);
+  assert.deepEqual(unsaid({ sources: ["git", "docs"], limit: 5 }), [["sources", [["", "git, docs"]]]]);
+  assert.deepEqual(unsaid({ ticket: "ACME-57", answers: null }), []);
+  assert.deepEqual(unsaid("texte"), []);
+  assert.deepEqual(unsaid(null), []);
 });
 
 test("a ticket named by a call is found by key, URL or the end of its key, when only one has it", () => {

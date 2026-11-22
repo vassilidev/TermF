@@ -193,10 +193,8 @@ export function summary(input: unknown): string {
   return Object.keys(o).length ? JSON.stringify(o) : "";
 }
 
-const said = ["ticket", "request", "run", "step", "role", "repo", "workflow", "budget", "question", "query", "feedback", "note", "text"];
+const said = ["ticket", "request", "run", "step", "role", "repo", "workflow", "budget", "question", "query", "feedback", "answers", "note", "text", "id"];
 
-/** The arguments of a call to one of TermF's tools that a sentence can say, in the order it says them; the rest stays
- * in the details. */
 export function fields(input: unknown): [string, string][] {
   if (!input || typeof input !== "object") return [];
   const o = input as Record<string, unknown>;
@@ -207,8 +205,19 @@ export function fields(input: unknown): [string, string][] {
   });
 }
 
-/** The ticket a call names among those TermF knows: by key or URL, else by the end of its key (`api#42`, `#42`) when
- * one ticket alone has it. */
+const flat = (v: unknown): string =>
+  Array.isArray(v) ? v.map(flat).join(", ") : v !== null && typeof v === "object" ? JSON.stringify(v) : String(v);
+
+/** A call's answers, lists… are what is allowed: shown before the details, each entry on its own (`""` for a list). */
+export function unsaid(input: unknown): [string, [string, string][]][] {
+  if (!input || typeof input !== "object") return [];
+  return Object.entries(input).flatMap(([name, v]): [string, [string, string][]][] => {
+    if (v === null || typeof v !== "object") return [];
+    return [[name, Array.isArray(v) ? [["", flat(v)]] : Object.entries(v).map(([k, x]) => [k, flat(x)])]];
+  });
+}
+
+/** `api#42` or `#42` is often all a call names: the end of a key, when one ticket alone has it. */
 export function ticketNamed<T extends { key: string; url: string }>(name: string, known: T[]): T | undefined {
   const exact = known.find((t) => t.key === name || t.url === name);
   if (exact) return exact;

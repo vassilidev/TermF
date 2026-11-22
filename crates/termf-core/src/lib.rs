@@ -213,7 +213,8 @@ pub enum TicketWorktrees {
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TicketCleanup {
-    /// Closes the run, unless its worktree holds work that is not pushed.
+    /// Closes the run once its pull request is merged, unless its worktree holds work that is not pushed or its
+    /// session is at work; a pull request closed without a merge is only told, as `Ask` does.
     #[default]
     Auto,
     /// Tells the user, who closes it.

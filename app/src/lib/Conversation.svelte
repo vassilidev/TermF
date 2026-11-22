@@ -36,6 +36,7 @@
     summary,
     thread,
     ticketNamed,
+    unsaid,
     type End,
     type Item,
     type NoticeFields,
@@ -47,6 +48,7 @@
   import type { Item as LibraryItem } from "$lib/library.svelte";
   import { blocks, type Span } from "$lib/markdown-logic";
   import { app, onScreen, shortPath, type Session } from "$lib/state.svelte";
+  import { asks as runAsks } from "$lib/team-run-logic";
   import { showTeamRun, team } from "$lib/team.svelte";
   import { tickets } from "$lib/tickets.svelte";
 
@@ -293,7 +295,6 @@
     ...team.runs.map((r) => ({ key: r.target.ticket, url: "", title: r.target.title })),
   ]);
 
-  /** A call to one of TermF's tools as a sentence, its ticket and run by their title when TermF knows them. */
   function phrase(input: unknown): string {
     const said = fields(input).map(([field, value]) => {
       if (field === "ticket") {
@@ -309,9 +310,17 @@
       if (field === "repo") return t("ticketInRepo", { repo: value });
       if (field === "workflow") return t("teamRunsWorkflowName", { name: value });
       if (field === "budget") return `${t("chatBudget")} ${usd(Number(value))}`;
+      if (field === "id") return `#${value}`;
       return value;
     });
-    return said.join(" · ");
+    return said.join(" · ") || summary(input);
+  }
+
+  function asked(input: unknown, id: string): string {
+    const { run, step } = (input ?? {}) as { run?: unknown; step?: unknown };
+    const crew = team.runs.find((r) => r.run === run);
+    const ask = crew && runAsks(crew).find((a) => a.step.key === step);
+    return ask?.questions.find((q) => q.id === id)?.question ?? id;
   }
 
   function openLink(e: MouseEvent, url: string) {
@@ -320,7 +329,7 @@
   }
 </script>
 
-{#snippet line(list: Span[])}{#each list as span, i (i)}{#if span.kind === "strong"}<strong>{span.text}</strong
+{#snippet line(list: Span[])}{#each list as span, i (i)}{#if span.kind === "strong"}<strong>{@render line(span.spans)}</strong
       >{:else if span.kind === "code"}<code>{span.text}</code>{:else if span.kind === "link"}<a
         href={span.url}
         onclick={(e) => openLink(e, span.url)}>{span.text}</a
@@ -439,6 +448,14 @@
       {#if termfTools[item.tool]}
         {@const said = phrase(item.input)}
         {#if said}<p class="ask-what">{said}</p>{/if}
+        {#each unsaid(item.input) as [name, entries] (name)}
+          <dl class="ask-args">
+            <dt>{name === "answers" ? t("teamRunsAnswers") : name}</dt>
+            {#each entries as [id, value], i (i)}
+              <dd>{#if id}<span class="muted">{asked(item.input, id)}</span>{/if}<span>{value}</span></dd>
+            {/each}
+          </dl>
+        {/each}
         <details class="raw">
           <summary><ChevronRight size={14} aria-hidden="true" class="chevron" />{t("ux3t5Details")}</summary>
           <pre class="mono code">{pretty(item.input)}</pre>
@@ -931,6 +948,31 @@
     font-weight: 500;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  .ask-args {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .ask-args dt {
+    font-weight: 600;
+  }
+
+  .ask-args dd {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding-left: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .ask-args dd span:last-child {
+    font-weight: 500;
   }
 
   .raw summary {
