@@ -14,16 +14,17 @@
   import { t } from "$lib/i18n";
   import { keys } from "$lib/commands";
   import { app, ui } from "$lib/state.svelte";
+  import { zoomed } from "$lib/tabs.svelte";
 
   let open = $state(false);
   let id = $state<number | null>(null);
   let panel: HTMLElement;
   let previousFocus: HTMLElement | null = null;
 
-  /** The maximized session, else the tile holding the keyboard focus. */
+  /** The zoomed split, else the one holding the keyboard focus. */
   function contextCwd(): string | null {
     const tile = document.activeElement?.closest<HTMLElement>("[data-session]");
-    const sessionId = app.focused ?? (tile ? Number(tile.dataset.session) : null);
+    const sessionId = zoomed()?.id ?? (tile ? Number(tile.dataset.session) : null);
     return app.sessions.find((s) => s.id === sessionId)?.cwd ?? null;
   }
 

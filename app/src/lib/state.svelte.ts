@@ -9,8 +9,10 @@ import {
 import { t } from "$lib/i18n";
 import { loadKeys } from "$lib/keymap.svelte";
 import { projectsOf } from "$lib/nav-logic";
+import type { Side } from "$lib/split-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
-// Each module reads the other only inside functions, so the import cycle is safe.
+// Each module reads the other only inside functions, so the import cycles are safe.
+import { place } from "$lib/tabs.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
@@ -27,7 +29,12 @@ export type Workspace = {
   apiError: string | null;
 };
 export type Status = "starting" | "working" | "waiting" | "idle" | "done";
-export type Layout = { name: string; sessions: { path: string; agent: string | null }[] };
+/** `tabs`: each tab's splits over `sessions` (`split-logic` `encode`); a layout saved before tabs has none. */
+export type Layout = {
+  name: string;
+  sessions: { path: string; agent: string | null }[];
+  tabs?: { name?: string; splits: string }[];
+};
 export type KeepAwakeMode = "auto" | "always" | "off";
 export type KeepAwakeState = {
   mode: KeepAwakeMode;
@@ -97,7 +104,6 @@ export const app = $state({
   workspace: null as Workspace | null,
   error: "",
   sessions: [] as Session[],
-  focused: null as number | null,
   layouts: [] as Layout[],
   keepAwake: null as KeepAwakeState | null,
   sync: null as SyncStatus | null,
@@ -263,10 +269,6 @@ export async function callLayouts(command: string, args: Record<string, unknown>
   }
 }
 
-export async function openLayout(layout: Layout) {
-  for (const s of layout.sessions) await openSession(s.path, s.agent);
-}
-
 export async function setKeepAwake(mode: KeepAwakeMode, displayOn: boolean): Promise<string> {
   try {
     app.keepAwake = await invoke<KeepAwakeState>("keep_awake_set", { mode, displayOn });
@@ -277,17 +279,24 @@ export async function setKeepAwake(mode: KeepAwakeMode, displayOn: boolean): Pro
 }
 
 /** Opens `agent` (or a login shell when null) in each repository. Returns the ids of the sessions opened. */
-export async function openRepos(paths: string[], agent: string | null): Promise<number[]> {
+export async function openRepos(paths: string[], agent: string | null, hold?: (id: number) => void): Promise<number[]> {
   const ids = [];
   for (const path of paths) {
-    const id = await openSession(path, agent);
+    const id = await openSession(path, agent, hold);
     if (id !== null) ids.push(id);
   }
   return ids;
 }
 
-/** Returns the session's id, null when it could not open. */
-export async function openSession(path: string, agent: string | null): Promise<number | null> {
+/**
+ * Returns the session's id, null when it could not open. It goes in a new tab, unless `hold` takes it for its caller to
+ * place.
+ */
+export async function openSession(
+  path: string,
+  agent: string | null,
+  hold?: (id: number) => void,
+): Promise<number | null> {
   try {
     const session = await invoke<Session>("pty_spawn", {
       agent,
@@ -298,6 +307,8 @@ export async function openSession(path: string, agent: string | null): Promise<n
       remoteControl: launch.remoteControl,
     });
     app.sessions.push(session);
+    if (hold) hold(session.id);
+    else place(session.id);
     reveal(path);
     return session.id;
   } catch (e) {
@@ -306,17 +317,23 @@ export async function openSession(path: string, agent: string | null): Promise<n
   }
 }
 
+/** Gone from the list at once, so no tab adopts it again while it is being killed. */
 export async function closeSession(id: number) {
-  await invoke("pty_kill", { id }).catch(() => {});
   app.sessions = app.sessions.filter((s) => s.id !== id);
-  if (app.focused === id) app.focused = null;
+  await invoke("pty_kill", { id }).catch(() => {});
 }
 
 /**
  * Options of the Open button. `agent` is null for a shell, undefined for the first agent. Remote Control only applies
- * to Claude Code agents. `others`: the repositories outside the current project are unfolded in the launcher.
+ * to Claude Code agents. `others`: the repositories outside the current project are unfolded in the launcher. `side`:
+ * beside the active split, on that side, instead of in a new tab.
  */
-export const launch = $state({ remoteControl: false, agent: undefined as string | null | undefined, others: false });
+export const launch = $state({
+  remoteControl: false,
+  agent: undefined as string | null | undefined,
+  others: false,
+  side: null as Side | null,
+});
 
 export function launchAgent(): string | null {
   const agents = app.workspace?.agents ?? [];

@@ -1,16 +1,19 @@
 <script lang="ts">
+  import AppWindow from "@lucide/svelte/icons/app-window";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import Columns2 from "@lucide/svelte/icons/columns-2";
+  import Rows2 from "@lucide/svelte/icons/rows-2";
   import Search from "@lucide/svelte/icons/search";
   import Smartphone from "@lucide/svelte/icons/smartphone";
   import { focusSession } from "$lib/commands";
   import { ago, t } from "$lib/i18n";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
   import { launchable, otherRepos } from "$lib/project.svelte";
+  import { currentTab, openFrom } from "$lib/tabs.svelte";
   import {
     app,
     launch,
     launchAgent,
-    openRepos,
     selected,
     shortPath,
     toggleProject,
@@ -31,6 +34,13 @@
   const others = $derived(otherRepos());
   const count = $derived(launchable().length);
   const ticked = $derived(project ? project.repos.filter((r) => selected.has(r.path)).length : 0);
+  // Beside a split only when one is on screen; the launcher in place of an empty view opens a tab.
+  const beside = $derived(!!currentTab() && !!onopen);
+  const places = [
+    [null, "t6aNewTab", AppWindow],
+    ["right", "t6aBeside", Columns2],
+    ["down", "t6aBelow", Rows2],
+  ] as const;
 
   function parentDir(path: string): string {
     const short = shortPath(path);
@@ -40,9 +50,9 @@
   async function open() {
     const paths = launchable();
     onopen?.();
-    // The keyboard goes to the last tile opened, ready to type.
-    const last = (await openRepos(paths, agent)).at(-1);
-    if (last !== undefined) focusSession(last);
+    // The keyboard goes to the last split opened, ready to type.
+    const last = await openFrom(paths, agent, beside ? launch.side : null);
+    if (last !== null) focusSession(last);
   }
 </script>
 
@@ -111,6 +121,22 @@
     {/if}
   </div>
   <footer>
+    {#if beside}
+      <div class="segmented agents place" role="radiogroup" aria-label={t("t6aWhere")}>
+        {#each places as [side, label, Icon] (label)}
+          <label>
+            <input
+              class="sr-only"
+              type="radio"
+              name="{uid}-place"
+              checked={launch.side === side}
+              onchange={() => (launch.side = side)}
+            />
+            <span><Icon size={14} aria-hidden="true" />{t(label)}</span>
+          </label>
+        {/each}
+      </div>
+    {/if}
     <div class="segmented agents" role="radiogroup" aria-label={t("agent")}>
       {#each [...(app.workspace?.agents ?? []), null] as choice (choice)}
         <label>
@@ -314,6 +340,24 @@
   .agents input:focus-visible + span {
     outline: 2px solid var(--focus);
     outline-offset: 1px;
+  }
+
+  .place {
+    display: flex;
+    flex-basis: 100%;
+  }
+
+  .place label {
+    flex: 1;
+  }
+
+  .place span {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    line-height: 26px;
   }
 
   .rc {
