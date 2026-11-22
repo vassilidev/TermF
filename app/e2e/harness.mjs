@@ -24,6 +24,24 @@ const block = (lang) => {
 /** The camelCase keys of the interface texts: one of them shown as is means a text that was never translated. */
 export const rawKeys = [...block("fr").matchAll(/^ {2}([A-Za-z_]\w*):/gm)].map((m) => m[1]).filter((k) => /^[a-z]+[A-Z0-9]/.test(k));
 
+const strings = (lang) => {
+  const out = new Map();
+  for (const m of block(lang).matchAll(/^ {2}(\w+): "(.*)",$/gm)) {
+    try {
+      out.set(m[1], JSON.parse(`"${m[2]}"`));
+    } catch {
+      // A value written across lines or with a quote of its own: not compared.
+    }
+  }
+  return out;
+};
+
+/** The English texts of several words whose French differs: one of them in the French interface is untranslated. */
+export const englishOnly = (() => {
+  const fr = strings("fr");
+  return [...strings("en")].filter(([k, v]) => fr.has(k) && fr.get(k) !== v && /\w+ \w+/.test(v) && !/[{<]/.test(v)).map(([, v]) => v);
+})();
+
 export function text(lang, key) {
   return block(lang).match(new RegExp(`^ {2}${key}: "(.*)",$`, "m"))?.[1];
 }
@@ -59,27 +77,32 @@ function prepare() {
   };
 }
 
-function inspect(keys) {
+/** `english`: checked only when the page is in French. */
+function inspect(keys, english) {
   const set = new Set(keys);
+  const en = new Set(document.documentElement.lang === "fr" ? english : []);
   const raw = new Set();
+  const untranslated = new Set();
   const visible = (el) => el.getClientRects().length > 0;
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const el = n.parentElement;
     if (!el || el.closest(".xterm, .cm-editor, pre, code, textarea, script, style") || !visible(el)) continue;
     for (const w of n.data.match(/[A-Za-z][A-Za-z0-9]*/g) ?? []) if (set.has(w)) raw.add(w);
+    if (en.has(n.data.trim())) untranslated.add(n.data.trim());
   }
   for (const el of document.querySelectorAll("[aria-label], [title], [placeholder]")) {
     for (const a of ["aria-label", "title", "placeholder"]) {
       const v = el.getAttribute(a)?.trim();
       if (v && set.has(v)) raw.add(v);
+      if (v && en.has(v)) untranslated.add(v);
     }
   }
   const alerts = [...document.querySelectorAll(".banner.error, .notice.error, [role=alert]")]
     .filter(visible)
     .map((e) => e.innerText.trim())
     .filter(Boolean);
-  return { errors: window.__e2e?.errors ?? [], raw: [...raw], alerts };
+  return { errors: window.__e2e?.errors ?? [], raw: [...raw], english: [...untranslated], alerts };
 }
 
 function visible(css) {
@@ -290,11 +313,12 @@ export function helpers(box, port, signal) {
     },
 
     async clean({ allow = [] } = {}) {
-      const found = await t.s.exec(inspect, rawKeys);
+      const found = await t.s.exec(inspect, rawKeys, englishOnly);
       const ok = (text) => allow.some((re) => re.test(text));
       const problems = [
         ...found.errors.filter((e) => !ok(e)).map((e) => `error in the page: ${e}`),
         ...found.raw.map((k) => `untranslated text: ${k}`),
+        ...found.english.map((k) => `English in the French interface: ${k}`),
         ...found.alerts.filter((a) => !ok(a)).map((a) => `error shown: ${a}`),
       ];
       const log = readFileSync(app.log, "utf8");
