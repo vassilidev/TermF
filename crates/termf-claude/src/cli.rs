@@ -22,12 +22,23 @@ pub struct Output {
 }
 
 pub fn run(env: &Env, program: &str, args: &[&str], timeout: Duration) -> Result<Output> {
+    run_with(env, program, args, b"", timeout)
+}
+
+/// [`run`] with `input` on stdin; nothing else ever reaches it, so a question the command asks gets no answer.
+pub fn run_with(
+    env: &Env,
+    program: &str,
+    args: &[&str],
+    input: &[u8],
+    timeout: Duration,
+) -> Result<Output> {
     let mut cmd = Command::new(program);
     cmd.args(args).current_dir(env.cwd());
     if let Some(path) = &env.path {
         cmd.env("PATH", path);
     }
-    let (status, stdout, stderr) = termf_core::process::run(cmd, b"", timeout)?;
+    let (status, stdout, stderr) = termf_core::process::run(cmd, input, timeout)?;
     Ok(Output {
         ok: status.success(),
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
@@ -37,12 +48,21 @@ pub fn run(env: &Env, program: &str, args: &[&str], timeout: Duration) -> Result
 
 /// Through its resolved path: on Windows `claude` is often a `claude.cmd` that `Command` would not find.
 fn claude(env: &Env, args: &[&str], timeout: Duration) -> Result<Output> {
-    let program = which(env, &env.claude)
-        .map_or_else(|| env.claude.clone(), |p| p.to_string_lossy().into_owned());
-    run(env, &program, args, timeout)
+    claude_with(env, args, b"", timeout)
 }
 
-fn failure(out: &Output) -> String {
+pub(crate) fn claude_with(
+    env: &Env,
+    args: &[&str],
+    input: &[u8],
+    timeout: Duration,
+) -> Result<Output> {
+    let program = which(env, &env.claude)
+        .map_or_else(|| env.claude.clone(), |p| p.to_string_lossy().into_owned());
+    run_with(env, &program, args, input, timeout)
+}
+
+pub(crate) fn failure(out: &Output) -> String {
     let text = if out.stderr.trim().is_empty() {
         &out.stdout
     } else {
@@ -203,6 +223,8 @@ pub fn mcp(env: &Env) -> Mcp {
 pub struct Plugins {
     /// `claude plugin list --json`, masked.
     pub plugins: Vec<Value>,
+    /// What the marketplaces offer and is not installed (`--available`), masked.
+    pub available: Vec<Value>,
     /// `claude plugin marketplace list --json`, masked.
     pub marketplaces: Vec<Value>,
     pub error: Option<String>,
@@ -218,20 +240,43 @@ fn json_list(env: &Env, args: &[&str]) -> Result<Vec<Value>> {
     Ok(list)
 }
 
+/// `{installed, available}`, or the plain list of a Claude Code that ignores `--available`.
+fn installed_and_available(env: &Env) -> Result<(Vec<Value>, Vec<Value>)> {
+    let out = claude(env, &["plugin", "list", "--json", "--available"], QUICK)?;
+    if !out.ok {
+        // A Claude Code without --available still lists what is installed.
+        return Ok((json_list(env, &["plugin", "list", "--json"])?, Vec::new()));
+    }
+    let mut value: Value = serde_json::from_str(out.stdout.trim())?;
+    mask::mask(&mut value);
+    let list = |v: &mut Value| match v.take() {
+        Value::Array(list) => list,
+        _ => Vec::new(),
+    };
+    Ok(match value {
+        Value::Array(installed) => (installed, Vec::new()),
+        mut both => (list(&mut both["installed"]), list(&mut both["available"])),
+    })
+}
+
 pub fn plugins(env: &Env) -> Plugins {
     let (plugins, marketplaces) = std::thread::scope(|s| {
-        let plugins = s.spawn(|| json_list(env, &["plugin", "list", "--json"]));
+        let plugins = s.spawn(|| installed_and_available(env));
         let markets = json_list(env, &["plugin", "marketplace", "list", "--json"]);
         (
             plugins.join().unwrap_or_else(|_| bail!("panicked")),
             markets,
         )
     });
-    let error = [&plugins, &marketplaces]
-        .iter()
-        .find_map(|r| r.as_ref().err().map(|e| format!("{e:#}")));
+    let error = plugins
+        .as_ref()
+        .err()
+        .or(marketplaces.as_ref().err())
+        .map(|e| format!("{e:#}"));
+    let (plugins, available) = plugins.unwrap_or_default();
     Plugins {
-        plugins: plugins.unwrap_or_default(),
+        plugins,
+        available,
         marketplaces: marketplaces.unwrap_or_default(),
         error,
     }

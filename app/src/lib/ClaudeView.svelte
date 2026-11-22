@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, type Component, type Snippet } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import Brain from "@lucide/svelte/icons/brain";
   import Check from "@lucide/svelte/icons/check";
@@ -18,9 +17,14 @@
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
+  import Eye from "@lucide/svelte/icons/eye";
   import Webhook from "@lucide/svelte/icons/webhook";
   import Wrench from "@lucide/svelte/icons/wrench";
   import ClaudeArtifacts from "$lib/ClaudeArtifacts.svelte";
+  import ClaudeChange from "$lib/ClaudeChange.svelte";
+  import ClaudeHooks from "$lib/ClaudeHooks.svelte";
+  import ClaudeMcp from "$lib/ClaudeMcp.svelte";
+  import ClaudeScopeSettings from "$lib/ClaudeScopeSettings.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
@@ -28,19 +32,25 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { allRepos } from "$lib/files.svelte";
-  import { alerts, type Alert } from "$lib/claude-logic";
+  import { alerts, field, prefill, type Alert } from "$lib/claude-logic";
   import {
-    EDITABLE,
     blockMarkdown,
     blockTitle,
+    change,
     claudeView,
+    commit,
     copyText,
+    discard,
     effective,
     exportOverview,
+    fileValue,
     healthLabel,
     kindLabel,
     loadOverview,
+    propose,
+    reveal,
     scopeLabel,
+    settingsSchema,
     show,
     size,
     stateLabel,
@@ -49,10 +59,8 @@
     type Folder,
     type Health,
     type Overview,
-    type Preview,
     type Scope,
     type Section,
-    type Settings,
   } from "$lib/claude.svelte";
 
   type Key = Parameters<typeof t>[0];
@@ -84,11 +92,13 @@
     ["json", "claudeViewExportJson"],
   ];
 
-  /** The setting being edited, and its preview once asked. */
+  /** The setting being edited; its preview is the pending change of origin "editor". */
   let edit = $state<{ key: string; scope: Scope; value: string; remove: boolean } | null>(null);
-  let preview = $state<Preview | null>(null);
   let editError = $state("");
-  let saving = $state(false);
+  let schema = $state<Record<string, unknown> | null>(null);
+  const spec = $derived(edit && schema ? field(schema, edit.key) : null);
+  const schemaKeys = $derived(Object.keys((schema?.properties ?? {}) as object).sort());
+  const choices = $derived(spec?.kind === "bool" ? ["true", "false"] : (spec?.values ?? []));
 
   let exporting = $state(false);
   let exportButton = $state<HTMLButtonElement>();
@@ -183,57 +193,61 @@
   function startEdit(key: string) {
     const current = o && effective(o, key);
     const scope = (current && current.scope !== "managed" ? current.scope : "user") as Scope;
-    edit = { key, scope, value: current ? show(current.value) : "", remove: false };
-    preview = null;
-    editError = "";
+    edit = { key, scope, value: "", remove: false };
+    load();
     go("settings");
+    settingsSchema()
+      .then((s) => (schema = s))
+      .catch((e) => (editError = String(e)));
+  }
+
+  /** The editor shows the value the chosen scope's file has, masked like everywhere else. */
+  function load() {
+    if (!edit || !o) return;
+    discard();
+    editError = "";
+    const v = prefill(fileValue(o, edit.scope, edit.key), effective(o, edit.key));
+    edit.value = v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v, null, 2);
+  }
+
+  async function showReveal() {
+    if (!edit) return;
+    const v = await reveal(edit.scope, edit.key);
+    if (v !== null) edit.value = typeof v === "string" ? v : JSON.stringify(v, null, 2);
   }
 
   function value(): unknown {
     if (!edit || edit.remove) return null;
-    const kind = EDITABLE[edit.key].kind;
-    if (kind === "bool") return edit.value === "true";
-    if (kind === "number") return Number(edit.value);
-    return edit.value.trim();
+    switch (spec?.kind) {
+      case "bool":
+        return edit.value === "true";
+      case "number":
+        return Number(edit.value);
+      case "text":
+      case "enum":
+        return edit.value.trim();
+      default:
+        return JSON.parse(edit.value);
+    }
   }
 
   async function showPreview() {
     if (!edit) return;
     editError = "";
+    let v: unknown;
     try {
-      preview = await invoke<Preview>("claude_setting_preview", {
-        scope: edit.scope,
-        key: edit.key,
-        value: value(),
-        repo: claudeView.repo || null,
-      });
-    } catch (e) {
-      preview = null;
-      editError = String(e);
+      v = value();
+    } catch {
+      editError = t("claudeMgmtNotJson");
+      return;
     }
+    await propose("editor", edit.scope, { op: "set", key: edit.key, value: v });
   }
 
   async function saveSetting() {
-    if (!edit || !o) return;
-    saving = true;
-    try {
-      o.settings = await invoke<Settings>("claude_setting_save", {
-        scope: edit.scope,
-        key: edit.key,
-        value: value(),
-        repo: claudeView.repo || null,
-      });
-      claudeView.done = t("claudeViewSaved", { key: edit.key, path: preview?.path ?? "" });
-      edit = null;
-      preview = null;
-    } catch (e) {
-      editError = String(e);
-    } finally {
-      saving = false;
-    }
+    await commit();
+    if (!change.edit) edit = null;
   }
-
-  const diffLines = (diff: string) => diff.replace(/\n$/, "").split("\n");
 </script>
 
 {#snippet copyButton(block: Block)}
@@ -276,77 +290,83 @@
 
 {#snippet editor()}
   {#if edit}
-    {@const spec = EDITABLE[edit.key]}
+    {@const kind = spec?.kind ?? "json"}
     <form
       class="editor"
       onsubmit={(e) => {
         e.preventDefault();
         showPreview();
       }}
+      oninput={() => change.origin === "editor" && discard()}
     >
       <div class="editor-row">
         <label class="labelled">
           <span>{t("claudeViewKey")}</span>
-          <select class="field mono" bind:value={edit.key} onchange={() => edit && startEdit(edit.key)}>
-            {#each Object.keys(EDITABLE) as key (key)}<option value={key}>{key}</option>{/each}
-          </select>
+          <input
+            class="field mono"
+            list="claude-setting-keys"
+            bind:value={edit.key}
+            onchange={() => edit && startEdit(edit.key)}
+            spellcheck="false"
+            autocomplete="off"
+            required
+          />
+          <datalist id="claude-setting-keys">{#each schemaKeys as key (key)}<option value={key}></option>{/each}</datalist>
         </label>
         <label class="labelled">
           <span>{t("claudeViewScope")}</span>
-          <select class="field" bind:value={edit.scope} onchange={() => (preview = null)}>
+          <select class="field" bind:value={edit.scope} onchange={load}>
             <option value="user">{scopeLabel("user")}</option>
-            <option value="project" disabled={!claudeView.repo}>{scopeLabel("project")}</option>
+            <option value="project" disabled={!claudeView.repo}>{t("claudeMgmtScopeShared")}</option>
             <option value="local" disabled={!claudeView.repo}>{scopeLabel("local")}</option>
           </select>
         </label>
-        <label class="labelled value">
-          <span>{t("claudeViewValue")}</span>
-          {#if spec.kind === "enum"}
-            <select class="field mono" bind:value={edit.value} disabled={edit.remove} onchange={() => (preview = null)}>
-              {#each spec.values ?? [] as v (v)}<option value={v}>{v}</option>{/each}
-            </select>
-          {:else if spec.kind === "bool"}
-            <select class="field mono" bind:value={edit.value} disabled={edit.remove} onchange={() => (preview = null)}>
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          {:else}
-            <input
-              class="field mono"
-              type={spec.kind === "number" ? "number" : "text"}
-              min={spec.kind === "number" ? 1 : undefined}
-              bind:value={edit.value}
-              disabled={edit.remove}
-              oninput={() => (preview = null)}
-              spellcheck="false"
-              autocomplete="off"
-            />
-          {/if}
-        </label>
+        {#if kind !== "json"}
+          <label class="labelled value">
+            <span>{t("claudeViewValue")}</span>
+            {#if kind === "enum" || kind === "bool"}
+              <select class="field mono" bind:value={edit.value} disabled={edit.remove}>
+                {#each choices as v (v)}<option value={v}>{v}</option>{/each}
+              </select>
+            {:else}
+              <input class="field mono" type={kind === "number" ? "number" : "text"} bind:value={edit.value} disabled={edit.remove} spellcheck="false" autocomplete="off" />
+            {/if}
+          </label>
+        {/if}
         <label class="check">
-          <input type="checkbox" bind:checked={edit.remove} onchange={() => (preview = null)} />
+          <input type="checkbox" bind:checked={edit.remove} />
           {t("claudeViewRemove")}
         </label>
       </div>
-      {#if editError}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{editError}</p>{/if}
-      {#if preview}
-        <p class="file">{t("claudeViewPreviewOf", { path: preview.path })}</p>
-        {#if preview.diff}
-          <pre class="code diff">{#each diffLines(preview.diff) as line, i (i)}<span
-                class="l{line[0] === '+' ? ' add' : line[0] === '-' ? ' del' : ''}">{line}
-</span>{/each}</pre>
-        {:else}
-          <p class="notice"><Check size={14} aria-hidden="true" />{t("claudeViewNoChange")}</p>
-        {/if}
+      {#if spec?.description}<p class="muted describe">{spec.description}</p>{/if}
+      {#if kind === "json"}
+        <label class="labelled full">
+          <span>{t("claudeMgmtJsonValue")}</span>
+          <textarea class="field mono json" bind:value={edit.value} disabled={edit.remove} rows="6" spellcheck="false"></textarea>
+        </label>
       {/if}
-      <div class="buttons">
-        <span class="muted hint">{t("claudeViewEditHint")}</span>
-        <button type="button" class="btn sm" onclick={() => ((edit = null), (preview = null))}>{t("cancel")}</button>
-        <button type="submit" class="btn sm">{t("claudeViewPreview")}</button>
-        <button type="button" class="btn sm primary" disabled={!preview?.diff || saving} onclick={saveSetting}>
-          {t("save")}
-        </button>
-      </div>
+      {#if edit.value.includes("••••••") && !edit.remove}
+        <p class="notice warn">
+          {t("claudeMgmtMaskedValue")}
+          <button type="button" class="btn sm quiet" onclick={showReveal}><Eye size={13} aria-hidden="true" />{t("claudeMgmtReveal")}</button>
+        </p>
+      {/if}
+      {#if editError}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{editError}</p>{/if}
+      {#if change.origin === "editor"}
+        <ClaudeChange
+          onsave={saveSetting}
+          oncancel={() => {
+            discard();
+            edit = null;
+          }}
+        />
+      {:else}
+        <div class="buttons">
+          <span class="muted hint">{t("claudeViewEditHint")}</span>
+          <button type="button" class="btn sm" onclick={() => (edit = null)}>{t("cancel")}</button>
+          <button type="submit" class="btn sm primary">{t("claudeViewPreview")}</button>
+        </div>
+      {/if}
     </form>
   {/if}
 {/snippet}
@@ -449,6 +469,8 @@
   {/snippet}
   {@render head(blockTitle("settings"), t("claudeViewSettingsHelp"), actions)}
   {@render editor()}
+  <ClaudeScopeSettings {o} />
+  <h3 class="all-keys">{t("claudeMgmtAllKeys")}</h3>
   {#if o.settings.effective.length}
     <div class="panel">
       <table class="settings">
@@ -477,11 +499,9 @@
                 </div>
               </td>
               <td class="act">
-                {#if e.key in EDITABLE}
-                  <button class="icon-btn sm" onclick={() => startEdit(e.key)} aria-label={t("claudeViewEditKey", { key: e.key })} title={t("claudeViewEditKey", { key: e.key })}>
-                    <Pencil size={13} aria-hidden="true" />
-                  </button>
-                {/if}
+                <button class="icon-btn sm" onclick={() => startEdit(e.key)} aria-label={t("claudeViewEditKey", { key: e.key })} title={t("claudeViewEditKey", { key: e.key })}>
+                  <Pencil size={13} aria-hidden="true" />
+                </button>
               </td>
             </tr>
           {/each}
@@ -530,81 +550,7 @@
 
 {#snippet mcpPage(o: Overview)}
   {@render head(t("claudeRedesignMcpPlugins"), "")}
-  <section class="sub first">
-    {@render subhead("mcp", t("claudeViewMcpHelp"))}
-    {#if o.mcp.error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.mcp.error}</p>{/if}
-    {#if o.mcp.servers.length}
-      <ul class="rows panel">
-        {#each o.mcp.servers as s (s.name)}
-          {@const details = Object.entries(s.details ?? {})}
-          <li>
-            {#snippet line()}
-              <span class="what">
-                <span class="name">{s.name}</span>
-                <span class="mono desc">{s.target}</span>
-              </span>
-              {#if s.scope}{@render scopeBadge(s.scope)}{/if}
-              <span class="badge health-{s.health}" title={s.status}>{healthLabel(s.health)}</span>
-            {/snippet}
-            {#if details.length}
-              <details class="row-fold">
-                <summary>{@render line()}<ChevronDown size={14} aria-hidden="true" class="chevron" /></summary>
-                <dl class="pairs details">
-                  {#each details as [k, v] (k)}
-                    <dt>{k}</dt>
-                    <dd class="mono">{typeof v === "object" && v ? Object.entries(v).map(([a, b]) => `${a}=${b}`).join("  ") : show(v)}</dd>
-                  {/each}
-                </dl>
-              </details>
-            {:else}
-              <div class="row-line">{@render line()}<span class="chevron-space"></span></div>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    {:else if !o.mcp.error}
-      <p class="empty-line">{t("claudeViewNoMcp")}</p>
-    {/if}
-  </section>
-
-  <section class="sub">
-    {@render subhead("plugins", t("claudeViewPluginsHelp"))}
-    {#if o.plugins.error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{o.plugins.error}</p>{/if}
-    <h4>{t("claudeViewPluginsInstalled")} <span class="count">{o.plugins.plugins.length}</span></h4>
-    {#if o.plugins.plugins.length}
-      <ul class="rows panel">
-        {#each o.plugins.plugins as p, i (i)}
-          <li>
-            <div class="row-line">
-              <span class="what"><span class="name mono">{show(p.id)}</span></span>
-              {#if p.version}<span class="muted small mono">{show(p.version)}</span>{/if}
-              {#if typeof p.scope === "string"}{@render scopeBadge(p.scope)}{/if}
-              <span class="badge {p.enabled ? 'state-ok' : ''}">{p.enabled ? t("claudeViewOn") : t("claudeViewOff")}</span>
-            </div>
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      <p class="empty-line">{t("claudeViewNone")}</p>
-    {/if}
-    <h4>{t("claudeViewMarketplaces")} <span class="count">{o.plugins.marketplaces.length}</span></h4>
-    {#if o.plugins.marketplaces.length}
-      <ul class="rows panel">
-        {#each o.plugins.marketplaces as m, i (i)}
-          <li>
-            <div class="row-line">
-              <span class="what">
-                <span class="name">{show(m.name)}</span>
-                <span class="mono desc">{show(m.repo ?? m.url ?? m.path ?? m.source ?? "")}</span>
-              </span>
-            </div>
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      <p class="empty-line">{t("claudeViewNone")}</p>
-    {/if}
-  </section>
+  <ClaudeMcp {o} />
 {/snippet}
 
 {#snippet extensionsPage(o: Overview)}
@@ -640,23 +586,7 @@
 {#snippet hooksPage(o: Overview)}
   {#snippet actions()}{@render copyButton("hooks")}{/snippet}
   {@render head(blockTitle("hooks"), t("claudeViewHooksHelp"), actions)}
-  {#if o.hooks.length}
-    <ul class="rows panel">
-      {#each o.hooks as h, i (i)}
-        <li>
-          <div class="row-line">
-            <span class="what">
-              <span class="name">{h.event}{#if h.matcher}<span class="matcher mono">{h.matcher}</span>{/if}</span>
-              <span class="mono desc">{h.kind === "command" ? h.run : `${h.kind}: ${h.run}`}</span>
-            </span>
-            {@render scopeBadge(h.scope)}
-          </div>
-        </li>
-      {/each}
-    </ul>
-  {:else}
-    <EmptyState icon={Webhook} text={t("claudeViewNone")} />
-  {/if}
+  <ClaudeHooks {o} />
 {/snippet}
 
 {#snippet memoryPage(o: Overview)}
@@ -1221,46 +1151,12 @@
     border-top: 1px solid var(--border);
   }
 
-  .row-line,
-  .row-fold > summary {
+  .row-line {
     display: flex;
     align-items: center;
     gap: 10px;
     min-height: 44px;
     padding: 6px 12px;
-  }
-
-  .row-fold > summary {
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .row-fold > summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .row-fold > summary:hover {
-    background: var(--hover);
-  }
-
-  .row-fold :global(.chevron) {
-    flex-shrink: 0;
-    color: var(--muted);
-    transition: transform var(--dur-fast) var(--ease-out);
-  }
-
-  .row-fold[open] :global(.chevron) {
-    transform: rotate(180deg);
-  }
-
-  .chevron-space {
-    width: 14px;
-    flex-shrink: 0;
-  }
-
-  .details {
-    margin: 0;
-    padding: 4px 12px 12px 29px;
   }
 
   .what {
@@ -1273,12 +1169,6 @@
   .name {
     flex-shrink: 0;
     font-weight: 500;
-  }
-
-  .matcher {
-    margin-left: 8px;
-    color: var(--muted);
-    font-weight: 400;
   }
 
   .desc {
@@ -1546,6 +1436,26 @@
     font-size: var(--text-sm);
   }
 
+  .describe {
+    max-width: 80ch;
+    margin: 0;
+    font-size: var(--text-xs);
+  }
+
+  .editor .labelled.full {
+    width: 100%;
+  }
+
+  .editor .json {
+    height: auto;
+    padding: 6px 8px;
+    resize: vertical;
+  }
+
+  .all-keys {
+    margin: 28px 0 10px;
+  }
+
   .buttons {
     display: flex;
     align-items: center;
@@ -1555,37 +1465,5 @@
   .buttons .hint {
     flex: 1;
     font-size: var(--text-xs);
-  }
-
-  .file {
-    margin: 0;
-    color: var(--muted);
-    font: var(--text-xs) var(--font-mono);
-  }
-
-  .code {
-    max-height: 280px;
-    margin: 0;
-    padding: 10px 12px;
-    overflow: auto;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg);
-    font: var(--text-xs) / 1.6 var(--font-mono);
-    white-space: pre;
-  }
-
-  .diff .l {
-    display: block;
-  }
-
-  .diff .add {
-    background: var(--done-soft);
-    color: var(--done);
-  }
-
-  .diff .del {
-    background: var(--danger-soft);
-    color: var(--danger);
   }
 </style>
