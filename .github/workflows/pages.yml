@@ -6,7 +6,7 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'library/roles/**', '.github/scripts/minify.py', '.github/scripts/features.py', '.github/workflows/pages.yml']
+    paths: ['site/**', 'library/roles/**', 'CHANGELOG.md', '.github/scripts/minify.py', '.github/scripts/docs.py', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -26,15 +26,15 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      # The feature catalogue, its pages and the sitemap are built from site/features.toml; the team roster and its
-      # count in the home and the team page, from library/roles/ and site/roles.toml
-      - name: Build the feature pages
-        run: python3 .github/scripts/features.py
+      # The docs and their search index from site/docs-src/, the team on the front page from library/roles/ and
+      # site/roles.toml, the redirects of the retired pages from site/redirects.txt, and the sitemap
+      - name: Build the docs
+        run: python3 .github/scripts/docs.py
 
       - name: Minify the pages
         run: |
           cp -R site _site
-          for page in site/*.html site/features/*.html; do
+          for page in site/*.html site/docs/*.html; do
             python3 .github/scripts/minify.py "$page" "_site/${page#site/}"
             printf '%s: %s → %s bytes\n' "$page" "$(wc -c < "$page")" "$(wc -c < "_site/${page#site/}")"
           done

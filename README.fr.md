@@ -13,8 +13,8 @@
 <p align="center">
   <a href="https://vassilidev.github.io/TermF/"><b>Site</b></a> ·
   <a href="https://vassilidev.github.io/TermF/download.html"><b>Télécharger</b></a> ·
-  <a href="https://vassilidev.github.io/TermF/features.html">Toutes les fonctionnalités</a> ·
-  <a href="https://vassilidev.github.io/TermF/team.html">L'équipe</a> ·
+  <a href="https://vassilidev.github.io/TermF/docs/">Documentation</a> ·
+  <a href="https://vassilidev.github.io/TermF/docs/team.html">L'équipe</a> ·
   <a href="README.md">English version</a>
 </p>
 
@@ -88,7 +88,7 @@ Au premier lancement, l'Accueil liste les outils qui manquent à TermF, avec la 
 
 ## Fonctionnalités
 
-Chaque fonctionnalité a sa page sur le site, avec ce qui marche par défaut, ce qui se règle et ses limites : [le catalogue](https://vassilidev.github.io/TermF/features.html) (en anglais).
+Chaque fonctionnalité est documentée sur le site, avec ce qui marche par défaut, ce qui se règle et ses limites : [la documentation](https://vassilidev.github.io/TermF/docs/) (en anglais).
 
 ### Le CTO et l'équipe
 
@@ -209,7 +209,7 @@ Tu ne parles qu'au CTO. Il fait venir les agents dont un ticket a besoin, et lai
 | Marque, textes et vidéo | Designer de marque, rédacteur UX, motion designer |
 | Spécialistes | Base de données, rédacteur technique, intégrations, fiabilité (SRE), accessibilité, IA, analytics produit, conformité |
 
-Ce que fait chacun, quand il est appelé et ce qu'il ne fait jamais : [la page de l'équipe](https://vassilidev.github.io/TermF/team.html).
+Ce que fait chacun, quand il est appelé et ce qu'il ne fait jamais : [la page de l'équipe](https://vassilidev.github.io/TermF/docs/team.html).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/team-dark-800.webp">
@@ -218,7 +218,7 @@ Ce que fait chacun, quand il est appelé et ce qu'il ne fait jamais : [la page d
 
 ## Équipe ou session seule ?
 
-On a donné les mêmes tickets à l'équipe et à une simple session Claude Code : même modèle (Sonnet), tests cachés, juge à l'aveugle. Sur un **petit ticket clair**, une session seule suffit : même qualité, et l'équipe, même réduite à un développeur et une revue courte, coûte environ 3,4 fois plus (0,34 contre 0,10 dollar). Sur des **tickets complexes et réalistes** (partage avec des rôles, « l'appli est lente sur les grosses listes »), l'équipe a rempli plus de critères implicites, 90 % contre 72 %, avec plus de tests et aucune erreur de type, pour 4,8 fois le coût. Peu d'essais, un seul modèle : un premier regard, pas un verdict. Lire [The team or one session?](https://vassilidev.github.io/TermF/team-vs-solo.html) (en anglais), ou le rapport complet dans [docs/BENCHMARK.md](docs/BENCHMARK.md).
+On a donné les mêmes tickets à l'équipe et à une simple session Claude Code : même modèle (Sonnet), tests cachés, juge à l'aveugle. Sur un **petit ticket clair**, une session seule suffit : même qualité, et l'équipe, même réduite à un développeur et une revue courte, coûte environ 3,4 fois plus (0,34 contre 0,10 dollar). Sur des **tickets complexes et réalistes** (partage avec des rôles, « l'appli est lente sur les grosses listes »), l'équipe a rempli plus de critères implicites, 90 % contre 72 %, avec plus de tests et aucune erreur de type, pour 4,8 fois le coût. Peu d'essais, un seul modèle : un premier regard, pas un verdict. Lire [The team or one session?](https://vassilidev.github.io/TermF/docs/team-vs-solo.html) (en anglais), ou le rapport complet dans [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
 ## Sécurité et vie privée
 
@@ -226,7 +226,7 @@ On a donné les mêmes tickets à l'équipe et à une simple session Claude Code
 - **Tu valides les étapes clés.** La livraison t'attend toujours, le parcours et le plan d'un gros run aussi ; chaque action du CTO est une carte. Les agents ne peuvent ni pousser ni ouvrir de pull request : le hook `termf guard` le refuse dans chaque run, et un run ne démarre pas sans lui.
 - **Une API locale isolée.** Chaque session d'agent reçoit son propre accès restreint à TermF ; ton jeton reste hors de portée, et les actions qui comptent attendent ta confirmation dans l'app.
 - **Secrets.** Les fichiers `.env` et les clés privées sont refusés aux outils de fichiers des agents, et les agents démarrent avec un environnement minimal : une clé ne leur parvient que quand tu la donnes. Le coffre et la synchro sont chiffrés (Argon2id, XChaCha20-Poly1305) avec une clé de récupération. La sortie d'Ops est masquée avant qu'un agent la lise.
-- **Des limites dites franchement.** Ces garde-fous sont une défense en profondeur sur une machine, pas un bac à sable : un script qu'un agent écrit puis lance peut encore les contourner. Chaque fonctionnalité est pilotée dans la vraie app par des tests de bout en bout avec un faux Claude Code, et des runs d'équipe complets sont allés jusqu'à une vraie pull request avec un vrai Claude Code, mais peu de choses ont été essayées à la main sur de vrais projets ; Windows et Linux sont construits et testés en CI mais pas encore lancés à la main. Le détail : [Security, and its limits](https://vassilidev.github.io/TermF/security.html).
+- **Des limites dites franchement.** Ces garde-fous sont une défense en profondeur sur une machine, pas un bac à sable : un script qu'un agent écrit puis lance peut encore les contourner. Chaque fonctionnalité est pilotée dans la vraie app par des tests de bout en bout avec un faux Claude Code, et des runs d'équipe complets sont allés jusqu'à une vraie pull request avec un vrai Claude Code, mais peu de choses ont été essayées à la main sur de vrais projets ; Windows et Linux sont construits et testés en CI mais pas encore lancés à la main. Le détail : [Security, and its limits](https://vassilidev.github.io/TermF/docs/security.html).
 
 ## Configuration
 
@@ -274,7 +274,7 @@ cd app && pnpm bundle                         # paquet de l'app avec la CLI term
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
-Le clippy et les tests de l'app ont besoin de `app/build` : lance `pnpm build` avant. Les textes de l'interface sont dans `app/src/lib/i18n.ts`, en anglais et en français. Le site est dans `site/` : `python3 .github/scripts/features.py` construit les pages des fonctionnalités et l'équipe depuis `site/features.toml`, `site/roles.toml` et `library/roles/`.
+Le clippy et les tests de l'app ont besoin de `app/build` : lance `pnpm build` avant. Les textes de l'interface sont dans `app/src/lib/i18n.ts`, en anglais et en français. Le site est dans `site/` : `python3 .github/scripts/docs.py` construit la documentation depuis le Markdown de `site/docs-src/`, et l'équipe depuis `site/roles.toml` et `library/roles/`.
 
 ## Licence
 

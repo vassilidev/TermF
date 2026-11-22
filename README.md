@@ -13,8 +13,8 @@
 <p align="center">
   <a href="https://vassilidev.github.io/TermF/"><b>Website</b></a> ·
   <a href="https://vassilidev.github.io/TermF/download.html"><b>Download</b></a> ·
-  <a href="https://vassilidev.github.io/TermF/features.html">Every feature</a> ·
-  <a href="https://vassilidev.github.io/TermF/team.html">The team</a> ·
+  <a href="https://vassilidev.github.io/TermF/docs/">Documentation</a> ·
+  <a href="https://vassilidev.github.io/TermF/docs/team.html">The team</a> ·
   <a href="README.fr.md">Version française</a>
 </p>
 
@@ -88,7 +88,7 @@ On first launch, the Home lists the tools TermF needs that are missing, with the
 
 ## Features
 
-Every feature has its own page on the website, with what works out of the box, what you can tune and its limits: [the feature catalogue](https://vassilidev.github.io/TermF/features.html).
+Every feature is documented on the website, with what works out of the box, what you can tune and its limits: [the docs](https://vassilidev.github.io/TermF/docs/).
 
 ### The CTO and the team
 
@@ -209,7 +209,7 @@ You only talk to the CTO. It brings in the agents a ticket needs, and leaves the
 | Brand, words and video | Brand designer, UX writer, motion designer |
 | Specialists | Database, technical writer, integrations, site reliability, accessibility, AI, product analytics, compliance |
 
-What each one does, when it is called and what it never does: [the team page](https://vassilidev.github.io/TermF/team.html).
+What each one does, when it is called and what it never does: [the team page](https://vassilidev.github.io/TermF/docs/team.html).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/team-dark-800.webp">
@@ -218,7 +218,7 @@ What each one does, when it is called and what it never does: [the team page](ht
 
 ## The team or one session?
 
-We gave the same tickets to the team and to one plain Claude Code session: same model (Sonnet), hidden tests, a blind judge. On a **small, clear ticket**, one session is enough: same quality, and the team, even sized down to one developer and a short review, costs about 3.4 times more (0.34 against 0.10 dollar). On **complex, realistic tickets** (sharing with roles, "the app is slow on big lists"), the team met more of the unwritten criteria, 90 % against 72 %, with more tests and no type error, for 4.8 times the cost. Small samples, one model: a first look, not a verdict. Read [the team or one session?](https://vassilidev.github.io/TermF/team-vs-solo.html), or the full report in [docs/BENCHMARK.md](docs/BENCHMARK.md) (in French, with an English summary).
+We gave the same tickets to the team and to one plain Claude Code session: same model (Sonnet), hidden tests, a blind judge. On a **small, clear ticket**, one session is enough: same quality, and the team, even sized down to one developer and a short review, costs about 3.4 times more (0.34 against 0.10 dollar). On **complex, realistic tickets** (sharing with roles, "the app is slow on big lists"), the team met more of the unwritten criteria, 90 % against 72 %, with more tests and no type error, for 4.8 times the cost. Small samples, one model: a first look, not a verdict. Read [the team or one session?](https://vassilidev.github.io/TermF/docs/team-vs-solo.html), or the full report in [docs/BENCHMARK.md](docs/BENCHMARK.md) (in French, with an English summary).
 
 ## Security and privacy
 
@@ -226,7 +226,7 @@ We gave the same tickets to the team and to one plain Claude Code session: same 
 - **You approve the key steps.** The delivery always waits for you, and so do the route and the plan of a large run; every action the CTO takes is a card. Agents cannot push or open a pull request: the `termf guard` hook refuses it in every run, and a run does not start without it.
 - **An isolated local API.** Each agent session gets its own narrow access to TermF; your token stays out of reach, and actions that matter wait for your confirmation in the app.
 - **Secrets.** `.env` files and private keys are denied to the agents' file tools, and agents start with a minimal environment: a key reaches them only when you hand it over. The vault and the sync are encrypted (Argon2id, XChaCha20-Poly1305) with a recovery key. Ops output is masked before an agent reads it.
-- **Honest limits.** These guard rails are defense in depth on one machine, not a sandbox: a script an agent writes and then runs can still get around them. Every feature is driven in the real app by end-to-end tests with a fake Claude Code, and whole team runs have reached a real pull request with a real Claude Code, but little has been tried by hand on real projects yet; Windows and Linux are built and tested in CI but not yet run by hand. Details: [Security, and its limits](https://vassilidev.github.io/TermF/security.html).
+- **Honest limits.** These guard rails are defense in depth on one machine, not a sandbox: a script an agent writes and then runs can still get around them. Every feature is driven in the real app by end-to-end tests with a fake Claude Code, and whole team runs have reached a real pull request with a real Claude Code, but little has been tried by hand on real projects yet; Windows and Linux are built and tested in CI but not yet run by hand. Details: [Security, and its limits](https://vassilidev.github.io/TermF/docs/security.html).
 
 ## Configuration
 
@@ -274,7 +274,7 @@ cd app && pnpm bundle                         # package the app with the termf C
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
-The app's clippy and tests need `app/build`: run `pnpm build` first. Interface strings live in `app/src/lib/i18n.ts`, in English and French. The website is in `site/`: `python3 .github/scripts/features.py` builds the feature pages and the team from `site/features.toml`, `site/roles.toml` and `library/roles/`.
+The app's clippy and tests need `app/build`: run `pnpm build` first. Interface strings live in `app/src/lib/i18n.ts`, in English and French. The website is in `site/`: `python3 .github/scripts/docs.py` builds the docs from the Markdown of `site/docs-src/`, and the team from `site/roles.toml` and `library/roles/`.
 
 ## License
 
