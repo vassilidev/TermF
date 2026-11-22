@@ -10,6 +10,8 @@ mod config;
 mod context;
 mod cto;
 mod design;
+#[cfg(feature = "e2e")]
+mod e2e;
 mod files;
 mod git;
 mod keep_awake;
@@ -267,6 +269,11 @@ pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.menu(app_menu);
+    #[cfg(feature = "e2e")]
+    let builder = match e2e::plugin() {
+        Some(bridge) => builder.plugin(bridge),
+        None => builder,
+    };
     builder
         // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -692,6 +699,8 @@ pub fn run() {
             vault::vault_import_apply,
             vault::vault_import_foreign,
             vault::vault_import_delete,
+            #[cfg(feature = "e2e")]
+            e2e::e2e_result,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

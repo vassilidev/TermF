@@ -151,9 +151,9 @@ export const scenarios = [
       await t.view("files");
       await s.click(`${pane} button.row[title="README.md"]`);
       await s.click(`${pane} .cm-content`);
-      await s.press(Key.ctrl, Key.end);
+      await s.press(Key.mod, Key.end);
       await s.keys("Edited by e2e.");
-      await s.press(Key.ctrl, "s");
+      await s.press(Key.mod, "s");
       await s.wait(() => read(join(box.acme, "README.md")).includes("Edited by e2e."), { what: "README.md saved" });
       await t.clean();
     },
@@ -238,7 +238,8 @@ export const scenarios = [
     name: "language: with a French system the interface is in French",
     views: [],
     sandbox: { lang: "fr" },
-    launch: { args: process.platform === "win32" ? ["--lang=fr-FR"] : [] },
+    // macOS gives the webview the app's languages, not the environment's: set as for one app in its settings.
+    launch: { args: { win32: ["--lang=fr-FR"], darwin: ["-AppleLanguages", "(fr-FR)"] }[process.platform] ?? [] },
     async run(t) {
       const { s } = t;
       await t.ready();

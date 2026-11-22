@@ -1,0 +1,15 @@
+{
+  "identifier": "dev.termf.app.e2e",
+  "app": {
+    "windows": [
+      {
+        "title": "TermF",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 500,
+        "incognito": true
+      }
+    ]
+  }
+}

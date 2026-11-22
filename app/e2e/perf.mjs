@@ -56,15 +56,33 @@ function processesWindows() {
   return JSON.parse(execFileSync("powershell", ["-NoProfile", "-Command", script], { encoding: "utf8", maxBuffer: 1 << 26 }));
 }
 
-const processes = () => (windows ? processesWindows() : processesLinux());
+/** Resident memory (no PSS on macOS); no start time: the harness starts the app itself there. */
+function processesMac() {
+  return execFileSync("ps", ["-axo", "pid=,ppid=,rss=,time=,comm="], { encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const [pid, ppid, rss, time, ...comm] = line.trim().split(/\s+/);
+      const cpu = time.split(":").reduce((n, part) => n * 60 + Number(part), 0);
+      return { pid: Number(pid), ppid: Number(ppid), name: comm.join(" ").split("/").at(-1), mem: Number(rss) * 1024, cpu };
+    });
+}
 
-function appTree(driverPid, only = () => true) {
+const mac = process.platform === "darwin";
+const processes = () => (windows ? processesWindows() : mac ? processesMac() : processesLinux());
+// WebKit's processes on macOS are launchd's children: the app's are those that came with it.
+const webkit = () => new Set(processes().filter((p) => /^com\.apple\.WebKit\./.test(p.name)).map((p) => p.pid));
+let webkitBefore = new Set();
+
+/** `root`: the WebDriver's process, or the app's own when the harness started it. */
+function appTree(root, only = () => true) {
   const all = processes();
   const children = (pid) => all.filter((p) => p.ppid === pid);
   const below = (pid) => children(pid).flatMap((c) => [c, ...below(c.pid)]);
-  const app = below(driverPid).find((p) => /^termf-app/.test(p.name));
+  const app = [...all.filter((p) => p.pid === root), ...below(root)].find((p) => /^termf-app/.test(p.name));
   if (!app) throw new Error("the app's process is not found");
-  return [app, ...below(app.pid).filter(only)];
+  const helpers = mac ? all.filter((p) => /^com\.apple\.WebKit\./.test(p.name) && !webkitBefore.has(p.pid)) : [];
+  return [app, ...below(app.pid).filter(only), ...helpers];
 }
 
 const sum = (list, key) => list.reduce((n, p) => n + p[key], 0);
@@ -96,12 +114,13 @@ export async function measure(port, log) {
     t?.app && (await t.stop(), box.cleanup());
     box = createSandbox();
     t = helpers(box, port);
+    if (mac) webkitBefore = webkit();
     const app = await t.start();
     const shown = await t.s.wait(
       async () => (await t.s.exec(() => !!document.querySelector('.nav [data-project="acme"]'))) && Date.now(),
       { what: "the window to be usable", timeout: 60_000, every: 10 },
     );
-    const started = appTree(app.root)[0].started;
+    const started = appTree(app.root)[0].started ?? app.asked;
     starts.push(shown - started);
     // Where the time goes: the backend and the webview until the page starts loading, then the page.
     const page = await t.s.exec(() => performance.timeOrigin);

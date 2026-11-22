@@ -1,9 +1,12 @@
-// Starts the real app through tauri-driver in a sandbox, and the helpers every scenario uses.
+// Starts the real app in a sandbox, through tauri-driver (Linux) or the app's own bridge (macOS, Windows), and the
+// helpers every scenario uses.
 import { spawn, execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Key, Session } from "./webdriver.mjs";
+import { Bridge } from "./bridge.mjs";
 import { windows } from "./sandbox.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -24,6 +27,9 @@ export const rawKeys = [...block("fr").matchAll(/^ {2}([A-Za-z_]\w*):/gm)].map((
 export function text(lang, key) {
   return block(lang).match(new RegExp(`^ {2}${key}: "(.*)",$`, "m"))?.[1];
 }
+
+/** `TERMF_E2E_TRANSPORT=bridge` drives Linux through the bridge too; macOS has no WebDriver for its webview. */
+export const transport = process.env.TERMF_E2E_TRANSPORT ?? (process.platform === "linux" ? "webdriver" : "bridge");
 
 export const viewIds = (() => {
   const src = readFileSync(join(here, "../src/lib/views.ts"), "utf8");
@@ -104,6 +110,7 @@ function watch(child) {
  * documents for WebView2 apps; that port does not open yet (docs/STATUS.md §4).
  */
 export async function launch(box, port, { args = [] } = {}, signal) {
+  if (transport === "bridge") return launchBridge(box, port, args, signal);
   const log = join(box.root, "app.log");
   const fd = openSync(log, "a");
   const io = { stdio: ["ignore", fd, fd], detached: !windows };
@@ -158,6 +165,45 @@ export async function launch(box, port, { args = [] } = {}, signal) {
   }
 }
 
+/** The app's `e2e` build, its bridge on `port` with a fresh token; `prepare` runs before the page's own scripts. */
+async function launchBridge(box, port, args, signal) {
+  const log = join(box.root, "app.log");
+  const fd = openSync(log, "a");
+  const token = randomBytes(32).toString("hex");
+  const env = { ...box.env, TERMF_E2E_PORT: String(port), TERMF_E2E_TOKEN: token, TERMF_E2E_INIT: `(${prepare})();` };
+  // On Windows the arguments are WebView2's.
+  if (windows) env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = args.join(" ");
+  const asked = Date.now();
+  const child = spawn(APP, windows ? [] : args, { env, stdio: ["ignore", fd, fd], detached: !windows });
+  closeSync(fd);
+  const state = watch(child);
+  const stop = async () => {
+    kill(child);
+    await state.exited;
+  };
+  const s = new Bridge(`http://127.0.0.1:${port}`, token, signal);
+  try {
+    const up = () => s.exec(() => document.readyState === "complete" && !!window.__TAURI_INTERNALS__ && !!window.__e2e);
+    const gone = () => state.failed || child.exitCode !== null || child.signalCode !== null;
+    await s.wait(async () => gone() || (await up()), { what: "the app's bridge to answer", timeout: 60_000, every: 100 });
+    if (gone()) throw new Error(`the app stopped (${state.failed?.message ?? child.exitCode ?? child.signalCode})`);
+    return {
+      s,
+      log,
+      asked,
+      root: child.pid,
+      async stop() {
+        await s.close().catch(() => {});
+        const quit = await Promise.race([state.exited.then(() => true), new Promise((r) => setTimeout(r, 5000, false))]);
+        if (!quit) await stop();
+      },
+    };
+  } catch (e) {
+    await stop();
+    throw e;
+  }
+}
+
 /** `port()`: a free pair of ports for each start of the app. `signal`: the scenario is past its time. */
 export function helpers(box, port, signal) {
   let app = null;
@@ -165,6 +211,7 @@ export function helpers(box, port, signal) {
     box,
     views: viewIds,
     linux: process.platform === "linux",
+    mac: process.platform === "darwin",
     windows,
     get s() {
       return app.s;
@@ -203,11 +250,12 @@ export function helpers(box, port, signal) {
     /** Ctrl+K; a chord WebKitGTK drops under xvfb is sent by script, counted like the clicks. */
     async palette() {
       await t.s.exec(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-      await t.s.press(Key.ctrl, "k");
+      await t.s.press(Key.mod, "k");
       const opened = await t.s.waitFor("dialog.palette", { timeout: 1500 }).catch(() => false);
       if (opened) return;
       await t.s.exec(() => {
-        const init = { key: "k", code: "KeyK", ctrlKey: true, bubbles: true, cancelable: true };
+        const mod = navigator.platform.startsWith("Mac") ? "metaKey" : "ctrlKey";
+        const init = { key: "k", code: "KeyK", [mod]: true, bubbles: true, cancelable: true };
         document.body.dispatchEvent(new KeyboardEvent("keydown", init));
         window.__e2e.synthetic++;
       });

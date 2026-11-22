@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const windows = process.platform === "win32";
+const mac = process.platform === "darwin";
 const here = dirname(fileURLToPath(import.meta.url));
 const fakes = join(here, "fakes");
 
@@ -58,15 +59,19 @@ function git(cwd, env, ...args) {
 
 /** `lang`: the system language the app sees ("en" or "fr"). `project`: an "acme" project with the repository. */
 export function createSandbox({ lang = "en", project = true, dark = false } = {}) {
-  // The long form: Windows gives the temporary folder as RUNNER~1, which the app would not show the same.
-  const root = mkdtempSync(join(realpathSync.native(tmpdir()), "termf-e2e-"));
+  // The long form: Windows gives the temporary folder as RUNNER~1, which the app would not show the same. On macOS
+  // /tmp: under /var/folders the app's socket path would pass the 104 bytes a socket allows.
+  const root = mkdtempSync(join(realpathSync.native(mac ? "/tmp" : tmpdir()), "termf-e2e-"));
   const home = join(root, "home");
   const bin = join(root, "bin");
   const code = join(home, "code");
   const acme = join(code, "acme");
+  const support = join(home, "Library", "Application Support");
   const dirs = windows
     ? windowsDirs()
-    : { configDir: join(home, ".config", "termf"), dataDir: join(home, ".local", "share", "dev.termf.app") };
+    : mac
+      ? { configDir: join(support, "termf"), dataDir: join(support, "dev.termf.app") }
+      : { configDir: join(home, ".config", "termf"), dataDir: join(home, ".local", "share", "dev.termf.app") };
   if (windows) for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
   for (const d of [bin, acme, join(dirs.configDir, "projects")]) mkdirSync(d, { recursive: true });
 
@@ -104,6 +109,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
       // No session bus: no keyring of the machine, no single instance shared with a TermF already open.
       DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(root, "no-bus")}`,
       NO_AT_BRIDGE: "1",
+      BASH_SILENCE_DEPRECATION_WARNING: "1",
     });
     if (dark) env.GTK_THEME = "Adwaita:dark";
     // A login shell resets the PATH (Debian's /etc/profile): the profile puts the fakes back first, as a user's would.

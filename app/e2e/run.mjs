@@ -6,22 +6,17 @@ import { fileURLToPath } from "node:url";
 import { APP, helpers, viewIds } from "./harness.mjs";
 import { measure, report } from "./perf.mjs";
 import { assertSafe, createSandbox } from "./sandbox.mjs";
-import { Session } from "./webdriver.mjs";
 import { scenarios } from "./scenarios.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "out");
-const platform = process.platform === "win32" ? "windows" : process.platform;
+const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : process.platform;
 const filter = process.argv[2];
 const log = (...a) => console.log(...a);
 
-if (platform !== "linux" && platform !== "windows") {
-  console.error("tauri-driver drives the app on Linux and Windows only: macOS has no WebDriver for its webview.");
-  process.exit(1);
-}
 assertSafe();
 if (!existsSync(APP)) {
-  console.error(`No app at ${APP}: build it first (cd app && pnpm tauri build --debug --no-bundle && cargo build -p termf-cli).`);
+  console.error(`No app at ${APP}: build it first (cd app && pnpm e2e:build).`);
   process.exit(1);
 }
 
@@ -44,7 +39,7 @@ async function artifacts(t, name, error) {
   }
   if (!t.app) return;
   // Without the scenario's signal, which is aborted when it ran out of time.
-  const s = new Session(t.s.base, t.s.id);
+  const s = t.s.detached();
   const steps = [
     async () => writeFileSync(join(dir, "screenshot.png"), await s.screenshot()),
     async () => writeFileSync(join(dir, "page.html"), await s.source()),
@@ -75,7 +70,7 @@ async function attempt(scenario) {
   } finally {
     clearTimeout(timer);
     if (t.app) {
-      const synthetic = await new Session(t.s.base, t.s.id).exec(() => window.__e2e?.synthetic).catch(() => 0);
+      const synthetic = await t.s.detached().exec(() => window.__e2e?.synthetic).catch(() => 0);
       if (synthetic) log(`  (${synthetic} input${synthetic > 1 ? "s" : ""} sent by script after WebKit dropped them)`);
     }
     await t.stop().catch(() => {});
