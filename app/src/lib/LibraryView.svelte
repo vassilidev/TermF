@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import Import from "@lucide/svelte/icons/import";
   import Info from "@lucide/svelte/icons/info";
+  import LibraryBig from "@lucide/svelte/icons/library-big";
   import Search from "@lucide/svelte/icons/search";
   import Telescope from "@lucide/svelte/icons/telescope";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
@@ -9,6 +10,7 @@
   import LibraryScout from "$lib/LibraryScout.svelte";
   import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
@@ -228,8 +230,6 @@
                   onchange={(e) => toggle(item, e.currentTarget.checked, e.currentTarget)}
                 />
               </li>
-            {:else}
-              <li class="none">{query.trim() ? t("filesNoResults") : t("libraryEmpty")}</li>
             {/each}
           </ul>
         </div>
@@ -318,7 +318,7 @@
               <p class="muted">{t("itemEmpty")}</p>
             {/if}
           {:else}
-            <p class="placeholder muted">{t("libraryPick")}</p>
+            <EmptyState icon={LibraryBig} text={query.trim() ? t("filesNoResults") : t("libraryEmpty")} />
           {/if}
         </section>
       </div>
@@ -377,11 +377,6 @@
   .layer-global {
     border-color: var(--border-strong);
     color: var(--text);
-  }
-
-  .none {
-    padding: 8px;
-    color: var(--muted);
   }
 
   .title {
@@ -491,10 +486,5 @@
     font: var(--text-sm) / 1.6 var(--font-mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-  }
-
-  .placeholder {
-    margin-top: 40px;
-    text-align: center;
   }
 </style>

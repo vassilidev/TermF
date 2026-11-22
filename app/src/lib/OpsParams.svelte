@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from "$lib/i18n";
   import type { Param } from "$lib/ops-logic";
+  import { said } from "$lib/ops.svelte";
 
   let { params, values = $bindable() }: { params: Param[]; values: Record<string, string> } = $props();
 </script>
@@ -10,7 +11,7 @@
     <legend>{t("opsParams")}</legend>
     {#each params as p (p.name)}
       <label class="labelled">
-        <span><span class="mono">{p.name}</span>{#if p.required} *{/if} <span class="muted">{p.description}</span></span>
+        <span><span class="mono">{p.name}</span>{#if p.required} *{/if} <span class="muted">{said(p.description)}</span></span>
         {#if p.type === "choice" || p.type === "command"}
           <select class="field mono" bind:value={values[p.name]}>
             {#if !p.required}<option value="">—</option>{/if}

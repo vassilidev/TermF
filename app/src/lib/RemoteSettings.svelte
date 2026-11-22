@@ -94,14 +94,25 @@
 {#if error}<p class="notice error" role="alert">{error}</p>{/if}
 
 <style>
-  h3 {
-    margin: 20px 0 4px;
-    font-size: var(--text-md);
+  /* Laid out by the Configuration's section (a column 16px apart), whose titles it matches. */
+  h2 {
+    margin: 0;
+    font-size: var(--text-xl);
     font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    margin: 8px 0 0;
+    font-size: var(--text-md);
+    font-weight: 650;
   }
 
   .help {
-    margin: 4px 0 8px;
+    margin: -8px 0 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.45;
   }
 
   .pick {
@@ -112,7 +123,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin: 0 0 8px;
+    margin: 0;
     padding: 0;
     list-style: none;
   }
@@ -131,11 +142,9 @@
   .add {
     align-self: flex-start;
     width: auto;
-    margin-bottom: 12px;
   }
 
   .notice {
     align-items: center;
-    margin-top: 12px;
   }
 </style>

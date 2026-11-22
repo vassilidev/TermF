@@ -1377,7 +1377,7 @@
   .describe {
     max-width: 80ch;
     margin: 0;
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
   }
 
   .editor .labelled.full {
@@ -1402,6 +1402,6 @@
 
   .buttons .hint {
     flex: 1;
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
   }
 </style>
