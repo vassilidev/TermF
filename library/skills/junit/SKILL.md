@@ -7,7 +7,7 @@ description: >-
   Kotlin, Gradle and Maven test runs. Use when a task adds or changes tests under src/test of a Java or
   Kotlin service, or their test dependencies. Not for Android instrumented or Compose UI tests
   (kotlin-android), and not for JavaScript tests.
-paths: "**/src/test/**/*.java, **/src/test/**/*.kt, **/src/integrationTest/**, **/pom.xml, **/build.gradle, **/build.gradle.kts"
+paths: "**/*Test.java, **/*Tests.java, **/*IT.java, **/*Test.kt, **/*Tests.kt"
 license: MIT
 metadata:
   termf-stacks: "junit java kotlin spring-boot"

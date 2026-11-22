@@ -6,7 +6,7 @@ description: >-
   queues and jobs, Blade views, configuration, Composer packages, Pint and PHPStan. Use when a task touches
   .php files, composer.json, artisan, routes/, app/, database/migrations or resources/views. Not for
   writing tests (the pest skill covers Pest and PHPUnit), and not for Symfony-only projects.
-paths: "**/*.php, **/composer.json, **/composer.lock, **/artisan, **/routes/*.php, **/database/migrations/*.php, **/resources/views/**/*.blade.php, **/config/*.php"
+paths: "**/artisan, **/composer.json, **/app/**/*.php, **/routes/*.php, **/database/**/*.php, **/config/*.php, **/bootstrap/app.php, **/*.blade.php, **/src/**/*.php"
 license: MIT
 metadata:
   termf-stacks: "laravel php"

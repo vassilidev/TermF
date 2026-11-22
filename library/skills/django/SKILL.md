@@ -6,7 +6,7 @@ description: >-
   security policy, the admin, and tests with Django's test client. Use when a task touches a Django project
   (manage.py, settings.py, models.py, migrations/, templates/). Not for FastAPI or Flask, and not for
   frontend code served by a separate JavaScript app.
-paths: "**/manage.py, **/settings*.py, **/settings/**/*.py, **/models.py, **/models/**/*.py, **/migrations/*.py, **/views.py, **/forms.py, **/urls.py, **/admin.py, **/templates/**/*.html"
+paths: "**/manage.py, **/settings.py, **/settings/*.py, **/urls.py, **/apps.py, **/admin.py, **/models.py, **/views.py, **/forms.py, **/migrations/0*.py, **/templatetags/*.py"
 license: MIT
 metadata:
   termf-stacks: "django"

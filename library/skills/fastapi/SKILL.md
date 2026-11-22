@@ -6,7 +6,7 @@ description: >-
   request limits, security, TestClient and async tests. Use when a task touches a FastAPI app (imports
   from fastapi, APIRouter, [tool.fastapi] in pyproject.toml). Not for Django or Flask, and it defers to
   the official FastAPI skill shipped inside the installed package.
-paths: "**/*.py, **/pyproject.toml"
+paths: "**/main.py, **/dependencies.py, **/routers/**/*.py, **/schemas.py"
 license: MIT
 metadata:
   termf-stacks: "fastapi"

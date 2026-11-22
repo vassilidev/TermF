@@ -7,7 +7,7 @@ description: >-
   mocks at the boundaries, narrow and parallel runs. Use when a task adds or changes files under spec/ or
   test/, spec_helper.rb, rails_helper.rb or test_helper.rb. Not for application code (ruby-rails) and not
   for JavaScript tests.
-paths: "**/spec/**/*.rb, **/test/**/*.rb, **/.rspec"
+paths: "**/spec/**/*_spec.rb, **/spec/*_helper.rb, **/spec/support/**/*.rb, **/test/**/*_test.rb, **/test/test_helper.rb, **/test/application_system_test_case.rb, **/.rspec"
 license: MIT
 metadata:
   termf-stacks: "rspec minitest"

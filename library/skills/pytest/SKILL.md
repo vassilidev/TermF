@@ -6,7 +6,7 @@ description: >-
   markers, async tests, Django and FastAPI test clients, pytest configuration, narrow, last-failed and
   parallel runs. Use when a task adds or changes Python tests, conftest.py or the [tool.pytest] section.
   Not for JavaScript tests, and not for suites run only by unittest or Django's own runner without pytest.
-paths: "**/test_*.py, **/*_test.py, **/conftest.py, **/tests/**/*.py, **/pytest.toml, **/pytest.ini, **/pyproject.toml"
+paths: "**/test_*.py, **/*_test.py, **/conftest.py, **/tests/**/*.py, **/pytest.toml, **/pytest.ini"
 license: MIT
 metadata:
   termf-stacks: "pytest"

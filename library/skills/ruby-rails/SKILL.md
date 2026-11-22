@@ -7,7 +7,7 @@ description: >-
   Use when a task touches .rb or .erb files, Gemfile, Gemfile.lock, config/routes.rb, db/migrate or
   app/. Not for writing tests (the rspec skill covers RSpec and Minitest), and not for non-Rails Ruby gems
   beyond the Ruby facts.
-paths: "**/*.rb, **/*.erb, **/Gemfile, **/Gemfile.lock, **/.ruby-version, **/config/routes.rb, **/db/migrate/*.rb, **/config/ci.rb"
+paths: "**/Gemfile, **/Gemfile.lock, **/.ruby-version, **/Rakefile, **/config/**/*.rb, **/app/**/*.rb, **/app/**/*.erb, **/lib/**/*.rb, **/db/**/*.rb"
 license: MIT
 metadata:
   termf-stacks: "rails ruby"

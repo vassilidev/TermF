@@ -6,7 +6,7 @@ description: >-
   actingAs, datasets, expectations, architecture tests, browser tests, parallel runs, coverage and
   mutation testing. Use when a task adds or changes files under tests/, tests/Pest.php, phpunit.xml or
   test dependencies of a PHP project. Not for application code (php-laravel) and not for JavaScript tests.
-paths: "**/tests/**/*.php, **/tests/Pest.php, **/phpunit.xml, **/phpunit.xml.dist, **/composer.json"
+paths: "**/tests/Pest.php, **/tests/**/*Test.php, **/phpunit.xml, **/phpunit.xml.dist"
 license: MIT
 metadata:
   termf-stacks: "pest phpunit"

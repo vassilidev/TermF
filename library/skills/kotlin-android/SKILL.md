@@ -7,7 +7,7 @@ description: >-
   .kts files, AndroidManifest.xml, gradle/libs.versions.toml or an Android module. Not for Spring Boot
   server code (the java-spring skill covers it), and it leaves a topic to the official android/skills and
   Kotlin/kotlin-agent-skills when they are installed.
-paths: "**/*.kt, **/*.kts, **/AndroidManifest.xml, **/libs.versions.toml, **/gradle-wrapper.properties"
+paths: "**/*.kt, **/AndroidManifest.xml, **/libs.versions.toml, **/proguard-rules.pro"
 license: MIT
 metadata:
   termf-stacks: "kotlin android"

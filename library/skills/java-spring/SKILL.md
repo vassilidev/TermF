@@ -6,7 +6,7 @@ description: >-
   Spring Security, actuator, starters and dependencies in Maven or Gradle, Boot 3 to 4 upgrades. Use when
   a task touches .java files, pom.xml, build.gradle(.kts), application.properties or application.yml of a
   JVM service. Not for Android apps (kotlin-android), and test design lives in the junit skill.
-paths: "**/*.java, **/pom.xml, **/build.gradle, **/build.gradle.kts, **/settings.gradle*, **/application*.properties, **/application*.yml, **/application*.yaml"
+paths: "**/*.java, **/pom.xml, **/build.gradle, **/build.gradle.kts, **/settings.gradle, **/settings.gradle.kts, **/application*.properties, **/application*.yml, **/application*.yaml"
 license: MIT
 metadata:
   termf-stacks: "spring-boot java"
@@ -22,7 +22,7 @@ Spring ships no agent skill or `llms.txt`. Gradle publishes official skills in [
 1. Read the versions: the Boot version in the `spring-boot-starter-parent` parent of `pom.xml` or the `org.springframework.boot` plugin of the Gradle build, the Java version the build targets (Gradle toolchain, `java.version` or the compiler release), and the wrapper version (`gradle/wrapper/gradle-wrapper.properties`, `.mvn/wrapper/maven-wrapper.properties`). Done when you can name Boot, Java and the build tool.
 2. Open the docs of that Boot version: `https://docs.spring.io/spring-boot/<version>/` and the release notes or migration guide on the Boot wiki. Done when the page for the task is open.
 3. Use what the project has: its build tool through the wrapper only (`./mvnw`, `./gradlew`), its starters, its persistence (JPA, JDBC, R2DBC), its mapping and validation style, its package layout. Add a dependency without a version when Boot manages it. Done when no new dependency pins a version Boot already manages.
-4. Write the change the way neighboring code does: constructor injection, configuration in `@ConfigurationProperties` classes, validation with `@Valid` on request bodies, transactions on service methods. Done when the build compiles with no new warning.
+4. Write the change the way neighboring code does, with the Boot 4 names of `## Gotchas` (starters, Jackson 3 packages, test annotations). Done when the build compiles with no new warning.
 5. Write the tests with the skill `junit`, then run `## Verify` and put each command with its result in your report. Done when they pass, or the failure is reported with its output.
 
 ## Gotchas

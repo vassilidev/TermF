@@ -3,8 +3,9 @@ name: python
 description: >-
   Writes, changes and checks Python code the way the project's Python version and tools expect: modules
   and packages, pyproject.toml and dependencies with uv, poetry or pip, typing, ruff lint and format, type
-  checking, scripts and command-line tools. Use when a task touches .py files, pyproject.toml, uv.lock,
-  poetry.lock, requirements files or .python-version. Not for writing tests (the pytest skill) and not for
+  checking, asyncio, scripts and command-line tools, moves to a newer Python version. Use when a task
+  touches Python code, .py files, pyproject.toml, uv.lock, poetry.lock, requirements files or
+  .python-version. Not for writing tests (the pytest skill) and not for
   Django or FastAPI specifics, which their own skills cover.
 paths: "**/*.py, **/pyproject.toml, **/uv.lock, **/poetry.lock, **/requirements*.txt, **/.python-version"
 license: MIT
