@@ -3645,7 +3645,60 @@ impl Inner {
 
     fn drop_worktree(&self, run: &TeamRun, i: usize) {
         if let Some(path) = &run.steps[i].worktree {
+            if run.steps[i].kind == StepKind::Task && !run.steps[i].batch {
+                let _ = self.setup().teardown(path, &self.setup_id(run, i));
+            }
             Git(&self.env).remove_worktree(&run.home(i), path);
+        }
+    }
+
+    fn setup(&self) -> termf_worktree::Setup {
+        let mut setup = termf_worktree::Setup::new(self.config_dir.clone(), self.data_dir.clone());
+        setup.env = self.env.clone();
+        setup
+    }
+
+    /// Names the database copy and the Compose project of task `i`'s worktree.
+    fn setup_id(&self, run: &TeamRun, i: usize) -> String {
+        format!(
+            "{}-{}",
+            run.target.run,
+            run.steps[i].task.as_deref().unwrap_or_default()
+        )
+    }
+
+    /// Prepares the fresh worktree of task `i` as the run's own was (its dependencies, its `.env` files, its
+    /// recipe), so that the agent can run the project's checks; what fails goes to the run's events, the task goes
+    /// on without it.
+    fn prepare(&self, store: &Store, run: &TeamRun, i: usize, path: &Path) {
+        let name = run
+            .task(i)
+            .map(|t| t.repo.clone())
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(|| run.target.repo.clone());
+        let source = run
+            .repos
+            .iter()
+            .find(|r| r.name == name)
+            .map(|r| r.path.clone())
+            .unwrap_or_else(|| run.target.repo_path.clone());
+        let report = self.setup().run(&termf_worktree::Worktree {
+            project: run.target.project.clone(),
+            repo: name,
+            source,
+            path: path.to_path_buf(),
+            id: self.setup_id(run, i),
+        });
+        if report.failed() {
+            let failed: Vec<String> = report
+                .steps
+                .iter()
+                .filter(|s| s.outcome.failed())
+                .map(|s| s.describe())
+                .collect();
+            let key = run.steps[i].key.clone();
+            let message = format!("its worktree is not fully prepared: {}", failed.join("; "));
+            self.event(store, run, Some(&key), "setup", &message);
         }
     }
 
@@ -4101,6 +4154,7 @@ impl Inner {
         ensure!(spec.cwd == path, "its session worked elsewhere");
         let _ = fs::remove_dir_all(&path);
         let base = Git(&self.env).add_worktree(&run.home(i), &path)?;
+        self.prepare(store, run, i, &path);
         let last = self
             .agents
             .events(session, 0)?
@@ -4528,6 +4582,9 @@ impl Inner {
             let _ = fs::remove_dir_all(&path);
             let git = Git(&self.env);
             let base = git.add_worktree(&run.home(i), &path)?;
+            if fresh {
+                self.prepare(store, run, i, &path);
+            }
             let step = &mut run.steps[i];
             step.worktree = Some(path);
             step.base = Some(base);
