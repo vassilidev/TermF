@@ -22,6 +22,8 @@ export type AgentSession = {
   budget: number | null;
   /** The library role it plays. */
   role?: string | null;
+  /** TermF's tools: the project's CTO conversation. */
+  mcp?: boolean;
   state: AgentState;
   cost: number;
   context: Gauge | null;
@@ -62,6 +64,24 @@ export function waitingAgents(): AgentSession[] {
 /** The sessions the view lists: the current project's, most recent first. */
 export function listed(): AgentSession[] {
   return agents.sessions.filter(inScope).sort((a, b) => b.id - a.id);
+}
+
+/** The project's CTO conversation, once it exists. */
+export function ctoOf(project: string | null): AgentSession | undefined {
+  return project === null ? undefined : agents.sessions.filter((a) => a.mcp && a.project === project).sort((a, b) => b.id - a.id)[0];
+}
+
+/** Opens the current project's CTO conversation, created the first time. */
+export async function showCto() {
+  const project = app.project;
+  if (project === null) return;
+  try {
+    const session = ctoOf(project) ?? (await invoke<AgentSession>("cto_open", { project }));
+    upsert(session);
+    showConversation(session.id);
+  } catch (e) {
+    app.error = String(e);
+  }
 }
 
 /** The conversation the view shows, or keeps behind the new session form. */

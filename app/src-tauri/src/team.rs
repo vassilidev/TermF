@@ -35,7 +35,10 @@ pub fn state(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf, inbox: Inb
         move |update| {
             let _ = match update {
                 TeamUpdate::Run(run) => handle.emit("team-updated", run),
-                TeamUpdate::Event(event) => handle.emit("team-event", event),
+                TeamUpdate::Event(event) => {
+                    crate::cto::team_event(&handle, &event);
+                    handle.emit("team-event", event)
+                }
             };
         },
     );
@@ -63,7 +66,7 @@ pub fn shutdown(app: &AppHandle) {
 
 /// The team of a ticket run, or of a request in a new run of its own (prepared without a session, as a ticket
 /// run for a team is): its triage starts at once.
-fn start(
+pub(crate) fn start(
     app: &AppHandle,
     run: Option<i64>,
     request: Option<Request>,

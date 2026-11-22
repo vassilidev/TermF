@@ -3,6 +3,7 @@
   import Coffee from "@lucide/svelte/icons/coffee";
   import Columns2 from "@lucide/svelte/icons/columns-2";
   import Layers from "@lucide/svelte/icons/layers";
+  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import Search from "@lucide/svelte/icons/search";
@@ -12,7 +13,7 @@
   import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
-  import { waitingAgents } from "$lib/agents.svelte";
+  import { showCto, waitingAgents } from "$lib/agents.svelte";
   import { waitingRuns } from "$lib/team.svelte";
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
@@ -51,6 +52,7 @@
 
   const side = (id: ViewId) => (!panes.other || !onScreen(id) ? null : (ui.view === id) === (panes.active === 0) ? "left" : "right");
   const projects = $derived(app.workspace?.projects ?? []);
+  const current = $derived(projects.find((p) => p.id === app.project));
   const counts = $derived(tallies());
   /** Sync needs the owner (password, conflicts, recovery key, error): a dot on Settings. */
   const tone = $derived(summary(app.sync).tone);
@@ -74,6 +76,12 @@
     <Search size={14} aria-hidden="true" /><span>{t("navSearch")}</span>
     {#if keys.palette}<kbd>{keys.palette}</kbd>{/if}
   </button>
+  {#if current}
+    <button class="find" onclick={showCto} aria-keyshortcuts={aria("talk_cto")} title={t("ctoTalkTo", { project: current.name })}>
+      <MessageSquareText size={14} aria-hidden="true" /><span>{t("ctoTalk")}</span>
+      {#if keys.cto}<kbd>{keys.cto}</kbd>{/if}
+    </button>
+  {/if}
   {#if waiting}
     <button
       class="wait"
