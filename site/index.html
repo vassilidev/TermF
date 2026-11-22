@@ -156,7 +156,7 @@
         <div class="body">
           <div class="msg"><p>Two runs are moving:</p><ul><li>#57 CSV export of invoices: the plan is ready, 3 tasks (back, front, qa). It waits for your approval.</li><li>#311 Date filter: front is fixing DateRange.tsx.</li></ul></div>
           <div class="card">
-            <h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</h4>
+            <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</p>
             <p class="ref">acme/platform#57 <span>· Export invoices to CSV in the accountant's format</span></p>
             <p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p>
             <div class="inset">Export a period's invoices to CSV in the format the accounting firm expects, from the API and the Invoices page.<small>3 tasks</small></div>
@@ -164,7 +164,7 @@
           </div>
           <div class="me">Start the team on #482 too, in api.</div>
           <div class="card">
-            <h4><svg aria-hidden="true"><use href="#i-shield"/></svg>The CTO asks for your approval: Start a team run</h4>
+            <p class="ct"><svg aria-hidden="true"><use href="#i-shield"/></svg>The CTO asks for your approval: Start a team run</p>
             <p class="ref">acme/api#482 <span>· Cursor pagination on GET /invoices</span></p>
             <div class="acts"><span class="field">Reason for refusing (optional)</span><span class="btn"><svg aria-hidden="true"><use href="#i-shield"/></svg>Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div>
           </div>
@@ -197,7 +197,7 @@
           <div class="steps"><span class="s done"><svg aria-hidden="true"><use href="#i-done"/></svg>Framing</span><i></i><span class="s now"><svg aria-hidden="true"><use href="#i-bell"/></svg>Plan</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Tasks</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Review</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Delivery</span></div>
           <div class="body">
             <div class="card">
-              <h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan has questions</h4>
+              <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan has questions</p>
               <p class="help">The proposed answers are filled in: change what does not suit you, then send them all at once.</p>
               <div class="q"><span class="theme">Scope</span><p>Is the default period “last 30 days” everywhere?</p><p class="why">Why: DateRange also reads the period saved in the user's preferences.</p><span class="opts"><span class="on">Last 30 days everywhere</span><span>The period from the preferences</span></span><div class="acts"><span class="field">Another answer (optional)</span></div></div>
               <div class="q" style="margin-top:10px"><span class="theme">Interface</span><p>Should the customer filter reset too?</p><span class="opts"><span>Yes</span><span class="on">No</span></span></div>
@@ -223,8 +223,8 @@
       <figcaption class="screen-cap">Configuration · the project's squads · sample data</figcaption>
       <div class="app">
         <div class="squads">
-          <div class="sq"><h5>billing <span>At most 2 at once</span></h5><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">back ×2</span></dd><dt>Repositories</dt><dd class="mono">billing-service</dd><dt>Paths</dt><dd class="mono">src/**, tests/**</dd></dl></div>
-          <div class="sq"><h5>web <span>At most 1 at once</span></h5><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">front</span></dd><dt>Repositories</dt><dd class="mono">web-dashboard</dd><dt>Paths</dt><dd class="mono">web/**</dd></dl></div>
+          <div class="sq"><p class="sqh">billing <span>At most 2 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">back ×2</span></dd><dt>Repositories</dt><dd class="mono">billing-service</dd><dt>Paths</dt><dd class="mono">src/**, tests/**</dd></dl></div>
+          <div class="sq"><p class="sqh">web <span>At most 1 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">front</span></dd><dt>Repositories</dt><dd class="mono">web-dashboard</dd><dt>Paths</dt><dd class="mono">web/**</dd></dl></div>
         </div>
         <div class="list">
           <div class="row"><span class="ini">CT</span><span class="t"><b>cto</b><span>The one point of contact; triages every run, never codes</span></span><span class="chip">opus · high</span></div>
@@ -329,9 +329,9 @@ alex@mbp api % </pre></div>
   <div class="wrap">
     <h2 id="rest-h">And the chores around the agents</h2>
     <div class="legend">
-      <div><h3>Claude Code, all of it</h3><p>Settings, permissions and hooks by scope, MCP servers, plugins, skills, memory files, past sessions, usage and limits, and a sortable table of your claude.ai artifacts. <a href="features.html#claude">More</a></p></div>
-      <div><h3>Keys, sync and vault</h3><p>SSH keys in every format with the agent and <code>~/.ssh/config</code>, settings synced across machines and encrypted end to end, a vault for secrets from the command line. <a href="features.html#machine">More</a></p></div>
-      <div><h3>CI, schedules and files</h3><p>GitHub Actions runs and logs with the failure sent back to the agent, Claude tasks on a schedule even while TermF is closed, and a file explorer with fuzzy search, an editor and diffs. <a href="features.html#ci">More</a></p></div>
+      <div><h3>Claude Code, all of it</h3><p>Settings, permissions and hooks by scope, MCP servers, plugins, skills, memory files, past sessions, usage and limits, and a sortable table of your claude.ai artifacts. <a href="features.html#claude">All the Claude Code features</a></p></div>
+      <div><h3>Keys, sync and vault</h3><p>SSH keys in every format with the agent and <code>~/.ssh/config</code>, settings synced across machines and encrypted end to end, a vault for secrets from the command line. <a href="features.html#machine">Keys, vault and sync in detail</a></p></div>
+      <div><h3>CI, schedules and files</h3><p>GitHub Actions runs and logs with the failure sent back to the agent, Claude tasks on a schedule even while TermF is closed, and a file explorer with fuzzy search, an editor and diffs. <a href="features.html#ci">CI/CD in detail</a></p></div>
     </div>
     <p style="margin-top:28px"><a class="more" href="features.html">Every feature, with its defaults</a></p>
   </div>
@@ -392,7 +392,7 @@ addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40),
   function put(id, bay, state, what, sub, gate) {
     let s = strips[id];
     if (!s) {
-      s = strips[id] = document.createElement('li');
+      s = strips[id] = document.createElement('div');
       s.className = 'strip';
       s.dataset.fresh = 1;
       run.append(s);

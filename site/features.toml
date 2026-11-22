@@ -928,15 +928,15 @@ conversation = '''<div class="app">
   <div class="bar"><span class="badge">CTO</span><b>CTO</b><span class="sub">Your way in to the team</span><span class="seg"><span class="on">CTO</span><span>Expert</span></span></div>
   <div class="body">
     <div class="msg"><p>Two runs are moving:</p><ul><li>#57 CSV export of invoices: the plan is ready, 3 tasks (back, front, qa). It waits for your approval.</li><li>#311 Date filter: front is fixing DateRange.tsx.</li></ul></div>
-    <div class="card"><h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</h4><p class="ref">acme/platform#57 <span>· Export invoices to CSV in the accountant's format</span></p><p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p><div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div></div>
+    <div class="card"><p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</p><p class="ref">acme/platform#57 <span>· Export invoices to CSV in the accountant's format</span></p><p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p><div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div></div>
     <div class="me">Start the team on #482 too, in api.</div>
-    <div class="card"><h4><svg aria-hidden="true"><use href="#i-shield"/></svg>The CTO asks for your approval: Start a team run</h4><p class="ref">acme/api#482 <span>· Cursor pagination on GET /invoices</span></p><div class="acts"><span class="field">Reason for refusing (optional)</span><span class="btn"><svg aria-hidden="true"><use href="#i-shield"/></svg>Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div></div>
+    <div class="card"><p class="ct"><svg aria-hidden="true"><use href="#i-shield"/></svg>The CTO asks for your approval: Start a team run</p><p class="ref">acme/api#482 <span>· Cursor pagination on GET /invoices</span></p><div class="acts"><span class="field">Reason for refusing (optional)</span><span class="btn"><svg aria-hidden="true"><use href="#i-shield"/></svg>Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div></div>
   </div>
   <div class="compose"><div class="composer">Message to the CTO… (@role for someone else, Enter sends)</div></div>
 </div>'''
 
 path = '''<div class="app"><div class="body"><div class="card">
-  <h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The CTO proposes this path</h4>
+  <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The CTO proposes this path</p>
   <p class="help">Nothing starts before you agree. Change it if needed, or refuse: the team stops.</p>
   <dl class="kv"><dt>Workflow</dt><dd>default</dd><dt>Steps added</dt><dd>ux</dd><dt>Steps skipped</dt><dd>none</dd><dt>Squads</dt><dd>web</dd><dt>Run budget (USD)</dt><dd>15</dd></dl>
   <div class="acts"><span class="grow">Why this path</span><span class="btn">Change</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the path</span></div>
@@ -945,7 +945,7 @@ path = '''<div class="app"><div class="body"><div class="card">
 questionnaire = '''<div class="app">
   <div class="steps"><span class="s done"><svg aria-hidden="true"><use href="#i-done"/></svg>Framing</span><i></i><span class="s now"><svg aria-hidden="true"><use href="#i-bell"/></svg>Plan</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Tasks</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Review</span></div>
   <div class="body"><div class="card">
-    <h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan has questions</h4>
+    <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan has questions</p>
     <p class="help">The proposed answers are filled in: change what does not suit you, then send them all at once.</p>
     <div class="q"><span class="theme">Scope</span><p>Is the default period “last 30 days” everywhere?</p><p class="why">Why: DateRange also reads the period saved in the user's preferences.</p><span class="opts"><span class="on">Last 30 days everywhere</span><span>The period from the preferences</span></span><div class="acts"><span class="field">Another answer (optional)</span></div></div>
     <div class="q" style="margin-top:10px"><span class="theme">Interface</span><p>Should the customer filter reset too?</p><span class="opts"><span>Yes</span><span class="on">No</span></span></div>
@@ -965,8 +965,8 @@ roster = '''<div class="app"><div class="list">
 </div></div>'''
 
 squads = '''<div class="app"><div class="squads">
-  <div class="sq"><h5>billing <span>At most 2 at once</span></h5><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">back ×2</span></dd><dt>Repositories</dt><dd class="mono">billing-service</dd><dt>Paths</dt><dd class="mono">src/**, tests/**</dd><dt>Domains</dt><dd>billing</dd></dl></div>
-  <div class="sq"><h5>web <span>At most 1 at once</span></h5><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">front</span></dd><dt>Repositories</dt><dd class="mono">web-dashboard</dd><dt>Paths</dt><dd class="mono">web/**</dd><dt>Domains</dt><dd>interface</dd></dl></div>
+  <div class="sq"><p class="sqh">billing <span>At most 2 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">back ×2</span></dd><dt>Repositories</dt><dd class="mono">billing-service</dd><dt>Paths</dt><dd class="mono">src/**, tests/**</dd><dt>Domains</dt><dd>billing</dd></dl></div>
+  <div class="sq"><p class="sqh">web <span>At most 1 at once</span></p><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">front</span></dd><dt>Repositories</dt><dd class="mono">web-dashboard</dd><dt>Paths</dt><dd class="mono">web/**</dd><dt>Domains</dt><dd>interface</dd></dl></div>
 </div></div>'''
 
 expert = '''<div class="app">
@@ -1002,7 +1002,7 @@ nav = '''<div class="app" style="display:flex"><div class="nav-a">
 
 run = '''<div class="app">
   <div class="steps"><span class="s done"><svg aria-hidden="true"><use href="#i-done"/></svg>Framing</span><i></i><span class="s now"><svg aria-hidden="true"><use href="#i-bell"/></svg>Plan</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Tasks</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Review</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Delivery</span></div>
-  <div class="body"><div class="card"><h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</h4><p class="ref">acme/web-dashboard#311 <span>· The date filter does not reset when the search is cleared</span></p><p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p><div class="inset">Put the date filter back to its default when the search is cleared.<small>1 task</small></div><div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div></div></div>
+  <div class="body"><div class="card"><p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</p><p class="ref">acme/web-dashboard#311 <span>· The date filter does not reset when the search is cleared</span></p><p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p><div class="inset">Put the date filter back to its default when the search is cleared.<small>1 task</small></div><div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div></div></div>
 </div>'''
 
 delivery = '''<div class="app"><div class="body"><div>
@@ -1050,7 +1050,7 @@ alex@mbp api % </pre></div>
 </div>'''
 
 banner = '''<div class="app"><div class="body"><div class="card">
-  <h4><svg aria-hidden="true"><use href="#i-shield"/></svg>A termf command asks for your go-ahead</h4>
+  <p class="ct"><svg aria-hidden="true"><use href="#i-shield"/></svg>A termf command asks for your go-ahead</p>
   <p class="help">A termf command asks to deliver run 57 (commit, push and pull request). If it was not you (an agent can run termf), deny it.</p>
   <div class="acts"><span class="grow"></span><span class="btn">Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div>
 </div></div></div>'''
