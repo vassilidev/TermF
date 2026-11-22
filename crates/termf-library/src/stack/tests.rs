@@ -515,26 +515,38 @@ fn reads_a_repository_again_only_when_its_head_moves() {
 fn a_remote_on_github_brings_the_github_tag_to_the_repository_and_its_worktrees() {
     let dir = repo("github", &[("go.mod", "module x\n")]);
     git(&dir, &["init", "-q"]);
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "one"]);
+    // Hosts that only contain "github.com" somewhere are not GitHub.
+    for (name, url) in [
+        ("mirror", "https://gitlab.com/acme/github.com-mirror.git"),
+        ("lookalike", "git@notgithub.com:acme/api.git"),
+        ("enterprise", "https://github.acme.com/acme/api.git"),
+    ] {
+        git(&dir, &["remote", "add", name, url]);
+    }
+    assert_eq!(names(&stack_tags(&dir)), ["go"]);
+
     git(
         &dir,
         &[
             "remote",
             "add",
-            "upstream",
-            "https://gitlab.com/acme/api.git",
+            "origin",
+            "ssh://git@ssh.github.com:443/acme/api.git",
         ],
     );
-    assert_eq!(names(&detect(&dir).tags), ["go"]);
-
-    git(
-        &dir,
-        &["remote", "add", "origin", "git@github.com:acme/api.git"],
+    let tags = stack_tags(&dir);
+    assert_eq!(
+        names(&tags),
+        ["github", "go"],
+        "a remote added since the last read counts, though HEAD did not move"
     );
-    git(&dir, &["add", "-A"]);
-    git(&dir, &["commit", "-q", "-m", "one"]);
-    let tags = detect(&dir).tags;
-    assert_eq!(names(&tags), ["github", "go"]);
     assert_eq!(tag(&tags, "github").source, ".git/config");
+    for url in ["git@github.com:acme/api.git", "https://GitHub.com/acme/api"] {
+        git(&dir, &["remote", "set-url", "origin", url]);
+        assert_eq!(names(&detect(&dir).tags), ["github", "go"], "{url}");
+    }
 
     let worktree = dir.with_file_name(format!("{}-wt", dir.file_name().unwrap().to_string_lossy()));
     let _ = fs::remove_dir_all(&worktree);

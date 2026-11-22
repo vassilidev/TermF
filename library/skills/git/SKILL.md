@@ -12,7 +12,7 @@ metadata:
   termf-roles: "all"
   termf-versions: "*"
   termf-verified: "2026-11-22 git@2.56.1"
-  termf-sources: "https://git-scm.com/docs/git https://git-scm.com/docs/git-rebase https://git-scm.com/docs/git-push https://git-scm.com/docs/git-worktree https://git-scm.com/docs/git-clean https://git-scm.com/docs/git-status https://git-scm.com/docs/git-reflog"
+  termf-sources: "https://git-scm.com/docs/git https://git-scm.com/docs/git-rebase https://git-scm.com/docs/git-push https://git-scm.com/docs/git-worktree https://git-scm.com/docs/git-clean https://git-scm.com/docs/git-status https://git-scm.com/docs/git-reflog https://github.com/git/git/blob/master/Documentation/RelNotes/2.44.0.adoc"
 ---
 # git
 
@@ -21,8 +21,8 @@ metadata:
    - `git commit -m "<message>"`; `--no-edit` on `merge`, `revert` and `commit --amend`;
    - `GIT_EDITOR=true git rebase --continue` and `GIT_EDITOR=true git merge --continue`, which keep the prepared message;
    - `GIT_TERMINAL_PROMPT=0` in front of `fetch`, `pull`, `clone` and `ls-remote`, so a missing credential fails at once;
-   - squash with `git commit --fixup=<sha>` then `git rebase --autosquash <base>`, which needs no `-i`.
-   Leave out `rebase -i`, `add -p`, `add -i`, `commit` without `-m` and `mergetool`. Done when no command you plan opens an editor, a pager or a prompt.
+   - squash with `git commit --fixup=<sha>` then `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash <base>`: `:` accepts the todo list as git wrote it, so no editor opens, on every git version.
+   Leave out a bare `rebase -i`, `add -p`, `add -i`, `commit` without `-m` and `mergetool`. Done when no command you plan opens an editor, a pager or a prompt.
 3. Commit only when the user or your brief asks for it. In a TermF team task the brief says TermF commits each task's work: leave your changes in the working tree. When you do commit:
    - stage named paths (`git add -- <paths>`), not the whole tree;
    - read `git diff --cached` first: no `.env`, keys, build output, or edits that are not part of the task;
@@ -57,6 +57,7 @@ metadata:
 - `git clean -x` ignores `.gitignore` and also deletes ignored files: `.env`, local databases, `node_modules`, build caches. `-X` deletes only ignored files. A second `-f` also deletes nested repositories.
 - `--force-with-lease` without an expected value compares with your remote-tracking branch, which a background fetch (an editor, a cron job) may have updated; `--force-if-includes` adds the check that you have seen that remote state.
 - The output of `git status --porcelain=v2 -z`, `git log --format=…`, `git for-each-ref --format=…` and `git worktree list --porcelain -z` is stable and not translated; plain `git status` and `git branch` are for humans and change with the version and the language.
+- `git rebase --autosquash` without `-i` squashes only since git 2.44; older versions (Ubuntu 22.04 and Debian 12 ship 2.34 and 2.39) ignore it there, exit 0 and leave the `fixup!` commits in place. Keep `-i` with `GIT_SEQUENCE_EDITOR=:`.
 - `git diff --quiet` and `git diff --exit-code` exit 1 when there are differences: that is the answer, not an error.
 - `git diff --check` reports conflict markers and whitespace errors that a commit would add.
 

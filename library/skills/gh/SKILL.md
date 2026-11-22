@@ -25,13 +25,14 @@ metadata:
    - an issue: `gh issue view <n> --json title,body,comments,labels`;
    - anything else: `gh api <endpoint>` with the `{owner}`, `{repo}` and `{branch}` placeholders, `--paginate` (plus `--slurp` for one JSON array), and `--method GET` when you add `-f` query fields.
    Done when every fact in your answer comes from that JSON, not from memory.
-4. In a TermF run, `termf guard` refuses every `gh pr` command, reads included, and `gh api` with any method but GET. Read a pull request through the API instead: `gh api repos/{owner}/{repo}/pulls/<n>`, `.../pulls/<n>/files --paginate`, and the diff with `gh api -H 'Accept: application/vnd.github.diff' repos/{owner}/{repo}/pulls/<n>`. Done when you have the data without a refused command.
+4. In a TermF run, `termf guard` refuses every `gh pr` command, reads included, and `gh api` with any method but GET, which includes every `gh api graphql` call (GraphQL queries are always sent as POST). Read through REST endpoints with GET instead: `gh api repos/{owner}/{repo}/pulls/<n>`, `.../pulls/<n>/files --paginate`, and the diff with `gh api -H 'Accept: application/vnd.github.diff' repos/{owner}/{repo}/pulls/<n>`. Done when you have the data without a refused command.
 5. Write to GitHub only for an action the user asked for in this conversation, or that the task names: creating, editing, merging or closing a pull request or an issue, comments and reviews, labels, releases, `gh workflow run`, `gh run rerun` or `cancel`, `gh secret` and `gh variable`, `gh repo edit` or `delete`, and `gh api` with `-X POST|PATCH|PUT|DELETE` or with fields. Show the exact command and its target first, then run it once. In a TermF run these are refused: write in your report what the user should run, and why. Done when each write matches a request and its URL or result is in your report.
 6. Put in your report the commands you ran, the URLs, and the fields your conclusions rest on.
 
 ## Gotchas
 
 - `gh api` sends POST as soon as you add `-f` or `-F` fields, even to a list endpoint; a filtered read needs `--method GET` or the fields in the endpoint's query string.
+- `gh api graphql -f query=…` is a POST even for a read, so `termf guard` refuses it in a TermF run: use the REST endpoint of the same data with GET there.
 - Without `--paginate`, `gh api` returns the first page only: 30 items by default on most REST list endpoints, 100 at most with `per_page=100`.
 - `gh pr create` pushes the current branch, and may offer to fork, when the branch is not on the remote; `--dry-run` may still push. `--head <branch>` skips pushing and forking.
 - `gh pr checks` exits 8 while checks are still pending: pending is not failed. `gh pr checks <n> --watch --fail-fast` waits and stops at the first failure.

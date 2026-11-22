@@ -1,5 +1,5 @@
 ---
 type: regex
 target: last_message
-pattern: '--retry-connrefused|--retry-all-errors'
+pattern: '--retry-connrefused'
 ---

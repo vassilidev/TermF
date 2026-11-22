@@ -198,7 +198,8 @@ pub fn stack_tags(repo: &Path) -> Vec<Tag> {
 /// How long the survey of a folder outside git is kept.
 const NO_HEAD_FOR: Duration = Duration::from_secs(10);
 
-/// Read again when the repository's `HEAD` moves; a folder outside git, after a few seconds.
+/// Read again when the repository's `HEAD` or its shared config (its remotes) changes; a folder outside git, after a
+/// few seconds.
 // shortcut: a manifest changed but not committed is seen after the next commit or restart; key on the files' times
 // too if that bites.
 fn survey(repo: &Path, head: Option<&str>) -> Survey {
@@ -218,17 +219,26 @@ fn survey(repo: &Path, head: Option<&str>) -> Survey {
     survey
 }
 
+/// The repository's `HEAD`, followed by the config shared by its worktrees, where `git remote add` writes.
 fn head(repo: &Path) -> Option<String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["rev-parse", "HEAD"])
+        .args(["rev-parse", "HEAD", "--git-common-dir"])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .output()
         .ok()?;
-    let head = String::from_utf8(out.stdout).ok()?.trim().to_owned();
-    (out.status.success() && !head.is_empty()).then_some(head)
+    let text = String::from_utf8(out.stdout).ok()?;
+    let mut lines = text.lines().map(str::trim);
+    let head = lines.next().unwrap_or_default();
+    if !out.status.success() || head.is_empty() {
+        return None;
+    }
+    let config = lines
+        .next()
+        .and_then(|common| fs::read_to_string(repo.join(common).join("config")).ok());
+    Some(format!("{head}\n{}", config.unwrap_or_default()))
 }
 
 #[derive(Default)]
@@ -444,9 +454,11 @@ fn detect(repo: &Path) -> Survey {
     }
 }
 
+const GITHUB_HOSTS: [&str; 3] = ["github.com", "www.github.com", "ssh.github.com"];
+
 /// Whether a remote of the repository (a worktree's included) is on github.com.
-// shortcut: GitHub Enterprise hosts and SSH host aliases are not seen; also read `gh auth status` hosts if they
-// matter.
+// shortcut: GitHub Enterprise hosts and SSH host aliases are not seen; share termf-tickets' `remote_slug` (which
+// reads `~/.ssh/config`) through a common crate if they matter.
 fn github_remote(repo: &Path) -> bool {
     repo.join(".git").exists()
         && Command::new("git")
@@ -456,7 +468,29 @@ fn github_remote(repo: &Path) -> bool {
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .output()
-            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("github.com"))
+            .is_ok_and(|out| {
+                String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter_map(|line| remote_host(line.split_whitespace().nth(1)?))
+                    .any(|host| GITHUB_HOSTS.iter().any(|g| host.eq_ignore_ascii_case(g)))
+            })
+}
+
+/// The host of a remote's URL: `https://user@host:443/…`, `ssh://git@host/…`, or `[user@]host:path` as git reads
+/// it (a colon before any slash).
+fn remote_host(url: &str) -> Option<&str> {
+    let authority = match url.split_once("://") {
+        Some((_, rest)) => rest.split('/').next()?,
+        None => {
+            url.split_once(':')
+                .filter(|(a, _)| !a.contains(['/', '\\']))?
+                .0
+        }
+    };
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    host.split(':').next()
 }
 
 /// The version a manifest's range starts from: `^16.1.0` → `16.1.0`, `>=5.0,<6` → `5.0`. `None` for what is not

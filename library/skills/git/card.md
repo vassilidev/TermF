@@ -1,5 +1,5 @@
 - Verified for git 2.56 (2026-11-22); `git --version` gives yours. Docs: https://git-scm.com/docs
-- Nothing may wait for a human: `commit -m`, `--no-edit`, `GIT_EDITOR=true git rebase --continue`, `GIT_TERMINAL_PROMPT=0` before `fetch`; no `rebase -i`, no `add -p`.
+- Nothing may wait for a human: `commit -m`, `--no-edit`, `GIT_EDITOR=true git rebase --continue`, `GIT_TERMINAL_PROMPT=0` before `fetch`, `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash <base>` for fixups; no `add -p`.
 - In a TermF team task, TermF commits your work: leave it uncommitted. In a run, `git push` is refused.
 - The stash is shared by every worktree, so another task can pop yours: prefer a work-in-progress commit or a branch.
 - Before `reset --hard`, `restore .`, `clean -f`, `branch -D` or a forced push: list what it removes, keep `git branch backup/<task>`, and ask unless that command was requested.
