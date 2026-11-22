@@ -839,8 +839,11 @@ fn cleans_versions_and_checks_ranges() {
 fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() {
     let bin = temp_dir("stack-lsp-bin");
     crate::fake_bin(&bin, "rust-analyzer", true);
-    put(&bin.join("basedpyright-langserver"), "");
-    let tags: Vec<Tag> = ["docker", "python", "rust", "node", "typescript"]
+    crate::fake_bin(&bin, "basedpyright-langserver", true);
+    // Not executable: not a server.
+    put(&bin.join("gopls"), "");
+    let repo = temp_dir("stack-lsp-repo");
+    let tags: Vec<Tag> = ["docker", "python", "rust", "node", "typescript", "go"]
         .iter()
         .map(|t| Tag {
             name: (*t).into(),
@@ -848,7 +851,7 @@ fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() 
             source: "x".into(),
         })
         .collect();
-    let servers = language_servers(&tags, bin.as_os_str());
+    let servers = language_servers(&tags, bin.as_os_str(), &repo);
     let found: Vec<(&str, &str, bool)> = servers
         .iter()
         .map(|s| (s.name, s.r#for.as_str(), s.installed))
@@ -859,12 +862,13 @@ fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() 
             ("rust-analyzer", "rust", true),
             ("typescript", "node", false),
             ("basedpyright", "python", true),
+            ("gopls", "go", cfg!(windows)),
         ],
-        "basedpyright takes pyright's place once installed; docker has none"
+        "basedpyright takes pyright's place once installed; docker has none; a file without the execute bit is no binary"
     );
     assert!(servers[1].docs.ends_with("/plugins/typescript-lsp"));
 
-    let declared = Value::Object(lsp_json(&servers));
+    let declared = Value::Object(lsp_json(&servers[..3]));
     assert_eq!(
         declared,
         serde_json::json!({
@@ -879,7 +883,7 @@ fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() 
 
     let none = temp_dir("stack-lsp-none");
     crate::fake_bin(&none, "rust-analyzer", false);
-    let missing = language_servers(&tags, none.as_os_str());
+    let missing = language_servers(&tags, none.as_os_str(), &repo);
     assert!(
         missing.iter().all(|s| !s.installed),
         "a rustup proxy without the component is not a server"
@@ -889,4 +893,42 @@ fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() 
         "the official one is the one to install"
     );
     assert!(lsp_json(&missing).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn probes_rust_analyzer_in_the_repository_once_a_minute_and_never_waits_long() {
+    use std::os::unix::fs::PermissionsExt;
+    let script = |dir: &Path, body: &str| {
+        let file = dir.join("rust-analyzer");
+        put(&file, &format!("#!/bin/sh\n{body}\n"));
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    let rust = [Tag {
+        name: "rust".into(),
+        version: None,
+        source: "Cargo.toml".into(),
+    }];
+    // Like rustup's proxy: it works only where the repository's toolchain file says so.
+    let bin = temp_dir("stack-lsp-probe-bin");
+    script(&bin, "[ -f rust-toolchain.toml ]");
+    let repo = temp_dir("stack-lsp-probe-repo");
+    let other = temp_dir("stack-lsp-probe-other");
+    put(&repo.join("rust-toolchain.toml"), "[toolchain]\n");
+    assert!(language_servers(&rust, bin.as_os_str(), &repo)[0].installed);
+    assert!(!language_servers(&rust, bin.as_os_str(), &other)[0].installed);
+    fs::remove_file(repo.join("rust-toolchain.toml")).unwrap();
+    assert!(
+        language_servers(&rust, bin.as_os_str(), &repo)[0].installed,
+        "kept for a minute"
+    );
+
+    let slow = temp_dir("stack-lsp-probe-slow");
+    script(&slow, "sleep 30");
+    let start = Instant::now();
+    assert!(!language_servers(&rust, slow.as_os_str(), &repo)[0].installed);
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "stopped after its delay"
+    );
 }

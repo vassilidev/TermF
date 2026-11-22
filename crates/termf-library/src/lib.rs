@@ -249,7 +249,7 @@ fn stack_of(name: &str, path: &Path) -> stack::RepoStack {
         .map(Into::into)
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default();
-    repo.servers = stack::language_servers(&repo.tags, &search);
+    repo.servers = stack::language_servers(&repo.tags, &search, path);
     repo
 }
 

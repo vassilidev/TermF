@@ -957,7 +957,7 @@ mod tests {
         let scope = Scope {
             project: Some("acme".into()),
             stack: vec![RepoStack {
-                servers: crate::stack::language_servers(&tags, bin.as_os_str()),
+                servers: crate::stack::language_servers(&tags, bin.as_os_str(), &dir),
                 ..RepoStack::default()
             }],
             ..own_skills_only()

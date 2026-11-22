@@ -1662,14 +1662,10 @@ pub fn offers(stack: &RepoStack) -> (Vec<McpOffer>, Vec<SkillSource>) {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LanguageServer {
-    /// Its name in `.lsp.json`.
     pub name: &'static str,
-    /// The tag it is offered for.
     pub r#for: String,
-    /// The binary Claude Code starts from the `PATH`.
     pub command: &'static str,
     pub installed: bool,
-    /// How to install it.
     pub docs: String,
 }
 
@@ -1831,8 +1827,55 @@ const SERVERS: [ServerDef; 11] = [
     },
 ];
 
-/// The language servers of `tags`, one a language, found or not in `path` (the `PATH` the sessions get).
-pub fn language_servers(tags: &[Tag], path: &std::ffi::OsStr) -> Vec<LanguageServer> {
+/// Whether `bin --version` succeeds in `repo`, whose `rust-toolchain.toml` picks rustup's toolchain, within 3 s.
+/// Kept a minute per binary and repository, so that listing the library or starting a session does not wait on
+/// rustup each time.
+fn answers(bin: &Path, repo: &Path) -> bool {
+    type Entry = (Option<SystemTime>, Instant, bool);
+    static CACHE: Mutex<BTreeMap<(PathBuf, PathBuf), Entry>> = Mutex::new(BTreeMap::new());
+    const KEEP: Duration = Duration::from_secs(60);
+    const WAIT: Duration = Duration::from_secs(3);
+    let key = (bin.to_path_buf(), repo.to_path_buf());
+    let modified = fs::metadata(bin).and_then(|m| m.modified()).ok();
+    if let Some((at, when, ok)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
+        && *at == modified
+        && when.elapsed() < KEEP
+    {
+        return *ok;
+    }
+    let ok = Command::new(bin)
+        .arg("--version")
+        .current_dir(repo)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok_and(|mut child| {
+            let start = Instant::now();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => return status.success(),
+                    Ok(None) if start.elapsed() < WAIT => {
+                        std::thread::sleep(Duration::from_millis(20))
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return false;
+                    }
+                }
+            }
+        });
+    CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, (modified, Instant::now(), ok));
+    ok
+}
+
+/// The language servers of `tags`, one a language, found or not in `path` (the `PATH` the sessions get) for the
+/// repository at `repo`.
+pub fn language_servers(tags: &[Tag], path: &std::ffi::OsStr, repo: &Path) -> Vec<LanguageServer> {
     let language_of = |name: &str| SERVERS.iter().find(|d| d.name == name).map(|d| d.language);
     let mut servers: Vec<LanguageServer> = Vec::new();
     for def in &SERVERS {
@@ -1843,16 +1886,8 @@ pub fn language_servers(tags: &[Tag], path: &std::ffi::OsStr) -> Vec<LanguageSer
             name: def.name,
             r#for: tag.name.clone(),
             command: def.command,
-            installed: termf_claude::cli::which_in(path, def.command).is_some_and(|bin| {
-                !def.probe
-                    || Command::new(bin)
-                        .arg("--version")
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status()
-                        .is_ok_and(|s| s.success())
-            }),
+            installed: termf_claude::cli::which_in(path, def.command)
+                .is_some_and(|bin| !def.probe || answers(&bin, repo)),
             docs: match def.docs.starts_with("https://") {
                 true => def.docs.to_owned(),
                 false => format!("{OFFICIAL}{}", def.docs),
