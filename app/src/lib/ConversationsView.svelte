@@ -337,7 +337,7 @@
             {#if current}
               <button type="button" class="btn sm" onclick={() => (agents.creating = false)}>{t("cancel")}</button>
             {/if}
-            <button type="submit" class="btn sm primary" disabled={starting || !dir || !prompt.trim()}>
+            <button type="submit" class="btn primary" disabled={starting || !dir || !prompt.trim()}>
               {#if starting}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
               {t("chatStart")}
             </button>

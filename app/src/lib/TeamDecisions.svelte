@@ -47,7 +47,7 @@
             <p class="text">{d.text}</p>
             <p class="meta">
               <span class="badge">{t(d.by === "cto" ? "disciplineByCto" : "disciplineByYou")}</span>
-              <button class="link" onclick={() => showRun(d.run)}>{t("disciplineRun", { run: d.run })}</button>
+              <button class="btn link" onclick={() => showRun(d.run)}>{t("disciplineRun", { run: d.run })}</button>
               <span>{ago(d.at)}</span>
               {#if d.replaces !== null}<span>{t("disciplineReplaces", { id: d.replaces })}</span>{/if}
               {#if d.replacedBy !== null}<span class="gone">{t("disciplineReplacedBy", { id: d.replacedBy })}</span>{/if}
@@ -140,19 +140,6 @@
     gap: 4px 10px;
     color: var(--muted);
     font-size: var(--text-sm);
-  }
-
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .link:hover {
-    text-decoration: underline;
   }
 
   .replaced .text {
