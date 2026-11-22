@@ -13,7 +13,7 @@ use termf_agents::{AgentSession, Agents, Notice, SessionSpec, State};
 use termf_claude::mask::{mask, mask_text};
 use termf_core::Project;
 use termf_core::ipc::{McpCall, Status};
-use termf_library::{Kind, Scope};
+use termf_library::{Kind, Layer, Scope};
 use termf_team::{Options, RunState, StepState, TeamEvent, TeamRun};
 
 use crate::agents::AgentsState;
@@ -424,7 +424,8 @@ fn described(app: &AppHandle, id: &str) -> Result<Value> {
     let scope = Scope::new(config_dir, None, Some(id.to_owned()))?;
     let roles: Vec<Value> = termf_library::resolve(config_dir, &scope)?
         .into_iter()
-        .filter(|i| i.kind == Kind::Role && i.active)
+        // A shipped role plays in the team even when it is off for terminals.
+        .filter(|i| i.kind == Kind::Role && (i.active || i.layer == Layer::Shipped))
         .map(|i| json!({ "role": i.name, "description": i.description }))
         .collect();
     let repos: Vec<Value> = project
