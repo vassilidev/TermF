@@ -632,10 +632,15 @@ pub async fn vault_import_preview(
     state: State<'_, VaultState>,
     path: String,
     password: String,
+    restore: Option<bool>,
 ) -> CmdResult<Vec<Merged>> {
     let password = Secret::new(password);
     blocking(&state, move |v| {
-        v.preview_import(&import_bytes(&path)?, password.expose())
+        v.preview_import(
+            &import_bytes(&path)?,
+            password.expose(),
+            restore.unwrap_or(false),
+        )
     })
     .await
 }
@@ -645,10 +650,16 @@ pub async fn vault_import_apply(
     state: State<'_, VaultState>,
     path: String,
     password: String,
+    restore: Option<bool>,
 ) -> CmdResult<Vec<Merged>> {
     let password = Secret::new(password);
     blocking(&state, move |v| {
-        v.import_sealed(&Actor::human(), &import_bytes(&path)?, password.expose())
+        v.import_sealed(
+            &Actor::human(),
+            &import_bytes(&path)?,
+            password.expose(),
+            restore.unwrap_or(false),
+        )
     })
     .await
 }

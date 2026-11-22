@@ -230,9 +230,10 @@ usage:
                                         the vault (or a project's part) sealed by an export password
                                         asked on the terminal; --csv writes the logins and notes in clear,
                                         after a warning
-  termf vault import <file> [--project <id>]
+  termf vault import <file> [--project <id>] [--restore]
                                         a TermF export (or a config export holding the vault), merged item
-                                        by item; or a Bitwarden, 1Password, Chrome, Edge, Firefox, Safari,
+                                        by item (--restore: what it holds and was deleted since comes back);
+                                        or a Bitwarden, 1Password, Chrome, Edge, Firefox, Safari,
                                         KeePassXC or KeePass export, shown first, duplicates left out
                                         (the scope is dev without --scope; every vault command that reads or
                                         writes a secret asks for the master password)
