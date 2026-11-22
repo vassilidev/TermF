@@ -769,3 +769,312 @@ fn turns_core_dumps_off() {
     };
     assert_eq!(limit.rlim_cur, 0);
 }
+
+const SEED: &str = "JBSWY3DPEHPK3PXP";
+
+fn login(project: Option<&str>, title: &str) -> ItemDraft {
+    ItemDraft {
+        id: None,
+        kind: Kind::Login,
+        project: project.map(Into::into),
+        title: title.into(),
+        urls: vec!["https://github.com ".into(), " ".into()],
+        username: " alex ".into(),
+        password: Some(Secret::new("hunter2-github-0123".into())),
+        totp: Some(Secret::new(format!(
+            "otpauth://totp/GitHub:alex?secret={SEED}&issuer=GitHub"
+        ))),
+        notes: Some(Secret::new("recovery codes: hunter2-a hunter2-b".into())),
+        agents: false,
+    }
+}
+
+#[test]
+fn keeps_logins_and_notes_by_project_and_never_shows_their_values() {
+    let env = Env::new("items");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let github = vault
+        .save_item(&human(), login(Some("acme"), "GitHub"))
+        .unwrap();
+    assert_eq!(github.id.len(), 32);
+    assert_eq!(
+        (
+            github.urls.clone(),
+            github.username.as_str(),
+            github.has_password,
+            github.has_notes
+        ),
+        (vec!["https://github.com".to_owned()], "alex", true, true)
+    );
+    assert_eq!(
+        github.totp,
+        Some(TotpInfo {
+            algorithm: Algorithm::Sha1,
+            digits: 6,
+            period: 30
+        })
+    );
+    let note = vault
+        .save_item(
+            &human(),
+            ItemDraft {
+                kind: Kind::Note,
+                password: None,
+                totp: None,
+                notes: Some(Secret::new("# Wi-Fi\nhunter2-wifi".into())),
+                ..login(None, "office Wi-Fi")
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        (note.username.as_str(), note.has_password, note.totp),
+        ("", false, None)
+    );
+    vault
+        .save_item(&human(), login(Some("other"), "AWS"))
+        .unwrap();
+
+    let titles = |project| -> Vec<String> {
+        vault
+            .items(project)
+            .unwrap()
+            .into_iter()
+            .map(|i| i.title)
+            .collect()
+    };
+    assert_eq!(titles(Some("acme")), ["GitHub", "office Wi-Fi"]);
+    assert_eq!(titles(None), ["AWS", "GitHub", "office Wi-Fi"]);
+
+    // Left as they are when the draft has none, removed when empty.
+    vault
+        .save_item(
+            &human(),
+            ItemDraft {
+                id: Some(github.id.clone()),
+                password: None,
+                totp: Some(Secret::default()),
+                notes: None,
+                ..login(Some("acme"), "GitHub (work)")
+            },
+        )
+        .unwrap();
+    let pass = vault
+        .item_value(&human(), &github.id, Field::Password, Access::Reveal)
+        .unwrap();
+    assert_eq!(pass.expose(), "hunter2-github-0123");
+    let changed = &vault.items(Some("acme")).unwrap()[0];
+    assert_eq!(
+        (changed.title.as_str(), changed.totp, changed.has_notes),
+        ("GitHub (work)", None, true)
+    );
+    let err = vault
+        .item_value(&human(), &github.id, Field::Totp, Access::Reveal)
+        .unwrap_err();
+    assert_eq!(err.to_string(), "this item has no totp");
+
+    let on_disk = fs::read_to_string(env.file()).unwrap();
+    for clear in ["hunter2", "GitHub", "alex", SEED, "Wi-Fi", "acme"] {
+        assert!(!on_disk.contains(clear), "{clear} in the file");
+    }
+    let mut texts = vec![
+        serde_json::to_string(&vault.items(None).unwrap()).unwrap(),
+        format!("{:?}", vault.items(None).unwrap()),
+        format!("{:?}", login(None, "x")),
+        format!("{:?}", vault.audit(100).unwrap()),
+    ];
+    let bad = ItemDraft {
+        totp: Some(Secret::new("hunter2".into())),
+        ..login(None, "x")
+    };
+    texts.push(vault.save_item(&human(), bad).unwrap_err().to_string());
+    let long = ItemDraft {
+        password: Some(Secret::new("hunter2".repeat(20_000))),
+        ..login(None, "x")
+    };
+    texts.push(vault.save_item(&human(), long).unwrap_err().to_string());
+    for text in texts {
+        assert!(!text.contains("hunter2") && !text.contains(SEED), "{text}");
+    }
+    assert!(vault.save_item(&human(), login(Some("../x"), "x")).is_err());
+    assert!(vault.save_item(&human(), login(None, "  ")).is_err());
+    let unknown = ItemDraft {
+        id: Some("0".repeat(32)),
+        ..login(None, "x")
+    };
+    assert!(vault.save_item(&human(), unknown).is_err());
+
+    vault.delete_item(&human(), &note.id).unwrap();
+    assert!(vault.delete_item(&human(), &note.id).is_err());
+    assert_eq!(titles(None), ["AWS", "GitHub (work)"]);
+
+    let github_entries: Vec<_> = vault
+        .audit(100)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.item.as_deref() == Some(github.id.as_str()))
+        .map(|e| (e.action, e.detail))
+        .collect();
+    assert_eq!(
+        github_entries,
+        [
+            (Action::Reveal, Some("password".into())),
+            (Action::Write, None),
+            (Action::Write, None),
+        ]
+    );
+    assert!(vault.verify().unwrap().ok);
+    vault.lock(&human()).unwrap();
+    let err = vault.items(None).unwrap_err();
+    assert!(err.downcast_ref::<Locked>().is_some());
+}
+
+#[test]
+fn gives_an_item_to_an_agent_only_when_opened_to_agents() {
+    let env = Env::new("item-agents");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let closed = vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    let open = vault
+        .save_item(
+            &human(),
+            ItemDraft {
+                agents: true,
+                ..login(Some("acme"), "Stripe")
+            },
+        )
+        .unwrap();
+    let agent = Actor::agent(Some(7), Some("3".into()));
+
+    let err = vault
+        .item_value(&agent, &closed.id, Field::Password, Access::Use)
+        .unwrap_err();
+    assert_eq!(err.to_string(), "this item is not open to agents");
+    let err = vault
+        .item_value(&agent, &open.id, Field::Password, Access::Reveal)
+        .unwrap_err();
+    assert_eq!(err.to_string(), "only the user reveals a secret");
+    let used = vault
+        .item_value(&agent, &open.id, Field::Password, Access::Use)
+        .unwrap();
+    assert_eq!(used.expose(), "hunter2-github-0123");
+    let code = vault
+        .item_value(&agent, &open.id, Field::Totp, Access::Use)
+        .unwrap();
+    assert_eq!(
+        code.expose(),
+        Totp::parse(SEED).unwrap().code(env.clock.wall()).expose()
+    );
+
+    let entries: Vec<_> = vault
+        .audit(4)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .map(|e| (e.action, e.item, e.actor.kind, e.detail))
+        .collect();
+    let agent_kind = ActorKind::Agent;
+    assert_eq!(
+        entries,
+        [
+            (
+                Action::Refused,
+                Some(closed.id.clone()),
+                agent_kind,
+                Some("this item is not open to agents".into())
+            ),
+            (
+                Action::Refused,
+                Some(open.id.clone()),
+                agent_kind,
+                Some("only the user reveals a secret".into())
+            ),
+            (
+                Action::Read,
+                Some(open.id.clone()),
+                agent_kind,
+                Some("password".into())
+            ),
+            (
+                Action::Read,
+                Some(open.id.clone()),
+                agent_kind,
+                Some("totp".into())
+            ),
+        ]
+    );
+
+    let masked = vault
+        .masker()
+        .unwrap()
+        .mask(&format!("pass hunter2-github-0123 seed {SEED} done"));
+    assert!(masked.count >= 2, "{}", masked.text);
+    assert!(!masked.text.contains("hunter2") && !masked.text.contains(SEED));
+}
+
+#[test]
+fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
+    let env = Env::new("migrate");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let db = id("DATABASE_URL", Scope::Dev);
+    vault
+        .set(&human(), &db, Secret::new(VALUE.into()), None)
+        .unwrap();
+    // A vault as the first TermF wrote it: format 1, a content without items.
+    let (_, key) = vault.key().unwrap();
+    let mut file = vault.read().unwrap();
+    let mut content = serde_json::to_value(file.open(&key).unwrap()).unwrap();
+    content.as_object_mut().unwrap().remove("items");
+    let plain = serde_json::to_vec(&content).unwrap();
+    file.data = crypto::hex(&crypto::seal(&key, &aad("data", &file.id), &plain));
+    file.format = 1;
+    vault.write(&file).unwrap();
+    let v1 = fs::read(env.file()).unwrap();
+    vault.lock(&human()).unwrap();
+
+    let vault = env.vault();
+    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    assert!(vault.items(None).unwrap().is_empty());
+    let format = || -> u64 {
+        let file: serde_json::Value =
+            serde_json::from_slice(&fs::read(env.file()).unwrap()).unwrap();
+        file["format"].as_u64().unwrap()
+    };
+    assert_eq!(format(), 1, "reading changes nothing");
+    vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    assert_eq!(format(), 2);
+    let backup = env.data().join("vault/vault.v1.json");
+    assert_eq!(fs::read(&backup).unwrap(), v1);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&backup).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    assert_eq!(
+        vault.value(&human(), &db, Access::Use).unwrap().expose(),
+        VALUE
+    );
+    assert_eq!(vault.items(None).unwrap().len(), 1);
+
+    let mut newer: serde_json::Value =
+        serde_json::from_slice(&fs::read(env.file()).unwrap()).unwrap();
+    newer["format"] = 3.into();
+    fs::write(env.file(), newer.to_string()).unwrap();
+    let err = env
+        .vault()
+        .unlock(&human(), Some(PASSWORD), None)
+        .unwrap_err();
+    assert_eq!(err.to_string(), "this vault was written by a newer TermF");
+    assert!(vault.items(None).is_err());
+}
+
+#[test]
+fn hashes_an_entry_without_an_item_as_before() {
+    let env = Env::new("audit-compat");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let json = serde_json::to_string(&vault.audit(1).unwrap()[0]).unwrap();
+    assert!(!json.contains("\"item\""), "{json}");
+}
