@@ -380,7 +380,7 @@
   <span class="who" class:cto={home.with === "cto"} aria-hidden="true">{home.with === "cto" ? t("ux3t1Cto") : initials("expert")}</span>
   <div class="grow">
     <b>{home.with === "cto" ? t("ux3t1Cto") : t("ux3t1Expert")}</b>
-    {#if home.with === "cto"}<span class="sub">{t("ctoStart")}</span>{/if}
+    <span class="sub">{home.with === "cto" ? t("ctoStart") : t("uxfT2ExpertHint")}</span>
   </div>
   <div class="segmented" role="group" aria-label={t("ux3t1With")}>
     <button aria-pressed={home.with === "cto"} title={t("uxfT2CtoHint")} onclick={() => (home.with = "cto")}>{t("ux3t1Cto")}</button>
@@ -626,7 +626,7 @@
   .home {
     display: grid;
     flex: 1;
-    grid-template-columns: minmax(0, 1fr) clamp(280px, 32%, 384px);
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 36%, 384px);
     min-height: 0;
   }
 

@@ -1260,7 +1260,7 @@
     grid-column: 1 / -1;
     margin: 0;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
   }
 
   .send {
