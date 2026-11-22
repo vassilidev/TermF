@@ -5,11 +5,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::Serialize;
 
-// shortcut: trimming by bytes may cut an escape sequence on replay, upgrade to line-aware trimming if it shows.
 const SCROLLBACK_BYTES: usize = 1 << 20;
+/// How far past the cut the scrollback looks for a line start.
+const LINE_SEARCH: usize = 64 << 10;
 
 pub enum Output {
     Data(Vec<u8>),
@@ -20,6 +21,7 @@ pub type Sink = Box<dyn FnMut(Output) + Send>;
 
 type EnvFn = Box<dyn Fn(u32) -> Vec<(String, String)> + Send + Sync>;
 type ExitFn = Arc<dyn Fn(u32) + Send + Sync>;
+type ChildRef = Arc<Mutex<Box<dyn Child + Send + Sync>>>;
 
 pub struct SpawnSpec {
     pub title: String,
@@ -61,7 +63,15 @@ impl Shared {
         self.written = Some(std::time::Instant::now());
         self.scrollback.extend(chunk);
         let overflow = self.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
-        self.scrollback.drain(..overflow);
+        if overflow > 0 {
+            // A replay starts at a line, never inside a character or an escape sequence.
+            let rest = self.scrollback.range(overflow..).take(LINE_SEARCH);
+            let cut = match rest.clone().position(|&b| b == b'\n') {
+                Some(i) => overflow + i + 1,
+                None => overflow + rest.take_while(|&&b| b & 0xC0 == 0x80).count(),
+            };
+            self.scrollback.drain(..cut);
+        }
         if let Some(sink) = self.sink.as_mut() {
             sink(Output::Data(chunk.to_vec()));
         }
@@ -81,14 +91,27 @@ struct Session {
     agent: Option<String>,
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    killer: Box<dyn ChildKiller + Send + Sync>,
+    child: ChildRef,
     shared: Arc<Mutex<Shared>>,
 }
 
 struct Process {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    killer: Box<dyn ChildKiller + Send + Sync>,
+    child: ChildRef,
+}
+
+/// Hangs up on the process, then kills it if it is still there shortly after, as one that ignores
+/// SIGHUP would be. In the background: nothing waits for it.
+fn end(child: &ChildRef) {
+    let child = child.clone();
+    std::thread::spawn(move || {
+        let mut child = child.lock().unwrap();
+        // Already reaped: its pid may belong to another process by now.
+        if matches!(child.try_wait(), Ok(None)) {
+            let _ = child.kill();
+        }
+    });
 }
 
 #[derive(Default)]
@@ -134,7 +157,7 @@ impl Sessions {
                 agent: spec.agent,
                 master: process.master,
                 writer: Arc::new(Mutex::new(process.writer)),
-                killer: process.killer,
+                child: process.child,
                 shared,
             },
         );
@@ -153,13 +176,13 @@ impl Sessions {
         if let Ok(size) = size {
             (spec.cols, spec.rows) = (size.cols, size.rows);
         }
-        let mut old = self.with(id, |s| s.killer.clone_killer())?;
+        let old = self.with(id, |s| s.child.clone())?;
         {
             let mut shared = shared.lock().unwrap();
             shared.process += 1;
             shared.exit = None;
         }
-        let _ = old.kill();
+        end(&old);
         let process = match self.start(id, &spec, &shared) {
             Ok(process) => process,
             Err(e) => {
@@ -177,7 +200,7 @@ impl Sessions {
             .ok_or_else(|| anyhow!("unknown session {id}"))?;
         session.master = process.master;
         *session.writer.lock().unwrap() = process.writer;
-        session.killer = process.killer;
+        session.child = process.child;
         Ok(())
     }
 
@@ -195,14 +218,15 @@ impl Sessions {
         for (key, value) in &spec.env {
             cmd.env(key, value);
         }
-        let mut child = pair
-            .slave
-            .spawn_command(cmd)
-            .with_context(|| format!("cannot start {}", spec.program))?;
+        let child: ChildRef = Arc::new(Mutex::new(
+            pair.slave
+                .spawn_command(cmd)
+                .with_context(|| format!("cannot start {}", spec.program))?,
+        ));
         // The master only sees EOF once every slave handle is closed.
         drop(pair.slave);
 
-        let killer = child.clone_killer();
+        let thread_child = child.clone();
         let mut reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
         let process = shared.lock().unwrap().process;
@@ -221,7 +245,14 @@ impl Sessions {
                         Err(_) => break,
                     }
                 }
-                let code = child.wait().ok().map(|s| s.exit_code());
+                // Polled, so `end` never waits behind a process that closed its terminal but lives on.
+                let code = loop {
+                    match thread_child.lock().unwrap().try_wait() {
+                        Ok(Some(status)) => break Some(status.exit_code()),
+                        Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                        Err(_) => break None,
+                    }
+                };
                 {
                     let mut shared = thread_shared.lock().unwrap();
                     if shared.process != process {
@@ -236,7 +267,7 @@ impl Sessions {
         Ok(Process {
             master: pair.master,
             writer,
-            killer,
+            child,
         })
     }
 
@@ -272,22 +303,19 @@ impl Sessions {
     }
 
     pub fn kill(&self, id: u32) -> Result<()> {
-        let mut session = self
+        let session = self
             .map
             .lock()
             .unwrap()
             .remove(&id)
             .ok_or_else(|| anyhow!("unknown session {id}"))?;
-        // Already exited is fine: dropping the session closes the PTY anyway.
-        let _ = session.killer.kill();
+        end(&session.child);
         Ok(())
     }
 
     /// Ends the session's process but keeps the session, as when it exits by itself.
     pub fn terminate(&self, id: u32) -> Result<()> {
-        let mut killer = self.with(id, |s| s.killer.clone_killer())?;
-        // Already exited is fine.
-        let _ = killer.kill();
+        end(&self.with(id, |s| s.child.clone())?);
         Ok(())
     }
 
@@ -575,5 +603,236 @@ mod tests {
                 .respawn_with(id + 1, |_| Ok(spec("/bin/true", &[])))
                 .is_err()
         );
+    }
+
+    fn alive(pid: &str) -> bool {
+        std::process::Command::new("kill")
+            .args(["-0", pid])
+            .status()
+            .unwrap()
+            .success()
+    }
+
+    fn wait_for(sessions: &Sessions, id: u32, text: &str) -> String {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let seen = String::from_utf8_lossy(&sessions.attach(id, Box::new(|_| {})).unwrap())
+                .into_owned();
+            if seen.contains(text) {
+                return seen;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no {text:?} in {seen:?}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn ends_a_process_that_ignores_the_hang_up() {
+        let sessions = Sessions::default();
+        let ignores = "trap '' HUP; echo pid=$$.; while :; do sleep 1; done";
+        let pid = |id| {
+            let seen = wait_for(&sessions, id, ".");
+            seen.split("pid=")
+                .nth(1)
+                .unwrap()
+                .split('.')
+                .next()
+                .unwrap()
+                .to_owned()
+        };
+        let closed = sessions.spawn(spec("/bin/sh", &["-c", ignores])).unwrap();
+        let closed_pid = pid(closed);
+        sessions.kill(closed).unwrap();
+        let stopped = sessions.spawn(spec("/bin/sh", &["-c", ignores])).unwrap();
+        let stopped_pid = pid(stopped);
+        sessions.terminate(stopped).unwrap();
+        collect(&sessions, stopped);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while alive(&closed_pid) || alive(&stopped_pid) {
+            assert!(std::time::Instant::now() < deadline, "still running");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!sessions.list()[0].running);
+    }
+
+    /// A simple generator with a fixed seed, so a failure reproduces.
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: usize) -> usize {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 % n as u64) as usize
+        }
+    }
+
+    /// Random terminal output, cut anywhere into chunks (inside characters and escape sequences too):
+    /// the scrollback stays within its size, is the end of what was written, and starts at a line, or
+    /// at a character when no line starts near the cut.
+    #[test]
+    fn the_scrollback_keeps_the_end_and_starts_at_a_line() {
+        const PIECES: [&str; 8] = [
+            "a",
+            "é",
+            "日本",
+            "😀",
+            "\x1b[38;5;196m",
+            "\x1b[0m",
+            "\r\n",
+            "x y",
+        ];
+        for (seed, newlines) in [(7, true), (11, true), (13, false)] {
+            let mut rng = Rng(seed);
+            let mut shared = Shared::default();
+            let mut written = Vec::new();
+            let mut checks = 0;
+            while written.len() < 3 * SCROLLBACK_BYTES {
+                let mut chunk = Vec::new();
+                for _ in 0..rng.below(4000) {
+                    let piece = PIECES[rng.below(PIECES.len() - usize::from(!newlines) * 2)];
+                    chunk.extend_from_slice(piece.as_bytes());
+                }
+                // Lines of a few hundred bytes at most.
+                if newlines && rng.below(2) == 0 {
+                    chunk.push(b'\n');
+                }
+                let mut rest = &chunk[..];
+                while !rest.is_empty() {
+                    let n = 1 + rng.below(rest.len().min(20_000));
+                    shared.push(&rest[..n]);
+                    written.extend_from_slice(&rest[..n]);
+                    rest = &rest[n..];
+                }
+                if rng.below(20) != 0 {
+                    continue;
+                }
+                checks += 1;
+                let kept: Vec<u8> = shared.scrollback.iter().copied().collect();
+                assert!(kept.len() <= SCROLLBACK_BYTES);
+                assert!(
+                    written.ends_with(&kept),
+                    "seed {seed}: not the end of the output"
+                );
+                if kept.len() == written.len() {
+                    continue;
+                }
+                assert!(
+                    kept.len() > SCROLLBACK_BYTES / 2,
+                    "seed {seed}: cut too far"
+                );
+                let before = written[written.len() - kept.len() - 1];
+                if newlines {
+                    assert_eq!(before, b'\n', "seed {seed}: replay starts inside a line");
+                } else {
+                    assert!(
+                        kept[0] & 0xC0 != 0x80,
+                        "seed {seed}: replay starts inside a character"
+                    );
+                }
+            }
+            assert!(checks > 5);
+        }
+    }
+
+    /// Megabytes of multibyte output through a real terminal: nothing lost on the way, the session ends,
+    /// and its replay is whole lines of valid UTF-8 ending with the last one.
+    #[test]
+    fn streams_a_large_output_and_replays_its_end() {
+        let sessions = Sessions::default();
+        let id = sessions
+            .spawn(spec(
+                "/bin/sh",
+                &[
+                    "-c",
+                    "i=0; while [ $i -lt 40 ]; do yes 'é日本😀 ligne' | head -n 5000; i=$((i+1)); done; echo fin-$((6*7))",
+                ],
+            ))
+            .unwrap();
+        let (tx, rx) = mpsc::channel();
+        sessions
+            .attach(
+                id,
+                Box::new(move |out| {
+                    let _ = tx.send(out);
+                }),
+            )
+            .unwrap();
+        let mut streamed = 0;
+        let code = loop {
+            match rx
+                .recv_timeout(Duration::from_secs(30))
+                .expect("pty timed out")
+            {
+                Output::Data(d) => streamed += d.len(),
+                Output::Exit(code) => break code,
+            }
+        };
+        assert_eq!(code, Some(0));
+        let line = "é日本😀 ligne\r\n".len();
+        assert!(streamed >= 200_000 * line, "{streamed} bytes");
+        let replay = sessions.attach(id, Box::new(|_| {})).unwrap();
+        assert!(replay.len() <= SCROLLBACK_BYTES);
+        let text = std::str::from_utf8(&replay).expect("valid UTF-8");
+        assert!(text.starts_with("é日本😀 ligne\r\n"), "{:?}", &text[..40]);
+        assert!(
+            text.ends_with("fin-42\r\n"),
+            "{:?}",
+            &text[text.len() - 40..]
+        );
+    }
+
+    #[test]
+    fn unicode_typed_comes_back_whole() {
+        let sessions = Sessions::default();
+        let id = sessions.spawn(spec("/bin/cat", &[])).unwrap();
+        let typed = "héllo 日本語 😀 e\u{301} \u{202e}rtl\u{202c} Ω\n";
+        sessions.write(id, typed.as_bytes()).unwrap();
+        let seen = wait_for(&sessions, id, "Ω\r\n");
+        assert!(
+            seen.contains("héllo 日本語 😀 e\u{301} \u{202e}rtl\u{202c} Ω"),
+            "{seen:?}"
+        );
+        sessions.kill(id).unwrap();
+    }
+
+    #[test]
+    fn a_running_program_sees_the_new_size() {
+        let sessions = Sessions::default();
+        let id = sessions
+            .spawn(spec(
+                "/bin/sh",
+                &["-c", "trap 'echo size=$(stty size).' WINCH; echo ready.; while :; do sleep 0.05; done"],
+            ))
+            .unwrap();
+        wait_for(&sessions, id, "ready.");
+        sessions.resize(id, 132, 50).unwrap();
+        wait_for(&sessions, id, "size=50 132.");
+        sessions.resize(id, 1, 1).unwrap();
+        wait_for(&sessions, id, "size=1 1.");
+        sessions.kill(id).unwrap();
+    }
+
+    #[test]
+    fn writing_to_an_ended_session_never_hangs() {
+        let sessions = Sessions::default();
+        let id = sessions.spawn(spec("/bin/sh", &["-c", "exit 0"])).unwrap();
+        collect(&sessions, id);
+        let (tx, rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for _ in 0..100 {
+                    let _ = sessions.write(id, &[b'x'; 4096]);
+                }
+                let _ = tx.send(());
+            });
+            rx.recv_timeout(Duration::from_secs(10))
+                .expect("write blocked");
+        });
+        sessions.resize(id, 10, 10).ok();
+        assert!(sessions.write(id + 1, b"x").is_err());
     }
 }
