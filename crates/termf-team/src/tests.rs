@@ -5263,3 +5263,35 @@ fn a_task_never_goes_to_a_role_on_another_agent() {
         "{second}"
     );
 }
+
+#[test]
+fn a_loop_an_agent_schedules_in_its_session_is_flagged() {
+    let env = Env::new("loops");
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "front", &["web"], &[])])),
+    );
+    let call = json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use",
+        "id": "toolu_1", "name": "CronCreate", "input": {"cron": "*/5 * * * *", "prompt": "check the deploy"}}]},
+        "session_id": "x"});
+    fs::write(env.answers.join("implement:T1.1.tool"), format!("{call}\n")).unwrap();
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("nogate".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    let run = env.until("T1 done", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.state == StepState::Done)
+    });
+    assert_eq!(
+        env.step(&run, "implement:T1").loops,
+        ["*/5 * * * * · check the deploy"]
+    );
+    assert!(env.step(&run, "plan").loops.is_empty());
+}

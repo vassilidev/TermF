@@ -13,6 +13,7 @@ pub mod cli_agents;
 pub mod context;
 pub mod db;
 pub mod ipc;
+pub mod loops;
 pub mod process;
 pub mod remote;
 #[cfg(feature = "test-util")]

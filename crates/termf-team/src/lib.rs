@@ -237,6 +237,10 @@ pub struct Step {
     pub merge: Option<String>,
     pub report: Option<Report>,
     pub violations: Vec<Violation>,
+    /// What its agent scheduled in its own session (`/loop`, `CronCreate`): TermF drives a run, and the
+    /// session ends with the step, so none of it ever runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loops: Vec<String>,
     /// All its sessions, in US dollars.
     pub cost: f64,
     /// Why it waits, is blocked or skipped, or a `shell` step's output.
@@ -281,6 +285,7 @@ impl Step {
             merge: None,
             report: None,
             violations: Vec::new(),
+            loops: Vec::new(),
             cost: 0.0,
             note: None,
             started: None,
@@ -2205,6 +2210,14 @@ impl Inner {
         if outcome == Outcome::Interrupted && resuming {
             return Ok(false);
         }
+        run.steps[i]
+            .loops
+            .extend(events.iter().filter_map(|e| match &e.event {
+                AgentEvent::ToolUse { name, input, .. } => {
+                    termf_core::loops::scheduled(name, input)
+                }
+                _ => None,
+            }));
         // A new session for each step: this one is over.
         let _ = self.agents.stop(id);
         self.costs(run);
