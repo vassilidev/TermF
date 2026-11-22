@@ -13,7 +13,7 @@
   import Terminal, { fontReady } from "$lib/Terminal.svelte";
   import { t } from "$lib/i18n";
   import { keys } from "$lib/commands";
-  import { app, ui } from "$lib/state.svelte";
+  import { app, onScreen, ui } from "$lib/state.svelte";
   import { zoomed } from "$lib/tabs.svelte";
 
   let open = $state(false);
@@ -51,7 +51,7 @@
     previousFocus?.focus();
   }
 
-  const visible = () => open && ui.view === "terminals";
+  const visible = () => open && onScreen("terminals");
   toggle = () => (visible() ? hide() : show());
 
   onMount(() => {

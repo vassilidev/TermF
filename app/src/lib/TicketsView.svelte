@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import Archive from "@lucide/svelte/icons/archive";
+  import BrushCleaning from "@lucide/svelte/icons/brush-cleaning";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Inbox from "@lucide/svelte/icons/inbox";
@@ -13,14 +15,18 @@
   import TicketRun, { openTile } from "$lib/TicketRun.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { isMac } from "$lib/files.svelte";
   import { ago, t } from "$lib/i18n";
   import { editProject } from "$lib/project.svelte";
+  import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
   import { app, repoName } from "$lib/state.svelte";
-  import { readyToClean } from "$lib/tickets-logic";
+  import { readyToClean, refusal } from "$lib/tickets-logic";
   import {
+    launchTicket,
     loadInbox,
     openUrl,
     refresh,
@@ -50,6 +56,105 @@
     id in sourceNames ? t(sourceNames[id]) : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
   const runs = $derived(tickets.scope ? tickets.runs.filter((r) => r.project === tickets.scope) : tickets.runs);
   const current = $derived(runs.find((r) => r.id === tickets.selected) ?? runs[0]);
+
+  let pickedTickets = $state(none<string>());
+  let pickedRuns = $state(none<number>());
+  const launchable = $derived((tickets.inbox ?? []).filter((ticket) => ticket.project).map((ticket) => ticket.url));
+  const chosenTickets = $derived(within(pickedTickets.keys, launchable));
+  const chosenRuns = $derived(runs.filter((r) => pickedRuns.keys.includes(r.id)));
+  const closable = $derived(chosenRuns.filter((r) => r.status !== "closed"));
+  const cleanable = $derived(chosenRuns.filter(readyToClean));
+  let asking = $state<"close" | "cleanup" | null>(null);
+  let bulk = $state(false);
+  /** Why the last bulk action left some picked, one per list. */
+  let leftTickets = $state("");
+  let leftRuns = $state("");
+
+  const toggleKey = (e: MouseEvent) => (isMac ? e.metaKey : e.ctrlKey);
+
+  /** The box's own state follows the selection, not the click. */
+  function pickTicket(e: MouseEvent, url: string) {
+    e.preventDefault();
+    leftTickets = "";
+    pickedTickets = pick(pickedTickets, launchable, url, e.shiftKey);
+  }
+
+  function pickRun(e: MouseEvent, id: number) {
+    e.preventDefault();
+    leftRuns = "";
+    asking = null;
+    pickedRuns = pick(pickedRuns, runs.map((r) => r.id), id, e.shiftKey);
+  }
+
+  function rowClick(e: MouseEvent, run: () => void) {
+    if (!(toggleKey(e) || e.shiftKey) || (e.target as Element).closest("button:not(.pick), a, input, select")) return;
+    run();
+  }
+
+  /** Why some stay picked: a reason the user can act on (`kept`), then failures, whose errors the banner shows. */
+  function leftOf(out: { kept: unknown[]; failed: unknown[] }, keptLabel: Parameters<typeof t>[0]) {
+    return [
+      out.kept.length ? t(keptLabel, { count: out.kept.length }) : "",
+      out.failed.length ? t("t6bFailed", { count: out.failed.length }) : "",
+    ].filter(Boolean).join(" ");
+  }
+
+  /** One after the other; a ticket whose repository must be chosen stays picked, to launch from its row. */
+  async function launchPicked() {
+    const list = (tickets.inbox ?? []).filter((ticket) => chosenTickets.includes(ticket.url));
+    bulk = true;
+    pending = null;
+    const results: [string, Outcome][] = [];
+    for (const ticket of list) {
+      starting = ticket.url;
+      // `resolve` clears the error of the ticket before: each one is kept here.
+      const resolution = await resolve(ticket.url, ticket.project);
+      if (!resolution) {
+        results.push([ticket.url, { error: tickets.error }]);
+        continue;
+      }
+      if (!resolution.repo) {
+        results.push([ticket.url, "kept"]);
+        continue;
+      }
+      try {
+        upsert(await invoke<Run>("tickets_run", { input: ticket.url, project: resolution.project, repo: resolution.repo, cols: 120, rows: 32 }));
+        results.push([ticket.url, "done"]);
+      } catch (e) {
+        results.push([ticket.url, { error: String(e) }]);
+      }
+    }
+    starting = "";
+    bulk = false;
+    const out = settle(results);
+    tickets.error = out.errors.join(" · ");
+    pickedTickets = { keys: [...out.kept, ...out.failed], anchor: null };
+    if (out.done) tickets.done = t("t6bLaunched", { count: out.done });
+    leftTickets = leftOf(out, "t6bLaunchLeft");
+  }
+
+  /** Never by force: a run with work not pushed stays picked, to open and decide on its own. */
+  async function closePicked(kind: "close" | "cleanup") {
+    const list = kind === "close" ? closable : cleanable;
+    asking = null;
+    bulk = true;
+    const results: [number, Outcome][] = [];
+    for (const run of list) {
+      try {
+        upsert(await invoke<Run>(kind === "close" ? "tickets_close" : "tickets_cleanup", { id: run.id, force: false }));
+        results.push([run.id, "done"]);
+      } catch (e) {
+        const why = refusal(e);
+        results.push([run.id, why.kind === "error" ? { error: why.message } : "kept"]);
+      }
+    }
+    bulk = false;
+    const out = settle(results);
+    if (out.errors.length) tickets.error = out.errors.join(" · ");
+    pickedRuns = { keys: [...out.kept, ...out.failed], anchor: null };
+    if (out.done) tickets.done = t(kind === "close" ? "t6bClosed" : "t6bCleaned", { count: out.done });
+    leftRuns = leftOf(out, "t6bRefused");
+  }
 
   // The inbox follows the current project; showTickets asked for the first one.
   let inboxScope = tickets.scope;
@@ -262,9 +367,41 @@
             {/if}
           </EmptyState>
         {:else}
-          <ul class="inbox">
+          {#if chosenTickets.length}
+            <div class="sticky">
+              <SelectionBar
+                count={chosenTickets.length}
+                total={launchable.length}
+                label={t("ticketsTabInbox")}
+                onall={() => ((leftTickets = ""), (pickedTickets = all(pickedTickets, launchable)))}
+                onclear={() => ((leftTickets = ""), (pickedTickets = none()))}
+              >
+                {#if leftTickets}<span class="note">{leftTickets}</span>{/if}
+                <button class="btn sm primary" disabled={bulk || !!starting} onclick={launchPicked}>
+                  {@render launching(bulk)}{#if !bulk}{` · ${chosenTickets.length}`}{/if}
+                </button>
+              </SelectionBar>
+            </div>
+          {/if}
+          <ul class="inbox" class:picking={chosenTickets.length > 0}>
             {#each tickets.inbox as ticket (ticket.url)}
-              <li class="ticket">
+              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (the box does it from the keyboard) -->
+              <li
+                class="ticket"
+                class:picked={chosenTickets.includes(ticket.url)}
+                onclick={(e) => ticket.project && rowClick(e, () => pickTicket(e, ticket.url))}
+              >
+                {#if ticket.project}
+                  <input
+                    class="box"
+                    type="checkbox"
+                    checked={chosenTickets.includes(ticket.url)}
+                    aria-label={t("t6bPick", { name: `${ticket.key} ${ticket.title}` })}
+                    onclick={(e) => pickTicket(e, ticket.url)}
+                  />
+                {:else}
+                  <span class="box" aria-hidden="true"></span>
+                {/if}
                 <div class="what">
                   <span class="name">{ticket.title}</span>
                   <span class="desc">
@@ -309,14 +446,61 @@
       </div>
     {:else if !runs.length}
       <div class="pane">
-        <EmptyState icon={Ticket} title={t("runsEmpty")} text={t("runsEmptyHelp")} />
+        <EmptyState icon={Ticket} title={t("runsEmpty")} text={t("runsEmptyHelp")}>
+          <div class="empty-actions">
+            <button class="btn" onclick={() => (tickets.tab = "inbox")}>
+              <Inbox size={14} aria-hidden="true" />{t("ticketsTabInbox")}
+            </button>
+            <button class="btn" onclick={launchTicket}>
+              <Ticket size={14} aria-hidden="true" />{t("ticketLaunchLong")}
+            </button>
+          </div>
+        </EmptyState>
       </div>
     {:else}
+      {#if chosenRuns.length}
+        <SelectionBar
+          count={chosenRuns.length}
+          total={runs.length}
+          label={t("ticketsTabRuns")}
+          onall={() => ((leftRuns = ""), (asking = null), (pickedRuns = all(pickedRuns, runs.map((r) => r.id))))}
+          onclear={() => ((leftRuns = ""), (asking = null), (pickedRuns = none()))}
+        >
+          {#if asking}
+            {@const count = (asking === "close" ? closable : cleanable).length}
+            <span class="ask" role="alert">{t(asking === "close" ? "t6bCloseAsk" : "t6bCleanAsk", { count })}</span>
+            <button class="btn sm" onclick={() => (asking = null)}>{t("cancel")}</button>
+            <button class="btn sm danger" onclick={() => asking && closePicked(asking)}>
+              {t(asking === "close" ? "closeRun" : "ticketsUiClean")} · {count}
+            </button>
+          {:else}
+            {#if leftRuns}<span class="note">{leftRuns}</span>{/if}
+            {#if bulk}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
+            <button class="btn sm" disabled={bulk || !cleanable.length} onclick={() => (asking = "cleanup")}>
+              <BrushCleaning size={14} aria-hidden="true" />{t("ticketsUiClean")} · {cleanable.length}
+            </button>
+            <button class="btn sm" disabled={bulk || !closable.length} onclick={() => (asking = "close")}>
+              <Archive size={14} aria-hidden="true" />{t("closeRun")} · {closable.length}
+            </button>
+          {/if}
+        </SelectionBar>
+      {/if}
       <div class="split">
-        <ul class="list" aria-label={t("ticketsTabRuns")}>
+        <ul class="list" class:picking={chosenRuns.length > 0} aria-label={t("ticketsTabRuns")}>
           {#each runs as run (run.id)}
-            <li class="row" class:current={run === current}>
-              <button class="pick" aria-current={run === current} onclick={() => (tickets.selected = run.id)}>
+            <li class="row" class:current={run === current} class:picked={pickedRuns.keys.includes(run.id)}>
+              <input
+                class="box"
+                type="checkbox"
+                checked={pickedRuns.keys.includes(run.id)}
+                aria-label={t("t6bPick", { name: `${run.ticket.key} ${run.title}` })}
+                onclick={(e) => pickRun(e, run.id)}
+              />
+              <button
+                class="pick"
+                aria-current={run === current}
+                onclick={(e) => (toggleKey(e) || e.shiftKey ? pickRun(e, run.id) : (tickets.selected = run.id))}
+              >
                 <span class="name"><span class="mono">{run.ticket.key}</span> {run.title}</span>
                 <span class="desc">{repoName(run.repo)}{run.branch ? ` · ${run.branch}` : ""} · {ago(run.updated)}</span>
               </button>
@@ -393,6 +577,30 @@
     margin: 0;
     padding: 8px 12px 32px;
     list-style: none;
+  }
+
+  .sticky {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+  }
+
+  .row .box {
+    margin-left: 8px;
+  }
+
+  /* In place of the box of a ticket with no project: the titles stay aligned. */
+  span.box {
+    flex-shrink: 0;
+    width: 14px;
+  }
+
+  .empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
   }
 
   .ticket {

@@ -8,10 +8,16 @@
   import { languages } from "@codemirror/language-data";
   import { MergeView } from "@codemirror/merge";
   import { tags } from "@lezer/highlight";
+  import FileSearch from "@lucide/svelte/icons/file-search";
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
   import { lang, t } from "$lib/i18n";
   import { display } from "$lib/keymap.svelte";
+  import { editProject } from "$lib/project.svelte";
   import {
     ask,
+    currentProject,
     files,
     isMac,
     openExternal,
@@ -214,8 +220,19 @@
     {/if}
   {/if}
 
-  {#if !tab}
-    <p class="message muted">{t("filesEmpty", { key: display("find_file") })}</p>
+  {#if !tab && !files.repo}
+    {@const project = currentProject()}
+    <EmptyState icon={FolderTree} title={t("noRepos")} text={t("t6bFilesNoRepo")}>
+      <button class="btn" onclick={() => editProject(project?.id ?? "")}>
+        <Pencil size={14} aria-hidden="true" />{t(project ? "ticketsEditProject" : "newProject")}
+      </button>
+    </EmptyState>
+  {:else if !tab}
+    <EmptyState icon={FileSearch} text={t("filesEmpty", { key: display("find_file") })}>
+      <button class="btn" onclick={() => (files.finder = true)}>
+        <FileSearch size={14} aria-hidden="true" />{t("filesFind")}
+      </button>
+    </EmptyState>
   {:else}
     {@const issue = tab.content.kind === "text" ? (tab.diff ? headIssue : null) : tab.content}
     {#if issue?.kind === "binary"}

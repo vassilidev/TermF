@@ -1684,6 +1684,77 @@ const fr = {
   chatSend: "Envoyer",
   chatLoadError: "Impossible de lire la conversation : {error}",
   chatRetry: "Réessayer",
+  // UX pass 2 · T6b: two panels, help, guided tour, multi-select.
+  t6bHelp: "Aide et raccourcis",
+  t6bHelpTyped: "« ? » l'ouvre aussi, hors d'un champ de saisie et d'un terminal",
+  t6bSplitView: "Second panneau (ouvrir ou fermer)",
+  t6bOtherPanel: "Passer à l'autre panneau",
+  t6bClosePanel: "Fermer ce panneau",
+  t6bOpenBeside: "Ouvrir à côté",
+  t6bOpenBesideView: "Ouvrir à côté : {view}",
+  t6bBeside: "(dans l'autre panneau)",
+  t6bClick: "{key}-clic",
+  t6bEditKeys: "Modifier les raccourcis",
+  t6bTipBeside: "{key}-clic sur une vue de la navigation, ou clic droit, l'ouvre à côté de celle où tu es.",
+  t6bTipSelect: "Dans l'inbox, les runs, les conversations et les onglets, {key}-clic ou Maj-clic en sélectionne plusieurs.",
+  t6bHelpTerminals:
+    "Tes sessions d'agents et de shells, en onglets. « Nouvelle session » en ouvre une ; divise un onglet pour en voir plusieurs côte à côte, et passe d'un split à l'autre au clavier.",
+  t6bHelpConversations:
+    "Les agents qui travaillent sans terminal : écris-leur, réponds à leurs demandes d'autorisation, ou prends la main dans une tuile.",
+  t6bHelpTickets:
+    "L'inbox liste les tickets du projet ; « Lancer » ouvre un run (branche, worktree, session). Un run se livre en pull request, puis se nettoie une fois mergé.",
+  t6bHelpFiles: "Parcours et modifie les fichiers d'un dépôt du projet : arborescence, recherche, diff git.",
+  t6bHelpTeam: "Les rôles d'agents du projet : active ceux dont il a besoin ; « En service » montre qui travaille.",
+  t6bHelpLibrary:
+    "Ce que reçoivent tes sessions Claude Code (skills, commandes, rôles, préférences, règles), par niveau : global, projet, dépôt.",
+  t6bHelpCi: "Les exécutions GitHub Actions des dépôts du projet : suis-les, lis les journaux, relance ou annule.",
+  t6bHelpScheduler: "Des tâches Claude Code lancées à heure fixe, même quand l'app est fermée.",
+  t6bHelpClaude: "Toute la configuration Claude Code de cette machine, et les artifacts de ton compte.",
+  t6bHelpSsh: "Tes clés SSH, l'agent, les hôtes et les remotes SSH de tes dépôts.",
+  t6bHelpSettings:
+    "Les réglages de cette machine : rester éveillé, contexte, raccourcis, CI/CD, Claude, configuration, synchronisation.",
+  t6bHelpProject: "Le nom du projet, ses dépôts et ses sources de tickets. Échap revient où tu étais.",
+  t6bHelpOnboarding:
+    "TermF analyse les dépôts du projet, te pose quelques questions, puis propose une configuration à accepter ou refuser, point par point.",
+  t6bFilesNoRepo: "Les fichiers se parcourent dans les dépôts de tes projets : ajoutes-en un.",
+  t6bTour: "Visite guidée",
+  t6bTourStep: "{n} sur {total}",
+  t6bTourSkip: "Passer",
+  t6bTourBack: "Précédent",
+  t6bTourNext: "Suivant",
+  t6bTourDone: "Terminer",
+  t6bTour1Title: "Le projet courant",
+  t6bTour1: "Tout suit le projet choisi ici : sessions, tickets, fichiers, équipe. Changes-en d'un clic ou au clavier.",
+  t6bTour2Title: "Sessions, onglets et splits",
+  t6bTour2:
+    "Les Terminaux montrent tes agents Claude Code et tes shells. Chaque session s'ouvre dans un onglet ; divise-le pour en voir plusieurs côte à côte.",
+  t6bTour3Title: "Ce qui t'attend",
+  t6bTour3:
+    "Quand un agent t'attend, un bandeau ambre apparaît ici et le raccourci t'y emmène. La palette fait tout le reste au clavier.",
+  t6bTour4:
+    "L'inbox liste les tickets du projet. « Lancer » crée une branche, un worktree et une session Claude Code ; coches-en plusieurs pour les lancer d'un coup.",
+  t6bTour5Title: "Conversations et équipe",
+  t6bTour5:
+    "Conversations suit les agents qui travaillent sans terminal : leur fil, leurs outils, leurs demandes d'autorisation. Équipe montre les rôles du projet et qui est en service.",
+  t6bTour6Title: "Deux vues côte à côte",
+  t6bTour6:
+    "{key}-clic sur une vue, ou clic droit puis « Ouvrir à côté », l'affiche à côté de celle où tu es : Conversations | Fichiers, Terminaux | Tickets…",
+  t6bTour7Title: "Réglages et aide",
+  t6bTour7:
+    "Les Réglages rassemblent tout, dont chaque raccourci, modifiable. Appuie sur ? hors d'un terminal pour l'aide de la vue où tu es ; cette visite s'y relance.",
+  t6bSelectAll: "Tout sélectionner",
+  t6bPick: "Sélectionner {name}",
+  t6bChosen: "sélectionné",
+  t6bLaunched: "Runs lancés : {count}.",
+  t6bLaunchLeft: "Pas lancés : {count}. Choisis leur dépôt depuis leur ligne.",
+  t6bFailed: "En échec : {count}, voir l'erreur au-dessus.",
+  t6bClosed: "Runs fermés : {count}.",
+  t6bCleaned: "Runs nettoyés : {count}.",
+  t6bRefused: "Laissés de côté : {count}, du travail n'y est pas poussé. Ouvre-les un par un.",
+  t6bCloseAsk: "Fermer ces runs ({count}) ? Leurs sessions s'arrêtent et leurs worktrees sont retirés.",
+  t6bCleanAsk: "Nettoyer ces runs ({count}) ? Leurs sessions s'arrêtent, leurs worktrees et branches locales sont retirés.",
+  t6bCloseTabsAsk: "Fermer ces sessions ({count}, dont {running} en cours) ?",
+  t6bStopAsk: "Arrêter ces agents ({count}) ? Leur conversation reste lisible.",
 };
 
 type Key = keyof typeof fr;
@@ -3358,6 +3429,77 @@ const en: Record<Key, string> = {
   chatSend: "Send",
   chatLoadError: "Cannot read the conversation: {error}",
   chatRetry: "Retry",
+  // UX pass 2 · T6b: two panels, help, guided tour, multi-select.
+  t6bHelp: "Help and shortcuts",
+  t6bHelpTyped: "“?” opens it too, outside a text field and a terminal",
+  t6bSplitView: "Second panel (open or close)",
+  t6bOtherPanel: "Go to the other panel",
+  t6bClosePanel: "Close this panel",
+  t6bOpenBeside: "Open beside",
+  t6bOpenBesideView: "Open beside: {view}",
+  t6bBeside: "(in the other panel)",
+  t6bClick: "{key}-click",
+  t6bEditKeys: "Edit the shortcuts",
+  t6bTipBeside: "{key}-click a view in the navigation, or right-click it, to open it beside the one you are in.",
+  t6bTipSelect: "In the inbox, the runs, the conversations and the tabs, {key}-click or Shift-click picks several.",
+  t6bHelpTerminals:
+    "Your agent and shell sessions, in tabs. “New session” opens one; split a tab to see several side by side, and move between splits from the keyboard.",
+  t6bHelpConversations:
+    "The agents working without a terminal: write to them, answer their permission requests, or take over in a tile.",
+  t6bHelpTickets:
+    "The inbox lists the project's tickets; “Launch” starts a run (branch, worktree, session). A run is delivered as a pull request, then cleaned up once merged.",
+  t6bHelpFiles: "Browse and edit the files of a project's repository: tree, search, git diff.",
+  t6bHelpTeam: "The project's agent roles: turn on those it needs; “On duty” shows who is working.",
+  t6bHelpLibrary:
+    "What your Claude Code sessions receive (skills, commands, roles, preferences, rules), by level: global, project, repository.",
+  t6bHelpCi: "The GitHub Actions runs of the project's repositories: follow them, read the logs, rerun or cancel.",
+  t6bHelpScheduler: "Claude Code tasks started at set times, even while the app is closed.",
+  t6bHelpClaude: "All the Claude Code configuration of this machine, and your account's artifacts.",
+  t6bHelpSsh: "Your SSH keys, the agent, the hosts and your repositories' SSH remotes.",
+  t6bHelpSettings:
+    "This machine's settings: keep awake, context, shortcuts, CI/CD, Claude, configuration, sync.",
+  t6bHelpProject: "The project's name, its repositories and its ticket sources. Escape goes back where you were.",
+  t6bHelpOnboarding:
+    "TermF looks at the project's repositories, asks you a few questions, then proposes a setup to accept or decline, item by item.",
+  t6bFilesNoRepo: "Files are browsed in your projects' repositories: add one.",
+  t6bTour: "Guided tour",
+  t6bTourStep: "{n} of {total}",
+  t6bTourSkip: "Skip",
+  t6bTourBack: "Back",
+  t6bTourNext: "Next",
+  t6bTourDone: "Done",
+  t6bTour1Title: "The current project",
+  t6bTour1: "Everything follows the project picked here: sessions, tickets, files, team. Switch in a click or from the keyboard.",
+  t6bTour2Title: "Sessions, tabs and splits",
+  t6bTour2:
+    "Terminals show your Claude Code agents and shells. Each session opens in a tab; split it to see several side by side.",
+  t6bTour3Title: "What is waiting for you",
+  t6bTour3:
+    "When an agent waits for you, an amber banner shows here and the shortcut takes you there. The palette does everything else from the keyboard.",
+  t6bTour4:
+    "The inbox lists the project's tickets. “Launch” makes a branch, a worktree and a Claude Code session; tick several to launch them at once.",
+  t6bTour5Title: "Conversations and team",
+  t6bTour5:
+    "Conversations follows the agents working without a terminal: their thread, tools and permission requests. Team shows the project's roles and who is on duty.",
+  t6bTour6Title: "Two views side by side",
+  t6bTour6:
+    "{key}-click a view, or right-click it then “Open beside”, to show it beside the one you are in: Conversations | Files, Terminals | Tickets…",
+  t6bTour7Title: "Settings and help",
+  t6bTour7:
+    "Settings hold everything, every shortcut included, all editable. Press ? outside a terminal for help on the view you are in; this tour restarts from there.",
+  t6bSelectAll: "Select all",
+  t6bPick: "Select {name}",
+  t6bChosen: "selected",
+  t6bLaunched: "Runs launched: {count}.",
+  t6bLaunchLeft: "Not launched: {count}. Pick their repository from their row.",
+  t6bFailed: "Failed: {count}, see the error above.",
+  t6bClosed: "Runs closed: {count}.",
+  t6bCleaned: "Runs cleaned up: {count}.",
+  t6bRefused: "Left aside: {count}, they hold work not pushed. Open them one by one.",
+  t6bCloseAsk: "Close these runs ({count})? Their sessions stop and their worktrees are removed.",
+  t6bCleanAsk: "Clean up these runs ({count})? Their sessions stop, their worktrees and local branches are removed.",
+  t6bCloseTabsAsk: "Close these sessions ({count}, {running} running)?",
+  t6bStopAsk: "Stop these agents ({count})? Their conversation stays readable.",
 };
 
 const messages = { fr, en };

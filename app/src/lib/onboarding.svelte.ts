@@ -1,6 +1,8 @@
 import { untrack } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
-import { app, ui, type ViewId } from "$lib/state.svelte";
+import { app, onScreen, panes, ui, type ViewId } from "$lib/state.svelte";
+// Each module reads the other only inside functions, so the import cycle is safe.
+import { closePanel } from "$lib/panes.svelte";
 
 /** The project whose onboarding assistant is open. */
 export const setup = $state({ project: null as string | null });
@@ -27,7 +29,9 @@ export function openSetup(id: string) {
 
 export function closeSetup() {
   setup.project = null;
-  if (ui.view === "onboarding") ui.view = usable(back);
+  // Beside another view, its panel closes.
+  if (panes.other !== null && onScreen("onboarding")) closePanel("onboarding");
+  else if (ui.view === "onboarding") ui.view = usable(back);
 }
 
 /** The project's analysis: the one running, else a new one. */
@@ -58,7 +62,7 @@ export function watchSetup() {
     $effect(() => {
       const id = app.project;
       untrack(() => {
-        if (ui.view === "onboarding") {
+        if (onScreen("onboarding")) {
           if (id === null) return closeSetup();
           setup.project = id;
         }
