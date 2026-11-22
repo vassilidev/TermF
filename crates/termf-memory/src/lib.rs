@@ -582,20 +582,7 @@ fn row(doc: Doc, mask: &dyn Fn(&str) -> String) -> Row {
     }
 }
 
-/// The project whose repository holds `path`: the first that lists it.
-pub fn project_of(config_dir: &Path, path: &Path) -> Result<Option<String>> {
-    // The current folder comes resolved (`/private/tmp` on macOS), a project's path as written.
-    let real = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let path = real(path);
-    Ok(termf_core::load_projects(config_dir)?
-        .into_iter()
-        .find(|p| {
-            p.repos
-                .iter()
-                .any(|r| path.starts_with(real(Path::new(&r.path))))
-        })
-        .map(|p| p.id))
-}
+pub use termf_core::project_of;
 
 /// Each word of a question as a prefix, any of them: FTS5's own syntax never comes from the caller, and BM25
 /// ranks the documents with the most and rarest words first.

@@ -35,3 +35,6 @@ hidapi = { version = "2.6.7", default-features = false, features = ["linux-nativ
 # Windows lets only its WebAuthn API reach a security key.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Networking_WindowsWebServices", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+termf-core = { path = "../termf-core", features = ["test-util"] }

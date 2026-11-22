@@ -1,4 +1,5 @@
 mod fake;
+mod props;
 mod remotes;
 
 use std::collections::HashMap;

@@ -37,6 +37,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
     let description = take_opt(&mut args, "--description")?;
     let out = take_opt(&mut args, "-o")?;
     let csv = take_flag(&mut args, "--csv");
+    let restore = take_flag(&mut args, "--restore");
     let id = |name: &str| SecretId::new(name, scope.unwrap_or(Scope::Dev), project.as_deref());
     match args.as_slice() {
         ["init"] => {
@@ -161,7 +162,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 );
             }
         }
-        ["import", file] => import(&vault, &actor, file, project.as_deref())?,
+        ["import", file] => import(&vault, &actor, file, project.as_deref(), restore)?,
         _ => bail!(crate::USAGE),
     }
     Ok(())
@@ -226,7 +227,13 @@ fn export_csv(vault: &Vault, actor: &Actor, out: &str, project: Option<&str>) ->
 }
 
 /// A TermF export (alone or in a config archive), merged; or another manager's, after its preview.
-fn import(vault: &Vault, actor: &Actor, file: &str, project: Option<&str>) -> Result<()> {
+fn import(
+    vault: &Vault,
+    actor: &Actor,
+    file: &str,
+    project: Option<&str>,
+    restore: bool,
+) -> Result<()> {
     let mut bytes = Zeroizing::new(fs::read(file).with_context(|| format!("cannot read {file}"))?);
     if bytes.starts_with(&[0x1f, 0x8b]) {
         let sealed = termf_library::archive::vault(Path::new(file))?;
@@ -235,7 +242,7 @@ fn import(vault: &Vault, actor: &Actor, file: &str, project: Option<&str>) -> Re
     open(vault, actor)?;
     if termf_vault::is_export(&bytes) {
         let password = prompt("Export password: ")?;
-        let rows = vault.preview_import(&bytes, password.expose())?;
+        let rows = vault.preview_import(&bytes, password.expose(), restore)?;
         for row in rows.iter().filter(|r| r.change != Change::Unchanged) {
             let change = serde_json::to_value(row.change)?;
             let what = row.scope.map_or("item", Scope::as_str);
@@ -247,8 +254,12 @@ fn import(vault: &Vault, actor: &Actor, file: &str, project: Option<&str>) -> Re
             );
         }
         println!("{}", termf_vault::summary(&rows));
-        if confirm("Import?")? {
-            let rows = vault.import_sealed(actor, &bytes, password.expose())?;
+        if confirm(if restore {
+            "Import, restoring what was deleted since?"
+        } else {
+            "Import?"
+        })? {
+            let rows = vault.import_sealed(actor, &bytes, password.expose(), restore)?;
             println!("Imported: {}.", termf_vault::summary(&rows));
         }
         return Ok(());

@@ -13,7 +13,7 @@ use zeroize::Zeroizing;
 
 use crate::foreign::{self, Candidate};
 use crate::item::{Item, Kind};
-use crate::merge::{Change, Merged, new_rev, summary};
+use crate::merge::{Change, Element, Merged, Tombstone, new_rev, summary};
 use crate::totp::Totp;
 use crate::{
     Action, Actor, Content, Event, MAX_VALUE, MIN_PASSWORD, Secret, SecretId, Vault, kdf,
@@ -92,6 +92,32 @@ impl Content {
 }
 
 impl Content {
+    /// What `theirs` holds and was deleted here since: its tombstone goes, and it comes back as a new version, so
+    /// no machine's deletion takes it again. How many come back.
+    fn restore(&mut self, theirs: &mut Content) -> usize {
+        fn back<E: Element>(
+            tombstones: &mut Vec<Tombstone>,
+            elements: &mut [E],
+            here: &[E],
+        ) -> usize {
+            let mut count = 0;
+            for element in elements {
+                let key = element.key();
+                let before = tombstones.len();
+                if !here.iter().any(|h| h.key() == key) {
+                    tombstones.retain(|t| t.key != key);
+                }
+                if tombstones.len() < before {
+                    new_rev(element.revs_mut());
+                    count += 1;
+                }
+            }
+            count
+        }
+        back(&mut self.tombstones, &mut theirs.items, &self.items)
+            + back(&mut self.tombstones, &mut theirs.secrets, &self.secrets)
+    }
+
     /// The elements of one project (`None`: all), with their tombstones; never the other versions in conflict.
     fn part(&self, project: Option<&str>) -> Content {
         let ours = |p: &Option<String>| project.is_none() || p.as_deref() == project;
@@ -129,7 +155,7 @@ fn what(items: usize, secrets: usize, project: Option<&str>) -> String {
 /// A field of the CSV: quoted when it must be, and never read as a formula by a spreadsheet (an apostrophe first).
 fn cell(out: &mut String, text: &str) {
     let mut text = Zeroizing::new(text.to_owned());
-    if text.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+    if foreign::formula(&text) {
         text.insert(0, '\'');
     }
     if text.contains([',', '"', '\n', '\r']) {
@@ -273,7 +299,7 @@ impl Vault {
         self.confirmed()?;
         let part = self.open()?.part(project);
         let mut out = Zeroizing::new(String::from(
-            "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n",
+            "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp,termf_export\n",
         ));
         for item in &part.items {
             let kind = match item.kind {
@@ -281,7 +307,7 @@ impl Vault {
                 Kind::Note => "note",
             };
             let totp = item.totp.as_ref().map(|t| t.uri(&item.title));
-            let cells: [&str; 11] = [
+            let cells: [&str; 12] = [
                 item.project.as_deref().unwrap_or_default(),
                 "",
                 kind,
@@ -293,6 +319,7 @@ impl Vault {
                 &item.username,
                 item.password.as_ref().map_or("", Secret::expose),
                 totp.as_ref().map_or("", |t| t.expose()),
+                "1",
             ];
             for (i, text) in cells.iter().enumerate() {
                 if i > 0 {
@@ -310,28 +337,49 @@ impl Vault {
         Ok(())
     }
 
-    /// What importing an export would do, element by element: titles, never a value.
-    pub fn preview_import(&self, bytes: &[u8], password: &str) -> Result<Vec<Merged>> {
-        let (from, theirs) = read_export(bytes, password)?;
+    /// What importing an export would do, element by element: titles, never a value. `restore`: as
+    /// `import_sealed` with it.
+    pub fn preview_import(
+        &self,
+        bytes: &[u8],
+        password: &str,
+        restore: bool,
+    ) -> Result<Vec<Merged>> {
+        let (from, mut theirs) = read_export(bytes, password)?;
         let (here, _) = self.key()?;
         let mut content = self.open()?;
+        if restore {
+            content.restore(&mut theirs);
+        }
         Ok(content.merge_export(theirs, from.as_deref(), &here, self.clock.wall()))
     }
 
     /// Merges an export of this vault as the sync merges another machine's version: both versions kept when
     /// both changed, deletions only of what they saw. Another vault's only adds, or sets its versions beside
     /// ours. Writing a prod secret asks for the master password again, as by hand.
+    ///
+    /// `restore`: what the export holds and was deleted here since comes back too (audit `restore`), on every
+    /// machine the vault syncs with.
     pub fn import_sealed(
         &self,
         actor: &Actor,
         bytes: &[u8],
         password: &str,
+        restore: bool,
     ) -> Result<Vec<Merged>> {
         let (from, theirs) = read_export(bytes, password)?;
         let (here, _) = self.key()?;
         let from = from.as_deref();
         let now = self.clock.wall();
-        let rows = self.open()?.merge_export(theirs.clone(), from, &here, now);
+        let merge = |content: &mut Content| {
+            let mut theirs = theirs.clone();
+            let restored = match restore {
+                true => content.restore(&mut theirs),
+                false => 0,
+            };
+            (content.merge_export(theirs, from, &here, now), restored)
+        };
+        let (rows, restored) = merge(&mut self.open()?);
         let prod = rows
             .iter()
             .find(|r| r.scope == Some(crate::Scope::Prod) && r.change != Change::Unchanged);
@@ -343,13 +391,18 @@ impl Vault {
             };
             self.prod_gate(actor, &id)?;
         }
-        let event = Event {
-            detail: Some(format!("TermF export: {}", summary(&rows))),
-            ..Event::new(actor, Action::Import)
+        let (action, detail) = match restore {
+            true => (
+                Action::Restore,
+                format!("TermF export: {}; {restored} restored", summary(&rows)),
+            ),
+            false => (Action::Import, format!("TermF export: {}", summary(&rows))),
         };
-        self.modify(event, |content| {
-            Ok(content.merge_export(theirs, from, &here, now))
-        })
+        let event = Event {
+            detail: Some(detail),
+            ..Event::new(actor, action)
+        };
+        self.modify(event, |content| Ok(merge(content).0))
     }
 
     /// Another manager's export, read and compared with the vault: what each line would become, which ones

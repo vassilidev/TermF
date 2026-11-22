@@ -21,6 +21,7 @@
     ai: "roles2KindAi",
     analytics: "roles2KindAnalytics",
     legal: "roles2KindLegal",
+    research: "greenfieldKindResearch",
     other: "ctoEntryKindOther",
   };
 

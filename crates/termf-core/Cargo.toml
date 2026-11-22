@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# The seeded generator of the property tests, for other crates' dev-dependencies only.
+test-util = []
+
 [dependencies]
 anyhow = "1.0.104"
 dirs = "7.0.0"

@@ -114,6 +114,7 @@ pub fn quick_terminal(
             cols,
             rows,
             env: Vec::new(),
+            base_env: None,
         })
         .map_err(err)?;
     *current = Some(id);

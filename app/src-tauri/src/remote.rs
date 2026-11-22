@@ -1,12 +1,14 @@
 //! Remote Control of the Claude Code tiles (ARCHITECTURE §6.6): the switch on each tile, the project's and the role's
 //! default, "cut all", and the lock of a session that read production data.
 
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
+use termf_core::agent_env::AgentEnv;
 use termf_core::remote::{self, Policy};
 use termf_core::{Project, claude};
 use termf_term::shell_quote;
@@ -31,6 +33,10 @@ pub struct Relaunch {
     pub settings: Option<PathBuf>,
     /// The conversation it started in (`--session-id` or `--resume`), until its hooks say which it is in.
     pub conversation: Option<String>,
+    /// What the agent starts from instead of TermF's environment, and what it keeps of it after its login shell
+    /// (`termf_core::agent_env`): none with `inherit`.
+    pub base_env: Option<Vec<(OsString, OsString)>>,
+    pub allowlist: Option<AgentEnv>,
 }
 
 impl Relaunch {
@@ -472,6 +478,7 @@ mod tests {
             cols: 200,
             rows: 24,
             env: Vec::new(),
+            base_env: None,
         };
         let id = sessions.spawn(spec("exec cat".into())).unwrap();
         let (tx, rx) = mpsc::channel();

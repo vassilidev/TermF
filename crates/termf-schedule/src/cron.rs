@@ -325,6 +325,146 @@ mod tests {
         );
     }
 
+    /// xorshift64 with a fixed seed: the same cases on every run.
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0 % n
+        }
+    }
+
+    /// A random field in `lo..=hi` and the values it allows (7 is Sunday, 0).
+    fn random_field(rng: &mut Rng, lo: u64, hi: u64) -> (String, [bool; 64]) {
+        let mut set = [false; 64];
+        let mut add = |a: u64, b: u64, step: u64| {
+            for v in (a..=b).step_by(step as usize) {
+                set[if v == 7 && hi == 7 { 0 } else { v as usize }] = true;
+            }
+        };
+        let pick = |rng: &mut Rng| lo + rng.below(hi - lo + 1);
+        let text = match rng.below(6) {
+            0 => {
+                add(lo, hi, 1);
+                "*".into()
+            }
+            1 => {
+                let step = 1 + rng.below(hi - lo + 1);
+                add(lo, hi, step);
+                format!("*/{step}")
+            }
+            2 => {
+                let v = pick(rng);
+                add(v, v, 1);
+                v.to_string()
+            }
+            3 => {
+                let (a, b) = (pick(rng), pick(rng));
+                let (a, b) = (a.min(b), a.max(b));
+                let step = 1 + rng.below(4);
+                add(a, b, step);
+                format!("{a}-{b}/{step}")
+            }
+            4 => {
+                let (a, b) = (pick(rng), pick(rng));
+                add(a, a, 1);
+                add(b, b, 1);
+                format!("{a},{b}")
+            }
+            _ => {
+                let a = pick(rng);
+                let step = 1 + rng.below(9);
+                add(a, hi, step);
+                format!("{a}/{step}")
+            }
+        };
+        (text, set)
+    }
+
+    #[test]
+    fn next_runs_match_a_day_by_day_reference() {
+        let mut rng = Rng(0x7e3f_1a2b_9c4d_5e6f);
+        let ranges = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)];
+        for case in 0..400 {
+            let fields: Vec<_> = ranges
+                .iter()
+                .map(|&(lo, hi)| random_field(&mut rng, lo, hi))
+                .collect();
+            let expr = fields
+                .iter()
+                .map(|(t, _)| t.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            // Every half hour from -12:00 to +14:00.
+            let offset = rng.below(53) as i32 * 1800 - 12 * 3600;
+            let tz = TimeZone::fixed(jiff::tz::Offset::from_seconds(offset).unwrap());
+            let after =
+                Timestamp::from_second(1_767_225_600 + rng.below(5 * 365 * 86_400) as i64).unwrap();
+            let has = |f: usize, v: i64| fields[f].1[v as usize];
+            let either = !fields[DAY].0.starts_with('*') && !fields[WEEKDAY].0.starts_with('*');
+            let mut expected = None;
+            let mut date = tz.to_datetime(after).date();
+            'days: for _ in 0..MAX_DAYS {
+                let (day, weekday) = (
+                    has(DAY, date.day().into()),
+                    has(WEEKDAY, date.weekday().to_sunday_zero_offset().into()),
+                );
+                if has(MONTH, date.month().into())
+                    && if either {
+                        day || weekday
+                    } else {
+                        day && weekday
+                    }
+                {
+                    for h in 0..24 {
+                        for m in 0..60 {
+                            if has(HOUR, h) && has(MINUTE, m) {
+                                let t = tz.to_timestamp(date.at(h as i8, m as i8, 0, 0)).unwrap();
+                                if t > after {
+                                    expected = Some(t);
+                                    break 'days;
+                                }
+                            }
+                        }
+                    }
+                }
+                date = date.tomorrow().unwrap();
+            }
+            let cron = Cron::parse(&expr).unwrap_or_else(|e| panic!("case {case}: {expr}: {e:#}"));
+            assert_eq!(
+                cron.next_after(after, &tz),
+                expected,
+                "case {case}: {expr} after {after} at {offset}s"
+            );
+        }
+    }
+
+    #[test]
+    fn parsing_never_panics() {
+        let mut rng = Rng(0x0dd_ba11);
+        let alphabet: Vec<char> = "0123456789*/-, \tjanfebmonsunJAN?L#".chars().collect();
+        for _ in 0..5000 {
+            let len = rng.below(24) as usize;
+            let expr: String = (0..len)
+                .map(|_| alphabet[rng.below(alphabet.len() as u64) as usize])
+                .collect();
+            if let Ok(cron) = Cron::parse(&expr) {
+                let _ = cron.next_after(Timestamp::UNIX_EPOCH, &TimeZone::UTC);
+            }
+        }
+        for expr in [
+            "99999999999 * * * *",
+            "*/256 * * * *",
+            "1-99999 * * * *",
+            "* * * * 8",
+        ] {
+            assert!(Cron::parse(expr).is_err(), "{expr}");
+        }
+    }
+
     #[test]
     fn day_fields_follow_vixie_cron() {
         let utc = TimeZone::UTC;

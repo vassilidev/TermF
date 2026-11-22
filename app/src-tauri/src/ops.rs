@@ -611,7 +611,7 @@ pub async fn ops_answer(
 }
 
 /// The ticket run an agent session works on, as a step of a team run.
-fn run_of(app: &AppHandle, session: i64) -> Option<i64> {
+pub(crate) fn run_of(app: &AppHandle, session: i64) -> Option<i64> {
     let runs = crate::team::team(app).runs().ok()?;
     runs.into_iter()
         .find(|r| r.steps.iter().any(|s| s.sessions.contains(&session)))

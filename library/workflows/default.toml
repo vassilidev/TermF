@@ -16,10 +16,34 @@ needs = ["prd"]
 optional = true
 prompt = "Turn the ticket into explicit acceptance criteria and an out-of-scope list. Read the code if it helps; change nothing. Put the criteria, the out-of-scope list and any doubt in your report's summary; with a doubt that blocks the work, report status \"blocked\" with your questions."
 
+[steps.research]
+type = "agent"
+role = "researcher"
+needs = ["frame"]
+optional = true
+enabled = false
+prompt = "Research what the request depends on outside the repository: what exists, what the standards, APIs or libraries really say, what fits and what is known to fail. Several primary sources, each claim sourced and dated; when a choice must be made, at least two options with their trade-offs and your recommendation. Change nothing: put it in your report's summary."
+
+[steps.competition]
+type = "agent"
+role = "competitive-analyst"
+needs = ["frame"]
+optional = true
+enabled = false
+prompt = "Map the competitors and alternatives of what the request builds: who does it, their features, public prices, positioning, strengths and weaknesses, public reviews, in a sourced comparison table, and what would set the project apart. \"Not found\" rather than an estimate. Change nothing: put it in your report's summary."
+
+[steps.reverse]
+type = "agent"
+role = "reverse-engineer"
+needs = ["frame"]
+optional = true
+enabled = false
+prompt = "Work out how the software, API, format or site the request names behaves, for interoperability or to learn from it, within the legal frame of your role: state the legal ground first, then what you observed and how, point by point. Change nothing: put it in your report's summary."
+
 [steps.architecture]
 type = "agent"
 role = "architect"
-needs = ["frame"]
+needs = ["frame", "research", "competition", "reverse"]
 optional = true
 enabled = false
 prompt = "Settle the design decision the request depends on, before it is planned: the options, the decision you propose and the contracts the tasks will build on. Change nothing: put them in your report's summary."
@@ -35,7 +59,7 @@ prompt = "Specify how the interface changes, before the work is planned: flows, 
 [steps.plan]
 type = "agent"
 role = "lead"
-needs = ["frame", "architecture", "ux"]
+needs = ["frame", "research", "competition", "reverse", "architecture", "ux"]
 
 [steps.approve-plan]
 type = "gate"

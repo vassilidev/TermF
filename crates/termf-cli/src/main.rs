@@ -230,9 +230,10 @@ usage:
                                         the vault (or a project's part) sealed by an export password
                                         asked on the terminal; --csv writes the logins and notes in clear,
                                         after a warning
-  termf vault import <file> [--project <id>]
+  termf vault import <file> [--project <id>] [--restore]
                                         a TermF export (or a config export holding the vault), merged item
-                                        by item; or a Bitwarden, 1Password, Chrome, Edge, Firefox, Safari,
+                                        by item (--restore: what it holds and was deleted since comes back);
+                                        or a Bitwarden, 1Password, Chrome, Edge, Firefox, Safari,
                                         KeePassXC or KeePass export, shown first, duplicates left out
                                         (the scope is dev without --scope; every vault command that reads or
                                         writes a secret asks for the master password)
@@ -286,6 +287,9 @@ fn main() -> ExitCode {
     if let ["guard"] = args.as_slice() {
         return tickets::guard();
     }
+    if let Ok(config_dir) = termf_core::default_config_dir() {
+        termf_core::agent_env::configure(config_dir, env::current_exe().ok());
+    }
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -297,6 +301,8 @@ fn main() -> ExitCode {
 
 fn run(args: &[&str]) -> Result<()> {
     match args {
+        // What TermF runs an agent through, after a login shell's profile: only what it keeps of the environment.
+        ["agent-env", command] => termf_core::agent_env::exec(command)?,
         ["ls"] => {
             let sessions: Vec<SessionSummary> =
                 serde_json::from_value(Client::connect(None)?.call(Call::List)?)?;

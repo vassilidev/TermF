@@ -35,8 +35,43 @@
   } from "$lib/onboarding-logic";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { derive, githubSlugs, gitlabRepos, projectId, unique, type Card } from "$lib/setup-logic";
-  import { app, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
+  import { app, load, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
   import { added } from "$lib/team-logic";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
+  import Lightbulb from "@lucide/svelte/icons/lightbulb";
+  import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+  import { cleanName, nameFromIdea, parentOf, uniqueSlug } from "$lib/greenfield-logic";
+  import { ensure, home as column } from "$lib/home.svelte";
+
+  type Mode = "repos" | "scratch";
+  type Scratch = "idea" | "review";
+  type Visibility = "private" | "public";
+  type Plan = { path: string; exists: boolean; files: { name: string; text: string }[]; commands: string[]; gh: boolean };
+  type Created = { project: string; path: string; remote: string | null; pushed: boolean; githubError: string | null };
+
+  const scratchSteps: { id: Scratch; label: Key }[] = [
+    { id: "idea", label: "greenfieldStepIdea" },
+    { id: "review", label: "greenfieldStepReview" },
+  ];
+  const examples: [Key, Key][] = [
+    ["greenfieldExample1Label", "greenfieldExample1"],
+    ["greenfieldExample2Label", "greenfieldExample2"],
+    ["greenfieldExample3Label", "greenfieldExample3"],
+  ];
+  const kickoff: Key[] = ["greenfieldKickoffFrame", "greenfieldKickoffResearch", "greenfieldKickoffDecide", "greenfieldKickoffBuild"];
+
+  let mode = $state<Mode>("repos");
+  let scratch = $state<Scratch>("idea");
+  let idea = $state("");
+  /** The folder chosen by the owner; null follows the one beside the known repositories. */
+  let picked = $state<string | null>(null);
+  let onGithub = $state(false);
+  let visibility = $state<Visibility>("private");
+  let plan = $state<Plan | null>(null);
+  let planError = $state("");
+  /** The spec the plan or its error is for: creating waits until it is the one shown. */
+  let plannedFor = $state("");
 
   type Step = "repos" | "detect" | "setup" | "trust" | "create";
   type Block = "team" | "tickets" | "worktree" | "ci" | "skills";
@@ -91,9 +126,17 @@
     }),
   );
   const guess = $derived(derive(chosenCards, home));
-  const suggested = $derived(guess ? unique(guess.name, taken) : "");
+  // From scratch the name is also a folder's: `name-2` rather than `name 2`.
+  const dedupe = (n: string) => (mode === "scratch" ? uniqueSlug(n, taken) : unique(n, taken));
+  const suggested = $derived(mode === "scratch" ? dedupe(nameFromIdea(idea)) : guess ? unique(guess.name, taken) : "");
   const name = $derived((typed ?? "").trim() || suggested);
-  const clash = $derived(typed !== null && !!typed.trim() && unique(typed.trim(), taken) !== typed.trim());
+  const clash = $derived(typed !== null && !!typed.trim() && dedupe(typed.trim()) !== typed.trim());
+  const where = $derived(picked ?? parentOf(app.workspace?.repos ?? [], home));
+  const spec = $derived({ name, parent: where, idea: idea.trim(), github: onGithub ? visibility : null });
+  const scratchIndex = $derived(scratchSteps.findIndex((s) => s.id === scratch));
+  const ready = $derived(
+    !!name && !!idea.trim() && !!plan && !planError && plannedFor === JSON.stringify(spec) && (!onGithub || plan.gh),
+  );
   const github = $derived(githubSlugs(chosenCards));
   const gitlab = $derived(gitlabRepos(chosenCards));
   const trackers = $derived.by<Trackers | null>(() => {
@@ -205,6 +248,89 @@
 
   const next = () => (index < steps.length - 1 ? go(steps[index + 1].id) : create());
 
+  // What creating from the idea would do, read again a moment after the owner stops typing.
+  $effect(() => {
+    const asked = JSON.stringify(spec);
+    // What was shown is for another spec now: nothing to create from until the new plan comes.
+    plan = null;
+    planError = "";
+    plannedFor = "";
+    if (mode !== "scratch" || !spec.name || !spec.idea) return;
+    const timer = setTimeout(() => {
+      invoke<Plan>("greenfield_plan", { spec: JSON.parse(asked) }).then(
+        (p) => {
+          if (asked === JSON.stringify(spec)) ((plan = p), (planError = ""), (plannedFor = asked));
+        },
+        (e) => {
+          if (asked === JSON.stringify(spec)) ((plan = null), (planError = String(e)), (plannedFor = asked));
+        },
+      );
+    }, 250);
+    return () => clearTimeout(timer);
+  });
+
+  function switchMode(to: Mode) {
+    if (mode === to || busy) return;
+    mode = to;
+    typed = null;
+    editing = false;
+    error = "";
+  }
+
+  function goScratch(to: Scratch) {
+    if (to === "review" && (!idea.trim() || !name)) return;
+    scratch = to;
+    main?.scrollTo({ top: 0 });
+  }
+
+  const nextScratch = () => (scratch === "idea" ? goScratch("review") : createScratch());
+
+  async function pickParent() {
+    const path = await open({ directory: true, multiple: false, defaultPath: where, title: t("greenfieldPickFolder") });
+    if (typeof path === "string") picked = path;
+  }
+
+  /** Creates the repository and the project, then opens the Home on the CTO, who gets the idea. */
+  async function createScratch() {
+    if (busy || !ready) return;
+    busy = true;
+    error = "";
+    const asked = { ...spec };
+    let made: Created;
+    try {
+      made = await invoke<Created>("greenfield_create", { spec: asked });
+    } catch (e) {
+      error = String(e);
+      busy = false;
+      return;
+    }
+    const project = made.project;
+    // From here the project exists: a step that fails is reported, never a reason to create it again.
+    const failed: string[] = !made.githubError
+      ? []
+      : made.remote
+        ? [t("greenfieldNotPushed", { url: made.remote, error: made.githubError, path: made.path })]
+        : [t("greenfieldNoGithub", { error: made.githubError })];
+    await load();
+    try {
+      // There is nothing to read in an empty repository yet: the assistant waits for the skeleton.
+      await invoke("onboarding_seen", { project });
+    } catch (e) {
+      failed.push(String(e));
+    }
+    setProject(project);
+    creating.open = false;
+    creating.round++;
+    column.with = "cto";
+    ui.view = "home";
+    const cto = await ensure(project, "cto");
+    if (cto) {
+      const text = t("greenfieldSeed", { name: asked.name, path: made.path, idea: asked.idea });
+      await invoke("agent_send", { id: cto.id, text }).catch((e) => failed.push(String(e)));
+    }
+    if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });
+  }
+
   function toggle(block: Block) {
     aside = aside.includes(block) ? aside.filter((b) => b !== block) : [...aside, block];
   }
@@ -269,7 +395,8 @@
     if (ui.view !== "newProject" || ui.palette || ui.help || e.isComposing) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (!busy && chosen.length && name) next();
+      if (mode === "scratch") nextScratch();
+      else if (!busy && chosen.length && name) next();
     } else if (e.key === "Escape" && !e.defaultPrevented && !editing) {
       if ((e.target as Element | null)?.closest?.(".xterm")) return;
       e.preventDefault();
@@ -279,6 +406,7 @@
 
   const sourceText = $derived.by(() => {
     if (typed !== null && typed.trim()) return clash ? t("setupNameTaken", { name: typed.trim() }) : t("setupNameTyped");
+    if (mode === "scratch") return suggested ? t("greenfieldNameFromIdea") : t("greenfieldNameEmpty");
     if (!guess) return t("setupNameEmpty");
     const why = {
       repo: t("setupNameFromRepo"),
@@ -310,8 +438,38 @@
   </button>
 {/snippet}
 
+{#snippet chooser()}
+  <div class="modes" role="group" aria-label={t("greenfieldModes")}>
+    {#each [["repos", FolderGit2, "greenfieldFromRepos", "greenfieldFromReposText"], ["scratch", Lightbulb, "greenfieldFromScratch", "greenfieldFromScratchText"]] as const as [id, Icon, label, text] (id)}
+      <button type="button" aria-pressed={mode === id} disabled={busy} onclick={() => switchMode(id)}>
+        <span class="icon"><Icon size={16} aria-hidden="true" /></span>
+        <span class="mode-text"><b>{t(label)}</b><span>{t(text)}</span></span>
+      </button>
+    {/each}
+  </div>
+{/snippet}
+
 <div class="new-project">
   <ViewHeader title={t("newProject")}>
+    {#if mode === "scratch"}
+      <ol class="stepper" aria-label={t("setupSteps")}>
+        {#each scratchSteps as s, i (s.id)}
+          {@const done = i < scratchIndex}
+          <li>
+            <button
+              type="button"
+              class:done
+              aria-current={s.id === scratch ? "step" : undefined}
+              disabled={busy || (i > 0 && (!idea.trim() || !name))}
+              onclick={() => goScratch(s.id)}
+            >
+              <span class="dot">{#if done}<Check size={11} strokeWidth={3} aria-hidden="true" />{:else}{i + 1}{/if}</span>
+              <span class="label">{t(s.label)}</span>
+            </button>
+          </li>
+        {/each}
+      </ol>
+    {:else}
     <ol class="stepper" aria-label={t("setupSteps")}>
       {#each steps as s, i (s.id)}
         {@const done = i < index}
@@ -329,6 +487,7 @@
         </li>
       {/each}
     </ol>
+    {/if}
     {#snippet actions()}
       <button type="button" class="btn sm quiet cancel" onclick={closeNewProject} disabled={busy}>
         {t("cancel")}<kbd>Esc</kbd>
@@ -338,9 +497,92 @@
 
   <div class="body">
     <main class="main" bind:this={main}>
+      {#if mode === "scratch"}
+        {#key scratch}
+          <div class="step">
+            {#if scratch === "idea"}
+              {@render chooser()}
+              <h2>{t("greenfieldIdeaTitle")}</h2>
+              <p class="lead">{t("greenfieldIdeaHelp")}</p>
+              <textarea
+                class="field idea"
+                rows="6"
+                aria-label={t("greenfieldIdeaTitle")}
+                placeholder={t("greenfieldIdeaPlaceholder")}
+                bind:value={idea}
+                {@attach (el) => el.focus()}
+              ></textarea>
+              <div class="examples">
+                <span class="note">{t("greenfieldExamples")}</span>
+                {#each examples as [label, text] (label)}
+                  <button type="button" class="btn sm" title={t(text)} onclick={() => (idea = t(text))}>{t(label)}</button>
+                {/each}
+              </div>
+              <aside class="claude">
+                <Sparkles size={16} aria-hidden="true" />
+                <div>
+                  <b>{t("greenfieldTeamTitle")}</b>
+                  <ol class="then kickoff">
+                    {#each kickoff as line (line)}<li>{t(line)}</li>{/each}
+                  </ol>
+                </div>
+              </aside>
+            {:else}
+              <h2>{t("setupCreateTitle", { name })}</h2>
+              <p class="lead">{t("greenfieldReviewHelp")}</p>
+              <div class="recap">
+                {#if planError}
+                  <p class="notice error" role="alert">{planError}</p>
+                {:else if plan}
+                  <section>
+                    <h3>{t("greenfieldFolder")}</h3>
+                    <p class="row">
+                      <FolderOpen size={15} aria-hidden="true" />
+                      <span class="mono" title={plan.path}>{shortPath(plan.path)}</span>
+                      {#if plan.exists}<span class="badge">{t("greenfieldFolderEmpty")}</span>{/if}
+                    </p>
+                  </section>
+                  <section class="scratch-files">
+                    <h3>{t("greenfieldFiles")}</h3>
+                    {#each plan.files as f (f.name)}
+                      <figure class="file">
+                        <figcaption><FileCode size={14} aria-hidden="true" /><span class="mono">{f.name}</span></figcaption>
+                        <pre><code>{f.text}</code></pre>
+                      </figure>
+                    {/each}
+                  </section>
+                  <section class="scratch-files">
+                    <h3>{t("greenfieldCommands")}</h3>
+                    <figure class="file">
+                      <figcaption><SquareTerminal size={14} aria-hidden="true" /><span class="mono">{shortPath(plan.path)}</span></figcaption>
+                      <pre><code>{plan.commands.map((c) => `$ ${c}`).join("\n")}</code></pre>
+                    </figure>
+                    {#if onGithub && !plan.gh}
+                      <p class="notice error" role="alert">{t("greenfieldNoGh")}</p>
+                    {:else if !onGithub}
+                      <p class="note">{t("greenfieldLocalOnly")}</p>
+                    {/if}
+                  </section>
+                  <section>
+                    <h3>{t("setupThen")}</h3>
+                    <ol class="then">
+                      <li>{t("greenfieldThenProject")}</li>
+                      <li>{t("greenfieldThenCto")}</li>
+                      <li>{t("greenfieldThenYou")}</li>
+                    </ol>
+                  </section>
+                {:else}
+                  <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("greenfieldReading")}</p>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/key}
+      {:else}
       {#key step}
         <div class="step">
           {#if step === "repos"}
+            {@render chooser()}
             <h2>{t("setupReposTitle")}</h2>
             <p class="lead">{t("setupReposHelp")}</p>
             <RepoPicker bind:chosen autofocus />
@@ -522,6 +764,7 @@
           {/if}
         </div>
       {/key}
+      {/if}
     </main>
 
     <aside class="project" aria-label={t("setupYourProject")}>
@@ -535,7 +778,12 @@
             value={typed ?? name}
             spellcheck="false"
             autocomplete="off"
-            oninput={(e) => (typed = e.currentTarget.value)}
+            oninput={(e) => {
+              const field = e.currentTarget;
+              // What cannot be in a folder name leaves the field too, so what is shown is what is used.
+              if (mode === "scratch" && cleanName(field.value) !== field.value) field.value = cleanName(field.value);
+              typed = field.value;
+            }}
             onblur={() => (editing = false)}
             onkeydown={(e) => {
               if (e.key === "Enter" || e.key === "Escape") {
@@ -560,14 +808,34 @@
       <p class="source" class:warn={clash}>
         {sourceText}
         {#if clash}
-          <button type="button" class="link" onclick={() => (typed = unique(typed!.trim(), taken))}>
-            {t("setupNameUse", { name: unique(typed!.trim(), taken) })}
+          <button type="button" class="link" onclick={() => (typed = dedupe(typed!.trim()))}>
+            {t("setupNameUse", { name: dedupe(typed!.trim()) })}
           </button>
         {:else if typed !== null && typed.trim() && suggested}
           <button type="button" class="link" onclick={() => (typed = null)}>{t("setupNameReset", { name: suggested })}</button>
         {/if}
       </p>
 
+      {#if mode === "scratch"}
+        <h3 class="count">{t("greenfieldWhere")}</h3>
+        <div class="where">
+          <span class="mono" title={`${where}/${name}`}>{shortPath(where)}/<b>{name || "…"}</b></span>
+          <button type="button" class="btn link" disabled={busy} onclick={pickParent}>{t("greenfieldChange")}</button>
+        </div>
+        <h3 class="count">{t("greenfieldGithubTitle")}</h3>
+        <label class="option">
+          <input type="checkbox" bind:checked={onGithub} disabled={busy} />
+          <span>{t("greenfieldGithub")}</span>
+        </label>
+        {#if onGithub}
+          <div class="segmented visibility" role="radiogroup" aria-label={t("greenfieldVisibility")}>
+            {#each [["private", "greenfieldPrivate"], ["public", "greenfieldPublic"]] as const as [v, label] (v)}
+              <button type="button" role="radio" aria-checked={visibility === v} disabled={busy} onclick={() => (visibility = v)}>{t(label)}</button>
+            {/each}
+          </div>
+          <p class="empty">{t(visibility === "private" ? "greenfieldPrivateHint" : "greenfieldPublicHint")}</p>
+        {/if}
+      {:else}
       <h3 class="count">{t("repos")} <span>{chosen.length}</span></h3>
       {#if chosenCards.length}
         <ul class="chosen">
@@ -597,9 +865,33 @@
       {:else}
         <p class="empty">{t("setupNoneChosen")}</p>
       {/if}
+      {/if}
 
       <div class="grow"></div>
       {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+      {#if mode === "scratch"}
+        <div class="actions">
+          {#if scratch === "review"}
+            <button type="button" class="btn back" disabled={busy} onclick={() => goScratch("idea")}>
+              <ArrowLeft size={14} aria-hidden="true" />{t("obBack")}
+            </button>
+          {/if}
+          <button
+            type="button"
+            class="btn primary go"
+            disabled={busy || !idea.trim() || !name || (scratch === "review" && !ready)}
+            onclick={nextScratch}
+          >
+            {#if busy}
+              <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("setupCreating")}
+            {:else if scratch === "review"}
+              {t("setupCreate")}
+            {:else}
+              {t("obContinue")}<ArrowRight size={14} aria-hidden="true" />
+            {/if}
+          </button>
+        </div>
+      {:else}
       {#if step === "create" && waiting}
         {#if draftError}
           <p class="notice error" role="alert">{draftError}</p>
@@ -630,6 +922,7 @@
           {/if}
         </button>
       </div>
+      {/if}
     </aside>
   </div>
 </div>
@@ -1379,6 +1672,138 @@
   .actions .back {
     height: 36px;
     border-radius: var(--radius-lg);
+  }
+
+  /* From my repositories, or from scratch: the first choice of the setup. */
+  .modes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+
+  .modes button {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    text-align: left;
+    transition:
+      border-color var(--dur-fast) ease-out,
+      background-color var(--dur-fast) ease-out;
+  }
+
+  .modes button:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+
+  .modes button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .modes .icon {
+    display: inline-grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius);
+    background: var(--hover);
+    color: var(--muted);
+  }
+
+  .modes [aria-pressed="true"] .icon {
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+
+  .mode-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .mode-text b {
+    font-weight: 600;
+  }
+
+  .mode-text span {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+
+  .field.idea {
+    height: auto;
+    min-height: 140px;
+    padding: 10px 12px;
+    border-radius: var(--radius-lg);
+    font-size: var(--text-md);
+    line-height: 1.55;
+    resize: vertical;
+  }
+
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 0 24px;
+  }
+
+  .examples .note {
+    margin-right: 4px;
+  }
+
+  .kickoff {
+    margin-top: 8px;
+    color: var(--text);
+  }
+
+  .where {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: var(--text-sm);
+  }
+
+  .where .mono {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: var(--muted);
+  }
+
+  .where b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .visibility {
+    align-self: flex-start;
+    margin: 10px 0 6px;
+  }
+
+  .scratch-files pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .recap .row :global(svg) {
+    color: var(--muted);
   }
 
   @media (max-width: 1080px) {

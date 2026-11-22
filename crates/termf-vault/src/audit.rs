@@ -102,6 +102,8 @@ pub enum Action {
     Export,
     /// Elements brought in from a file; `detail`: from what, and what changed.
     Import,
+    /// A TermF export imported with what it holds and was deleted since; `detail`: what changed, how many came back.
+    Restore,
     /// A recipe run, refused or proposed on a connection (`termf-ops`): `target` is the connection, `scope` its
     /// environment; `detail` the JSON of what was asked, the approval and the outcome.
     Ops,

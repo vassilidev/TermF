@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::State;
 use termf_claude::trust::{self, RepoTrust};
-use termf_onboarding::{self as onboarding, Decision, Step, setup};
+use termf_onboarding::{self as onboarding, Decision, Step, greenfield, setup};
 
 use crate::library::{blocking, claude};
 use crate::{AppState, CmdResult, err};
@@ -209,6 +209,29 @@ pub async fn setup_preview(
     trackers: Option<termf_tickets::Trackers>,
 ) -> CmdResult<String> {
     setup::preview(&name, &repos, team.as_ref(), trackers.as_ref()).map_err(err)
+}
+
+/// What creating a project from an idea will do: its folder, its files and every command, before any runs.
+#[tauri::command]
+pub async fn greenfield_plan(
+    state: State<'_, AppState>,
+    spec: greenfield::Spec,
+) -> CmdResult<greenfield::Plan> {
+    blocking(&state, move |_| greenfield::plan(&spec, &greenfield::env())).await
+}
+
+/// Creates the project from an idea, as `greenfield_plan` said: its repository, then the project.
+#[tauri::command]
+pub async fn greenfield_create(
+    state: State<'_, AppState>,
+    spec: greenfield::Spec,
+) -> CmdResult<greenfield::Created> {
+    blocking(&state, move |dir| {
+        let made = greenfield::create(dir, &spec, &greenfield::env())?;
+        created(dir, &made.project);
+        Ok(made)
+    })
+    .await
 }
 
 /// The diff `edit` makes to the project's file, before it is written.
