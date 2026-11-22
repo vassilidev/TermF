@@ -192,7 +192,11 @@ fn pty_kill(app: AppHandle, state: State<AppState>, id: u32) -> CmdResult<()> {
 
 #[tauri::command]
 fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
-    // The quick terminal has its own panel, never a tile.
+    tiles(&state)
+}
+
+/// The sessions, without the quick terminal: it has its own panel, never a tile, and `termf ls` does not list it.
+pub(crate) fn tiles(state: &AppState) -> Vec<SessionSummary> {
     let quick = *state.quick_terminal.session.lock().unwrap();
     state
         .api

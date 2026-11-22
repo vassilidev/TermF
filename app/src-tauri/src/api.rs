@@ -1605,7 +1605,7 @@ fn watch(api: &Api, mut conn: BufReader<Stream>) -> Result<()> {
 
 fn call(app: &AppHandle, state: &AppState, call: Call, caller: &Stream) -> Result<Value> {
     Ok(match call {
-        Call::List => serde_json::to_value(state.api.list(&state.sessions))?,
+        Call::List => serde_json::to_value(crate::tiles(state))?,
         Call::Open { path, agent } => {
             let cwd = PathBuf::from(path);
             if !cwd.is_dir() {
