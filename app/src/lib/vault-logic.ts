@@ -1,7 +1,6 @@
 // No imports, so `pnpm test` runs it in plain Node.
 
 export type Kind = "login" | "note";
-/** What the vault says about an item, never a value. */
 export type ItemInfo = {
   id: string;
   kind: Kind;
@@ -26,7 +25,6 @@ export type SecretInfo = {
   updated: number;
   reference: string | null;
 };
-/** One row of the list: an item, or one of the vault's secrets (dev, staging, prod). */
 export type Entry = { key: string; project: string | null } & (
   | { type: "item"; item: ItemInfo }
   | { type: "secret"; secret: SecretInfo }
@@ -48,7 +46,6 @@ export function entries(items: ItemInfo[], secrets: SecretInfo[]): Entry[] {
   ];
 }
 
-/** What the search looks in: never a value, the vault gives none. */
 function words(entry: Entry, projectName: (id: string) => string): string {
   const project = entry.project ? projectName(entry.project) : "";
   if (entry.type === "secret") {
@@ -59,10 +56,6 @@ function words(entry: Entry, projectName: (id: string) => string): string {
   return [i.title, i.username, ...i.urls, project].join(" ");
 }
 
-/**
- * The entries `project` sees (its own and the global ones; every one for `null`) that match the filter and every word
- * of the query, case and accents aside; by title, the items before the secrets.
- */
 export function visible(
   list: Entry[],
   project: string | null,
@@ -88,10 +81,6 @@ export function visible(
 
 export const title = (e: Entry) => (e.type === "item" ? e.item.title : e.secret.name);
 
-/**
- * The list cut by project: the current one first, then the others by name, the global entries last. Within each, the
- * order of `list`.
- */
 export function sections(
   list: Entry[],
   current: string | null,
@@ -103,18 +92,16 @@ export function sections(
   return ids.map((project) => ({ project, entries: list.filter((e) => e.project === project) }));
 }
 
-/** "123 456", "1234 5678": two halves are easier to read out and type. */
+/** Two halves are easier to read out and type. */
 export function spaced(code: string): string {
   const half = Math.ceil(code.length / 2);
   return code.length >= 6 ? `${code.slice(0, half)} ${code.slice(half)}` : code;
 }
 
-/** Seconds until the code valid at `nowMs` changes. */
 export function secondsLeft(period: number, nowMs: number): number {
   return period - (Math.floor(nowMs / 1000) % period);
 }
 
-/** The host of an address, for the list; the address itself when it has none. */
 export function host(url: string): string {
   try {
     return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`).host || url;
@@ -123,9 +110,9 @@ export function host(url: string): string {
   }
 }
 
-/** An address the system can open: http(s) only, a bare host taken as https. */
+/** http(s) only: any other scheme could run something or open a local file. */
 export function openable(url: string): string | null {
-  const full = /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
+  const full = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
   try {
     const parsed = new URL(full);
     return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
@@ -134,14 +121,14 @@ export function openable(url: string): string | null {
   }
 }
 
-/** The addresses typed one per line (or separated by spaces or commas), blanks dropped. */
-export const urlsOf = (text: string) => text.split(/[\s,]+/).filter(Boolean);
+/** Not on commas: an address may hold some (a map's coordinates). */
+export const urlsOf = (text: string) => text.split(/\s+/).filter(Boolean);
 
 export type Recipe =
   | { kind: "password"; length: number; lower: boolean; upper: boolean; digits: boolean; symbols: boolean; unambiguous: boolean }
   | { kind: "passphrase"; words: number; separator: string };
 
-/** Bits of entropy of what the recipe makes, rounded down: what makes a password strong, whatever it looks like. */
+/** Of the recipe, not of the password drawn: what makes it strong, whatever it looks like. */
 export function strength(recipe: Recipe): number {
   if (recipe.kind === "passphrase") return Math.floor(recipe.words * Math.log2(1296));
   const ambiguous = recipe.unambiguous;

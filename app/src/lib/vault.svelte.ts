@@ -12,21 +12,18 @@ export type VaultStatus = {
   autoLockMinutes: number;
   prodUntil: number | null;
 };
-/** "vault": the current project's items and the global ones; "vaultAll": every one, under "This machine". */
 export type VaultView = "vault" | "vaultAll";
 
 /** Names and descriptions only: a value reaches the webview when the user reveals or copies it, and is dropped after. */
 export const vault = $state({
-  /** Each view, mounted once first shown. */
   loaded: false,
   loadedAll: false,
   status: null as VaultStatus | null,
   items: [] as ItemInfo[],
   secrets: [] as SecretInfo[],
   error: "",
-  /** What a copy did, said for a few seconds. */
   notice: "",
-  /** The entry each view shows: an item's id or `secretKey`; the palette sets it too. */
+  /** Here rather than in the view: the palette sets it too. */
   selected: { vault: null, vaultAll: null } as Record<VaultView, string | null>,
 });
 
@@ -62,16 +59,22 @@ export async function refreshVault() {
     vault.items = items;
     vault.secrets = secrets;
   } catch (e) {
-    failed(e);
+    vault.error = failed(e);
   }
 }
 
-/** An error to show, unless the vault locked meanwhile, or prod asks for the password: their screens say so. */
+/** The lock screen and the prod password prompt say it themselves. */
 export function failed(e: unknown): string {
   const text = String(e);
   if (/needs the master password again/.test(text)) return "";
   if (/the vault is locked/.test(text)) {
-    refreshVault();
+    // The status only, once: listing again could fail the same way, forever (a vault file swapped under it).
+    invoke<VaultStatus>("vault_status")
+      .then((status) => {
+        setStatus(status);
+        if (status.unlocked) vault.error = text;
+      })
+      .catch((e) => (vault.error = String(e)));
     return "";
   }
   if (/wrong master password/.test(text)) return t("vaultWrongPassword");
@@ -92,7 +95,6 @@ export function showVaultAll() {
   refreshVault();
 }
 
-/** From the palette: in the project's vault when the project sees it, otherwise in the whole vault. */
 export function openEntry(key: string, project: string | null) {
   const here = app.project === null || project === null || project === app.project;
   vault.selected[here ? "vault" : "vaultAll"] = key;
@@ -108,7 +110,6 @@ function say(text: string) {
   quiet = setTimeout(() => (vault.notice = ""), 5000);
 }
 
-/** Copies a value; a secret one leaves the clipboard after a while if it still holds it. */
 export async function copy(text: string, secret = true) {
   try {
     await navigator.clipboard.writeText(text);

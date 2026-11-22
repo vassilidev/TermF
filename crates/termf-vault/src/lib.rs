@@ -533,18 +533,32 @@ impl Vault {
         fs::rename(&tmp, self.dir.join(name)).context("cannot write the vault")
     }
 
-    /// Before the first write in a newer format, the file as it was is kept as `vault.v<format>.json`, sealed
-    /// the same way; an older copy already there stays.
-    fn migrate(&self, file: &mut VaultFile) -> Result<()> {
+    /// Before the first write in a newer format, the file as it was is copied to `vault.v<format>.json`, until the
+    /// new one reads back ([`Vault::drop_backup`]).
+    fn back_up(&self, file: &mut VaultFile) -> Result<Option<String>> {
         if file.format == FORMAT {
-            return Ok(());
+            return Ok(None);
         }
         let backup = format!("vault.v{}.json", file.format);
-        if !self.dir.join(&backup).exists() {
-            self.write_bytes(&backup, &fs::read(self.dir.join(FILE))?)?;
-        }
+        // A copy left by an earlier vault is replaced: this file is the one to keep.
+        self.write_bytes(&backup, &fs::read(self.dir.join(FILE))?)?;
         file.format = FORMAT;
-        Ok(())
+        Ok(Some(backup))
+    }
+
+    /// The copy goes once the new file reads back as written: it would keep deleted secrets readable.
+    fn drop_backup(&self, backup: &str, key: &Key, content: &Content) -> Result<()> {
+        let written = Zeroizing::new(serde_json::to_vec(content)?);
+        let read = self
+            .read()
+            .and_then(|f| f.open(key))
+            .and_then(|c| Ok(Zeroizing::new(serde_json::to_vec(&c)?)));
+        match read {
+            Ok(read) if *read == *written => Ok(fs::remove_file(self.dir.join(backup))?),
+            _ => bail!(
+                "the vault was rewritten in its new format but does not read back as written: its previous file is kept as vault/{backup}"
+            ),
+        }
     }
 
     /// One writer at a time, across the app and the CLI.
@@ -821,10 +835,13 @@ impl Vault {
         ensure!(file.id == id, Locked);
         let mut content = file.open(&key)?;
         let out = change(&mut content)?;
-        self.migrate(&mut file)?;
+        let backup = self.back_up(&mut file)?;
         file.seal(&key, &content)?;
         self.record(event)?;
         self.write(&file)?;
+        if let Some(backup) = backup {
+            self.drop_backup(&backup, &key, &content)?;
+        }
         Ok(out)
     }
 
@@ -982,20 +999,24 @@ impl Vault {
         anyhow!("{why}")
     }
 
-    /// Masks every value the vault holds (not the references, unknown until resolved: [`Masker::add`]).
+    /// Masks every secret's value (not the references, unknown until resolved: [`Masker::add`]), and from the
+    /// items the passwords of 8 characters or more, the TOTP secrets and the notes' lines that look like keys.
     pub fn masker(&self) -> Result<Masker> {
         let content = self.open()?;
-        let secrets = content.secrets.iter().filter_map(|s| s.value.as_ref());
-        let items = content.items.iter().flat_map(|i| {
-            [
-                i.password.as_ref(),
-                i.notes.as_ref(),
-                i.totp.as_ref().map(|t| &t.secret),
-            ]
-            .into_iter()
-            .flatten()
-        });
-        Ok(Masker::new(secrets.chain(items)))
+        let mut masker = Masker::new(content.secrets.iter().filter_map(|s| s.value.as_ref()));
+        for item in &content.items {
+            // A short password ("admin", "1234") or a note's prose would hide ordinary words everywhere.
+            if let Some(password) = item.password.as_ref().filter(|p| p.len() >= 8) {
+                masker.add(password);
+            }
+            if let Some(totp) = &item.totp {
+                masker.add(&totp.secret);
+            }
+            if let Some(notes) = &item.notes {
+                masker.add_key_lines(notes);
+            }
+        }
+        Ok(masker)
     }
 
     /// Every item, or those `project` sees (its own and the global ones), by title.

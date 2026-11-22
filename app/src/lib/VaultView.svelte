@@ -20,7 +20,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { app, type ViewId } from "$lib/state.svelte";
-  import { copy, failed, refreshVault, setStatus, vault, type VaultStatus, type VaultView } from "$lib/vault.svelte";
+  import { copy, failed, openEntry, refreshVault, setStatus, vault, type VaultStatus, type VaultView } from "$lib/vault.svelte";
   import { entries, host, sections, visible, type Filter, type ItemInfo, type Kind } from "$lib/vault-logic";
 
   /** Mounted twice: in the current project's views ("vault") and under "This machine" ("vaultAll"). */
@@ -29,7 +29,6 @@
 
   let query = $state("");
   let filter = $state<Filter>("all");
-  /** The form: an item to change, or a new one. */
   let editing = $state<{ item: ItemInfo | null; kind: Kind } | null>(null);
   let deleting = $state(false);
   let password = $state("");
@@ -107,7 +106,6 @@
     }
   }
 
-  /** From the list, without opening the item: the password, or the code valid now. */
   async function quickCopy(item: ItemInfo, field: "password" | "totp") {
     copying = `${item.id}:${field}`;
     vault.error = "";
@@ -120,7 +118,7 @@
     }
   }
 
-  // Locked (by hand, idle, sleep): the form and what it holds go.
+  // Locked by hand, idle or asleep: what the form holds must go too.
   $effect(() => {
     if (!status?.unlocked) editing = null;
   });
@@ -194,7 +192,8 @@
             aria-label={t("vaultSearch")}
             bind:value={query}
             onkeydown={(e) => {
-              if (e.key === "Enter" && list[0]) select(list[0].key);
+              const first = cut[0]?.entries[0];
+              if (e.key === "Enter" && first) select(first.key);
             }}
           />
         </div>
@@ -223,7 +222,7 @@
                         {#if entry.type === "secret"}<Braces size={13} />{:else if entry.item.kind === "note"}<StickyNote size={13} />{:else}<KeyRound size={13} />{/if}
                       </span>
                       <span class="name" class:mono={entry.type === "secret"}>{entry.type === "item" ? entry.item.title : entry.secret.name}</span>
-                      {#if entry.type === "item" && entry.item.totp}<span class="badge">2FA</span>{/if}
+                      {#if entry.type === "item" && entry.item.totp}<span class="badge">{t("vaultBadge2fa")}</span>{/if}
                       {#if entry.type === "item" && entry.item.agents}<span class="badge" title={t("vaultAgentsOn")}><Bot size={11} aria-label={t("vaultAgentsOn")} /></span>{/if}
                       {#if entry.type === "secret"}<span class="badge">{entry.secret.scope}</span>{/if}
                     </span>
@@ -276,7 +275,10 @@
               project={scope}
               onsaved={(saved) => {
                 editing = null;
-                vault.selected[view] = saved.id;
+                // Moved to a project this view does not show: the whole vault shows it.
+                if (view === "vault" && scope !== null && saved.project !== null && saved.project !== scope) {
+                  openEntry(saved.id, saved.project);
+                } else vault.selected[view] = saved.id;
               }}
               oncancel={() => (editing = null)}
             />

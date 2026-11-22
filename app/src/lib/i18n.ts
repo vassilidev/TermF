@@ -2408,6 +2408,14 @@ const fr = {
   vaultAgents: "Utilisable par les agents",
   vaultAgentsHint:
     "Un agent pourra l'utiliser par TermF, sans jamais voir la valeur ; chaque usage est audité. Désactivé par défaut.",
+  vaultBadge2fa: "2FA",
+  vaultGenUpper: "A–Z",
+  vaultGenDigits: "0–9",
+  vaultGenSymbols: "!#$%",
+  vaultLoginPlaceholderTitle: "GitHub",
+  vaultUsernamePlaceholder: "alex@acme.dev",
+  vaultUrlsPlaceholder: "https://github.com",
+  vaultTotpPending: "··· ···",
 
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.
   gitView: "Git",
@@ -4909,6 +4917,14 @@ const en: Record<Key, string> = {
   vaultAgents: "Usable by agents",
   vaultAgentsHint:
     "An agent may use it through TermF, never seeing the value; each use is audited. Off by default.",
+  vaultBadge2fa: "2FA",
+  vaultGenUpper: "A–Z",
+  vaultGenDigits: "0–9",
+  vaultGenSymbols: "!#$%",
+  vaultLoginPlaceholderTitle: "GitHub",
+  vaultUsernamePlaceholder: "alex@acme.dev",
+  vaultUrlsPlaceholder: "https://github.com",
+  vaultTotpPending: "··· ···",
 
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.
   gitView: "Git",

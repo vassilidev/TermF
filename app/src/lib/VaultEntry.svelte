@@ -13,10 +13,6 @@
   import { copy, failed, setStatus, vault, type VaultStatus } from "$lib/vault.svelte";
   import { openable, type Entry } from "$lib/vault-logic";
 
-  /**
-   * An item, or one of the vault's secrets (dev, staging, prod) as `termf vault` keeps them: shown and copied here,
-   * not changed.
-   */
   let {
     entry,
     projectName,
@@ -258,7 +254,6 @@
     border-top: 1px solid var(--border);
   }
 
-  /* A note shown takes the whole width under its label. */
   .fields :global(.field-row.multiline.open) {
     grid-template-areas: "label . tools" "value value value";
   }

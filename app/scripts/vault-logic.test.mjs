@@ -56,6 +56,12 @@ test("sections: the current project first, the others by name, the global entrie
       [null, ["GitHub"]],
     ],
   );
+  // Enter opens the first entry shown, the current project's, not the first by title of the whole list.
+  assert.equal(names([cut[0].entries[0]])[0], "AWS");
+  assert.equal(names(visible(list, null, "all", ""))[0], "AWS");
+  const acmeFirst = sections(visible(list, null, "login", ""), "acme");
+  assert.equal(names([acmeFirst[0].entries[0]])[0], "Stripe");
+  assert.equal(names(visible(list, null, "login", ""))[0], "AWS");
 });
 
 test("spaced and secondsLeft: a code in two halves, the seconds until the next one", () => {
@@ -75,7 +81,9 @@ test("host, openable and urlsOf: addresses as typed", () => {
   assert.equal(openable("http://localhost:3000/x"), "http://localhost:3000/x");
   assert.equal(openable("javascript:alert(1)"), null);
   assert.equal(openable("file:///etc/passwd"), null);
-  assert.deepEqual(urlsOf(" https://a.test\n\nb.test, c.test "), ["https://a.test", "b.test", "c.test"]);
+  assert.equal(openable("localhost:3000"), "https://localhost:3000/");
+  assert.deepEqual(urlsOf(" https://a.test\n\nb.test c.test "), ["https://a.test", "b.test", "c.test"]);
+  assert.deepEqual(urlsOf("https://maps.test/@48.85,2.35,12z"), ["https://maps.test/@48.85,2.35,12z"]);
 });
 
 test("strength: bits of the recipe, not of the password drawn", () => {

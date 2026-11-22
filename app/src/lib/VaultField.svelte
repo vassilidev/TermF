@@ -8,7 +8,7 @@
   import { onScreen, type ViewId } from "$lib/state.svelte";
   import { copy, failed, vault } from "$lib/vault.svelte";
 
-  /** A value hidden until asked for, hidden again after `seconds`; it lives only here, never in a store. */
+  /** The value lives only here, never in a store. */
   let {
     label,
     load,

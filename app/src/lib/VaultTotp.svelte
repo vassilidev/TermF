@@ -7,7 +7,6 @@
   import { copy, failed, vault } from "$lib/vault.svelte";
   import { secondsLeft, spaced } from "$lib/vault-logic";
 
-  /** The code valid now, asked again when its period ends, only while on screen. */
   let { id, period, label }: { id: string; period: number; label: string } = $props();
 
   const view = getContext<() => ViewId>("panel");
@@ -59,7 +58,7 @@
 <div class="field-row totp">
   <span class="label">{label}</span>
   <div class="value">
-    <span class="code mono" class:soon={left <= 5} aria-live="off">{code ? spaced(code) : "··· ···"}</span>
+    <span class="code mono" class:soon={left <= 5} aria-live="off">{code ? spaced(code) : t("vaultTotpPending")}</span>
     <svg class="ring" viewBox="0 0 20 20" aria-hidden="true">
       <circle cx="10" cy="10" r="8" />
       <circle cx="10" cy="10" r="8" class="arc" class:soon={left <= 5} style:stroke-dashoffset={50.27 * (1 - left / period)} />

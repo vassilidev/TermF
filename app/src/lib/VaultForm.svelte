@@ -11,7 +11,6 @@
   import { failed, refreshVault } from "$lib/vault.svelte";
   import { strength, urlsOf, type ItemInfo, type Kind, type Recipe } from "$lib/vault-logic";
 
-  /** A new item (`item` null) or the changes to one. A value typed or generated lives here until saved or cancelled. */
   let {
     item,
     kind: newKind = "login",
@@ -41,7 +40,7 @@
   let totp = $state("");
   let removeTotp = $state(false);
   let notes = $state("");
-  /** The notes the item has are in the field (or it has none): what is saved replaces them. */
+  /** Saved only once the item's notes are in the field: a failed load must not erase them. */
   // svelte-ignore state_referenced_locally
   let notesReady = $state(!item?.hasNotes);
   // svelte-ignore state_referenced_locally
@@ -77,10 +76,16 @@
     password = totp = notes = generated = "";
   });
 
+  /** Bumped by every draw: an answer that comes after a newer one asked (a slider dragged) is dropped. */
+  let draw = 0;
+
   async function generate() {
+    const asked = ++draw;
     try {
-      generated = await invoke<string>("vault_generate", { recipe: $state.snapshot(recipe) });
+      const value = await invoke<string>("vault_generate", { recipe: $state.snapshot(recipe) });
+      if (asked === draw) generated = value;
     } catch (e) {
+      if (asked !== draw) return;
       generated = "";
       error = String(e);
     }
@@ -144,7 +149,7 @@
     <label class="labelled grow">
       {t("vaultTitleField")}
       <!-- svelte-ignore a11y_autofocus (the form was just opened for this) -->
-      <input class="field" bind:value={title} required maxlength="200" autocomplete="off" autofocus placeholder={kind === "login" ? "GitHub" : t("vaultNotePlaceholderTitle")} />
+      <input class="field" bind:value={title} required maxlength="200" autocomplete="off" autofocus placeholder={kind === "login" ? t("vaultLoginPlaceholderTitle") : t("vaultNotePlaceholderTitle")} />
     </label>
     <label class="labelled">
       {t("vaultProject")}
@@ -158,7 +163,7 @@
   {#if kind === "login"}
     <label class="labelled">
       {t("vaultUsername")}
-      <input class="field" bind:value={username} autocomplete="off" spellcheck="false" placeholder="alex@acme.dev" />
+      <input class="field" bind:value={username} autocomplete="off" spellcheck="false" placeholder={t("vaultUsernamePlaceholder")} />
     </label>
 
     <div class="labelled">
@@ -207,9 +212,9 @@
             <input type="range" min="8" max="64" bind:value={recipe.length} />
           </label>
           <div class="checks">
-            <label><input type="checkbox" bind:checked={recipe.upper} />A–Z</label>
-            <label><input type="checkbox" bind:checked={recipe.digits} />0–9</label>
-            <label><input type="checkbox" bind:checked={recipe.symbols} />!#$%</label>
+            <label><input type="checkbox" bind:checked={recipe.upper} />{t("vaultGenUpper")}</label>
+            <label><input type="checkbox" bind:checked={recipe.digits} />{t("vaultGenDigits")}</label>
+            <label><input type="checkbox" bind:checked={recipe.symbols} />{t("vaultGenSymbols")}</label>
             <label><input type="checkbox" bind:checked={recipe.unambiguous} />{t("vaultGenUnambiguous")}</label>
           </div>
         {:else}
@@ -264,7 +269,7 @@
 
     <label class="labelled">
       {t("vaultUrls")}
-      <textarea class="field area" rows="2" bind:value={urls} spellcheck="false" placeholder="https://github.com"></textarea>
+      <textarea class="field area" rows="2" bind:value={urls} spellcheck="false" placeholder={t("vaultUrlsPlaceholder")}></textarea>
     </label>
   {/if}
 

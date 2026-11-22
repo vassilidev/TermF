@@ -1013,6 +1013,37 @@ fn gives_an_item_to_an_agent_only_when_opened_to_agents() {
 }
 
 #[test]
+fn masks_an_items_long_password_and_its_notes_key_lines_only() {
+    let env = Env::new("item-mask");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let token = "ghp_0a1B2c3D4e5F6g7H8i9J";
+    vault
+        .save_item(
+            &human(),
+            ItemDraft {
+                password: Some(Secret::new("admin".into())),
+                totp: None,
+                notes: Some(Secret::new(format!("Ask the ops team first\n{token}"))),
+                ..login(None, "Router")
+            },
+        )
+        .unwrap();
+    vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    let masked = vault.masker().unwrap().mask(&format!(
+        "admin: Ask the ops team first, then {token} and hunter2-github-0123"
+    ));
+    assert!(
+        masked
+            .text
+            .starts_with("admin: Ask the ops team first, then "),
+        "{}",
+        masked.text
+    );
+    assert!(!masked.text.contains(token) && !masked.text.contains("hunter2-github"));
+}
+
+#[test]
 fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
     let env = Env::new("migrate");
     let vault = env.vault();
@@ -1042,9 +1073,15 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
         file["format"].as_u64().unwrap()
     };
     assert_eq!(format(), 1, "reading changes nothing");
-    vault.save_item(&human(), login(None, "GitHub")).unwrap();
-    assert_eq!(format(), 2);
+
+    // A copy left by an earlier vault does not stand in for this one's.
     let backup = env.data().join("vault/vault.v1.json");
+    fs::write(&backup, "an older vault").unwrap();
+    let mut file = vault.read().unwrap();
+    assert_eq!(
+        vault.back_up(&mut file).unwrap().as_deref(),
+        Some("vault.v1.json")
+    );
     assert_eq!(fs::read(&backup).unwrap(), v1);
     #[cfg(unix)]
     {
@@ -1052,6 +1089,18 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
         let mode = fs::metadata(&backup).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
     }
+    // The file on disk does not read back as what was written: the copy stays, and the error says where.
+    let (_, key) = vault.key().unwrap();
+    let err = vault
+        .drop_backup("vault.v1.json", &key, &Content::default())
+        .unwrap_err()
+        .to_string();
+    assert!(err.ends_with("kept as vault/vault.v1.json"), "{err}");
+    assert_eq!(fs::read(&backup).unwrap(), v1);
+
+    vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    assert_eq!(format(), 2);
+    assert!(!backup.exists(), "gone once the new file reads back");
     assert_eq!(
         vault.value(&human(), &db, Access::Use).unwrap().expose(),
         VALUE
