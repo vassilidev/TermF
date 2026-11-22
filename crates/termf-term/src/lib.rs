@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::Serialize;
 
@@ -284,7 +284,12 @@ impl Sessions {
     }
 
     pub fn write(&self, id: u32, data: &[u8]) -> Result<()> {
-        let writer = self.with(id, |s| s.writer.clone())?;
+        let (writer, shared) = self.with(id, |s| (s.writer.clone(), s.shared.clone()))?;
+        // Rather than the terminal's "Input/output error".
+        ensure!(
+            shared.lock().unwrap().exit.is_none(),
+            "session {id} has ended"
+        );
         let mut writer = writer.lock().unwrap();
         writer.write_all(data)?;
         writer.flush()?;
@@ -833,6 +838,8 @@ mod tests {
                 .expect("write blocked");
         });
         sessions.resize(id, 10, 10).ok();
+        let ended = sessions.write(id, b"x").unwrap_err().to_string();
+        assert!(ended.contains("has ended"), "{ended}");
         assert!(sessions.write(id + 1, b"x").is_err());
     }
 }
