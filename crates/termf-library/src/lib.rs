@@ -181,8 +181,10 @@ impl Scope {
     /// project that lists it.
     pub fn new(config_dir: &Path, path: Option<&Path>, project: Option<String>) -> Result<Scope> {
         let Some(path) = path else {
+            // The stack is a hint: a project file that cannot be read leaves it empty, as before the stack.
             let repos = match &project {
-                Some(id) => termf_core::load_projects(config_dir)?
+                Some(id) => termf_core::load_projects(config_dir)
+                    .unwrap_or_default()
                     .into_iter()
                     .find(|p| &p.id == id)
                     .map(|p| p.repos)
@@ -202,7 +204,10 @@ impl Scope {
             .ancestors()
             .find(|d| d.join(".git").exists())
             .unwrap_or(path);
-        let projects = termf_core::load_projects(config_dir)?;
+        let projects = match project {
+            Some(_) => termf_core::load_projects(config_dir).unwrap_or_default(),
+            None => termf_core::load_projects(config_dir)?,
+        };
         let project = match project {
             Some(id) => Some(id),
             // shortcut: a repository listed in several projects gets the first one, until sessions know their project.
