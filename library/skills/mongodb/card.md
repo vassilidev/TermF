@@ -1,0 +1,9 @@
+- Version: the `mongo:<v>` image or Atlas cluster, `db.version()`, the feature compatibility version, and the driver or Mongoose version in the lockfile.
+- Docs: https://www.mongodb.com/docs/llms.txt (MongoDB 9.0.8 verified 2026-11-22). Official skills: `mongodb/agent-skills` (Apache-2.0).
+- Verify: the project's tests against the local server, `mongosh "$MONGODB_URI" --eval 'db.runCommand({ping:1})'`, `explain("executionStats")` on each new query.
+- 9.0 caps memory per operation: big aggregations may fail; index and filter earlier, then `allowDiskUse`.
+- 9.0 validates incoming BSON by default; at FCV 9.0 Mongoose `syncIndexes()` rebuilds indexes unless Mongoose ≥ 9.10.4 / 8.24.5.
+- Compound indexes: equality, then sort, then range fields; aim for `IXSCAN` with few documents examined.
+- Embed bounded data read with its parent; reference what grows without limit (16 MB per document).
+- Filters built from request bodies can carry `$ne`/`$gt` operators: validate types first. MCP server read-only (`--readOnly`).
+- Read the skill `mongodb` before modelling a collection, adding an index or writing an aggregation.
