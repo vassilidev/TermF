@@ -74,7 +74,7 @@ pub fn view(config_dir: &Path, project: &str) -> Result<View> {
         match termf_library::role_settings(config_dir, &scope, role) {
             Ok((item, settings)) => {
                 member.plannable = termf_library::plannable(&item);
-                member.credits = crate::list(item.meta.get("credits"));
+                member.credits = termf_library::credits(&item.meta);
                 member.description = item.description;
                 member.layer = Some(item.layer);
                 member.settings = settings;

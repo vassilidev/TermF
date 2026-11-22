@@ -25,7 +25,8 @@ const MAX_FINDINGS: usize = 8;
 const MAX_OPTIONS: usize = 8;
 const MAX_ANSWER: usize = 500;
 /// The proposals outside the library that the assistant records a decision for.
-const PROPOSALS: [&str; 4] = ["tickets", "worktree", "ci", "trust"];
+/// `skills`: a skill the stack switches on, removed or put back; `mcp`: a framework's MCP server added.
+const PROPOSALS: [&str; 6] = ["tickets", "worktree", "ci", "trust", "skills", "mcp"];
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

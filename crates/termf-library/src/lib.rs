@@ -568,6 +568,23 @@ pub fn metadata_list(item: &Item, key: &str) -> Vec<String> {
         .collect()
 }
 
+/// The sources an item adapts passages from, never put in a prompt: a role lists them in `credits`, a skill in
+/// `metadata.credits` (its frontmatter's `metadata` holds text only), separated by `;`.
+pub fn credits(meta: &Map<String, Value>) -> Vec<String> {
+    let mut found = list_of(meta.get("credits"));
+    let skill = meta.get("metadata").and_then(|m| m.get("credits"));
+    found.extend(
+        skill
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .split(';')
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_owned),
+    );
+    found
+}
+
 /// `termf-stacks: "*"`: a skill for every stack, such as a testing method. `termf-versions: "*"`: any version.
 pub const ANY: &str = "*";
 
@@ -1092,6 +1109,23 @@ mod tests {
             trusted,
             ..stack::RepoStack::default()
         }
+    }
+
+    #[test]
+    fn reads_the_credits_of_a_role_and_of_a_skill() {
+        let role = parse_markdown("---\ncredits:\n  - \"a/b@1 (MIT): x.md\"\n---\n")
+            .unwrap()
+            .0;
+        assert_eq!(credits(&role), ["a/b@1 (MIT): x.md"]);
+        let skill = parse_markdown(
+            "---\nmetadata:\n  credits: \"a/b@1 (MIT): x.md; c/d@2 (Apache-2.0): y.md\"\n---\n",
+        )
+        .unwrap()
+        .0;
+        assert_eq!(
+            credits(&skill),
+            ["a/b@1 (MIT): x.md", "c/d@2 (Apache-2.0): y.md"]
+        );
     }
 
     #[test]

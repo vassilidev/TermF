@@ -33,6 +33,15 @@ const MAX_CARD: usize = 25;
 const MIN_EVALS: usize = 3;
 /// Two descriptions this close (cosine of their TF-IDF vectors) compete for the same requests.
 const MAX_SIMILARITY: f64 = 0.6;
+/// Globs that match a folder or a file of any kind of project.
+const GENERIC_PATHS: [&str; 6] = [
+    "**",
+    "**/*",
+    "**/app/**",
+    "**/src/**",
+    "**/server/**",
+    "**/vite.config.*",
+];
 
 /// What is wrong with the skill in `dir`, each as `<folder>: <problem>`. `template`: the authors' template, whose
 /// folder is not its name.
@@ -162,11 +171,17 @@ pub(crate) fn check(dir: &Path, notices: &str, roles: &[String], template: bool)
             fail(format!("termf-sources: {source:?} is not an https URL"));
         }
     }
-    for credit in value("credits")
-        .split(';')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-    {
+    // The stack switches a skill on; `paths` only narrows it, so a folder every kind of project has is no filter.
+    if stacks != [ANY] {
+        let paths = crate::list_of(meta.get("paths"));
+        for glob in paths.iter().filter(|g| GENERIC_PATHS.contains(&g.as_str())) {
+            fail(format!(
+                "paths: {glob:?} is no framework's own folder or file"
+            ));
+        }
+    }
+    for credit in crate::credits(&meta) {
+        let credit = credit.as_str();
         // `owner/repo@commit (license): path`, as the roles write theirs.
         let source = credit.split_whitespace().next().unwrap_or_default();
         let (repo, commit) = source.split_once('@').unwrap_or((source, ""));
@@ -413,7 +428,7 @@ mod tests {
         put(
             &dir.join("SKILL.md"),
             &format!(
-                "---\nname: React_\ndescription: \"\"\nlicense: MIT\nversion: 2\nmetadata:\n  termf-stacks: \"reactjs *\"\n  termf-roles: frontend\n  termf-versions: \"~19\"\n  termf-verified: \"yesterday\"\n  termf-sources: \"http://react.dev\"\n  credits: \"someone/skills@abc123 (MIT): react.md\"\n  owner: me\n---\nRead references/hooks.md when the task touches effects.\n{}",
+                "---\nname: React_\ndescription: \"\"\nlicense: MIT\npaths: \"**/src/**, next.config.*\"\nversion: 2\nmetadata:\n  termf-stacks: \"reactjs *\"\n  termf-roles: frontend\n  termf-versions: \"~19\"\n  termf-verified: \"yesterday\"\n  termf-sources: \"http://react.dev\"\n  credits: \"someone/skills@abc123 (MIT): react.md\"\n  owner: me\n---\nRead references/hooks.md when the task touches effects.\n{}",
                 "line\n".repeat(500)
             ),
         );
@@ -433,13 +448,14 @@ mod tests {
             "termf-verified \"yesterday\"",
             "termf-sources: \"http://react.dev\"",
             "credits \"someone/skills@abc123 (MIT): react.md\": not in THIRD_PARTY_NOTICES.md",
-            "SKILL.md has 515 lines, 500 at most",
+            "SKILL.md has 516 lines, 500 at most",
             "card.md has 26 lines",
             "references/hooks.md is linked but missing",
             "1 eval cases in evals/",
             "evals/one: no grader",
             "no eval checks that the skill React_ fires",
             "no dormant eval",
+            "paths: \"**/src/**\" is no framework",
         ] {
             assert!(
                 errors.contains(expected),
