@@ -2194,6 +2194,18 @@ const fr = {
   ctoToolChanges: "Demander des modifications",
   ctoToolStop: "Arrêter un run d'équipe",
   ctoToolSend: "Envoyer un message à un agent",
+  // Local API isolation: what a `termf` command asks the user to confirm.
+  apiIsoAsk: "Une commande termf demande à {action}. Si ce n'est pas toi (un agent peut lancer termf), refuse.",
+  apiIsoNotify: "Une commande termf demande ton accord",
+  apiIsoRun: "lancer un run sur le ticket {ticket}",
+  apiIsoDeliver: "livrer le run {run} (commit, push et pull request)",
+  apiIsoClose: "fermer le run {run}",
+  apiIsoCloseForce: "fermer le run {run} en jetant le travail non poussé",
+  apiIsoTeam: "lancer l'équipe sur le run {run}",
+  apiIsoTeamRequest: "lancer l'équipe sur la demande « {request} »",
+  apiIsoApprove: "approuver l'étape {step} du run {run}",
+  apiIsoReview: "approuver l'écran {screen} de la revue visuelle {review}",
+  apiIsoAllowAgent: "autoriser ce que demande la session d'agent {session}",
 };
 
 type Key = keyof typeof fr;
@@ -4376,6 +4388,18 @@ const en: Record<Key, string> = {
   ctoToolChanges: "Request changes",
   ctoToolStop: "Stop a team run",
   ctoToolSend: "Send a message to an agent",
+  // Local API isolation: what a `termf` command asks the user to confirm.
+  apiIsoAsk: "A termf command asks to {action}. If it was not you (an agent can run termf), deny it.",
+  apiIsoNotify: "A termf command asks for your go-ahead",
+  apiIsoRun: "start a run on ticket {ticket}",
+  apiIsoDeliver: "deliver run {run} (commit, push and pull request)",
+  apiIsoClose: "close run {run}",
+  apiIsoCloseForce: "close run {run} and drop the work not pushed",
+  apiIsoTeam: "start the team on run {run}",
+  apiIsoTeamRequest: "start the team on the request “{request}”",
+  apiIsoApprove: "approve step {step} of run {run}",
+  apiIsoReview: "approve screen {screen} of visual review {review}",
+  apiIsoAllowAgent: "allow what agent session {session} asks",
 };
 
 const messages = { fr, en };

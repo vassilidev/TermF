@@ -1118,8 +1118,15 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
         server_env["TERMF_MCP_TOKEN"], "${TERMF_MCP_TOKEN}",
         "Claude Code passes it on from its own environment"
     );
-    assert!(!text.contains("cap-1"), "no token another session could read: {text}");
-    assert_eq!(env.log("mcptoken"), "cap-1", "only in its process's environment");
+    assert!(
+        !text.contains("cap-1"),
+        "no token another session could read: {text}"
+    );
+    assert_eq!(
+        env.log("mcptoken"),
+        "cap-1",
+        "only in its process's environment"
+    );
     use std::os::unix::fs::PermissionsExt;
     let mode = fs::metadata(&file).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);

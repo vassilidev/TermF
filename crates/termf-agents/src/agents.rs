@@ -888,7 +888,9 @@ impl Inner {
         let mut server = (mcp.server)(id)?;
         server["env"][ipc::ENV_MCP_TOOLS] = tools.join(",").into();
         let env = server["env"].as_object_mut().expect("set just above");
-        let token = env.remove(ipc::ENV_MCP_TOKEN).and_then(|t| t.as_str().map(str::to_owned));
+        let token = env
+            .remove(ipc::ENV_MCP_TOKEN)
+            .and_then(|t| t.as_str().map(str::to_owned));
         if token.is_some() {
             env.insert(
                 ipc::ENV_MCP_TOKEN.into(),

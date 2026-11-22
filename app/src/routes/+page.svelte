@@ -1,6 +1,7 @@
 <script lang="ts">
   import "../app.css";
   import { onMount } from "svelte";
+  import ApiConfirm from "$lib/ApiConfirm.svelte";
   import AppNav from "$lib/AppNav.svelte";
   import CommandPalette from "$lib/CommandPalette.svelte";
   import OnboardingView from "$lib/OnboardingView.svelte";
@@ -71,6 +72,7 @@
 <div class="app">
   <AppNav />
   <div class="main">
+    <ApiConfirm />
     {#if app.error || app.workspace?.apiError || app.workspace?.quickTerminalError || app.workspace?.scanTruncated}
       <div class="banners">
         {#if app.error}

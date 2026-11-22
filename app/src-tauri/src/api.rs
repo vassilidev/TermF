@@ -1146,7 +1146,13 @@ mod tests {
     #[test]
     fn a_reserved_call_waits_for_the_user() {
         let confirms = Arc::new(Confirms::default());
-        let deliver = || ipc::reserved(&Call::Deliver { run: 12, confirm: String::new() }).unwrap();
+        let deliver = || {
+            ipc::reserved(&Call::Deliver {
+                run: 12,
+                confirm: String::new(),
+            })
+            .unwrap()
+        };
         let shown: Arc<Mutex<Vec<(String, u64)>>> = Arc::default();
         let ask = |wait| {
             let (confirms, shown) = (confirms.clone(), shown.clone());
@@ -1179,7 +1185,12 @@ mod tests {
         let ignored = ask(Duration::from_millis(50)).join().unwrap();
         assert!(ignored.unwrap_err().to_string().contains("not confirmed"));
         assert!(confirms.list().is_empty(), "none left waiting");
-        let events: Vec<String> = shown.lock().unwrap().iter().map(|(e, _)| e.clone()).collect();
+        let events: Vec<String> = shown
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(e, _)| e.clone())
+            .collect();
         assert_eq!(events.len(), 6, "each shown, then gone: {events:?}");
         assert_eq!(events[..2], ["api-confirm", "api-confirm-done"]);
     }
@@ -1198,6 +1209,9 @@ mod tests {
         let endpoint = api.endpoint.as_ref().unwrap();
         assert!(endpoint.allows(&hook));
         api.revoke_session(3);
-        assert!(!endpoint.allows(&hook), "what it left running reports nothing");
+        assert!(
+            !endpoint.allows(&hook),
+            "what it left running reports nothing"
+        );
     }
 }
