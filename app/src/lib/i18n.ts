@@ -2686,6 +2686,7 @@ const fr = {
   vault3ImportMerge:
     "Importé comme la synchro, élément par élément : un élément changé des deux côtés garde ses deux versions.",
   vault3ImportRun: "Importer",
+  vaultRestore: "Restaurer les éléments supprimés depuis cet export (sur toutes tes machines synchronisées)",
   vault3ImportCount: "Importer {n} élément(s)",
   vault3Imported: "Importé : {summary}",
   vault3ImportedCount: "{n} élément(s) importé(s).",
@@ -6353,6 +6354,7 @@ const en: Record<Key, string> = {
   vault3ImportShow: "Show the items",
   vault3ImportMerge: "Imported as the sync does, item by item: an item changed on both sides keeps both versions.",
   vault3ImportRun: "Import",
+  vaultRestore: "Restore the items deleted since this export (on all your synced machines)",
   vault3ImportCount: "Import {n} item(s)",
   vault3Imported: "Imported: {summary}",
   vault3ImportedCount: "{n} item(s) imported.",
