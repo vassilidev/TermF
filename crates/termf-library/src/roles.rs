@@ -334,8 +334,8 @@ writes = ["-packages/ui/**"]
             "Edit(**/schema.sql)",
             "Edit(**/db/schema.rb)",
             "Edit(**/db/structure.sql)",
-            "Edit(**/infra/**)",
-            "Edit(**/terraform/**)",
+            "Edit(/infra/**)",
+            "Edit(/terraform/**)",
             "Edit(.github/workflows/**)",
         ];
         assert_eq!(

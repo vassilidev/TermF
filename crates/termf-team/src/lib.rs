@@ -598,13 +598,15 @@ impl Team {
         self.pass(id, key, Some(reason))
     }
 
-    /// Refuses the delivery of run `id` while its team's definition of done is not met and the user did not pass
-    /// over it at the delivery gate. A run without a team, whose workflow has no delivery gate, or whose gate
-    /// passed (it read the definition of done then, or came before it), goes.
-    pub fn check_delivery(&self, id: i64) -> Result<()> {
+    /// Whether run `id` may be delivered: refused while its team is at work, short of its delivery gate, and the
+    /// definition of done is not met (the gate lets the user pass over it). A team stopped, paused or out of budget
+    /// before its gate leaves the delivery to the user: what the definition of done misses comes back, for the
+    /// preview to show and [`Team::delivered_without`] to keep. A run without a team, whose workflow has no delivery
+    /// gate, or whose gate passed (it read the definition of done then, or came before it), goes: `None`.
+    pub fn check_delivery(&self, id: i64) -> Result<Option<done::Done>> {
         let inner = &self.inner;
         let Some(run) = inner.store()?.get(id)? else {
-            return Ok(());
+            return Ok(None);
         };
         let gates: Vec<&Step> = run
             .steps
@@ -612,14 +614,38 @@ impl Team {
             .filter(|s| s.kind == StepKind::Connector)
             .collect();
         if gates.iter().all(|s| s.state == StepState::Done) {
-            return Ok(());
+            return Ok(None);
         }
         let done = done::evaluate(&run, &inner.done_criteria(&run)?);
+        if done.passes() {
+            return Ok(None);
+        }
         ensure!(
-            done.passes(),
+            !run.state.active(),
             "the definition of done is not met: {}. The team's delivery gate lets you deliver anyway, with your reason",
             done.unmet()
         );
+        Ok(Some(done))
+    }
+
+    /// Run `id` was delivered by hand, its team stopped short of its delivery gate with `done` not met: the user's
+    /// decision, in the project's journal.
+    pub fn delivered_without(&self, id: i64, done: &done::Done) -> Result<()> {
+        let inner = &self.inner;
+        let _lock = inner.lock.lock().unwrap();
+        let store = inner.store()?;
+        let run = inner.get(&store, id)?;
+        let gate = run
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Connector)
+            .map_or("deliver", |s| s.key.as_str());
+        let text = format!(
+            "Delivered by hand, the team {} before its delivery gate, without the definition of done ({})",
+            run.state.as_str(),
+            done.unmet()
+        );
+        inner.decide(&store, &run, gate, "you", &text, None);
         Ok(())
     }
 
@@ -636,11 +662,21 @@ impl Team {
         );
         let i = run.index(key)?;
         let step = &run.steps[i];
+        let gate = step.state == StepState::Waiting && step.kind == StepKind::Connector;
+        ensure!(
+            reason.is_none() || gate,
+            "only the delivery gate takes a reason"
+        );
+        let mut decided = None;
         match step.state {
-            StepState::Waiting if step.kind == StepKind::Connector => {
-                inner.pass_done(&store, &mut run, i, reason)?
-            }
+            StepState::Waiting if gate => decided = inner.pass_done(&store, &mut run, reason)?,
             StepState::Waiting => {}
+            StepState::Blocked if step.kind == StepKind::Connector => {
+                bail!(
+                    "the delivery gate could not read the definition of done: fix `[team] done`, then revise the gate \
+                     to read it again"
+                )
+            }
             StepState::Blocked if step.plan => {
                 bail!(
                     "the plan step has no plan to approve, or questions: revise it with your answers"
@@ -663,6 +699,10 @@ impl Team {
         inner.event(&store, &run, Some(key), "approved", "approved by you");
         run.state = RunState::Running;
         inner.tick(&store, &mut run)?;
+        // Once the gate's pass is saved: a failed attempt, made again, writes it once.
+        if let Some(text) = decided {
+            inner.decide(&store, &run, key, "you", &text, None);
+        }
         Ok(run)
     }
 
@@ -939,7 +979,11 @@ impl Inner {
             _ => bail!("step {key} does not wait for you"),
         };
         ensure!(
-            !feedback.is_empty() || run.steps[target].kind == StepKind::Shell,
+            !feedback.is_empty()
+                || matches!(
+                    run.steps[target].kind,
+                    StepKind::Shell | StepKind::Connector
+                ),
             "say what to change"
         );
         if run.steps[target].key == TRIAGE {
@@ -1034,39 +1078,31 @@ impl Inner {
         done::criteria(&[&project, &self.config_dir.join("termf.toml")])
     }
 
-    /// The delivery gate `i` passes when the definition of done is met; else only with the user's reason, which joins
-    /// the project's decisions.
+    /// The delivery gate passes when the definition of done is met; else only with the user's reason: the decision
+    /// for the project's journal. Refused, the run keeps what the gate read, for the user to see what is missing (a
+    /// gate opened before the definition of done has read none).
     fn pass_done(
         &self,
         store: &Store,
         run: &mut TeamRun,
-        i: usize,
         reason: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<Option<String>> {
         let mut done = done::evaluate(run, &self.done_criteria(run)?);
-        if !done.passes() {
-            let unmet = done.unmet();
-            let reason = reason
-                .map(str::trim)
-                .filter(|r| !r.is_empty())
-                .with_context(|| {
-                    format!(
-                        "the definition of done is not met: {unmet}. Give your reason to deliver anyway"
-                    )
-                })?;
-            done.overridden = Some(reason.to_owned());
-            let key = run.steps[i].key.clone();
-            self.decide(
-                store,
-                run,
-                &key,
-                "you",
-                &format!("Delivered without the definition of done ({unmet}): {reason}"),
-                None,
-            );
+        if done.passes() {
+            run.done = Some(done);
+            return Ok(None);
         }
+        let unmet = done.unmet();
+        let Some(reason) = reason.map(str::trim).filter(|r| !r.is_empty()) else {
+            run.done = Some(done);
+            self.save(store, run)?;
+            bail!("the definition of done is not met: {unmet}. Give your reason to deliver anyway");
+        };
+        done.overridden = Some(reason.to_owned());
         run.done = Some(done);
-        Ok(())
+        Ok(Some(format!(
+            "Delivered without the definition of done ({unmet}): {reason}"
+        )))
     }
 
     /// One more decision in the project's journal, and its event.
@@ -1709,6 +1745,21 @@ impl Inner {
     /// brought down to the advised one.
     fn apply_routing(&self, store: &Store, run: &mut TeamRun) -> Result<()> {
         let routing = run.routing.clone().context("the run has no routing")?;
+        if !routing.replaces.is_empty() {
+            let in_force: Vec<i64> = store
+                .decisions(&run.target.project)?
+                .into_iter()
+                .filter(|d| d.replaced_by.is_none())
+                .map(|d| d.id)
+                .collect();
+            let stale = route::check_replaces(&routing, &in_force);
+            ensure!(
+                stale.is_empty(),
+                "the routing replaces a decision another run replaced meanwhile: {}. Revise the triage, or set \
+                 the routing yourself",
+                stale.join("; ")
+            );
+        }
         let workflow = self.routed_workflow(run, &routing)?;
         let defs = workflow.steps()?;
         ensure!(
@@ -1975,7 +2026,10 @@ impl Inner {
             self.drop_worktree(run, i);
             run.steps[i].worktree = None;
         }
-        if !refused.is_empty() {
+        let stopped = outcome == Outcome::Done
+            && plan::answer::<serde_json::Value>(structured.as_ref(), result.as_deref())
+                .is_ok_and(|a| a["status"] == "blocked");
+        if !refused.is_empty() && !stopped {
             let why = format!(
                 "its role may not change {}: Claude Code refused it. Revise the step without it, or give the work to \
                  a role that may",
@@ -2010,6 +2064,13 @@ impl Inner {
             self.take_plan(store, run, i, structured.as_ref(), result.as_deref());
         } else {
             self.take_report(store, run, i, structured.as_ref(), result.as_deref());
+        }
+        if !refused.is_empty() && run.steps[i].state == StepState::Blocked {
+            let note = run.steps[i].note.take().unwrap_or_default();
+            run.steps[i].note = Some(format!(
+                "{note}\n(Claude Code refused to let its role change {})",
+                refused.join(", ")
+            ));
         }
         Ok(true)
     }
@@ -3069,6 +3130,10 @@ impl Inner {
         let mut queue: std::collections::VecDeque<&String> = run.steps[i].needs.iter().collect();
         while let Some(key) = queue.pop_front() {
             let j = run.index(key).ok()?;
+            // The CTO decided on a step once: what the user asks goes on to that step's work.
+            if run.steps[j].escalates.is_some() {
+                continue;
+            }
             // The reviewer changes nothing: what the user asks goes on to the work it reviewed.
             if run.steps[j].agent() && run.steps[j].kind != StepKind::Review {
                 return Some(j);

@@ -4,6 +4,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { t } from "$lib/i18n";
 import { app, ui } from "$lib/state.svelte";
 import { cleanupNotice } from "$lib/tickets-logic";
+import type { Done } from "$lib/team-run-logic";
 
 export type TicketRef = { provider: string; key: string; url: string };
 export type TicketSummary = TicketRef & {
@@ -69,6 +70,8 @@ export type DeliveryPreview = {
   files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; from: string | null }[];
   commits: { commit: string; subject: string }[];
   fingerprint: string;
+  /** What the definition of done misses, when the run's team stopped short of its delivery gate. */
+  done?: Done | null;
 };
 export type Delivery = { run: Run; warning: string | null };
 export type Resumed = { run: Run; warning: string | null };

@@ -21,12 +21,12 @@
     const n = ++asked;
     invoke<Decision[]>("team_decisions", { project }).then(
       (list) => {
-        if (n === asked) decisions = list;
+        if (n !== asked) return;
+        decisions = list;
+        error = "";
       },
       (e) => {
-        if (n !== asked) return;
-        decisions = [];
-        error = String(e);
+        if (n === asked) error = String(e);
       },
     );
   });

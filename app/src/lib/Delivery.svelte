@@ -8,6 +8,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Send from "@lucide/svelte/icons/send";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import DoneCriteria from "$lib/DoneCriteria.svelte";
   import { t } from "$lib/i18n";
   import { openUrl, upsert, type Delivery, type DeliveryPreview, type Run } from "$lib/tickets.svelte";
 
@@ -95,6 +96,10 @@
     </h3>
     {#if preview}
       {@const p = preview}
+      {#if p.done}
+        <DoneCriteria done={p.done} />
+        <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{t("disciplineDoneStopped")}</p>
+      {/if}
       {#if p.files.length}
         <p class="sub">{t("deliverFiles", { count: p.files.length })}</p>
         <ul class="changes">

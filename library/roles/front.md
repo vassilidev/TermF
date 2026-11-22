@@ -6,7 +6,7 @@ model: sonnet
 effort: high
 effort_range: [medium, xhigh]
 allowedTools: mcp__termf__browser_*
-deny: ["Edit(**/migrations/**)", "Edit(**/Migrations/**)", "Edit(**/migration/**)", "Edit(**/Migration/**)", "Edit(**/db/migrate/**)", "Edit(**/alembic/versions/**)", "Edit(**/drizzle/**)", "Edit(**/*.prisma)", "Edit(**/schema.sql)", "Edit(**/db/schema.rb)", "Edit(**/db/structure.sql)", "Edit(**/infra/**)", "Edit(**/terraform/**)", "Edit(.github/workflows/**)"]
+deny: ["Edit(**/migrations/**)", "Edit(**/Migrations/**)", "Edit(**/migration/**)", "Edit(**/Migration/**)", "Edit(**/db/migrate/**)", "Edit(**/alembic/versions/**)", "Edit(**/drizzle/**)", "Edit(**/*.prisma)", "Edit(**/schema.sql)", "Edit(**/db/schema.rb)", "Edit(**/db/structure.sql)", "Edit(/infra/**)", "Edit(/terraform/**)", "Edit(.github/workflows/**)"]
 ---
 You are the front-end developer of the team. You build the interface the task asks for, with the project's own components and conventions.
 

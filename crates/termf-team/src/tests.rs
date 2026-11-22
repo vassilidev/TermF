@@ -3010,8 +3010,22 @@ fn the_definition_of_done_holds_the_delivery_until_you_say_why() {
     );
     assert!(env.message("security", 1).contains("vulnerabilities"));
 
+    let mut older = env.run();
+    older.done = None;
+    Store::open(&env.data).unwrap().save(&mut older).unwrap();
     let refused = env.team.approve(1, "deliver").unwrap_err().to_string();
     assert!(refused.contains("Give your reason"), "{refused}");
+    assert!(
+        env.run().done.is_some_and(|d| !d.passes()),
+        "refused, the gate shows what is missing"
+    );
+    assert!(
+        env.team
+            .approve_anyway(1, "implement:T1", "no")
+            .unwrap_err()
+            .to_string()
+            .contains("only the delivery gate takes a reason")
+    );
     assert!(env.team.check_delivery(1).is_err(), "nor delivered past it");
     assert!(env.team.approve_anyway(1, "deliver", "  ").is_err());
     let run = env
@@ -3288,6 +3302,18 @@ fn the_last_round_goes_to_the_cto_before_you() {
         "{}",
         decision.text
     );
+
+    env.team
+        .revise(1, "deliver", "Name the export file after the period.")
+        .unwrap();
+    env.until("the delivery again", |r| {
+        delivery(r) && env.steps_log().contains(&"implement:T1 4 end".to_owned())
+    });
+    assert!(
+        !env.steps_log()
+            .contains(&"escalate-review 2 begin".to_owned()),
+        "the CTO decided once; the work goes on"
+    );
 }
 
 #[test]
@@ -3298,6 +3324,7 @@ fn a_role_never_changes_a_path_it_may_not() {
         env.plan(json!([
             task("T1", "front", &["web"], &[]),
             task("T2", "front", &["app"], &[]),
+            task("T3", "front", &["lib"], &[]),
         ])),
     );
     // Written by a command: the commit shows it.
@@ -3310,6 +3337,15 @@ fn a_role_never_changes_a_path_it_may_not() {
     let call = json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use",
         "id": "toolu_1", "name": "Write", "input": {"file_path": file, "content": "select 2;"}}]}, "session_id": "x"});
     fs::write(env.answers.join("implement:T2.1.tool"), format!("{call}\n")).unwrap();
+    // T2 then stops and asks, as its brief says; T3 is refused the same way and says it is done.
+    let mut asks = report("I may not write the migration.");
+    asks["status"] = "blocked".into();
+    asks["questions"] = json!([question("owner", "choice", &["back", "dba"], &["dba"])]);
+    env.answer("implement:T2.json", asks);
+    let file = env.data.join("team/1/T3/db/migrations/3.sql");
+    let call = json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use",
+        "id": "toolu_3", "name": "Write", "input": {"file_path": file, "content": "select 3;"}}]}, "session_id": "x"});
+    fs::write(env.answers.join("implement:T3.1.tool"), format!("{call}\n")).unwrap();
     env.team
         .start(
             env.target.clone(),
@@ -3319,26 +3355,39 @@ fn a_role_never_changes_a_path_it_may_not() {
             },
         )
         .unwrap();
-    let run = env.until("both tasks blocked", |r| {
+    let run = env.until("the tasks blocked", |r| {
         r.steps
             .iter()
             .filter(|s| s.kind == StepKind::Task && s.state == StepState::Blocked)
             .count()
-            == 2
+            == 3
     });
     let t1 = env.step(&run, "implement:T1");
     let t2 = env.step(&run, "implement:T2");
+    let t3 = env.step(&run, "implement:T3");
     assert!(
         t1.note
             .as_deref()
             .unwrap()
             .starts_with("its role may not change db/migrations/1.sql")
     );
+    let note = t2.note.clone().unwrap();
     assert!(
-        t2.note
+        note.starts_with("its agent needs an answer: I may not write the migration.")
+            && note.ends_with("(Claude Code refused to let its role change db/migrations/2.sql)"),
+        "{note}"
+    );
+    let i = run
+        .steps
+        .iter()
+        .position(|s| s.key == "implement:T2")
+        .unwrap();
+    assert_eq!(run.questions(i).len(), 1, "its question kept");
+    assert!(
+        t3.note
             .as_deref()
             .unwrap()
-            .starts_with("its role may not change db/migrations/2.sql: Claude Code refused it")
+            .starts_with("its role may not change db/migrations/3.sql: Claude Code refused it")
     );
     assert!(
         !t1.escalated && !t2.escalated,
@@ -3357,7 +3406,7 @@ fn a_role_never_changes_a_path_it_may_not() {
         brief.contains(
             "Your role may not change these paths: **/migrations/**, **/Migrations/**, **/migration/**, \
              **/Migration/**, **/db/migrate/**, **/alembic/versions/**, **/drizzle/**, **/*.prisma, **/schema.sql, \
-             **/db/schema.rb, **/db/structure.sql, **/infra/**, **/terraform/**, .github/workflows/**."
+             **/db/schema.rb, **/db/structure.sql, /infra/**, /terraform/**, .github/workflows/**."
         ),
         "{brief}"
     );
@@ -3748,4 +3797,117 @@ fn the_migrations_review_goes_to_the_cto_and_counts_in_the_definition_of_done() 
     let run = other.until("the delivery", delivery);
     assert_eq!(other.step(&run, "migrations").state, StepState::Skipped);
     assert!(run.done.unwrap().passes());
+}
+
+#[test]
+fn a_team_stopped_short_of_its_gate_leaves_the_delivery_to_you() {
+    let env = Env::new("done-stopped");
+    let mut public = report("T1 done");
+    public["public_change"] = true.into();
+    env.answer("implement:T1.json", public);
+    disciplined(&env, "");
+    env.until("the delivery", delivery);
+    assert!(
+        env.team.check_delivery(1).is_err(),
+        "at work: the gate decides"
+    );
+    env.team.stop(Some(1)).unwrap();
+    let done = env
+        .team
+        .check_delivery(1)
+        .unwrap()
+        .expect("what the definition of done misses");
+    assert_eq!(
+        done.criteria
+            .iter()
+            .filter(|c| !c.met)
+            .map(|c| c.id.as_str())
+            .collect::<Vec<_>>(),
+        ["docs"]
+    );
+    env.team.delivered_without(1, &done).unwrap();
+    let [decision] = &decisions(&env.data, "acme").unwrap()[..] else {
+        panic!("a delivery by hand is a decision")
+    };
+    assert!(
+        decision
+            .text
+            .starts_with("Delivered by hand, the team stopped before its delivery gate"),
+        "{}",
+        decision.text
+    );
+}
+
+#[test]
+fn a_delivery_gate_that_cannot_read_its_settings_is_never_accepted_as_it_is() {
+    let env = Env::new("done-blocked");
+    fs::write(
+        env.config.join("library/workflows/gated.toml"),
+        "[steps.checks]\ntype = \"shell\"\nrun = \"true\"\n[steps.deliver]\ntype = \"connector\"\nneeds = [\"checks\"]\n",
+    )
+    .unwrap();
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\ndone = [\"tests\"]\n")).unwrap();
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("gated".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    let run = env.until("the gate blocked", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "deliver" && s.state == StepState::Blocked)
+    });
+    assert!(run.done.is_none());
+    let refused = env.team.approve(1, "deliver").unwrap_err().to_string();
+    assert!(refused.contains("fix `[team] done`"), "{refused}");
+    fs::write(&file, format!("{project}[team]\ndone = [\"checks\"]\n")).unwrap();
+    env.team.revise(1, "deliver", "").unwrap();
+    let run = env.until("the delivery", delivery);
+    assert!(run.done.unwrap().passes());
+    assert_eq!(
+        env.team.approve(1, "deliver").unwrap().state,
+        RunState::Done
+    );
+}
+
+#[test]
+fn a_routing_never_replaces_a_decision_replaced_meanwhile() {
+    let env = Env::new("decisions-stale");
+    triage_project(&env);
+    let store = Store::open(&env.data).unwrap();
+    let csv = store
+        .decide("acme", 7, TRIAGE, "cto", "Ruling: CSV only — x — y", None)
+        .unwrap();
+    let mut replaces = routing("default", &["api"]);
+    replaces["replaces"] =
+        json!([{"decision": format!("D{}", csv.id), "ruling": "Ruling: Excel too — x — y"}]);
+    env.answer("triage.json", replaces);
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    env.until("the routing gate", |r| {
+        r.steps[1].state == StepState::Waiting
+    });
+    store
+        .decide(
+            "acme",
+            8,
+            TRIAGE,
+            "cto",
+            "Ruling: PDF only — z — w",
+            Some(csv.id),
+        )
+        .unwrap();
+    let refused = env.team.approve(1, ROUTE).unwrap_err().to_string();
+    assert!(
+        refused.contains("another run replaced meanwhile"),
+        "{refused}"
+    );
+    assert_eq!(decisions(&env.data, "acme").unwrap().len(), 2);
 }

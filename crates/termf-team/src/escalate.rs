@@ -74,6 +74,9 @@ pub fn check(
         problems.push("the decision has no ruling".to_owned());
     }
     let instructed = !verdict.instructions.trim().is_empty();
+    if review.is_none() && !verdict.findings.is_empty() {
+        problems.push("findings are for a review: a task has none".to_owned());
+    }
     match (review, verdict.decision) {
         (None, Decision::Retry) if !instructed => {
             problems.push("retry needs your instructions".to_owned())
@@ -192,6 +195,13 @@ mod tests {
             "front",
         );
         assert!(unknown[0].contains("not a role"), "{unknown:?}");
+        let stray = check(
+            &verdict(Decision::Retry, "", &[("F1", "T1")]),
+            None,
+            &roles,
+            "front",
+        );
+        assert!(stray[0].contains("findings are for a review"), "{stray:?}");
         let mut silent = verdict(Decision::Accept, "", &[]);
         silent.ruling = " ".into();
         assert_eq!(check(&silent, None, &roles, "front").len(), 1);
