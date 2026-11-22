@@ -129,7 +129,7 @@ fn what(items: usize, secrets: usize, project: Option<&str>) -> String {
 /// A field of the CSV: quoted when it must be, and never read as a formula by a spreadsheet (an apostrophe first).
 fn cell(out: &mut String, text: &str) {
     let mut text = Zeroizing::new(text.to_owned());
-    if text.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+    if foreign::formula(&text) {
         text.insert(0, '\'');
     }
     if text.contains([',', '"', '\n', '\r']) {
@@ -273,7 +273,7 @@ impl Vault {
         self.confirmed()?;
         let part = self.open()?.part(project);
         let mut out = Zeroizing::new(String::from(
-            "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n",
+            "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp,termf_export\n",
         ));
         for item in &part.items {
             let kind = match item.kind {
@@ -281,7 +281,7 @@ impl Vault {
                 Kind::Note => "note",
             };
             let totp = item.totp.as_ref().map(|t| t.uri(&item.title));
-            let cells: [&str; 11] = [
+            let cells: [&str; 12] = [
                 item.project.as_deref().unwrap_or_default(),
                 "",
                 kind,
@@ -293,6 +293,7 @@ impl Vault {
                 &item.username,
                 item.password.as_ref().map_or("", Secret::expose),
                 totp.as_ref().map_or("", |t| t.expose()),
+                "1",
             ];
             for (i, text) in cells.iter().enumerate() {
                 if i > 0 {

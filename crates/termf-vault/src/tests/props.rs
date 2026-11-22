@@ -105,20 +105,17 @@ fn a_csv_export_reads_back_as_written() {
     let env = Env::new("csv-props");
     let vault = env.vault();
     vault.init(&human(), PASSWORD, false).unwrap();
-    // What the export changes on purpose: an apostrophe before what a spreadsheet would run, addresses split
-    // at commas, user names and titles trimmed.
+    // What the export changes on purpose: addresses split at commas, user names and titles trimmed. Values a
+    // spreadsheet would run (and those that start with apostrophes) come back as they were.
     let plain = |rng: &mut Rng, comma: bool| loop {
         let v = rng.text(AWKWARD, 30);
         let t = v.trim();
-        if !t.is_empty()
-            && !t.starts_with(['=', '+', '-', '@'])
-            && !t.contains('\0')
-            && (comma || !t.contains(','))
-        {
+        if !t.is_empty() && !t.contains('\0') && (comma || !t.contains(',')) {
             return t.to_owned();
         }
     };
     let mut rng = Rng::new(0xc5f);
+    let tricky = ["=1+1", "'=1", "''+cmd", "-2", "@SUM(A1)", "'plain", "\tx"];
     let mut drafts = Vec::new();
     for i in 0..60 {
         let note = rng.chance(4);
@@ -137,7 +134,10 @@ fn a_csv_export_reads_back_as_written() {
             } else {
                 plain(&mut rng, true)
             },
-            password: (!note).then(|| Secret::new(plain(&mut rng, true))),
+            password: (!note).then(|| match rng.chance(3) {
+                true => Secret::new(rng.pick(&tricky).to_string()),
+                false => Secret::new(plain(&mut rng, true)),
+            }),
             totp: None,
             notes: Some(Secret::new(format!(
                 "{}\r\n{}",
@@ -193,4 +193,27 @@ fn a_damaged_zip_is_refused_or_gives_the_file_as_it_was() {
             assert_eq!(*read, data);
         }
     }
+}
+
+#[test]
+fn only_a_termf_csv_gets_its_apostrophes_back() {
+    let password = |csv: &str| {
+        let parsed = crate::foreign::parse(csv.as_bytes()).unwrap();
+        parsed.candidates[0]
+            .password
+            .as_ref()
+            .unwrap()
+            .expose()
+            .to_owned()
+    };
+    let header = "type,name,login_password";
+    assert_eq!(password(&format!("{header}\nlogin,a,'=x\n")), "'=x");
+    assert_eq!(
+        password(&format!("{header},termf_export\nlogin,a,'=x,1\n")),
+        "=x"
+    );
+    assert_eq!(
+        password(&format!("{header},termf_export\nlogin,a,'plain,1\n")),
+        "'plain"
+    );
 }
