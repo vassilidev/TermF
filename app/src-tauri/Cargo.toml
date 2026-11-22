@@ -55,3 +55,6 @@ objc2-foundation = "0.3.2"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Security_Credentials_UI", "Win32_System_Com", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging"] }
 windows-future = "0.3.2"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2.14.1"
