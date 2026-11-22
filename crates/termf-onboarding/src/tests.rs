@@ -329,3 +329,150 @@ fn opens_by_itself_once_for_a_new_project_and_records_decisions() {
         }
     );
 }
+
+/// `cargo test -p termf-onboarding -- --ignored real_onboarding --nocapture`: the installed Claude Code (Haiku,
+/// its own login, TermF's config and data throwaway) on a throwaway Node repository: the project setup's survey,
+/// the assistant's analysis, a convention written in one sentence proposed then applied, and a short scout pass.
+#[test]
+#[ignore]
+fn real_onboarding() {
+    use termf_library::conventions::Review;
+    use termf_library::scout;
+
+    let dir = temp("real");
+    let (config, data, repo) = (dir.join("config"), dir.join("data"), dir.join("shop"));
+    put(
+        &repo.join("package.json"),
+        r#"{ "name": "shop", "scripts": { "test": "node --test", "lint": "eslint ." }, "devDependencies": { "eslint": "^9.0.0" } }"#,
+    );
+    put(
+        &repo.join("package-lock.json"),
+        r#"{ "lockfileVersion": 3 }"#,
+    );
+    put(
+        &repo.join("src/cart.js"),
+        "export function total(items) {\n  return items.reduce((s, i) => s + i.price * i.qty, 0);\n}\n",
+    );
+    put(
+        &repo.join("test/cart.test.js"),
+        "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { total } from '../src/cart.js';\ntest('total', () => assert.equal(total([{ price: 2, qty: 3 }]), 6));\n",
+    );
+    put(&repo.join("README.md"), "# Shop\n\nA tiny cart.\n");
+    let git = |args: &[&str]| {
+        let out = Command::new("git").arg("-C").arg(&repo).args(args).output();
+        assert!(out.unwrap().status.success(), "{args:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["add", "-A"]);
+    git(&[
+        "-c",
+        "user.name=a",
+        "-c",
+        "user.email=a@b",
+        "commit",
+        "-q",
+        "-m",
+        "init",
+    ]);
+    put(
+        &config.join("projects/acme.toml"),
+        &format!(
+            "name = \"Acme\"\n[[repos]]\npath = {:?}\n",
+            repo.to_string_lossy()
+        ),
+    );
+    put(
+        &config.join("termf.toml"),
+        "[conventions]\nmodel = \"haiku\"\neffort = \"low\"\n[scout]\nmodel = \"haiku\"\nbudget = 0.2\n",
+    );
+    let claude: Vec<String> = ["claude", "--max-budget-usd", "0.2"]
+        .map(Into::into)
+        .to_vec();
+    let mut spent = 0.0;
+
+    // The project setup's survey: files and git only.
+    let path = repo.to_string_lossy().into_owned();
+    let detected = setup::detect(&config, &path).unwrap();
+    assert_eq!(detected.facts.stack, ["node:npm"], "{detected:?}");
+    assert!(
+        detected.scripts.iter().any(|s| s.run == "npm test"),
+        "{detected:?}"
+    );
+    setup::draft(&config, std::slice::from_ref(&path)).unwrap();
+
+    let state = analyze(&config, &data, "acme", "fr", &claude).unwrap();
+    let analysis = state.analysis.clone().unwrap();
+    eprintln!("analysis: {analysis:#?}");
+    assert!(analysis.asked, "{analysis:?}");
+    spent += analysis.cost.unwrap_or_default();
+    assert!(!analysis.findings.is_empty() || !analysis.questions.is_empty());
+    let state = answer(&config, &data, "acme", BTreeMap::new(), false).unwrap();
+    assert_eq!(state.step, Step::Proposals);
+
+    // One sentence, proposed then applied.
+    let slug = "commits";
+    conventions::save_source(
+        &config,
+        "acme",
+        slug,
+        "Les messages de commit sont en anglais, à l'impératif, en une ligne de 72 caractères au plus.\n",
+    )
+    .unwrap();
+    let mut convention = conventions::propose(&config, "acme", slug, Vec::new(), &claude).unwrap();
+    let draft = convention.draft.clone().unwrap();
+    eprintln!("convention: {draft:#?}");
+    spent += draft.cost.unwrap_or_default();
+    if !draft.questions.is_empty() {
+        let answers = draft
+            .questions
+            .iter()
+            .map(|q| conventions::Answer {
+                question: q.clone(),
+                answer: "Choose the simplest option.".into(),
+            })
+            .collect();
+        convention = conventions::propose(&config, "acme", slug, answers, &claude).unwrap();
+        spent += convention
+            .draft
+            .as_ref()
+            .and_then(|d| d.cost)
+            .unwrap_or_default();
+    }
+    let items = convention.draft.clone().unwrap().items;
+    assert!(!items.is_empty(), "{convention:?}");
+    for item in &items {
+        conventions::review(
+            &config,
+            "acme",
+            slug,
+            &item.name,
+            Some(Review::Accepted),
+            None,
+        )
+        .unwrap();
+    }
+    let applied = conventions::apply(&config, "acme", slug).unwrap();
+    assert!(applied.draft.is_none());
+    assert_eq!(applied.pack.unwrap().items.len(), items.len());
+
+    // A short scout pass on one shipped skill.
+    let only = [scout::ItemRef {
+        kind: termf_library::Kind::Skill,
+        name: "curl".into(),
+    }];
+    let found = scout::run(
+        &config,
+        None,
+        &only,
+        &scout::Options::default(),
+        &claude,
+        &mut |p| eprintln!("scout: {p:?}"),
+    )
+    .unwrap();
+    eprintln!("scout: {found:#?}");
+    spent += found.cost.unwrap_or_default();
+    assert!(found.entries.iter().all(|e| e.name == "curl"), "{found:?}");
+    eprintln!("spent: ${spent:.3}");
+    assert!(spent < 1.0);
+    let _ = fs::remove_dir_all(&dir);
+}
