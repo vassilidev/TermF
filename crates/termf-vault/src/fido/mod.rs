@@ -2,7 +2,7 @@
 //! made and a salt, a key gives back a 32-byte secret, only once touched and after its PIN. macOS and Linux speak
 //! CTAP2 to the keys over USB HID; Windows lets only its WebAuthn API reach them ([`webauthn`]).
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use zeroize::Zeroizing;
 
 // Windows reaches keys through webauthn.dll only: CTAP2 is spoken there in tests alone.
@@ -96,7 +96,7 @@ type Devices = Vec<Box<dyn Device>>;
 #[cfg(any(not(windows), test))]
 fn need_pin(pin: Option<&str>) -> Result<&str> {
     pin.filter(|p| !p.is_empty())
-        .context("the security key's PIN is needed")
+        .ok_or_else(|| anyhow::anyhow!("the security key's PIN is needed"))
 }
 
 #[cfg(any(not(windows), test))]
