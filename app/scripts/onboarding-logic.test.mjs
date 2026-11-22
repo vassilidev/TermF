@@ -12,6 +12,7 @@ import {
   teamEdit,
   teamKeys,
   ticketProposal,
+  toReview,
   trustState,
 } from "../src/lib/onboarding-logic.ts";
 
@@ -113,6 +114,14 @@ test("team: replacing a hand edit only when an accepted part was changed by hand
   const status = { team: "edited", workflow: "same", "roles.qa": "changed" };
   assert.equal(replacesHand({ team: proposal.team, workflow: null, roles: {} }, status), true);
   assert.equal(replacesHand({ team: null, workflow: "default", roles: { qa: {} } }, status), false);
+});
+
+test("team: a part already in place is not to review, unless decided anyway", () => {
+  const keys = ["team", "workflow", "roles.qa"];
+  const status = { team: "same", workflow: "new", "roles.qa": "same" };
+  assert.deepEqual(toReview(keys, status, {}), ["workflow"]);
+  assert.deepEqual(toReview(keys, status, { "roles.qa": "accepted" }), ["workflow", "roles.qa"]);
+  assert.deepEqual(toReview(keys, { team: "same", workflow: "same", "roles.qa": "same" }, {}), []);
 });
 
 test("team: globs and members in a few words", () => {

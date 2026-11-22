@@ -15,6 +15,7 @@
     replacesHand,
     teamEdit,
     teamKeys,
+    toReview,
     type TeamChanges,
     type TeamDecision,
     type TeamEdit,
@@ -52,7 +53,7 @@
   let busy = $state(false);
   let error = $state("");
 
-  const keys = $derived(team ? teamKeys(team.proposal) : []);
+  const keys = $derived(team ? toReview(teamKeys(team.proposal), team.status, decisions) : []);
   const accepted = $derived(keys.filter((k) => decisions[k] === "accepted").length);
   const pending = $derived(keys.filter((k) => !decisions[k]).length);
   const squads = $derived(team?.proposal.team?.squads ?? []);
@@ -175,12 +176,14 @@
     <b>{title}</b>
     {#if team?.status[key] === "same"}<StatusPill status="done" label={t("obTeamSame")} />{/if}
     <span class="grow"></span>
-    <button class="btn sm" aria-pressed={decisions[key] === "accepted"} disabled={busy} onclick={() => decide(key, "accepted")}>
-      <Check size={14} aria-hidden="true" />{t("convAccept")}
-    </button>
-    <button class="btn sm" aria-pressed={decisions[key] === "rejected"} disabled={busy} onclick={() => decide(key, "rejected")}>
-      <X size={14} aria-hidden="true" />{t("convReject")}
-    </button>
+    {#if keys.includes(key)}
+      <button class="btn sm" aria-pressed={decisions[key] === "accepted"} disabled={busy} onclick={() => decide(key, "accepted")}>
+        <Check size={14} aria-hidden="true" />{t("convAccept")}
+      </button>
+      <button class="btn sm" aria-pressed={decisions[key] === "rejected"} disabled={busy} onclick={() => decide(key, "rejected")}>
+        <X size={14} aria-hidden="true" />{t("convReject")}
+      </button>
+    {/if}
     <button class="btn sm quiet" aria-expanded={editing === key} onclick={() => modify(key)}>{t("obEdit")}</button>
   </header>
   {#if team?.status[key] === "edited"}
@@ -315,12 +318,12 @@
       <section class="part">
         {@render head(key, t("obTeamSettings", { role }))}
         <dl>
-          <dt>{t("obTeamWrites")}</dt>
-          <dd>{#each s.writes ?? [] as g (g)}<code>{g}</code>{:else}<span class="muted">—</span>{/each}</dd>
-          <dt>{t("obTeamModel")}</dt>
-          <dd>{s.model ?? t("obTeamOwn")}</dd>
-          <dt>{t("obTeamEffort")}</dt>
-          <dd>{s.effort ?? t("obTeamOwn")}</dd>
+          {#if s.writes || !(s.model || s.effort)}
+            <dt>{t("obTeamWrites")}</dt>
+            <dd>{#each s.writes ?? [] as g (g)}<code>{g}</code>{:else}<span class="muted">—</span>{/each}</dd>
+          {/if}
+          {#if s.model}<dt>{t("obTeamModel")}</dt><dd>{s.model}</dd>{/if}
+          {#if s.effort}<dt>{t("obTeamEffort")}</dt><dd>{s.effort}</dd>{/if}
         </dl>
         {#if editing === key}
           <div class="edit">
@@ -357,7 +360,7 @@
 
     {#if preview}
       <ClaudeChange preview={{ ...preview, hash: "" }} saving={busy} onsave={save} oncancel={() => (preview = null)} />
-    {:else}
+    {:else if keys.length}
       <div class="row-actions">
         <span class="muted">{t("convReviewCounts", { accepted, total: keys.length, pending })}</span>
         <span class="grow"></span>
@@ -417,6 +420,12 @@
 
   .part-head b {
     font-weight: 600;
+  }
+
+  .part-head .btn[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
   }
 
   .grow {
@@ -510,6 +519,11 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  textarea.field {
+    height: auto;
+    padding: 6px 8px;
   }
 
   .selects {

@@ -126,6 +126,15 @@ export function teamEdit(
   };
 }
 
+/** The parts to review: those not already in place in the project's file, and those decided anyway. */
+export function toReview(
+  keys: string[],
+  status: Record<string, TeamStatus>,
+  decisions: Record<string, TeamDecision>,
+): string[] {
+  return keys.filter((key) => status[key] !== "same" || decisions[key]);
+}
+
 /** Whether writing `edit` replaces a part changed by hand since the assistant wrote it. */
 export function replacesHand(edit: TeamEdit, status: Record<string, TeamStatus>): boolean {
   return teamKeys(edit).some((key) => status[key] === "edited");
