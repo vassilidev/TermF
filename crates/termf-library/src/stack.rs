@@ -28,6 +28,7 @@ pub const TAGS: &[&str] = &[
     "flask",
     "gcp",
     "gin",
+    "github",
     "github-actions",
     "go",
     "helm",
@@ -38,6 +39,7 @@ pub const TAGS: &[&str] = &[
     "kotlin",
     "kubernetes",
     "laravel",
+    "make",
     "minitest",
     "mongodb",
     "mysql",
@@ -386,6 +388,7 @@ fn detect(repo: &Path) -> Survey {
                 found.add("kubernetes", None, &rel);
             }
             "kustomization.yaml" | "kustomization.yml" => found.add("kubernetes", None, &rel),
+            "Makefile" | "makefile" | "GNUmakefile" => found.add("make", None, &rel),
             ".terraform.lock.hcl" => found.add("terraform", None, &rel),
             _ if ext == "sln" => found.add("dotnet", None, &rel),
             _ if name == "Dockerfile"
@@ -432,10 +435,28 @@ fn detect(repo: &Path) -> Survey {
             found.add("sql", None, &source);
         }
     }
+    if github_remote(repo) {
+        found.add("github", None, ".git/config");
+    }
     Survey {
         tags: found.tags.into_values().collect(),
         manifests: lists,
     }
+}
+
+/// Whether a remote of the repository (a worktree's included) is on github.com.
+// shortcut: GitHub Enterprise hosts and SSH host aliases are not seen; also read `gh auth status` hosts if they
+// matter.
+fn github_remote(repo: &Path) -> bool {
+    repo.join(".git").exists()
+        && Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["remote", "-v"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("github.com"))
 }
 
 /// The version a manifest's range starts from: `^16.1.0` → `16.1.0`, `>=5.0,<6` → `5.0`. `None` for what is not

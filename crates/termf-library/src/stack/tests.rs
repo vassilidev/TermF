@@ -382,6 +382,7 @@ fn reads_containers_infrastructure_and_ci() {
                 "apiVersion: v1\nkind: Service\nmetadata:\n  name: app\n",
             ),
             ("docs/mkdocs.yml", "site_name: Docs\n"),
+            ("Makefile", "test:\n\tgo test ./...\n"),
             (".github/workflows/ci.yml", "on: push\n"),
             (".github/ISSUE_TEMPLATE/bug.yml", "apiVersion: x\nkind: y\n"),
         ],
@@ -396,11 +397,16 @@ fn reads_containers_infrastructure_and_ci() {
             "github-actions",
             "helm",
             "kubernetes",
+            "make",
             "postgres",
             "sql",
             "terraform",
             "valkey"
         ]
+    );
+    assert!(
+        !names(&tags).contains(&"github"),
+        "a workflow folder is no GitHub remote"
     );
     assert_eq!(version(&tags, "postgres").as_deref(), Some("17"));
     assert_eq!(version(&tags, "valkey").as_deref(), Some("9.2"));
@@ -503,6 +509,33 @@ fn reads_a_repository_again_only_when_its_head_moves() {
         ["go"],
         "outside git, kept a few seconds"
     );
+}
+
+#[test]
+fn a_remote_on_github_brings_the_github_tag_to_the_repository_and_its_worktrees() {
+    let dir = repo("github", &[("go.mod", "module x\n")]);
+    git(&dir, &["init", "-q"]);
+    git(&dir, &["remote", "add", "upstream", "https://gitlab.com/acme/api.git"]);
+    assert_eq!(names(&detect(&dir).tags), ["go"]);
+
+    git(&dir, &["remote", "add", "origin", "git@github.com:acme/api.git"]);
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "one"]);
+    let tags = detect(&dir).tags;
+    assert_eq!(names(&tags), ["github", "go"]);
+    assert_eq!(tag(&tags, "github").source, ".git/config");
+
+    let worktree = dir.with_file_name(format!(
+        "{}-wt",
+        dir.file_name().unwrap().to_string_lossy()
+    ));
+    let _ = fs::remove_dir_all(&worktree);
+    git(
+        &dir,
+        &["worktree", "add", "-q", "-b", "task", worktree.to_str().unwrap()],
+    );
+    assert!(worktree.join(".git").is_file());
+    assert_eq!(names(&detect(&worktree).tags), ["github", "go"]);
 }
 
 #[test]
