@@ -450,8 +450,13 @@ pub struct Tool {
 pub const TOOLS: &[&str] = &["gh", "git", "node", "npm", "pnpm", "yarn", "bun"];
 
 pub fn tools(env: &Env) -> Vec<Tool> {
+    tools_of(env, TOOLS)
+}
+
+/// The programs `names` on `env`'s PATH, each with the version it prints, in that order.
+pub fn tools_of(env: &Env, names: &[&str]) -> Vec<Tool> {
     std::thread::scope(|s| {
-        let handles: Vec<_> = TOOLS
+        let handles: Vec<_> = names
             .iter()
             .map(|name| {
                 s.spawn(move || {
