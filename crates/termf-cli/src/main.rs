@@ -427,6 +427,13 @@ fn why(item: &Item) -> String {
             };
             format!("{}{} in {place}", if *on { '+' } else { '-' }, item.name)
         }
+        None if !item.activated_by.is_empty() => {
+            format!("switched on by the stack: {}", item.activated_by.join(", "))
+        }
+        None if item.layer == Layer::Package => format!(
+            "shipped by the package {}, on where Claude Code trusts the repository",
+            item.package.as_ref().map_or("", |p| p.name.as_str())
+        ),
         None if item.layer == Layer::Shipped => "shipped with TermF, off until enabled".into(),
         None if item.layer == Layer::Repo => "from the repository, off until you enable it".into(),
         None => format!("in the {} library", item.layer),

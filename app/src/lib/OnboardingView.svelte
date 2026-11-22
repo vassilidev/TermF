@@ -15,12 +15,14 @@
   import Conventions from "$lib/Conventions.svelte";
   import OnboardingTeam from "$lib/OnboardingTeam.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
+  import StackOffers from "$lib/StackOffers.svelte";
+  import StackSkills from "$lib/StackSkills.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import QuestionInput from "$lib/ui/QuestionInput.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, lang, t } from "$lib/i18n";
-  import { library, showLibrary } from "$lib/library.svelte";
+  import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
   import { analyze as runAnalysis, analyzing, closeSetup, running, setup } from "$lib/onboarding.svelte";
   import {
     byTheme,
@@ -99,6 +101,7 @@
   let sourcesEditor = $state<TicketSources>();
   let recipe = $state<RecipeView | null>(null);
   let notify = $state<Notify>("mine");
+  let stacks = $state<RepoStack[]>([]);
 
   const analysis = $derived(ob?.analysis ?? null);
   const inProgress = $derived(!!project && (!!analyzing[project.id] || !!ob?.analyzing));
@@ -127,6 +130,8 @@
     ci: "obCiTitle",
     trust: "obTrustTitle",
     team: "obTeamTitle",
+    skills: "stackSkillsTitle",
+    mcp: "stackMcpTitle",
   } as const;
 
   onMount(async () => {
@@ -154,6 +159,15 @@
 
   $effect(() => {
     if (shown === "proposals") untrack(loadProposals);
+  });
+
+  // Read again when the library changes, the trust given at the next step included.
+  $effect(() => {
+    void library.version;
+    if (shown !== "proposals" || !project) return;
+    invoke<RepoStack[]>("library_stack", { project: project.id })
+      .then((list) => (stacks = list))
+      .catch((e) => (error = String(e)));
   });
 
   async function call<T>(what: string, command: string, args: Record<string, unknown> = {}): Promise<T | undefined> {
@@ -460,6 +474,9 @@
             <p class="hint">{t("obLibraryHint")}</p>
             <Conventions {project} only="onboarding" />
           </article>
+
+          <StackSkills project={project.id} {stacks} ondecide={(decision, detail) => decide("skills", decision, detail)} />
+          <StackOffers {stacks} ondecide={(detail) => decide("mcp", "accepted", detail)} />
 
           <OnboardingTeam project={project.id} decision={ob.decisions.team} ondecided={(s) => (ob = s as Onboarding)} />
 

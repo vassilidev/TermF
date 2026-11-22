@@ -352,12 +352,18 @@ fn runs_several_turns_on_one_process() {
             "manual"
         ]
     );
-    assert_eq!(
-        args[0][17..],
-        termf_core::claude::SECRET_DENY
-            .iter()
-            .flat_map(|rule| ["--disallowedTools", rule])
-            .collect::<Vec<_>>()
+    let deny: Vec<&str> = termf_core::claude::SECRET_DENY
+        .iter()
+        .flat_map(|rule| ["--disallowedTools", rule])
+        .collect();
+    assert_eq!(args[0][17..17 + deny.len()], deny);
+    // Then only what the shipped library brings, such as its skills for every stack.
+    let library = &args[0][17 + deny.len()..];
+    assert!(
+        library.chunks(2).all(|pair| {
+            ["--plugin-dir", "--append-system-prompt-file"].contains(&pair[0].as_str())
+        }),
+        "{library:?}"
     );
     assert_eq!(
         fs::canonicalize(env.log("cwd").trim()).unwrap(),
