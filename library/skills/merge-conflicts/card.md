@@ -1,0 +1,8 @@
+- Verified for git 2.56 (2026-11-22); `git --version` gives yours. Docs: https://git-scm.com/docs
+- Read both sides before editing: `git log --merge --oneline` (only while files are unmerged), then the base, ours and theirs with `git checkout --conflict=zdiff3 -- <path>` or `git show :1:<path>` / `:2:` / `:3:`.
+- In a rebase, `--ours` is the branch rebased onto and `--theirs` your own commit: the reverse of a merge.
+- Keep both intents; a renamed function called anew on the other side merges cleanly and still breaks: build and test the whole merged result.
+- Lockfiles and generated files: take one side, then regenerate (`cargo check`, `pnpm install`, `npm install --package-lock-only`, the project's generator); never merge them by hand.
+- No marker left: `git add` the resolved files, then `git diff --cached --check` prints nothing.
+- Two intents that cannot both hold are a choice: stop and ask, never pick silently. In a TermF run, leave the merge for TermF to conclude.
+- Read the skill `merge-conflicts` when a merge, a rebase or a cherry-pick stops on a conflict.

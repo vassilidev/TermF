@@ -13,8 +13,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use termf_core::TicketCleanup;
 use termf_core::ipc::SessionSummary;
 use termf_tickets::{
-    Configured, Delivery, DeliveryPreview, Inbox, McpServer, PrCheck, Resolution, Run, RunEvent,
-    Sources, TicketSummary, Tickets, Trackers, Unpushed,
+    Configured, Delivery, DeliveryPreview, Inbox, McpServer, PrCheck, PrMerge, Resolution, Run,
+    RunEvent, Sources, TicketSummary, Tickets, Trackers, Unpushed,
 };
 
 use crate::{AppState, CmdResult, api, err};
@@ -565,6 +565,12 @@ pub async fn tickets_cleanup(app: AppHandle, id: i64) -> Result<Run, CloseError>
         .map_err(anyhow::Error::from)
         .and_then(|cleaned| cleaned);
     cleaned.map_err(close_error)
+}
+
+/// What GitHub says of a delivered run's open pull request against its base; `null` when it has none open.
+#[tauri::command]
+pub async fn tickets_pr_merge(app: AppHandle, id: i64) -> CmdResult<Option<PrMerge>> {
+    blocking(app, move |app| tickets(app).pr_merge(id)).await
 }
 
 /// The runs whose pull request was merged or closed since the last check (also `run-cleanup` events).

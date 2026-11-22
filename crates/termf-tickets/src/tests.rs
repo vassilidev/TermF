@@ -461,7 +461,8 @@ fn spreads_long_searches() {
 /// A `gh` that answers from fixtures and writes each call (and what it reads on stdin) to `gh.log`. While a
 /// `fail-comments` file exists, commenting fails. A search asked with an ETag is not modified. Pull requests
 /// are in the state the `pr-state` file says: `open` (without it), `merged` or `closed`; while `fail-pulls`
-/// exists, GitHub cannot tell.
+/// exists, GitHub cannot tell. Against its base, an open one is as the `pr-merge` file says (`<mergeable>
+/// <mergeStateStatus>`), clean without it.
 #[cfg(unix)]
 fn fake_gh(sb: &Sandbox) {
     use std::os::unix::fs::PermissionsExt;
@@ -498,6 +499,9 @@ case "$*" in
   printf 'HTTP/2.0 200 OK\n\n%s\n' "$body" ;;
 "pr create "*)
   echo 'https://github.com/acme/front/pull/7' ;;
+"pr view https://github.com/acme/front/pull/7 --json mergeable,mergeStateStatus")
+  set -- $(cat "$root/pr-merge" 2>/dev/null || echo MERGEABLE CLEAN)
+  printf '{{"mergeable":"%s","mergeStateStatus":"%s"}}\n' "$1" "$2" ;;
 "api --method POST repos/acme/front/issues/42/comments --input -")
   [ -e "$root/fail-comments" ] && {{ echo 'HTTP 403: Resource not accessible' >&2; exit 1; }}
   cat >> "$log"; echo >> "$log"; echo '{{}}' ;;
@@ -1165,6 +1169,43 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
         (1, unmerged, true),
         "merged at last"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn tells_a_pull_request_in_conflict_or_behind_its_base() {
+    let sb = Sandbox::new("pr-merge");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let t = sb.tickets();
+    let id = t.start("front#42", None, None).unwrap().run.id;
+    assert_eq!(t.pr_merge(id).unwrap(), None, "no pull request yet");
+    let worktree = PathBuf::from(t.run(id).unwrap().worktree.unwrap());
+    fs::write(worktree.join("fix.txt"), "fixed\n").unwrap();
+    let preview = t.deliver_preview(id).unwrap();
+    t.deliver(id, &preview.fingerprint).unwrap();
+    let clean = t.pr_merge(id).unwrap().unwrap();
+    assert_eq!((clean.conflict, clean.behind), (false, false));
+    assert_eq!(
+        (clean.mergeable.as_str(), clean.state.as_str()),
+        ("MERGEABLE", "CLEAN")
+    );
+    for (said, conflict, behind) in [
+        ("CONFLICTING DIRTY", true, false),
+        ("MERGEABLE BEHIND", false, true),
+        ("UNKNOWN UNKNOWN", false, false),
+    ] {
+        fs::write(sb.root.join("pr-merge"), said).unwrap();
+        let merge = t.pr_merge(id).unwrap().unwrap();
+        assert_eq!((merge.conflict, merge.behind), (conflict, behind), "{said}");
+    }
+    fs::write(sb.root.join("pr-state"), "merged").unwrap();
+    t.after_merge(false, |_| false, |_| {}).unwrap();
+    assert_eq!(t.pr_merge(id).unwrap(), None, "merged: nothing to update");
 }
 
 #[cfg(unix)]

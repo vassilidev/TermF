@@ -3062,6 +3062,15 @@ const fr = {
   roles2WhyNoDocs: "ni dossier de doc, ni spec d'API, ni changelog",
   roles2WhyPersonal: "Données personnelles : {detail}",
   roles2WhyNoPublic: "ni site public ni données personnelles repérées",
+  // The integrator: the run brought up to date with its base before the delivery, and a pull request that conflicts
+  // with its base or is behind it.
+  integratorStep: "Mise à jour avec la base",
+  integratorConflicts: "En conflit avec la base : {files}",
+  integratorConflict: "La PR est en conflit avec {base}.",
+  integratorBehind: "La PR est en retard sur {base}.",
+  integratorHelp: "TermF fusionne {base} dans la branche, l'intégrateur résout les conflits, les contrôles et la revue repassent, puis tu relivres.",
+  integratorSolo: "Fusionne {base} dans la branche depuis la session du run, puis relivre.",
+  integratorUpdate: "Mettre à jour avec la base",
   // Phase 5b: the visual review page (four comparisons, pins, context, decisions) and its quick mode.
   review5bTitle: "Revue visuelle",
   review5bCommand: "Revue visuelle · {title}",
@@ -6212,6 +6221,15 @@ const en: Record<Key, string> = {
   roles2WhyNoDocs: "no docs folder, API spec nor changelog",
   roles2WhyPersonal: "Personal data: {detail}",
   roles2WhyNoPublic: "no public website nor personal data found",
+  // The integrator: the run brought up to date with its base before the delivery, and a pull request that conflicts
+  // with its base or is behind it.
+  integratorStep: "Update with the base",
+  integratorConflicts: "In conflict with the base: {files}",
+  integratorConflict: "The pull request conflicts with {base}.",
+  integratorBehind: "The pull request is behind {base}.",
+  integratorHelp: "TermF merges {base} into the branch, the integrator resolves the conflicts, the checks and the review run again, then you deliver again.",
+  integratorSolo: "Merge {base} into the branch from the run's session, then deliver again.",
+  integratorUpdate: "Update with the base",
   // Phase 5b: the visual review page (four comparisons, pins, context, decisions) and its quick mode.
   review5bTitle: "Visual review",
   review5bCommand: "Visual review · {title}",
