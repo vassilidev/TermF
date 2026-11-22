@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, type Snippet } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
   import Check from "@lucide/svelte/icons/check";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
@@ -10,6 +11,7 @@
   import CircleDashed from "@lucide/svelte/icons/circle-dashed";
   import CirclePause from "@lucide/svelte/icons/circle-pause";
   import CircleX from "@lucide/svelte/icons/circle-x";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Megaphone from "@lucide/svelte/icons/megaphone";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
@@ -21,6 +23,7 @@
   import UserRound from "@lucide/svelte/icons/user-round";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import Popover from "$lib/ui/Popover.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import { showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
@@ -52,7 +55,28 @@
   import { showTeamRun, stepTitle, team } from "$lib/team.svelte";
   import { tickets } from "$lib/tickets.svelte";
 
-  let { session }: { session: AgentSession } = $props();
+  type Notice = Extract<Item, { type: "notice" }>;
+
+  /**
+   * `embedded`: in the Home, without the session's header; `lead` goes in its place and the session's details in a
+   * popover. `card` replaces a notice of the thread (`fallback` draws it as usual), `top` goes at its head; `notices`
+   * tells the caller which notices the thread has.
+   */
+  let {
+    session,
+    embedded = false,
+    lead,
+    card,
+    top,
+    notices = $bindable([]),
+  }: {
+    session: AgentSession;
+    embedded?: boolean;
+    lead?: Snippet;
+    card?: Snippet<[Notice, Snippet<[Notice]>]>;
+    top?: Snippet;
+    notices?: Notice[];
+  } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
   let live = $state<string | null>(null);
@@ -65,6 +89,11 @@
   let form = $state<HTMLFormElement>();
 
   const turns = $derived(thread(events));
+  $effect(() => {
+    notices = turns.flatMap((turn) => turn.items.filter((i): i is Notice => i.type === "notice"));
+  });
+  let details = $state(false);
+  let detailsButton = $state<HTMLElement>();
   const init = $derived(events.findLast((e) => e.kind === "init"));
   const expert = $derived(session.mcp === true && session.role === "expert");
   const cto = $derived(session.mcp === true && !expert);
@@ -123,7 +152,7 @@
 
   // Back on the view: what came meanwhile is at the bottom.
   $effect(() => {
-    if (onScreen("conversations")) follow(true);
+    if (onScreen(embedded ? "home" : "conversations")) follow(true);
   });
 
   $effect(() => {
@@ -368,19 +397,23 @@
   {:else if item.type === "handed_back"}
     <p class="sys"><Undo2 size={14} aria-hidden="true" />{t("chatHandedBack")}</p>
   {:else if item.type === "notice"}
-    {@const opens = ["step", "direct", "queued"].includes(item.about) ? item.conversation : undefined}
-    <div class="termf" class:asks={item.about === "waiting" || item.about === "blocked"} role="note">
-      <Megaphone size={14} aria-hidden="true" />
-      <p>
-        <b>{t("ctoNoticeTermf")}</b> · {said(item)}{#if item.detail}<span class="muted pre">{" · "}{item.detail}</span>{/if}
-      </p>
-      {#if opens}
-        <button class="btn sm" onclick={() => showConversation(opens)}>{t("ctoOpen")}</button>
-      {:else if item.run && ["waiting", "blocked", "review"].includes(item.about)}
-        <button class="btn sm" onclick={() => showTeamRun(item.run!)}>{t("ctoOpen")}</button>
-      {/if}
-    </div>
+    {#if card}{@render card(item, termfNotice)}{:else}{@render termfNotice(item)}{/if}
   {/if}
+{/snippet}
+
+{#snippet termfNotice(item: Notice)}
+  {@const opens = ["step", "direct", "queued"].includes(item.about) ? item.conversation : undefined}
+  <div class="termf" class:asks={item.about === "waiting" || item.about === "blocked"} role="note">
+    <Megaphone size={14} aria-hidden="true" />
+    <p>
+      <b>{t("ctoNoticeTermf")}</b> · {said(item)}{#if item.detail}<span class="muted pre">{" · "}{item.detail}</span>{/if}
+    </p>
+    {#if opens}
+      <button class="btn sm" onclick={() => showConversation(opens)}>{t("ctoOpen")}</button>
+    {:else if item.run && ["waiting", "blocked", "review"].includes(item.about)}
+      <button class="btn sm" onclick={() => showTeamRun(item.run!)}>{t("ctoOpen")}</button>
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet tool(item: Tool, now: boolean)}
@@ -495,45 +528,41 @@
   {/if}
 {/snippet}
 
-<header class="head">
-  <div class="top">
-    <h2>{session.title}</h2>
-    {#if session.role}<span class="role"><UserRound size={12} aria-hidden="true" />{session.role}</span>{/if}
-    <StatusPill status={session.state} />
-    <div class="actions">
-      {#if turning}
-        <button class="btn sm" disabled={!!busy} onclick={() => run("interrupt", () => invoke("agent_interrupt", { id: id() }))}>
-          <CirclePause size={14} aria-hidden="true" />{t("chatInterrupt")}
-        </button>
-      {/if}
-      {#if !session.mcp && (session.state === "idle" || session.state === "stopped" || session.state === "error")}
-        <button class="btn sm" disabled={!!busy} onclick={takeover} title={t("chatTakeoverHelp")}>
-          {#if busy === "takeover"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<SquareTerminal
-              size={14}
-              aria-hidden="true"
-            />{/if}{t("chatTakeover")}
-        </button>
-      {/if}
-      {#if session.state === "interactive"}
-        {#if session.tile !== null}
-          <button class="btn sm" onclick={() => focusSession(session.tile!)}>
-            <ArrowRight size={14} aria-hidden="true" />{t("chatGoToTile")}
-          </button>
-        {/if}
-        <button class="btn sm" disabled={!!busy} onclick={() => settle("handback", "agent_handback")}>
-          {#if busy === "handback"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Undo2
-              size={14}
-              aria-hidden="true"
-            />{/if}{t("chatHandback")}
-        </button>
-      {/if}
-      {#if turning || session.state === "idle"}
-        <button class="btn sm" disabled={!!busy} onclick={() => settle("stop", "agent_stop")}>
-          <Square size={13} aria-hidden="true" />{t("chatStop")}
-        </button>
-      {/if}
-    </div>
-  </div>
+{#snippet actions()}
+  {#if turning}
+    <button class="btn sm" disabled={!!busy} onclick={() => run("interrupt", () => invoke("agent_interrupt", { id: id() }))}>
+      <CirclePause size={14} aria-hidden="true" />{t("chatInterrupt")}
+    </button>
+  {/if}
+  {#if !session.mcp && (session.state === "idle" || session.state === "stopped" || session.state === "error")}
+    <button class="btn sm" disabled={!!busy} onclick={takeover} title={t("chatTakeoverHelp")}>
+      {#if busy === "takeover"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<SquareTerminal
+          size={14}
+          aria-hidden="true"
+        />{/if}{t("chatTakeover")}
+    </button>
+  {/if}
+  {#if session.state === "interactive"}
+    {#if session.tile !== null}
+      <button class="btn sm" onclick={() => focusSession(session.tile!)}>
+        <ArrowRight size={14} aria-hidden="true" />{t("chatGoToTile")}
+      </button>
+    {/if}
+    <button class="btn sm" disabled={!!busy} onclick={() => settle("handback", "agent_handback")}>
+      {#if busy === "handback"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Undo2
+          size={14}
+          aria-hidden="true"
+        />{/if}{t("chatHandback")}
+    </button>
+  {/if}
+  {#if turning || session.state === "idle"}
+    <button class="btn sm" disabled={!!busy} onclick={() => settle("stop", "agent_stop")}>
+      <Square size={13} aria-hidden="true" />{t("chatStop")}
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet meta()}
   <p class="meta">
     <span class="mono" title={session.cwd}>{shortPath(session.cwd)}</span>
     <span><small>{t("metaModel")}</small> {model || t("schedulerDefault")}</span>
@@ -545,7 +574,45 @@
     {/if}
     {#if session.context}<ContextGauge gauge={session.context} />{/if}
   </p>
-</header>
+{/snippet}
+
+{#if embedded}
+  <header class="bar">
+    {@render lead?.()}
+    {#if session.state === "working"}<StatusPill status="working" />{/if}
+    <button
+      class="icon-btn"
+      bind:this={detailsButton}
+      aria-expanded={details}
+      aria-haspopup="dialog"
+      aria-label={t("ux3t1Details")}
+      title={t("ux3t1Details")}
+      onclick={() => (details = !details)}
+    >
+      <Ellipsis size={16} aria-hidden="true" />
+    </button>
+    <Popover bind:open={details} trigger={detailsButton} label={t("ux3t1Details")} align="end" width={340}>
+      <div class="details">
+        <div class="top">
+          <b>{session.title}</b>
+          <StatusPill status={session.state} />
+        </div>
+        {@render meta()}
+        <div class="actions">{@render actions()}</div>
+      </div>
+    </Popover>
+  </header>
+{:else}
+  <header class="head">
+    <div class="top">
+      <h2>{session.title}</h2>
+      {#if session.role}<span class="role"><UserRound size={12} aria-hidden="true" />{session.role}</span>{/if}
+      <StatusPill status={session.state} />
+      <div class="actions">{@render actions()}</div>
+    </div>
+    {@render meta()}
+  </header>
+{/if}
 
 {#if error}
   <div class="banners">
@@ -553,8 +620,9 @@
   </div>
 {/if}
 
-<div class="thread" bind:this={scroller} aria-label={t("chatThread")} role="log">
+<div class="thread" class:embedded bind:this={scroller} aria-label={t("chatThread")} role="log">
   <div class="turns">
+    {@render top?.()}
     {#if loadError}
       <p class="notice error">
         <CircleAlert size={14} aria-hidden="true" /><span>{t("chatLoadError", { error: loadError })}</span>
@@ -574,7 +642,7 @@
   </div>
 </div>
 
-<form class="composer" bind:this={form} onsubmit={send}>
+<form class="composer" class:embedded bind:this={form} onsubmit={send}>
   {#if offered.length}
     <ul class="mentions" id="cto-roles" role="listbox" aria-label={t("ctoRoles")}>
       {#each offered as role, i (role)}
@@ -603,16 +671,130 @@
         {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
       </select>
     {/if}
-    <button type="submit" class="btn primary" disabled={!!why || !!busy || !draft.trim()}>
-      {#if busy === "send"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{to
-        ? t("ctoSendTo", { role: to.role })
-        : t("chatSend")}
-    </button>
+    {#if embedded}
+      <!-- On the Home the primary action is the latest decision: sending is an icon in the field. -->
+      {@const label = to ? t("ctoSendTo", { role: to.role }) : t("chatSend")}
+      <button type="submit" class="icon-send" aria-label={label} title={label} disabled={!!why || !!busy || !draft.trim()}>
+        {#if busy === "send"}<LoaderCircle size={16} aria-hidden="true" class="spin" />{:else}<ArrowUp size={16} aria-hidden="true" />{/if}
+      </button>
+    {:else}
+      <button type="submit" class="btn primary" disabled={!!why || !!busy || !draft.trim()}>
+        {#if busy === "send"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{to
+          ? t("ctoSendTo", { role: to.role })
+          : t("chatSend")}
+      </button>
+    {/if}
   </div>
   {#if why}<p class="why" id="chat-why">{t(reasonsWhy[why])}</p>{/if}
 </form>
 
 <style>
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    height: 52px;
+    padding: 0 12px 0 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px 14px;
+  }
+
+  .details .top b {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .details .actions {
+    justify-content: flex-start;
+  }
+
+  .details .actions:empty {
+    display: none;
+  }
+
+  .thread.embedded {
+    padding: 20px 28px 24px;
+  }
+
+  .thread.embedded .turns {
+    gap: 14px;
+    max-width: 760px;
+  }
+
+  .composer.embedded {
+    grid-template: "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
+    row-gap: 0;
+    padding: 12px 20px 16px;
+    background: var(--panel);
+  }
+
+  .composer.embedded .mentions {
+    grid-area: mentions;
+    margin-bottom: 6px;
+  }
+
+  .composer.embedded textarea {
+    grid-area: field;
+    min-height: 58px;
+    padding: 8px 48px 8px 12px;
+    border-radius: var(--radius-lg);
+  }
+
+  .composer.embedded:has(.send select) textarea {
+    padding-right: 240px;
+  }
+
+  .composer.embedded .send {
+    grid-area: field;
+    align-self: end;
+    justify-self: end;
+    margin: 0 8px 8px 0;
+  }
+
+  .composer.embedded .why {
+    grid-area: why;
+    margin-top: 6px;
+  }
+
+  .icon-send {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+    transition: background-color var(--dur-fast) ease-out;
+  }
+
+  .icon-send:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .icon-send:disabled {
+    background: var(--hover);
+    color: var(--muted);
+    cursor: default;
+  }
+
+  .icon-send:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   .head {
     display: flex;
     flex-direction: column;
