@@ -310,7 +310,8 @@
   {/if}
 
   {#if groups.staged.length}
-    <h3 class="group" title={t("uxfT3StagedHint")}>{t("git2Staged")}<span class="n">{groups.staged.length}</span></h3>
+    <h3 class="group">{t("git2Staged")}<span class="n">{groups.staged.length}</span></h3>
+    <p class="muted small">{t("uxfT3StagedHint")}</p>
     <ul class="list">
       {#each groups.staged as c (c.index + c.tree + c.path)}{@render fileRow(c, true)}{/each}
     </ul>
@@ -338,11 +339,12 @@
 
   {#if groups.unstaged.length}
     <h3 class="group">
-      <span title={t("uxfT3UnstagedHint")}>{t("git2Unstaged")}</span><span class="n">{groups.unstaged.length}</span>
+      {t("git2Unstaged")}<span class="n">{groups.unstaged.length}</span>
       {#if !stashing}
         <button class="btn sm quiet stash" onclick={() => (stashing = { message: "", untracked: false })} disabled={!!busy} title={t("uxfT3StashHint")}><Archive size={14} aria-hidden="true" />{t("git2Stash")}</button>
       {/if}
     </h3>
+    <p class="muted small">{t("uxfT3UnstagedHint")}</p>
     {#if stashing}
       {@const s = stashing}
       <form class="inline-form" onsubmit={(e) => (e.preventDefault(), stash())}>

@@ -662,8 +662,9 @@
     <div class="strip">
       <span class="on">
         <GitBranch size={14} aria-hidden="true" />
-        {#if snap.current}<strong class="bname">{snap.current}</strong>{:else}<strong title={t("uxfT3DetachedHint")}>{t("gitDetached")}</strong>{#if snap.head}<span class="mono muted">{short(snap.head)}</span>{/if}{/if}
+        {#if snap.current}<strong class="bname">{snap.current}</strong>{:else}<strong>{t("gitDetached")}</strong>{#if snap.head}<span class="mono muted">{short(snap.head)}</span>{/if}{/if}
       </span>
+      {#if !snap.current}<span class="muted">{t("uxfT3DetachedHint")}</span>{/if}
       {#if current?.upstream}
         <span class="muted">{t("gitTracks", { upstream: current.upstream })}</span>
         {@render aheadBehind(current)}
@@ -723,7 +724,8 @@
             {#each groups.remote as b (b.name)}{@render branchRow(b)}{/each}
           </ul>
         {/if}
-        <h2 class="section" title={t("uxfT3WorktreesHint")}>{t("gitWorktrees")}<span class="n">{snap.worktrees.length}</span></h2>
+        <h2 class="section">{t("gitWorktrees")}<span class="n">{snap.worktrees.length}</span></h2>
+        <p class="section-hint">{t("uxfT3WorktreesHint")}</p>
         <ul>
           {#each snap.worktrees as wt (wt.path)}
             {@const run = runOf(wt)}
@@ -750,7 +752,8 @@
           {/each}
         </ul>
         {#if snap.stashes.length}
-          <h2 class="section" title={t("uxfT3StashHint")}>{t("git2Stashes")}<span class="n">{snap.stashes.length}</span></h2>
+          <h2 class="section">{t("git2Stashes")}<span class="n">{snap.stashes.length}</span></h2>
+          <p class="section-hint">{t("uxfT3StashHint")}</p>
           <ul>
             {#each snap.stashes as st (st.oid)}
               {@const picked = shown?.kind === "stash" && shown.stash.oid === st.oid}
@@ -791,7 +794,7 @@
               <span class="badge" class:ok={b.merged}>{b.merged ? t("gitMerged", { branch: snap.defaultBranch ?? "" }) : t("gitNotMerged", { branch: snap.defaultBranch ?? "" })}</span>
             {/if}
             {#if pr}
-              <button class="badge {prTone[prState(pr)]}" onclick={() => openPr(pr)} title={pr.title}>
+              <button class="badge {prTone[prState(pr)] ?? ""}" onclick={() => openPr(pr)} title={pr.title}>
                 <GitPullRequest size={12} aria-hidden="true" />{prLabel(pr)}
               </button>
             {/if}
@@ -1450,6 +1453,12 @@
     font-weight: 500;
   }
 
+  .section-hint {
+    margin: 0 8px 4px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
   .none {
     padding: 4px 8px;
     color: var(--muted);
@@ -1785,6 +1794,7 @@
     border-color: var(--waiting-ring);
     background: var(--waiting-soft);
     color: var(--warning);
+    font-weight: 600;
   }
 
   .author,

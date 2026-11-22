@@ -318,7 +318,7 @@
 
   /* The shortcut keeps the room of the close button, which takes its place on hover and on the current tab. */
   [role="tab"]:has(kbd) {
-    padding-right: 6px;
+    padding-right: 4px;
   }
 
   [role="tab"]:hover,
@@ -371,8 +371,10 @@
     text-align: center;
   }
 
+  /* As wide as the close button over it. */
   kbd {
     flex-shrink: 0;
+    min-width: 24px;
     border-bottom-width: 1px;
     background: none;
   }
