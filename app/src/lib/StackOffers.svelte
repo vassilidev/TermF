@@ -217,7 +217,7 @@
   .warn {
     border-color: transparent;
     background: var(--waiting-soft);
-    color: var(--waiting-text);
+    color: var(--warning);
   }
 
   .done {
