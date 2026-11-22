@@ -184,9 +184,9 @@ impl AgentRuntime for ClaudeCode {
                 ["--restricted", "--tools", built_in, "--strict-mcp-config"].map(Into::into),
             );
             settings["permissions"] = mcp_settings(spec)["permissions"].take();
-            for dir in launch.dirs {
-                args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
-            }
+        }
+        for dir in launch.dirs {
+            args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
         }
         if let Some(config) = launch.mcp {
             args.extend(["--mcp-config".into(), config.to_string_lossy().into_owned()]);

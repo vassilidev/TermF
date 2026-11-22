@@ -238,13 +238,46 @@ impl Scope {
     }
 }
 
-/// The repository's stack, with Claude Code's trust read only when its packages bring something.
+/// The repository's stack, with Claude Code's trust read only when its packages bring something, and its
+/// language servers looked for in the `PATH` the sessions get.
 fn stack_of(name: &str, path: &Path) -> stack::RepoStack {
     let mut repo = stack::RepoStack::read(name, path);
     if !repo.skills.is_empty() || !repo.guides.is_empty() {
         repo.trusted = trusted(name, path);
     }
+    let search = termf_core::shell::login_path()
+        .map(Into::into)
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default();
+    repo.servers = stack::language_servers(&repo.tags, &search, path);
     repo
+}
+
+/// `[lsp] enabled` of the project's file: whether its sessions get the language servers of its stack. On
+/// unless it says `false`, and for a session outside any project.
+pub fn language_servers_on(config_dir: &Path, project: Option<&str>) -> bool {
+    let Some(file) = project.and_then(|id| termf_core::project_file(config_dir, id).ok()) else {
+        return true;
+    };
+    let text = fs::read_to_string(file).unwrap_or_default();
+    toml::from_str::<toml::Table>(&text)
+        .ok()
+        .and_then(|t| t.get("lsp")?.get("enabled")?.as_bool())
+        .unwrap_or(true)
+}
+
+/// Writes `[lsp] enabled` in the project's file, keeping the rest of it.
+pub fn set_language_servers(config_dir: &Path, project: &str, on: bool) -> Result<()> {
+    let file = termf_core::project_file(config_dir, project)?;
+    let mut doc: DocumentMut = fs::read_to_string(&file)?
+        .parse()
+        .with_context(|| format!("invalid {}", file.display()))?;
+    doc.entry("lsp")
+        .or_insert(toml_edit::Item::Table(Table::new()))
+        .as_table_like_mut()
+        .with_context(|| format!("`lsp` in {} must be a table", file.display()))?
+        .insert("enabled", toml_edit::value(on));
+    termf_core::write_atomic(&file, &doc.to_string())
 }
 
 /// Claude Code's trust of the repository, read again when Claude Code's config file changes.
@@ -829,6 +862,26 @@ fn put(path: &Path, text: &str) {
     write_file(path, text.as_bytes()).unwrap();
 }
 
+/// A program in `dir` whose `--version` succeeds or fails, for a test's `PATH`.
+#[cfg(test)]
+fn fake_bin(dir: &Path, name: &str, works: bool) {
+    let code = if works { 0 } else { 1 };
+    if cfg!(windows) {
+        put(
+            &dir.join(format!("{name}.cmd")),
+            &format!("@exit /b {code}\r\n"),
+        );
+        return;
+    }
+    let file = dir.join(name);
+    put(&file, &format!("#!/bin/sh\nexit {code}\n"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1027,6 +1080,8 @@ mod tests {
             ]
             .contains(&name);
             assert_eq!(plannable(role), !planner_only, "{name}");
+            let plans = role.meta.get("output").and_then(|o| o.as_str()) == Some("plan");
+            assert_eq!(plans, name == "lead", "{name}: only the lead plans a batch");
             if let Some(credits) = role.meta.get("credits") {
                 assert!(credits.as_array().is_some_and(|c| !c.is_empty()), "{name}");
                 assert!(

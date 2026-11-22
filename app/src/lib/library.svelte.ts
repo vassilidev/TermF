@@ -31,6 +31,8 @@ export type RepoStack = {
   skills: { name: string; path: string; package: Package }[];
   guides: { package: Package; path: string }[];
   trusted: boolean;
+  /** Installed ones go to the project's sessions, unless `library_lsp` turned them off. */
+  servers: { name: string; for: string; command: string; installed: boolean; docs: string }[];
   mcp: { name: string; for: string; server: Record<string, unknown>; docs: string; runsCode: boolean }[];
   sources: { repo: string; for: string; url: string; command: string; license: string }[];
 };

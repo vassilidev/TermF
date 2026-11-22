@@ -7,6 +7,7 @@ effort: high
 effort_range: [high, xhigh]
 disallowedTools: Edit, Write, NotebookEdit
 plannable: false
+output: plan
 credits:
   - "wshobson/agents@91ff75307f5668916f3eb77d5ba556266c961376 (MIT): plugins/agent-teams/agents/team-lead.md"
   - "FoundationAgents/MetaGPT@11cdf466d042aece04fc6cfd13b28e1a70341b1f (MIT): metagpt/prompts/di/team_leader.py"

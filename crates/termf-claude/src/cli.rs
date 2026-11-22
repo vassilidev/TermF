@@ -410,6 +410,11 @@ pub fn which(env: &Env, program: &str) -> Option<PathBuf> {
         .clone()
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default();
+    which_in(&path, program)
+}
+
+/// The program `path`, a `PATH`-like list of folders, resolves.
+pub fn which_in(path: &std::ffi::OsStr, program: &str) -> Option<PathBuf> {
     let exts: &[&str] = if cfg!(windows) {
         &[".exe", ".cmd", ".bat", ""]
     } else {
@@ -418,8 +423,20 @@ pub fn which(env: &Env, program: &str) -> Option<PathBuf> {
     std::env::split_paths(&path).find_map(|dir| {
         exts.iter()
             .map(|ext| dir.join(format!("{program}{ext}")))
-            .find(|p| p.is_file())
+            .find(|p| p.is_file() && executable(p))
     })
+}
+
+#[cfg(unix)]
+fn executable(file: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    file.metadata()
+        .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn executable(_: &Path) -> bool {
+    true
 }
 
 #[derive(Serialize, Debug)]
@@ -433,8 +450,13 @@ pub struct Tool {
 pub const TOOLS: &[&str] = &["gh", "git", "node", "npm", "pnpm", "yarn", "bun"];
 
 pub fn tools(env: &Env) -> Vec<Tool> {
+    tools_of(env, TOOLS)
+}
+
+/// The programs `names` on `env`'s PATH, each with the version it prints, in that order.
+pub fn tools_of(env: &Env, names: &[&str]) -> Vec<Tool> {
     std::thread::scope(|s| {
-        let handles: Vec<_> = TOOLS
+        let handles: Vec<_> = names
             .iter()
             .map(|name| {
                 s.spawn(move || {

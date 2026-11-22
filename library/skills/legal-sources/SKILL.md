@@ -6,10 +6,11 @@ description: >-
   API, French case law through JudiLibre (both on PISTE, with credentials the user already set), and EU law
   through the Publications Office's Cellar (SPARQL and content negotiation by CELEX or ELI, no key). Each
   citation gives the article, its version in force, the official URL and the date read; what has no source is
-  marked "to check"; the deliverable ends with the validation line. Use when a task asks what the law requires
-  of a product: mandatory notices, terms of use, GDPR, cookie consent rules, sector rules (fintech, health), a
-  deadline, a fine or a regulator's guidance. Not for writing the pages or the banner wording (ux-writing), nor
-  for security flaws in the code (security-web).
+  marked "to check"; the deliverable ends with the validation line. Use it before answering whenever a task or a
+  question asks what the law requires of a product: mandatory notices, terms of use, GDPR, cookie consent rules,
+  sector rules (fintech, health), a deadline, a fine or a regulator's guidance, even a figure asked for from
+  memory. Not for writing the pages or the
+  banner wording (ux-writing), nor for security flaws in the code (security-web).
 license: MIT
 metadata:
   termf-stacks: "*"
@@ -67,7 +68,8 @@ force and cites it; what it cannot source stays "to check".
    the court, chamber, date, number and ECLI. CNIL and regulators: cite the page and its date. Label both as
    interpretation, after the text they interpret. Done when no obligation rests on case law or guidance alone.
 8. **Mark the rest "to check".** A mandatory notice, a deadline or an amount you could not source goes in a
-   "to check" list with what you searched and where; it is never written as fact. Done when every statement is
+   "to check" list with what you searched and where; it is never written as fact, not even when the user asks
+   for a quick figure without a lookup: then it only appears under "to check". Done when every statement is
    either cited or listed as "to check".
 9. **Close the deliverable.** Draft each notice or clause for copy or docs with its source, then end with the
    line `To be validated by a legal professional before use.` Done when that line is the last one.

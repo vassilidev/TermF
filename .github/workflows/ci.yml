@@ -39,3 +39,40 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  # site/install.sh and site/install.ps1, run dry against a fake GitHub API, then one real install in a throwaway home.
+  install-scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh .github/scripts/install-test.sh
+        shell: bash
+
+  # A known vulnerability fails, unless .cargo/audit.toml ignores it with its reason; an advisory database out of
+  # reach only warns. npm advisories are reported, never blocking.
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - id: db
+        continue-on-error: true
+        run: git clone --depth 1 https://github.com/rustsec/advisory-db.git ~/.cargo/advisory-db
+      - if: steps.db.outcome == 'success'
+        run: cargo audit --no-fetch
+      - if: steps.db.outcome != 'success'
+        run: |
+          echo "::warning::RustSec advisory database out of reach, cargo audit skipped"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: pnpm audit (informative)
+        working-directory: app
+        run: |
+          pnpm audit --prod || echo "::warning::pnpm audit --prod reports advisories (informative), see this step's log"
