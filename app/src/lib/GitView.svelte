@@ -1949,7 +1949,8 @@
   .body-text {
     margin: 12px 0 0;
     padding: 10px 12px;
-    border-left: 3px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--hover);
     color: var(--text);
     font-family: var(--font-ui);
     font-size: var(--text-sm);
