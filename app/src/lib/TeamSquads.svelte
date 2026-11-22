@@ -125,7 +125,7 @@
               {/if}
               <dt>{t("rsMembers")}</dt>
               <dd class="chips">
-                {#each squad.members.filter((m) => !m.lead) as m (m.role)}{@render chip(squad.id, m)}{/each}
+                {#each squad.members.filter((m) => !m.lead) as m (`${m.lead}:${m.role}`)}{@render chip(squad.id, m)}{/each}
               </dd>
               {#if squad.repos.length}
                 <dt>{t("rsRepos")}</dt>
@@ -146,7 +146,7 @@
           <article class="squad staff" aria-label={t("rsStaff")}>
             <header><b>{t("rsStaff")}</b></header>
             <div class="chips">
-              {#each view.staff as m (m.role)}{@render chip(null, m)}{/each}
+              {#each view.staff as m (`${m.lead}:${m.role}`)}{@render chip(null, m)}{/each}
             </div>
           </article>
         {/if}

@@ -1332,6 +1332,43 @@ effort_range = ["high", "high"]
     assert_eq!(spec("plan").role.as_deref(), Some("cto"));
 }
 
+#[test]
+fn a_task_whose_squads_cannot_be_read_waits_for_the_user() {
+    let env = Env::new("squads-broken");
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str("[[squads]]\nid = \"web\"\nroles = { front = 1 }\npaths = [\"web/**\"]\n");
+    fs::write(&file, project).unwrap();
+    let mut t1 = task("T1", "front", &[], &[]);
+    t1["squad"] = "web".into();
+    env.answer("plan.json", env.plan(json!([t1])));
+    // While it works, the project gets a second squad named web: still TOML, no longer a team.
+    env.script(
+        "implement:T1",
+        &format!(
+            "printf '[[squads]]\\nid = \"web\"\\n' >> '{}'; mkdir -p src; echo x > src/x.txt\n",
+            file.display()
+        ),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        rules: [("scope-strict".to_owned(), Level::Block)].into(),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.until("T1 blocked", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.state == StepState::Blocked)
+    });
+    let note = env.step(&run, "implement:T1").note.clone().unwrap();
+    assert!(note.contains("two squads are named web"), "{note}");
+    assert!(
+        !env.target.worktree.join("src/x.txt").exists(),
+        "outside its squad's paths: never merged as if it had none"
+    );
+}
+
 /// The team against the real Claude Code, for a few cents: the shipped roles put on Haiku by `[roles.*]`, the
 /// `squads` workflow on a project of two squads (the PO's framing, the CTO's plan, one task per squad, the
 /// security review), each answer through `--json-schema` on a stream-json session. Permission requests are

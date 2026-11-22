@@ -219,10 +219,16 @@ pub fn parse(text: &str) -> Result<Team> {
             settings: BTreeMap::new(),
         });
     }
+    let mut staff: Vec<String> = Vec::new();
+    for role in file.team.staff {
+        if !staff.iter().any(|r| same_role(r, &role)) {
+            staff.push(role);
+        }
+    }
     Ok(Team {
         declared,
         squads,
-        staff: file.team.staff,
+        staff,
     })
 }
 
@@ -243,7 +249,7 @@ mod tests {
         let team = parse(
             r#"name = "Acme"
 [team]
-staff = ["po", "architect"]
+staff = ["po", "architect", "po"]
 
 [[squads]]
 id = "web"
@@ -265,7 +271,7 @@ effort = "xhigh"
         )
         .unwrap();
         assert!(team.declared);
-        assert_eq!(team.staff, ["po", "architect"]);
+        assert_eq!(team.staff, ["po", "architect"], "once each");
         let web = &team.squads[0];
         assert_eq!((web.lead.as_str(), web.max_parallel), ("lead", Some(2)));
         assert_eq!(web.count("front"), Some(2));

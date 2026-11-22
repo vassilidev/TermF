@@ -38,4 +38,5 @@ test("role settings and credits, as the Team view shows them", () => {
   assert.equal(shown(2), "2");
   assert.equal(source("obra/superpowers@22f0b463e7a5 (MIT): skills/x/task-reviewer-prompt.md"), "obra/superpowers (MIT)");
   assert.equal(source("acme/roles"), "acme/roles");
+  assert.equal(source("https://github.com/obra/superpowers (MIT): skills/x.md"), "https://github.com/obra/superpowers (MIT)");
 });

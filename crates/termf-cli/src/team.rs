@@ -145,7 +145,15 @@ fn squads(project: Option<&str>) -> Result<()> {
             .collect(),
     };
     for id in projects {
-        let view = termf_team::squads::view(&config, &id)?;
+        let view = match termf_team::squads::view(&config, &id) {
+            Ok(view) => view,
+            // Every project: one that cannot be read does not hide the others.
+            Err(e) if project.is_none() => {
+                eprintln!("{id}: {e:#}");
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         let implicit = match view.declared {
             true => "",
             false => " (no squad declared: one squad for every role)",

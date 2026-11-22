@@ -80,6 +80,8 @@ struct Env {
     fake: PathBuf,
     agents: Agents,
     updates: Arc<Mutex<Vec<Update>>>,
+    /// For each end of turn, the session's cost in the store as the event goes out.
+    turn_costs: Arc<Mutex<Vec<(i64, f64)>>>,
 }
 
 impl Env {
@@ -108,10 +110,21 @@ impl Env {
         )
         .unwrap();
         let updates: Arc<Mutex<Vec<Update>>> = Arc::default();
-        let seen = updates.clone();
+        let turn_costs: Arc<Mutex<Vec<(i64, f64)>>> = Arc::default();
+        let (seen, costs, data) = (updates.clone(), turn_costs.clone(), root.join("data"));
         // Never the user's own shell profile.
         let env = vec![("HOME".into(), home.to_string_lossy().into_owned())];
-        let agents = Agents::build(config, root.join("data"), env, move |u| {
+        let agents = Agents::build(config, data.clone(), env, move |u| {
+            if let Update::Event(StoredEvent {
+                session,
+                event: AgentEvent::TurnEnd { .. },
+                ..
+            }) = &u
+            {
+                let stored = sessions(&data).unwrap();
+                let cost = stored.iter().find(|s| s.id == *session).unwrap().cost;
+                costs.lock().unwrap().push((*session, cost));
+            }
             seen.lock().unwrap().push(u)
         });
         Env {
@@ -120,6 +133,7 @@ impl Env {
             fake,
             agents,
             updates,
+            turn_costs,
         }
     }
 
@@ -256,6 +270,14 @@ fn runs_several_turns_on_one_process() {
     );
     assert_eq!(session.context, Some(context));
     assert_eq!(round(session.cost), 0.01);
+    let seen: Vec<(i64, f64)> = env.turn_costs.lock().unwrap().clone();
+    assert_eq!(
+        seen.iter()
+            .map(|(s, c)| (*s, round(*c)))
+            .collect::<Vec<_>>(),
+        [(id, 0.01)],
+        "the end of a turn goes out once its cost is stored"
+    );
     let deltas: Vec<(i64, String)> = env
         .updates
         .lock()

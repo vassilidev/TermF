@@ -1217,7 +1217,7 @@ impl Inner {
             .context("the task has no report")?;
         let mut violations = Vec::new();
         let rules = self.rules(run, Some(&task.id), &worktree)?;
-        let squad = self.squad_of(run, &task);
+        let squad = self.squad_of(run, &task)?;
         let squad_id = squad.as_ref().map(|s| s.id.clone());
         let role = self.scope(run, &worktree).and_then(|s| {
             let s = Scope {
@@ -1788,9 +1788,10 @@ impl Inner {
         termf_core::squads::load_team(&self.config_dir, &run.target.project)
     }
 
-    /// The squad a task works in; `None` for a staff role, or when the project's file cannot say.
-    fn squad_of(&self, run: &TeamRun, task: &Task) -> Option<Squad> {
-        squad_in(&self.squads(run).ok()?, task)
+    /// The squad a task works in; `None` for a staff role. A project's file that cannot be read is an error:
+    /// the task would lose its squad's paths and settings.
+    fn squad_of(&self, run: &TeamRun, task: &Task) -> Result<Option<Squad>> {
+        Ok(squad_in(&self.squads(run)?, task))
     }
 
     /// Whether the task step `i` must wait for its squad: as many of its tasks at work as it allows, or of its
@@ -1877,10 +1878,10 @@ impl Inner {
             .clone()
             .unwrap_or_else(|| run.target.worktree.clone());
         let role_name = step.role.clone().context("the step has no role")?;
-        let squad = task
-            .as_ref()
-            .and_then(|t| self.squad_of(run, t))
-            .map(|s| s.id);
+        let squad = match &task {
+            Some(task) => self.squad_of(run, task)?.map(|s| s.id),
+            None => None,
+        };
         let scope = Scope {
             squad: squad.clone(),
             ..self.scope(run, &cwd)?
@@ -1963,10 +1964,11 @@ impl Inner {
                 }
             ));
         }
-        if let Some(squad) = task
-            .and_then(|t| self.squad_of(run, t))
-            .filter(|s| !s.paths.is_empty() || !s.domains.is_empty())
-        {
+        let squad = match task {
+            Some(task) => self.squad_of(run, task)?,
+            None => None,
+        };
+        if let Some(squad) = squad.filter(|s| !s.paths.is_empty() || !s.domains.is_empty()) {
             text.push_str(&format!(
                 "\nYou work in squad {}{}{}. Stay within its paths; report what lies outside instead of changing it.\n",
                 squad.id,

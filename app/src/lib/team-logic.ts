@@ -39,5 +39,5 @@ export function shown(value: unknown): string {
 
 /** The repository and license of a role's credit: `owner/repo@commit (MIT): path` gives `owner/repo (MIT)`. */
 export function source(credit: string): string {
-  return credit.replace(/@[0-9a-f]+/i, "").replace(/:.*$/, "").trim();
+  return credit.replace(/@[0-9a-f]+/i, "").replace(/: .*$/, "").trim();
 }

@@ -671,12 +671,20 @@ impl Inner {
             }
             _ => {}
         }
-        self.record(store, id, event);
         if moves || (state == State::Budget && session.state != State::Interactive) {
             session.state = state;
         }
-        if session != before {
-            self.save(store, &mut session, entry)?;
+        let changed = session != before;
+        // The session first: whoever sees the end of a turn also sees what it cost.
+        let updated = match changed {
+            true => store.update(&mut session),
+            false => Ok(()),
+        };
+        self.record(store, id, event);
+        updated?;
+        if changed {
+            session.tile = tile(entry);
+            (self.sink)(Update::Session(session.clone()));
         }
         Ok(())
     }

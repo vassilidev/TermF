@@ -252,9 +252,19 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
     Ok(items.into_values().collect())
 }
 
-/// Whether a preference or a rule applies to a session that plays `role` in `squad`. No role: all of them.
+/// Whether a preference or a rule applies to a session that plays `role` in `squad`. No role: those of every
+/// role, but a squad's only in that squad.
 pub fn applies(item: &Item, role: Option<&str>, squad: Option<&str>) -> bool {
-    role.is_none_or(|role| applies_to(&item.applies_to, role, squad))
+    match role {
+        Some(role) => applies_to(&item.applies_to, role, squad),
+        None => {
+            item.applies_to.is_empty()
+                || item.applies_to.iter().any(|t| {
+                    t.strip_prefix("squad:")
+                        .is_none_or(|s| Some(s.trim()) == squad)
+                })
+        }
+    }
 }
 
 /// A file of the library shipped with TermF, such as `workflows/default.toml`.

@@ -415,6 +415,16 @@ mod tests {
             "a skill the role names, though off"
         );
         assert!(!text(&front).contains("The web squad's way."), "no squad");
+        let plain = text(&Scope::default());
+        assert!(
+            !plain.contains("The web squad's way.") && plain.contains("Be brief."),
+            "no role: every role's, never another squad's"
+        );
+        let plain_web = text(&Scope {
+            squad: Some("web".into()),
+            ..Scope::default()
+        });
+        assert!(plain_web.contains("The web squad's way."));
         let back = text(&Scope {
             role: Some("back".into()),
             squad: Some("web".into()),

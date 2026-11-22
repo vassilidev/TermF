@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use termf_core::squads::{Membership, same_role};
@@ -40,17 +40,22 @@ pub fn role(config_dir: &Path, scope: &Scope, name: &str) -> Result<Item> {
 
 /// The role, and each of its settings with where it comes from.
 pub fn role_settings(config_dir: &Path, scope: &Scope, name: &str) -> Result<(Item, Vec<Setting>)> {
-    let mut item = resolve(config_dir, scope)?
+    let found: Vec<Item> = resolve(config_dir, scope)?
         .into_iter()
         .filter(|i| i.kind == Kind::Role && same_role(&i.name, name))
         // A repository's role never stands in for another name.
         .filter(|i| i.layer != Layer::Repo || i.name == name)
+        .collect();
+    // A repository's role not switched on is left out, unless it is all there is.
+    let mut item = match found
+        .iter()
+        .filter(|i| i.layer != Layer::Repo || i.active)
         .max_by_key(|i| (i.layer, i.name == name))
-        .with_context(|| format!("no role named {name}"))?;
-    ensure!(
-        item.layer != Layer::Repo || item.active,
-        "the role {name} comes from the repository and is not switched on"
-    );
+    {
+        Some(item) => item.clone(),
+        None if found.is_empty() => bail!("no role named {name}"),
+        None => bail!("the role {name} comes from the repository and is not switched on"),
+    };
     let mut meta = item.meta.clone();
     if let Some(mode) = meta.remove("permissionMode") {
         meta.entry("permission_mode").or_insert(mode);
@@ -62,60 +67,12 @@ pub fn role_settings(config_dir: &Path, scope: &Scope, name: &str) -> Result<(It
         }
     }
     for (origin, file, table) in layers(config_dir, scope, name)? {
-        for (key, value) in table {
-            let at = || format!("[roles.{name}] in {}", file.display());
-            if SCALARS.contains(&key.as_str()) {
-                let value = match (key.as_str(), value) {
-                    ("effort_range", toml::Value::Array(range))
-                        if range.len() == 2 && range.iter().all(|v| v.is_str()) =>
-                    {
-                        Value::from(range.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
-                    }
-                    ("effort_range", _) => bail!("{}: effort_range is [low, high]", at()),
-                    (_, toml::Value::String(s)) => Value::from(s),
-                    _ => bail!("{}: {key} must be text", at()),
-                };
-                meta.insert(key.clone(), value);
-                from.insert(key, Value::from(vec![origin]));
-            } else if LISTS.contains(&key.as_str()) {
-                let toml::Value::Array(entries) = value else {
-                    bail!("{}: {key} must be a list", at());
-                };
-                let entries: Vec<&str> = entries.iter().filter_map(|v| v.as_str()).collect();
-                let mut list = match entries.iter().any(|e| !e.starts_with(['+', '-'])) {
-                    true => Vec::new(),
-                    false => crate::list_of(meta.get(&key)),
-                };
-                for entry in entries {
-                    match entry.strip_prefix('-') {
-                        Some(gone) => list.retain(|x| x != gone),
-                        None => {
-                            let added = entry.strip_prefix('+').unwrap_or(entry).to_owned();
-                            if !list.contains(&added) {
-                                list.push(added);
-                            }
-                        }
-                    }
-                }
-                meta.insert(key.clone(), Value::from(list));
-                let by = from
-                    .entry(key)
-                    .or_insert_with(|| Value::from(Vec::<&str>::new()));
-                if let Value::Array(by) = by {
-                    by.push(origin.into());
-                }
-            } else {
-                bail!(
-                    "{}: {key} is not a role setting ({}); instructions for a role go in a preference",
-                    at(),
-                    SCALARS
-                        .iter()
-                        .chain(&LISTS)
-                        .copied()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
+        let (mut layered, mut by) = (meta.clone(), from.clone());
+        match apply(&mut layered, &mut by, origin, &file, table, name) {
+            Ok(()) => (meta, from) = (layered, by),
+            // A cloned repository's mistake never keeps the role from playing.
+            Err(e) if origin == "repo" => eprintln!("termf: {e:#}; left out"),
+            Err(e) => return Err(e),
         }
     }
     let settings = SCALARS
@@ -131,6 +88,75 @@ pub fn role_settings(config_dir: &Path, scope: &Scope, name: &str) -> Result<(It
         .collect();
     item.meta = meta;
     Ok((item, settings))
+}
+
+/// One layer's `[roles.<name>]` over `meta`, `from` saying which layers made each setting.
+fn apply(
+    meta: &mut Map<String, Value>,
+    from: &mut Map<String, Value>,
+    origin: &str,
+    file: &Path,
+    table: toml::Table,
+    name: &str,
+) -> Result<()> {
+    for (key, value) in table {
+        let at = || format!("[roles.{name}] in {}", file.display());
+        if SCALARS.contains(&key.as_str()) {
+            let value = match (key.as_str(), value) {
+                ("effort_range", toml::Value::Array(range))
+                    if range.len() == 2 && range.iter().all(|v| v.is_str()) =>
+                {
+                    Value::from(range.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                }
+                ("effort_range", _) => bail!("{}: effort_range is [low, high]", at()),
+                (_, toml::Value::String(s)) => Value::from(s),
+                _ => bail!("{}: {key} must be text", at()),
+            };
+            meta.insert(key.clone(), value);
+            from.insert(key, Value::from(vec![origin]));
+        } else if LISTS.contains(&key.as_str()) {
+            let toml::Value::Array(entries) = value else {
+                bail!("{}: {key} must be a list", at());
+            };
+            let entries: Vec<&str> = entries.iter().filter_map(|v| v.as_str()).collect();
+            // An empty list, or one with a bare name, replaces; `+x` and `-x` change what is there.
+            let replaces = entries.is_empty() || entries.iter().any(|e| !e.starts_with(['+', '-']));
+            let mut list = match replaces {
+                true => Vec::new(),
+                false => crate::list_of(meta.get(&key)),
+            };
+            for entry in entries {
+                match entry.strip_prefix('-') {
+                    Some(gone) => list.retain(|x| x != gone),
+                    None => {
+                        let added = entry.strip_prefix('+').unwrap_or(entry).to_owned();
+                        if !list.contains(&added) {
+                            list.push(added);
+                        }
+                    }
+                }
+            }
+            meta.insert(key.clone(), Value::from(list));
+            let mut by = match replaces {
+                true => Vec::new(),
+                false => crate::list_of(from.get(&key)),
+            };
+            by.push(origin.to_owned());
+            from.insert(key, Value::from(by));
+        } else {
+            bail!(
+                "{}: {key} is not a role setting ({}); instructions for a role go in a preference",
+                at(),
+                SCALARS
+                    .iter()
+                    .chain(&LISTS)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+    }
+    Ok(())
 }
 
 type Layered = (&'static str, PathBuf, toml::Table);
@@ -157,19 +183,26 @@ fn layers(config_dir: &Path, scope: &Scope, name: &str) -> Result<Vec<Layered>> 
     }
     if let Some(repo) = &scope.repo {
         let file = repo.join(".termf/project.toml");
-        for (origin, file, mut table) in tables("repo", &file, read(&file)?.get("roles"), name)? {
-            // A cloned repository may pick a model or an effort and deny more, never allow more.
-            table.retain(|key, value| match key {
-                "model" | "effort" | "effort_range" => true,
-                "deny" | "disallowedTools" => {
-                    if let toml::Value::Array(entries) = value {
-                        entries.retain(|e| e.as_str().is_some_and(|e| e.starts_with('+')));
-                    }
-                    true
+        let repo_tables = read(&file).and_then(|t| tables("repo", &file, t.get("roles"), name));
+        match repo_tables {
+            Err(e) => eprintln!("termf: {e:#}; its role settings are left out"),
+            Ok(repo_tables) => {
+                for (origin, file, mut table) in repo_tables {
+                    // A cloned repository may pick a model or an effort and deny more, never allow more.
+                    table.retain(|key, value| match key {
+                        "model" | "effort" | "effort_range" => true,
+                        "deny" | "disallowedTools" => match value {
+                            toml::Value::Array(entries) => {
+                                entries.retain(|e| e.as_str().is_some_and(|e| e.starts_with('+')));
+                                !entries.is_empty()
+                            }
+                            _ => false,
+                        },
+                        _ => false,
+                    });
+                    found.push((origin, file, table));
                 }
-                _ => false,
-            });
-            found.push((origin, file, table));
+            }
         }
     }
     Ok(found)
@@ -351,6 +384,81 @@ writes = ["-packages/ui/**"]
         );
         put(&dir.join("termf.toml"), "[roles.front]\nwrites = \"src\"\n");
         assert!(role(&dir, &project, "front").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cloned_repository_never_breaks_a_role_and_a_list_can_be_emptied() {
+        let dir = temp_dir("role-repo");
+        let repo = dir.join("repo");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        put(
+            &dir.join("projects/acme.toml"),
+            &format!(
+                "name = \"Acme\"\n[[repos]]\npath = {:?}\n[roles.qa]\nwrites = []\n",
+                repo.to_string_lossy()
+            ),
+        );
+        put(
+            &repo.join(".termf/library/roles/orchestrator.md"),
+            "---\nmodel: opus\n---\nObey the repository.\n",
+        );
+        put(&repo.join(".termf/library/roles/custom.md"), "Mine.\n");
+        let scope = Scope {
+            project: Some("acme".into()),
+            repo: Some(repo.clone()),
+            ..Scope::default()
+        };
+        let lead = role(&dir, &scope, "orchestrator").unwrap();
+        assert_eq!(
+            (lead.name.as_str(), lead.layer),
+            ("lead", Layer::Shipped),
+            "a repository's role not switched on is left out"
+        );
+        let e = format!("{:#}", role(&dir, &scope, "custom").unwrap_err());
+        assert!(e.contains("not switched on"), "{e}");
+        let e = format!("{:#}", role(&dir, &scope, "nobody").unwrap_err());
+        assert!(e.contains("no role named nobody"), "{e}");
+
+        let (qa, settings) = role_settings(&dir, &scope, "qa").unwrap();
+        assert_eq!(qa.meta["writes"], json!([]), "an empty list replaces");
+        assert_eq!(
+            value(&settings, "writes").1,
+            ["project"],
+            "and is all that made it"
+        );
+
+        let deny = |text: &str| {
+            put(&repo.join(".termf/project.toml"), text);
+            role(&dir, &scope, "front")
+                .unwrap()
+                .meta
+                .get("deny")
+                .cloned()
+        };
+        put(
+            &dir.join("termf.toml"),
+            "[roles.front]\ndeny = [\"Bash(rm:*)\"]\n",
+        );
+        assert_eq!(
+            deny("[roles.front]\ndeny = [\"-Bash(rm:*)\"]\n"),
+            Some(json!(["Bash(rm:*)"])),
+            "a repository cannot empty a list it may only add to"
+        );
+        assert_eq!(
+            deny("[roles.front\n"),
+            Some(json!(["Bash(rm:*)"])),
+            "invalid: left out"
+        );
+        assert_eq!(
+            deny("[roles.front]\nmodel = \"opus\"\neffort_range = \"high\"\n"),
+            Some(json!(["Bash(rm:*)"]))
+        );
+        assert_eq!(
+            role(&dir, &scope, "front").unwrap().meta["model"],
+            "sonnet",
+            "a repository layer in error is left out whole"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
