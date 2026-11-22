@@ -422,11 +422,10 @@ fn runs_headless_with_a_fake_claude() {
     cmd.env("HOME", &home);
     let failed = run::headless(cmd, &task, std::time::Duration::from_secs(60), WHO, |_| {});
     assert_eq!(failed.status, Status::Failed);
-    assert_eq!(
-        failed.error.as_deref(),
-        Some("Claude Code 2.1.330 at ~/bin/claude: Error: not logged in"),
-        "what the process said, after which Claude Code said it"
-    );
+    // An interactive bash adds its own lines on Linux.
+    let error = failed.error.unwrap();
+    assert!(error.starts_with(&format!("{WHO}: ")), "{error}");
+    assert!(error.ends_with("Error: not logged in"), "{error}");
 
     let started = env.root.join("started");
     fake_claude(
@@ -457,6 +456,7 @@ fn runs_headless_with_a_fake_claude() {
     );
 }
 
+#[cfg(unix)]
 const WHO: &str = "Claude Code 2.1.330 at ~/bin/claude";
 
 /// Within 5 s: dead, or a zombie its new parent has not reaped yet.
