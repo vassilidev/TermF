@@ -4811,7 +4811,34 @@ fn a_plan_over_two_repositories_works_in_each() {
         "web joins the run with its first task"
     );
 
+    // Its worktree takes a while to prepare (a checkout hook): the team answers meanwhile.
+    let marker = env.root.join("preparing");
+    let hook = web.join(".git/hooks/post-checkout");
+    fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\n[ -e '{0}' ] && exit 0\ntouch '{0}'\nsleep 3\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    let asked = Instant::now();
     env.team.approve(1, "approve-plan").unwrap();
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        asked.elapsed()
+    );
+    env.until("web being prepared", |_| marker.exists());
+    let asked = Instant::now();
+    env.team.set_rules(1, None, BTreeMap::new()).unwrap();
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "a command answers while a repository is prepared: {:?}",
+        asked.elapsed()
+    );
     let run = env.until("the delivery gate", delivery);
     assert_eq!(run.repos.len(), 1);
     let joined = run.repos[0].clone();
@@ -4876,4 +4903,107 @@ fn a_plan_over_two_repositories_works_in_each() {
         "{note}"
     );
     assert!(run.repos.is_empty());
+}
+
+#[test]
+fn a_batch_for_another_repository_is_planned_in_its_worktree() {
+    let env = Env::new("batch-repo");
+    second_repo(&env, "https://github.com/acme/web.git");
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str(
+        "[[squads]]\nid = \"web\"\nroles = { front = 1 }\nrepos = [\"web\"]\n\
+         [[squads]]\nid = \"api\"\nroles = { back = 1 }\nrepos = [\"api\"]\n",
+    );
+    fs::write(&file, project).unwrap();
+    fs::write(
+        env.config.join("library/workflows/batches.toml"),
+        "extends = \"lean\"\n[steps.plan]\nrole = \"cto\"\n",
+    )
+    .unwrap();
+    let mut web = batch("T1", "web", "S", &["AC1"], &[]);
+    web["repo"] = "web".into();
+    let mut api = task("T2", "back", &["src/api/a.txt"], &[]);
+    (api["squad"], api["covers"]) = ("api".into(), json!(["AC2"]));
+    env.answer("plan.json", env.plan(json!([web, api])));
+    env.answer(
+        "implement:T1.json",
+        subplan(json!([sub("T1", "front", &["web.txt"], &["AC1"], &[])])),
+    );
+    env.answer("implement:T1.1.1.json", report("T1.1 done"));
+    env.script("implement:T1.1", "echo web > web.txt\n");
+    env.team
+        .start(env.target.clone(), options("batches"))
+        .unwrap();
+    env.until("the plan's gate", |r| r.state == RunState::Waiting);
+    env.team.approve(1, "approve-plan").unwrap();
+    let run = env.state(RunState::Done);
+    let joined = &run.repos[0];
+    let lead = env
+        .agents
+        .session(env.step(&run, "implement:T1").session.unwrap())
+        .unwrap()
+        .spec;
+    assert_eq!(lead.cwd, joined.worktree, "its lead reads its repository");
+    assert!(
+        lead.add_dirs.contains(&env.target.worktree),
+        "{:?}",
+        lead.add_dirs
+    );
+    assert!(joined.worktree.join("web.txt").is_file());
+    assert!(!env.target.worktree.join("web.txt").exists());
+    for name in ["..", ".", "a/b", "../../x"] {
+        assert!(env.team.inner.run_dir(1, name).is_err(), "{name}");
+    }
+    assert!(env.team.inner.run_dir(1, "T1.1").is_ok());
+}
+
+#[test]
+fn a_base_update_looks_at_every_repository_even_after_a_conflict() {
+    let env = Env::new("update-repos");
+    let web = second_repo(&env, "https://github.com/acme/web.git");
+    fs::write(
+        env.config.join("library/workflows/updated.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
+         [steps.update-base]\ntype = \"update\"\nrole = \"integrator\"\nneeds = [\"implement\"]\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"update-base\"]\n",
+    )
+    .unwrap();
+    // The run's own base moves in the way of T1, web's base beside T2's work, once web joined the run.
+    let api = &env.target.repo_path;
+    fs::write(api.join("shared.txt"), "base\n").unwrap();
+    git(api, &env.env, &["add", "-A"]);
+    git(api, &env.env, &["commit", "-q", "-m", "Base: shared"]);
+    let mut front = task("T2", "front", &["web.txt"], &[]);
+    front["repo"] = "web".into();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["shared.txt"], &[]), front])),
+    );
+    env.script("implement:T1", "echo run > shared.txt\n");
+    env.script(
+        "implement:T2",
+        &format!(
+            "echo web > web.txt\ncd '{}' && echo base > web-base.txt && git add web-base.txt && git commit -qm 'Base: web'\n",
+            web.display()
+        ),
+    );
+    env.script("update-base", "printf 'base\\nrun\\n' > shared.txt\n");
+    env.team
+        .start(env.target.clone(), options("updated"))
+        .unwrap();
+    let run = env.until("the delivery gate", delivery);
+    let update = env.step(&run, "update-base");
+    assert_eq!(update.state, StepState::Done, "{:?}", update.note);
+    assert_eq!(update.sessions.len(), 1, "one conflict for the integrator");
+    let joined = &run.repos[0];
+    assert!(
+        joined.worktree.join("web-base.txt").is_file(),
+        "web's base merged after the run's own conflict"
+    );
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("shared.txt")).unwrap(),
+        "base\nrun\n"
+    );
 }

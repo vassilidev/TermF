@@ -474,6 +474,12 @@ enum Msg {
         ok: bool,
         output: String,
     },
+    /// The run of another repository of a run, prepared in the background.
+    Repo {
+        run: i64,
+        name: String,
+        opened: Box<std::result::Result<termf_tickets::Run, String>>,
+    },
 }
 
 /// Tells the team what changed in the agent sessions: hand it every session update.
@@ -516,6 +522,8 @@ struct Inner {
     shells: Mutex<BTreeMap<(i64, String), Launch>>,
     launches: AtomicU64,
     visual: Mutex<Option<VisualHook>>,
+    /// The repositories being prepared for a run, by run and name.
+    opening: Mutex<std::collections::BTreeSet<(i64, String)>>,
 }
 
 /// Called when a visual gate opens, with the run and the gate's step: the visual review starts. It must not
@@ -556,6 +564,7 @@ impl Team {
             shells: Mutex::default(),
             launches: AtomicU64::new(0),
             visual: Mutex::default(),
+            opening: Mutex::default(),
         });
         if let Err(e) = inner.recover() {
             eprintln!("termf: team runs left as they were: {e:#}");
@@ -1980,6 +1989,7 @@ impl Inner {
     fn handle(&self, msg: Msg) -> Result<()> {
         let store = self.store()?;
         match msg {
+            Msg::Repo { run, name, opened } => self.joined(&store, run, name, *opened)?,
             Msg::Session(session) => {
                 let Some((mut run, i)) = store.runs()?.into_iter().find_map(|r| {
                     let i = r.steps.iter().position(|s| {
@@ -2570,27 +2580,67 @@ impl Inner {
 
     /// Opens the run of each repository of `tasks` the run does not work on yet, as its first task starts: a
     /// worktree on its own branch, where the tasks of that repository merge.
-    fn open_repos(&self, store: &Store, run: &mut TeamRun, tasks: &[Task]) -> Result<()> {
-        self.check_repos(run, tasks)?;
-        let tickets = self.tickets();
-        for name in self.joining(run, tasks) {
-            let child = tickets.open_repo(run.run, &name)?;
-            let worktree = PathBuf::from(child.worktree.clone().unwrap_or_default());
-            let message = format!(
-                "repository {name} joins the run, in run {} on branch {}",
-                child.id,
-                child.branch.clone().unwrap_or_default()
-            );
-            self.event(store, run, None, "repo", &message);
-            run.repos.push(RunRepo {
-                base: Git(&self.env).head(&worktree).ok(),
-                name,
-                path: child.repo.into(),
-                run: child.id,
-                worktree,
-            });
+    /// Prepares the run of repository `name` for run `run` in the background, once at a time: its worktree and the
+    /// recipe's setup may take minutes, while the team and the interface wait for nothing. The step that needs it
+    /// starts once [`Inner::joined`] hears of it.
+    fn open_repo(&self, run: i64, name: String) {
+        if !self.opening.lock().unwrap().insert((run, name.clone())) {
+            return;
         }
-        Ok(())
+        let tickets = self.tickets();
+        let tx = self.tx.lock().unwrap().clone();
+        std::thread::spawn(move || {
+            let opened = Box::new(tickets.open_repo(run, &name).map_err(|e| format!("{e:#}")));
+            let _ = tx.send(Msg::Repo { run, name, opened });
+        });
+    }
+
+    /// The run of repository `name` is ready, or could not be: it joins the run, or the tasks that wait for it are
+    /// blocked with the reason.
+    fn joined(
+        &self,
+        store: &Store,
+        id: i64,
+        name: String,
+        opened: Result<termf_tickets::Run, String>,
+    ) -> Result<()> {
+        self.opening.lock().unwrap().remove(&(id, name.clone()));
+        let mut run = self.get(store, id)?;
+        match opened {
+            Ok(child) if !run.repos.iter().any(|r| r.name == name) => {
+                let worktree = PathBuf::from(child.worktree.clone().unwrap_or_default());
+                let message = format!(
+                    "repository {name} joins the run, in run {} on branch {}",
+                    child.id,
+                    child.branch.clone().unwrap_or_default()
+                );
+                self.event(store, &run, None, "repo", &message);
+                run.repos.push(RunRepo {
+                    base: Git(&self.env).head(&worktree).ok(),
+                    name,
+                    path: child.repo.into(),
+                    run: child.id,
+                    worktree,
+                });
+            }
+            Ok(_) => {}
+            Err(e) => {
+                let why = format!("repository {name} cannot join the run: {e}");
+                for i in 0..run.steps.len() {
+                    let waits = run.steps[i].state == StepState::Pending
+                        && run
+                            .task(i)
+                            .is_some_and(|t| t.repo.eq_ignore_ascii_case(&name));
+                    if waits {
+                        self.block(store, &mut run, i, &why);
+                    }
+                }
+            }
+        }
+        match run.state.active() {
+            true => self.tick(store, &mut run),
+            false => self.save(store, &mut run),
+        }
     }
 
     fn take_report(
@@ -3351,6 +3401,15 @@ impl Inner {
         step.integrated = true;
         step.merge = Some(head);
         let files = step.files.join(", ");
+        // The repositories after this one in `merge_base`'s order have not been looked at yet.
+        let later = match &repo {
+            None => !run.repos.is_empty(),
+            Some(name) => run
+                .repos
+                .iter()
+                .position(|r| &r.name == name)
+                .is_some_and(|at| at + 1 < run.repos.len()),
+        };
         match repo.and_then(|n| run.repos.iter_mut().find(|r| r.name == n)) {
             Some(joined) => joined.base = Some(base),
             None => run.base = Some(base),
@@ -3362,6 +3421,12 @@ impl Inner {
         );
         self.event(store, run, Some(&key), "base", &note);
         self.recheck(run, i, true);
+        if later && run.steps[i].state == StepState::Done {
+            let step = &mut run.steps[i];
+            step.state = StepState::Pending;
+            step.attempt = 0;
+            step.finished = None;
+        }
     }
 
     /// Once the update step `i` merged the base, the checks it comes after run again on the result before it goes
@@ -3758,6 +3823,12 @@ impl Inner {
                 if run.steps[i].kind == StepKind::Review && !self.review_on(store, run, i) {
                     return Ok(true);
                 }
+                // A task, or a batch, of a repository that has not joined the run waits for it to be ready.
+                let task = run.task(i).cloned();
+                if let Some(name) = task.and_then(|t| self.joining(run, &[t]).pop()) {
+                    self.open_repo(run.run, name);
+                    return Ok(false);
+                }
                 // A batch only reads: it waits for no other task's files, nor for room in its squad.
                 if run.steps[i].kind == StepKind::Task && !run.steps[i].batch {
                     let hints = |s: &Step| {
@@ -4146,10 +4217,12 @@ impl Inner {
             .cloned();
         // A review gets a throwaway copy of the run's work each time: what it runs never reaches what ships.
         let fresh = step.kind == StepKind::Task && !step.batch && step.worktree.is_none();
-        if let Some(task) = task.as_ref().filter(|_| fresh) {
-            self.open_repos(store, run, std::slice::from_ref(task))?;
+        if let Some(name) = task
+            .as_ref()
+            .and_then(|t| self.joining(run, std::slice::from_ref(t)).pop())
+        {
+            bail!("repository {name} has not joined the run yet");
         }
-        let step = &run.steps[i];
         if fresh || step.kind == StepKind::Review {
             let path = self.run_dir(run.run, step.task.as_deref().unwrap_or(&step.key))?;
             let _ = fs::remove_dir_all(&path);

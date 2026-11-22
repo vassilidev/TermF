@@ -482,9 +482,11 @@ impl Tickets {
             .iter()
             .find(|r| r.name.eq_ignore_ascii_case(name))
             .with_context(|| format!("no repository {name} in project {}", main.project))?;
+        // One whose worktree never came (TermF quit while preparing it) is not open.
         let open = store.children(parent)?.into_iter().find(|c| {
             Path::new(&c.repo) == Path::new(&repo.path)
                 && matches!(c.status, RunStatus::Running | RunStatus::Delivered)
+                && c.worktree.as_deref().is_some_and(|w| Path::new(w).is_dir())
         });
         if let Some(open) = open {
             return Ok(open);
