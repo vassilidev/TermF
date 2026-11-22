@@ -1,8 +1,8 @@
 // No imports but types, so `pnpm test` runs it in plain Node.
 import type { AskKind } from "$lib/team-run-logic";
 
-/** Where a decision waits: a tile, a headless session, the CTO's own permission, or a step of a team run. */
-export type WaitKind = "tile" | "agent" | "cto" | AskKind;
+/** Where a decision waits: a tile, a headless session, the CTO's own permission, a step of a team run, or an Ops request. */
+export type WaitKind = "tile" | "agent" | "cto" | "ops" | AskKind;
 
 /**
  * One thing waiting for the user. `key`: `tile:<id>`, `agent:<id>` (the CTO's too) or `ask:<run>:<step>`. `at` orders
@@ -11,7 +11,8 @@ export type WaitKind = "tile" | "agent" | "cto" | AskKind;
 export type Wait =
   | { kind: "tile"; key: string; at: null; id: number }
   | { kind: "agent" | "cto"; key: string; at: number; id: number }
-  | { kind: AskKind; key: string; at: number; run: number; step: string };
+  | { kind: AskKind; key: string; at: number; run: number; step: string }
+  | { kind: "ops"; key: string; at: number; id: number; project: string };
 
 export const askKey = (run: number, step: string) => `ask:${run}:${step}`;
 
@@ -20,10 +21,12 @@ export function waits(
   tiles: { id: number }[],
   agents: { id: number; updated: number; cto: boolean }[],
   asks: { run: number; step: string; kind: AskKind; updated: number }[],
+  ops: { id: number; at: number; project: string }[] = [],
 ): Wait[] {
   const dated: Wait[] = [
     ...agents.map((a) => ({ kind: a.cto ? ("cto" as const) : ("agent" as const), key: `agent:${a.id}`, at: a.updated, id: a.id })),
     ...asks.map((a) => ({ kind: a.kind, key: askKey(a.run, a.step), at: a.updated, run: a.run, step: a.step })),
+    ...ops.map((o) => ({ kind: "ops" as const, key: `ops:${o.id}`, at: o.at, id: o.id, project: o.project })),
   ];
   dated.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
   return [...tiles.map((t) => ({ kind: "tile" as const, key: `tile:${t.id}`, at: null, id: t.id })), ...dated];

@@ -179,8 +179,8 @@ pub fn resumed(args: &[String]) -> Option<&str> {
 
 /// The "trifecta" rule (§12.4): the conversation, or the run it works for, read production data.
 pub fn prod_read(data_dir: &Path, conversation: Option<&str>, run: Option<i64>) -> bool {
-    let _ = (data_dir, conversation, run);
-    false
+    conversation.is_some_and(|c| termf_core::taint::session(data_dir, c))
+        || run.is_some_and(|r| termf_core::taint::run(data_dir, r))
 }
 
 /// The tile's switch: on at once when the agent is at its prompt, else at the end of its turn.
@@ -296,6 +296,20 @@ mod tests {
         assert!(!idle.ask && idle.locked);
         assert!(!idle.seen(None, false), "a lock stays");
         assert!(idle.locked);
+    }
+
+    #[test]
+    fn the_conversation_or_the_run_that_read_prod_locks_it() {
+        let data = std::env::temp_dir().join(format!("termf-rc-taint-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&data);
+        assert!(!prod_read(&data, Some("c0ffee"), Some(7)));
+        termf_core::taint::mark_session(&data, "c0ffee").unwrap();
+        assert!(prod_read(&data, Some("c0ffee"), None));
+        assert!(!prod_read(&data, Some("other"), Some(7)));
+        termf_core::taint::mark_run(&data, 7).unwrap();
+        assert!(prod_read(&data, Some("other"), Some(7)));
+        assert!(!prod_read(&data, None, None));
+        fs::remove_dir_all(data).unwrap();
     }
 
     #[test]
