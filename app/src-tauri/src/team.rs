@@ -291,6 +291,32 @@ pub async fn team_squads(app: AppHandle, project: String) -> CmdResult<termf_tea
     .await
 }
 
+/// Sets a squad of the project (a new one without `from`), then the project's squads as `team_squads` shows them.
+#[tauri::command]
+pub async fn team_squad_save(
+    app: AppHandle,
+    project: String,
+    from: Option<String>,
+    squad: termf_core::squads::SquadForm,
+) -> CmdResult<termf_team::squads::View> {
+    blocking(app, move |app| {
+        termf_team::squads::save(&state_of(app).config_dir, &project, from.as_deref(), &squad)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn team_squad_delete(
+    app: AppHandle,
+    project: String,
+    id: String,
+) -> CmdResult<termf_team::squads::View> {
+    blocking(app, move |app| {
+        termf_team::squads::delete(&state_of(app).config_dir, &project, &id)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

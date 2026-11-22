@@ -758,7 +758,7 @@ impl Inner {
         };
         let dirs = match session.spec.mcp {
             true => other_repos(&self.config_dir, &session.spec)?,
-            false => Vec::new(),
+            false => session.spec.add_dirs.clone(),
         };
         let tools = crate::mcp_tools(&session.spec);
         let mcp = if tools.is_empty() {

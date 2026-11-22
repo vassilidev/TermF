@@ -210,6 +210,14 @@ pub struct Step {
     /// The user accepted it as it is, after it failed or got blocked.
     #[serde(default)]
     pub accepted: bool,
+    /// A task given to the lead of its squad, who plans it: its sub-plan, once valid, grafted into the run's plan.
+    #[serde(default)]
+    pub batch: bool,
+    #[serde(default)]
+    pub subplan: Option<Plan>,
+    /// An update step whose merge waits in a repository other than the run's own: its name.
+    #[serde(default)]
+    pub repo: Option<String>,
     /// The agent session of the current attempt, and of every attempt.
     pub session: Option<i64>,
     pub sessions: Vec<i64>,
@@ -258,6 +266,9 @@ impl Step {
             escalates: None,
             escalated: false,
             accepted: false,
+            batch: false,
+            subplan: None,
+            repo: None,
             session: None,
             sessions: Vec::new(),
             after: 0,
@@ -327,11 +338,27 @@ pub struct TeamRun {
     /// What the run's worktree was on when the team started: the run's changes are the diff from it.
     #[serde(default)]
     pub base: Option<String>,
+    /// The project's other repositories its plan touches, each in a ticket run of its own.
+    #[serde(default)]
+    pub repos: Vec<RunRepo>,
     pub steps: Vec<Step>,
     /// Why it waits, paused, stopped or failed.
     pub note: Option<String>,
     pub created: i64,
     pub updated: i64,
+}
+
+/// A repository of the project a run works on besides its own: its ticket run (a child of the run's, with its
+/// worktree, branch and pull request), where the tasks of that repository merge their work.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunRepo {
+    pub name: String,
+    pub path: PathBuf,
+    pub run: i64,
+    pub worktree: PathBuf,
+    /// What its worktree was on when it opened, as `TeamRun.base` for the run's own.
+    pub base: Option<String>,
 }
 
 /// What the user answered to a question of a step.
@@ -363,6 +390,8 @@ impl TeamRun {
             self.routing.as_ref().map(|r| r.questions.as_slice())
         } else if step.plan {
             self.plan.as_ref().map(|p| p.questions.as_slice())
+        } else if step.batch {
+            step.subplan.as_ref().map(|p| p.questions.as_slice())
         } else {
             step.report.as_ref().map(|r| r.questions.as_slice())
         };
@@ -374,6 +403,30 @@ impl TeamRun {
             .iter()
             .position(|s| s.key == key)
             .with_context(|| format!("run {} has no step {key}", self.run))
+    }
+
+    /// The task of the plan the step `i` works on.
+    fn task(&self, i: usize) -> Option<&Task> {
+        let id = self.steps[i].task.as_ref()?;
+        self.plan.as_ref()?.tasks.iter().find(|t| &t.id == id)
+    }
+
+    /// Where the work on repository `repo` merges: the run's worktree for its own (or `""`), else the worktree of
+    /// that repository's run.
+    pub fn worktree_of(&self, repo: &str) -> &Path {
+        self.repos
+            .iter()
+            .find(|r| !repo.is_empty() && r.name.eq_ignore_ascii_case(repo))
+            .map_or(&self.target.worktree, |r| &r.worktree)
+    }
+
+    /// The worktree the step `i` takes its work from and merges it into: its task's repository's, or its update's.
+    fn home(&self, i: usize) -> PathBuf {
+        let repo = match self.task(i) {
+            Some(task) => Some(task.repo.as_str()),
+            None => self.steps[i].repo.as_deref(),
+        };
+        self.worktree_of(repo.unwrap_or_default()).to_path_buf()
     }
 }
 
@@ -426,6 +479,12 @@ enum Msg {
         ok: bool,
         output: String,
     },
+    /// The run of another repository of a run, prepared in the background.
+    Repo {
+        run: i64,
+        name: String,
+        opened: Box<std::result::Result<termf_tickets::Run, String>>,
+    },
 }
 
 /// Tells the team what changed in the agent sessions: hand it every session update.
@@ -468,6 +527,8 @@ struct Inner {
     shells: Mutex<BTreeMap<(i64, String), Launch>>,
     launches: AtomicU64,
     visual: Mutex<Option<VisualHook>>,
+    /// The repositories being prepared for a run, by run and name.
+    opening: Mutex<std::collections::BTreeSet<(i64, String)>>,
 }
 
 /// Called when a visual gate opens, with the run and the gate's step: the visual review starts. It must not
@@ -508,6 +569,7 @@ impl Team {
             shells: Mutex::default(),
             launches: AtomicU64::new(0),
             visual: Mutex::default(),
+            opening: Mutex::default(),
         });
         if let Err(e) = inner.recover() {
             eprintln!("termf: team runs left as they were: {e:#}");
@@ -617,7 +679,7 @@ impl Team {
     /// gate, or whose gate passed (it read the definition of done then, or came before it), goes: `None`.
     pub fn check_delivery(&self, id: i64) -> Result<Option<done::Done>> {
         let inner = &self.inner;
-        let Some(run) = inner.store()?.get(id)? else {
+        let Some(run) = inner.store()?.get(inner.change(id))? else {
             return Ok(None);
         };
         let gates: Vec<&Step> = run
@@ -646,7 +708,7 @@ impl Team {
         let inner = &self.inner;
         let _lock = inner.lock.lock().unwrap();
         let store = inner.store()?;
-        let run = inner.get(&store, id)?;
+        let run = inner.get(&store, inner.change(id))?;
         let gate = run
             .steps
             .iter()
@@ -682,7 +744,13 @@ impl Team {
         let mut decided = None;
         match step.state {
             StepState::Waiting if gate => decided = inner.pass_done(&store, &mut run, reason)?,
+            StepState::Waiting if step.batch => inner.graft(&store, &mut run, i)?,
             StepState::Waiting => {}
+            StepState::Blocked if step.batch => {
+                bail!(
+                    "the batch has no valid sub-plan to approve, or questions: revise it with your answers"
+                )
+            }
             StepState::Blocked if step.kind == StepKind::Connector => {
                 bail!(
                     "the delivery gate could not read the definition of done: fix `[team] done`, then revise the gate \
@@ -1005,6 +1073,12 @@ impl Inner {
         Store::open(&self.data_dir)
     }
 
+    /// The ticket run whose team works on run `id`: its own, or the one it works for in another repository.
+    fn change(&self, id: i64) -> i64 {
+        let tickets = termf_tickets::Tickets::new(self.config_dir.clone(), self.data_dir.clone());
+        tickets.run(id).ok().and_then(|r| r.parent).unwrap_or(id)
+    }
+
     /// Runs the blocked step `i` again, or the step the gate `i` waits on, with `feedback`.
     fn revise_step(
         &self,
@@ -1016,6 +1090,8 @@ impl Inner {
         let key = run.steps[i].key.clone();
         let feedback = feedback.trim();
         let target = match run.steps[i].state {
+            // A sub-plan waits for the user's approval: its lead plans again.
+            StepState::Waiting if run.steps[i].batch => i,
             StepState::Waiting => {
                 let agent = self.agent_before(run, i).with_context(|| {
                     format!("no agent step comes before {key}: approve it instead")
@@ -1071,6 +1147,12 @@ impl Inner {
             } else {
                 run.steps[target].feedback = Some(feedback.to_owned());
             }
+        } else if let Some(sub) = run.steps[target].subplan.take() {
+            let feedback = format!(
+                "Your previous sub-plan:\n{}\n\nThe user's answer:\n{feedback}",
+                serde_json::to_string_pretty(&sub)?
+            );
+            run.steps[target].feedback = Some(feedback);
         } else {
             run.steps[target].feedback = (!feedback.is_empty()).then(|| feedback.to_owned());
         }
@@ -1279,7 +1361,7 @@ impl Inner {
             text.push_str(&format!(
                 "Merging the run's base `{}` into its work conflicts in {}, and the {} did not settle it; TermF asks \
                  you before the user.\n\nWhat went wrong the last time: {why}\n",
-                self.base_ref(run)?,
+                self.base_ref(run, step.repo.as_deref())?,
                 step.files.join(", "),
                 step.role.as_deref().unwrap_or_default()
             ));
@@ -1374,6 +1456,12 @@ impl Inner {
             &roles,
             &current,
         );
+        if run.steps[t].batch && matches!(verdict.decision, Decision::Accept | Decision::Reassign) {
+            problems.push(
+                "a batch is planned by its lead: retry with your instructions, or ask the user"
+                    .into(),
+            );
+        }
         let mut plan = run.plan.clone();
         if problems.is_empty() && verdict.decision == Decision::Reassign {
             let id = run.steps[t].task.clone();
@@ -1384,7 +1472,8 @@ impl Inner {
                 task.role = verdict.role.trim().to_owned();
             }
             if let Some(plan) = &plan {
-                problems.extend(plan::check_plan(plan, &roles, &run.target.repo, &squads));
+                let (planners, repos) = (self.planners(run), self.repo_names(run));
+                problems.extend(plan::check_plan(plan, &roles, &planners, &repos, &squads));
             }
         }
         if !problems.is_empty() {
@@ -1628,6 +1717,7 @@ impl Inner {
         let base = Git(&self.env).head(&target.worktree).ok();
         let mut run = TeamRun {
             base,
+            repos: Vec::new(),
             run: target.run,
             target,
             workflow: name.clone(),
@@ -1925,6 +2015,7 @@ impl Inner {
     fn handle(&self, msg: Msg) -> Result<()> {
         let store = self.store()?;
         match msg {
+            Msg::Repo { run, name, opened } => self.joined(&store, run, name, *opened)?,
             Msg::Session(session) => {
                 let Some((mut run, i)) = store.runs()?.into_iter().find_map(|r| {
                     let i = r.steps.iter().position(|s| {
@@ -2122,6 +2213,11 @@ impl Inner {
         if run.steps[i].kind == StepKind::Review {
             self.drop_worktree(run, i);
             run.steps[i].worktree = None;
+            for repo in &run.repos {
+                if let Ok(copy) = self.copy_of(run, i, repo) {
+                    Git(&self.env).remove_worktree(&repo.worktree, &copy);
+                }
+            }
         }
         let stopped = outcome == Outcome::Done
             && plan::answer::<serde_json::Value>(structured.as_ref(), result.as_deref())
@@ -2159,6 +2255,8 @@ impl Inner {
             self.take_routing(store, run, i, structured.as_ref(), result.as_deref());
         } else if run.steps[i].plan {
             self.take_plan(store, run, i, structured.as_ref(), result.as_deref());
+        } else if run.steps[i].batch {
+            self.take_subplan(store, run, i, structured.as_ref(), result.as_deref());
         } else {
             self.take_report(store, run, i, structured.as_ref(), result.as_deref());
         }
@@ -2197,7 +2295,8 @@ impl Inner {
         };
         let roles = self.roles(run, &squads).unwrap_or_default();
         let names: Vec<String> = roles.into_iter().map(|(n, _)| n).collect();
-        let mut problems = plan::check_plan(&plan, &names, &run.target.repo, &squads);
+        let (planners, repos) = (self.planners(run), self.repo_names(run));
+        let mut problems = plan::check_plan(&plan, &names, &planners, &repos, &squads);
         problems.extend(plan.tasks.iter().filter_map(|task| {
             let why = self.elsewhere(run, &task.role)?;
             Some(format!("task {}: {why}", task.id))
@@ -2209,6 +2308,9 @@ impl Inner {
                 i,
                 &format!("the plan is not valid:\n- {}", problems.join("\n- ")),
             );
+        }
+        if let Err(e) = self.check_repos(run, &plan.tasks) {
+            return self.block(store, run, i, &format!("{e:#}"));
         }
         let tasks: Vec<String> = plan
             .tasks
@@ -2255,6 +2357,7 @@ impl Inner {
             return;
         }
         let foreach = run.steps[each].clone();
+        let planners = self.planners(run);
         let tasks: Vec<Step> = plan
             .tasks
             .iter()
@@ -2262,6 +2365,7 @@ impl Inner {
                 let mut step = Step::new(format!("{}:{}", foreach.key, task.id), StepKind::Task);
                 step.role = Some(task.role.clone());
                 step.task = Some(task.id.clone());
+                step.batch = planners.iter().any(|p| same_role(p, &task.role));
                 step.needs = foreach.needs.clone();
                 step.needs.extend(
                     task.depends_on
@@ -2274,6 +2378,303 @@ impl Inner {
             })
             .collect();
         run.steps.splice(each..each, tasks);
+    }
+
+    /// The sub-plan the lead of the batch `i` answered: checked within its squad, then grafted into the run's plan,
+    /// or held for the user when `[team] subplan_gate` asks for it.
+    fn take_subplan(
+        &self,
+        store: &Store,
+        run: &mut TeamRun,
+        i: usize,
+        structured: Option<&serde_json::Value>,
+        text: Option<&str>,
+    ) {
+        let sub: Plan = match plan::answer(structured, text) {
+            Ok(sub) => sub,
+            Err(e) => {
+                let why = format!("the sub-plan is not valid JSON for its schema: {e}");
+                return self.retry(store, run, i, &why);
+            }
+        };
+        let (Some(batch), Some(plan)) = (run.task(i).cloned(), run.plan.clone()) else {
+            return self.block(store, run, i, "the batch is not in the plan");
+        };
+        let squads = match self.squads(run) {
+            Ok(squads) => squads,
+            Err(e) => return self.block(store, run, i, &format!("{e:#}")),
+        };
+        let Some(squad) = squad_in(&squads, &batch) else {
+            return self.block(store, run, i, &format!("batch {} has no squad", batch.id));
+        };
+        let roles: Vec<String> = self
+            .roles(run, &squads)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(n, _)| n)
+            .filter(|n| squad.has(n))
+            .collect();
+        let repos = self.repo_names(run);
+        let mut problems = plan::check_subplan(&plan, &batch, &sub, &roles, &repos, &squad);
+        problems.extend(sub.tasks.iter().filter_map(|task| {
+            let why = self.elsewhere(run, &task.role)?;
+            Some(format!("task {}: {why}", task.id))
+        }));
+        if !problems.is_empty() {
+            let why = format!("the sub-plan is not valid:\n- {}", problems.join("\n- "));
+            return self.retry(store, run, i, &why);
+        }
+        let grafted = plan::graft(&batch, &sub);
+        if let Err(e) = self.check_repos(run, &grafted) {
+            return self.block(store, run, i, &format!("{e:#}"));
+        }
+        let tasks: Vec<String> = grafted
+            .iter()
+            .map(|t| format!("{} ({}, {:?})", t.id, t.role, t.size))
+            .collect();
+        let key = run.steps[i].key.clone();
+        let message = format!("{}: {}", sub.summary, tasks.join(", "));
+        self.event(store, run, Some(&key), "subplan", &message);
+        let questions = sub.questions.clone();
+        run.steps[i].subplan = Some(sub);
+        if !questions.is_empty() {
+            let note = format!(
+                "the sub-plan has questions; revise it with your answers:\n- {}",
+                question_lines(&questions)
+            );
+            return self.block(store, run, i, &note);
+        }
+        match self.subplan_gate(run, &batch) {
+            Ok(true) => {
+                let note = format!(
+                    "the sub-plan of {} waits for you: approve it, or ask its lead for changes",
+                    batch.id
+                );
+                self.wait(store, run, i, &note);
+            }
+            Ok(false) => {
+                if let Err(e) = self.graft(store, run, i) {
+                    self.block(store, run, i, &format!("{e:#}"));
+                }
+            }
+            Err(e) => self.block(store, run, i, &format!("{e:#}")),
+        }
+    }
+
+    /// The sub-plan of the batch `i` joins the run's plan: its tasks become steps of the batch's `foreach`, after
+    /// what the batch waits for, and what waits for the batch waits for them all. The batch is done.
+    fn graft(&self, store: &Store, run: &mut TeamRun, i: usize) -> Result<()> {
+        let batch = run
+            .task(i)
+            .cloned()
+            .context("the batch is not in the plan")?;
+        let sub = run.steps[i]
+            .subplan
+            .clone()
+            .context("the batch has no sub-plan")?;
+        let tasks = plan::graft(&batch, &sub);
+        let source = run.steps[i].clone();
+        let each = source
+            .key
+            .split_once(':')
+            .map_or(source.key.as_str(), |(e, _)| e);
+        let steps: Vec<Step> = tasks
+            .iter()
+            .map(|task| {
+                let mut step = Step::new(format!("{each}:{}", task.id), StepKind::Task);
+                step.role = Some(task.role.clone());
+                step.task = Some(task.id.clone());
+                step.needs = source.needs.clone();
+                for dep in &task.depends_on {
+                    let need = format!("{each}:{dep}");
+                    if !step.needs.contains(&need) {
+                        step.needs.push(need);
+                    }
+                }
+                step.budget = source.budget;
+                step.prompt = source.prompt.clone();
+                step
+            })
+            .collect();
+        let keys: Vec<String> = steps.iter().map(|s| s.key.clone()).collect();
+        for step in run
+            .steps
+            .iter_mut()
+            .filter(|s| s.needs.contains(&source.key))
+        {
+            step.needs.extend(keys.iter().cloned());
+        }
+        let ids: Vec<String> = tasks.iter().map(|t| t.id.clone()).collect();
+        if let Some(plan) = run.plan.as_mut() {
+            plan.tasks.extend(tasks);
+        }
+        run.steps.splice(i + 1..i + 1, steps);
+        run.steps[i].report = Some(Report::said(ReportStatus::Done, sub.summary));
+        let message = format!("sub-plan grafted: {}", ids.join(", "));
+        self.done(store, run, i, &message);
+        Ok(())
+    }
+
+    /// Whether the sub-plan of `batch` waits for the user: `[team] subplan_gate` of the project's file, else of
+    /// `termf.toml`: `off`, `large` (the default: a batch sized L) or `always`.
+    fn subplan_gate(&self, run: &TeamRun, batch: &Task) -> Result<bool> {
+        let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
+        let files = [project.as_path(), &self.config_dir.join("termf.toml")];
+        let found = review::team_key(&files, "subplan_gate")?;
+        Ok(match found.as_ref().map(|(v, f)| (v.as_str(), f)) {
+            None | Some((Some("large"), _)) => batch.size == plan::Size::L,
+            Some((Some("always"), _)) => true,
+            Some((Some("off"), _)) => false,
+            Some((_, file)) => {
+                bail!("`[team] subplan_gate` in {file} must be \"off\", \"large\" or \"always\"")
+            }
+        })
+    }
+
+    /// The roles that plan a batch of their squad (`output: plan`, the lead) when another role plans the run (the
+    /// CTO, for several squads); none when such a role plans the run itself.
+    fn planners(&self, run: &TeamRun) -> Vec<String> {
+        let Ok(scope) = self.scope(run, &run.target.worktree) else {
+            return Vec::new();
+        };
+        let found: Vec<String> = termf_library::resolve(&self.config_dir, &scope)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|i| i.kind == Kind::Role && (i.layer != Layer::Repo || i.active))
+            .filter(|i| i.meta.get("output").and_then(|o| o.as_str()) == Some("plan"))
+            .map(|i| i.name)
+            .collect();
+        let planner = run
+            .steps
+            .iter()
+            .find(|s| s.plan)
+            .and_then(|s| s.role.as_deref());
+        match found
+            .iter()
+            .any(|r| same_role(r, planner.unwrap_or_default()))
+        {
+            true => Vec::new(),
+            false => found,
+        }
+    }
+
+    /// The repositories a task may name: the run's own first, then the project's others.
+    fn repo_names(&self, run: &TeamRun) -> Vec<String> {
+        let own = &run.target.repo;
+        let mut names = vec![own.clone()];
+        let projects = termf_core::load_projects(&self.config_dir).unwrap_or_default();
+        for project in projects.into_iter().filter(|p| p.id == run.target.project) {
+            let others = project.repos.into_iter().map(|r| r.name);
+            names.extend(others.filter(|n| !n.eq_ignore_ascii_case(own)));
+        }
+        names
+    }
+
+    fn tickets(&self) -> termf_tickets::Tickets {
+        let mut tickets =
+            termf_tickets::Tickets::new(self.config_dir.clone(), self.data_dir.clone());
+        tickets.env = self.env.clone();
+        if let Some((_, home)) = self.env.iter().find(|(k, _)| k == "HOME") {
+            tickets.home = home.into();
+        }
+        tickets
+    }
+
+    /// The project's other repositories `tasks` name that the run does not work on yet.
+    fn joining(&self, run: &TeamRun, tasks: &[Task]) -> Vec<String> {
+        let names = self.repo_names(run);
+        let mut wanted: Vec<String> = Vec::new();
+        for task in tasks {
+            let Some(name) = names[1..]
+                .iter()
+                .find(|n| n.eq_ignore_ascii_case(&task.repo))
+            else {
+                continue;
+            };
+            if !run.repos.iter().any(|r| &r.name == name) && !wanted.contains(name) {
+                wanted.push(name.clone());
+            }
+        }
+        wanted
+    }
+
+    /// A run that spans several repositories opens a pull request in each, linked together: each repository `tasks`
+    /// bring in must be on GitHub, the run's own too. Refused, saying why, before any work starts.
+    fn check_repos(&self, run: &TeamRun, tasks: &[Task]) -> Result<()> {
+        let wanted = self.joining(run, tasks);
+        if wanted.is_empty() {
+            return Ok(());
+        }
+        let tickets = self.tickets();
+        for name in std::iter::once(&run.target.repo).chain(&wanted) {
+            tickets.github_repo(&run.target.project, name)?;
+        }
+        Ok(())
+    }
+
+    /// Opens the run of each repository of `tasks` the run does not work on yet, as its first task starts: a
+    /// worktree on its own branch, where the tasks of that repository merge.
+    /// Prepares the run of repository `name` for run `run` in the background, once at a time: its worktree and the
+    /// recipe's setup may take minutes, while the team and the interface wait for nothing. The step that needs it
+    /// starts once [`Inner::joined`] hears of it.
+    fn open_repo(&self, run: i64, name: String) {
+        if !self.opening.lock().unwrap().insert((run, name.clone())) {
+            return;
+        }
+        let tickets = self.tickets();
+        let tx = self.tx.lock().unwrap().clone();
+        std::thread::spawn(move || {
+            let opened = Box::new(tickets.open_repo(run, &name).map_err(|e| format!("{e:#}")));
+            let _ = tx.send(Msg::Repo { run, name, opened });
+        });
+    }
+
+    /// The run of repository `name` is ready, or could not be: it joins the run, or the tasks that wait for it are
+    /// blocked with the reason.
+    fn joined(
+        &self,
+        store: &Store,
+        id: i64,
+        name: String,
+        opened: Result<termf_tickets::Run, String>,
+    ) -> Result<()> {
+        self.opening.lock().unwrap().remove(&(id, name.clone()));
+        let mut run = self.get(store, id)?;
+        match opened {
+            Ok(child) if !run.repos.iter().any(|r| r.name == name) => {
+                let worktree = PathBuf::from(child.worktree.clone().unwrap_or_default());
+                let message = format!(
+                    "repository {name} joins the run, in run {} on branch {}",
+                    child.id,
+                    child.branch.clone().unwrap_or_default()
+                );
+                self.event(store, &run, None, "repo", &message);
+                run.repos.push(RunRepo {
+                    base: Git(&self.env).head(&worktree).ok(),
+                    name,
+                    path: child.repo.into(),
+                    run: child.id,
+                    worktree,
+                });
+            }
+            Ok(_) => {}
+            Err(e) => {
+                let why = format!("repository {name} cannot join the run: {e}");
+                for i in 0..run.steps.len() {
+                    let waits = run.steps[i].state == StepState::Pending
+                        && run
+                            .task(i)
+                            .is_some_and(|t| t.repo.eq_ignore_ascii_case(&name));
+                    if waits {
+                        self.block(store, &mut run, i, &why);
+                    }
+                }
+            }
+        }
+        match run.state.active() {
+            true => self.tick(store, &mut run),
+            false => self.save(store, &mut run),
+        }
     }
 
     fn take_report(
@@ -2848,16 +3249,17 @@ impl Inner {
         if Some(&commit) == step.base.as_ref() {
             return Ok(None);
         }
+        let home = run.home(i);
         let message = format!("Merge {} of {}", step.key, run.target.ticket);
-        if git.merge(&run.target.worktree, &commit, &message).is_ok() {
+        if git.merge(&home, &commit, &message).is_ok() {
             return Ok(None);
         }
-        let head = git.head(&run.target.worktree)?;
+        let head = git.head(&home)?;
         let conflicts = git.merge_in(&worktree, &head, "Merge the run's work")?;
         // What the task changed is now measured from the run's work.
         run.steps[i].base = Some(head);
         if conflicts.is_empty() {
-            git.merge(&run.target.worktree, &git.head(&worktree)?, &message)
+            git.merge(&home, &git.head(&worktree)?, &message)
                 .with_context(|| {
                     format!("cannot merge {} into the run's worktree", run.steps[i].key)
                 })?;
@@ -2873,12 +3275,18 @@ impl Inner {
 
     /// The branch the run started from, which its pull request goes to: the ticket run's, else the repository's
     /// default branch as a run would start from it.
-    fn base_ref(&self, run: &TeamRun) -> Result<String> {
+    /// `repo` (`None`: the run's own) and its ticket run's base branch, which its pull request goes to, else the
+    /// repository's default branch as a run would start from it.
+    fn base_ref(&self, run: &TeamRun, repo: Option<&str>) -> Result<String> {
+        let (id, dir) = match repo.and_then(|n| run.repos.iter().find(|r| r.name == n)) {
+            Some(joined) => (joined.run, &joined.worktree),
+            None => (run.run, &run.target.worktree),
+        };
         let tickets = termf_tickets::Tickets::new(self.config_dir.clone(), self.data_dir.clone());
-        if let Some(base) = tickets.run(run.run).ok().and_then(|r| r.base) {
+        if let Some(base) = tickets.run(id).ok().and_then(|r| r.base) {
             return Ok(base);
         }
-        let (git, dir) = (Git(&self.env), &run.target.worktree);
+        let git = Git(&self.env);
         let head = ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"];
         if let Ok(head) = git.run(dir, &head) {
             return Ok(head);
@@ -2890,65 +3298,86 @@ impl Inner {
             .context("cannot tell the run's base branch")
     }
 
-    /// The update step `i`: merges the run's base, as it is now, into the run's work. Nothing new: it is done.
-    /// Merged cleanly: the checks run again on the result before it goes on. A conflict: the merge waits in a
-    /// worktree of its own for the step's agent, never in the run's.
+    /// The update step `i`: merges the base of each of the run's repositories, as it is now, into its work. Nothing
+    /// new: it is done. Merged cleanly: the checks run again on the result before it goes on. A conflict: the merge
+    /// waits in a worktree of its own for the step's agent, never in the run's; once resolved, the step runs again
+    /// for the repositories after it.
     fn merge_base(&self, store: &Store, run: &mut TeamRun, i: usize) -> Result<()> {
         let git = Git(&self.env);
-        let dir = run.target.worktree.clone();
-        let base = self.base_ref(run)?;
-        let mut offline = String::new();
-        if let Some(branch) = base.strip_prefix("origin/") {
-            // Offline, the base is what was last fetched.
-            if let Err(e) = git.run(&dir, &["fetch", "-q", "origin", branch]) {
-                offline = format!(", as last fetched ({e:#})");
+        let key = run.steps[i].key.clone();
+        let repos: Vec<Option<String>> = std::iter::once(None)
+            .chain(run.repos.iter().map(|r| Some(r.name.clone())))
+            .collect();
+        let (mut current, mut merged) = (Vec::new(), Vec::new());
+        for repo in repos {
+            let dir = run
+                .worktree_of(repo.as_deref().unwrap_or_default())
+                .to_path_buf();
+            let work = match &repo {
+                None => "the run's work".to_owned(),
+                Some(name) => format!("the run's work in {name}"),
+            };
+            let base = self.base_ref(run, repo.as_deref())?;
+            let mut offline = String::new();
+            if let Some(branch) = base.strip_prefix("origin/") {
+                // Offline, the base is what was last fetched.
+                if let Err(e) = git.run(&dir, &["fetch", "-q", "origin", branch]) {
+                    offline = format!(", as last fetched ({e:#})");
+                }
             }
+            let commit = git.run(&dir, &["rev-parse", &format!("{base}^{{commit}}")])?;
+            if git.contains(&dir, &commit)? {
+                current.push(format!("{work} is up to date with {base}{offline}"));
+                continue;
+            }
+            let message = format!("Merge {base} into {}", run.target.ticket);
+            let step = &mut run.steps[i];
+            step.base = Some(commit.clone());
+            step.repo = repo.clone();
+            step.files = Vec::new();
+            step.merge = None;
+            if git.merge(&dir, &commit, &message).is_err() {
+                // Changes left uncommitted in the run's worktree would stop the resolved merge from coming back in.
+                let dirty = git.run(&dir, &["status", "--porcelain", "--untracked-files=no"])?;
+                let which = repo
+                    .as_ref()
+                    .map(|n| format!(" in {n}"))
+                    .unwrap_or_default();
+                ensure!(
+                    dirty.is_empty(),
+                    "the run's worktree{which} has changes not committed, in the way of {base}: commit them or set \
+                     them aside, then revise {key}\n{dirty}"
+                );
+                let path = self.run_dir(run.run, &key)?;
+                let _ = fs::remove_dir_all(&path);
+                git.add_worktree(&dir, &path)?;
+                run.steps[i].worktree = Some(path.clone());
+                run.steps[i].integrated = false;
+                let conflicts = git.merge_in(&path, &commit, &message)?;
+                if !conflicts.is_empty() {
+                    let files = conflicts.join(", ");
+                    run.steps[i].files = conflicts;
+                    let why = format!("{base} conflicts with {work} in {files}");
+                    self.event(store, run, Some(&key), "base", &why);
+                    return Ok(());
+                }
+                // It merged in a clean copy: untracked files of the run's worktree are in the way.
+                let head = git.head(&path)?;
+                self.drop_worktree(run, i);
+                run.steps[i].worktree = None;
+                git.merge(&dir, &head, &message)?;
+            }
+            match repo.and_then(|n| run.repos.iter_mut().find(|r| r.name == n)) {
+                Some(joined) => joined.base = Some(commit),
+                None => run.base = Some(commit),
+            }
+            merged.push(format!("{base} merged into {work}{offline}"));
         }
-        let commit = git.run(&dir, &["rev-parse", &format!("{base}^{{commit}}")])?;
-        if git.contains(&dir, &commit)? {
-            let note = format!("the run's work is up to date with {base}{offline}");
-            self.done(store, run, i, &note);
+        if merged.is_empty() {
+            self.done(store, run, i, &current.join("; "));
             return Ok(());
         }
-        let key = run.steps[i].key.clone();
-        let message = format!("Merge {base} into {}", run.target.ticket);
-        run.steps[i].base = Some(commit.clone());
-        run.steps[i].files = Vec::new();
-        run.steps[i].merge = None;
-        if git.merge(&dir, &commit, &message).is_err() {
-            // Changes left uncommitted in the run's worktree would stop the resolved merge from coming back in.
-            let dirty = git.run(&dir, &["status", "--porcelain", "--untracked-files=no"])?;
-            ensure!(
-                dirty.is_empty(),
-                "the run's worktree has changes not committed, in the way of {base}: commit them or set them aside, \
-                 then revise {key}\n{dirty}"
-            );
-            let path = self
-                .data_dir
-                .join("team")
-                .join(run.run.to_string())
-                .join(&key);
-            let _ = fs::remove_dir_all(&path);
-            git.add_worktree(&dir, &path)?;
-            run.steps[i].worktree = Some(path.clone());
-            run.steps[i].integrated = false;
-            let conflicts = git.merge_in(&path, &commit, &message)?;
-            if !conflicts.is_empty() {
-                let files = conflicts.join(", ");
-                run.steps[i].files = conflicts;
-                let why = format!("{base} conflicts with the run's work in {files}");
-                self.event(store, run, Some(&key), "base", &why);
-                return Ok(());
-            }
-            // It merged in a clean copy: untracked files of the run's worktree are in the way.
-            let head = git.head(&path)?;
-            self.drop_worktree(run, i);
-            run.steps[i].worktree = None;
-            git.merge(&dir, &head, &message)?;
-        }
-        run.base = Some(commit);
-        let note =
-            format!("{base} merged into the run's work{offline}: the checks run again on it");
+        let note = format!("{}: the checks run again on it", merged.join("; "));
         self.event(store, run, Some(&key), "base", &note);
         self.recheck(run, i, false);
         Ok(())
@@ -2968,9 +3397,10 @@ impl Inner {
                 "the merge's worktree is gone: revise the step",
             );
         };
+        let repo = run.steps[i].repo.clone();
         let message = format!(
             "Merge {} into {}",
-            self.base_ref(run).unwrap_or_default(),
+            self.base_ref(run, repo.as_deref()).unwrap_or_default(),
             run.target.ticket
         );
         if let Err(e) = git.commit_all(&worktree, &message) {
@@ -2988,10 +3418,9 @@ impl Inner {
             }
             Err(e) => return self.block(store, run, i, &format!("{e:#}")),
         }
-        let merged = git.head(&worktree).and_then(|head| {
-            git.merge(&run.target.worktree, &head, &message)
-                .map(|_| head)
-        });
+        let merged = git
+            .head(&worktree)
+            .and_then(|head| git.merge(&run.home(i), &head, &message).map(|_| head));
         let head = match merged {
             Ok(head) => head,
             Err(e) => {
@@ -3006,7 +3435,19 @@ impl Inner {
         step.integrated = true;
         step.merge = Some(head);
         let files = step.files.join(", ");
-        run.base = Some(base);
+        // The repositories after this one in `merge_base`'s order have not been looked at yet.
+        let later = match &repo {
+            None => !run.repos.is_empty(),
+            Some(name) => run
+                .repos
+                .iter()
+                .position(|r| &r.name == name)
+                .is_some_and(|at| at + 1 < run.repos.len()),
+        };
+        match repo.and_then(|n| run.repos.iter_mut().find(|r| r.name == n)) {
+            Some(joined) => joined.base = Some(base),
+            None => run.base = Some(base),
+        }
         self.done(store, run, i, summary);
         let note = format!(
             "the conflicts in {files} resolved and merged into the run's work: the checks and the reviews look at it \
@@ -3014,6 +3455,12 @@ impl Inner {
         );
         self.event(store, run, Some(&key), "base", &note);
         self.recheck(run, i, true);
+        if later && run.steps[i].state == StepState::Done {
+            let step = &mut run.steps[i];
+            step.state = StepState::Pending;
+            step.attempt = 0;
+            step.finished = None;
+        }
     }
 
     /// Once the update step `i` merged the base, the checks it comes after run again on the result before it goes
@@ -3059,8 +3506,66 @@ impl Inner {
 
     fn drop_worktree(&self, run: &TeamRun, i: usize) {
         if let Some(path) = &run.steps[i].worktree {
-            Git(&self.env).remove_worktree(&run.target.worktree, path);
+            Git(&self.env).remove_worktree(&run.home(i), path);
         }
+    }
+
+    /// Where a review step `i` reads the work of the run's repository `repo`, other than its own.
+    fn copy_of(&self, run: &TeamRun, i: usize, repo: &RunRepo) -> Result<PathBuf> {
+        self.run_dir(run.run, &format!("{}@{}", run.steps[i].key, repo.name))
+    }
+
+    /// The folder `name` of run `run`, in `<data>/team/<run>/`, which TermF empties before use: refused when the
+    /// name would lead anywhere else.
+    fn run_dir(&self, run: i64, name: &str) -> Result<PathBuf> {
+        let mut parts = Path::new(name).components();
+        let single = matches!(
+            (parts.next(), parts.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        );
+        ensure!(
+            single && !name.contains(['/', '\\']),
+            "{name:?} cannot name a folder of the run"
+        );
+        Ok(self.data_dir.join("team").join(run.to_string()).join(name))
+    }
+
+    /// The other repositories of the project, for a step other than a task's: the run's own work (unless the step
+    /// works there), those the run works on at their run's work (for a review, a throwaway copy of it, made now),
+    /// and the others at their checkout. Nothing for a project of one repository.
+    fn other_dirs(&self, run: &TeamRun, i: usize, cwd: &Path) -> Result<Vec<PathBuf>> {
+        let review = run.steps[i].kind == StepKind::Review;
+        let mut dirs = Vec::new();
+        let projects = termf_core::load_projects(&self.config_dir)?;
+        let Some(project) = projects.into_iter().find(|p| p.id == run.target.project) else {
+            return Ok(dirs);
+        };
+        if project.repos.len() < 2 {
+            return Ok(dirs);
+        }
+        if !review && cwd != run.target.worktree {
+            dirs.push(run.target.worktree.clone());
+        }
+        for repo in project.repos {
+            let path = PathBuf::from(&repo.path);
+            if path == run.target.repo_path {
+                continue;
+            }
+            let dir = match run.repos.iter().find(|r| r.name == repo.name) {
+                Some(joined) if review => {
+                    let copy = self.copy_of(run, i, joined)?;
+                    let _ = fs::remove_dir_all(&copy);
+                    Git(&self.env).add_worktree(&joined.worktree, &copy)?;
+                    copy
+                }
+                Some(joined) => joined.worktree.clone(),
+                None => path,
+            };
+            if dir != cwd {
+                dirs.push(dir);
+            }
+        }
+        Ok(dirs)
     }
 
     fn done(&self, store: &Store, run: &mut TeamRun, i: usize, message: &str) {
@@ -3278,14 +3783,14 @@ impl Inner {
                 self.done(store, run, i, &message);
             }
             StepKind::Shell => {
-                let command = match self.command(run, i) {
-                    Ok(command) => command,
+                let commands = match self.command(run, i) {
+                    Ok(commands) => commands,
                     Err(e) => {
                         self.block(store, run, i, &format!("{e:#}"));
                         return Ok(true);
                     }
                 };
-                let Some(command) = command else {
+                if commands.is_empty() {
                     self.skip(
                         store,
                         run,
@@ -3293,13 +3798,14 @@ impl Inner {
                         "no command known: set `checks` for the repository in the project",
                     );
                     return Ok(true);
-                };
+                }
                 let step = &mut run.steps[i];
                 step.state = StepState::Running;
                 step.accepted = false;
                 step.started = Some(now());
-                self.event(store, run, Some(&key), "step_started", &command);
-                self.shell(run.run, key, command, run.target.worktree.clone());
+                let listed: Vec<&str> = commands.iter().map(|(c, _)| c.as_str()).collect();
+                self.event(store, run, Some(&key), "step_started", &listed.join("\n"));
+                self.shell(run.run, key, commands);
             }
             StepKind::Update if run.steps[i].worktree.is_some() => {
                 // The merge waits in its own worktree: this attempt of its agent resolves it.
@@ -3322,10 +3828,21 @@ impl Inner {
                 if !paths.is_empty() {
                     // The run's whole diff: a task sent back starts anew, its first attempt's files merged already.
                     // Unknown, the step runs.
-                    let changed = run.base.as_deref().and_then(|base| {
-                        let names = ["diff", "--name-only", "--no-renames", base, "HEAD"];
-                        Git(&self.env).run(&run.target.worktree, &names).ok()
-                    });
+                    let homes = std::iter::once((&run.base, &run.target.worktree))
+                        .chain(run.repos.iter().map(|r| (&r.base, &r.worktree)));
+                    let changed: Option<Vec<String>> = homes
+                        .map(|(base, dir)| {
+                            let names = [
+                                "diff",
+                                "--name-only",
+                                "--no-renames",
+                                base.as_deref()?,
+                                "HEAD",
+                            ];
+                            Git(&self.env).run(dir, &names).ok()
+                        })
+                        .collect();
+                    let changed = changed.map(|all| all.join("\n"));
                     let untouched = changed.is_some_and(|files| {
                         !files
                             .lines()
@@ -3340,7 +3857,14 @@ impl Inner {
                 if run.steps[i].kind == StepKind::Review && !self.review_on(store, run, i) {
                     return Ok(true);
                 }
-                if run.steps[i].kind == StepKind::Task {
+                // A task, or a batch, of a repository that has not joined the run waits for it to be ready.
+                let task = run.task(i).cloned();
+                if let Some(name) = task.and_then(|t| self.joining(run, &[t]).pop()) {
+                    self.open_repo(run.run, name);
+                    return Ok(false);
+                }
+                // A batch only reads: it waits for no other task's files, nor for room in its squad.
+                if run.steps[i].kind == StepKind::Task && !run.steps[i].batch {
                     let hints = |s: &Step| {
                         run.plan
                             .as_ref()
@@ -3349,10 +3873,9 @@ impl Inner {
                             .unwrap_or_default()
                     };
                     let mine = hints(&run.steps[i]);
-                    let mut tasks = run
-                        .steps
-                        .iter()
-                        .filter(|s| s.state == StepState::Running && s.kind == StepKind::Task);
+                    let mut tasks = run.steps.iter().filter(|s| {
+                        s.state == StepState::Running && s.kind == StepKind::Task && !s.batch
+                    });
                     if tasks.any(|s| rules::overlap(&mine, &hints(s))) {
                         return Ok(false);
                     }
@@ -3512,43 +4035,65 @@ impl Inner {
         }
     }
 
-    /// The command of the `shell` step `i`: `{{ repo.checks }}` is the repository's `checks` in its project.
-    fn command(&self, run: &TeamRun, i: usize) -> Result<Option<String>> {
+    /// The commands of the `shell` step `i`, each with the worktree it runs in: `{{ repo.checks }}` is each
+    /// repository's `checks` in its project, in its own work (the run's own repository, then the others it works
+    /// on); a command without it runs in the run's worktree.
+    fn command(&self, run: &TeamRun, i: usize) -> Result<Vec<(String, PathBuf)>> {
         let command = run.steps[i].run.clone().unwrap_or_default();
         if !command.contains("{{") {
-            return Ok(Some(command).filter(|c| !c.trim().is_empty()));
+            let found = Some((command, run.target.worktree.clone()));
+            return Ok(found
+                .into_iter()
+                .filter(|(c, _)| !c.trim().is_empty())
+                .collect());
         }
         let file = termf_core::project_file(&self.config_dir, &run.target.project)?;
         let table: toml::Table = toml::from_str(&fs::read_to_string(&file)?)
             .with_context(|| format!("invalid {}", file.display()))?;
-        let repo = table
-            .get("repos")
-            .and_then(|r| r.as_array())
-            .into_iter()
-            .flatten()
-            .find(|r| {
-                let path = r
-                    .get("path")
-                    .and_then(|p| p.as_str())
-                    .map(termf_core::expand_tilde);
-                path.as_deref() == Some(run.target.repo_path.as_path())
-            });
-        let checks = repo
-            .and_then(|r| r.get("checks")?.as_str())
-            .unwrap_or_default();
-        let command = command
-            .replace("{{ repo.checks }}", checks)
-            .replace("{{repo.checks}}", checks);
-        ensure!(
-            !command.contains("{{"),
-            "unknown placeholder in {command:?}"
-        );
-        Ok(Some(command).filter(|c| !c.trim().is_empty()))
+        let checks = |repo: &Path| {
+            let found = table
+                .get("repos")
+                .and_then(|r| r.as_array())
+                .into_iter()
+                .flatten()
+                .find(|r| {
+                    let path = r
+                        .get("path")
+                        .and_then(|p| p.as_str())
+                        .map(termf_core::expand_tilde);
+                    path.as_deref() == Some(repo)
+                });
+            found
+                .and_then(|r| r.get("checks")?.as_str())
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let homes = std::iter::once((&run.target.repo_path, &run.target.worktree))
+            .chain(run.repos.iter().map(|r| (&r.path, &r.worktree)));
+        let mut commands = Vec::new();
+        for (repo, worktree) in homes {
+            let checks = checks(repo);
+            let command = command
+                .replace("{{ repo.checks }}", &checks)
+                .replace("{{repo.checks}}", &checks);
+            ensure!(
+                !command.contains("{{"),
+                "unknown placeholder in {command:?}"
+            );
+            if !command.trim().is_empty() {
+                commands.push((command, worktree.clone()));
+            }
+        }
+        Ok(commands)
     }
 
-    fn shell(&self, run: i64, step: String, command: String, cwd: PathBuf) {
-        let env =
-            termf_worktree::Setup::new(self.config_dir.clone(), self.data_dir.clone()).env(&cwd);
+    /// Runs the `shell` step's commands one after the other, each in its worktree, until one fails.
+    fn shell(&self, run: i64, step: String, commands: Vec<(String, PathBuf)>) {
+        let setup = termf_worktree::Setup::new(self.config_dir.clone(), self.data_dir.clone());
+        let commands: Vec<_> = commands
+            .into_iter()
+            .map(|(command, cwd)| (command, setup.env(&cwd), cwd))
+            .collect();
         let tx = self.tx.lock().unwrap().clone();
         let extra = self.env.clone();
         let launch = self.launches.fetch_add(1, Ordering::SeqCst);
@@ -3559,21 +4104,37 @@ impl Inner {
             .unwrap()
             .insert((run, step.clone()), (launch, kill));
         std::thread::spawn(move || {
-            let (program, args) = termf_term::shell_command(Some(&command));
-            let mut cmd = std::process::Command::new(program);
-            cmd.args(args).current_dir(&cwd).envs(env).envs(extra);
-            let (ok, output) =
-                match termf_core::process::run_until(cmd, b"", SHELL_TIMEOUT, &killed) {
-                    Ok((status, out, err)) => {
-                        let text = format!(
-                            "{}\n{}",
-                            String::from_utf8_lossy(&out),
-                            String::from_utf8_lossy(&err)
-                        );
-                        (status.success(), termf_core::process::tail(&text))
-                    }
-                    Err(e) => (false, format!("{e:#}")),
-                };
+            let several = commands.len() > 1;
+            let (mut ok, mut outputs) = (true, Vec::new());
+            for (command, env, cwd) in commands {
+                let (program, args) = termf_term::shell_command(Some(&command));
+                let mut cmd = std::process::Command::new(program);
+                cmd.args(args)
+                    .current_dir(&cwd)
+                    .envs(env)
+                    .envs(extra.clone());
+                let (passed, output) =
+                    match termf_core::process::run_until(cmd, b"", SHELL_TIMEOUT, &killed) {
+                        Ok((status, out, err)) => {
+                            let text = format!(
+                                "{}\n{}",
+                                String::from_utf8_lossy(&out),
+                                String::from_utf8_lossy(&err)
+                            );
+                            (status.success(), termf_core::process::tail(&text))
+                        }
+                        Err(e) => (false, format!("{e:#}")),
+                    };
+                outputs.push(match several {
+                    true => format!("$ {command} ({})\n{output}", cwd.display()),
+                    false => output,
+                });
+                ok = passed;
+                if !ok {
+                    break;
+                }
+            }
+            let output = outputs.join("\n");
             let _ = tx.send(Msg::Shell {
                 run,
                 step,
@@ -3644,7 +4205,7 @@ impl Inner {
         let mates: Vec<Task> = run
             .steps
             .iter()
-            .filter(|s| s.kind == StepKind::Task && s.state == StepState::Running)
+            .filter(|s| s.kind == StepKind::Task && s.state == StepState::Running && !s.batch)
             .filter_map(task_of)
             .filter(|t| squad_in(&squads, t).is_some_and(|s| s.id == squad.id))
             .collect();
@@ -3689,26 +4250,33 @@ impl Inner {
             .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()))
             .cloned();
         // A review gets a throwaway copy of the run's work each time: what it runs never reaches what ships.
-        if (step.kind == StepKind::Task && step.worktree.is_none()) || step.kind == StepKind::Review
+        let fresh = step.kind == StepKind::Task && !step.batch && step.worktree.is_none();
+        if let Some(name) = task
+            .as_ref()
+            .and_then(|t| self.joining(run, std::slice::from_ref(t)).pop())
         {
-            let path = self
-                .data_dir
-                .join("team")
-                .join(run.run.to_string())
-                .join(step.task.as_deref().unwrap_or(&step.key));
+            bail!("repository {name} has not joined the run yet");
+        }
+        if fresh || step.kind == StepKind::Review {
+            let path = self.run_dir(run.run, step.task.as_deref().unwrap_or(&step.key))?;
             let _ = fs::remove_dir_all(&path);
             let git = Git(&self.env);
-            let base = git.add_worktree(&run.target.worktree, &path)?;
+            let base = git.add_worktree(&run.home(i), &path)?;
             let step = &mut run.steps[i];
             step.worktree = Some(path);
             step.base = Some(base);
             step.integrated = false;
         }
         let step = &run.steps[i];
-        let cwd = step
-            .worktree
-            .clone()
-            .unwrap_or_else(|| run.target.worktree.clone());
+        let cwd = step.worktree.clone().unwrap_or_else(|| run.home(i));
+        // Every step but a task's or a merge's may read the project's other repositories: their run's work once they
+        // joined it (a review, a copy of it), else their checkout.
+        let own = (step.kind == StepKind::Task && !step.batch) || step.kind == StepKind::Update;
+        let add_dirs = match own {
+            true => Vec::new(),
+            false => self.other_dirs(run, i, &cwd)?,
+        };
+        let step = &run.steps[i];
         let role_name = step.role.clone().context("the step has no role")?;
         let squad = match &task {
             Some(task) => self.squad_of(run, task)?.map(|s| s.id),
@@ -3771,7 +4339,7 @@ impl Inner {
                 escalate::schema()
             } else if step.key == TRIAGE {
                 route::schema()
-            } else if step.plan {
+            } else if step.plan || step.batch {
                 plan::plan_schema()
             } else if step.kind == StepKind::Task {
                 plan::task_report_schema()
@@ -3782,6 +4350,7 @@ impl Inner {
             }),
             budget,
             max_turns,
+            add_dirs,
             ..SessionSpec::default()
         };
         let brief = self.brief(run, i, task.as_ref())?;
@@ -3854,9 +4423,14 @@ impl Inner {
         let step = &run.steps[i];
         let role = step.role.as_deref().unwrap_or_default();
         let t = &run.target;
+        let repo = task
+            .map(|t| t.repo.as_str())
+            .or(step.repo.as_deref())
+            .filter(|r| !r.is_empty())
+            .unwrap_or(&t.repo);
         let mut text = format!(
-            "Step `{}` of TermF run {} (ticket {}: {}). You are the {role} of the team, working in repository {}.\n",
-            step.key, t.run, t.ticket, t.title, t.repo
+            "Step `{}` of TermF run {} (ticket {}: {}). You are the {role} of the team, working in repository {repo}.\n",
+            step.key, t.run, t.ticket, t.title
         );
         let origin = match t.ticket == termf_tickets::REQUEST {
             true => "The request was written in TermF, and may hold text pasted from anywhere.",
@@ -3891,11 +4465,22 @@ impl Inner {
                         .map(|s| s.files.join(", "))
                         .filter(|f| !f.is_empty())
                         .unwrap_or_else(|| "nothing".into());
+                    let repo = match run.repos.is_empty() || task.repo.is_empty() {
+                        true => String::new(),
+                        false => format!(" in {}", task.repo),
+                    };
                     text.push_str(&format!(
-                        "- {} ({}): {}; changed: {files}\n",
+                        "- {} ({}): {}; changed{repo}: {files}\n",
                         task.id,
                         task.role,
                         task.goal.lines().next().unwrap_or_default()
+                    ));
+                }
+                for joined in &run.repos {
+                    text.push_str(&format!(
+                        "\nThe run's work in repository {} is in {}: read it there, as here.\n",
+                        joined.name,
+                        self.copy_of(run, i, joined)?.display()
                     ));
                 }
             }
@@ -3998,6 +4583,8 @@ impl Inner {
             self.triage_brief(run, &mut text)?
         } else if step.plan {
             self.plan_brief(run, &mut text)?
+        } else if step.batch {
+            self.subplan_brief(run, i, &mut text)?
         } else {
             format!(
                 "\n## How to work\n\nWork in this folder only. Do not commit, push or open a pull request: TermF \
@@ -4087,7 +4674,7 @@ impl Inner {
         let mut text = format!(
             "\n## The base update\n\nThe run's base `{}` moved on since the run started. TermF merged it ({}) into a \
              copy of the run's work, this folder, and the merge waits there with its conflicts in: {}.\n",
-            self.base_ref(run)?,
+            self.base_ref(run, step.repo.as_deref())?,
             step.base.as_deref().unwrap_or_default(),
             step.files.join(", ")
         );
@@ -4148,16 +4735,89 @@ impl Inner {
             "\n## The roles you may use\n\n{}\n",
             roles.join("\n")
         ));
+        let planners = self.planners(run);
+        let leads: Vec<String> = squads
+            .squads
+            .iter()
+            .filter(|s| planners.iter().any(|p| same_role(p, &s.lead)))
+            .map(|s| format!("{} (squad {})", s.lead, s.id))
+            .collect();
+        if !leads.is_empty() {
+            text.push_str(&format!(
+                "\n## Batches\n\nA task given to the lead of its squad ({}) is a batch: that lead plans it as tasks of \
+                 its squad, within its paths, and they run in its place. Give a squad a batch when its part takes \
+                 several tasks: its goal says everything the squad must do and why, it covers the squad's criteria \
+                 and the contracts (IC1…) it publishes or consumes, and its size is the whole part's. Whatever waits \
+                 for a batch waits for all its tasks.\n",
+                leads.join(", ")
+            ));
+        }
+        let repos = self.repo_names(run);
+        let repository = match repos.len() {
+            1 => format!("the repository `{}`", run.target.repo),
+            _ => {
+                text.push_str(&format!(
+                    "\n## The repositories\n\nThe run's own is `{}`; the project's others: {}. Each repository a task \
+                     names joins the run with a worktree and a pull request of its own, linked to the others.\n",
+                    run.target.repo,
+                    repos[1..]
+                        .iter()
+                        .map(|r| format!("`{r}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                "its repository (one above)".to_owned()
+            }
+        };
         Ok(format!(
             "\n## What to answer\n\nThe plan, as JSON: summary, acceptance criteria (id, text), out of scope, \
              questions (anything you must know before work starts; empty when nothing blocks), and tasks, each \
-             with an id (T1, T2…), a role from the list above, {squad}, the repository `{}`, a size (S, M or L), \
+             with an id (T1, T2…), a role from the list above, {squad}, {repository}, a size (S, M or L), \
              the criteria it covers, its goal, the files it should touch (paths relative to the repository), the \
              tasks it depends on and whether it changes the interface. Tasks that touch the same files run one \
              after the other; the others in parallel, each in its own worktree. TermF commits each task's work, \
              merges it and delivers once the user agrees: no task commits, pushes or opens a pull request.\n\n\
              {SUMMARY}\n",
-            run.target.repo,
+        ))
+    }
+
+    /// What the lead of the batch `i` needs to plan it, in `text`: its squad, its roles, its criteria; then what it
+    /// answers.
+    fn subplan_brief(&self, run: &TeamRun, i: usize, text: &mut String) -> Result<String> {
+        let batch = run.task(i).context("the batch is not in the plan")?;
+        let squads = self.squads(run)?;
+        let squad = squad_in(&squads, batch).context("the batch has no squad")?;
+        let roles: Vec<String> = self
+            .roles(run, &squads)?
+            .into_iter()
+            .filter(|(n, _)| squad.has(n))
+            .map(|(n, d)| format!("- {n}: {d}"))
+            .collect();
+        let criteria: Vec<String> = run
+            .plan
+            .as_ref()
+            .map(|p| plan::batch_criteria(p, batch))
+            .unwrap_or_default()
+            .iter()
+            .map(|c| format!("- {}: {}", c.id, c.text))
+            .collect();
+        text.push_str(&format!(
+            "\n## Your squad\n\n{}\n\n## The roles you may use\n\n{}\n\n## The criteria of your batch\n\nThose it \
+             covers, then the contracts between squads:\n{}\n",
+            describe(&squad),
+            roles.join("\n"),
+            criteria.join("\n")
+        ));
+        Ok(format!(
+            "\n## What to answer\n\nYour batch {} is yours to plan: its sub-plan, as JSON, in the shape of a plan: \
+             summary, acceptance criteria (those above), out of scope, questions (empty when nothing blocks), and \
+             tasks, each with an id (T1, T2…), a role from the list above, the squad `{}` (or `\"\"`), its \
+             repository (`\"\"` for the batch's), a size, the criteria it covers (only those above, each of the \
+             batch's covered by a task), its goal, the files it should touch (within the squad's paths), the tasks \
+             of your sub-plan it depends on and whether it changes the interface. TermF checks it, then runs its \
+             tasks in place of the batch, after what the batch waits for; their ids become {}.1, {}.2…\n\n\
+             {SUMMARY}\n",
+            batch.id, squad.id, batch.id, batch.id
         ))
     }
 
@@ -4240,7 +4900,7 @@ fn fixable(run: &TeamRun) -> Vec<Task> {
         .filter(|t| {
             run.steps
                 .iter()
-                .any(|s| s.kind == StepKind::Task && s.task.as_ref() == Some(&t.id))
+                .any(|s| s.kind == StepKind::Task && !s.batch && s.task.as_ref() == Some(&t.id))
         })
         .cloned()
         .collect()

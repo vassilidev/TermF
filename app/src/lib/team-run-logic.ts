@@ -118,6 +118,11 @@ export type Step = {
   escalated?: boolean;
   /** The user accepted it as it is. */
   accepted?: boolean;
+  /** A task given to the lead of its squad, who plans it; its sub-plan once valid, grafted unless it waits for you. */
+  batch?: boolean;
+  subplan?: Plan | null;
+  /** An update step whose merge waits in another repository of the run. */
+  repo?: string | null;
   session: number | null;
   sessions: number[];
   attempt: number;
@@ -150,12 +155,15 @@ export type TeamRun = {
   reviews?: Review[];
   /** The definition of done as the delivery gate read it. */
   done?: Done | null;
+  /** The project's other repositories its plan touches, each in a ticket run of its own. */
+  repos?: RunRepo[];
   steps: Step[];
   /** Why it waits, is paused, stopped or out of budget. */
   note: string | null;
   created: number;
   updated: number;
 };
+export type RunRepo = { name: string; path: string; run: number; worktree: string; base: string | null };
 
 /** A criterion of the definition of done: `checks`, `review`, `security`, `visual` or `docs`. */
 export type Criterion = { id: string; met: boolean; note: string };
@@ -210,7 +218,7 @@ export function levels(tasks: Task[]): Task[][] {
  * What a step waiting for the user asks: approve the plan, answer questions, review the interface, let the delivery
  * through, pass another gate, or decide on a step that failed.
  */
-export type AskKind = "route" | "plan" | "questions" | "visual" | "deliver" | "gate" | "blocked";
+export type AskKind = "route" | "plan" | "subplan" | "questions" | "visual" | "deliver" | "gate" | "blocked";
 /** `accept`: approving it as it is can work (never a plan step or the triage: they have no answer yet, or questions). */
 export type Ask = { kind: AskKind; step: Step; questions: Question[]; accept: boolean };
 
@@ -229,21 +237,56 @@ export function asks(run: TeamRun): Ask[] {
     .map((step) => {
       if (step.state === "blocked") {
         const triage = step.key === TRIAGE;
-        const questions = (triage ? run.routing?.questions : step.plan ? run.plan?.questions : step.report?.questions) ?? [];
-        return { kind: questions.length ? "questions" : "blocked", step, questions, accept: !step.plan && !triage };
+        const own = step.plan ? run.plan : step.batch ? step.subplan : null;
+        const questions = (triage ? run.routing?.questions : own ? own.questions : step.report?.questions) ?? [];
+        return { kind: questions.length ? "questions" : "blocked", step, questions, accept: !step.plan && !step.batch && !triage };
       }
       const kind: AskKind =
         step.key === ROUTE
           ? "route"
-          : step.kind === "visual"
-          ? "visual"
-          : step.kind === "connector"
-            ? "deliver"
-            : step.needs.some((n) => plans.has(n))
-              ? "plan"
-              : "gate";
+          : step.batch
+            ? "subplan"
+            : step.kind === "visual"
+              ? "visual"
+              : step.kind === "connector"
+                ? "deliver"
+                : step.needs.some((n) => plans.has(n))
+                  ? "plan"
+                  : "gate";
       return { kind, step, questions: [], accept: true };
     });
+}
+
+/** The ids of the plan's batches: tasks given to the lead of their squad, who plans them. */
+export function batches(run: TeamRun): string[] {
+  return run.steps.flatMap((s) => (s.batch && s.task ? [s.task] : []));
+}
+
+/** The plan's own tasks, its batches among them; those grafted from a batch's sub-plan show under their batch. */
+export function planned(run: TeamRun): Task[] {
+  const ids = batches(run);
+  return (run.plan?.tasks ?? []).filter((t) => !ids.some((b) => t.id.startsWith(`${b}.`)));
+}
+
+/**
+ * A batch's tasks: those grafted into the plan, else those its sub-plan proposes, with the ids they would take
+ * (`T1` of batch `T2` is `T2.1`); null until its lead answers.
+ */
+export function batchTasks(run: TeamRun, id: string): { tasks: Task[]; grafted: boolean } | null {
+  const grafted = (run.plan?.tasks ?? []).filter((t) => t.id.startsWith(`${id}.`));
+  if (grafted.length) return { tasks: grafted, grafted: true };
+  const sub = run.steps.find((s) => s.batch && s.task === id)?.subplan;
+  const batch = run.plan?.tasks.find((t) => t.id === id);
+  if (!sub || !batch) return null;
+  const as = (own: string) => `${id}.${/^T\d+$/.test(own) ? own.slice(1) : own}`;
+  const tasks = sub.tasks.map((t) => ({
+    ...t,
+    id: as(t.id),
+    squad: batch.squad,
+    repo: t.repo || batch.repo,
+    depends_on: [...batch.depends_on, ...t.depends_on.map(as)],
+  }));
+  return { tasks, grafted: false };
 }
 
 /** The steps to name for a run: what waits for the user, else what works (a `foreach` through its tasks). */

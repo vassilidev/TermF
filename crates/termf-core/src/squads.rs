@@ -232,9 +232,259 @@ pub fn parse(text: &str) -> Result<Team> {
     })
 }
 
+/// A squad as its editor sets it. The rest of its table (`max_parallel`, its roles' settings) stays as it is.
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct SquadForm {
+    pub id: String,
+    /// Empty: the default lead.
+    pub lead: String,
+    pub roles: BTreeMap<String, usize>,
+    pub repos: Vec<String>,
+    pub paths: Vec<String>,
+    pub domains: Vec<String>,
+}
+
+/// The `[[squads]]` tables of a project's file, made if `make` and missing.
+fn squad_tables(
+    doc: &mut toml_edit::DocumentMut,
+    make: bool,
+) -> Result<Option<&mut toml_edit::ArrayOfTables>> {
+    if make && !doc.contains_key("squads") {
+        doc.insert("squads", toml_edit::Item::ArrayOfTables(Default::default()));
+    }
+    match doc.get_mut("squads") {
+        None => Ok(None),
+        Some(item) => item.as_array_of_tables_mut().map(Some).context(
+            "`squads` in the project's file is not written as [[squads]] tables: edit it by hand",
+        ),
+    }
+}
+
+fn position(squads: &toml_edit::ArrayOfTables, id: &str) -> Option<usize> {
+    squads
+        .iter()
+        .position(|t| t.get("id").and_then(|v| v.as_str()) == Some(id))
+}
+
+/// Sets `key` to `value` in place, keeping the comments around the old value; `None` removes it.
+fn put(table: &mut dyn toml_edit::TableLike, key: &str, value: Option<toml_edit::Value>) {
+    let Some(mut value) = value else {
+        table.remove(key);
+        return;
+    };
+    if let Some(old) = table.get(key).and_then(|i| i.as_value()) {
+        *value.decor_mut() = old.decor().clone();
+    }
+    table.insert(key, toml_edit::Item::Value(value));
+}
+
+fn strings(list: &[String]) -> Option<toml_edit::Value> {
+    (!list.is_empty()).then(|| {
+        list.iter()
+            .map(String::as_str)
+            .collect::<toml_edit::Array>()
+            .into()
+    })
+}
+
+/// The project's file `text` with the squad `from` (a new one when `None`) set as `squad` says: only its table
+/// changes, the rest of the file and its comments stay. Read back before it is returned.
+pub fn save(text: &str, from: Option<&str>, squad: &SquadForm) -> Result<String> {
+    let id = squad.id.trim();
+    ensure!(
+        !id.is_empty()
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_".contains(c)),
+        "squad id {id:?} is not made of letters, digits, - or _"
+    );
+    let mut doc: toml_edit::DocumentMut = text.parse().context("invalid project file")?;
+    let squads = squad_tables(&mut doc, true)?.expect("just made");
+    let at = match from {
+        Some(from) => Some(
+            position(squads, from).with_context(|| format!("no squad {from} in the project"))?,
+        ),
+        None => None,
+    };
+    ensure!(
+        position(squads, id).is_none_or(|i| Some(i) == at),
+        "two squads are named {id}"
+    );
+    let table = match at {
+        Some(i) => squads.get_mut(i).expect("found"),
+        None => {
+            squads.push(toml_edit::Table::new());
+            squads.get_mut(squads.len() - 1).expect("just pushed")
+        }
+    };
+    put(table, "id", Some(id.into()));
+    put(
+        table,
+        "lead",
+        Some(squad.lead.trim())
+            .filter(|l| !l.is_empty())
+            .map(Into::into),
+    );
+    // `front = 2`, or `[squads.roles.front]` whose `count` changes and whose settings stay.
+    let roles = table.get_mut("roles").and_then(|r| r.as_table_like_mut());
+    match roles {
+        Some(roles) => {
+            let gone: Vec<String> = roles
+                .iter()
+                .map(|(k, _)| k.to_owned())
+                .filter(|k| !squad.roles.contains_key(k))
+                .collect();
+            for role in gone {
+                roles.remove(&role);
+            }
+            for (role, n) in &squad.roles {
+                let count = toml_edit::Value::from(*n as i64);
+                match roles.get_mut(role).and_then(|r| r.as_table_like_mut()) {
+                    Some(settings) if *n == 1 && !settings.contains_key("count") => {}
+                    Some(settings) => put(settings, "count", Some(count)),
+                    None => put(roles, role, Some(count)),
+                }
+            }
+            if roles.is_empty() {
+                table.remove("roles");
+            }
+        }
+        None if squad.roles.is_empty() => {}
+        None => {
+            let roles: toml_edit::InlineTable = squad
+                .roles
+                .iter()
+                .map(|(r, n)| (r.as_str(), toml_edit::Value::from(*n as i64)))
+                .collect();
+            table.insert("roles", toml_edit::value(roles));
+        }
+    }
+    for (key, list) in [
+        ("repos", &squad.repos),
+        ("paths", &squad.paths),
+        ("domains", &squad.domains),
+    ] {
+        put(table, key, strings(list));
+    }
+    let after = doc.to_string();
+    parse(&after).context("the squads would not read back")?;
+    Ok(after)
+}
+
+/// The project's file `text` without the squad `id`, its roles' settings included; the rest stays.
+pub fn remove(text: &str, id: &str) -> Result<String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().context("invalid project file")?;
+    let squads =
+        squad_tables(&mut doc, false)?.with_context(|| format!("no squad {id} in the project"))?;
+    let at = position(squads, id).with_context(|| format!("no squad {id} in the project"))?;
+    squads.remove(at);
+    if squads.is_empty() {
+        doc.remove("squads");
+    }
+    Ok(doc.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edits_one_squad_and_keeps_the_rest_of_the_file() {
+        let text = r#"# Acme, by alex
+name = "Acme"
+
+[[squads]]
+# The web part
+id = "web"
+roles = { front = 2 } # two at once
+paths = ["web/**"]
+max_parallel = 2
+
+[[squads]]
+id = "api"
+[squads.roles]
+devops = 1
+[squads.roles.back]
+count = 2
+effort = "xhigh" # as decided
+"#;
+        let form = |id: &str, roles: &[(&str, usize)]| SquadForm {
+            id: id.into(),
+            roles: roles.iter().map(|(r, n)| (r.to_string(), *n)).collect(),
+            ..SquadForm::default()
+        };
+        let mut api = form("backend", &[("back", 3), ("qa", 1)]);
+        api.repos = vec!["acme-api".into()];
+        let after = save(text, Some("api"), &api).unwrap();
+        assert!(after.starts_with("# Acme, by alex\nname = \"Acme\"\n\n[[squads]]\n# The web part\nid = \"web\"\nroles = { front = 2 } # two at once\n"), "{after}");
+        assert!(after.contains("max_parallel = 2"));
+        assert!(after.contains("effort = \"xhigh\" # as decided"), "{after}");
+        let team = parse(&after).unwrap();
+        let backend = &team.squads[1];
+        assert_eq!(backend.id, "backend", "renamed in place");
+        assert_eq!(
+            (
+                backend.count("back"),
+                backend.count("qa"),
+                backend.has("devops")
+            ),
+            (Some(3), Some(1), false)
+        );
+        assert_eq!(backend.settings["back"]["effort"].as_str(), Some("xhigh"));
+        assert_eq!(backend.repos, ["acme-api"]);
+
+        let mut web = form("web", &[("front", 1)]);
+        web.lead = "lead".into();
+        web.domains = vec!["UI".into()];
+        let after = save(&after, Some("web"), &web).unwrap();
+        assert!(
+            after.contains("roles = { front = 1 } # two at once"),
+            "the comment stays: {after}"
+        );
+        assert!(!after.contains("paths"), "no paths: the whole repository");
+        assert_eq!(parse(&after).unwrap().squads[0].domains, ["UI"]);
+
+        assert!(
+            format!("{:#}", save(&after, None, &form("web", &[])).unwrap_err())
+                .contains("two squads are named web")
+        );
+        assert!(
+            format!(
+                "{:#}",
+                save(&after, Some("ops"), &form("ops", &[])).unwrap_err()
+            )
+            .contains("no squad ops")
+        );
+        assert!(
+            format!("{:#}", save(&after, None, &form("a b", &[])).unwrap_err())
+                .contains("not made of")
+        );
+        let mut outside = form("ops", &[]);
+        outside.paths = vec!["../x".into()];
+        assert!(
+            format!("{:#}", save(&after, None, &outside).unwrap_err())
+                .contains("not a path inside")
+        );
+
+        let after = remove(&after, "backend").unwrap();
+        assert!(
+            !after.contains("xhigh") && !after.contains("devops"),
+            "its settings go with it: {after}"
+        );
+        assert_eq!(parse(&after).unwrap().squads.len(), 1);
+        let none = remove(&after, "web").unwrap();
+        assert_eq!(none, "# Acme, by alex\nname = \"Acme\"\n");
+        assert!(!parse(&none).unwrap().declared);
+        assert!(remove(&none, "web").is_err());
+
+        let created = save(&none, None, &form("web", &[("front", 2), ("qa", 1)])).unwrap();
+        assert!(
+            created.contains("[[squads]]\nid = \"web\"\nroles = { front = 2, qa = 1 }\n"),
+            "{created}"
+        );
+        assert!(save("squads = 1\n", None, &form("web", &[])).is_err());
+    }
 
     #[test]
     fn reads_squads_or_makes_the_implicit_one() {

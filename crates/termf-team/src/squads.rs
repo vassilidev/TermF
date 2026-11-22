@@ -1,11 +1,12 @@
 //! A project's team as the CLI and the UI show it: its squads and its staff, each role with its settings as the
 //! layers make them, and where each comes from.
 
+use std::fs;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use serde::Serialize;
-use termf_core::squads::{Squad, canonical_role, load_team};
+use termf_core::squads::{Squad, SquadForm, canonical_role, load_team, same_role};
 use termf_library::{Kind, Layer, Scope, Setting};
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -115,10 +116,69 @@ pub fn view(config_dir: &Path, project: &str) -> Result<View> {
     })
 }
 
+/// Sets the squad `from` of `project` (a new one when `None`) as `form` says, once its roles are the library's and
+/// its repositories the project's: only that squad's table of the project's file changes.
+pub fn save(
+    config_dir: &Path,
+    project: &str,
+    from: Option<&str>,
+    form: &SquadForm,
+) -> Result<View> {
+    let scope = Scope {
+        project: Some(project.into()),
+        ..Scope::default()
+    };
+    let known: Vec<String> = termf_library::resolve(config_dir, &scope)?
+        .into_iter()
+        .filter(|i| i.kind == Kind::Role && (i.layer != Layer::Repo || i.active))
+        .map(|i| i.name)
+        .collect();
+    let lead = Some(form.lead.trim()).filter(|l| !l.is_empty());
+    for role in lead
+        .into_iter()
+        .chain(form.roles.keys().map(String::as_str))
+    {
+        ensure!(
+            known.iter().any(|k| same_role(k, role)),
+            "no role named {role} in the library"
+        );
+    }
+    let repos: Vec<String> = termf_core::load_projects(config_dir)?
+        .into_iter()
+        .filter(|p| p.id == project)
+        .flat_map(|p| p.repos.into_iter().map(|r| r.name))
+        .collect();
+    for repo in &form.repos {
+        ensure!(repos.contains(repo), "no repository {repo} in the project");
+    }
+    write(config_dir, project, |text| {
+        termf_core::squads::save(text, from, form)
+    })
+}
+
+/// Removes the squad `id` of `project`, its roles' settings included.
+pub fn delete(config_dir: &Path, project: &str, id: &str) -> Result<View> {
+    write(config_dir, project, |text| {
+        termf_core::squads::remove(text, id)
+    })
+}
+
+fn write(
+    config_dir: &Path,
+    project: &str,
+    edit: impl FnOnce(&str) -> Result<String>,
+) -> Result<View> {
+    let file = termf_core::project_file(config_dir, project)?;
+    let before = fs::read_to_string(&file)?;
+    let after = edit(&before)?;
+    if after != before {
+        termf_core::write_atomic(&file, &after)?;
+    }
+    view(config_dir, project)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use serde_json::json;
 
     use super::*;
@@ -198,6 +258,38 @@ mod tests {
                 "ux"
             ]
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saves_a_squad_of_known_roles_and_repositories() {
+        let dir = std::env::temp_dir().join(format!("termf-squads-save-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("projects")).unwrap();
+        let file = dir.join("projects/acme.toml");
+        fs::write(
+            &file,
+            "name = \"Acme\"\n# kept\n[[repos]]\nname = \"acme-web\"\npath = \"/nowhere/acme-web\"\n",
+        )
+        .unwrap();
+        let form = |roles: &[&str], repos: &[&str]| SquadForm {
+            id: "web".into(),
+            roles: roles.iter().map(|r| (r.to_string(), 1)).collect(),
+            repos: repos.iter().map(|r| r.to_string()).collect(),
+            ..SquadForm::default()
+        };
+        let e = save(&dir, "acme", None, &form(&["wizard"], &[])).unwrap_err();
+        assert!(e.to_string().contains("no role named wizard"), "{e}");
+        let e = save(&dir, "acme", None, &form(&["front"], &["acme-api"])).unwrap_err();
+        assert!(e.to_string().contains("no repository acme-api"), "{e}");
+        assert!(!fs::read_to_string(&file).unwrap().contains("squads"));
+
+        let saved = save(&dir, "acme", None, &form(&["front"], &["acme-web"])).unwrap();
+        assert!(saved.declared);
+        assert_eq!(saved.squads[0].members[1].role, "front");
+        assert!(fs::read_to_string(&file).unwrap().contains("# kept"));
+        let gone = delete(&dir, "acme", "web").unwrap();
+        assert!(!gone.declared);
         let _ = fs::remove_dir_all(&dir);
     }
 }
