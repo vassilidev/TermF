@@ -2,6 +2,7 @@ import type { Component } from "svelte";
 import Bot from "@lucide/svelte/icons/bot";
 import CalendarClock from "@lucide/svelte/icons/calendar-clock";
 import FolderTree from "@lucide/svelte/icons/folder-tree";
+import GitBranch from "@lucide/svelte/icons/git-branch";
 import House from "@lucide/svelte/icons/house";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
@@ -17,6 +18,7 @@ import { agents, showConversations } from "$lib/agents.svelte";
 import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
 import { files, showFiles } from "$lib/files.svelte";
+import { git, showGit } from "$lib/git.svelte";
 import { projectWaits, showHome } from "$lib/home.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { showConfig } from "$lib/project.svelte";
@@ -97,6 +99,16 @@ export const views: View[] = [
     show: showFiles,
     loaded: () => files.loaded,
     load: () => import("$lib/FilesView.svelte"),
+  },
+  {
+    id: "git",
+    label: "gitView",
+    command: "gitShow",
+    icon: GitBranch,
+    group: "project",
+    show: showGit,
+    loaded: () => git.loaded,
+    load: () => import("$lib/GitView.svelte"),
   },
   {
     id: "ci",

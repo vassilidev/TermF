@@ -8,6 +8,7 @@
     title,
     confirm,
     danger = false,
+    disabled = false,
     onconfirm,
     children,
   }: {
@@ -15,6 +16,8 @@
     title: string;
     confirm: string;
     danger?: boolean;
+    /** Until the body has what the answer needs, such as a name typed back. */
+    disabled?: boolean;
     onconfirm: () => void;
     children?: Snippet;
   } = $props();
@@ -37,6 +40,7 @@
       <button class="btn" onclick={() => (open = false)}>{t("cancel")}</button>
       <button
         class="btn {danger ? 'danger' : 'primary'}"
+        {disabled}
         onclick={() => {
           open = false;
           onconfirm();
