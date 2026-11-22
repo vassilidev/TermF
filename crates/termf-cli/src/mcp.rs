@@ -347,9 +347,11 @@ pub fn serve() -> Result<()> {
     Ok(())
 }
 
-/// Starts `termf mcp --reaper` in a process group of its own, so that it outlives this process however it ends
-/// (Claude Code kills its MCP servers rather than closing their input; TermF kills an agent's whole group), and
-/// tells it what to clean up after it.
+/// Starts `termf mcp --reaper` so that it outlives this process however it ends (Claude Code kills its MCP
+/// servers rather than closing their input; TermF kills an agent's whole process group), and tells it what to
+/// clean up after it. Under Unix it has a process group of its own. Under Windows it gets a process group of its
+/// own and leaves the agent's job when the job allows it, but stays in the agent's process tree: a `taskkill /T`
+/// of the agent ends it too, with Chrome and the dev server, which are in that tree as well.
 fn reaper() -> Result<Watch> {
     let mut cmd = Command::new(env::current_exe()?);
     cmd.args(["mcp", "--reaper"])
@@ -359,9 +361,17 @@ fn reaper() -> Result<Watch> {
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-    let mut stdin: ChildStdin = cmd
-        .spawn()
+    const DETACHED: u32 = 0x0800_0000 | 0x0000_0200; // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut cmd, DETACHED | 0x0100_0000); // | CREATE_BREAKAWAY_FROM_JOB
+    let spawned = cmd.spawn();
+    // A job that does not allow breaking away refuses the process outright.
+    #[cfg(windows)]
+    let spawned = spawned.or_else(|_| {
+        std::os::windows::process::CommandExt::creation_flags(&mut cmd, DETACHED);
+        cmd.spawn()
+    });
+    let mut stdin: ChildStdin = spawned
         .context("cannot start the browser's reaper")?
         .stdin
         .take()
@@ -370,6 +380,7 @@ fn reaper() -> Result<Watch> {
         let line = match left {
             Leftover::Process(pid) => format!("pid {pid}\n"),
             Leftover::Folder(dir) => format!("dir {}\n", dir.display()),
+            Leftover::Done => "done\n".to_owned(),
         };
         let _ = stdin.write_all(line.as_bytes()).and_then(|_| stdin.flush());
     }))

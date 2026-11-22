@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 /// Serves the files of its folder on 127.0.0.1, logs each path asked, and `/redirect?to=<url>` redirects.
 const SERVE: &str = r#"
-import http.server, sys
+import http.server, sys, time
 port, log = int(sys.argv[1]), sys.argv[2]
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -24,6 +24,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Location', self.path.split('=', 1)[1])
             self.end_headers()
             return
+        if self.path == '/slow':
+            time.sleep(10)
         super().do_GET()
     def log_message(self, *args):
         pass
@@ -269,6 +271,36 @@ fn the_reaper_cleans_up_once_its_server_is_gone() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// After a normal end its server cleaned up itself and says `done`: the pids it named may belong to others now.
+#[cfg(unix)]
+#[test]
+fn a_reaper_told_all_is_clean_touches_nothing() {
+    let root = std::env::temp_dir().join(format!("termf-reaper-done-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("kept")).unwrap();
+    let mut other = Command::new("sleep");
+    other.arg("60");
+    std::os::unix::process::CommandExt::process_group(&mut other, 0);
+    let other = Stopped(other.spawn().unwrap());
+    let mut reaper = Command::new(env!("CARGO_BIN_EXE_termf"))
+        .args(["mcp", "--reaper"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = reaper.stdin.take().unwrap();
+    writeln!(input, "pid {}", other.0.id()).unwrap();
+    writeln!(input, "dir {}", root.join("kept").display()).unwrap();
+    writeln!(input, "done").unwrap();
+    drop(input);
+    assert!(reaper.wait().unwrap().success());
+    assert!(
+        alive(other.0.id()),
+        "a process it was told about after all is clean lives on"
+    );
+    assert!(root.join("kept").exists());
+    let _ = fs::remove_dir_all(&root);
+}
+
 /// With the Chrome of the machine: `cargo test -p termf-cli --test browser -- --ignored real_chrome`.
 #[cfg(unix)]
 #[test]
@@ -285,10 +317,25 @@ fn real_chrome_drives_a_page_and_dies_with_its_server() {
              <input id=\"q\" aria-label=\"Search\"><button onclick=\"const v = document.getElementById('q').value; \
              console.log('saved ' + v); document.getElementById('out').textContent = 'Saved ' + v; confirm('Sure?')\">Save</button>\
              <p id=\"out\"></p><a href=\"/redirect?to={elsewhere}/secret\">Away</a><img src=\"{elsewhere}/pixel.png\" alt=\"tracker\">\
-             <script>console.error('boom'); fetch('/api/missing');</script>"
+             <div id=\"odd\" role=\"textbox\" aria-label=\"Odd\"></div>\
+             <form action=\"/done.html\"><input name=\"n\" aria-label=\"Name\"><button>Send</button></form>\
+             <script>console.error('boom'); fetch('/api/missing'); document.getElementById('odd').value = 1;</script>"
         ),
     )
     .unwrap();
+    for (file, body) in [
+        ("done.html", "<!doctype html><title>Done</title><p>Sent</p>"),
+        (
+            "hop.html",
+            "<!doctype html><title>Hop</title><script>location.replace('/index.html')</script>",
+        ),
+        (
+            "slow.html",
+            "<!doctype html><title>Slow</title><script>fetch('/slow')</script>",
+        ),
+    ] {
+        fs::write(project.repo.join(file), body).unwrap();
+    }
     // A server the page could reach if Chrome let it: it must never hear from it.
     let _other = Stopped(
         Command::new("python3")
@@ -336,6 +383,12 @@ fn real_chrome_drives_a_page_and_dies_with_its_server() {
     assert!(!error, "{text}");
     let (snapshot, _) = mcp.call("browser_snapshot", json!({}));
     assert!(snapshot.contains("value=\"acme\""), "{snapshot}");
+    let odd = reference(&snapshot, "textbox \"Odd\"");
+    let (text, error) = mcp.call("browser_fill", json!({"ref": odd, "value": "x"}));
+    assert!(
+        error && text.contains("cannot fill this element") && text.contains("TypeError"),
+        "what the page threw, never \"Filled\": {text}"
+    );
 
     let (console, _) = mcp.call("browser_console", json!({}));
     assert!(
@@ -373,6 +426,27 @@ fn real_chrome_drives_a_page_and_dies_with_its_server() {
     assert!(error && text.contains("not an allowed origin"), "{text}");
     let heard = fs::read_to_string(project.root.join("other.log")).unwrap_or_default();
     assert!(heard.is_empty(), "the other server heard: {heard}");
+
+    let (page, error) = mcp.call("browser_open", json!({"path": "/hop.html"}));
+    assert!(
+        !error && page.contains("Page: \"Invoices\""),
+        "a page that sends itself elsewhere as it loads: {page}"
+    );
+    let name = reference(&page, "textbox \"Name\"");
+    let (text, error) = mcp.call(
+        "browser_fill",
+        json!({"ref": name, "value": "alex", "submit": true}),
+    );
+    assert!(!error, "the form was sent, the tool says so: {text}");
+    assert!(text.contains("/done.html?n=alex"), "{text}");
+    mcp.call("browser_open", json!({"path": "/slow.html"}));
+    let started = Instant::now();
+    let (text, error) = mcp.call("browser_wait", json!({"timeout": 1}));
+    assert!(
+        error && text.contains("still loading or had requests in flight"),
+        "{text}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(5));
 
     // Claude Code kills its MCP servers: Chrome, its profile and the dev server go with it all the same.
     let prefix = format!("termf-run-{}-", mcp.child.id());

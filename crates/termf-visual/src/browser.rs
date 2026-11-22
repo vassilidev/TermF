@@ -279,14 +279,21 @@ impl Browser {
             "Runtime.evaluate",
             json!({"expression": script, "returnByValue": true, "awaitPromise": true}),
         )?;
-        if let Some(e) = reply.get("exceptionDetails") {
-            let text = e["exception"]["description"]
-                .as_str()
-                .or(e["text"].as_str())
-                .unwrap_or("script failed");
-            bail!("{text}");
-        }
-        Ok(reply["result"]["value"].clone())
+        returned(reply)
+    }
+
+    /// Calls `declaration` with `this` = the remote object `object`, and `args` (`[{"value": …}]`).
+    pub(crate) fn function_on(
+        &mut self,
+        object: &str,
+        declaration: &str,
+        args: Value,
+    ) -> Result<Value> {
+        let reply = self.call(
+            "Runtime.callFunctionOn",
+            json!({"objectId": object, "functionDeclaration": declaration, "arguments": args, "returnByValue": true}),
+        )?;
+        returned(reply)
     }
 
     pub(crate) fn open(&mut self, url: &str) -> Result<()> {
@@ -295,7 +302,14 @@ impl Browser {
             bail!("{url}: {error}");
         }
         let deadline = Instant::now() + LOAD_TIMEOUT;
-        while self.eval("document.readyState")?.as_str() != Some("complete") {
+        // A page that sends itself elsewhere as it loads has no document to ask for a moment.
+        while self
+            .eval("document.readyState")
+            .ok()
+            .as_ref()
+            .and_then(Value::as_str)
+            != Some("complete")
+        {
             ensure!(Instant::now() < deadline, "{url} did not finish loading");
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -413,6 +427,18 @@ impl Drop for Browser {
         stop(&mut self.child);
         let _ = fs::remove_dir_all(&self.profile);
     }
+}
+
+/// What a script returned, or what it threw.
+fn returned(reply: Value) -> Result<Value> {
+    if let Some(e) = reply.get("exceptionDetails") {
+        let text = e["exception"]["description"]
+            .as_str()
+            .or(e["text"].as_str())
+            .unwrap_or("script failed");
+        bail!("{text}");
+    }
+    Ok(reply["result"]["value"].clone())
 }
 
 pub(crate) fn stop(child: &mut Child) {
@@ -542,6 +568,18 @@ fn mask() -> [u8; 4] {
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn a_script_that_throws_is_an_error() {
+        let threw = json!({"result": {"type": "object"}, "exceptionDetails": {"text": "Uncaught",
+            "exception": {"description": "TypeError: Cannot read properties of undefined (reading 'set')"}}});
+        let error = returned(threw).unwrap_err().to_string();
+        assert!(error.starts_with("TypeError: Cannot read"), "{error}");
+        assert_eq!(
+            returned(json!({"result": {"type": "string", "value": ""}})).unwrap(),
+            json!("")
+        );
+    }
 
     /// A server end that reads the client's handshake and masked frame, and answers with frames of its own.
     #[test]
