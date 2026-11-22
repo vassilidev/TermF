@@ -1450,7 +1450,6 @@ const fr = {
   t5DeleteProject: "Supprimer le projet",
   t5RecipeEdit: "Modifier la recette",
   t5None: "—",
-  t5UnsavedSwitch: "« {name} » a des modifications non enregistrées. Changer de projet quand même ?",
   // UX pass 2 · T2: navigation and current project.
   navLabel: "Navigation",
   navWork: "Travail",
@@ -2104,7 +2103,6 @@ const fr = {
     "L'expert du projet y cherche avant de lire le code : un index local de ce que le projet a retenu. Rien ne quitte ta machine, et les secrets sont masqués avant d'être indexés.",
   expertMemoryOn: "Indexer la mémoire des projets",
   expertMemoryOff: "Mémoire désactivée : l'index est vidé, et l'expert ne lit plus que le code.",
-  expertMemoryNoProject: "Choisis un projet pour voir sa mémoire.",
   expertMemoryProject: "Mémoire de {project}",
   expertMemoryIndexed: "Indexée {ago} · {count} documents",
   expertMemoryNever: "Pas encore indexée",
@@ -2290,6 +2288,13 @@ const fr = {
   ux3t5More: "Plus d'actions",
   ux3t5Details: "Détails",
   ux3t5Run: "run {run}",
+
+  // UX pass 3 · T3: one Configuration page per project.
+  ux3t3Config: "Configuration",
+  ux3t3Setup: "Mise en route",
+  ux3t3AllProjects: "S'applique à tous les projets.",
+  ux3t3Unsaved: "« {name} » a des modifications non enregistrées.",
+  ux3t3Discard: "Abandonner",
 };
 
 type Key = keyof typeof fr;
@@ -3733,7 +3738,6 @@ const en: Record<Key, string> = {
   t5DeleteProject: "Delete the project",
   t5RecipeEdit: "Edit the recipe",
   t5None: "—",
-  t5UnsavedSwitch: "“{name}” has unsaved changes. Switch project anyway?",
   // UX pass 2 · T2: navigation and current project.
   navLabel: "Navigation",
   navWork: "Work",
@@ -4382,7 +4386,6 @@ const en: Record<Key, string> = {
     "The project's expert searches it before reading the code: a local index of what the project kept. Nothing leaves your machine, and secrets are masked before they are indexed.",
   expertMemoryOn: "Index the projects' memory",
   expertMemoryOff: "Memory off: the index is emptied, and the expert only reads the code.",
-  expertMemoryNoProject: "Pick a project to see its memory.",
   expertMemoryProject: "Memory of {project}",
   expertMemoryIndexed: "Indexed {ago} · {count} documents",
   expertMemoryNever: "Not indexed yet",
@@ -4568,6 +4571,13 @@ const en: Record<Key, string> = {
   ux3t5More: "More actions",
   ux3t5Details: "Details",
   ux3t5Run: "run {run}",
+
+  // UX pass 3 · T3: one Configuration page per project.
+  ux3t3Config: "Configuration",
+  ux3t3Setup: "Setup",
+  ux3t3AllProjects: "Applies to every project.",
+  ux3t3Unsaved: "“{name}” has unsaved changes.",
+  ux3t3Discard: "Discard",
 };
 
 const messages = { fr, en };

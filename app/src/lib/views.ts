@@ -7,6 +7,7 @@ import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import SettingsIcon from "@lucide/svelte/icons/settings";
+import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Users from "@lucide/svelte/icons/users";
 import Workflow from "@lucide/svelte/icons/workflow";
@@ -16,6 +17,7 @@ import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
 import { files, showFiles } from "$lib/files.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
+import { showConfig } from "$lib/project.svelte";
 import { schedule, showScheduler } from "$lib/schedule.svelte";
 import { settings, showSettings } from "$lib/settings.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
@@ -133,6 +135,17 @@ export const views: View[] = [
     show: showScheduler,
     loaded: () => schedule.loaded,
     load: () => import("$lib/SchedulerView.svelte"),
+  },
+  {
+    id: "project",
+    label: "ux3t3Config",
+    command: "ticketsEditProject",
+    icon: SlidersHorizontal,
+    group: "project",
+    show: showConfig,
+    // Mounted apart by +page.svelte, once per project and only while shown: it holds a form.
+    loaded: () => false,
+    load: () => import("$lib/ProjectView.svelte"),
   },
   {
     id: "claude",
