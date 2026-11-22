@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use termf_core::claude::Found;
+use termf_core::claude::{Found, Origin};
 
 use crate::{Env, mask};
 
@@ -346,10 +346,26 @@ fn fs_canonical(path: &Path) -> PathBuf {
 }
 
 pub fn account(env: &Env) -> Account {
-    let (auth, binary) = std::thread::scope(|s| {
+    let (auth, binary, wrapped) = std::thread::scope(|s| {
         let auth = s.spawn(|| claude(env, &["auth", "status"], QUICK));
         let binary = binary(env);
-        (auth.join().unwrap_or_else(|_| bail!("panicked")), binary)
+        // A program set in [agents] that does not tell its version, such as a wrapper: what it runs does.
+        let wrapped = binary
+            .install
+            .as_ref()
+            .filter(|i| i.origin == Origin::Setting && i.version.is_none())
+            .map(|_| {
+                let version = claude(env, &["--version"], QUICK).ok().filter(|o| o.ok);
+                (
+                    version.and_then(|o| first_version(&o.stdout)),
+                    which(env, &env.claude),
+                )
+            });
+        (
+            auth.join().unwrap_or_else(|_| bail!("panicked")),
+            binary,
+            wrapped,
+        )
     });
     let (auth, auth_error) = match auth {
         Ok(out) => match parse_auth(&out.stdout) {
@@ -358,13 +374,19 @@ pub fn account(env: &Env) -> Account {
         },
         Err(e) => (None, Some(format!("{e:#}"))),
     };
-    let installed = binary.install.as_ref();
+    let (version, path) = wrapped.unwrap_or_else(|| {
+        let installed = binary.install.as_ref();
+        (
+            installed.and_then(|i| i.version.clone()),
+            installed.map(|i| i.path.clone()),
+        )
+    });
     Account {
         auth,
         auth_error,
-        version: installed.and_then(|i| i.version.clone()),
-        install: installed.map(|i| install_method(&i.path).to_owned()),
-        path: installed.map(|i| i.path.to_string_lossy().into_owned()),
+        version,
+        install: path.as_deref().map(|p| install_method(p).to_owned()),
+        path: path.map(|p| p.to_string_lossy().into_owned()),
         binary,
     }
 }

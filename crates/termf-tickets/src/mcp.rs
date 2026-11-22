@@ -142,7 +142,7 @@ pub(crate) fn servers(claude: &[String], dir: &Path) -> Result<Vec<McpServer>> {
         .with_context(|| format!("cannot run Claude Code {claude}"))?;
     ensure!(
         status.success(),
-        "claude mcp list: {}",
+        "claude mcp list failed: {}",
         termf_core::claude::failure(&claude, status, &stderr)
     );
     let text = String::from_utf8_lossy(&stdout);
