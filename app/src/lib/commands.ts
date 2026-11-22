@@ -42,7 +42,7 @@ import { agents, conversation, showConversation, showExpert, waitingAgents } fro
 import { showClaude } from "$lib/claude.svelte";
 import { goToWait, home, projectWaits, talkCto } from "$lib/home.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
-import { fontReady } from "$lib/Terminal.svelte";
+import { terminalReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
 import { allRepos, files, scopeRepos, showFiles } from "$lib/files.svelte";
 import { display, keys, pressed } from "$lib/keymap.svelte";
@@ -103,7 +103,7 @@ export async function focusSession(id: number) {
   ui.view = "terminals";
   tabs.showSession(id);
   await tick();
-  await fontReady;
+  await terminalReady();
   document
     .querySelector<HTMLElement>(`[data-session="${id}"] .xterm-helper-textarea`)
     ?.focus({ preventScroll: true });

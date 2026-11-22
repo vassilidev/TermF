@@ -59,3 +59,17 @@ test("the fake gh finds the issue assigned to alex", () => {
   const body = JSON.parse(out.split("\r\n\r\n")[1]);
   assert.equal(body.items[0].title, "Fix the login button");
 });
+
+test("the fake curl answers the release list only, never another host", () => {
+  const curl = join(dirname(fileURLToPath(import.meta.url)), "fakes", "curl.mjs");
+  const other = spawnSync(process.execPath, [curl, "-fsSL", "https://example.com"], { encoding: "utf8", env: {} });
+  assert.equal(other.status, 6);
+  const missing = spawnSync(process.execPath, [curl, "https://api.github.com/repos/vassilidev/TermF/releases?per_page=30"], { encoding: "utf8", env: {} });
+  assert.equal(missing.status, 22);
+});
+
+test("totp matches RFC 6238's test vector", async () => {
+  const { totp } = await import("./scenarios.mjs");
+  // "12345678901234567890" in base32, at 59 s: 94287082 on 8 digits.
+  assert.equal(totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59_000), "287082");
+});

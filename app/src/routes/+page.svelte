@@ -3,15 +3,7 @@
   import { onMount } from "svelte";
   import ApiConfirm from "$lib/ApiConfirm.svelte";
   import AppNav from "$lib/AppNav.svelte";
-  import CommandPalette from "$lib/CommandPalette.svelte";
-  import OnboardingView from "$lib/OnboardingView.svelte";
-  import ProjectView from "$lib/ProjectView.svelte";
-  import RunView from "$lib/RunView.svelte";
-  import ReviewView from "$lib/ReviewView.svelte";
-  import HelpSheet from "$lib/HelpSheet.svelte";
-  import NewProjectView from "$lib/NewProjectView.svelte";
   import UpdateBanner from "$lib/UpdateBanner.svelte";
-  import GuidedTour from "$lib/GuidedTour.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Panel from "$lib/ui/Panel.svelte";
   import { onShortcut } from "$lib/commands";
@@ -137,29 +129,49 @@
       {/each}
       {#if onScreen("project") && ui.editing !== null}
         {#key ui.editing}
-          <Panel view="project"><ProjectView /></Panel>
+          {#await import("$lib/ProjectView.svelte") then { default: ProjectView }}
+            <Panel view="project"><ProjectView /></Panel>
+          {:catch error}
+            <Panel view="project"><Banner kind="error">{String(error)}</Banner></Panel>
+          {/await}
         {/key}
       {/if}
       <!-- Kept once left, like the views: an answer being written or a delivery preview open is still there on return. -->
       {#if tickets.selected !== null}
         {#key tickets.selected}
-          <Panel view="run"><RunView id={tickets.selected} /></Panel>
+          {#await import("$lib/RunView.svelte") then { default: RunView }}
+            <Panel view="run"><RunView id={tickets.selected} /></Panel>
+          {:catch error}
+            <Panel view="run"><Banner kind="error">{String(error)}</Banner></Panel>
+          {/await}
         {/key}
       {/if}
       {#if visual.selected !== null}
         {#key visual.selected}
-          <Panel view="review"><ReviewView id={visual.selected} /></Panel>
+          {#await import("$lib/ReviewView.svelte") then { default: ReviewView }}
+            <Panel view="review"><ReviewView id={visual.selected} /></Panel>
+          {:catch error}
+            <Panel view="review"><Banner kind="error">{String(error)}</Banner></Panel>
+          {/await}
         {/key}
       {/if}
       {#if onScreen("onboarding") && setup.project !== null}
         {#key setup.project}
-          <Panel view="onboarding"><OnboardingView /></Panel>
+          {#await import("$lib/OnboardingView.svelte") then { default: OnboardingView }}
+            <Panel view="onboarding"><OnboardingView /></Panel>
+          {:catch error}
+            <Panel view="onboarding"><Banner kind="error">{String(error)}</Banner></Panel>
+          {/await}
         {/key}
       {/if}
       <!-- Kept while open: leaving the setup for another view and coming back loses nothing. -->
       {#if creating.open}
         {#key creating.round}
-          <Panel view="newProject"><NewProjectView /></Panel>
+          {#await import("$lib/NewProjectView.svelte") then { default: NewProjectView }}
+            <Panel view="newProject"><NewProjectView /></Panel>
+          {:catch error}
+            <Panel view="newProject"><Banner kind="error">{String(error)}</Banner></Panel>
+          {/await}
         {/key}
       {/if}
       {#if panes.other !== null}
@@ -185,16 +197,34 @@
 </div>
 
 {#if ui.palette}
-  <CommandPalette />
+  {#await import("$lib/CommandPalette.svelte") then { default: CommandPalette }}
+    <CommandPalette />
+  {:catch error}
+    <div class="load-error"><Banner kind="error" ondismiss={() => (ui.palette = false)}>{String(error)}</Banner></div>
+  {/await}
 {/if}
 {#if ui.help}
-  <HelpSheet />
+  {#await import("$lib/HelpSheet.svelte") then { default: HelpSheet }}
+    <HelpSheet />
+  {:catch error}
+    <div class="load-error"><Banner kind="error" ondismiss={() => (ui.help = false)}>{String(error)}</Banner></div>
+  {/await}
 {/if}
 {#if tour.step !== null}
-  <GuidedTour />
+  {#await import("$lib/GuidedTour.svelte") then { default: GuidedTour }}
+    <GuidedTour />
+  {:catch error}
+    <div class="load-error"><Banner kind="error" ondismiss={() => (tour.step = null)}>{String(error)}</Banner></div>
+  {/await}
 {/if}
 
 <style>
+  .load-error {
+    position: fixed;
+    inset: auto 16px 16px auto;
+    z-index: 20;
+  }
+
   .app {
     display: grid;
     grid-template: minmax(0, 1fr) / var(--nav-width) minmax(0, 1fr);

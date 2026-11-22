@@ -128,7 +128,7 @@ fn serve(socket: &str, tile: Arc<Mutex<Tile>>, handoff: PathBuf) {
 
 /// The screen as text, escape sequences left out.
 fn screen(sessions: &Sessions) -> String {
-    let raw = sessions.attach(1, Box::new(|_| {})).unwrap();
+    let raw = sessions.attach(1, 1, Box::new(|_| {})).unwrap();
     let raw = String::from_utf8_lossy(&raw);
     let mut out = String::new();
     let mut chars = raw.chars().peekable();

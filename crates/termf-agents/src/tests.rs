@@ -1799,7 +1799,7 @@ fn real_claude_restart() {
         .unwrap();
     agents.attach_tile(id, Some(tile)).unwrap();
     let screen = || {
-        let raw = sessions.attach(tile, Box::new(|_| {})).unwrap();
+        let raw = sessions.attach(tile, 1, Box::new(|_| {})).unwrap();
         let text = String::from_utf8_lossy(&raw).into_owned();
         // Letters only, escape sequences left out.
         let mut out = String::new();

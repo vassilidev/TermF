@@ -11,6 +11,8 @@ mod config;
 mod context;
 mod cto;
 mod design;
+#[cfg(feature = "e2e")]
+mod e2e;
 mod files;
 mod git;
 mod keep_awake;
@@ -155,10 +157,12 @@ fn pty_attach(
     id: u32,
     on_data: Channel<InvokeResponseBody>,
 ) -> CmdResult<Response> {
+    let view = on_data.id().into();
     let snapshot = state
         .sessions
         .attach(
             id,
+            view,
             Box::new(move |out| match out {
                 // A closed channel only means the view went away; the session keeps running.
                 Output::Data(bytes) => {
@@ -171,6 +175,23 @@ fn pty_attach(
         )
         .map_err(err)?;
     Ok(Response::new(snapshot))
+}
+
+/// The terminal went off screen (ARCHITECTURE §15): its output only fills the scrollback, replayed by the next
+/// `pty_attach`, and its exit is still told. `view`: the id of the channel its `pty_attach` gave, so that a detach
+/// coming after a newer attach changes nothing.
+#[tauri::command]
+fn pty_detach(app: AppHandle, state: State<AppState>, id: u32, view: u32) -> CmdResult<()> {
+    let sink = move |out| {
+        if let Output::Exit(exit_code) = out {
+            let _ = app.emit("pty-exit", ExitEvent { id, exit_code });
+        }
+    };
+    state
+        .sessions
+        .detach(id, view.into(), Box::new(sink))
+        .map(drop)
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -222,15 +243,21 @@ pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.menu(window::menu);
+    // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    // After the single instance: a second launch never opens a second bridge.
+    #[cfg(feature = "e2e")]
+    let builder = match e2e::plugin() {
+        Some(bridge) => builder.plugin(bridge),
+        None => builder,
+    };
     builder
-        // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -309,6 +336,9 @@ pub fn run() {
             let config = app.state::<AppState>().config_dir.clone();
             let sync = sync::start(app.handle(), config, vault_dir);
             app.manage(sync);
+            // Looking for Codex CLI and Gemini CLI runs the user's shell: begun while the page loads, the first
+            // `workspace` finds the answer kept instead of waiting for it.
+            std::thread::spawn(move || drop(settings.agents_found()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -321,6 +351,7 @@ pub fn run() {
             workspace,
             pty_spawn,
             pty_attach,
+            pty_detach,
             pty_write,
             pty_resize,
             pty_kill,
@@ -671,6 +702,8 @@ pub fn run() {
             vault::vault_import_apply,
             vault::vault_import_foreign,
             vault::vault_import_delete,
+            #[cfg(feature = "e2e")]
+            e2e::e2e_result,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

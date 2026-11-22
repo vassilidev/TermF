@@ -1,5 +1,7 @@
 // A W3C WebDriver client on Node's fetch, for tauri-driver: just what the scenarios use.
-export const Key = { enter: "\uE007", escape: "\uE00C", ctrl: "\uE009", shift: "\uE008", end: "\uE010", tab: "\uE004" };
+export const Key = { enter: "\uE007", escape: "\uE00C", ctrl: "\uE009", shift: "\uE008", end: "\uE010", tab: "\uE004", meta: "\uE03D", backspace: "\uE003" };
+/** The app's shortcuts: \u2318 on macOS, Ctrl elsewhere. */
+Key.mod = process.platform === "darwin" ? Key.meta : Key.ctrl;
 
 /** `signal`: once aborted (a scenario past its time), every command and every wait fails at once. */
 export class Session {
@@ -12,6 +14,11 @@ export class Session {
   static async create(base, capabilities, signal) {
     const value = await call(base, "POST", "/session", { capabilities: { alwaysMatch: capabilities } }, signal);
     return new Session(base, value.sessionId, signal);
+  }
+
+  /** The same session without the scenario's signal: to collect what a failed or late scenario left. */
+  detached() {
+    return new this.constructor(this.base, this.id);
   }
 
   cmd(method, path, body) {
