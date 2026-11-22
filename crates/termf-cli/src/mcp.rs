@@ -751,7 +751,14 @@ mod tests {
                 },
             ]
         );
-        let schema = &tools()[7]["inputSchema"]["properties"]["answers"];
+        let tools = tools();
+        let answer = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "answer")
+            .unwrap();
+        let schema = &answer["inputSchema"]["properties"]["answers"];
         assert_eq!(schema["type"], json!(["object", "string"]), "{schema}");
     }
 }

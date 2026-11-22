@@ -71,11 +71,14 @@ pub const NEARLY_USED: f64 = 80.0;
 impl Limits {
     /// The fuller of the 5-hour and 7-day windows, named, when it is at `threshold` percent or more.
     pub fn pressure(&self, threshold: f64) -> Option<(&'static str, &Window)> {
-        [("five_hour", &self.five_hour), ("seven_day", &self.seven_day)]
-            .into_iter()
-            .filter_map(|(name, w)| Some((name, w.as_ref()?)))
-            .filter(|(_, w)| w.used_percentage >= threshold)
-            .max_by(|a, b| a.1.used_percentage.total_cmp(&b.1.used_percentage))
+        [
+            ("five_hour", &self.five_hour),
+            ("seven_day", &self.seven_day),
+        ]
+        .into_iter()
+        .filter_map(|(name, w)| Some((name, w.as_ref()?)))
+        .filter(|(_, w)| w.used_percentage >= threshold)
+        .max_by(|a, b| a.1.used_percentage.total_cmp(&b.1.used_percentage))
     }
 }
 

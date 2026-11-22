@@ -10,7 +10,7 @@ export const NEARLY_USED = 80;
 export const subscribed = (billing: Billing | null) => billing?.mode === "subscription";
 
 /** "≈ 0,12 $" for a subscriber, whose dollars only measure what the limits lose. */
-export const approx = (formatted: string, billing: Billing | null) => (subscribed(billing) ? `≈ ${formatted}` : formatted);
+export const approx = (formatted: string, billing: Billing | null) => (subscribed(billing) ? `≈\u00a0${formatted}` : formatted);
 
 export type Window = { name: "fiveHour" | "sevenDay"; window: LimitWindow };
 

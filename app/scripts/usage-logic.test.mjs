@@ -10,7 +10,7 @@ test("a subscriber's dollars are an API equivalent; an API key's are billed as t
   assert.equal(subscribed(max), true);
   assert.equal(subscribed(api), false);
   assert.equal(subscribed(null), false);
-  assert.equal(approx("$0.12", max), "≈ $0.12");
+  assert.equal(approx("$0.12", max), "≈\u00a0$0.12");
   assert.equal(approx("$0.12", api), "$0.12");
   assert.equal(approx("$0.12", { mode: "unknown", plan: null }), "$0.12");
 });

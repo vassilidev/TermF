@@ -387,7 +387,9 @@ impl AgentEvent {
             } => format!(
                 "usage limit {}: {status}{}",
                 window.as_deref().unwrap_or("?"),
-                resets_at.map(|r| format!(", resets at {r}")).unwrap_or_default()
+                resets_at
+                    .map(|r| format!(", resets at {r}"))
+                    .unwrap_or_default()
             ),
             AgentEvent::TurnEnd {
                 outcome,

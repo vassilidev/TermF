@@ -350,7 +350,10 @@ fn tells_a_subscription_from_an_api_key_and_a_cloud() {
     let max = mode(
         json!({"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "max"}),
     );
-    assert_eq!((max.mode, max.plan.as_deref()), ("subscription", Some("max")));
+    assert_eq!(
+        (max.mode, max.plan.as_deref()),
+        ("subscription", Some("max"))
+    );
     assert_eq!(
         mode(json!({"loggedIn": true, "authMethod": "oauth_token"})).mode,
         "subscription"

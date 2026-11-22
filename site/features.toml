@@ -377,6 +377,7 @@ problem = '''<p>Agents left alone can loop and spend. Each run has a budget spli
 how = [
   "The run starts with its budget; each step gets the smaller of its own budget and its share of what is left.",
   "When it is spent, the agents stop and the run waits for you.",
+  "With a Claude subscription, the dollars are an API equivalent: nothing extra is billed, a run draws on your 5-hour and weekly usage limits, shown at the foot of the navigation.",
   "Emergency stop interrupts the agents, stops them and kills their commands.",
   "Between two turns, Take over opens a step's conversation in a terminal with the same model and settings; Hand back returns it.",
 ]

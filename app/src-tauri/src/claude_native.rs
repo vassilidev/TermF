@@ -466,8 +466,12 @@ pub fn usage_for_agents(app: &AppHandle) -> Value {
         Some(serde_json::json!({"window": window, "usedPercentage": w.used_percentage, "resetsAt": w.resets_at}))
     });
     let advice = match (&nearly, billing.mode) {
-        (Some(_), _) => "A usage window is nearly used up: do not start a team run; answer directly, or advise a direct conversation with one role on a lighter model (sonnet or haiku, low effort), and tell the user why.",
-        (None, "subscription") => "The subscription's limits are fine. Dollar amounts are API-equivalent list prices: the subscription is not billed per use, it draws on these limits.",
+        (Some(_), _) => {
+            "A usage window is nearly used up: do not start a team run; answer directly, or advise a direct conversation with one role on a lighter model (sonnet or haiku, low effort), and tell the user why."
+        }
+        (None, "subscription") => {
+            "The subscription's limits are fine. Dollar amounts are API-equivalent list prices: the subscription is not billed per use, it draws on these limits."
+        }
         _ => "Dollar amounts are what the account is billed.",
     };
     serde_json::json!({

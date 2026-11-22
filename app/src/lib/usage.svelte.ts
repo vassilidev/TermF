@@ -17,8 +17,11 @@ export async function loadBilling(refresh = false) {
 
 export function watchUsage(): () => void {
   void loadBilling();
+  // An event heard while it loads is newer.
   invoke<Usage>("claude_usage").then(
-    (u) => (usage.data ??= u),
+    (u) => {
+      if (!usage.data) usage.data = u;
+    },
     () => {},
   );
   const stop = listen<Usage>("claude-usage", ({ payload }) => (usage.data = payload));

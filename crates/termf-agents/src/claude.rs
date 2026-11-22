@@ -347,7 +347,11 @@ impl Parser for Stream {
 /// milliseconds is brought back to seconds. `utilization` is a fraction.
 fn limit(info: &Value) -> Option<AgentEvent> {
     let status = info["status"].as_str().filter(|s| *s != "allowed")?;
-    let field = |camel: &str, snake: &str| Some(&info[camel]).filter(|v| !v.is_null()).unwrap_or(&info[snake]);
+    let field = |camel: &str, snake: &str| {
+        Some(&info[camel])
+            .filter(|v| !v.is_null())
+            .unwrap_or(&info[snake])
+    };
     let resets_at = field("resetsAt", "resets_at")
         .as_f64()
         .map(|r| if r > 1e11 { r / 1000.0 } else { r } as u64);
@@ -622,7 +626,12 @@ mod tests {
         assert_eq!(
             events,
             [
-                limit("allowed_warning", Some("seven_day"), Some(1763820000), Some(85.0)),
+                limit(
+                    "allowed_warning",
+                    Some("seven_day"),
+                    Some(1763820000),
+                    Some(85.0)
+                ),
                 limit("rejected", Some("five_hour"), Some(1763820000), None),
                 limit("rejected", None, None, None),
             ]
