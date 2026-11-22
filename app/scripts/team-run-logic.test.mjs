@@ -1,6 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { asks, budgetError, current, levels, notices, progress, upsert } from "../src/lib/team-run-logic.ts";
+import {
+  asks,
+  budgetError,
+  byTheme,
+  current,
+  editRouting,
+  isForm,
+  levels,
+  notices,
+  progress,
+  proposed,
+  runs,
+  routeBudget,
+  unanswered,
+  withOthers,
+  upsert,
+} from "../src/lib/team-run-logic.ts";
 
 const task = (id, depends_on = []) => ({ id, role: "front", repo: "web", size: "S", covers: [], goal: id, files_hint: [], depends_on, ui_impact: false });
 const step = (key, state, more = {}) => ({
@@ -165,4 +181,128 @@ test("upsert: a newer copy replaces, an older one never does, a new run goes fir
   assert.equal(upsert(runs, { run: 1, updated: 9, state: "paused" }), runs, "an answer older than the event heard");
   assert.deepEqual(upsert(runs, { run: 2, updated: 10, state: "running" })[1].state, "running", "equal times: the last received");
   assert.deepEqual(upsert(runs, { run: 3, updated: 1, state: "running" }).map((r) => r.run), [3, 1, 2]);
+});
+
+const question = (id, kind, options = [], proposed = [], theme = "product") => ({
+  id,
+  theme,
+  question: `${id}?`,
+  why: "it matters",
+  kind,
+  options,
+  proposed,
+  implications: [],
+});
+const routing = (more = {}) => ({
+  kind: "feature",
+  size: "M",
+  reason: "a new export",
+  workflow: "default",
+  skip: [],
+  add: [],
+  efforts: [],
+  squads: [],
+  questions: [],
+  budget_usd: 4,
+  changed: false,
+  ...more,
+});
+
+test("asks: the routing gate, and the CTO's questions, never accepted as they are", () => {
+  const gate = run([step("triage", "done"), step("approve-route", "waiting", { kind: "gate", needs: ["triage"] })], {
+    state: "waiting",
+    routing: routing(),
+  });
+  assert.deepEqual(asks(gate).map((a) => [a.step.key, a.kind, a.accept]), [["approve-route", "route", true]]);
+  const asking = routing({ questions: [question("Q1", "bool", [], ["yes"])] });
+  const blocked = run([step("triage", "blocked"), step("approve-route", "pending", { kind: "gate" })], {
+    state: "waiting",
+    routing: asking,
+  });
+  assert.deepEqual(
+    asks(blocked).map((a) => [a.kind, a.accept, a.questions.map((q) => q.id)]),
+    [["questions", false, ["Q1"]]],
+  );
+});
+
+test("questionnaire: by theme, proposed answers, what is left to answer, old sentences are no form", () => {
+  const qs = [
+    question("format", "choice", ["CSV", "Excel"], ["CSV"], "product"),
+    question("cols", "multi", ["date", "amount"], [], "scope"),
+    question("public", "bool", [], [], "security"),
+    question("name", "text", [], ["invoices.csv"], "mood"),
+    question("who", "text", [], [], "product"),
+  ];
+  assert.deepEqual(
+    byTheme(qs).map(([theme, list]) => [theme, list.map((q) => q.id)]),
+    [
+      ["product", ["format", "who"]],
+      ["scope", ["cols"]],
+      ["security", ["public"]],
+      ["mood", ["name"]],
+    ],
+  );
+  const answers = proposed(qs);
+  assert.deepEqual(answers.format, ["CSV"]);
+  answers.format.push("x");
+  assert.deepEqual(qs[0].proposed, ["CSV"], "a copy");
+  assert.deepEqual(unanswered(qs, proposed(qs)), ["public", "who"]);
+  assert.deepEqual(
+    unanswered(qs, { format: [], cols: ["date", " "], public: ["maybe"], name: ["  "], who: ["finance"] }),
+    ["format", "cols", "public", "name"],
+  );
+  assert.deepEqual(unanswered(qs, { format: ["Excel"], cols: [], public: ["no"], name: ["a"], who: ["b"] }), []);
+  assert.deepEqual(
+    unanswered(qs, { format: ["PDF for the bank"], cols: ["date", "tax code"], public: ["no"], name: ["a"], who: ["b"] }),
+    [],
+    "an answer of one's own for a choice",
+  );
+  const own = withOthers(qs, proposed(qs), { format: " PDF ", cols: "tax code", public: "maybe", who: "finance" });
+  assert.deepEqual(own.format, ["PDF"], "replaces the option of a choice");
+  assert.deepEqual(own.cols, ["tax code"], "adds to a multiple choice");
+  assert.deepEqual([own.public, own.who], [[], []], "only for a choice");
+  assert.deepEqual(withOthers(qs, proposed(qs), { format: "  " }).format, ["CSV"], "blank: the option stays");
+  assert.equal(isForm(qs), true);
+  assert.equal(isForm([]), false);
+  assert.equal(isForm(["CSV or XLSX?"].map((q) => ({ ...question("", "text"), question: q }))), false);
+});
+
+test("editRouting: skip and add against the new workflow's defaults, efforts of steps that no longer run dropped", () => {
+  const workflow = {
+    name: "default",
+    description: "",
+    steps: [
+      { id: "prd", kind: "agent", role: "pm", optional: true, on: false },
+      { id: "frame", kind: "agent", role: "po", optional: true, on: true },
+      { id: "ux", kind: "agent", role: "ux", optional: true, on: false },
+      { id: "plan", kind: "agent", role: "lead", optional: false, on: true },
+      { id: "checks", kind: "shell", role: null, optional: false, on: true },
+      { id: "security", kind: "agent", role: "secops", optional: false, on: true },
+    ],
+  };
+  const cto = routing({
+    skip: ["frame"],
+    efforts: [
+      { step: "security", effort: "low" },
+      { step: "frame", effort: "high" },
+      { step: "ux", effort: "high" },
+    ],
+    questions: [question("Q1", "text")],
+  });
+  assert.equal(runs(workflow.steps[1], cto), false);
+  assert.equal(runs(workflow.steps[2], { skip: [], add: ["ux"] }), true);
+  const next = editRouting(cto, workflow, ["ux"], ["web", "api"]);
+  assert.deepEqual(
+    [next.workflow, next.skip, next.add, next.efforts, next.squads, next.questions, next.budget_usd],
+    ["default", ["frame"], ["ux"], [{ step: "security", effort: "low" }, { step: "ux", effort: "high" }], ["web", "api"], [], 4],
+  );
+  assert.equal(next.reason, "a new export", "the rest is the CTO's");
+});
+
+test("routeBudget: a change of the routing starts below the run's budget and the advice", () => {
+  assert.equal(routeBudget(15, 25), 15, "the advice never raises it");
+  assert.equal(routeBudget(15, 6), 6);
+  assert.equal(routeBudget(15, 0), 15, "no advice");
+  assert.equal(routeBudget(null, 6), 6);
+  assert.equal(routeBudget(null, 0), null);
 });

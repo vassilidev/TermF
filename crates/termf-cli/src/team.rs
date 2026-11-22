@@ -1,11 +1,13 @@
 //! `termf team …`: the agent team of a ticket run. What starts or changes it goes through TermF, which holds
 //! its agents; listing, the status and the events read the database directly.
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use termf_core::ipc::{Call, TeamCall};
 use termf_team::squads::Member;
-use termf_team::{Level, Options, StepState, TeamRun};
+use termf_team::{Level, Options, Request, StepState, TeamRun};
 use termf_tickets::utc;
 
 use crate::{Client, take_opt};
@@ -26,6 +28,10 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
         .transpose()?;
     let task = take_opt(&mut args, "--task")?;
     let after = take_opt(&mut args, "--after")?;
+    let request = take_opt(&mut args, "--request")?;
+    let project = take_opt(&mut args, "--project")?;
+    let repo = take_opt(&mut args, "--repo")?;
+    let note = take_opt(&mut args, "--note")?;
     let mut rules = Vec::new();
     while let Some(rule) = take_opt(&mut args, "--rule")? {
         rules.push(rule);
@@ -64,16 +70,45 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 );
             }
         }
-        [action @ ("plan" | "run"), id] => {
+        [action @ ("plan" | "run"), id @ ..] if id.len() == usize::from(request.is_none()) => {
             let options = Options {
                 workflow,
                 rules: levels(&rules)?.into_iter().collect(),
                 budget,
                 plan_only: *action == "plan",
             };
+            let request = match request {
+                Some(text) => Some(serde_json::to_value(Request {
+                    text,
+                    project: project.map_or_else(here, Ok)?,
+                    repo,
+                })?),
+                None => None,
+            };
             let run: TeamRun = serde_json::from_value(call(TeamCall::Start {
-                run: number(id)?,
+                run: id.first().map(|i| number(i)).transpose()?,
+                request,
                 options: serde_json::to_value(options)?,
+            })?)?;
+            status(&run);
+        }
+        ["route", id] => route(&termf_team::run(&data_dir, number(id)?)?),
+        ["answer", id, step, pairs @ ..] if !pairs.is_empty() => {
+            let mut answers: HashMap<String, Vec<String>> = HashMap::new();
+            for pair in pairs {
+                let (question, answer) = pair
+                    .split_once('=')
+                    .with_context(|| format!("{pair}: write <question>=<answer>"))?;
+                let given = answers.entry(question.trim().to_owned()).or_default();
+                if !answer.is_empty() {
+                    given.push(answer.to_owned());
+                }
+            }
+            let run: TeamRun = serde_json::from_value(call(TeamCall::Answer {
+                run: number(id)?,
+                step: step.to_string(),
+                answers,
+                note: note.unwrap_or_default(),
             })?)?;
             status(&run);
         }
@@ -132,6 +167,81 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
         _ => bail!(crate::USAGE),
     }
     Ok(())
+}
+
+/// The project whose repositories hold the current folder.
+fn here() -> Result<String> {
+    let config = termf_core::default_config_dir()?;
+    let cwd = std::env::current_dir()?;
+    termf_core::load_projects(&config)?
+        .into_iter()
+        .find(|p| {
+            p.repos
+                .iter()
+                .any(|r| cwd.starts_with(termf_core::expand_tilde(&r.path)))
+        })
+        .map(|p| p.id)
+        .context("this folder is in no project: name one with --project")
+}
+
+/// The CTO's routing of a run: what it decided and why, what it asks, or that there is none.
+fn route(run: &TeamRun) {
+    let Some(r) = &run.routing else {
+        let triage = run.steps.iter().any(|s| s.key == termf_team::TRIAGE);
+        println!(
+            "run {}: {}",
+            run.run,
+            match triage {
+                true => "the CTO is routing it",
+                false => "no triage: the workflow was chosen at launch",
+            }
+        );
+        return;
+    };
+    let by = if r.changed { " (set by you)" } else { "" };
+    println!(
+        "run {} ({}): {}, size {:?}{by}",
+        run.run, run.target.ticket, r.kind, r.size
+    );
+    println!("  why: {}", r.reason);
+    println!("  workflow: {}", r.workflow);
+    for (label, items) in [("skips", &r.skip), ("adds", &r.add), ("squads", &r.squads)] {
+        if !items.is_empty() {
+            println!("  {label}: {}", items.join(", "));
+        }
+    }
+    for e in &r.efforts {
+        println!("  effort: {} {}", e.step, e.effort);
+    }
+    if r.budget_usd > 0.0 {
+        println!("  advised budget: ${:.2}", r.budget_usd);
+    }
+    questions(&r.questions);
+    if let Some(gate) = run.steps.iter().find(|s| s.key == termf_team::ROUTE) {
+        let state = serde_json::to_value(gate.state).unwrap_or(Value::Null);
+        println!("  gate: {}", state.as_str().unwrap_or_default());
+    }
+}
+
+/// A questionnaire: each question with its id, why it matters, its options and the answer proposed.
+fn questions(list: &[termf_team::Question]) {
+    for q in list {
+        println!("  ? {} [{}] {}", q.id, q.theme, q.question);
+        if !q.why.is_empty() {
+            println!("      why: {}", q.why);
+        }
+        for (n, option) in q.options.iter().enumerate() {
+            let implies = q
+                .implications
+                .get(n)
+                .map(|i| format!(": {i}"))
+                .unwrap_or_default();
+            println!("      - {option}{implies}");
+        }
+        if !q.proposed.is_empty() {
+            println!("      proposed: {}", q.proposed.join(", "));
+        }
+    }
 }
 
 /// The squads and staff of a project, or of every one, each role with its settings and where each comes from.
@@ -259,9 +369,7 @@ fn status(run: &TeamRun) {
                 t.files_hint.join(", ")
             );
         }
-        for q in &plan.questions {
-            println!("  ? {q}");
-        }
+        questions(&plan.questions);
     }
     println!("steps:");
     for step in &run.steps {

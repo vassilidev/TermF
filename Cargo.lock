@@ -5492,6 +5492,7 @@ dependencies = [
  "termf-core",
  "termf-files",
  "termf-library",
+ "termf-memory",
  "termf-onboarding",
  "termf-schedule",
  "termf-ssh",
@@ -5542,6 +5543,7 @@ dependencies = [
  "termf-claude",
  "termf-core",
  "termf-library",
+ "termf-memory",
  "termf-schedule",
  "termf-ssh",
  "termf-sync",
@@ -5588,10 +5590,23 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
+ "termf-claude",
  "termf-core",
  "toml 1.2.2+spec-1.1.0",
  "toml_edit 0.25.20+spec-1.1.0",
  "yaml-rust2",
+]
+
+[[package]]
+name = "termf-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "termf-claude",
+ "termf-core",
 ]
 
 [[package]]
@@ -5603,8 +5618,11 @@ dependencies = [
  "serde_json",
  "termf-core",
  "termf-library",
+ "termf-team",
  "termf-tickets",
  "termf-worktree",
+ "toml 1.2.2+spec-1.1.0",
+ "toml_edit 0.25.20+spec-1.1.0",
 ]
 
 [[package]]

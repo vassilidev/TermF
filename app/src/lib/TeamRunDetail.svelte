@@ -35,6 +35,9 @@
 
   /** A task by its id, a workflow step by its name. */
   export const stepName = (step: Step) => step.task ?? step.key;
+
+  /** A run's ticket key, or what a request written in TermF is. */
+  export const ticketKey = (ticket: string) => (ticket === "request" ? t("ctoEntryRequest") : ticket);
 </script>
 
 <script lang="ts">
@@ -45,16 +48,20 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Ticket from "@lucide/svelte/icons/ticket";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import X from "@lucide/svelte/icons/x";
   import TeamOptions from "$lib/TeamOptions.svelte";
+  import TeamQuestionnaire from "$lib/TeamQuestionnaire.svelte";
+  import TeamRouteEdit from "$lib/TeamRouteEdit.svelte";
+  import TeamRouting from "$lib/TeamRouting.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { showConversation, usd } from "$lib/agents.svelte";
   import { app } from "$lib/state.svelte";
-  import { asks, budgetError, levels, progress, type Ask, type TeamRun } from "$lib/team-run-logic";
+  import { ROUTE, TRIAGE, asks, budgetError, isForm, levels, progress, type Ask, type TeamRun } from "$lib/team-run-logic";
   import { upsertRun } from "$lib/team.svelte";
   import { showTickets, tickets } from "$lib/tickets.svelte";
 
@@ -69,6 +76,8 @@
   let changing = $state<string | null>(null);
   let stopping = $state(false);
   let refusing = $state(false);
+  let refusingRoute = $state(false);
+  let editingRoute = $state(false);
   let resuming = $state(false);
   let budget = $state<number | null>(null);
 
@@ -79,6 +88,8 @@
   const tasks = $derived(levels(run.plan?.tasks ?? []));
   const top = $derived(run.steps.filter((s) => s.kind !== "task"));
   const planFirst = $derived(!run.steps.some((s) => s.kind === "task" && s.state !== "pending"));
+  const routed = $derived(run.routing && !run.routing.questions.length && !waits.some((a) => a.kind === "route") ? run.routing : null);
+  const routeGate = $derived(run.steps.find((s) => s.key === ROUTE));
   const tasksOf = (foreach: Step) => run.steps.filter((s) => s.kind === "task" && s.key.startsWith(`${foreach.key}:`));
   const taskStep = (id: string) => run.steps.find((s) => s.kind === "task" && s.task === id);
   const taskOf = (step: Step) => (step.task === null ? undefined : run.plan?.tasks.find((task) => task.id === step.task));
@@ -141,7 +152,7 @@
     <textarea class="field" rows="3" placeholder={t(ask.kind === "questions" ? "teamRunsAnswersHint" : "teamRunsFeedbackHint")} bind:value={drafts[key]}></textarea>
   </label>
   <div class="buttons">
-    {#if ask.kind !== "questions" && ask.kind !== "blocked"}
+    {#if changing === key}
       <button class="btn sm" onclick={() => (changing = null)}>{t("cancel")}</button>
     {:else if ask.accept}
       <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
@@ -232,7 +243,7 @@
 <header>
   <div class="title">
     <StatusPill status={runPill(run.state)[0]} label={runPill(run.state)[1]} />
-    <span class="mono muted">{run.target.ticket}</span>
+    <span class="mono muted">{ticketKey(run.target.ticket)}</span>
     <span class="muted small">{project} · {run.target.repo} · {t("teamRunsWorkflowName", { name: run.workflow })}</span>
   </div>
   <h2>{run.target.title}</h2>
@@ -286,6 +297,9 @@
   {/if}
 </section>
 
+{#if active && run.steps.some((s) => s.key === TRIAGE && s.state === "running")}
+  <p class="notice triaging" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ctoEntryTriage")}</p>
+{/if}
 {#if waits.length}
   <section class="waits" aria-labelledby="team-waits">
     <h3 id="team-waits">{t("teamRunsWaits")} <small>{waits.length}</small></h3>
@@ -295,16 +309,51 @@
       <article class="ask warn">
         <div class="ask-head">
           <b>
-            {#if ask.kind === "plan"}{t("teamRunsAskPlan")}
+            {#if ask.kind === "route"}{t("ctoEntryAskRoute")}
+            {:else if ask.kind === "plan"}{t("teamRunsAskPlan")}
             {:else if ask.kind === "visual"}{t("teamRunsAskVisual")}
             {:else if ask.kind === "deliver"}{t("teamRunsAskDeliver")}
-            {:else if ask.kind === "questions"}{ask.step.plan ? t("teamRunsAskPlanQuestions") : t("teamRunsAskQuestions", { step: name })}
+            {:else if ask.kind === "questions"}{ask.step.key === TRIAGE
+                ? t("ctoEntryAskQuestions")
+                : ask.step.plan
+                  ? t("teamRunsAskPlanQuestions")
+                  : t("teamRunsAskQuestions", { step: name })}
             {:else if ask.kind === "blocked"}{t("teamRunsAskBlocked", { step: name })}
             {:else}{t("teamRunsAskGate", { step: name })}{/if}
           </b>
           {@render conversation(ask.step)}
         </div>
-        {#if ask.kind === "plan"}
+        {#if ask.kind === "route" && run.routing}
+          <p class="help">{t("ctoEntryAskRouteHelp")}</p>
+          {#if editingRoute}
+            <TeamRouteEdit {run} routing={run.routing} onclose={() => (editingRoute = false)} />
+          {:else}
+            <TeamRouting routing={run.routing} />
+          {/if}
+        {:else if ask.kind === "questions" && isForm(ask.questions)}
+          {#if editingRoute && key === TRIAGE && run.routing}
+            <TeamRouteEdit {run} routing={run.routing} onclose={() => (editingRoute = false)} />
+          {:else if changing === key}
+            {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
+          {:else}
+            <!-- Never stuck in the form: accept as it is, answer in free text, or set the path yourself. -->
+            <TeamQuestionnaire {run} step={key} questions={ask.questions}>
+              {#if ask.accept}
+                <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
+                  {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
+                </button>
+              {/if}
+              <button class="btn sm" disabled={!!busy} onclick={() => (changing = key)}>
+                <MessageSquareText size={14} aria-hidden="true" />{t("ctoEntryFreeText")}
+              </button>
+              {#if key === TRIAGE}
+                <button class="btn sm" disabled={!!busy} onclick={() => (editingRoute = true)}>
+                  <Pencil size={14} aria-hidden="true" />{t("ctoEntryChange")}
+                </button>
+              {/if}
+            </TeamQuestionnaire>
+          {/if}
+        {:else if ask.kind === "plan"}
           <p class="help">{t("teamRunsAskPlanHelp")}</p>
         {:else if ask.kind === "visual"}
           <p class="help">{t("teamRunsAskVisualHelp")}</p>
@@ -312,7 +361,7 @@
           <p class="help">{t("teamRunsAskDeliverHelp", { run: run.run })}</p>
         {:else if ask.kind === "questions"}
           <ol class="questions">
-            {#each ask.questions as question, i (i)}<li>{question}</li>{/each}
+            {#each ask.questions as question, i (i)}<li>{question.question}</li>{/each}
           </ol>
         {:else if ask.kind === "blocked"}
           {#if ask.step.note}<p class="note mono">{ask.step.note}</p>{/if}
@@ -321,7 +370,27 @@
           <p class="help">{t(ask.accept ? "teamRunsAskBlockedHelp" : "teamRunsAskBlockedPlanHelp")}</p>
         {/if}
 
-        {#if ask.kind === "questions"}
+        {#if ask.kind === "route"}
+          {#if !editingRoute}
+            <div class="buttons">
+              <button class="btn sm" disabled={!!busy} onclick={() => (refusingRoute = true)}>
+                <X size={14} aria-hidden="true" />{t("teamRunsRefuse")}
+              </button>
+              <button class="btn sm" disabled={!!busy} onclick={() => (editingRoute = true)}>
+                <Pencil size={14} aria-hidden="true" />{t("ctoEntryChange")}
+              </button>
+              <button class="btn sm primary" disabled={!!busy} onclick={() => approve(key)}>
+                {#if spinning(`approve:${key}`)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Check
+                    size={14}
+                    aria-hidden="true"
+                  />{/if}
+                {t("ctoEntryApprove")}
+              </button>
+            </div>
+          {/if}
+        {:else if ask.kind === "questions" && isForm(ask.questions)}
+          <!-- The questionnaire sends its own answers. -->
+        {:else if ask.kind === "questions"}
           {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
         {:else if ask.kind === "blocked"}
           {@render feedback(ask, t("teamRunsFeedback"), t("teamRunsRetry"))}
@@ -329,7 +398,7 @@
           {@render feedback(ask, t("teamRunsFeedback"), t("chatSend"))}
         {/if}
 
-        {#if ask.kind !== "questions" && ask.kind !== "blocked" && changing !== key}
+        {#if ask.kind !== "route" && ask.kind !== "questions" && ask.kind !== "blocked" && changing !== key}
           <div class="buttons">
             {#if ask.kind === "visual"}
               <button class="btn sm" disabled={!!busy} onclick={() => (refusing = true)}>
@@ -354,6 +423,29 @@
         {/if}
       </article>
     {/each}
+  </section>
+{/if}
+
+{#if routed}
+  <section aria-labelledby="team-routing">
+    <h3 id="team-routing">{t("ctoEntryWhy")}</h3>
+    <TeamRouting routing={routed} />
+    {#if routeGate?.state === "skipped"}<p class="muted small gate">{t("ctoEntryGateSkipped")}</p>{/if}
+  </section>
+{/if}
+{#if run.answers?.length}
+  <section aria-labelledby="team-answers">
+    <h3 id="team-answers">{t("ctoEntryAnswered")}</h3>
+    <dl class="pairs answers">
+      {#each run.answers as a, i (i)}
+        <dt>{a.question.question}</dt>
+        <dd>
+          {a.answer.length
+            ? a.answer.map((v) => (a.question.kind === "bool" ? t(v === "yes" ? "obYes" : "obNo") : v)).join(", ")
+            : "—"}
+        </dd>
+      {/each}
+    </dl>
   </section>
 {/if}
 
@@ -386,7 +478,7 @@
     {#if plan.questions.length && !waits.some((a) => a.kind === "questions" && a.step.plan)}
       <h4>{t("teamRunsQuestions")}</h4>
       <ol class="questions">
-        {#each plan.questions as question, i (i)}<li>{question}</li>{/each}
+        {#each plan.questions as question, i (i)}<li>{question.question}</li>{/each}
       </ol>
     {/if}
     {#if plan.tasks.length}
@@ -467,6 +559,15 @@
   onconfirm={() => act("stop", "team_stop", {})}
 >
   <p>{t("teamRunsStopText")}</p>
+</ConfirmDialog>
+<ConfirmDialog
+  bind:open={refusingRoute}
+  title={t("ctoEntryRefuseTitle")}
+  confirm={t("teamRunsRefuse")}
+  danger
+  onconfirm={() => act("stop", "team_stop", {})}
+>
+  <p>{t("ctoEntryRefuseText")}</p>
 </ConfirmDialog>
 <ConfirmDialog
   bind:open={refusing}
@@ -888,6 +989,19 @@
   .pairs dd {
     margin: 0;
     overflow-wrap: anywhere;
+  }
+
+  .answers {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    font-size: var(--text-sm);
+  }
+
+  .gate {
+    margin: 8px 0 0;
+  }
+
+  .triaging {
+    margin-top: 16px;
   }
 
   .violations {

@@ -1,0 +1,11 @@
+- Version: read it in the lockfile entry for `next` (or `node_modules/next/package.json`).
+- Docs for this version: `node_modules/next/dist/docs/` from 16.2 (`01-app/` or `02-pages/`); before 16.2, nextjs.org pages with `.md` appended, index `https://nextjs.org/docs/llms.txt`.
+- Verify: the project's `lint`, `typecheck`, `test`, `build` scripts; else `npx next typegen && npx tsc --noEmit`, `npx eslint .`, `npx next build`.
+- Next 16: `cookies()`, `headers()`, `draftMode()`, `params`, `searchParams` are async only; await them.
+- `middleware.ts` became `proxy.ts` exporting `proxy` (Node.js runtime); proxy is not an authorization layer.
+- Turbopack is the default; a custom `webpack()` config makes `next build` fail, so ask before choosing `--webpack`.
+- `revalidateTag(tag, 'max')`, or `updateTag(tag)` in a Server Action; `cacheComponents: true` replaces `experimental.ppr` and `dynamicIO`.
+- `next lint` is gone and `next build` no longer lints: use the project's lint script.
+- Each parallel route slot needs a `default.js`.
+- `next dev` writes a managed block into `AGENTS.md`: leave it as is and mention it in the report.
+- Read the skill `nextjs` before changing routes, data fetching, caching, Server Actions, proxy or `next.config`.

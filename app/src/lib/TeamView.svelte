@@ -40,6 +40,7 @@
 
   const layerLabel: Record<Layer, Parameters<typeof t>[0]> = {
     shipped: "layerShipped",
+    package: "stackLayer",
     global: "layerGlobal",
     project: "layerProject",
     repo: "layerRepo",

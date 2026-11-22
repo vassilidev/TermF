@@ -1,0 +1,9 @@
+- Version: read it in the lockfile entry (or `package.json`) of `@angular/core`, or with `ng version`.
+- Docs for this version: `node_modules/@angular/core/resources/best-practices.md` (v21+), the Angular CLI MCP server (`npx -y @angular/cli mcp`: `get_best_practices`, `search_documentation`), https://angular.dev.
+- Verify: the project's scripts; else `ng build`, `ng test --no-watch`, and `ng lint` when `angular.json` has a lint target.
+- v22: a component without `changeDetection` is OnPush; state changed outside signals, inputs or events does not re-render (`ChangeDetectionStrategy.Eager` keeps the old behaviour).
+- Since v21 new apps are zoneless; Zone apps declare `provideZoneChangeDetection()`.
+- v22 needs TypeScript 6.0 (`>=6.0 <6.1`).
+- v22 HttpClient uses fetch; upload progress needs `provideHttpClient(withXhr())`.
+- New projects test with Vitest through `ng test` (v21+); Karma projects stay on Karma until migrated.
+- Read the skill `angular` before writing or changing Angular components, services, routes, forms or tests.

@@ -1,0 +1,11 @@
+- Version: read it in the lockfile entry of `vitest` or `jest`; config in `vitest.config.*` / `vite.config.*` (`test`) or `jest.config.*`.
+- Docs for this version: https://vitest.dev/llms.txt (pages in Markdown, e.g. `vitest.dev/guide/migration.md`); Jest: jestjs.io/docs (no llms.txt). Nothing ships in the packages.
+- Verify: the project's test script (add `-- --run` if it starts Vitest in watch mode); `npx vitest run <file>`, `npx jest <file>`.
+- Vitest watches by default and never exits: use `vitest run`.
+- Vitest 5: `clearMocks` on by default; `vi.mock`/`vi.hoisted` only at top level; unawaited `resolves`/`rejects` fail; `test.sequential` removed (`{ concurrent: false }`); Node ≥ 22.12.
+- Vitest 4+: `projects` replaces `workspace`; a `vi.mock` factory returns named exports (`default` explicit).
+- Jest 30: matcher aliases removed (`toBeCalled` → `toHaveBeenCalled`, `toThrowError` → `toThrow`); `--testPathPatterns`.
+- Without `globals: true`, Testing Library needs `afterEach(cleanup)` in Vitest.
+- Query by role/label/text, not test ids or classes; fake only network, time and randomness.
+- What to test comes from skill `tests-from-criteria`.
+- Read the skill `testing-js` before writing, fixing or running Vitest or Jest tests, or changing their config or version.

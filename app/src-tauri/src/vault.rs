@@ -58,6 +58,11 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
     VaultState { vault, config_dir }
 }
 
+/// The vault's values to hide from what TermF stores or hands an agent; none while it is locked.
+pub fn masker(app: &AppHandle) -> Option<termf_vault::Masker> {
+    app.try_state::<VaultState>()?.vault.masker().ok()
+}
+
 fn emit(app: &AppHandle, vault: &Vault) {
     if let Ok(status) = vault.status() {
         let _ = app.emit("vault-status", status);

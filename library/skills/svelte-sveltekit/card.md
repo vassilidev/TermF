@@ -1,0 +1,9 @@
+- Version: read it in the lockfile entries (or `package.json`) of `svelte` and `@sveltejs/kit`; Kit 3 has no `svelte.config.js`, its config is in `sveltekit({...})` in `vite.config.*`.
+- Docs for this version: the Svelte MCP tools, or `npx -y @sveltejs/mcp get-documentation '<section>'`, or https://svelte.dev/docs/kit/llms.txt and https://svelte.dev/docs/svelte/llms.txt (the packages ship no docs).
+- Verify: the project's `check` (`svelte-kit sync && svelte-check`) and `build` scripts, then `npx -y @sveltejs/mcp svelte-autofixer <file> --svelte-version <version>` on each changed `.svelte` file.
+- Kit 3 renames: `$app/stores` → `$app/state` (`page`, no `$`), `$app/environment` → `$app/env`, `$lib/x` → `#lib/x.js`, `invalidateAll` → `refreshAll`, `base`/`assets` → `resolve()`/`asset()`.
+- Kit 3 keeps `typescript` on 6.x (peer `^6.0.0`), even in a TypeScript 7 monorepo.
+- Svelte 5 code uses `$props()`, `$state`, `$derived`, `onclick` and snippets, not `export let`, `on:click` or `<slot>`.
+- A layout `load` does not protect form actions or `+server` endpoints: check the user in hooks or in each one.
+- CSRF is always on in Kit 3: allow one cross-origin post with `csrf.trustedOrigins`.
+- Read the skill `svelte-sveltekit` before writing or changing `.svelte` files, routes, hooks or SvelteKit config, or upgrading Kit 2 to 3.

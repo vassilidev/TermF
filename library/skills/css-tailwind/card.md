@@ -1,0 +1,11 @@
+- Version: read it in the lockfile entry for `tailwindcss`; v4 has `@import "tailwindcss"` and `@theme` in CSS, v3 has `@tailwind` directives and `tailwind.config.*`.
+- Docs for this version: nothing for agents (no `llms.txt`, MCP or official skill); `https://tailwindcss.com/docs/` for v4, `https://v3.tailwindcss.com/docs/` for v3.
+- Verify: the project's `build` and `lint` scripts; in v4 an unknown class in `@apply` fails the build.
+- Never mix v3 and v4 styles: tokens live in `@theme` (v4) or `theme.extend` (v3).
+- v4 renamed `shadow-sm`→`shadow-xs`, `shadow`→`shadow-sm`, `rounded`→`rounded-sm`, `outline-none`→`outline-hidden`, `ring`→`ring-3`; `bg-opacity-*` is gone (`bg-black/50`).
+- v4 borders default to `currentColor`: always give a border color.
+- v4 `@apply` in a Vue or Svelte `<style>` or a CSS module needs `@reference "<main stylesheet>";`.
+- Class names built by string concatenation are never generated; classes inside `node_modules` packages need `@source`.
+- Use the project's tokens; an arbitrary value only when none fits, and reported.
+- Keep a visible `focus-visible:` style and respect `prefers-reduced-motion`.
+- Read the skill `css-tailwind` before changing classes, stylesheets, tokens or the Tailwind setup.
