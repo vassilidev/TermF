@@ -41,17 +41,13 @@ const DEV_TIMEOUT: Duration = Duration::from_secs(180);
 #[serde(rename_all = "camelCase")]
 pub struct Review {
     pub id: i64,
-    /// The ticket run reviewed; `None` for two commits of a repository.
     pub run: Option<i64>,
     pub project: String,
-    /// The repository's name in the project, and its main checkout.
     pub repo: String,
     pub repo_path: PathBuf,
     pub title: String,
     pub ticket: Option<String>,
-    /// What "before" is: the run's base branch (its merge base with the run), or the commit asked for.
     pub base: String,
-    /// What "after" is, for two commits; a run's is its worktree.
     pub head: Option<String>,
     pub versions: Vec<Version>,
     pub created: i64,
@@ -62,10 +58,8 @@ pub struct Review {
 #[serde(rename_all = "lowercase")]
 pub enum VersionState {
     Capturing,
-    /// Captured: its screens wait for decisions.
     Ready,
     Failed,
-    /// Every screen decided, and the outcome sent to the team.
     Done,
 }
 
@@ -74,19 +68,14 @@ pub enum VersionState {
 pub struct Version {
     pub n: u32,
     pub state: VersionState,
-    /// The team's visual step it decides.
     pub step: Option<String>,
-    /// The routes asked for instead of the project's and the agents'.
     pub only: Vec<String>,
-    /// The commits captured.
     pub before: Option<String>,
     pub after: Option<String>,
     pub progress: Progress,
     pub screens: Vec<Screen>,
-    /// What was not captured, or captured with a caveat.
     pub notes: Vec<String>,
     pub error: Option<String>,
-    /// Rejected if a screen is, else changes if a screen asks for some, else approved.
     pub outcome: Option<Decision>,
     pub created: i64,
     pub finished: Option<i64>,
@@ -95,9 +84,7 @@ pub struct Version {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
-    /// `prepare`, `before`, `after`, `diff`, `done`.
     pub phase: String,
-    /// Captures done out of `total` (two per screen).
     pub done: usize,
     pub total: usize,
     pub message: String,
@@ -113,7 +100,6 @@ pub enum Decision {
 }
 
 impl Decision {
-    /// `approve`, `reject` or `changes`, as the CLI and the API say it.
     pub fn parse(text: &str) -> Result<Decision> {
         Ok(match text.trim().to_lowercase().as_str() {
             "approve" | "approved" => Decision::Approved,
@@ -127,9 +113,7 @@ impl Decision {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
-    /// `[visual] routes` of the project, or a route asked for.
     Route,
-    /// `affected_views` of an agent's report.
     Agent,
     Storybook,
 }
@@ -137,30 +121,21 @@ pub enum Source {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Screen {
-    /// Unique in its version: `03-invoices-mobile-dark`.
     pub id: String,
     pub source: Source,
-    /// Path and query on the dev server.
     pub path: String,
     pub state: Option<String>,
-    /// `desktop`, `tablet` or `mobile`, and its size.
     pub viewport: String,
     pub width: u32,
     pub height: u32,
-    /// `light` or `dark`.
     pub theme: String,
-    /// Image files in the version's folder.
     pub before: Option<String>,
     pub after: Option<String>,
     pub heatmap: Option<String>,
-    /// Zones that changed, in pixels of the images.
     pub rects: Vec<Rect>,
-    /// The share of pixels that changed.
     pub ratio: f64,
-    /// Pixels or texts changed.
     pub changed: bool,
     pub texts: Vec<TextChange>,
-    /// Why a side could not be captured.
     pub error: Option<String>,
     pub decision: Decision,
     pub comment: String,
@@ -168,7 +143,6 @@ pub struct Screen {
     pub decided: Option<i64>,
 }
 
-/// A comment on a point of the "after" image, in its pixels.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Pin {
     pub x: u32,
@@ -179,16 +153,12 @@ pub struct Pin {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TextChange {
-    /// `added` or `removed`.
     pub change: String,
     pub text: String,
-    /// `ticket`, or the criterion an agent's `report.text_changes` gives.
     pub justified_by: Option<String>,
-    /// The team's `text-changes` check found it in the code without justification.
     pub flagged: bool,
 }
 
-/// What to review: a ticket run, or two commits of a repository.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Request {
@@ -196,7 +166,6 @@ pub struct Request {
     pub repo: Option<PathBuf>,
     pub base: Option<String>,
     pub head: Option<String>,
-    /// Only these routes, instead of the project's and the agents'.
     pub routes: Vec<String>,
 }
 
@@ -209,24 +178,19 @@ pub struct ProgressEvent {
     pub progress: Progress,
 }
 
-/// What the UI hears about.
 #[derive(Clone, Debug)]
 pub enum Update {
     Review(Box<Review>),
     Progress(ProgressEvent),
 }
 
-/// What a decided version tells the team's visual gate.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Approve,
     Reject,
-    /// The pins, comments and image paths, for the agent.
     Changes(String),
 }
 
-/// Applies an outcome to the team: approve the gate, stop the run (its worktree stays), or revise the agent
-/// step before the gate.
 pub fn to_team(team: &termf_team::Team, run: i64, step: &str, outcome: &Outcome) -> Result<()> {
     match outcome {
         Outcome::Approve => team.approve(run, step).map(drop),
@@ -247,7 +211,6 @@ pub struct Visual {
 struct Inner {
     config_dir: PathBuf,
     data_dir: PathBuf,
-    /// Added to git's and the dev servers' environment.
     env: Vec<(String, String)>,
     shooter: Option<Shooter>,
     /// Every change of a review goes through it, one at a time.
@@ -260,7 +223,6 @@ struct Inner {
     capturing: Mutex<()>,
 }
 
-/// The texts the ticket and the agents justify, and the ones the team's check flagged.
 #[derive(Default)]
 struct Justify {
     ticket: String,
@@ -304,7 +266,6 @@ impl Visual {
         visual
     }
 
-    /// Where a decided version goes: the team's gate, through [`to_team`].
     pub fn on_gate(
         &self,
         gate: impl Fn(i64, &str, &Outcome) -> Result<()> + Send + Sync + 'static,
@@ -312,7 +273,6 @@ impl Visual {
         *self.inner.gate.lock().unwrap() = Some(Arc::new(gate));
     }
 
-    /// The app quits: the dev servers and browsers at work are killed.
     pub fn shutdown(&self) {
         for pid in std::mem::take(&mut *self.inner.children.lock().unwrap()) {
             kill(pid);
@@ -348,13 +308,10 @@ impl Visual {
         reviews(&self.inner.data_dir)
     }
 
-    /// The folder of a version's images.
     pub fn folder(&self, id: i64, version: u32) -> PathBuf {
         folder(&self.inner.data_dir, id, version)
     }
 
-    /// Starts a new version of the review of a run (its team's visual gate, when it waits), or a new review of
-    /// two commits. The capture goes on in the background.
     pub fn start(&self, request: Request) -> Result<Review> {
         let inner = &self.inner;
         let _lock = inner.lock.lock().unwrap();
@@ -367,7 +324,7 @@ impl Visual {
                     .find(|s| s.kind == StepKind::Visual && s.state == StepState::Waiting)
                     .map(|s| s.key.clone())
             });
-            let review = self.of_run(&store, run)?;
+            let review = self.of_run(&store, run, team.as_ref())?;
             return self.begin(&store, review, team, step, request.routes);
         }
         let repo = request
@@ -407,45 +364,88 @@ impl Visual {
         self.begin(&store, review, None, None, request.routes)
     }
 
-    /// The team's hook: its visual gate opened on `step`.
+    /// The team's hook. A capture already at work is waited for, then the gate gets a version of its own: a
+    /// gate whose version never comes would wait forever.
     pub fn gate(&self, team: TeamRun, step: String) {
         let visual = self.clone();
         std::thread::spawn(move || {
             let inner = &visual.inner;
-            let started = (|| {
-                let _lock = inner.lock.lock().unwrap();
-                let store = Store::open(&inner.data_dir)?;
-                let review = visual.of_run(&store, team.run)?;
-                visual.begin(&store, review, Some(team.clone()), Some(step), Vec::new())
-            })();
-            if let Err(e) = started {
-                eprintln!("termf: visual review of run {}: {e:#}", team.run);
+            loop {
+                let started = (|| {
+                    let _lock = inner.lock.lock().unwrap();
+                    let store = Store::open(&inner.data_dir)?;
+                    let review = visual.of_run(&store, team.run, Some(&team))?;
+                    if review
+                        .versions
+                        .last()
+                        .is_some_and(|v| v.state == VersionState::Capturing)
+                    {
+                        return Ok(false);
+                    }
+                    visual.begin(
+                        &store,
+                        review,
+                        Some(team.clone()),
+                        Some(step.clone()),
+                        Vec::new(),
+                    )?;
+                    Ok::<_, anyhow::Error>(true)
+                })();
+                match started {
+                    Ok(true) => break,
+                    Ok(false) => std::thread::sleep(Duration::from_secs(1)),
+                    Err(e) => {
+                        eprintln!("termf: visual review of run {}: {e:#}", team.run);
+                        break;
+                    }
+                }
             }
         });
     }
 
-    /// The review of a ticket run, or a new one (unsaved, id 0).
-    fn of_run(&self, store: &Store, run: i64) -> Result<Review> {
+    /// The review of a ticket run, or a new one (unsaved, id 0). With the team's run, it never fails but on the
+    /// database: what is missing fails the capture instead, where the review shows it.
+    fn of_run(&self, store: &Store, run: i64, team: Option<&TeamRun>) -> Result<Review> {
         if let Some(review) = store.of_run(run)? {
             return Ok(review);
         }
         let inner = &self.inner;
-        let ticket_run =
-            termf_tickets::Tickets::new(inner.config_dir.clone(), inner.data_dir.clone())
-                .run(run)?;
-        let config = config::load(&inner.config_dir, Path::new(&ticket_run.repo))?;
+        let ticket =
+            termf_tickets::Tickets::new(inner.config_dir.clone(), inner.data_dir.clone()).run(run);
+        let (project, repo, repo_path, title, key) = match (team, &ticket) {
+            (Some(t), _) => {
+                let t = &t.target;
+                let path = t.repo_path.clone();
+                (
+                    t.project.clone(),
+                    t.repo.clone(),
+                    path,
+                    t.title.clone(),
+                    t.ticket.clone(),
+                )
+            }
+            (None, Ok(r)) => {
+                let config = config::load(&inner.config_dir, Path::new(&r.repo))?;
+                let path = PathBuf::from(&r.repo);
+                (
+                    config.project,
+                    config.repo,
+                    path,
+                    r.title.clone(),
+                    r.ticket.key.clone(),
+                )
+            }
+            (None, Err(e)) => bail!("{e:#}"),
+        };
         Ok(Review {
             id: 0,
             run: Some(run),
-            project: config.project,
-            repo: config.repo,
-            repo_path: ticket_run.repo.clone().into(),
-            title: ticket_run.title.clone(),
-            ticket: Some(ticket_run.ticket.key.clone()),
-            base: ticket_run
-                .base
-                .clone()
-                .with_context(|| format!("run {run} has no base branch"))?,
+            project,
+            repo,
+            repo_path,
+            title,
+            ticket: Some(key),
+            base: ticket.ok().and_then(|r| r.base).unwrap_or_default(),
             head: None,
             versions: Vec::new(),
             created: now(),
@@ -512,7 +512,6 @@ impl Visual {
         (self.inner.sink)(Update::Review(Box::new(review.clone())));
     }
 
-    /// Changes version `n` of review `id` in the store.
     fn update(&self, id: i64, n: u32, change: impl FnOnce(&mut Version)) -> Result<Review> {
         let _lock = self.inner.lock.lock().unwrap();
         let store = Store::open(&self.inner.data_dir)?;
@@ -543,7 +542,6 @@ impl Visual {
         let _ = self.update(id, n, |v| v.progress = progress);
     }
 
-    /// Prepares both sides, captures every screen on each, then compares them.
     fn capture(&self, id: i64, n: u32, team: Option<&TeamRun>) -> Result<()> {
         let inner = &self.inner;
         let _one = inner.capturing.lock().unwrap_or_else(|e| e.into_inner());
@@ -553,6 +551,10 @@ impl Visual {
             .iter()
             .find(|v| v.n == n)
             .context("no such version")?;
+        ensure!(
+            !review.base.is_empty(),
+            "the run has no base branch to compare with"
+        );
         let config = config::load(&inner.config_dir, &review.repo_path)?;
         let mut setup = Setup::new(inner.config_dir.clone(), inner.data_dir.clone());
         setup.env = inner.env.clone();
@@ -725,8 +727,6 @@ impl Visual {
         Ok(())
     }
 
-    /// Starts the dev server of a side (and Storybook's when a screen is a story), then captures each screen:
-    /// one result per screen.
     #[allow(clippy::too_many_arguments)]
     fn side(
         &self,
@@ -803,8 +803,6 @@ impl Visual {
         Ok(shots)
     }
 
-    /// Records a screen's decision (`all`: every screen still pending), with its comment and pins when given.
-    /// Once no screen is pending, the version is decided and its outcome goes to the team's gate.
     pub fn decide(
         &self,
         id: i64,
@@ -876,6 +874,7 @@ impl Visual {
                 _ => Decision::Approved,
             };
             let gate = inner.gate.lock().unwrap().clone();
+            let mut refused = None;
             if let (Some(run), Some(step), Some(gate)) = (review.run, version.step.clone(), gate) {
                 let sent = match outcome {
                     Decision::Approved => Outcome::Approve,
@@ -883,14 +882,25 @@ impl Visual {
                     _ => Outcome::Changes(feedback(&inner.data_dir, id, version)),
                 };
                 if let Err(e) = gate(run, &step, &sent) {
-                    store.save(&mut review)?;
-                    self.emit(&review);
-                    return Err(
-                        e.context("your decisions are saved, but the team could not take them")
-                    );
+                    let waits = termf_team::run(&inner.data_dir, run).is_ok_and(|t| {
+                        t.steps
+                            .iter()
+                            .any(|s| s.key == step && s.state == StepState::Waiting)
+                    });
+                    // A team paused or stopped takes it once started again: the user decides again then.
+                    if waits {
+                        store.save(&mut review)?;
+                        self.emit(&review);
+                        return Err(e.context(
+                            "your decisions are saved, but the team could not take them: start it, then decide again",
+                        ));
+                    }
+                    // The gate was settled elsewhere (`termf team`, a stop): nothing left to wait for.
+                    refused = Some(format!("the team did not take this outcome: {e:#}"));
                 }
             }
             let version = &mut review.versions[last];
+            version.error = refused;
             version.outcome = Some(outcome);
             version.state = VersionState::Done;
             version.finished = Some(now());
@@ -900,7 +910,6 @@ impl Visual {
         Ok(review)
     }
 
-    /// An image of a screen: `before`, `after` or `heatmap`.
     pub fn image(&self, id: i64, version: u32, screen: &str, kind: &str) -> Result<Vec<u8>> {
         let review = self.review(id)?;
         let v = review
@@ -925,7 +934,6 @@ impl Visual {
     }
 }
 
-/// `<data>/reviews/<id>/v<n>/`.
 pub fn folder(data_dir: &Path, id: i64, version: u32) -> PathBuf {
     data_dir
         .join("reviews")
@@ -933,7 +941,6 @@ pub fn folder(data_dir: &Path, id: i64, version: u32) -> PathBuf {
         .join(format!("v{version}"))
 }
 
-/// What the agent reads: each screen that asks for changes, its comment, pins and images.
 fn feedback(data_dir: &Path, id: i64, version: &Version) -> String {
     let dir = folder(data_dir, id, version.n);
     let mut text = format!(
@@ -996,45 +1003,79 @@ fn justify(team: Option<&TeamRun>) -> Justify {
             .map(|t| (normal(&t.text), t.justified_by.clone()))
             .filter(|(t, _)| !t.is_empty())
             .collect(),
-        // The check says `text "…" changed without …`.
         flagged: team
             .steps
             .iter()
             .flat_map(|s| s.violations.iter())
-            .filter_map(|v| {
-                let quoted = v.message.strip_prefix("text ")?;
-                let end = quoted.find("\" changed")? + 1;
-                serde_json::from_str::<String>(&quoted[..end]).ok()
-            })
+            .filter_map(|v| quoted(&v.message))
             .map(|t| normal(&t))
             .collect(),
     }
 }
 
+/// The text the team's `text-changes` check quotes in its message (`text "…" changed …`), which Rust's debug
+/// format wrote: its escapes undone.
+fn quoted(message: &str) -> Option<String> {
+    let mut chars = message.strip_prefix("text \"")?.chars();
+    let mut out = String::new();
+    loop {
+        match chars.next()? {
+            '"' => return Some(out),
+            '\\' => match chars.next()? {
+                'n' => out.push('\n'),
+                't' => out.push('\t'),
+                'r' => out.push('\r'),
+                '0' => out.push('\0'),
+                'u' => {
+                    if chars.next()? != '{' {
+                        return None;
+                    }
+                    let hex: String = chars.by_ref().take_while(|c| *c != '}').collect();
+                    out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+                }
+                c => out.push(c),
+            },
+            c => out.push(c),
+        }
+    }
+}
+
+/// Whether `part` is `text`, or a run of whole words of it: "total" is not in "totalement", and a text this short
+/// ("OK", "1") must match exactly.
+fn has_words(text: &str, part: &str) -> bool {
+    if text == part {
+        return true;
+    }
+    if part.chars().filter(|c| c.is_alphanumeric()).count() < 3 {
+        return false;
+    }
+    text.match_indices(part).any(|(i, _)| {
+        let before = text[..i].chars().next_back();
+        let after = text[i + part.len()..].chars().next();
+        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+    })
+}
+
 impl Justify {
     fn judge(&self, change: &str, text: &str) -> TextChange {
         let t = normal(text);
-        let justified_by = match self.ticket.contains(&t) && !t.is_empty() {
+        let justified_by = match !t.is_empty() && has_words(&self.ticket, &t) {
             true => Some("ticket".to_owned()),
             false => self
                 .declared
                 .iter()
-                .find(|(d, _)| d.contains(&t) || t.contains(d.as_str()))
+                .find(|(d, _)| has_words(d, &t))
                 .map(|(_, by)| by.clone()),
         };
         TextChange {
             change: change.into(),
             text: text.into(),
             justified_by,
-            flagged: self
-                .flagged
-                .iter()
-                .any(|f| f == &t || (f.contains(&t) && !t.is_empty())),
+            flagged: self.flagged.iter().any(|f| has_words(f, &t)),
         }
     }
 }
 
-/// A child process the app kills if it quits during a capture.
 struct Tracked<'a>(&'a Mutex<BTreeSet<u32>>, u32);
 
 impl<'a> Tracked<'a> {

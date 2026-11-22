@@ -139,8 +139,7 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    /// Starts `command` in `dir` through the login shell, as the worktree's sessions would, with the
-    /// environment its setup gave and its own port: `PORT`, and `{{ port }}` in the command.
+    /// `{{ port }}` in the command, and `PORT`, are its own port.
     pub fn start(
         command: &str,
         dir: &Path,
@@ -156,10 +155,19 @@ impl Server {
         let line = command
             .replace("{{ port }}", &port.to_string())
             .replace("{{port}}", &port.to_string());
-        let (program, args) = termf_term::shell_command(Some(&line));
+        // As the worktree setup runs its commands: an interactive shell's job control would move what it starts
+        // out of the process group that stopping the server kills.
+        let (program, flag) = if cfg!(windows) {
+            ("cmd", "/C")
+        } else {
+            ("sh", "-c")
+        };
         let file = fs::File::create(log)?;
         let mut cmd = Command::new(program);
-        cmd.args(args)
+        if let Some(path) = termf_core::shell::login_path() {
+            cmd.env("PATH", path);
+        }
+        cmd.args([flag, &line])
             .current_dir(dir)
             .envs(env)
             .env("PORT", port.to_string())

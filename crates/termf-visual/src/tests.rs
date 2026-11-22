@@ -722,6 +722,170 @@ fn rejecting_stops_the_run_and_keeps_its_worktree() {
     let _ = fs::remove_dir_all(&t.env.root);
 }
 
+fn visual_options() -> Options {
+    Options {
+        workflow: Some("visual".into()),
+        rules: [("visual-review".to_owned(), Level::Warn)].into(),
+        ..Options::default()
+    }
+}
+
+#[test]
+fn a_gate_that_opens_during_a_capture_gets_the_next_version() {
+    let _serial = serial();
+    let t = TeamEnv::new("busy");
+    let plan = Options {
+        plan_only: true,
+        ..visual_options()
+    };
+    t.team.start(t.target(), plan).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while t.team.run(1).unwrap().state != RunState::Paused {
+        assert!(Instant::now() < deadline, "the plan never came");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let busy = t
+        .visual
+        .start(Request {
+            run: Some(1),
+            ..Request::default()
+        })
+        .unwrap();
+    assert_eq!(busy.versions[0].state, VersionState::Capturing);
+    t.visual.gate(t.team.run(1).unwrap(), "visual".into());
+    let (_, v1) = t.version(1);
+    assert_eq!(v1.step, None, "the capture started by hand");
+    let (_, v2) = t.version(2);
+    assert_eq!(
+        (v2.state, v2.step.as_deref()),
+        (VersionState::Ready, Some("visual"))
+    );
+    let _ = fs::remove_dir_all(&t.env.root);
+}
+
+#[test]
+fn a_gate_settled_elsewhere_still_ends_the_version() {
+    let _serial = serial();
+    let t = TeamEnv::new("elsewhere");
+    t.team.start(t.target(), visual_options()).unwrap();
+    let (id, _) = t.version(1);
+    // Paused, the team takes nothing: the decisions wait for it.
+    t.team.stop(Some(1)).unwrap();
+    let err = t
+        .visual
+        .decide(id, "all", Decision::Approved, None, None)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("start it, then decide again"),
+        "{err:#}"
+    );
+    assert_eq!(
+        t.visual.review(id).unwrap().versions[0].state,
+        VersionState::Ready
+    );
+    t.team.start(t.target(), Options::default()).unwrap();
+    t.team.approve(1, "visual").unwrap();
+    let review = t
+        .visual
+        .decide(id, "all", Decision::Approved, None, None)
+        .unwrap();
+    let v = &review.versions[0];
+    assert_eq!(
+        (v.state, v.outcome),
+        (VersionState::Done, Some(Decision::Approved))
+    );
+    assert!(
+        v.error.as_deref().unwrap().contains("did not take"),
+        "{v:#?}"
+    );
+    let _ = fs::remove_dir_all(&t.env.root);
+}
+
+#[test]
+fn justifies_whole_texts_only() {
+    let team = |brief: &str, declared: &[(&str, &str)], flagged: &[&str]| Justify {
+        ticket: normal(brief),
+        declared: declared
+            .iter()
+            .map(|(t, by)| (normal(t), by.to_string()))
+            .collect(),
+        flagged: flagged.iter().map(|t| normal(t)).collect(),
+    };
+    let j = team(
+        "Add a button « Exporter en CSV » next to the Totalement filter. Look below.",
+        &[("Montant HT", "AC2")],
+        &["Prix TTC"],
+    );
+    let by = |t: &str| j.judge("added", t).justified_by;
+    assert_eq!(by("Exporter en CSV").as_deref(), Some("ticket"));
+    assert_eq!(by("exporter  en csv").as_deref(), Some("ticket"));
+    assert_eq!(by("Total"), None, "a part of a word");
+    assert_eq!(by("OK"), None, "too short to be found in a text");
+    assert_eq!(by("Montant HT").as_deref(), Some("AC2"));
+    assert_eq!(
+        by("Montant").as_deref(),
+        Some("AC2"),
+        "whole words of a declared text"
+    );
+    assert_eq!(by("Mont"), None);
+    assert!(j.judge("added", "Prix TTC").flagged);
+    assert!(j.judge("added", "Prix").flagged);
+    assert!(!j.judge("added", "TT").flagged);
+    assert!(!j.judge("added", "Pri").flagged);
+}
+
+#[test]
+fn reads_the_text_the_team_check_quotes() {
+    for text in [
+        "Exporter en CSV",
+        "Café \"x\"\n\tend",
+        "e\u{301}clair \\ ok",
+        "\u{0}",
+    ] {
+        let message = format!(
+            "text {text:?} changed without the ticket asking for it or report.text_changes declaring it"
+        );
+        assert_eq!(quoted(&message).as_deref(), Some(text), "{message}");
+    }
+    assert_eq!(quoted("scope: outside"), None);
+}
+
+#[test]
+fn a_broken_row_hides_no_other_review() {
+    let env = Env::new("broken", "[visual]\nroutes = [\"/\"]\n");
+    let store = Store::open(&env.data).unwrap();
+    let mut review = Review {
+        id: 0,
+        run: Some(7),
+        project: "acme".into(),
+        repo: "web".into(),
+        repo_path: env.repo.clone(),
+        title: "t".into(),
+        ticket: None,
+        base: "main".into(),
+        head: None,
+        versions: Vec::new(),
+        created: 0,
+        updated: 0,
+    };
+    store.insert(&mut review).unwrap();
+    let db = rusqlite::Connection::open(env.data.join("termf.db")).unwrap();
+    db.execute(
+        "INSERT INTO visual_reviews (run, data, updated) VALUES (7, '{}', 0)",
+        [],
+    )
+    .unwrap();
+    let all = reviews(&env.data).unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].id, review.id);
+    assert_eq!(
+        store.of_run(7).unwrap().unwrap().id,
+        review.id,
+        "the newest readable one"
+    );
+    let _ = fs::remove_dir_all(&env.root);
+}
+
 #[test]
 fn posts_the_images_on_the_pull_request_once_confirmed() {
     let _serial = serial();

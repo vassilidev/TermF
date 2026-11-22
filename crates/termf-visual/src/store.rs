@@ -48,14 +48,17 @@ impl Store {
         Ok(Self { conn })
     }
 
-    /// Gives the review its id.
+    /// Gives the review its id, which its JSON holds: both in one transaction, so no row is left half written.
     pub(crate) fn insert(&self, review: &mut Review) -> Result<()> {
-        self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO visual_reviews (run, data, updated) VALUES (?1, '{}', ?2)",
             params![review.run, now()],
         )?;
-        review.id = self.conn.last_insert_rowid();
-        self.save(review)
+        review.id = tx.last_insert_rowid();
+        self.save(review)?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub(crate) fn save(&self, review: &mut Review) -> Result<()> {
@@ -78,25 +81,22 @@ impl Store {
             .transpose()
     }
 
-    /// The review of a ticket run.
     pub(crate) fn of_run(&self, run: i64) -> Result<Option<Review>> {
-        let data: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT data FROM visual_reviews WHERE run = ?1 ORDER BY id DESC LIMIT 1",
-                [run],
-                |r| r.get(0),
-            )
-            .optional()?;
-        data.map(|d| serde_json::from_str(&d).context("unreadable review"))
-            .transpose()
+        Ok(self.select("WHERE run = ?1", [run])?.into_iter().next())
     }
 
     pub(crate) fn all(&self) -> Result<Vec<Review>> {
-        let mut query = self
-            .conn
-            .prepare("SELECT data FROM visual_reviews ORDER BY id DESC")?;
-        let rows = query.query_map([], |r| r.get::<_, String>(0))?;
-        rows.map(|d| Ok(serde_json::from_str(&d?)?)).collect()
+        self.select("", params![])
+    }
+
+    /// Newest first. A row that cannot be read is left out, so one broken review never hides the others.
+    fn select(&self, filter: &str, values: impl rusqlite::Params) -> Result<Vec<Review>> {
+        let mut query = self.conn.prepare(&format!(
+            "SELECT data FROM visual_reviews {filter} ORDER BY id DESC"
+        ))?;
+        let rows = query.query_map(values, |r| r.get::<_, String>(0))?;
+        Ok(rows
+            .filter_map(|d| serde_json::from_str(&d.ok()?).ok())
+            .collect())
     }
 }

@@ -15,13 +15,13 @@ use serde_json::{Value, json};
 
 use crate::config::{Login, field_value};
 
-/// Full-page captures stop there.
 const MAX_HEIGHT: u32 = 8000;
 const LOAD_TIMEOUT: Duration = Duration::from_secs(45);
 /// After the fonts, for the last layout and images.
 const SETTLE: Duration = Duration::from_millis(400);
 
-/// Freezes the page: no animation, transition or caret, and the masked zones hidden.
+/// So that two captures of an unchanged page are the same: no animation, transition or caret, and the zones
+/// that change on their own hidden.
 const FREEZE: &str = r#"((masks) => {
   const style = document.createElement('style');
   style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}'
@@ -30,7 +30,6 @@ const FREEZE: &str = r#"((masks) => {
   return document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
 })"#;
 
-/// The texts a reader sees: visible text nodes, and the `alt`, `title`, `placeholder` and `aria-label` values.
 const TEXTS: &str = r#"(() => {
   const shown = (el) => el.checkVisibility ? el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) : el.getClientRects().length > 0;
   const clean = (t) => t.replace(/\s+/g, ' ').trim();
@@ -54,8 +53,7 @@ const TEXTS: &str = r#"(() => {
 
 const SIZE: &str = "[document.documentElement.scrollWidth, Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)]";
 
-/// The Chrome, Chromium or Edge of the system: on the login shell's `PATH`, then where their installers put
-/// them.
+/// On macOS and Windows, browsers are seldom on the `PATH`: where their installers put them comes next.
 pub fn find() -> Result<PathBuf> {
     const NAMES: [&str; 7] = [
         "google-chrome",
@@ -107,16 +105,13 @@ pub fn find() -> Result<PathBuf> {
     )
 }
 
-/// What to capture, and how.
 #[derive(Clone, Debug)]
 pub struct Target {
-    /// `before` or `after`.
     pub side: &'static str,
     pub url: String,
     pub width: u32,
     pub height: u32,
     pub mobile: bool,
-    /// `light` or `dark`.
     pub theme: String,
     pub mask: Vec<String>,
 }
@@ -241,7 +236,6 @@ impl Browser {
         }
     }
 
-    /// The value of a script, once its promise settles.
     fn eval(&mut self, script: &str) -> Result<Value> {
         let reply = self.call(
             "Runtime.evaluate",
@@ -270,7 +264,6 @@ impl Browser {
         Ok(())
     }
 
-    /// Signs in to the test account the project declares, once for the browser.
     pub fn login(&mut self, base: &str, login: &Login) -> Result<()> {
         self.open(&format!("{base}{}", login.url))?;
         let mut last = String::new();
@@ -368,7 +361,6 @@ impl Drop for Browser {
     }
 }
 
-/// Kills the child and what it started.
 pub(crate) fn stop(child: &mut Child) {
     #[cfg(unix)]
     termf_core::process::kill_group(child.id());
@@ -382,8 +374,6 @@ pub(crate) fn stop(child: &mut Child) {
     let _ = child.wait();
 }
 
-/// A WebSocket client for the local DevTools endpoint: text frames out (masked, as clients must), whole
-/// messages in.
 struct Ws {
     reader: BufReader<TcpStream>,
     writer: TcpStream,

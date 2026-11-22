@@ -129,6 +129,7 @@ fn last(review: &Review) -> Result<&termf_visual::Version> {
 /// Prints the capture's progress until it ends, then the review. The capture goes on in TermF if this stops.
 fn follow(data_dir: &std::path::Path, id: i64) -> Result<()> {
     let mut said = String::new();
+    let mut checked = std::time::Instant::now();
     loop {
         let review = termf_visual::review(data_dir, id)?;
         let v = last(&review)?;
@@ -146,6 +147,15 @@ fn follow(data_dir: &std::path::Path, id: i64) -> Result<()> {
         if v.state != VersionState::Capturing {
             show(data_dir, &review);
             return Ok(());
+        }
+        // The capture runs in TermF: once it is gone, the version stays `capturing` until TermF starts again.
+        if checked.elapsed() > Duration::from_secs(5) {
+            if Client::connect(None).is_err() {
+                bail!(
+                    "TermF quit during the capture: it is marked failed when TermF starts again, then start a new one"
+                );
+            }
+            checked = std::time::Instant::now();
         }
         std::thread::sleep(Duration::from_millis(300));
     }

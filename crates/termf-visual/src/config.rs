@@ -14,18 +14,13 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Settings {
     pub routes: Vec<RouteEntry>,
-    /// For the routes and the agents' views that name none: `desktop` by default.
     pub viewports: Vec<String>,
-    /// `light`, `dark`: `light` by default.
     pub themes: Vec<String>,
     /// CSS selectors of what changes on its own (dates, avatars): hidden in both captures.
     pub mask: Vec<String>,
-    /// How far a pixel's colour may move (0-255, on its most changed channel) before it counts as changed.
     pub threshold: Option<u8>,
-    /// Seconds a dev server gets to answer.
     pub timeout: Option<u64>,
     pub login: Option<Login>,
-    /// Offers to post the images on the run's pull request (after confirmation).
     pub pr_images: bool,
 }
 
@@ -40,10 +35,8 @@ pub enum RouteEntry {
 #[serde(default)]
 pub struct Route {
     pub path: String,
-    /// What the screen shows, for the reviewer: `empty list`, `logged out`…
     pub state: Option<String>,
     pub viewports: Vec<String>,
-    /// Only for this repository of the project.
     pub repo: Option<String>,
 }
 
@@ -63,21 +56,16 @@ impl RouteEntry {
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Login {
-    /// The sign-in page, a path of the dev server.
     pub url: String,
     /// CSS selector → value; `env:NAME` reads the variable `NAME` of TermF's environment.
     pub fields: BTreeMap<String, String>,
-    /// What to click; without it, the form of the last field is submitted.
     pub submit: Option<String>,
-    /// Signed in once this path is shown (`/…`) or this selector matches.
     pub wait: Option<String>,
 }
 
-/// The project and the repository of a review, as the project's TOML has them.
 #[derive(Clone, Debug)]
 pub struct Config {
     pub project: String,
-    /// The repository's name in the project.
     pub repo: String,
     pub path: PathBuf,
     pub dev: Option<String>,
@@ -85,7 +73,6 @@ pub struct Config {
     pub settings: Settings,
 }
 
-/// The project that lists `repo`, and what it says.
 pub fn load(config_dir: &Path, repo: &Path) -> Result<Config> {
     let (project, name) = termf_core::load_projects(config_dir)?
         .into_iter()
@@ -136,7 +123,6 @@ pub fn load(config_dir: &Path, repo: &Path) -> Result<Config> {
     })
 }
 
-/// A value of the login form: `env:NAME` reads TermF's environment.
 pub fn field_value(value: &str) -> Result<String> {
     match value.strip_prefix("env:") {
         Some(name) => std::env::var(name.trim())

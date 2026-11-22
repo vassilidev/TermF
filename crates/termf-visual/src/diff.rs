@@ -16,6 +16,7 @@ const DILATE: i64 = 2;
 /// Zones closer than this are merged.
 const GAP: i64 = 24;
 const MAX_RECTS: usize = 8;
+const BANDS: usize = 32;
 pub const THRESHOLD: u8 = 32;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -242,6 +243,21 @@ fn merge(mut boxes: Vec<[i64; 4]>) -> Vec<[i64; 4]> {
     let near = |a: [i64; 4], b: [i64; 4]| {
         a[0] - GAP < b[2] && b[0] - GAP < a[2] && a[1] - GAP < b[3] && b[1] - GAP < a[3]
     };
+    // The pairwise steps below are cubic: thousands of scattered zones on a long page are first gathered into
+    // bands, top to bottom.
+    if boxes.len() > BANDS {
+        boxes.sort_by_key(|r| (r[1], r[0]));
+        let size = boxes.len().div_ceil(BANDS);
+        boxes = boxes
+            .chunks(size)
+            .map(|band| {
+                band.iter()
+                    .copied()
+                    .reduce(union)
+                    .expect("a band has a box")
+            })
+            .collect();
+    }
     'again: loop {
         for i in 0..boxes.len() {
             for j in i + 1..boxes.len() {
@@ -368,6 +384,25 @@ mod tests {
         assert_eq!(rects.len(), MAX_RECTS);
         let covered: u32 = rects.iter().map(|r| r.w).sum();
         assert!(covered >= 12 * 10, "{rects:?}");
+    }
+
+    #[test]
+    fn thousands_of_zones_stay_quick() {
+        let boxes: Vec<[i64; 4]> = (0..5000)
+            .map(|i| {
+                let (x, y) = ((i % 50) * 100, (i / 50) * 100);
+                [x, y, x + 8, y + 8]
+            })
+            .collect();
+        let started = std::time::Instant::now();
+        let merged = merge(boxes);
+        assert!(merged.len() <= MAX_RECTS);
+        assert!(merged.iter().any(|r| r[0] == 0 && r[1] == 0));
+        assert!(
+            merged.iter().any(|r| r[2] == 4908 && r[3] == 9908),
+            "{merged:?}"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

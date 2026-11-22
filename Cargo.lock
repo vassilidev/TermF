@@ -5727,7 +5727,6 @@ dependencies = [
  "termf-agents",
  "termf-core",
  "termf-team",
- "termf-term",
  "termf-tickets",
  "termf-worktree",
  "toml 1.2.2+spec-1.1.0",

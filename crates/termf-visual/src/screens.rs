@@ -42,11 +42,12 @@ pub fn viewport(name: &str) -> Viewport {
     }
 }
 
-/// The path (and query) of a URL an agent gave, which may name its own host.
+/// An agent may name the host of its own dev server: only the path (and query) is the same on TermF's.
 fn path_of(url: &str) -> String {
     let url = url.trim();
     let rest = match url.split_once("://") {
         Some((_, rest)) => rest.find('/').map_or("/", |i| &rest[i..]),
+        None if host(url) => url.find('/').map_or("/", |i| &url[i..]),
         None => url,
     };
     let rest = rest.split('#').next().unwrap_or_default();
@@ -54,6 +55,29 @@ fn path_of(url: &str) -> String {
         true => rest.to_owned(),
         false => format!("/{rest}"),
     }
+}
+
+/// Whether a URL without a scheme starts with a host: `localhost`, a `:port`, an IPv4 address or a domain name
+/// followed by a path.
+fn host(url: &str) -> bool {
+    let first = url.split('/').next().unwrap_or_default();
+    if url.starts_with('/') || first.is_empty() {
+        return false;
+    }
+    let (name, port) = first.split_once(':').unwrap_or((first, ""));
+    if !port.is_empty() {
+        return port.chars().all(|c| c.is_ascii_digit());
+    }
+    let labels: Vec<&str> = name.split('.').collect();
+    let ipv4 = labels.len() == 4 && labels.iter().all(|l| l.parse::<u8>().is_ok());
+    let domain = labels.len() > 1
+        && labels
+            .iter()
+            .all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+        && labels
+            .last()
+            .is_some_and(|l| l.chars().all(|c| c.is_ascii_alphabetic()));
+    name == "localhost" || ipv4 || (domain && url.len() > first.len())
 }
 
 fn slug(path: &str) -> String {
@@ -218,7 +242,7 @@ pub fn stories(repo: &Path, changed: &[String]) -> (Vec<String>, Vec<String>) {
                 .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
                 .collect();
             if !name.is_empty() {
-                ids.push(format!("{}--{}", sanitize(&title), sanitize(&name)));
+                ids.push(format!("{}--{}", sanitize(&title), sanitize(&words(&name))));
             }
         }
     }
@@ -234,6 +258,31 @@ fn title(text: &str) -> Option<String> {
         .filter(|c| ['\'', '"', '`'].contains(c))?;
     let end = rest[1..].find(quote)?;
     Some(rest[1..1 + end].to_owned())
+}
+
+/// The story name Storybook makes of an export (lodash's `startCase`): `WithIcon` → `With Icon`, `ABTest` →
+/// `AB Test`, `Step2` → `Step 2`, `big_button` → `big button`; its id comes from that name, not the export.
+fn words(export: &str) -> String {
+    let chars: Vec<char> = export.chars().collect();
+    let mut out = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '_' || c == '$' {
+            out.push(' ');
+            continue;
+        }
+        if let Some(&prev) = i.checked_sub(1).and_then(|p| chars.get(p)) {
+            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+            let starts = (c.is_uppercase() && (prev.is_lowercase() || prev.is_ascii_digit()))
+                || (c.is_uppercase() && prev.is_uppercase() && next_lower)
+                || (c.is_ascii_digit() && prev.is_alphabetic())
+                || (c.is_alphabetic() && prev.is_ascii_digit());
+            if starts {
+                out.push(' ');
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Storybook's id part: lowercase, every other character a dash, no dash twice or at the ends.
@@ -319,6 +368,25 @@ mod tests {
     }
 
     #[test]
+    fn keeps_the_path_of_a_url_without_its_host() {
+        for (url, path) in [
+            ("localhost:3000/invoices", "/invoices"),
+            ("localhost", "/"),
+            ("127.0.0.1:5173/a?b=1", "/a?b=1"),
+            ("10.0.0.2/admin", "/admin"),
+            ("app.example.com/settings#x", "/settings"),
+            ("https://example.com", "/"),
+            ("/invoices", "/invoices"),
+            ("invoices", "/invoices"),
+            ("invoices.html", "/invoices.html"),
+            ("docs/v1.2/intro", "/docs/v1.2/intro"),
+            ("v1.2/intro", "/v1.2/intro"),
+        ] {
+            assert_eq!(path_of(url), path, "{url}");
+        }
+    }
+
+    #[test]
     fn finds_the_stories_a_change_touched() {
         let dir = std::env::temp_dir().join(format!("termf-visual-stories-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -326,7 +394,7 @@ mod tests {
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(
             dir.join("src/Button.stories.tsx"),
-            "export default { title: 'Forms/Big Button', component: Button };\nexport const Primary = {};\nexport const WithIcon: Story = {};\n",
+            "export default { title: 'Forms/Big Button', component: Button };\nexport const Primary = {};\nexport const WithIcon: Story = {};\nexport const ABTest2 = {};\nexport const big_button = {};\n",
         )
         .unwrap();
         fs::write(
@@ -341,9 +409,15 @@ mod tests {
         ]
         .map(String::from);
         let (ids, notes) = stories(&dir, &changed);
+        // Storybook's names: "Primary", "With Icon", "AB Test 2", "big button".
         assert_eq!(
             ids,
-            ["forms-big-button--primary", "forms-big-button--withicon"]
+            [
+                "forms-big-button--primary",
+                "forms-big-button--with-icon",
+                "forms-big-button--ab-test-2",
+                "forms-big-button--big-button"
+            ]
         );
         assert_eq!(notes.len(), 1);
         let (screens, notes) = plan(&config(Settings::default()), &[], &[], &ids);
