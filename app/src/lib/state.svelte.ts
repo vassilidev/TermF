@@ -93,6 +93,7 @@ export type ViewId =
   | "run"
   | "settings"
   | "onboarding"
+  | "newProject"
   | "vault"
   | "vaultAll";
 

@@ -136,8 +136,9 @@
       error = String(e);
     }
     // Started before the assistant was left: follow it instead of starting another.
+    // Moves on to its questions only if the owner still waits on it; one who went on stays on that step.
     running(project.id)?.then(
-      () => reload(true),
+      () => reload(shown === "analysis"),
       (e) => ((error = String(e)), reload(false)),
     );
   });
@@ -392,7 +393,7 @@
             <button
               class="step"
               aria-current={shown === step ? "step" : undefined}
-              disabled={!reachable(step, ob.step, !!analysis)}
+              disabled={!reachable(step, ob.step, !!analysis) && step !== shown}
               onclick={() => (shown = step)}
             >
               <span class="num" class:past>

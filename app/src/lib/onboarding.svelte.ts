@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { app, onScreen, panes, ui, type ViewId } from "$lib/state.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { closePanel } from "$lib/panes.svelte";
+import { creating } from "$lib/newproject.svelte";
 
 /** The project whose onboarding assistant is open. */
 export const setup = $state({ project: null as string | null });
@@ -15,7 +16,10 @@ let back: ViewId = "terminals";
 
 /** `view`, or Terminals when it no longer has anything to show (its page was closed meanwhile). */
 export function usable(view: ViewId): ViewId {
-  const gone = (view === "project" && ui.editing === null) || (view === "onboarding" && setup.project === null);
+  const gone =
+    (view === "project" && ui.editing === null) ||
+    (view === "onboarding" && setup.project === null) ||
+    (view === "newProject" && !creating.open);
   return gone ? "terminals" : view;
 }
 

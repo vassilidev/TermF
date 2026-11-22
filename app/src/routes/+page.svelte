@@ -8,6 +8,7 @@
   import ProjectView from "$lib/ProjectView.svelte";
   import RunView from "$lib/RunView.svelte";
   import HelpSheet from "$lib/HelpSheet.svelte";
+  import NewProjectView from "$lib/NewProjectView.svelte";
   import GuidedTour from "$lib/GuidedTour.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Panel from "$lib/ui/Panel.svelte";
@@ -24,6 +25,7 @@
   import { watchTeam } from "$lib/team.svelte";
   import { tickets, watchTickets } from "$lib/tickets.svelte";
   import { setup, watchSetup } from "$lib/onboarding.svelte";
+  import { creating } from "$lib/newproject.svelte";
   import { views } from "$lib/views";
 
   let area = $state<HTMLElement>();
@@ -123,6 +125,12 @@
       {#if onScreen("onboarding") && setup.project !== null}
         {#key setup.project}
           <Panel view="onboarding"><OnboardingView /></Panel>
+        {/key}
+      {/if}
+      <!-- Kept while open: leaving the setup for another view and coming back loses nothing. -->
+      {#if creating.open}
+        {#key creating.round}
+          <Panel view="newProject"><NewProjectView /></Panel>
         {/key}
       {/if}
       {#if panes.other !== null}

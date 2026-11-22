@@ -47,6 +47,7 @@ import { display, keys, pressed } from "$lib/keymap.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { nextAfter } from "$lib/conversation-logic";
 import { type Command } from "$lib/nav-logic";
+import { newProject } from "$lib/newproject.svelte";
 import { configSections, editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { openSetup, usable } from "$lib/onboarding.svelte";
 import { leave } from "$lib/panes-logic";
@@ -310,7 +311,7 @@ export function commands(): Command[] {
       },
     });
   });
-  list.push({ id: "project-new", label: t("newProject"), icon: Plus, group: "projects", run: () => editProject("") });
+  list.push({ id: "project-new", label: t("newProject"), icon: Plus, group: "projects", run: newProject });
   if (app.project !== null) {
     const id = app.project;
     for (const section of configSections) {
