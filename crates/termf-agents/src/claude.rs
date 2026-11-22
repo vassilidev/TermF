@@ -123,6 +123,9 @@ impl AgentRuntime for ClaudeCode {
         if let Some(budget) = launch.budget {
             args.extend(["--max-budget-usd".into(), format!("{budget:.4}")]);
         }
+        if let Some(turns) = spec.max_turns {
+            args.extend(["--max-turns".into(), turns.to_string()]);
+        }
         if let Some(plugin) = launch.plugin {
             args.extend(["--plugin-dir".into(), plugin.to_string_lossy().into_owned()]);
         }

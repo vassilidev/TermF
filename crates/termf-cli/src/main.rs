@@ -626,13 +626,13 @@ struct Client {
 }
 
 impl Client {
-    /// `token: None` uses the user's token from the data dir. Sessions started by TermF get the socket in their environment.
+    /// `token: None` uses the user's token. Sessions started by TermF get the socket in their environment.
     fn connect(token: Option<String>) -> Result<Self> {
         let data_dir = termf_core::default_data_dir()?;
         let socket = env::var(ipc::ENV_SOCKET).unwrap_or_else(|_| ipc::socket_name(&data_dir));
         let token = match token {
             Some(token) => token,
-            None => ipc::read_token(&data_dir)?,
+            None => ipc::read_user_token()?,
         };
         let conn = Stream::connect(socket.as_str().to_fs_name::<GenericFilePath>()?)
             .with_context(|| format!("cannot reach TermF at {socket} (is it running?)"))?;
