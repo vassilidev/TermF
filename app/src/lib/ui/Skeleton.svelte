@@ -68,6 +68,12 @@
     animation: appear var(--dur-slow) var(--ease-out);
   }
 
+  /* A block can fill its parent: `height="100%"`. */
+  .block,
+  .block .bones {
+    height: 100%;
+  }
+
   .cards .bones {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

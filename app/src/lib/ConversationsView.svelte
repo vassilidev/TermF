@@ -31,11 +31,13 @@
   import type { Item } from "$lib/library.svelte";
   import { mostRecent } from "$lib/nav-logic";
   import { app, shortPath } from "$lib/state.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
 
   // Pinned for display only: without a pick, the view and ⌘J still start from the most recent.
   const sessions = $derived(pinnedFirst(listed()));
   const current = $derived(conversation());
-  const creating = $derived(agents.creating || !current);
+  // Before the list is read, neither the form nor "no conversation" would be true yet.
+  const creating = $derived(agents.creating || (agents.read && !current));
   const repos = $derived([...scopeRepos()].sort((a, b) => a.name.localeCompare(b.name)));
 
   const efforts = [
@@ -243,7 +245,7 @@
           <StatusPill status={session.state} />
         </li>
       {:else}
-        <li class="none muted">{t("chatEmpty")}</li>
+        {#if agents.read}<li class="none muted">{t("chatEmpty")}</li>{:else}<li><Skeleton shape="list" rows={6} /></li>{/if}
       {/each}
     </ul>
 
