@@ -1,0 +1,6 @@
+- Outside media only through official APIs: Openverse and Wikimedia Commons without a key; Pexels, Pixabay, Unsplash with a key.
+- Keys come from TermF's vault as environment variables (`PEXELS_API_KEY`…); use them by name, never print or write them; none set: keyless sources, or ask.
+- Commercial use (a product video is one): accept CC0, public domain, CC BY and the Pexels, Pixabay, Unsplash licences; refuse NC, ND and anything unclear.
+- Check the licence on the file's own page; never put stock media in a logo.
+- One line per file in `CREDITS.md` beside the project: file, author, source URL, licence and its URL, attribution, changes.
+- Read the skill `stock-media` before searching for or downloading any outside photo, video, music or sound.
