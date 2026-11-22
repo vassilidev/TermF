@@ -1113,6 +1113,85 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
 }
 
 #[test]
+fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
+    let env = Env::new("expert-tools");
+    env.agents.serve_mcp(
+        |id| Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string()}})),
+        |_| {},
+    );
+    let run = |spec: SessionSpec| {
+        let id = env.agents.start(spec, Some("say hello")).unwrap().id;
+        env.settle(id, 1, State::Idle);
+        let args = env.args().pop().unwrap();
+        let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
+        let config: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+        let tools = config["mcpServers"]["termf"]["env"]["TERMF_MCP_TOOLS"].clone();
+        (args, tools)
+    };
+
+    let expert = SessionSpec {
+        role: Some("expert".into()),
+        mcp: true,
+        ..env.spec()
+    };
+    let (args, tools) = run(expert);
+    assert_eq!(tools, "memory_search,memory_read");
+    assert_eq!(
+        arg_after(&args, "--tools"),
+        Some("Read,Grep,Glob,Agent"),
+        "sub-agents read"
+    );
+    assert!(args.contains(&"--strict-mcp-config".into()) && args.contains(&"--restricted".into()));
+    let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
+    let permissions = &settings["permissions"];
+    assert_eq!(
+        permissions["allow"],
+        json!(["mcp__termf__memory_search", "mcp__termf__memory_read"])
+    );
+    assert!(permissions["ask"].is_null(), "no action at all");
+    for tool in [
+        "Bash",
+        "PowerShell",
+        "WebFetch",
+        "WebSearch",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+    ] {
+        assert!(
+            permissions["deny"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(tool)),
+            "{tool}"
+        );
+    }
+
+    let po = SessionSpec {
+        role: Some("po".into()),
+        allowed_tools: vec!["mcp__termf__ask_expert".into()],
+        ..env.spec()
+    };
+    let (args, tools) = run(po);
+    assert_eq!(tools, "ask_expert");
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["--allowedTools", "mcp__termf__ask_expert"])
+    );
+    for flag in [
+        "--restricted",
+        "--strict-mcp-config",
+        "--tools",
+        "--settings",
+    ] {
+        assert!(
+            !args.contains(&flag.into()),
+            "{flag}: a team step keeps its own tools"
+        );
+    }
+}
+
+#[test]
 fn termf_notices_reach_the_agent_apart_from_the_user() {
     let env = Env::new("notices");
     let notice = |about: &str, text: &str| Notice {

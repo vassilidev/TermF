@@ -2061,6 +2061,15 @@ const fr = {
   expertSourceDocs: "Documentation des dépôts",
   expertSourceGit: "Historique git : messages et fichiers touchés",
   expertSourceArtifacts: "Artifacts claude.ai vus dans le projet",
+  expertTitle: "Expert · {project}",
+  expertStart: "Pose tes questions sur le projet",
+  expertTalkTo: "Parler à l'expert · {project}",
+  expertIntro:
+    "L'expert répond à tes questions sur le projet : il cherche dans la mémoire du projet, puis lit le code, sans rien modifier, et cite ses sources.",
+  expertMessage: "Question à l'expert… (Entrée envoie)",
+  expertToolAsk: "Demander à l'expert",
+  expertToolSearch: "Chercher dans la mémoire du projet",
+  expertToolRead: "Lire une source de la mémoire",
   // Phase 4: the CTO conversation (one per project, TermF's tools, @role).
   ctoTalk: "Parler au CTO",
   ctoTalkTo: "Parler au CTO · {project}",
@@ -4142,6 +4151,15 @@ const en: Record<Key, string> = {
   expertSourceDocs: "The repositories' documentation",
   expertSourceGit: "Git history: messages and files touched",
   expertSourceArtifacts: "claude.ai artifacts seen in the project",
+  expertTitle: "Expert · {project}",
+  expertStart: "Ask your questions about the project",
+  expertTalkTo: "Talk to the expert · {project}",
+  expertIntro:
+    "The expert answers your questions about the project: it searches the project memory, then reads the code, without changing anything, and cites its sources.",
+  expertMessage: "Question for the expert… (Enter sends)",
+  expertToolAsk: "Ask the expert",
+  expertToolSearch: "Search the project memory",
+  expertToolRead: "Read a source of the memory",
   // Phase 4: the CTO conversation (one per project, TermF's tools, @role).
   ctoTalk: "Talk to the CTO",
   ctoTalkTo: "Talk to the CTO · {project}",

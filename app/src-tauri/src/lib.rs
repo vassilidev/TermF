@@ -482,6 +482,7 @@ pub fn run() {
             memory::memory_status,
             memory::memory_settings_save,
             memory::memory_reindex,
+            memory::expert_open,
             claude_native::claude_files,
             claude_native::claude_file_read,
             claude_native::claude_file_preview,

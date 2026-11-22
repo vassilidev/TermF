@@ -10,10 +10,10 @@ use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
-use termf_agents::SessionSpec;
+use termf_agents::{AgentSession, SessionSpec};
 use termf_core::MemorySettings;
 use termf_core::ipc::MemoryCall;
-use termf_memory::{Memory, Paths, Source, Status};
+use termf_memory::{Hit, Memory, Page, Paths, Source, Status};
 
 use crate::tickets::blocking;
 use crate::{CmdResult, agents, vault};
@@ -58,6 +58,12 @@ fn vault_values(app: &AppHandle) -> impl Fn(&str) -> String {
     }
 }
 
+/// Again on the way out: a value stored in the vault after the document was indexed.
+fn masking(app: &AppHandle) -> impl Fn(&str) -> String {
+    let values = vault_values(app);
+    move |text: &str| termf_memory::clean(text, &values)
+}
+
 fn state(app: &AppHandle) -> &MemoryState {
     app.state::<MemoryState>().inner()
 }
@@ -90,6 +96,30 @@ fn index(app: &AppHandle, project: Option<&str>) -> Result<Vec<Status>> {
         .collect()
 }
 
+pub fn search(
+    app: &AppHandle,
+    project: &str,
+    query: &str,
+    sources: &[Source],
+    limit: usize,
+) -> Result<Vec<Hit>> {
+    let memory = Memory::open(&state(app).paths.data_dir)?;
+    let mask = masking(app);
+    let mut hits = memory.search(project, query, sources, limit)?;
+    for hit in &mut hits {
+        hit.snippet = mask(&hit.snippet);
+        hit.title = mask(&hit.title);
+    }
+    Ok(hits)
+}
+
+pub fn read(app: &AppHandle, project: &str, id: i64, offset: usize) -> Result<Page> {
+    let memory = Memory::open(&state(app).paths.data_dir)?;
+    let mut page = memory.read(project, id, offset)?;
+    page.text = masking(app)(&page.text);
+    Ok(page)
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Answer {
@@ -120,7 +150,8 @@ pub fn ask(app: &AppHandle, project: &str, question: &str, budget: Option<f64>) 
         cwd: repo.path.into(),
         title: format!("expert · {title}"),
         project: Some(project.to_owned()),
-        role: Some("expert".into()),
+        role: Some(termf_agents::EXPERT.into()),
+        mcp: true,
         budget: Some(budget.unwrap_or(ASK_BUDGET).clamp(0.01, ASK_BUDGET)),
         ..SessionSpec::default()
     };
@@ -144,6 +175,15 @@ pub fn call(app: &AppHandle, call: MemoryCall) -> Result<Value> {
             budget,
         } => serde_json::to_value(ask(app, &project, &question, budget)?)?,
     })
+}
+
+/// The project's expert conversation, created the first time.
+#[tauri::command]
+pub async fn expert_open(app: AppHandle, project: String) -> CmdResult<AgentSession> {
+    blocking(app, move |app| {
+        crate::cto::standing(app, &project, termf_agents::EXPERT)
+    })
+    .await
 }
 
 #[tauri::command]

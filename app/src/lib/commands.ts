@@ -22,6 +22,7 @@ import Layers from "@lucide/svelte/icons/layers";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Megaphone from "@lucide/svelte/icons/megaphone";
+import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
 import MessageSquareText from "@lucide/svelte/icons/message-square-text";
 import Pencil from "@lucide/svelte/icons/pencil";
 import Play from "@lucide/svelte/icons/play";
@@ -35,7 +36,7 @@ import Telescope from "@lucide/svelte/icons/telescope";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
-import { agents, conversation, showConversation, showCto, waitingAgents } from "$lib/agents.svelte";
+import { agents, conversation, showConversation, showCto, showExpert, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
@@ -281,6 +282,7 @@ export function commands(): Command[] {
     const name = app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
     list.push({ id: "project-setup", label: t("obPalette", { project: name }), icon: WandSparkles, group: "projects", run: () => openSetup(id) });
     list.push({ id: "cto", label: t("ctoTalkTo", { project: name }), keys: keys.cto, icon: MessageSquareText, group: "projects", run: showCto });
+    list.push({ id: "expert", label: t("expertTalkTo", { project: name }), icon: BrainCircuit, group: "projects", run: showExpert });
   }
 
   if (waitingSessions().length || waitingAgents().length || waitingRuns().length) {

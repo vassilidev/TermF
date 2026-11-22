@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import type { AgentState } from "$lib/conversation-logic";
+import { pinned, type AgentState } from "$lib/conversation-logic";
 import { lang, t } from "$lib/i18n";
 import { projectsOf } from "$lib/nav-logic";
 import { app, setProject, ui, type Gauge } from "$lib/state.svelte";
@@ -22,7 +22,7 @@ export type AgentSession = {
   budget: number | null;
   /** The library role it plays. */
   role?: string | null;
-  /** TermF's tools: the project's CTO conversation. */
+  /** TermF's tools: the project's CTO or expert conversation, or one of the expert's answers to an agent. */
   mcp?: boolean;
   state: AgentState;
   cost: number;
@@ -66,9 +66,33 @@ export function listed(): AgentSession[] {
   return agents.sessions.filter(inScope).sort((a, b) => b.id - a.id);
 }
 
+function standingOf(project: string | null, role: string): AgentSession | undefined {
+  return project === null
+    ? undefined
+    : agents.sessions.filter((a) => pinned(a) && a.role === role && a.project === project).sort((a, b) => b.id - a.id)[0];
+}
+
 /** The project's CTO conversation, once it exists. */
 export function ctoOf(project: string | null): AgentSession | undefined {
-  return project === null ? undefined : agents.sessions.filter((a) => a.mcp && a.project === project).sort((a, b) => b.id - a.id)[0];
+  return standingOf(project, "cto");
+}
+
+/** The project's expert conversation, once it exists. */
+export function expertOf(project: string | null): AgentSession | undefined {
+  return standingOf(project, "expert");
+}
+
+/** Opens the current project's expert conversation, created the first time. */
+export async function showExpert() {
+  const project = app.project;
+  if (project === null) return;
+  try {
+    const session = expertOf(project) ?? (await invoke<AgentSession>("expert_open", { project }));
+    upsert(session);
+    showConversation(session.id);
+  } catch (e) {
+    app.error = String(e);
+  }
 }
 
 /** Opens the current project's CTO conversation, created the first time. */

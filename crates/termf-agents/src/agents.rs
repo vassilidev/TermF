@@ -643,12 +643,18 @@ impl Inner {
         let system_prompt = library(&self.config_dir, &session.spec, &dir);
         let plugin = dir.join("plugin");
         let resume = store.started(id)?;
-        let (mcp, dirs) = match session.spec.mcp {
-            true => {
-                let dirs = other_repos(&self.config_dir, &session.spec)?;
-                (Some(self.mcp_config(id, &dir)?), dirs)
-            }
-            false => (None, Vec::new()),
+        let dirs = match session.spec.mcp {
+            true => other_repos(&self.config_dir, &session.spec)?,
+            false => Vec::new(),
+        };
+        let tools = crate::mcp_tools(&session.spec);
+        let mcp = if tools.is_empty() {
+            None
+        } else if session.spec.mcp {
+            Some(self.mcp_config(id, &dir, &tools)?)
+        } else {
+            // A role that may ask the expert still works without it, e.g. with no app to serve the tool.
+            self.mcp_config(id, &dir, &tools).ok()
         };
         let args = self.runtime.headless_args(
             &session.spec,
@@ -842,12 +848,13 @@ impl Inner {
 
     /// Writes the `--mcp-config` of the session's `termf mcp`, readable by the user only: it holds the
     /// session's token.
-    fn mcp_config(&self, id: i64, dir: &Path) -> Result<PathBuf> {
+    fn mcp_config(&self, id: i64, dir: &Path, tools: &[&str]) -> Result<PathBuf> {
         let mcp = self
             .mcp
             .get()
             .context("TermF's tools cannot be served here: the conversation needs the app")?;
-        let server = (mcp.server)(id)?;
+        let mut server = (mcp.server)(id)?;
+        server["env"][ipc::ENV_MCP_TOOLS] = tools.join(",").into();
         let file = dir.join("mcp.json");
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);

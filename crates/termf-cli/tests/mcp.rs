@@ -53,16 +53,25 @@ struct Server {
 
 impl Server {
     fn start(socket: &str, capability: bool) -> Server {
+        Server::with_tools(socket, capability, None)
+    }
+
+    /// `tools`: what TermF names for the session; none, the CTO's.
+    fn with_tools(socket: &str, capability: bool, tools: Option<&str>) -> Server {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_termf"));
         cmd.arg("mcp")
             .env("TERMF_SOCKET", socket)
             .env_remove("TERMF_MCP_TOKEN")
             .env_remove("TERMF_MCP_SESSION")
+            .env_remove("TERMF_MCP_TOOLS")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped());
         if capability {
             cmd.env("TERMF_MCP_TOKEN", TOKEN)
                 .env("TERMF_MCP_SESSION", "7");
+        }
+        if let Some(tools) = tools {
+            cmd.env("TERMF_MCP_TOOLS", tools);
         }
         let mut child = cmd.spawn().unwrap();
         let stdin = child.stdin.take().unwrap();
@@ -149,7 +158,8 @@ fn speaks_mcp_and_calls_termf_with_its_own_token_only() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 12, "{names:?}");
+    assert_eq!(names.len(), 13, "{names:?}");
+    assert!(names.contains(&"ask_expert") && !names.contains(&"memory_search"));
     for never in ["deliver", "close", "push", "vault", "secret"] {
         assert!(!names.iter().any(|n| n.contains(never)), "{never}");
     }
@@ -187,6 +197,57 @@ fn speaks_mcp_and_calls_termf_with_its_own_token_only() {
         server.said.iter().all(|l| !l.contains(TOKEN)),
         "the token is never in a reply"
     );
+}
+
+#[test]
+fn serves_only_the_tools_termf_names_for_the_session() {
+    let (socket, requests) = fake_termf(
+        "expert",
+        |request| match request["params"]["tool"]["tool"].as_str() {
+            Some("memory_search") => {
+                json!({"ok": [{"id": 3, "source": "docs", "title": "README.md"}]})
+            }
+            _ => json!({"error": "unexpected"}),
+        },
+    );
+    let mut server = Server::with_tools(&socket, true, Some("memory_search,memory_read"));
+    let init = server.ask(1, "initialize", json!({"protocolVersion": "2025-06-18"}));
+    let instructions = init["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains("project's expert") && !instructions.contains("<termf-notices>"));
+    let list = server.ask(2, "tools/list", json!({}));
+    let names: Vec<&str> = list["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["memory_search", "memory_read"]);
+    let found = server.call(
+        3,
+        "memory_search",
+        json!({"query": "webhooks", "sources": ["docs"]}),
+    );
+    assert_eq!(found["result"]["isError"], false, "{found}");
+    for (id, name) in [
+        (4, "approve"),
+        (5, "team_runs"),
+        (6, "ask_expert"),
+        (7, "send_message"),
+    ] {
+        let reply = server.call(id, name, json!({"run": 12}));
+        assert_eq!(reply["error"]["code"], -32602, "{name}: {reply}");
+    }
+    assert_eq!(
+        requests.lock().unwrap()[..],
+        [
+            json!({"token": TOKEN, "method": "mcp", "params": {"session": 7, "tool": {"tool": "memory_search", "query": "webhooks", "sources": ["docs"], "limit": null}}})
+        ]
+    );
+
+    let mut asker = Server::with_tools(&socket, true, Some("ask_expert"));
+    let list = asker.ask(1, "tools/list", json!({}));
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 1);
+    assert_eq!(list["result"]["tools"][0]["name"], "ask_expert");
 }
 
 #[test]

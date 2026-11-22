@@ -17,17 +17,23 @@ pub const ENV_SESSION: &str = "TERMF_SESSION_ID";
 /// [`Call::Mcp`] for it.
 pub const ENV_MCP_SESSION: &str = "TERMF_MCP_SESSION";
 pub const ENV_MCP_TOKEN: &str = "TERMF_MCP_TOKEN";
+/// The tools of `termf mcp` its session may call, comma-separated; TermF sets it from the session (see
+/// `termf_agents::mcp_tools`).
+pub const ENV_MCP_TOOLS: &str = "TERMF_MCP_TOOLS";
 
 /// The tools of `termf mcp` that only read, and those that act: each action waits for the user's approval
 /// (an `ask` rule in the session's settings).
-pub const MCP_READ: [&str; 6] = [
+pub const MCP_READ: [&str; 7] = [
     "project",
     "team_runs",
     "team_run",
     "ticket_runs",
     "inbox",
     "waiting",
+    "ask_expert",
 ];
+/// The project expert's own tools: searching and reading the project memory.
+pub const MCP_EXPERT: [&str; 2] = ["memory_search", "memory_read"];
 pub const MCP_ACTIONS: [&str; 6] = [
     "start_team_run",
     "answer",
@@ -122,7 +128,7 @@ pub enum MemoryCall {
     },
 }
 
-/// The tools of `termf mcp` (names in [`MCP_READ`] and [`MCP_ACTIONS`]). None delivers, closes a run, pushes,
+/// The tools of `termf mcp` (names in [`MCP_READ`], [`MCP_ACTIONS`] and [`MCP_EXPERT`]). None delivers, closes a run, pushes,
 /// or reaches the vault.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(tag = "tool", rename_all = "snake_case", deny_unknown_fields)]
@@ -180,6 +186,24 @@ pub enum McpCall {
         #[serde(default)]
         repo: Option<String>,
         text: String,
+    },
+    /// The project memory's passages that best match `query`, from `sources` (all when empty).
+    MemorySearch {
+        query: String,
+        #[serde(default)]
+        sources: Vec<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// One document of the project memory, from `offset`.
+    MemoryRead {
+        id: i64,
+        #[serde(default)]
+        offset: Option<usize>,
+    },
+    /// A question to the project's expert, answered with its sources.
+    AskExpert {
+        question: String,
     },
 }
 
@@ -826,7 +850,12 @@ mod tests {
 
     #[test]
     fn mcp_tools_are_named_as_listed() {
-        let names: Vec<&str> = MCP_READ.iter().chain(&MCP_ACTIONS).copied().collect();
+        let names: Vec<&str> = MCP_READ
+            .iter()
+            .chain(&MCP_ACTIONS)
+            .chain(&MCP_EXPERT)
+            .copied()
+            .collect();
         for name in &names {
             let mut call = serde_json::Map::new();
             call.insert("tool".into(), json!(name));
@@ -836,6 +865,9 @@ mod tests {
                 ("answers", json!("yes")),
                 ("feedback", json!("smaller")),
                 ("text", json!("hi")),
+                ("query", json!("webhooks")),
+                ("id", json!(3)),
+                ("question", json!("why?")),
             ] {
                 call.insert(key.into(), value);
             }
@@ -848,6 +880,9 @@ mod tests {
                 "request_changes" => &["run", "step", "feedback"],
                 "send_message" => &["run", "step", "text"],
                 "start_team_run" => &["run"],
+                "memory_search" => &["query"],
+                "memory_read" => &["id"],
+                "ask_expert" => &["question"],
                 _ => &[],
             };
             call.retain(|k, _| k == "tool" || fields.contains(&k.as_str()));
