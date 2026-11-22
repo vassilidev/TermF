@@ -23,6 +23,24 @@ pub enum Mode {
     On,
 }
 
+/// A tile's Remote Control, as the UI shows it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct State {
+    /// `<project>/<ticket>/<role>`, the name on the phone.
+    pub name: String,
+    /// The user wants it on.
+    pub on: bool,
+    /// The session's page on claude.ai, once Claude Code says it is connected.
+    pub url: Option<String>,
+    /// The change waits for the end of the agent's turn.
+    pub pending: bool,
+    /// The tile asks whether to turn it on.
+    pub ask: bool,
+    /// The session read production data: off, and it stays so (§12.4).
+    pub locked: bool,
+}
+
 /// A project's `remote_control` and `[remote_control_roles]`.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]

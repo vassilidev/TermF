@@ -16,6 +16,7 @@ mod library;
 mod memory;
 mod onboarding;
 mod quick_terminal;
+mod remote;
 mod schedule;
 mod ssh;
 mod sync;
@@ -111,7 +112,6 @@ async fn pty_spawn(
     rows: u16,
     remote_control: Option<bool>,
 ) -> CmdResult<SessionSummary> {
-    let remote_control = remote_control.unwrap_or(false);
     let session = api::spawn(
         &state,
         agent.as_deref(),
@@ -119,7 +119,10 @@ async fn pty_spawn(
         title,
         cols,
         rows,
-        remote_control,
+        api::Remote {
+            on: remote_control,
+            ..api::Remote::default()
+        },
         None,
         &[],
     )
@@ -441,6 +444,9 @@ pub fn run() {
             context::context_reset,
             api::api_confirms,
             api::api_confirm,
+            remote::remote_set,
+            remote::remote_cut_all,
+            remote::remote_policy_save,
             tickets::tickets_sources,
             tickets::tickets_sources_save,
             tickets::tickets_source_test,
