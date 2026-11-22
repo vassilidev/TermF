@@ -1578,6 +1578,15 @@ fn a_value_written_into_a_run_worktree_is_private_hidden_from_git_and_goes_with_
     assert!(tracked.to_string().contains("tracked by git"), "{tracked}");
 }
 
+/// Waits for `done`, a minute at most: the fake clients are shell scripts, slow to start on a loaded machine.
+#[cfg(unix)]
+fn eventually(done: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    while !done() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn logs_are_followed_masked_until_stopped_and_never_by_an_agent() {
@@ -1629,12 +1638,7 @@ exec sleep 30"#,
             })
             .collect()
     };
-    for _ in 0..100 {
-        if lines().iter().any(|l| l.contains("ERROR")) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    eventually(|| lines().iter().any(|l| l.contains("ERROR")));
     let seen = lines();
     assert!(
         seen.iter().any(|l| l.contains("ERROR payment failed")),
@@ -1656,12 +1660,7 @@ exec sleep 30"#,
     assert!(alive());
     assert!(following.stop(), "a running client is stopped");
     drop(following);
-    for _ in 0..100 {
-        if !alive() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    eventually(|| !alive());
     assert!(!alive(), "the followed client outlived its stop");
     let history = ops.history("acme", 5).unwrap();
     assert!(
@@ -1734,12 +1733,7 @@ url = "https://loki.acme.test"
             Streamed::Lines { .. } => None,
         })
     };
-    for _ in 0..100 {
-        if ended().is_some() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    eventually(|| ended().is_some());
     assert_eq!(ended(), Some(Some(0)), "{:?}", got.lock().unwrap());
     // Its number (and its group's) may be another program's by now.
     assert!(!following.stop(), "an ended client was signalled");
