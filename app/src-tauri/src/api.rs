@@ -218,6 +218,9 @@ impl Api {
                 m.agent_session_id = Some(agent_session.into());
             }
         }
+        if event == "StatusLine" && current {
+            crate::claude_native::status_line(app, id, payload);
+        }
         if event == "SessionStart" && !agent_session.is_empty() {
             tickets::conversation(app, id, agent_session);
         }
@@ -580,6 +583,59 @@ pub fn spawn_task(
         Some(&task),
         &[],
     )
+}
+
+/// A command of Claude Code's own in a tile, as typed (`claude auth login`, `claude attach <id>`): no hooks, no
+/// library, nothing added to it. No `SECRET_DENY` either: neither takes `--settings`, login runs no tool, and
+/// attach opens a session whose settings were set when it started. Conversations resumed go through `spawn`.
+pub fn spawn_command(
+    state: &AppState,
+    cwd: PathBuf,
+    title: String,
+    command: &str,
+) -> Result<SessionSummary> {
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let (program, args) = shell_command(Some(command));
+    let mut new_id = None;
+    let spawned = state.sessions.spawn_with(|id| {
+        new_id = Some(id);
+        state.api.meta.lock().unwrap().insert(
+            id,
+            Meta {
+                title: title.clone(),
+                status: None,
+                remote_control: false,
+                agent_session_id: None,
+                dir: None,
+                reset: None,
+                hidden: false,
+                policy: None,
+            },
+        );
+        Ok(SpawnSpec {
+            title: title.clone(),
+            program,
+            args,
+            cwd,
+            agent: None,
+            cols: 120,
+            rows: 32,
+            env: Vec::new(),
+        })
+    });
+    if spawned.is_err()
+        && let Some(id) = new_id
+    {
+        state.api.forget(id);
+    }
+    Ok(state.api.summary(SessionInfo {
+        id: spawned?,
+        title,
+        cwd: cwd_text,
+        agent: None,
+        running: true,
+        exit_code: None,
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]

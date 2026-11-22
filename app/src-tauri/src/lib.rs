@@ -3,6 +3,7 @@ mod api;
 mod browser;
 mod ci;
 mod claude;
+mod claude_native;
 mod config;
 mod context;
 mod cto;
@@ -265,6 +266,7 @@ pub fn run() {
             let (api, listener) = api::Api::new();
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(claude::ClaudeState::new(&data_dir));
+            app.manage(claude_native::NativeState::new(&data_dir));
             let (notifier, inbox) = termf_team::channel();
             app.manage(agents::state(
                 app.handle(),
@@ -471,6 +473,26 @@ pub fn run() {
             claude::artifacts_confirm,
             claude::artifacts_delete,
             claude::artifacts_edit,
+            claude_native::claude_files,
+            claude_native::claude_file_read,
+            claude_native::claude_file_preview,
+            claude_native::claude_file_save,
+            claude_native::claude_item_create,
+            claude_native::claude_file_delete,
+            claude_native::claude_export_preview,
+            claude_native::claude_export_item,
+            claude_native::claude_sessions,
+            claude_native::claude_session_open,
+            claude_native::claude_purge_preview,
+            claude_native::claude_purge,
+            claude_native::claude_background,
+            claude_native::claude_background_attach,
+            claude_native::claude_background_stop,
+            claude_native::claude_usage,
+            claude_native::claude_auth_login,
+            claude_native::claude_auth_logout,
+            claude_native::claude_update,
+            claude_native::claude_doctor,
             agents::agent_start,
             agents::agent_send,
             agents::agent_interrupt,

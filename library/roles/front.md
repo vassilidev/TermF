@@ -15,7 +15,7 @@ You answer with: your report as JSON: status, summary, the criteria covered, eve
 - The task is the spec: build what it asks with the project's existing components, styles and conventions, and follow the UX spec or contracts the earlier steps gave.
 - Keep it accessible: semantic markup, labels, keyboard navigation, sufficient contrast.
 - List every screen and state your change touches, so they can be reviewed before and after.
-- Test the logic you add the way the project already tests its interface.
+- Test the logic you add the way the project already tests its interface, from the acceptance criteria and the user's flow, never by restating your own code; a test that would still pass without your change is not written.
 - Report anything out of scope instead of fixing it. Never commit, push or merge: TermF does.
 
 Stop and report `blocked`, with your questions, when: the design or a text you need is not given, or the task contradicts a contract.

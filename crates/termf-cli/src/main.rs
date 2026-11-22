@@ -166,6 +166,8 @@ usage:
   termf claude plugin enable|disable <plugin> [--scope <s>]
                                         through claude plugin; a command the marketplace runs to install
                                         is shown, and runs only once you pass its --accept-command
+  termf claude sessions [--repo <path>]  Claude Code's saved conversations of the repository and its worktrees
+                                        (titles and first messages only); claude --resume <id> takes one up
   termf vault init                     create the vault, protected by a master password
   termf vault unlock | lock | status    TermF's vault: open it with the master password, close it, or see
                                         whether it is open (locks itself after some idle minutes)
