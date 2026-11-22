@@ -1,28 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import type { Item } from "$lib/library.svelte";
 import { t } from "$lib/i18n";
 import { askTitle, stepLabel } from "$lib/run-logic";
-import { app, ui } from "$lib/state.svelte";
+import { app } from "$lib/state.svelte";
 import { asks, notices, upsert, type Ask, type Notice, type TeamRun } from "$lib/team-run-logic";
 
 export const team = $state({
-  /** Loaded once first shown, then kept mounted. */
-  loaded: false,
-  /** The current project's roles, or the global layer's under every project. */
-  roles: [] as Item[],
-  tab: "roles" as "roles" | "runs",
   /** Every team run, most recent first. */
   runs: [] as TeamRun[],
-  /** The launch form shown in place of the list. */
-  launching: false,
 });
-
-export function showTeam() {
-  ui.view = "team";
-  team.loaded = true;
-}
 
 /** A team run shows on its ticket run's page. */
 export { showRun as showTeamRun } from "$lib/commands";
@@ -37,11 +24,6 @@ export function stepTitle(key: string, task: string | null = null): string {
 export function waitTitle(ask: Ask): string {
   const title = askTitle(ask);
   return t(title.key, title.step ? { step: stepTitle(ask.step.key, ask.step.task) } : {});
-}
-
-/** The current project's team runs, most recent first. */
-export function scopedRuns(): TeamRun[] {
-  return team.runs.filter((r) => app.project === null || r.target.project === app.project);
 }
 
 /** A gate or a blocked step waits for the user. */

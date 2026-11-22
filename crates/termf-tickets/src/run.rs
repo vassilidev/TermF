@@ -865,10 +865,16 @@ impl Tickets {
     }
 
     /// Asks GitHub about the pull request of each delivered run whose fate is not known yet, and records those
-    /// merged or closed. With `auto`, closes them too, unless their worktree holds work that is not pushed;
-    /// `stop_session` ends the session of the run it closes first. A pull request GitHub cannot tell about is
-    /// in `errors`, and asked again next time.
-    pub fn after_merge(&self, auto: bool, stop_session: impl Fn(i64)) -> Result<PrCheck> {
+    /// merged or closed. With `auto`, closes those merged too, unless their worktree holds work that is not pushed
+    /// or `busy` says their session is at work; `stop_session` ends the session of the run it closes first. A pull
+    /// request closed without a merge may be taken up again, so it is only told. A pull request GitHub cannot tell
+    /// about is in `errors`, and asked again next time.
+    pub fn after_merge(
+        &self,
+        auto: bool,
+        busy: impl Fn(i64) -> bool,
+        stop_session: impl Fn(i64),
+    ) -> Result<PrCheck> {
         let store = Store::open(&self.data_dir)?;
         let mut check = PrCheck::default();
         for run in store.runs()? {
@@ -883,12 +889,14 @@ impl Tickets {
                     continue;
                 }
             };
-            let (run, cleaned, error) = match auto {
-                false => (run, false, None),
-                true => match self.close(run.id, false, || stop_session(run.id)) {
+            let merged = run.pr_state.as_deref() == Some("merged");
+            let (run, cleaned, error) = if auto && merged && !busy(run.id) {
+                match self.close(run.id, false, || stop_session(run.id)) {
                     Ok(closed) => (closed, true, None),
                     Err(e) => (run, false, Some(format!("{e:#}"))),
-                },
+                }
+            } else {
+                (run, false, None)
             };
             check.cleanups.push(Cleanup {
                 run,

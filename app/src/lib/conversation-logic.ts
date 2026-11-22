@@ -193,6 +193,39 @@ export function summary(input: unknown): string {
   return Object.keys(o).length ? JSON.stringify(o) : "";
 }
 
+const said = ["ticket", "request", "run", "step", "role", "repo", "workflow", "budget", "question", "query", "feedback", "answers", "note", "text", "id"];
+
+export function fields(input: unknown): [string, string][] {
+  if (!input || typeof input !== "object") return [];
+  const o = input as Record<string, unknown>;
+  return said.flatMap((k): [string, string][] => {
+    const v = o[k];
+    if (typeof v === "number") return [[k, String(v)]];
+    return typeof v === "string" && v.trim() ? [[k, v.trim()]] : [];
+  });
+}
+
+const flat = (v: unknown): string =>
+  Array.isArray(v) ? v.map(flat).join(", ") : v !== null && typeof v === "object" ? JSON.stringify(v) : String(v);
+
+/** A call's answers, lists… are what is allowed: shown before the details, each entry on its own (`""` for a list). */
+export function unsaid(input: unknown): [string, [string, string][]][] {
+  if (!input || typeof input !== "object") return [];
+  return Object.entries(input).flatMap(([name, v]): [string, [string, string][]][] => {
+    if (v === null || typeof v !== "object") return [];
+    return [[name, Array.isArray(v) ? [["", flat(v)]] : Object.entries(v).map(([k, x]) => [k, flat(x)])]];
+  });
+}
+
+/** `api#42` or `#42` is often all a call names: the end of a key, when one ticket alone has it. */
+export function ticketNamed<T extends { key: string; url: string }>(name: string, known: T[]): T | undefined {
+  const exact = known.find((t) => t.key === name || t.url === name);
+  if (exact) return exact;
+  const tail = name.startsWith("#") ? name : `/${name}`;
+  const ends = known.filter((t) => t.key.endsWith(tail));
+  return ends.length && ends.every((t) => t.key === ends[0].key) ? ends[0] : undefined;
+}
+
 /** The request still waiting for an answer: the last unanswered one since the process or the turn began. */
 export function pending(events: StoredEvent[]): string | null {
   let open: string[] = [];

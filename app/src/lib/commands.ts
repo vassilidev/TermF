@@ -300,6 +300,7 @@ export function commands(): Command[] {
       label: t("projectConventions", { project: project.name }),
       icon: Sparkles,
       group: "projects",
+      searchOnly: true,
       run: () => {
         setProject(project.id);
         showLibrary();
@@ -444,31 +445,26 @@ export function commands(): Command[] {
   }
 
   for (const view of views) {
+    const group = view.group === "machine" ? "machine" : "views";
     // "Edit the project" names no project under every project.
     if (view.id !== ui.view && (view.id !== "project" || app.project !== null)) {
-      list.push({ id: `view-${view.id}`, label: t(view.command), icon: view.icon, group: "views", run: view.show });
+      list.push({ id: `view-${view.id}`, label: t(view.command), icon: view.icon, group, run: view.show });
     }
     if (!onScreen(view.id)) {
       list.push({
         id: `beside-${view.id}`,
         label: t("t6bOpenBesideView", { view: t(view.label) }),
         icon: Columns2,
-        group: "views",
+        group,
         searchOnly: true,
         run: () => openBeside(view.id),
       });
     }
   }
-  list.push({
-    id: "claude-artifacts",
-    label: t("claudeViewShowArtifacts"),
-    icon: Images,
-    group: "views",
-    run: () => showClaude("artifacts"),
-  });
   list.push(
-    { id: "claude-sessions", label: t("claudeDgShowSessions"), icon: History, group: "views", run: () => showClaude("sessions") },
-    { id: "claude-usage", label: t("claudeDgShowUsage"), icon: Gauge, group: "views", run: () => showClaude("usage") },
+    { id: "claude-artifacts", label: t("claudeViewShowArtifacts"), icon: Images, group: "machine", run: () => showClaude("artifacts") },
+    { id: "claude-sessions", label: t("claudeDgShowSessions"), icon: History, group: "machine", run: () => showClaude("sessions") },
+    { id: "claude-usage", label: t("claudeDgShowUsage"), icon: Gauge, group: "machine", run: () => showClaude("usage") },
   );
 
   const action = (command: Omit<Command, "group">) => list.push({ ...command, group: "actions" });

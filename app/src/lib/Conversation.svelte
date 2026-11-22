@@ -25,17 +25,21 @@
   import Banner from "$lib/ui/Banner.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
+  import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import { showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
   import { focusSession } from "$lib/commands";
   import {
     addressed,
     blocked,
+    fields,
     mentioned,
     merge,
     pending,
     stream,
     summary,
     thread,
+    ticketNamed,
+    unsaid,
     type End,
     type Item,
     type NoticeFields,
@@ -45,8 +49,11 @@
   } from "$lib/conversation-logic";
   import { t } from "$lib/i18n";
   import type { Item as LibraryItem } from "$lib/library.svelte";
+  import { blocks, type Span } from "$lib/markdown-logic";
   import { app, onScreen, shortPath, type Session } from "$lib/state.svelte";
-  import { showTeamRun, stepTitle } from "$lib/team.svelte";
+  import { asks as runAsks } from "$lib/team-run-logic";
+  import { showTeamRun, stepTitle, team } from "$lib/team.svelte";
+  import { tickets } from "$lib/tickets.svelte";
 
   type Notice = Extract<Item, { type: "notice" }>;
 
@@ -310,11 +317,70 @@
 
   const pretty = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
   const firstLine = (text: string) => text.trim().split("\n")[0];
+
+  const knownTickets = $derived([
+    ...(tickets.inbox ?? []),
+    ...tickets.runs.map((r) => ({ ...r.ticket, title: r.title })),
+    ...team.runs.map((r) => ({ key: r.target.ticket, url: "", title: r.target.title })),
+  ]);
+
+  function phrase(input: unknown): string {
+    const said = fields(input).map(([field, value]) => {
+      if (field === "ticket") {
+        const known = ticketNamed(value, knownTickets);
+        return known ? `${known.key} ${known.title}` : value;
+      }
+      if (field === "run") {
+        const crew = team.runs.find((r) => r.run === Number(value));
+        const run = tickets.runs.find((r) => r.id === Number(value));
+        if (crew) return `${ticketKey(crew.target.ticket)} ${crew.target.title}`;
+        return run ? `${run.ticket.key} ${run.title}` : t("ux3t5Run", { run: value });
+      }
+      if (field === "repo") return t("ticketInRepo", { repo: value });
+      if (field === "workflow") return t("teamRunsWorkflowName", { name: value });
+      if (field === "budget") return `${t("chatBudget")} ${usd(Number(value))}`;
+      if (field === "id") return `#${value}`;
+      return value;
+    });
+    return said.join(" · ") || summary(input);
+  }
+
+  function asked(input: unknown, id: string): string {
+    const { run, step } = (input ?? {}) as { run?: unknown; step?: unknown };
+    const crew = team.runs.find((r) => r.run === run);
+    const ask = crew && runAsks(crew).find((a) => a.step.key === step);
+    return ask?.questions.find((q) => q.id === id)?.question ?? id;
+  }
+
+  function openLink(e: MouseEvent, url: string) {
+    e.preventDefault();
+    invoke("open_url", { url }).catch((e) => (error = String(e)));
+  }
 </script>
+
+{#snippet line(list: Span[])}{#each list as span, i (i)}{#if span.kind === "strong"}<strong>{@render line(span.spans)}</strong
+      >{:else if span.kind === "code"}<code>{span.text}</code>{:else if span.kind === "link"}<a
+        href={span.url}
+        onclick={(e) => openLink(e, span.url)}>{span.text}</a
+      >{:else}{span.text}{/if}{/each}{/snippet}
+
+{#snippet rich(text: string)}
+  {#each blocks(text) as block, i (i)}
+    {#if block.kind === "code"}
+      <pre class="mono">{block.text}</pre>
+    {:else if block.kind === "list" && block.start === null}
+      <ul>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ul>
+    {:else if block.kind === "list"}
+      <ol start={block.start}>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ol>
+    {:else}
+      <p>{@render line(block.spans)}</p>
+    {/if}
+  {/each}
+{/snippet}
 
 {#snippet entry(item: Item, now: boolean)}
   {#if item.type === "text"}
-    <p class="text">{item.text}</p>
+    <div class="text">{@render rich(item.text)}</div>
   {:else if item.type === "tool"}
     {@render tool(item, now)}
   {:else if item.type === "permission"}
@@ -368,7 +434,9 @@
           <Check size={14} aria-hidden="true" />
         {/if}
         <b>{toolName(item.name)}</b>
-        <span class="mono sum">{summary(item.input)}</span>
+        <span class="sum" class:mono={!termfTools[item.name]}>
+          {termfTools[item.name] ? phrase(item.input) : summary(item.input)}
+        </span>
         {#if item.children.length}<span class="badge">{t("chatSubagent", { count: item.children.length })}</span>{/if}
       </span>
       {#if failed && item.result}<span class="mono why-failed">{firstLine(item.result.output)}</span>{/if}
@@ -410,7 +478,24 @@
         <ShieldQuestionMark size={16} aria-hidden="true" />{asks(item.tool)}
       </p>
       {#if item.description}<p class="ask-text">{item.description}</p>{/if}
-      <pre class="mono code">{pretty(item.input)}</pre>
+      {#if termfTools[item.tool]}
+        {@const said = phrase(item.input)}
+        {#if said}<p class="ask-what">{said}</p>{/if}
+        {#each unsaid(item.input) as [name, entries] (name)}
+          <dl class="ask-args">
+            <dt>{name === "answers" ? t("teamRunsAnswers") : name}</dt>
+            {#each entries as [id, value], i (i)}
+              <dd>{#if id}<span class="muted">{asked(item.input, id)}</span>{/if}<span>{value}</span></dd>
+            {/each}
+          </dl>
+        {/each}
+        <details class="raw">
+          <summary><ChevronRight size={14} aria-hidden="true" class="chevron" />{t("ux3t5Details")}</summary>
+          <pre class="mono code">{pretty(item.input)}</pre>
+        </details>
+      {:else}
+        <pre class="mono code">{pretty(item.input)}</pre>
+      {/if}
       <div class="answer">
         <input
           class="field"
@@ -553,7 +638,7 @@
       {#each turn.items as item (item.key)}{@render entry(item, now)}{/each}
       {#if turn.end}{@render ending(turn.end)}{/if}
     {/each}
-    {#if live}<p class="text live">{live}</p>{/if}
+    {#if live}<div class="text live">{@render rich(live)}</div>{/if}
   </div>
 </div>
 
@@ -815,13 +900,64 @@
   }
 
   .text {
-    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
     line-height: 1.55;
-    white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
 
-  .live::after {
+  .text p {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .text ul,
+  .text ol {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 22px;
+  }
+
+  .text li {
+    padding-left: 2px;
+    white-space: pre-wrap;
+  }
+
+  .text li::marker {
+    color: var(--muted);
+  }
+
+  .text code {
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    background: var(--hover);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+
+  .text pre {
+    max-height: 420px;
+    margin: 0;
+    padding: 10px 12px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--chrome);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+
+  .text a {
+    color: var(--accent-ink);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
+
+  .live > :global(:last-child)::after {
     content: "▍";
     color: var(--accent);
   }
@@ -987,6 +1123,64 @@
   .ask-text {
     margin: 0;
     font-size: var(--text-sm);
+  }
+
+  .ask-what {
+    margin: 0;
+    font-weight: 500;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .ask-args {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .ask-args dt {
+    font-weight: 600;
+  }
+
+  .ask-args dd {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding-left: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .ask-args dd span:last-child {
+    font-weight: 500;
+  }
+
+  .raw summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .raw summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .raw summary :global(.chevron) {
+    transition: transform var(--dur-fast) ease-out;
+  }
+
+  .raw[open] summary :global(.chevron) {
+    transform: rotate(90deg);
+  }
+
+  .raw .code {
+    margin-top: 6px;
   }
 
   .answer {
