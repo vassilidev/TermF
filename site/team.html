@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>The CTO and the team · TermF</title>
-<meta name="description" content="How TermF's team of Claude Code agents is built: the CTO you talk to, the 14 roles that ship with their models and effort, squads for bigger projects, the code review loop, the security review and the project expert with its memory.">
+<meta name="description" content="How TermF's team of Claude Code agents is built: the CTO you talk to, the 17 roles that ship with their models and effort, squads for bigger projects, the code review loop, the security review and the project expert with its memory.">
 <link rel="canonical" href="https://vassilidev.github.io/TermF/team.html">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="TermF">
 <meta property="og:title" content="The CTO and the team of agents, in TermF">
-<meta property="og:description" content="One agent you talk to, 14 roles that ship, squads, a review loop and a project expert that answers from the project's memory.">
+<meta property="og:description" content="One agent you talk to, 17 roles that ship, squads, a review loop and a project expert that answers from the project's memory.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/team.html">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta property="og:image:type" content="image/png">
@@ -18,7 +18,7 @@
 <meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="The CTO and the team of agents, in TermF">
-<meta name="twitter:description" content="One agent you talk to, 14 roles that ship, squads, a review loop and a project expert that answers from the project's memory.">
+<meta name="twitter:description" content="One agent you talk to, 17 roles that ship, squads, a review loop and a project expert that answers from the project's memory.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
@@ -38,7 +38,7 @@
     {
       "@type": "TechArticle",
       "headline": "The CTO and the team",
-      "description": "The CTO, the 14 shipped roles, squads, the review loop and the project expert of TermF.",
+      "description": "The CTO, the 17 shipped roles, squads, the review loop and the project expert of TermF.",
       "url": "https://vassilidev.github.io/TermF/team.html",
       "datePublished": "2026-11-22",
       "dateModified": "2026-11-22",
@@ -121,7 +121,7 @@
     <p>On this page</p>
     <ol>
       <li><a href="#cto">The CTO</a></li>
-      <li><a href="#roles">Fourteen roles</a></li>
+      <li><a href="#roles">Seventeen roles</a></li>
       <li><a href="#role-file">A role is a file</a></li>
       <li><a href="#squads">Squads</a></li>
       <li><a href="#review">The review loop</a></li>
@@ -151,8 +151,8 @@
     </figure>
     <p>Two things are worth knowing about its cost. The conversation has no budget of its own, unlike a run. And every gate of a run wakes the CTO for one turn, so it can tell you what the gate is about; it runs on opus at high effort by default, which you can change with <code>[roles.cto]</code>.</p>
 
-    <h2 id="roles">Fourteen roles</h2>
-    <p>These ship with TermF. Planners and reviewers run on opus, builders on sonnet, and the effort of a task follows its size, within the range of its role.</p>
+    <h2 id="roles">Seventeen roles</h2>
+    <p>These ship with TermF. Most planners and reviewers run on opus, most builders on sonnet, and the effort of a task follows its size, within the range of its role. Brand, copy and motion join a run only when the request calls for them.</p>
     <ul class="roster">
       <li><b>CTO</b><small>opus · high</small><span>Your one point of contact: triages every run, routes it or asks you. Never codes.</span></li>
       <li><b>Lead</b><small>opus · high</small><span>Plans a squad's work as tasks per role, and plans again what a failed step affects.</span></li>
@@ -168,6 +168,9 @@
       <li><b>SecOps</b><small>opus · xhigh</small><span>Security review of the run's diff: vulnerabilities, abuse cases, dependencies.</span></li>
       <li><b>Reviewer</b><small>opus · high</small><span>Code review of the integrated diff against the criteria, contracts and conventions.</span></li>
       <li><b>Expert</b><small>opus · high</small><span>Answers questions about the project from its memory, then the code, with sources.</span></li>
+      <li><b>Brand</b><small>opus · high</small><span>The identity: three directions to choose from, guidelines in PDF, the design system as code, logos and exports.</span></li>
+      <li><b>Copy</b><small>opus · medium</small><span>The words the ticket asks for, in every language of the project; never rewrites an existing text.</span></li>
+      <li><b>Motion</b><small>sonnet · high</small><span>Videos, demos, animations and GIFs, from a storyboard you approve first.</span></li>
     </ul>
     <p>Each step of a run is a fresh Claude Code session with a brief: the role's instructions, the task, the criteria, your answers and the reports of the steps before. Turns are capped by the task's size, at 60, 120 or 240. The roles that only read, the CTO, the planners and the reviewers, cannot edit a file.</p>
 

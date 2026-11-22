@@ -113,7 +113,7 @@ keywords = "routing route workflow budget squads hotfix kind size"
 problem = '''<p>A typo fix and an epic should not go through the same process. Before a team run starts, the CTO reads the request and the project and proposes the path: what kind of work it is, how big, which workflow, which optional steps, which squads, what budget. You approve it before anything starts.</p>'''
 how = [
   "The run starts with a triage step, the CTO on opus.",
-  "It returns the kind (bug, feature, epic, refactor, infra, SEO, docs…), the size (S, M, L), the workflow, the steps to add or skip, the effort per step, the squads and the budget, with its rulings and their reasons.",
+  "It returns the kind (bug, feature, epic, refactor, infra, SEO, docs, brand, copy, motion…), the size (S, M, L), the workflow, the steps to add or skip, the effort per step, the squads and the budget, with its rulings and their reasons.",
   "If something is unclear, it asks its questions first, with proposed answers.",
   "TermF checks everything it proposed, then the path waits for you: Approve the path, Change or Refuse.",
 ]
@@ -163,10 +163,10 @@ read = "how-it-works.html#questions"
 [[features]]
 slug = "roles"
 group = "team"
-name = "Fourteen roles"
+name = "Seventeen roles"
 tagline = "From the product owner to the security reviewer, each a file you can change."
-keywords = "agents roles cto lead po pm architect ux front back devops qa seo secops reviewer expert model effort"
-problem = '''<p>One general agent doing everything drifts. TermF ships fourteen roles, each with a mission, a model, an effort and permissions: cto, lead, po, pm, architect, ux, front, back, devops, qa, seo, secops, reviewer and expert. Planners and reviewers run on opus, builders on sonnet.</p>'''
+keywords = "agents roles cto lead po pm architect ux front back devops qa seo secops reviewer expert brand copy motion model effort"
+problem = '''<p>One general agent doing everything drifts. TermF ships seventeen roles, each with a mission, a model, an effort and permissions: cto, lead, po, pm, architect, ux, front, back, devops, qa, seo, secops, reviewer, expert, brand, copy and motion. Most planners and reviewers run on opus, most builders on sonnet.</p>'''
 how = [
   "The plan gives each task a role and a size.",
   "TermF starts a fresh Claude Code session for the step, with the role's instructions and a brief: the task, the criteria, your answers, the earlier reports.",
@@ -176,7 +176,7 @@ how = [
 visual = "roster"
 caption = "Some of the roles, with their model and effort. From library/roles."
 default = [
-  "Fourteen roles ship in <code>library/roles/</code>, each a Markdown file in the format of Claude Code's agents.",
+  "Seventeen roles ship in <code>library/roles/</code>, each a Markdown file in the format of Claude Code's agents.",
   "Steps run in <code>acceptEdits</code> mode; the roles that only read cannot edit a file.",
   "secops runs at extra high effort.",
 ]
@@ -188,7 +188,7 @@ tune = [
 commands = [["termf team squads", "every role of a project with its settings and where each comes from"]]
 limits = ["A repository can only pick a model or an effort and add to what is denied.", "The descriptions of the shipped roles are in English even in the French interface."]
 tried = "Run with a real Claude Code (Haiku) from the plan to the tasks' reports, through automated tests."
-related = ["squads", "code-review", "library"]
+related = ["squads", "code-review", "creative"]
 read = "team.html#roles"
 
 [[features]]
@@ -244,6 +244,31 @@ limits = ["A finding is tied to a task by its id or by the role of a single task
 tried = "The review loop ran with a real Claude Code (Haiku), clean on its first round, through automated tests."
 related = ["roles", "workflows", "visual-review"]
 read = "how-it-works.html#review"
+
+[[features]]
+slug = "creative"
+group = "team"
+name = "Brand, copy and motion"
+tagline = "An identity, the words and the videos, when a ticket asks for them."
+keywords = "brand identity logo design system guidelines copy ux writing microcopy translation motion video animation gif storyboard stock media"
+problem = '''<p>Some tickets are not code: a logo, the words of a new screen, a launch video. Three roles ship for them. The brand designer makes the identity, the copywriter writes the texts the ticket asks for, and the motion designer makes videos, demos and animations, each with skills of its own.</p>'''
+how = [
+  "The plan gives them a task only when the request calls for it; no shipped workflow includes them, and the triage knows brand, copy and motion requests.",
+  "brand compares three directions, lets you choose through the questionnaire, then delivers the guidelines printed to PDF, the design system as code, the SVG logos and every export.",
+  "copy writes the texts the ticket asks for, in every language of the project, with options in the questionnaire when the text is not given, and never rewrites an existing one.",
+  "motion gets its storyboard approved through the questionnaire before anything is rendered, then works from real captures of the product.",
+]
+default = [
+  "brand on opus at high effort, copy on opus at medium, motion on sonnet at high.",
+  "Five skills come with them: brand-identity, logo-export, ux-writing, motion-video and stock-media.",
+  "Media come from sources without a key (Openverse, Wikimedia Commons); TermF puts no key in an agent's environment.",
+  "The setup assistant proposes brand and copy for a project with a front end, motion for one with a public site, as staff.",
+]
+tune = ["Their models and effort, like any role: <code>[roles.brand]</code>, <code>[roles.copy]</code>, <code>[roles.motion]</code>.", "A key you set yourself in the session's environment (Pexels, Pixabay, Unsplash…) is used by its name, never shown."]
+commands = [["termf team squads", "the roles of a project, staff included"]]
+limits = ["Never run in a real run nor evaluated yet.", "The image and video tools they call (rsvg-convert, resvg, Inkscape, ImageMagick, ffmpeg) have not been tried, and no media API has been called."]
+tried = "Shipped with their skills and evaluation cases; nothing run for real yet."
+related = ["roles", "questionnaire", "squads"]
 
 [[features]]
 slug = "expert"
