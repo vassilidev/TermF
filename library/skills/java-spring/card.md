@@ -1,0 +1,8 @@
+- Version: Boot in the `spring-boot-starter-parent` parent or the `org.springframework.boot` Gradle plugin; Java from the toolchain or compiler release; wrapper versions in `gradle/wrapper/` or `.mvn/wrapper/`.
+- Docs for this version: `https://docs.spring.io/spring-boot/<version>/`, the Boot wiki migration guide and release notes; `https://docs.gradle.org/llms.txt`; Gradle's official skills in `gradle/gradle-skills`.
+- Verify: the project's CI steps, else `./gradlew build` or `./mvnw verify`.
+- Boot 4: `spring-boot-starter-webmvc` (not `-web`), per-technology test starters.
+- Boot 4: Jackson 3 in `tools.jackson.*`, immutable mappers, new defaults.
+- Boot 4 tests: `@MockitoBean` (no `@MockBean`), `@AutoConfigureMockMvc` with `@SpringBootTest`, slice annotations in new packages.
+- Actuator: expose only what is needed; a custom `SecurityFilterChain` drops Boot's default actuator security.
+- Read the skill `java-spring` before changing Spring code or the build.

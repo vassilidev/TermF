@@ -1,0 +1,8 @@
+- Version: `python -m django --version` or `Django` in the lockfile; settings module from `manage.py`; database engine and version.
+- Docs for this version: `https://docs.djangoproject.com/en/<major.minor>/` and its release notes (no `llms.txt`, no official skill or MCP).
+- Verify: the project's commands, else `python manage.py check`, `python manage.py makemigrations --check`, `python manage.py test` (or `pytest`).
+- 6.0: `DEFAULT_AUTO_FIELD` defaults to `BigAutoField` and is no longer written by `startproject`.
+- 6.0 `django.tasks` has no worker: production needs a third-party backend.
+- 6.0 built-in CSP (`SECURE_CSP`) and template partials (`{% partialdef %}`); 6.1 fetch modes (`FETCH_PEERS`, `FETCH_RAISE`) and `DB_CASCADE` (no delete signals).
+- Next release is 6.2 LTS (April 2027), then "Django 2028" (calendar versioning).
+- Read the skill `django` before changing models, migrations, views or settings.

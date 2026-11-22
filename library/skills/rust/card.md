@@ -1,0 +1,8 @@
+- Version: `edition`, `rust-version` and `resolver` in `Cargo.toml`; toolchain in `rust-toolchain.toml`; `rustup show`.
+- Docs for this version: release posts on `https://blog.rust-lang.org/releases/`, the edition guide, crate docs on `docs.rs` at the locked version.
+- Verify: the project's commands, else `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features` with warnings denied, `cargo test --workspace`.
+- Edition 2024: `unsafe extern`, `#[unsafe(no_mangle)]`, `set_var` is unsafe, `static mut` references denied, RPIT captures all lifetimes (`use<..>`), `gen` reserved.
+- Cargo 1.97+: `CARGO_BUILD_WARNINGS=deny` keeps the build cache; `-- -D warnings` on older toolchains.
+- Rust 1.100: `!` is stable (more unreachable-code warnings), Cargo warns on unused dependencies.
+- cargo-nextest skips doc tests: also run `cargo test --doc`.
+- Read the skill `rust` before writing Rust code or tests.
