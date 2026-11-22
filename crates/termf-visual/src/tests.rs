@@ -19,8 +19,18 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// A dev server for tests: Python's, serving the worktree's files.
-const DEV: &str = "python3 -m http.server {{ port }} --bind 127.0.0.1";
+/// A dev server for tests, serving the files of the folder it runs in. Not `python3 -m http.server`: it looks
+/// its host name up first, which takes more than 30 s on some macOS machines.
+const SERVE: &str = "import http.server, socketserver, sys\n\
+    socketserver.ThreadingTCPServer.allow_reuse_address = True\n\
+    socketserver.ThreadingTCPServer(('127.0.0.1', int(sys.argv[1])), http.server.SimpleHTTPRequestHandler).serve_forever()\n";
+
+/// The dev command for tests, its script written in `dir`.
+fn dev(dir: &Path) -> String {
+    let script = dir.join("serve.py");
+    fs::write(&script, SERVE).unwrap();
+    format!("python3 {} {{{{ port }}}}", script.display())
+}
 
 /// The stand-in for Claude Code of the team's tests: answers each step from `<key>.json`, runs `<key>.sh <n>`
 /// first, and keeps each message in `<log>.msg.<key>.<n>`.
@@ -119,8 +129,9 @@ impl Env {
         fs::write(
             config.join("projects/acme.toml"),
             format!(
-                "name = \"Acme\"\n[[repos]]\nname = \"web\"\npath = \"{}\"\ndev = \"{DEV}\"\n{visual}",
-                repo.display()
+                "name = \"Acme\"\n[[repos]]\nname = \"web\"\npath = \"{}\"\ndev = \"{}\"\n{visual}",
+                repo.display(),
+                dev(&root)
             ),
         )
         .unwrap();
@@ -339,7 +350,7 @@ fn a_dev_server_that_does_not_answer_fails_the_version() {
     let file = env.config.join("projects/acme.toml");
     let text = fs::read_to_string(&file)
         .unwrap()
-        .replace(DEV, "echo starting; sleep 30");
+        .replace(&dev(&env.root), "echo starting; sleep 30");
     fs::write(&file, text).unwrap();
     let head = env.commit(PAGE_AFTER);
     let visual = env.visual();
@@ -380,8 +391,14 @@ fn starts_and_stops_a_dev_server() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
-    let mut server =
-        Server::start(DEV, &dir, &BTreeMap::new(), port, &dir.join("dev.log")).unwrap();
+    let mut server = Server::start(
+        &dev(&dir),
+        &dir,
+        &BTreeMap::new(),
+        port,
+        &dir.join("dev.log"),
+    )
+    .unwrap();
     server.wait(Duration::from_secs(30)).unwrap();
     assert!(env::answers(port));
     drop(server);
@@ -1025,8 +1042,14 @@ fn real_chrome_captures_a_page() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
-    let mut server =
-        Server::start(DEV, &dir, &BTreeMap::new(), port, &dir.join("dev.log")).unwrap();
+    let mut server = Server::start(
+        &dev(&dir),
+        &dir,
+        &BTreeMap::new(),
+        port,
+        &dir.join("dev.log"),
+    )
+    .unwrap();
     server.wait(Duration::from_secs(30)).unwrap();
     let mut browser = Browser::launch(&browser::find().unwrap()).unwrap();
     let login = config::Login {
