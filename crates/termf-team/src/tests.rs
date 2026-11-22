@@ -251,8 +251,9 @@ impl Env {
     fn restart(&mut self) {
         self.team.shutdown();
         self.agents.shutdown();
-        // In the app, the threads that saw the processes end are gone with it.
-        let deadline = Instant::now() + Duration::from_secs(10);
+        // In the app, the threads that saw the processes end are gone with it. As long as `until`: under load,
+        // each killed process's end goes through the store like any other write.
+        let deadline = Instant::now() + Duration::from_secs(30);
         while termf_agents::sessions(&self.data).unwrap().iter().any(|s| {
             matches!(
                 s.state,
@@ -384,15 +385,21 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
             task("T4", "back", &["src/api/b.txt"], &["T1"]),
         ])),
     );
-    for (id, file) in [
-        ("T1", "src/api/a.txt"),
-        ("T2", "web/x.txt"),
-        ("T3", "web/pages/y.txt"),
-        ("T4", "src/api/b.txt"),
+    // T1 ends only once T2 has begun (30 s at most): run one after the other, they fail the order checked below,
+    // whatever the load, where a fixed pause could end T1 before a slow start of T2.
+    let t2_begun = format!(
+        "i=0; until grep -qx 'implement:T2 1 begin' '{}.steps' || [ $i -ge 300 ]; do sleep 0.1; i=$((i + 1)); done",
+        env.log
+    );
+    for (id, file, wait) in [
+        ("T1", "src/api/a.txt", t2_begun.as_str()),
+        ("T2", "web/x.txt", "sleep 1"),
+        ("T3", "web/pages/y.txt", "sleep 1"),
+        ("T4", "src/api/b.txt", "sleep 1"),
     ] {
         env.script(
             &format!("implement:{id}"),
-            &format!("sleep 1; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
+            &format!("{wait}; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
         );
     }
     let run = env
@@ -1521,16 +1528,22 @@ effort_range = ["high", "high"]
             squad(task("T6", "front", &["web/z.txt"], &[]), "web"),
         ])),
     );
-    for (id, file) in [
-        ("T1", "src/api/a.txt"),
-        ("T2", "src/api/b.txt"),
-        ("T3", "web/x.txt"),
-        ("T4", "web/y.txt"),
-        ("T6", "web/z.txt"),
+    // T3 ends only once T4 has begun (30 s at most): one front at a time fails the order checked below, whatever
+    // the load, where a fixed pause could end T3 before a slow start of T4.
+    let t4_begun = format!(
+        "i=0; until grep -qx 'implement:T4 1 begin' '{}.steps' || [ $i -ge 300 ]; do sleep 0.1; i=$((i + 1)); done",
+        env.log
+    );
+    for (id, file, wait) in [
+        ("T1", "src/api/a.txt", "sleep 1"),
+        ("T2", "src/api/b.txt", "sleep 1"),
+        ("T3", "web/x.txt", t4_begun.as_str()),
+        ("T4", "web/y.txt", "sleep 1"),
+        ("T6", "web/z.txt", "sleep 1"),
     ] {
         env.script(
             &format!("implement:{id}"),
-            &format!("sleep 1; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
+            &format!("{wait}; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
         );
     }
     // T4 strays out of its squad once.

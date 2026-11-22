@@ -101,6 +101,11 @@
   const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.step }))));
   const main = $derived(primary(placed, cto?.state === "waiting", finished.map((d) => d.key)));
   const decision = (key: string | undefined) => decisions.find((d) => d.key === key);
+  // What the thread's head already asks of the user: its examples would push it out of view.
+  const asking = $derived.by(() => {
+    const ob = project ? onboarding[project.id] : undefined;
+    return decisions.length > 0 || ops.requests.some((r) => r.project === project?.id) || (!!ob && setupSteps.includes(ob.step));
+  });
 
   // A new project's setup, until it is done.
   let onboarding = $state<Record<string, Onboarding>>({});
@@ -263,12 +268,12 @@
   };
 
   /** What a run is at, under its title, and its state: the one the Run page shows. */
-  function runLine(o: { run?: Run; team?: TeamRun }): { text: string; pill: [Status, string | undefined] } {
+  function runLine(o: { run?: Run; team?: TeamRun }): { text: string; pill: [Status, string | undefined, string | undefined] } {
     const team = o.team;
-    const pill = (): [Status, string | undefined] => {
+    const pill = (): [Status, string | undefined, string | undefined] => {
       // A team whose ticket run is not known yet is that of an open run.
       const s = shown(o.run ?? { status: "running", prUrl: null, prState: null }, team);
-      return [s.status as Status, s.label ? t(s.label) : undefined];
+      return [s.status as Status, s.label ? t(s.label) : undefined, s.hint && t(s.hint)];
     };
     if (team && team.state !== "done") {
       const done = progress(team);
@@ -349,7 +354,7 @@
 </script>
 
 {#snippet more(label: string, onclick: () => void)}
-  <button class="more" {onclick}>{label}</button>
+  <button class="btn sm link more" {onclick}>{label}</button>
 {/snippet}
 
 {#snippet waitRow(w: Wait, everywhere: boolean)}
@@ -376,7 +381,7 @@
       {#if line.text}<span>{line.text}</span>{/if}
     </span>
     {#if p}<span class="pm"><span class="mark" aria-hidden="true">{initial(p.name)}</span>{p.name}</span>{/if}
-    <span class="state"><StatusPill status={line.pill[0]} label={line.pill[1]} /></span>
+    <span class="state"><StatusPill status={line.pill[0]} label={line.pill[1]} hint={line.pill[2]} /></span>
   {/snippet}
   {#if go}
     <button class="rrow" onclick={go}>{@render content()}</button>
@@ -389,11 +394,11 @@
   <span class="who" class:cto={home.with === "cto"} aria-hidden="true">{home.with === "cto" ? t("ux3t1Cto") : initials("expert")}</span>
   <div class="grow">
     <b>{home.with === "cto" ? t("ux3t1Cto") : t("ux3t1Expert")}</b>
-    {#if home.with === "cto"}<span class="sub">{t("ctoStart")}</span>{/if}
+    <span class="sub">{home.with === "cto" ? t("ctoStart") : t("uxfT2ExpertHint")}</span>
   </div>
   <div class="segmented" role="group" aria-label={t("ux3t1With")}>
-    <button aria-pressed={home.with === "cto"} onclick={() => (home.with = "cto")}>{t("ux3t1Cto")}</button>
-    <button aria-pressed={home.with === "expert"} onclick={() => (home.with = "expert")}>{t("ux3t1Expert")}</button>
+    <button aria-pressed={home.with === "cto"} title={t("uxfT2CtoHint")} onclick={() => (home.with = "cto")}>{t("ux3t1Cto")}</button>
+    <button aria-pressed={home.with === "expert"} title={t("uxfT2ExpertHint")} onclick={() => (home.with = "expert")}>{t("ux3t1Expert")}</button>
   </div>
 {/snippet}
 
@@ -475,6 +480,7 @@
               {lead}
               card={home.with === "cto" ? card : undefined}
               top={home.with === "cto" ? top : undefined}
+              examples={home.with !== "cto" || !asking}
               bind:notices
             />
           {/key}
@@ -638,7 +644,7 @@
   .home {
     display: grid;
     flex: 1;
-    grid-template-columns: minmax(0, 1fr) 384px;
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 36%, 384px);
     min-height: 0;
   }
 
@@ -684,17 +690,18 @@
   }
 
   .who.cto {
+    width: auto;
+    min-width: 26px;
+    padding: 0 5px;
     border-radius: var(--radius);
     background: var(--accent);
     color: var(--accent-text);
-    font-size: 9px;
     letter-spacing: 0;
   }
 
   .who.sm {
     width: 22px;
     height: 22px;
-    font-size: 10px;
   }
 
   .who.term {
@@ -772,20 +779,6 @@
 
   .more {
     margin-left: auto;
-    padding: 2px 4px;
-    border: 0;
-    border-radius: var(--radius-sm);
-    background: none;
-    color: var(--accent-ink);
-    font: inherit;
-    font-size: var(--text-sm);
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .more:hover {
-    text-decoration: underline;
-    text-underline-offset: 2px;
   }
 
   .rrow {
