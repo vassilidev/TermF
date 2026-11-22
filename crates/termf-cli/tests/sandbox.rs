@@ -240,8 +240,8 @@ impl Drop for Lab {
         let _ = Command::new("claude")
             .args(["purge", &self.root.to_string_lossy(), "-y"])
             .output();
-        let worktrees = self.data.join("worktrees");
-        for folder in [&self.repo, &worktrees] {
+        let (worktrees, web) = (self.data.join("worktrees"), self.root.join("web"));
+        for folder in [&self.repo, &worktrees, &web] {
             let _ = Command::new("claude")
                 .args(["purge", &folder.to_string_lossy(), "-y"])
                 .output();
