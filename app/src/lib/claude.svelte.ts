@@ -101,7 +101,19 @@ export type Artifacts = {
 
 export const GALLERY = "https://claude.ai/code/artifacts";
 
-export const SECTIONS = ["overview", "settings", "mcp", "extensions", "hooks", "memory", "account", "tools", "artifacts"] as const;
+export const SECTIONS = [
+  "overview",
+  "settings",
+  "mcp",
+  "extensions",
+  "hooks",
+  "memory",
+  "sessions",
+  "usage",
+  "account",
+  "tools",
+  "artifacts",
+] as const;
 export type Section = (typeof SECTIONS)[number];
 
 /** The keys the view edits, with the values Claude Code's settings schema accepts. */

@@ -3,6 +3,8 @@ import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
 import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
 import ArrowRight from "@lucide/svelte/icons/arrow-right";
 import BellRing from "@lucide/svelte/icons/bell-ring";
+import Gauge from "@lucide/svelte/icons/gauge";
+import History from "@lucide/svelte/icons/history";
 import Images from "@lucide/svelte/icons/images";
 import Keyboard from "@lucide/svelte/icons/keyboard";
 import Coffee from "@lucide/svelte/icons/coffee";
@@ -381,6 +383,10 @@ export function commands(): Command[] {
     group: "views",
     run: () => showClaude("artifacts"),
   });
+  list.push(
+    { id: "claude-sessions", label: t("claudeDgShowSessions"), icon: History, group: "views", run: () => showClaude("sessions") },
+    { id: "claude-usage", label: t("claudeDgShowUsage"), icon: Gauge, group: "views", run: () => showClaude("usage") },
+  );
 
   const action = (command: Omit<Command, "group">) => list.push({ ...command, group: "actions" });
   action({ id: "switcher", label: t("navSwitchProject"), keys: keys.switcher, icon: ArrowLeftRight, run: () => (ui.switcher = true) });
