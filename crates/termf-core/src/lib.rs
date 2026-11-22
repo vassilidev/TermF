@@ -97,6 +97,7 @@ pub struct Settings {
     pub memory: MemorySettings,
     pub api: ApiSettings,
     pub tray: TraySettings,
+    pub updates: UpdateSettings,
 }
 
 /// `[tray]` in `termf.toml`: the icon in the menu bar or the notification area, and the count on the dock or taskbar
@@ -123,6 +124,33 @@ pub fn save_tray(config_dir: &Path, tray: TraySettings) -> Result<()> {
         table.insert("icon", value(tray.icon));
         table.insert("badge", value(tray.badge));
     })
+}
+
+/// `[updates]` in `termf.toml`: TermF's own updates.
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(default)]
+pub struct UpdateSettings {
+    pub channel: Channel,
+    /// Look for a new version at startup, at most once a day.
+    pub check: bool,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            channel: Channel::Stable,
+            check: true,
+        }
+    }
+}
+
+/// Which releases TermF updates to: `beta` also takes the pre-releases.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    #[default]
+    Stable,
+    Beta,
 }
 
 /// `[api]` in `termf.toml`: the local API the `termf` CLI talks to.
@@ -381,6 +409,7 @@ impl Default for Settings {
             memory: MemorySettings::default(),
             api: ApiSettings::default(),
             tray: TraySettings::default(),
+            updates: UpdateSettings::default(),
         }
     }
 }
@@ -517,6 +546,18 @@ pub fn save_ci_notify(config_dir: &Path, notify: CiNotify) -> Result<()> {
     edit_settings(config_dir, |doc| {
         // A `[ci]` section at the end, not an inline table above the user's comments.
         doc.entry("ci").or_insert(toml_edit::table())["notify"] = value(notify);
+    })
+}
+
+pub fn save_updates(config_dir: &Path, channel: Channel, check: bool) -> Result<()> {
+    let channel = match channel {
+        Channel::Stable => "stable",
+        Channel::Beta => "beta",
+    };
+    edit_settings(config_dir, |doc| {
+        let table = doc.entry("updates").or_insert(toml_edit::table());
+        table["channel"] = value(channel);
+        table["check"] = value(check);
     })
 }
 
@@ -1197,6 +1238,25 @@ mod tests {
         let settings = load_settings(&dir).unwrap();
         assert_eq!(settings.ci.notify, CiNotify::All);
         assert_eq!(settings.agents["claude"], "claude");
+    }
+
+    #[test]
+    fn saves_the_update_settings() {
+        let dir = temp_dir("updates");
+        fs::write(
+            dir.join("termf.toml"),
+            "# mine\n\n[agents]\nclaude = \"claude\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            load_settings(&dir).unwrap().updates,
+            UpdateSettings::default()
+        );
+        save_updates(&dir, Channel::Beta, false).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\n"), "comments kept: {text}");
+        let updates = load_settings(&dir).unwrap().updates;
+        assert_eq!((updates.channel, updates.check), (Channel::Beta, false));
     }
 
     #[test]

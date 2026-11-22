@@ -32,6 +32,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc3NDU2RUEwQjNDODcyOEEKUldTS2NzaXpvRzVGZDdsaDhjTjY3ZHlDL3BTTThxU2VOSmU2cXZQdTZKNTlCZ0FLc2RmZ1QwVXoK"
+    }
   }
 }

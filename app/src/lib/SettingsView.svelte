@@ -3,23 +3,28 @@
   import { invoke } from "@tauri-apps/api/core";
   import BellDot from "@lucide/svelte/icons/bell-dot";
   import Bot from "@lucide/svelte/icons/bot";
+  import CircleArrowUp from "@lucide/svelte/icons/circle-arrow-up";
   import Coffee from "@lucide/svelte/icons/coffee";
   import FileDown from "@lucide/svelte/icons/file-down";
   import FileUp from "@lucide/svelte/icons/file-up";
   import Folder from "@lucide/svelte/icons/folder";
   import FolderSync from "@lucide/svelte/icons/folder-sync";
   import Keyboard from "@lucide/svelte/icons/keyboard";
+  import ListChecks from "@lucide/svelte/icons/list-checks";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Search from "@lucide/svelte/icons/search";
   import Workflow from "@lucide/svelte/icons/workflow";
   import ClaudeBinary from "$lib/ClaudeBinary.svelte";
+  import CliPath from "$lib/CliPath.svelte";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import ContextReset from "$lib/ContextReset.svelte";
   import KeepAwake from "$lib/KeepAwake.svelte";
+  import Requirements from "$lib/Requirements.svelte";
   import ShortcutEditor from "$lib/ShortcutEditor.svelte";
   import TraySettings from "$lib/TraySettings.svelte";
   import SyncView from "$lib/SyncView.svelte";
+  import UpdateSettings from "$lib/UpdateSettings.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
@@ -71,6 +76,18 @@
       words: ["configFolder", "reload", "configExportLong", "configImportLong"],
     },
     { id: "sync", label: "syncTitle", icon: FolderSync, words: ["syncIntro", "syncDevice", "syncRemote", "syncPassword"] },
+    {
+      id: "updates",
+      label: "releaseUpdates",
+      icon: CircleArrowUp,
+      words: ["releaseVersion", "releaseChannel", "releaseStable", "releaseBeta", "releaseAuto", "releaseCheckNow"],
+    },
+    {
+      id: "tools",
+      label: "releaseNeeds",
+      icon: ListChecks,
+      words: ["releaseNeedsHelp", "releaseChromeDownload", "releaseCli", "releaseCliHelp", "releaseCliAdd"],
+    },
   ];
 
   let query = $state("");
@@ -188,6 +205,11 @@
             <KeepAwake />
           {:else if settings.section === "tray"}
             <TraySettings />
+          {:else if settings.section === "updates"}
+            <UpdateSettings />
+          {:else if settings.section === "tools"}
+            <Requirements />
+            <CliPath />
           {:else if settings.section === "context"}
             <ContextReset />
           {:else if settings.section === "keys"}
