@@ -2137,6 +2137,102 @@ fn a_finding_without_a_clear_task_waits_for_you() {
 }
 
 #[test]
+fn a_review_run_again_by_you_sets_its_findings_aside_and_counts_anew() {
+    let env = Env::new("review-again");
+    for n in [1, 2] {
+        env.answer(
+            &format!("review.{n}.json"),
+            findings(
+                "Still broken.",
+                json!([finding("important", "src/api/a.txt", 1, "T1")]),
+            ),
+        );
+    }
+    // Run again by you: the same bug, still there, and found again.
+    env.answer(
+        "review.3.json",
+        findings(
+            "Looked again at F1.",
+            json!([finding("important", "src/api/a.txt", 1, "T1")]),
+        ),
+    );
+    env.answer("review.4.json", findings("Fixed.", json!([])));
+    reviewed(&env, "");
+    env.until("the review waiting for you", blocked_review);
+
+    let run = env
+        .team
+        .revise(1, "review", "Look again: the new test covers it")
+        .unwrap();
+    assert_eq!(
+        run.reviews[1].findings[0].fate,
+        review::Fate::Superseded,
+        "set aside, never left: nobody decided to keep the bug"
+    );
+    let run = env.until("the delivery", delivery);
+    let again = env.message("review", 3);
+    assert!(
+        again.contains("(set aside when the user ran the review again)"),
+        "{again}"
+    );
+    let third = &run.reviews[2];
+    assert_eq!(
+        (third.findings[0].fate, third.findings[0].to.as_deref()),
+        (review::Fate::Sent, Some("T1")),
+        "its rounds count from your request: the bug goes back to its task"
+    );
+    assert!(env.steps_log().contains(&"implement:T1 3 begin".to_owned()));
+    assert_eq!(run.reviews.len(), 4);
+}
+
+#[test]
+fn without_a_task_to_send_it_to_a_finding_asks_why_it_stays() {
+    let env = Env::new("review-alone");
+    fs::write(
+        env.config.join("library/workflows/alone.toml"),
+        "[steps.review]\ntype = \"review\"\nrole = \"reviewer\"\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"review\"]\n",
+    )
+    .unwrap();
+    env.answer(
+        "review.1.json",
+        findings(
+            "One finding.",
+            json!([finding("important", "src/api/a.txt", 2, "")]),
+        ),
+    );
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("alone".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    let run = env.until("the review waiting for you", blocked_review);
+    let i = run.steps.iter().position(|s| s.key == "review").unwrap();
+    let [q] = run.questions(i) else {
+        panic!("one question: {:?}", run.questions(i))
+    };
+    assert_eq!(q.kind, plan::QuestionKind::Text);
+    env.team
+        .answer(
+            1,
+            "review",
+            BTreeMap::from([("F1".to_owned(), vec!["the CI covers it".to_owned()])]),
+            "",
+        )
+        .unwrap();
+    let run = env.until("the delivery", delivery);
+    let left = &run.reviews[0].findings[0];
+    assert_eq!(
+        (left.fate, left.reason.as_deref()),
+        (review::Fate::Left, Some("the CI covers it"))
+    );
+}
+
+#[test]
 fn no_review_when_it_is_off() {
     let env = Env::new("review-off");
     reviewed(&env, "review = false");

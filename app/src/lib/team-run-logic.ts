@@ -73,8 +73,11 @@ export type Report = {
   questions?: Question[];
 };
 export type Violation = { rule: string; file: string | null; message: string; blocking: boolean };
-/** What became of a finding of the code review: back to a task, for the user to decide, only listed, left as it is. */
-export type Fate = "sent" | "asked" | "reported" | "left";
+/**
+ * What became of a finding of the code review: back to a task, for the user to decide, only listed, left as it is, or
+ * set aside when the user ran the review again (never sent; the reviewer may report it again).
+ */
+export type Fate = "sent" | "asked" | "reported" | "left" | "superseded";
 export type Finding = {
   /** F1, F2… within its round. */
   id: string;
@@ -344,8 +347,30 @@ export function rounds(run: TeamRun, step: string): Review[] {
 }
 
 /** How a round ended: its findings, the tasks they go back to, and how many wait for the user, are only listed, or are left. */
-export function tally(review: Review): { count: number; to: string[]; asked: number; reported: number; left: number } {
+export function tally(review: Review): {
+  count: number;
+  to: string[];
+  asked: number;
+  reported: number;
+  left: number;
+  superseded: number;
+} {
   const count = (fate: Fate) => review.findings.filter((f) => f.fate === fate).length;
   const to = review.findings.filter((f) => f.fate === "sent" && f.to).map((f) => f.to as string);
-  return { count: review.findings.length, to: [...new Set(to)].sort(), asked: count("asked"), reported: count("reported"), left: count("left") };
+  return {
+    count: review.findings.length,
+    to: [...new Set(to)].sort(),
+    asked: count("asked"),
+    reported: count("reported"),
+    left: count("left"),
+    superseded: count("superseded"),
+  };
+}
+
+/**
+ * Whether `review` is the round its blocked step holds for the user: nothing of it went back to a task yet, and
+ * accepting the step as it is drops what it would send.
+ */
+export function held(run: TeamRun, step: Step, review: Review): boolean {
+  return step.state === "blocked" && rounds(run, step.key).at(-1) === review && review.findings.some((f) => f.fate === "asked");
 }

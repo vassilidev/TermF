@@ -66,6 +66,7 @@
     TRIAGE,
     asks,
     budgetError,
+    held,
     isForm,
     levels,
     progress,
@@ -148,12 +149,17 @@
 
   const spinning = (name: string) => busy === name;
 
-  const fate = (f: Finding) =>
-    f.fate === "sent"
-      ? t("reviewLoopSent", { task: f.to ?? "" })
-      : f.fate === "asked"
-        ? t("reviewLoopAsked")
-        : t(f.fate === "reported" ? "reviewLoopReported" : "reviewLoopLeft");
+  /** `waiting`: the round waits for the user, so nothing of it was sent yet. */
+  function fate(f: Finding, waiting: boolean): string {
+    if (f.fate === "sent") return t(waiting ? "reviewLoopWillSend" : "reviewLoopSent", { task: f.to ?? "" });
+    const keys = { asked: "reviewLoopAsked", reported: "reviewLoopReported", left: "reviewLoopLeft", superseded: "reviewLoopSuperseded" } as const;
+    return t(keys[f.fate]);
+  }
+
+  const optionLabel = (option: string) => (option === LEAVE ? t("reviewLoopLeaveOption") : option);
+  /** The review step whose acceptance as it is waits for confirmation. */
+  let accepting = $state("");
+  let confirmAccept = $state(false);
 
   /** The questions TermF asks about the findings of its review, said in the user's language from the findings. */
   function questionsOf(ask: Ask): Question[] {
@@ -164,6 +170,10 @@
       const f = last.findings.find((x) => x.id === q.id);
       if (!f) return q;
       const severity = t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit").toLowerCase();
+      if (q.kind === "text") {
+        const question = t("reviewLoopNoTask", { id: f.id, severity, where: `${f.file}:${f.line}`, scenario: f.scenario });
+        return { ...q, question, why: t("reviewLoopFix", { fix: f.fix }) };
+      }
       return {
         ...q,
         question: t("reviewLoopWho", { id: f.id, severity, where: `${f.file}:${f.line}`, scenario: f.scenario }),
@@ -173,15 +183,16 @@
     });
   }
 
-  function roundLine(review: Review): string {
+  function roundLine(review: Review, waiting: boolean): string {
     const n = tally(review);
     if (!n.count) return t("reviewLoopClean");
     return [
       t("reviewLoopFindings", { count: n.count }),
-      n.to.length ? t("reviewLoopBackTo", { tasks: n.to.join(", ") }) : "",
+      n.to.length ? t(waiting ? "reviewLoopWillBackTo" : "reviewLoopBackTo", { tasks: n.to.join(", ") }) : "",
       n.asked ? t("reviewLoopAskedCount", { count: n.asked }) : "",
       n.reported ? t("reviewLoopReportedCount", { count: n.reported }) : "",
       n.left ? t("reviewLoopLeftCount", { count: n.left }) : "",
+      n.superseded ? t("reviewLoopSupersededCount", { count: n.superseded }) : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -300,8 +311,9 @@
 {#snippet reviewRounds(step: Step)}
   {@const all = rounds(run, step.key)}
   {#each all as round, i (round.round)}
+    {@const waiting = held(run, step, round)}
     <details class="round" open={i === all.length - 1}>
-      <summary><b>{t("reviewLoopRound", { round: round.round })}</b> · {roundLine(round)}</summary>
+      <summary><b>{t("reviewLoopRound", { round: round.round })}</b> · {roundLine(round, waiting)}</summary>
       <p class="summary">{round.summary}</p>
       {#if round.findings.length}
         <ul class="findings">
@@ -310,7 +322,7 @@
               <div class="finding-head">
                 <span class="badge severity">{t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit")}</span>
                 <span class="mono where">{f.file}:{f.line}</span>
-                <span class="badge" class:asked={f.fate === "asked"}>{fate(f)}</span>
+                <span class="badge" class:asked={f.fate === "asked"}>{fate(f, waiting)}</span>
               </div>
               <p>{f.scenario}</p>
               <p class="muted">{t("reviewLoopFix", { fix: f.fix })}</p>
@@ -422,9 +434,13 @@
             {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
           {:else}
             <!-- Never stuck in the form: accept as it is, answer in free text, or set the path yourself. -->
-            <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)}>
+            <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)} {optionLabel}>
               {#if ask.accept}
-                <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
+                <button
+                  class="btn sm"
+                  disabled={!!busy}
+                  onclick={() => (ask.step.kind === "review" ? ((accepting = key), (confirmAccept = true)) : approve(key))}
+                >
                   {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
                 </button>
               {/if}
@@ -636,6 +652,14 @@
   {@render planSection()}
 {/if}
 
+<ConfirmDialog
+  bind:open={confirmAccept}
+  title={t("reviewLoopAcceptTitle")}
+  confirm={t("teamRunsAccept")}
+  onconfirm={() => approve(accepting)}
+>
+  <p>{t("reviewLoopAcceptText")}</p>
+</ConfirmDialog>
 <ConfirmDialog
   bind:open={stopping}
   title={t("teamRunsStopTitle", { ticket: run.target.ticket })}

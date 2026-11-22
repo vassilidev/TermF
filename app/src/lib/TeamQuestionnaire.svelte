@@ -29,8 +29,13 @@
    * A step's questions as one form, grouped by theme, the proposed answers filled in, sent all at once; a choice
    * also takes an answer of one's own. `children`: the step's other actions, beside Send.
    */
-  let { run, step, questions, children }: { run: TeamRun; step: string; questions: Question[]; children?: Snippet } =
-    $props();
+  let {
+    run,
+    step,
+    questions,
+    children,
+    optionLabel = (option: string) => option,
+  }: { run: TeamRun; step: string; questions: Question[]; children?: Snippet; optionLabel?: (option: string) => string } = $props();
 
   // svelte-ignore state_referenced_locally
   let answers = $state<Record<string, string[]>>(proposed(questions));
@@ -63,14 +68,21 @@
       <div class="question">
         <span class="q-text">{q.question}</span>
         {#if q.why}<span class="why">{t("ctoEntryWhyItMatters", { why: q.why })}</span>{/if}
-        <QuestionInput kind={q.kind} options={q.options} label={q.question} value={answers[q.id] ?? []} onchange={(v) => (answers[q.id] = v)} />
+        <QuestionInput
+          kind={q.kind}
+          options={q.options}
+          label={q.question}
+          value={answers[q.id] ?? []}
+          onchange={(v) => (answers[q.id] = v)}
+          {optionLabel}
+        />
         {#if q.kind === "choice" || q.kind === "multi"}
           <input class="field other" placeholder={t("ctoEntryOther")} aria-label={t("ctoEntryOther")} bind:value={others[q.id]} />
         {/if}
         {#if q.implications.length === q.options.length && q.implications.some((i) => i.trim())}
           <ul class="implications">
             {#each q.options as option, i (option)}
-              {#if q.implications[i]?.trim()}<li><b>{option}</b> · {q.implications[i]}</li>{/if}
+              {#if q.implications[i]?.trim()}<li><b>{optionLabel(option)}</b> · {q.implications[i]}</li>{/if}
             {/each}
           </ul>
         {/if}

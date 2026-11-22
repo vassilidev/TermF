@@ -104,7 +104,8 @@ pub struct SessionSpec {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub mcp: bool,
     /// Each Bash command goes through `termf guard` first, as in a ticket run's tile: no push, no pull request,
-    /// no write to the tracker or the CI. Such a session never starts without it, nor in a terminal.
+    /// no write to the tracker or the CI. Such a session never starts without it; taken over, its terminal gets the
+    /// same hook.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub guard: bool,
 }

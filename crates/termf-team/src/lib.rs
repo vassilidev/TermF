@@ -191,6 +191,9 @@ pub struct Step {
     /// A `review` step's most rounds, as its workflow caps them.
     #[serde(default)]
     pub rounds: Option<u32>,
+    /// A `review` step's rounds before the user last sent the work back: its rounds count from there.
+    #[serde(default)]
+    pub review_base: u32,
     /// The agent session of the current attempt, and of every attempt.
     pub session: Option<i64>,
     pub sessions: Vec<i64>,
@@ -231,6 +234,7 @@ impl Step {
             budget: None,
             effort: None,
             rounds: None,
+            review_base: 0,
             session: None,
             sessions: Vec::new(),
             after: 0,
@@ -604,7 +608,7 @@ impl Team {
             _ => bail!("step {key} does not wait for you"),
         }
         if run.steps[i].kind == StepKind::Review {
-            inner.settle_review(&mut run, i);
+            inner.settle_review(&mut run, i, review::Fate::Left);
         }
         let step = &mut run.steps[i];
         step.state = StepState::Done;
@@ -872,7 +876,7 @@ impl Inner {
             }
             StepState::Blocked => {
                 if run.steps[i].kind == StepKind::Review {
-                    self.settle_review(run, i);
+                    self.settle_review(run, i, review::Fate::Superseded);
                 }
                 i
             }
@@ -924,6 +928,12 @@ impl Inner {
         step.attempt = 0;
         step.note = None;
         let target_key = step.key.clone();
+        // The user sent the work back: the reviews it reaches count their rounds anew.
+        for j in 0..run.steps.len() {
+            if run.steps[j].kind == StepKind::Review && run.steps[j].state == StepState::Pending {
+                run.steps[j].review_base = self.rounds_of(run, j);
+            }
+        }
         self.event(
             store,
             run,
@@ -1708,11 +1718,7 @@ impl Inner {
                 );
             }
         };
-        let tasks = run
-            .plan
-            .as_ref()
-            .map(|p| p.tasks.clone())
-            .unwrap_or_default();
+        let tasks = fixable(run);
         let scope = self.scope(run, &run.target.worktree);
         let role = |name: &str| {
             scope
@@ -1735,12 +1741,13 @@ impl Inner {
             Err(e) => return self.block(store, run, i, &format!("{e:#}")),
         };
         let key = run.steps[i].key.clone();
-        let round = run.reviews.iter().filter(|r| r.step == key).count() as u32 + 1;
+        let round = self.rounds_of(run, i) + 1;
         let most = run.steps[i]
             .rounds
             .map_or(settings.rounds, |r| r.min(settings.rounds))
             .max(1);
-        let last = round >= most;
+        let nth = round.saturating_sub(run.steps[i].review_base);
+        let last = nth >= most;
         let findings: Vec<Finding> = found
             .into_iter()
             .enumerate()
@@ -1767,7 +1774,7 @@ impl Inner {
             })
             .collect();
         let asked: Vec<&Finding> = findings.iter().filter(|f| f.fate == Fate::Asked).collect();
-        let at_last = format!("This was the review's last round ({round} of {most}): you decide.");
+        let at_last = format!("This was the review's last round ({nth} of {most}): you decide.");
         let questions = review::questions(&asked, &tasks, &at_last);
         let waits = !asked.is_empty();
         run.steps[i].report = Some(Report {
@@ -1783,7 +1790,7 @@ impl Inner {
             questions,
         });
         let tally = review::tally(&findings);
-        let mut message = format!("round {round} of {most}: {tally}");
+        let mut message = format!("round {round} ({nth} of {most}): {tally}");
         for line in review::lines(&findings) {
             message.push_str(&format!("\n- {line}"));
         }
@@ -1807,8 +1814,15 @@ impl Inner {
         self.send_back(store, run, i);
     }
 
+    /// How many rounds the review step `i` made in the run.
+    fn rounds_of(&self, run: &TeamRun, i: usize) -> u32 {
+        let key = &run.steps[i].key;
+        run.reviews.iter().filter(|r| &r.step == key).count() as u32
+    }
+
     /// Sends the findings of the last round of review step `i` that go back to a task: each task runs again with
-    /// them, and what comes after it (the checks, the review) waits for its new work.
+    /// them, and what comes after it (the checks, the review) waits for its new work; a review that does not come
+    /// after the task waits for it all the same.
     fn send_back(&self, store: &Store, run: &mut TeamRun, i: usize) {
         let key = run.steps[i].key.clone();
         let Some(r) = run.reviews.iter().rposition(|r| r.step == key) else {
@@ -1830,6 +1844,16 @@ impl Inner {
                 continue;
             };
             self.reopen_after(run, j);
+            if run.steps[i].state != StepState::Pending {
+                let task_key = run.steps[j].key.clone();
+                let review = &mut run.steps[i];
+                if !review.needs.contains(&task_key) {
+                    review.needs.push(task_key);
+                }
+                review.state = StepState::Pending;
+                review.attempt = 0;
+                review.note = None;
+            }
             let found: Vec<&review::Finding> = findings.iter().collect();
             let ids: Vec<&str> = findings.iter().map(|f| f.id.as_str()).collect();
             let step = &mut run.steps[j];
@@ -1871,11 +1895,7 @@ impl Inner {
             .rev()
             .find(|r| &r.step == key)
             .context("the review has no round to decide")?;
-        let tasks: Vec<&str> = run
-            .plan
-            .iter()
-            .flat_map(|p| p.tasks.iter().map(|t| t.id.as_str()))
-            .collect();
+        let tasks: Vec<String> = fixable(run).into_iter().map(|t| t.id).collect();
         let mut decisions = Vec::new();
         for f in round
             .findings
@@ -1887,7 +1907,7 @@ impl Inner {
                 .and_then(|a| a.first())
                 .map(|a| a.trim())
                 .unwrap_or_default();
-            if tasks.contains(&answer) {
+            if tasks.iter().any(|t| t == answer) {
                 decisions.push((f.id.clone(), Ok(answer.to_owned())));
                 continue;
             }
@@ -1937,14 +1957,22 @@ impl Inner {
         }
         let tally = review::tally(&run.reviews[r].findings);
         self.done(store, run, i, &format!("decided by you: {tally}"));
+        if run.reviews[r]
+            .findings
+            .iter()
+            .any(|f| f.fate == review::Fate::Sent)
+        {
+            run.steps[i].review_base = self.rounds_of(run, i);
+        }
         self.send_back(store, run, i);
         run.state = RunState::Running;
         self.tick(store, run)
     }
 
-    /// The review step `i`, blocked on its findings, goes on without the user's answers (accepted as it is, or run
-    /// again with their words): nothing it held goes back to a task.
-    fn settle_review(&self, run: &mut TeamRun, i: usize) {
+    /// The review step `i`, blocked on its findings, goes on without the user's answers: nothing it held goes back
+    /// to a task. `fate`: `Left` when accepted as it is, `Superseded` when run again with their words (its reviewer
+    /// may report them again).
+    fn settle_review(&self, run: &mut TeamRun, i: usize, fate: review::Fate) {
         let key = &run.steps[i].key;
         let Some(round) = run.reviews.iter_mut().rev().find(|r| &r.step == key) else {
             return;
@@ -1955,7 +1983,7 @@ impl Inner {
                 .iter_mut()
                 .filter(|f| matches!(f.fate, review::Fate::Asked | review::Fate::Sent))
             {
-                f.fate = review::Fate::Left;
+                f.fate = fate;
             }
         }
     }
@@ -2831,7 +2859,7 @@ impl Inner {
             }
             if step.kind == StepKind::Review {
                 text.push_str("\n## The tasks\n\n");
-                for task in &plan.tasks {
+                for task in &fixable(run) {
                     let files = run
                         .steps
                         .iter()
@@ -3021,6 +3049,20 @@ const QUESTIONNAIRE: &str = "\nEach question you ask is an item of a questionnai
      multi: any of them; bool: yes or no; text), the options (none for bool and text), the answer you propose, in \
      the shape of an answer (an option, yes or no, or a text), and what each option implies, in their order (or \
      nothing). Propose the answer you would pick; ask only what you cannot find in the repositories.\n";
+
+/// The plan's tasks that can run again with findings: those the run has a step for.
+fn fixable(run: &TeamRun) -> Vec<Task> {
+    run.plan
+        .iter()
+        .flat_map(|p| p.tasks.iter())
+        .filter(|t| {
+            run.steps
+                .iter()
+                .any(|s| s.kind == StepKind::Task && s.task.as_ref() == Some(&t.id))
+        })
+        .cloned()
+        .collect()
+}
 
 /// The steps of a run that follow a workflow's.
 fn build_steps(defs: Vec<(String, workflow::StepDef)>) -> Vec<Step> {

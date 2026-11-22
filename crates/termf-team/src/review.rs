@@ -82,6 +82,8 @@ pub enum Fate {
     Reported,
     /// The user left it as it is.
     Left,
+    /// Held when the user ran the review again: never sent; its reviewer may report it again.
+    Superseded,
 }
 
 /// What `[team]` says of the review: the project's file first, then `termf.toml`.
@@ -206,11 +208,30 @@ pub fn check(
     }
 }
 
-/// The questionnaire of the findings the user decides: which task fixes each, or leave it as it is. None
-/// without a task to send them to. `last`: why a finding with a task asks the user all the same.
+/// The questionnaire of the findings the user decides: which task fixes each, or leave it as it is; without a
+/// task to send them to, why each stays as it is. `last`: why a finding with a task asks the user all the same.
 pub fn questions(findings: &[&Finding], tasks: &[Task], last: &str) -> Vec<Question> {
     if tasks.is_empty() {
-        return Vec::new();
+        return findings
+            .iter()
+            .map(|f| Question {
+                id: f.id.clone(),
+                theme: "technical".into(),
+                question: format!(
+                    "No task can fix {} ({}) at {}:{}: why does it stay as it is? {}",
+                    f.id,
+                    severity(f.severity),
+                    f.file,
+                    f.line,
+                    f.scenario
+                ),
+                why: format!("Fix expected: {}", f.fix),
+                kind: QuestionKind::Text,
+                options: Vec::new(),
+                proposed: Vec::new(),
+                implications: Vec::new(),
+            })
+            .collect();
     }
     let mut options: Vec<String> = tasks.iter().map(|t| t.id.clone()).collect();
     options.push(LEAVE.into());
@@ -296,6 +317,7 @@ pub fn tally(findings: &[Finding]) -> String {
         (Fate::Asked, "wait for the user"),
         (Fate::Reported, "listed"),
         (Fate::Left, "left as they are"),
+        (Fate::Superseded, "set aside"),
     ] {
         if count(fate) > 0 {
             parts.push(format!("{} {label}", count(fate)));
@@ -314,6 +336,7 @@ pub fn lines(findings: &[Finding]) -> Vec<String> {
                 (Fate::Asked, _, _) => "waits for the user".into(),
                 (Fate::Reported, _, _) => "reported".into(),
                 (Fate::Left, _, Some(why)) => format!("left as it is: {why}"),
+                (Fate::Superseded, _, _) => "set aside when the user ran the review again".into(),
                 _ => "left as it is".into(),
             };
             format!(

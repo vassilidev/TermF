@@ -2217,6 +2217,15 @@ const fr = {
   reviewLoopWhyNoTask: "aucune tâche du plan n'en est clairement chargée. Correction attendue : {fix}",
   reviewLoopFixedBy: "{task} ({role}) le corrige dans une nouvelle tentative, puis les contrôles et la revue repassent",
   reviewLoopLeaveImplies: "personne ne le corrige : il reste dans le rapport du run, avec ta raison dans « Autre chose à dire »",
+  reviewLoopWillSend: "Sera renvoyé à {task}",
+  reviewLoopWillBackTo: "seront renvoyés à {tasks}",
+  reviewLoopSuperseded: "Mis de côté (revue relancée)",
+  reviewLoopSupersededCount: "{count} mis de côté",
+  reviewLoopNoTask: "Aucune tâche ne peut corriger {id} ({severity}), {where} : pourquoi le laisser tel quel ? {scenario}",
+  reviewLoopLeaveOption: "Laisser tel quel",
+  reviewLoopAcceptTitle: "Accepter la revue telle quelle ?",
+  reviewLoopAcceptText:
+    "Les constats de ce tour restent tels quels, même ceux qui devaient être renvoyés à une tâche : rien n'est corrigé et le run continue.",
 };
 
 type Key = keyof typeof fr;
@@ -4422,6 +4431,15 @@ const en: Record<Key, string> = {
   reviewLoopWhyNoTask: "no task of the plan clearly owns it. Fix expected: {fix}",
   reviewLoopFixedBy: "{task} ({role}) fixes it in a new attempt, then the checks and the review run again",
   reviewLoopLeaveImplies: "nobody fixes it: it stays in the run's report, with your reason under “Anything else to say”",
+  reviewLoopWillSend: "To be sent back to {task}",
+  reviewLoopWillBackTo: "to be sent back to {tasks}",
+  reviewLoopSuperseded: "Set aside (review run again)",
+  reviewLoopSupersededCount: "{count} set aside",
+  reviewLoopNoTask: "No task can fix {id} ({severity}), {where}: why does it stay as it is? {scenario}",
+  reviewLoopLeaveOption: "Leave as is",
+  reviewLoopAcceptTitle: "Accept the review as it is?",
+  reviewLoopAcceptText:
+    "This round's findings stay as they are, even those to be sent back to a task: nothing gets fixed and the run goes on.",
 };
 
 const messages = { fr, en };
