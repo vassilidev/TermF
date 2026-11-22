@@ -10,6 +10,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 pub mod claude;
 pub mod cli_agents;
 pub mod context;
+pub mod db;
 pub mod ipc;
 pub mod process;
 pub mod remote;

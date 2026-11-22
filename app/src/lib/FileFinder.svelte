@@ -93,7 +93,7 @@
   }
 
   .finder::backdrop {
-    background: rgb(10 12 20 / 0.28);
+    background: var(--scrim, rgb(10 12 20 / 0.3));
   }
 
   input {
@@ -137,7 +137,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .none {

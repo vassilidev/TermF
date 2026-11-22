@@ -1,0 +1,65 @@
+# Logs followed live in the Ops view until you stop them: a service's journal or a file over SSH, a Kubernetes pod,
+# CloudWatch or Loki. Agents never follow a stream: they read logs through logs-tail, k8s-logs or logs-cloud.
+name = "logs-follow"
+description = "Follows logs live until stopped: a journal or a file over SSH, a Kubernetes pod, CloudWatch or Loki"
+mode = "read"
+follow = true
+ai_access = "none"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.unit]
+type = "name"
+description = "SSH: a systemd unit, such as nginx.service"
+
+[params.file]
+type = "path"
+description = "SSH: a log file instead of the journal, such as /var/log/app/error.log"
+
+[params.pod]
+type = "name"
+description = "Kubernetes: the pod, or deploy/<name>"
+
+[params.container]
+type = "name"
+description = "Kubernetes: the container, when the pod has several"
+
+[params.query]
+type = "text"
+description = "Loki: a LogQL selector, such as {app=\"web\"}"
+max_len = 500
+
+[params.lines]
+type = "int"
+description = "How many past lines to start with"
+default = 50
+min = 0
+max = 1000
+
+[limits]
+lines = 10000
+bytes = 1048576
+timeout_s = 30
+
+[[run]]
+kind = "ssh"
+when = ["file"]
+args = ["tail", "-n", "{lines}", "-F", "--", "{file}"]
+
+[[run]]
+kind = "ssh"
+args = ["journalctl", "--no-pager", "-o", "short-iso", "-n", "{lines}", "-f", ["-u", "{unit}"]]
+
+[[run]]
+kind = "kubernetes"
+when = ["pod"]
+args = ["logs", "{pod}", "--timestamps", "--tail", "{lines}", "-f", ["-c", "{container}"]]
+
+[[run]]
+kind = "cloudwatch"
+args = ["logs", "tail", "{conn.log_group}", "--since", "10m", "--format", "short", "--follow"]
+
+[[run]]
+kind = "loki"
+when = ["query"]
+args = ["query", "--quiet", "--tail", "--limit", "{lines}", "{query}"]

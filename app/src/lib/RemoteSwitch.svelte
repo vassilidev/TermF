@@ -68,6 +68,7 @@
       </span>
     </header>
     <p class="name">{rc.name}</p>
+    {#if now !== "locked"}<p class="help">{t("uxfT3RemoteHint")}</p>{/if}
     {#if now === "locked"}
       <p class="notice error"><Lock size={14} aria-hidden="true" />{t("remoteLocked")}</p>
       <p class="help">{t("remoteLockedHelp")}</p>
@@ -217,6 +218,11 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+
+  /* Side by side when they fit, else one full-width button per line. */
+  .row .btn {
+    flex: 1 1 auto;
   }
 
   footer {

@@ -51,7 +51,7 @@
   const [key, Icon, tone] = $derived(statuses[status]);
 </script>
 
-<span class="pill {tone}" class:spinning={status === "working"} title={hint}>
+<span class="pill {tone}" class:spinning={status === "working"} title={hint} data-status={status}>
   <Icon size={13} aria-hidden="true" /><span class="text">{label ?? t(key)}</span>
 </span>
 
