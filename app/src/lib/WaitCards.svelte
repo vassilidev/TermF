@@ -18,23 +18,31 @@
   import Delivery from "$lib/Delivery.svelte";
   import RunPlan from "$lib/RunPlan.svelte";
   import TeamQuestionnaire from "$lib/TeamQuestionnaire.svelte";
-  import { stepName, ticketKey } from "$lib/TeamRunDetail.svelte";
+  import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import TeamRouteEdit from "$lib/TeamRouteEdit.svelte";
   import TeamRouting from "$lib/TeamRouting.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import { showConversation } from "$lib/agents.svelte";
+  import { showRun } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { awaitsDelivery } from "$lib/run-logic";
   import { TRIAGE, asks, isForm, rounds, LEAVE, type Ask, type Question, type Step, type TeamRun } from "$lib/team-run-logic";
-  import { upsertRun } from "$lib/team.svelte";
+  import { upsertRun, waitTitle } from "$lib/team.svelte";
   import { tickets } from "$lib/tickets.svelte";
 
   /**
    * What a team run waits for from the user, one actionable card each, the Run page's and the Home's alike: `step`
-   * keeps only that step's card; `context` names the ticket on each card, for a page that is not the run's own.
-   * Once the team is done, the delivery left to the user is a card too.
+   * keeps only that step's card; `context` names the ticket on each card, for a page that is not the run's own;
+   * `primary` false makes no button of the cards the screen's main one; `compact` sums the plan up and leaves the
+   * whole of it to the Run page. Once the team is done, the delivery left to the user is a card too.
    */
-  let { run, step, context = false }: { run: TeamRun; step?: string; context?: boolean } = $props();
+  let {
+    run,
+    step,
+    context = false,
+    primary = true,
+    compact = false,
+  }: { run: TeamRun; step?: string; context?: boolean; primary?: boolean; compact?: boolean } = $props();
 
   /** The action under way: `<command>:<step>`. */
   let busy = $state("");
@@ -109,19 +117,6 @@
       };
     });
   }
-
-  function title(ask: Ask): string {
-    const name = stepName(ask.step);
-    if (ask.kind === "route") return t("ctoEntryAskRoute");
-    if (ask.kind === "plan") return t("teamRunsAskPlan");
-    if (ask.kind === "visual") return t("teamRunsAskVisual");
-    if (ask.kind === "deliver") return t("teamRunsAskDeliver");
-    if (ask.kind === "blocked") return t("teamRunsAskBlocked", { step: name });
-    if (ask.kind === "gate") return t("teamRunsAskGate", { step: name });
-    if (ask.step.key === TRIAGE) return t("ctoEntryAskQuestions");
-    if (ask.step.plan) return t("teamRunsAskPlanQuestions");
-    return ask.step.kind === "review" ? t("reviewLoopAsk") : t("teamRunsAskQuestions", { step: name });
-  }
 </script>
 
 {#snippet spinner(name: string)}
@@ -159,7 +154,7 @@
         {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
       </button>
     {/if}
-    <button class="btn sm primary" disabled={!!busy || (!(drafts[draftOf(key)] ?? "").trim() && ask.step.kind !== "shell")} onclick={() => revise(key)}>
+    <button class="btn sm" class:primary disabled={!!busy || (!(drafts[draftOf(key)] ?? "").trim() && ask.step.kind !== "shell")} onclick={() => revise(key)}>
       {@render spinner(`revise:${key}`)}{submit}
     </button>
   </div>
@@ -181,7 +176,7 @@
 {/snippet}
 
 {#snippet approveButton(key: string, label: string)}
-  <button class="btn sm primary" disabled={!!busy} onclick={() => approve(key)}>
+  <button class="btn sm" class:primary disabled={!!busy} onclick={() => approve(key)}>
     {#if spinning(`approve:${key}`)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Check size={14} aria-hidden="true" />{/if}
     {label}
   </button>
@@ -194,7 +189,7 @@
       <BellRing size={15} aria-hidden="true" />
       <b>{t("teamRunsAskDeliver")}</b>
       <span class="end">
-        <button class="btn sm primary" disabled={!!busy} {onclick}>
+        <button class="btn sm" class:primary disabled={!!busy} {onclick}>
           {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
           {t("runDeliver")}
         </button>
@@ -213,7 +208,7 @@
         {#if !delivering}{@render deliverCard(() => deliver(key), `approve:${key}`)}{/if}
       {:else}
         <article class="ask">
-          {@render head(title(ask), ask.step)}
+          {@render head(waitTitle(ask), ask.step)}
           {#if ask.kind === "route" && run.routing}
             <p class="help">{t("ctoEntryAskRouteHelp")}</p>
             {#if editingRoute}
@@ -237,7 +232,7 @@
               {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
             {:else}
               <!-- Never stuck in the form: accept as it is, answer in free text, or set the path yourself. -->
-              <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)} {optionLabel}>
+              <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)} {optionLabel} {primary}>
                 {#if ask.accept}
                   <button
                     class="btn sm"
@@ -271,7 +266,15 @@
           {:else}
             {#if ask.kind === "plan"}
               <p class="help">{t("teamRunsAskPlanHelp")}</p>
-              {#if run.plan}<div class="box"><RunPlan {run} /></div>{/if}
+              {#if run.plan && compact}
+                {@const count = run.plan.tasks.length}
+                <div class="box summed">
+                  {#if run.plan.summary}<p>{run.plan.summary}</p>{/if}
+                  <p class="muted">{count === 1 ? t("ux3t2TaskOne") : t("ux3t2TaskCount", { count })}</p>
+                </div>
+              {:else if run.plan}
+                <div class="box"><RunPlan {run} /></div>
+              {/if}
             {:else if ask.kind === "visual"}
               <p class="help">{t("teamRunsAskVisualHelp")}</p>
             {/if}
@@ -279,6 +282,9 @@
               {@render feedback(ask, t("teamRunsFeedback"), t("chatSend"))}
             {:else}
               <div class="acts">
+                {#if ask.kind === "plan" && compact && run.plan}
+                  <button class="btn sm quiet left" onclick={() => showRun(run.run)}>{t("ux3t2SeePlan")}</button>
+                {/if}
                 {#if ask.kind === "visual"}
                   <button class="btn sm" disabled={!!busy} onclick={() => (refusing = true)}>
                     <X size={14} aria-hidden="true" />{t("teamRunsRefuse")}
@@ -380,11 +386,22 @@
     background: var(--panel);
   }
 
+  .summed {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    line-height: 1.5;
+  }
+
   .acts {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 6px;
+  }
+
+  .acts .left {
+    margin-right: auto;
   }
 
   textarea.field {

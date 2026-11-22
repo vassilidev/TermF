@@ -27,7 +27,8 @@
 
   /**
    * A step's questions as one form, grouped by theme, the proposed answers filled in, sent all at once; a choice
-   * also takes an answer of one's own. `children`: the step's other actions, beside Send.
+   * also takes an answer of one's own. `children`: the step's other actions, beside Send; `primary`: Send is the
+   * screen's main action.
    */
   let {
     run,
@@ -35,7 +36,15 @@
     questions,
     children,
     optionLabel = (option: string) => option,
-  }: { run: TeamRun; step: string; questions: Question[]; children?: Snippet; optionLabel?: (option: string) => string } = $props();
+    primary = true,
+  }: {
+    run: TeamRun;
+    step: string;
+    questions: Question[];
+    children?: Snippet;
+    optionLabel?: (option: string) => string;
+    primary?: boolean;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   let answers = $state<Record<string, string[]>>(proposed(questions));
@@ -98,7 +107,7 @@
 {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
 <div class="buttons">
   {@render children?.()}
-  <button class="btn sm primary" disabled={busy || missing.length > 0} onclick={send}>
+  <button class="btn sm" class:primary disabled={busy || missing.length > 0} onclick={send}>
     {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
     {t("ctoEntrySend")}
   </button>

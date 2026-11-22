@@ -3,9 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import type { Item } from "$lib/library.svelte";
 import { t } from "$lib/i18n";
-import { stepLabel } from "$lib/run-logic";
+import { askTitle, stepLabel } from "$lib/run-logic";
 import { app, ui } from "$lib/state.svelte";
-import { asks, notices, upsert, type Notice, type TeamRun } from "$lib/team-run-logic";
+import { asks, notices, upsert, type Ask, type Notice, type TeamRun } from "$lib/team-run-logic";
 
 export const team = $state({
   /** Loaded once first shown, then kept mounted. */
@@ -31,6 +31,12 @@ export { showRun as showTeamRun } from "$lib/commands";
 export function stepTitle(key: string, task: string | null = null): string {
   const label = stepLabel(key, task);
   return "name" in label ? t(label.name) : label.text;
+}
+
+/** What a wait is called, the same on its card and in any list of waits. */
+export function waitTitle(ask: Ask): string {
+  const title = askTitle(ask);
+  return t(title.key, title.step ? { step: stepTitle(ask.step.key, ask.step.task) } : {});
 }
 
 /** The current project's team runs, most recent first. */

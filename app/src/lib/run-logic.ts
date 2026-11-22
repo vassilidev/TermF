@@ -1,5 +1,6 @@
 // No imports but types, so `pnpm test` runs it in plain Node.
 import type { t } from "$lib/i18n";
+import type { Ask } from "$lib/team-run-logic";
 
 type Key = Parameters<typeof t>[0];
 type Ticket = { status: string; prUrl: string | null; prState: string | null };
@@ -126,6 +127,27 @@ export function stepLabel(key: string, task: string | null = null): { name: Key 
   if (id) return { text: id };
   const name = named(stepNames, key);
   return name ? { name } : { text: key };
+}
+
+/**
+ * What a wait is called, on its card and in a list of waits: the title's key, and whether it names the step (as
+ * `{step}`).
+ */
+export function askTitle(ask: Pick<Ask, "kind"> & { step: Pick<Ask["step"], "key" | "kind" | "plan"> }): { key: Key; step: boolean } {
+  const fixed: Partial<Record<Ask["kind"], Key>> = {
+    route: "ctoEntryAskRoute",
+    plan: "teamRunsAskPlan",
+    visual: "teamRunsAskVisual",
+    deliver: "teamRunsAskDeliver",
+  };
+  const own = fixed[ask.kind];
+  if (own) return { key: own, step: false };
+  if (ask.kind === "blocked") return { key: "teamRunsAskBlocked", step: true };
+  if (ask.kind === "gate") return { key: "teamRunsAskGate", step: true };
+  if (ask.step.key === "triage") return { key: "ctoEntryAskQuestions", step: false };
+  if (ask.step.plan) return { key: "teamRunsAskPlanQuestions", step: false };
+  if (ask.step.kind === "review") return { key: "reviewLoopAsk", step: false };
+  return { key: "teamRunsAskQuestions", step: true };
 }
 
 export type Shown = { status: string; label: Key | null };
