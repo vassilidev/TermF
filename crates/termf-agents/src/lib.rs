@@ -19,7 +19,7 @@ mod store;
 mod tests;
 
 pub use agents::{Agents, Takeover};
-pub use claude::{ClaudeCode, TOOL_OUTPUT};
+pub use claude::{ClaudeCode, TOOL_OUTPUT, mcp_settings};
 pub use store::{events, sessions};
 
 /// An agent CLI TermF drives (ARCHITECTURE §6.1); only Claude Code so far.
@@ -57,6 +57,9 @@ pub struct Launch<'a> {
     /// The library's plugin and system prompt, when it has them.
     pub plugin: Option<&'a Path>,
     pub system_prompt: Option<&'a Path>,
+    /// The config of `termf mcp` for a session with TermF's tools, and the other folders it may read.
+    pub mcp: Option<&'a Path>,
+    pub dirs: &'a [PathBuf],
 }
 
 /// What a session runs with. Empty values mean the agent's default.
@@ -94,6 +97,10 @@ pub struct SessionSpec {
     /// `--json-schema`: the agent's answer at the end of each turn follows it (`turn_end.structured`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub json_schema: Option<Value>,
+    /// TermF's tools (`termf mcp`) and only the read tools of the project's repositories, each action asked to
+    /// the user first: a project's CTO conversation. No terminal takes it over: its tools would not follow.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub mcp: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -269,6 +276,31 @@ pub enum AgentEvent {
         tile: u32,
     },
     HandedBack,
+    /// From TermF, not from the user.
+    Notice(Notice),
+}
+
+/// A message from TermF in a conversation: something waits for the user, or what the user wrote to another
+/// agent. The agent reads `text`; the UI says it from the other fields.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Notice {
+    /// `waiting` (a gate), `blocked` (a step failed or asks something), `step` or `direct` (the user wrote to
+    /// a run's step or to a direct conversation).
+    pub about: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// The agent session it is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<i64>,
+    /// Why a step waits, or what the user wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub text: String,
 }
 
 impl AgentEvent {
@@ -326,6 +358,7 @@ impl AgentEvent {
             },
             AgentEvent::TakenOver { tile } => format!("taken over in terminal {tile}"),
             AgentEvent::HandedBack => "handed back".into(),
+            AgentEvent::Notice(notice) => format!("termf: {}", notice.text),
         }
     }
 }

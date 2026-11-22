@@ -6,20 +6,23 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
-use serde_json::Value;
+use serde_json::{Value, json};
 use termf_core::{Settings, claude, ipc};
 use termf_term::{shell_command, shell_quote};
 
 use crate::store::{self, Store};
 use crate::{
-    AgentEvent, AgentRuntime, AgentSession, ClaudeCode, Launch, Outcome, SessionSpec, State,
-    StoredEvent, Update, now,
+    AgentEvent, AgentRuntime, AgentSession, ClaudeCode, Launch, Notice, Outcome, SessionSpec,
+    State, StoredEvent, Update, now,
 };
+
+/// The `termf mcp` server of a session with TermF's tools, as `--mcp-config` takes one.
+type McpServer = Box<dyn Fn(i64) -> Result<Value> + Send + Sync>;
 
 /// How long a process may take to end once its stdin is closed, then once killed.
 const STOP_WAIT: Duration = Duration::from_secs(10);
@@ -44,12 +47,16 @@ struct Inner {
     sink: Box<dyn Fn(Update) + Send + Sync>,
     /// Added to every process's environment.
     env: Vec<(String, String)>,
+    mcp: OnceLock<McpServer>,
 }
 
 #[derive(Default)]
 struct Live {
     process: Option<Process>,
     tile: Option<Tile>,
+    /// TermF's notices the agent has not read yet, and whether one should start a turn of its own.
+    notices: Vec<String>,
+    wake: bool,
     /// Permission requests waiting for an answer, with the tool input each asks about.
     pending: HashMap<String, Value>,
     interrupting: bool,
@@ -106,6 +113,7 @@ impl Agents {
                 ended: Condvar::new(),
                 sink: Box::new(sink),
                 env,
+                mcp: OnceLock::new(),
             }),
         };
         if let Err(e) = agents.inner.store().and_then(|s| agents.inner.reap(&s)) {
@@ -122,8 +130,13 @@ impl Agents {
         }
     }
 
-    /// A new session, its process started, with `prompt` as its first message when there is one.
-    pub fn start(&self, spec: SessionSpec, prompt: Option<&str>) -> Result<AgentSession> {
+    /// What gives a session with TermF's tools its `termf mcp` server (`command`, `args`, `env`), set once.
+    pub fn serve_mcp(&self, server: impl Fn(i64) -> Result<Value> + Send + Sync + 'static) {
+        let _ = self.inner.mcp.set(Box::new(server));
+    }
+
+    /// A new session with no process yet: its first message starts one.
+    pub fn create(&self, spec: SessionSpec) -> Result<AgentSession> {
         let inner = &self.inner;
         let mut spec = checked(spec)?;
         let settings = termf_core::load_settings(&inner.config_dir)?;
@@ -131,12 +144,22 @@ impl Agents {
         if let Some(role) = spec.role.clone() {
             play(&inner.config_dir, &mut spec, &role)?;
         }
+        let session = inner
+            .store()?
+            .create(inner.runtime.id(), &uuid()?, &spec)?;
+        (inner.sink)(Update::Session(session.clone()));
+        Ok(session)
+    }
+
+    /// A new session, its process started, with `prompt` as its first message when there is one.
+    pub fn start(&self, spec: SessionSpec, prompt: Option<&str>) -> Result<AgentSession> {
+        let inner = &self.inner;
+        let id = self.create(spec)?.id;
         let store = inner.store()?;
-        let id = store.create(inner.runtime.id(), &uuid()?, &spec)?.id;
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         match prompt.filter(|p| !p.trim().is_empty()) {
-            Some(text) => inner.deliver(&store, id, entry, text)?,
+            Some(text) => inner.deliver(&store, id, entry, Some(text))?,
             None => inner.launch(&store, id, entry)?,
         }
         inner.view(&store, id, entry)
@@ -148,7 +171,24 @@ impl Agents {
         let inner = &self.inner;
         let store = inner.store()?;
         let mut live = inner.live.lock().unwrap();
-        inner.deliver(&store, id, live.entry(id).or_default(), text)
+        inner.deliver(&store, id, live.entry(id).or_default(), Some(text))
+    }
+
+    /// Shows a notice from TermF in the conversation; the agent reads it with the next message. `wake`: in a
+    /// turn of its own, at once when the agent's process waits between two turns, else as soon as its turn
+    /// ends; a session without a process (stopped by the user, or since the app started) is never woken.
+    pub fn notify(&self, id: i64, notice: Notice, wake: bool) -> Result<()> {
+        let inner = &self.inner;
+        let store = inner.store()?;
+        let mut live = inner.live.lock().unwrap();
+        let entry = live.entry(id).or_default();
+        entry.notices.push(notice.text.clone());
+        entry.wake |= wake;
+        inner.record(&store, id, AgentEvent::Notice(notice));
+        if entry.wake && !entry.busy && store.session(id)?.state == State::Idle {
+            inner.deliver(&store, id, entry, None)?;
+        }
+        Ok(())
     }
 
     /// Stops the turn under way; the conversation goes on with the next message.
@@ -248,6 +288,10 @@ impl Agents {
             let entry = live.entry(id).or_default();
             let mut session = store.session(id)?;
             ensure!(!entry.busy, BUSY);
+            ensure!(
+                !session.spec.mcp,
+                "this conversation stays in TermF: its tools would not follow it into a terminal"
+            );
             match session.state {
                 State::Working | State::Waiting => {
                     bail!("the agent is working: wait for the end of its turn, or interrupt it")
@@ -461,12 +505,13 @@ impl Inner {
             .context("cannot write to the agent")
     }
 
+    /// Starts a turn with the user's message, or with TermF's notices alone (`text: None`).
     fn deliver(
         self: &Arc<Self>,
         store: &Store,
         id: i64,
         entry: &mut Live,
-        text: &str,
+        text: Option<&str>,
     ) -> Result<()> {
         ensure!(!entry.busy, BUSY);
         match store.session(id)?.state {
@@ -482,9 +527,13 @@ impl Inner {
         if entry.process.is_none() {
             self.launch(store, id, entry)?;
         }
-        self.write(entry, &self.runtime.message(text))?;
+        self.write(entry, &self.runtime.message(&message(&entry.notices, text)))?;
+        entry.notices.clear();
+        entry.wake = false;
         entry.interrupting = false;
-        self.record(store, id, AgentEvent::User { text: text.into() });
+        if let Some(text) = text {
+            self.record(store, id, AgentEvent::User { text: text.into() });
+        }
         self.set_state(store, id, entry, State::Working)
     }
 
@@ -514,6 +563,13 @@ impl Inner {
         let system_prompt = library(&self.config_dir, &session.spec, &dir);
         let plugin = dir.join("plugin");
         let resume = store.started(id)?;
+        let (mcp, dirs) = match session.spec.mcp {
+            true => (
+                Some(self.mcp_config(id, &dir)?),
+                other_repos(&self.config_dir, &session.spec)?,
+            ),
+            false => (None, Vec::new()),
+        };
         let args = self.runtime.headless_args(
             &session.spec,
             &Launch {
@@ -522,6 +578,8 @@ impl Inner {
                 budget,
                 plugin: plugin.is_dir().then_some(plugin.as_path()),
                 system_prompt: system_prompt.as_deref(),
+                mcp: mcp.as_deref(),
+                dirs: &dirs,
             },
         );
         let args: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();
@@ -606,7 +664,13 @@ impl Inner {
         Ok(store.as_ref().expect("just opened"))
     }
 
-    fn handle(&self, store: &Store, id: i64, generation: u64, mut event: AgentEvent) -> Result<()> {
+    fn handle(
+        self: &Arc<Self>,
+        store: &Store,
+        id: i64,
+        generation: u64,
+        mut event: AgentEvent,
+    ) -> Result<()> {
         let mut live = self.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         // A process being stopped still reports, e.g. the end of its interrupted turn: the state is already set.
@@ -686,7 +750,32 @@ impl Inner {
             session.tile = tile(entry);
             (self.sink)(Update::Session(session.clone()));
         }
+        if current && entry.wake && !entry.busy && session.state == State::Idle {
+            self.deliver(store, id, entry, None)?;
+        }
         Ok(())
+    }
+
+    /// Writes the `--mcp-config` of the session's `termf mcp`, readable by the user only: it holds the
+    /// session's token.
+    fn mcp_config(&self, id: i64, dir: &Path) -> Result<PathBuf> {
+        let server = self
+            .mcp
+            .get()
+            .context("TermF's tools cannot be served here: the conversation needs the app")?(
+            id
+        )?;
+        let file = dir.join("mcp.json");
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let config = json!({ "mcpServers": { "termf": server } });
+        options
+            .open(&file)
+            .and_then(|mut f| f.write_all(config.to_string().as_bytes()))
+            .with_context(|| format!("cannot write {}", file.display()))?;
+        Ok(file)
     }
 
     fn exited(
@@ -792,6 +881,10 @@ fn checked(mut spec: SessionSpec) -> Result<SessionSpec> {
         spec.budget.is_none_or(|b| b.is_finite() && b > 0.0),
         "the budget must be more than 0"
     );
+    if spec.mcp {
+        // Every action waits for the user: no mode that lets one through, whatever the role says.
+        spec.permission_mode = Some("manual".into());
+    }
     if spec.title.trim().is_empty() {
         let name = spec.cwd.file_name().unwrap_or(spec.cwd.as_os_str());
         spec.title = name.to_string_lossy().into_owned();
@@ -886,6 +979,44 @@ fn library(config_dir: &Path, spec: &SessionSpec, dir: &Path) -> Option<PathBuf>
             eprintln!("termf: library not loaded: {e:#}");
             None
         })
+}
+
+/// What the agent reads: TermF's notices since its last message, set apart from the user's own words.
+fn message(notices: &[String], text: Option<&str>) -> String {
+    if notices.is_empty() {
+        return text.unwrap_or_default().to_owned();
+    }
+    let mut out = String::from("<termf-notices>\n");
+    for notice in notices {
+        out.push_str(notice);
+        out.push('\n');
+    }
+    out.push_str("</termf-notices>\nThese notices come from TermF, not from the user.");
+    match text {
+        Some(text) => {
+            out.push_str(" The user's message follows.\n\n");
+            out.push_str(text);
+        }
+        None => out.push_str(
+            " Tell the user in a sentence or two what waits for them and ask what to do; act only on their answer.",
+        ),
+    }
+    out
+}
+
+/// The project's repositories other than the session's folder, which a session with TermF's tools may read.
+fn other_repos(config_dir: &Path, spec: &SessionSpec) -> Result<Vec<PathBuf>> {
+    let projects = termf_core::load_projects(config_dir)?;
+    let repos = projects
+        .into_iter()
+        .find(|p| Some(&p.id) == spec.project.as_ref())
+        .map(|p| p.repos)
+        .unwrap_or_default();
+    Ok(repos
+        .into_iter()
+        .map(|r| PathBuf::from(r.path))
+        .filter(|p| *p != spec.cwd && p.is_dir())
+        .collect())
 }
 
 /// The end of what the process wrote on stderr, for an error message.
