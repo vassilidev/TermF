@@ -178,7 +178,7 @@ mark = "SEC"
 group = "quality"
 short = "Looks for vulnerabilities"
 does = "Reviews the run's diff for vulnerabilities, abuse cases and vulnerable dependencies, in two passes: find, then confirm."
-when = "On every run, after the code review."
+when = "After the code review, on every run; for a small ticket, only when its task changes a sensitive file (authentication, permissions, secrets, cryptography, migrations, payments, concurrency)."
 never = "Edits a file: the developers fix what it finds."
 
 [roles.integrator]

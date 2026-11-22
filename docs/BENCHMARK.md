@@ -52,7 +52,7 @@ Ce qui a changé dans TermF :
 3. **Contrôles automatiques** : le typecheck et le lint que le dépôt configure (`tsc`, `eslint`, `mypy`, `pyright`, `ruff`, `cargo clippy`) tournent avec ses tests, même sans script ; un échec revient à la tâche (deux fois au plus) au lieu d'attendre l'utilisateur.
 4. **Reprise de la même session** : une tâche renvoyée par la revue ou par les contrôles continue dans sa propre conversation au lieu d'une session neuve.
 5. **Périmètre** : le brief dit de ne changer que ce que le ticket demande (le reste en propositions) et la revue renvoie tout changement non demandé.
-6. **Moins de surcoût par session** : un rôle ne lit que les cartes de ses propres skills de la stack (prompt du CTO 15 → 8 Ko, du PO 13 → 6 Ko, du back 16 → 12 Ko) ; la revue de sécurité tourne à côté de la revue de code.
+6. **Moins de surcoût par session** : un rôle ne lit que les cartes de ses propres skills de la stack (prompt du CTO 15 → 8 Ko, du PO 13 → 6 Ko, du back 16 → 12 Ko) ; la revue de sécurité tourne à côté de la revue de code (mesuré ainsi ; remise ensuite après la revue de code : chaque tour de revue qui renvoie une tâche la relançait, 2 sessions au lieu d'une sur R2, contre 9 à 33 s de temps mur de plus par run complet, voir `docs/STATUS.md`).
 7. **Dossiers des tâches préparés** comme celui du run (dépendances, `.env`), pour que l'agent puisse lancer les contrôles d'un vrai projet.
 
 | | essais | temps (s) | coût ($) | sessions | tests cachés | critères (juge) | juge /10 | constats « hors ticket » | typecheck ok | tests du projet |
