@@ -13,6 +13,7 @@
   import ProjectTally from "$lib/ProjectTally.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
   import { waitingAgents } from "$lib/agents.svelte";
+  import { waitingRuns } from "$lib/team.svelte";
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { aria } from "$lib/keymap.svelte";
@@ -26,7 +27,7 @@
   import { isMac } from "$lib/files.svelte";
   import { closePanel, openBeside } from "$lib/panes.svelte";
 
-  const waiting = $derived(waitingSessions().length + waitingAgents().length);
+  const waiting = $derived(waitingSessions().length + waitingAgents().length + waitingRuns().length);
   const settingsView = views.find((v) => v.id === "settings")!;
   let menu = $state<{ view: View; trigger: HTMLElement } | null>(null);
   let menuOpen = $state(false);

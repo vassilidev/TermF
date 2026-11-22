@@ -360,6 +360,27 @@ impl Tickets {
     /// from the repository's base branch, and the brief of its session. `repo` (a name or a path) picks the
     /// repository when the project has several.
     pub fn start(&self, input: &str, project: Option<&str>, repo: Option<&str>) -> Result<Launch> {
+        self.open(input, project, repo, true)
+    }
+
+    /// Prepares the run as `start` does, for sessions other than its own (its agent team): no Claude Code
+    /// conversation is kept, so the run has none to resume.
+    pub fn start_without_session(
+        &self,
+        input: &str,
+        project: Option<&str>,
+        repo: Option<&str>,
+    ) -> Result<Run> {
+        Ok(self.open(input, project, repo, false)?.run)
+    }
+
+    fn open(
+        &self,
+        input: &str,
+        project: Option<&str>,
+        repo: Option<&str>,
+        session: bool,
+    ) -> Result<Launch> {
         let resolution = self.resolve(input, project)?;
         let chosen = match repo.or(resolution.repo.as_deref()) {
             Some(wanted) => resolution
@@ -397,8 +418,10 @@ impl Tickets {
         run.branch = Some(branch.clone());
         run.base = Some(base.clone());
         store.update(&mut run)?;
-        store.set_conversation(run.id, &conversation)?;
-        run.claude_session = Some(conversation.clone());
+        if session {
+            store.set_conversation(run.id, &conversation)?;
+            run.claude_session = Some(conversation.clone());
+        }
         // Its own folder: the session may read it, nothing else of the run.
         let brief = store.run_dir(run.id).join("brief").join("prompt.md");
         fs::create_dir_all(brief.parent().context("no parent folder")?)?;

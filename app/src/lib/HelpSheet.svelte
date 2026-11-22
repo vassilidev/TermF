@@ -67,6 +67,7 @@
       <section class="here" aria-labelledby="help-here">
         <h3 id="help-here">{#if Icon}<Icon size={15} aria-hidden="true" />{/if}{t(here[0])}</h3>
         <p>{t(here[1])}</p>
+        {#if ui.view === "team"}<p>{t("teamRunsHelp")}</p>{/if}
       </section>
     {/if}
 
