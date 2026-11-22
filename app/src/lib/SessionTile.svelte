@@ -19,7 +19,7 @@
   import type { Rect, Side } from "$lib/split-logic";
   import { activate, terminals } from "$lib/tabs.svelte";
   import { tileName } from "$lib/tile-logic";
-  import { grid, resetContext, ticked, type Session } from "$lib/state.svelte";
+  import { grid, onScreen, resetContext, ticked, type Session } from "$lib/state.svelte";
 
   /**
    * `rect`: where the split sits in its tab, as fractions of the tab; none while the tab is not shown. `alone`: the
@@ -171,7 +171,7 @@
       <button class="btn sm primary" onclick={remoteOn}>{t("remoteYes")}</button>
     </div>
   {/if}
-  <Terminal id={session.id} />
+  <Terminal id={session.id} visible={!!rect && onScreen("terminals")} />
 </section>
 
 <style>

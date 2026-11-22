@@ -485,6 +485,7 @@ mod tests {
         sessions
             .attach(
                 id,
+                1,
                 Box::new(move |out| {
                     if let Output::Data(d) = out {
                         let _ = tx.send(d);
