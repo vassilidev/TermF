@@ -60,7 +60,8 @@
   /**
    * `embedded`: in the Home, without the session's header; `lead` goes in its place and the session's details in a
    * popover. `card` replaces a notice of the thread (`fallback` draws it as usual), `top` goes at its head; `notices`
-   * tells the caller which notices the thread has.
+   * tells the caller which notices the thread has. `examples` false leaves the examples of an empty thread out, for a
+   * caller whose `top` already asks something.
    */
   let {
     session,
@@ -69,6 +70,7 @@
     card,
     top,
     notices = $bindable([]),
+    examples: offerExamples = true,
   }: {
     session: AgentSession;
     embedded?: boolean;
@@ -76,6 +78,7 @@
     card?: Snippet<[Notice, Snippet<[Notice]>]>;
     top?: Snippet;
     notices?: Notice[];
+    examples?: boolean;
   } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
@@ -651,7 +654,7 @@
     {#if session.mcp && !turns.length && !loadError}
       <div class="intro">
         <p>{expert ? t("expertIntro") : t("ctoIntro")}</p>
-        {#if examples.length}
+        {#if offerExamples && examples.length}
           <div class="examples" role="group" aria-label={t("uxfT2Examples")}>
             <span aria-hidden="true">{t("uxfT2Examples")}</span>
             {#each examples as example (example)}

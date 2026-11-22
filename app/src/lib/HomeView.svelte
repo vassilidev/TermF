@@ -98,6 +98,11 @@
   const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.step }))));
   const main = $derived(primary(placed, cto?.state === "waiting", finished.map((d) => d.key)));
   const decision = (key: string | undefined) => decisions.find((d) => d.key === key);
+  // What the thread's head already asks of the user: its examples would push it out of view.
+  const asking = $derived.by(() => {
+    const ob = project ? onboarding[project.id] : undefined;
+    return decisions.length > 0 || ops.requests.some((r) => r.project === project?.id) || (!!ob && setupSteps.includes(ob.step));
+  });
 
   // A new project's setup, until it is done.
   let onboarding = $state<Record<string, Onboarding>>({});
@@ -463,6 +468,7 @@
               {lead}
               card={home.with === "cto" ? card : undefined}
               top={home.with === "cto" ? top : undefined}
+              examples={home.with !== "cto" || !asking}
               bind:notices
             />
           {/key}
