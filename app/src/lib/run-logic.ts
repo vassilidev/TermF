@@ -163,7 +163,8 @@ export function askTitle(
   return { key: "teamRunsAskQuestions", step: true };
 }
 
-export type Shown = { status: string; label: Key | null };
+/** `hint`: what a state whose name says too little means, as its tooltip. */
+export type Shown = { status: string; label: Key | null; hint?: Key };
 
 /**
  * One state for a ticket and its team, the same wherever the run shows: closed, failed or delivered as the ticket
@@ -173,8 +174,9 @@ export type Shown = { status: string; label: Key | null };
 export function shown(ticket: Ticket | null | undefined, team?: Team | null): Shown {
   if (ticket && (ticket.status === "closed" || ticket.status === "failed")) return { status: ticket.status, label: null };
   if (ticket?.status === "delivered") {
-    const label = ticket.prState === "merged" ? "ticketsUiReady" : ticket.prState === "closed" ? "uxfT1ClosedReady" : null;
-    return { status: "delivered", label };
+    if (ticket.prState === "merged") return { status: "delivered", label: "ticketsUiReady", hint: "uxfT1ReadyHint" };
+    if (ticket.prState) return { status: "delivered", label: "uxfT1ClosedReady", hint: "uxfT2ClosedHint" };
+    return { status: "delivered", label: null };
   }
   if (!team) return { status: ticket?.status ?? "running", label: null };
   if (asking(team) || (ticket && awaitsDelivery(ticket, team))) return { status: "waiting", label: null };

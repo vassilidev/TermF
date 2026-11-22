@@ -21,6 +21,7 @@
 </script>
 
 <script lang="ts">
+  import { untrack } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import BellRing from "@lucide/svelte/icons/bell-ring";
@@ -103,6 +104,14 @@
   let deliveringRepo = $state<number | null>(null);
   let stopping = $state(false);
   let more = $state(false);
+  // The page's own width, not the window's: a run beside another view is narrow too.
+  let width = $state(0);
+  const narrow = $derived(width > 0 && width < 1000);
+  // Its entries move between the header and the menu: an open menu would be left stale.
+  $effect(() => {
+    void narrow;
+    untrack(() => (more = false));
+  });
   let moreTrigger = $state<HTMLButtonElement>();
   let teamWorkflow = $state("");
   let teamBudget = $state<number | null>(null);
@@ -310,21 +319,22 @@
   {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
 {/snippet}
 
-<div class="run">
+<div class="run" bind:clientWidth={width}>
   <ViewHeader title={run?.title ?? teamRun?.target.title ?? ""} context={run ? ticketKey(run.ticket.key) : ""} mono>
     {#snippet lead()}
       <button class="icon-btn back" onclick={closeRun} aria-label={t("ux3t2Back")} title={t("ux3t2Back")}>
         <ArrowLeft size={16} aria-hidden="true" />
       </button>
     {/snippet}
-    {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />{/if}
+    {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />{/if}
     {#snippet actions()}
-      {#if run && session}
+      <!-- A narrow page keeps the delivery and the stop in the header, the rest goes to the menu. -->
+      {#if run && session && !narrow}
         <button class="btn sm" onclick={() => openTile(run)}>
           <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
         </button>
       {/if}
-      {#if review}
+      {#if review && !narrow}
         {@const id = review.id}
         <button class="btn sm" onclick={() => showReview(id)}>
           <Images size={14} aria-hidden="true" />{t("review5bTitle")}
@@ -340,7 +350,7 @@
           <CircleStop size={14} aria-hidden="true" />{t("teamRunsStop")}
         </button>
       {/if}
-      {#if run && hasMenu}
+      {#if run && (hasMenu || (narrow && (session || review)))}
         <button
           bind:this={moreTrigger}
           class="icon-btn"
@@ -525,7 +535,7 @@
                       <StatusPill {status} label={t(label)} />
                       {#if r.prUrl}
                         {@const url = r.prUrl}
-                        <button class="link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
+                        <button class="btn link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
                           {prName(url)}<ExternalLink size={12} aria-hidden="true" />
                         </button>
                       {/if}
@@ -562,7 +572,7 @@
               <dt>{t("runMetaTicket")}</dt>
               <dd>
                 {#if run.ticket.url}
-                  <button class="link" onclick={() => openUrl(run.ticket.url)} title={t("ticketsUiOpenLink")}>
+                  <button class="btn link" onclick={() => openUrl(run.ticket.url)} title={t("ticketsUiOpenLink")}>
                     {run.ticket.key}<ExternalLink size={12} aria-hidden="true" />
                   </button>
                 {:else}
@@ -579,7 +589,7 @@
               <dd>
                 {#if run.prUrl}
                   {@const url = run.prUrl}
-                  <button class="link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
+                  <button class="btn link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
                     {prName(url)}<ExternalLink size={12} aria-hidden="true" />
                   </button>
                 {:else}
@@ -636,6 +646,13 @@
 <Popover bind:open={more} trigger={moreTrigger} label={t("ux3t2More")} align="end" width={260}>
   {#if run}
     <ul class="menu">
+      {#if session && narrow}
+        <li><button class="row" onclick={pick(() => openTile(run))}><SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}</button></li>
+      {/if}
+      {#if review && narrow}
+        {@const id = review.id}
+        <li><button class="row" onclick={pick(() => showReview(id))}><Images size={14} aria-hidden="true" />{t("review5bTitle")}</button></li>
+      {/if}
       {#if canResumeTeam}
         <li><button class="row" onclick={pick(() => (step = { kind: "resume-team" }))}><RotateCcw size={14} aria-hidden="true" />{t("ticketsUiResume")}</button></li>
       {:else if canResume}
@@ -949,23 +966,13 @@
     overflow-wrap: anywhere;
   }
 
-  .link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
+  /* A long pull request or ticket name wraps inside its panel. */
+  .btn.link {
+    justify-content: flex-start;
     max-width: 100%;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent-ink);
-    font: inherit;
-    text-align: left;
     overflow-wrap: anywhere;
-  }
-
-  .link:hover {
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    text-align: left;
+    white-space: normal;
   }
 
   .ci :global(.checks) {

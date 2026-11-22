@@ -76,8 +76,8 @@
 
 {#snippet conversation(step: Step)}
   {#if step.session !== null}
-    <button class="btn sm quiet" onclick={() => step.session !== null && showConversation(step.session)}>
-      <MessagesSquare size={14} aria-hidden="true" />{t("chatThread")}
+    <button class="btn sm quiet" title={t("chatThread")} onclick={() => step.session !== null && showConversation(step.session)}>
+      <MessagesSquare size={14} aria-hidden="true" /><span class="label">{t("chatThread")}</span>
     </button>
   {/if}
 {/snippet}
@@ -106,7 +106,7 @@
     <span><StatusPill {status} {label} /></span>
     <span class="step-name">
       <b>{stepName(step)}</b>
-      {#if task}<span class="goal">{task.goal}</span>{/if}
+      {#if task}<span class="goal" title={task.goal}>{task.goal}</span>{/if}
     </span>
     <span class="step-tags">
       {#if step.attempt > 1}<span class="muted small">{t("teamRunsAttempt", { n: step.attempt })}</span>{/if}
@@ -177,11 +177,12 @@
       {#if round.findings.length}
         <ul class="findings">
           {#each round.findings as f (f.id)}
-            <li class:nit={f.severity === "nit"}>
+            <li class:important={f.severity === "important"}>
               <div class="finding-head">
-                <span class="badge severity">{t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit")}</span>
+                {#if f.severity === "important"}<TriangleAlert size={13} aria-hidden="true" class="mark" />{/if}
+                <span class="badge" class:danger={f.severity === "important"}>{t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit")}</span>
                 <span class="mono where">{f.file}:{f.line}</span>
-                <span class="badge" class:asked={f.fate === "asked"}>{fate(f, waiting)}</span>
+                <span class="badge" class:warn={f.fate === "asked"}>{fate(f, waiting)}</span>
               </div>
               <p>{f.scenario}</p>
               <p class="muted">{t("reviewLoopFix", { fix: f.fix })}</p>
@@ -257,6 +258,7 @@
 
 <style>
   .panel {
+    container-type: inline-size;
     padding: 14px 16px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -321,6 +323,17 @@
   .open {
     display: flex;
     justify-content: flex-end;
+  }
+
+  /* A narrow run page keeps the task's goal readable: the conversation button folds to its icon. */
+  @container (max-width: 640px) {
+    .step-head {
+      grid-template-columns: minmax(96px, max-content) minmax(0, 1fr) auto 64px 30px;
+    }
+
+    .open .label {
+      display: none;
+    }
   }
 
   .step-name {
@@ -444,12 +457,16 @@
   .findings li {
     padding: 8px 10px;
     border: 1px solid var(--border);
-    border-left: 3px solid var(--danger);
     border-radius: var(--radius);
   }
 
-  .findings li.nit {
-    border-left-color: var(--border);
+  /* An important finding stands out from the nits around it: a tinted frame and its icon. */
+  .findings li.important {
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  }
+
+  .finding-head :global(.mark) {
+    color: var(--danger);
   }
 
   .findings p {
@@ -467,18 +484,5 @@
 
   .where {
     overflow-wrap: anywhere;
-  }
-
-  .severity {
-    color: var(--danger);
-  }
-
-  .nit .severity {
-    color: var(--muted);
-  }
-
-  .badge.asked {
-    border-color: var(--warning);
-    color: var(--warning);
   }
 </style>

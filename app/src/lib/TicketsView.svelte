@@ -560,8 +560,8 @@
                 <div class="state">
                   {#if run}
                     {@const pill = shown(run, team.runs.find((r) => r.run === run.id))}
-                    <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />
-                    <button class="link" onclick={() => showRun(run.id)}>{t("ux3t5SeeRun")}</button>
+                    <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />
+                    <button class="btn sm link" onclick={() => showRun(run.id)}>{t("ux3t5SeeRun")}</button>
                   {/if}
                   <div class="acts" class:quiet={(!!ticket.project || !!run) && starting !== ticket.url}>
                     {#if run}
@@ -662,7 +662,7 @@
                 <span class="name"><span class="mono">{run.ticket.key}</span> {run.title}</span>
                 <span class="desc">{repoName(run.repo)}{run.branch ? ` · ${run.branch}` : ""} · {ago(run.updated)}</span>
               </button>
-              <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />
+              <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />
             </li>
           {/each}
         </ul>
@@ -868,22 +868,6 @@
   .ticket:focus-within .acts,
   .ticket.open .acts {
     opacity: 1;
-  }
-
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent-ink);
-    font: inherit;
-    font-size: var(--text-sm);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .link:hover {
-    text-decoration: underline;
-    text-underline-offset: 2px;
   }
 
   .menu {
