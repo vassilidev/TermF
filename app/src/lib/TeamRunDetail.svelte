@@ -78,6 +78,7 @@
   const project = $derived(app.workspace?.projects.find((p) => p.id === run.target.project)?.name ?? run.target.project);
   const tasks = $derived(levels(run.plan?.tasks ?? []));
   const top = $derived(run.steps.filter((s) => s.kind !== "task"));
+  const planFirst = $derived(!run.steps.some((s) => s.kind === "task" && s.state !== "pending"));
   const tasksOf = (foreach: Step) => run.steps.filter((s) => s.kind === "task" && s.key.startsWith(`${foreach.key}:`));
   const taskStep = (id: string) => run.steps.find((s) => s.kind === "task" && s.task === id);
   const taskOf = (step: Step) => (step.task === null ? undefined : run.plan?.tasks.find((task) => task.id === step.task));
@@ -137,11 +138,15 @@
   {@const key = ask.step.key}
   <label class="labelled">
     <span>{label}</span>
-    <textarea class="field" rows="3" placeholder={t("teamRunsFeedbackHint")} bind:value={drafts[key]}></textarea>
+    <textarea class="field" rows="3" placeholder={t(ask.kind === "questions" ? "teamRunsAnswersHint" : "teamRunsFeedbackHint")} bind:value={drafts[key]}></textarea>
   </label>
   <div class="buttons">
     {#if ask.kind !== "questions" && ask.kind !== "blocked"}
       <button class="btn sm" onclick={() => (changing = null)}>{t("cancel")}</button>
+    {:else if ask.accept}
+      <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
+        {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
+      </button>
     {/if}
     <button
       class="btn sm primary"
@@ -173,16 +178,18 @@
   {@const report = step.report}
   {@const task = taskOf(step)}
   <div class="step-head">
-    <StatusPill {status} {label} />
+    <span><StatusPill {status} {label} /></span>
     <span class="step-name">
       <b>{stepName(step)}</b>
       {#if task}<span class="goal">{task.goal}</span>{/if}
     </span>
-    {#if task?.squad}<span class="badge">{t("teamRunsSquad", { name: task.squad })}</span>{/if}
-    {#if step.role}<span class="badge">{step.role}</span>{/if}
-    {#if step.attempt > 1}<span class="muted small">{t("teamRunsAttempt", { n: step.attempt })}</span>{/if}
+    <span class="step-tags">
+      {#if step.attempt > 1}<span class="muted small">{t("teamRunsAttempt", { n: step.attempt })}</span>{/if}
+      {#if task?.squad}<span class="badge">{t("teamRunsSquad", { name: task.squad })}</span>{/if}
+      {#if step.role}<span class="badge">{step.role}</span>{/if}
+    </span>
     <span class="cost">{step.cost ? usd(step.cost) : ""}</span>
-    {@render conversation(step)}
+    <span class="open">{@render conversation(step)}</span>
   </div>
   {#if step.note && step.state !== "done"}<p class="note mono">{step.note}</p>{/if}
   {#if report}
@@ -291,7 +298,7 @@
             {#if ask.kind === "plan"}{t("teamRunsAskPlan")}
             {:else if ask.kind === "visual"}{t("teamRunsAskVisual")}
             {:else if ask.kind === "deliver"}{t("teamRunsAskDeliver")}
-            {:else if ask.kind === "questions"}{t("teamRunsAskQuestions", { step: name })}
+            {:else if ask.kind === "questions"}{ask.step.plan ? t("teamRunsAskPlanQuestions") : t("teamRunsAskQuestions", { step: name })}
             {:else if ask.kind === "blocked"}{t("teamRunsAskBlocked", { step: name })}
             {:else}{t("teamRunsAskGate", { step: name })}{/if}
           </b>
@@ -322,15 +329,7 @@
           {@render feedback(ask, t("teamRunsFeedback"), t("chatSend"))}
         {/if}
 
-        {#if ask.kind === "questions" || ask.kind === "blocked"}
-          {#if ask.accept}
-            <div class="buttons">
-              <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
-                {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
-              </button>
-            </div>
-          {/if}
-        {:else if changing !== key}
+        {#if ask.kind !== "questions" && ask.kind !== "blocked" && changing !== key}
           <div class="buttons">
             {#if ask.kind === "visual"}
               <button class="btn sm" disabled={!!busy} onclick={() => (refusing = true)}>
@@ -358,6 +357,7 @@
   </section>
 {/if}
 
+{#snippet planSection()}
 <section aria-labelledby="team-plan">
   <h3 id="team-plan">{t("teamRunsPlan")}</h3>
   {#if run.plan}
@@ -428,7 +428,9 @@
     <p class="muted small">{t("teamRunsNoPlan")}</p>
   {/if}
 </section>
+{/snippet}
 
+{#snippet stepsSection()}
 <section aria-labelledby="team-steps">
   <h3 id="team-steps">{t("teamRunsSteps")}</h3>
   <ol class="steps">
@@ -446,6 +448,16 @@
     {/each}
   </ol>
 </section>
+{/snippet}
+
+<!-- Until a task starts, the plan is what to read; then the steps at work are. -->
+{#if planFirst}
+  {@render planSection()}
+  {@render stepsSection()}
+{:else}
+  {@render stepsSection()}
+  {@render planSection()}
+{/if}
 
 <ConfirmDialog
   bind:open={stopping}
@@ -785,11 +797,28 @@
     border-bottom: 0;
   }
 
+  /* Fixed columns on the right: costs and conversations line up, nested tasks included. */
   .step-head {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(96px, max-content) minmax(0, 1fr) auto 64px 124px;
     align-items: center;
     gap: 10px;
     min-height: 28px;
+  }
+
+  .step-tags {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .cost {
+    text-align: right;
+  }
+
+  .open {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .step-name {

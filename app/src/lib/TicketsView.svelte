@@ -280,7 +280,7 @@
     {@const r = pending.resolution}
     {@const known = tickets.inbox?.find((ticket) => ticket.url === r.ticket.url)}
     {@const chosen = r.repos.find((repo) => repo.path === pending?.repo)}
-    <div class="launch" role="group" aria-label={t("ticketLaunchTitle", { key: r.ticket.key })}>
+    <div class="launch" class:team={pending.team} role="group" aria-label={t("ticketLaunchTitle", { key: r.ticket.key })}>
       <div class="what">
         <span class="name">
           <span class="mono">{r.ticket.key}</span>{known ? ` ${known.title}` : ""}
@@ -723,6 +723,15 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--panel);
+  }
+
+  /* The team's options need the row: the ticket goes above them. */
+  .launch.team .what {
+    flex-basis: 100%;
+  }
+
+  .launch.team {
+    align-items: flex-end;
   }
 
   .labelled {
