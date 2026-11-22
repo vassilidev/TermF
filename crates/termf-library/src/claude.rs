@@ -479,6 +479,59 @@ mod tests {
     }
 
     #[test]
+    fn exports_to_claude_code_and_never_over_an_item_there() {
+        let dir = temp_dir("export-claude");
+        let config = dir.join("config");
+        let claude = dir.join(".claude");
+        put(
+            &config.join("library/skills/pdf/SKILL.md"),
+            "---\nname: pdf\n---\nPDF\n",
+        );
+        put(&config.join("library/skills/pdf/reference.md"), "ref\n");
+        put(
+            &config.join("library/roles/qa.md"),
+            "---\nname: qa\n---\nTest it.\n",
+        );
+        put(&config.join("library/preferences/tone.md"), "Short.\n");
+        put(&config.join("termf.toml"), "");
+        let items = resolve(&config, &Scope::new(&config, None, None).unwrap()).unwrap();
+        let item = |kind, name: &str| {
+            items
+                .iter()
+                .find(|i| i.kind == kind && i.name == name)
+                .unwrap()
+        };
+
+        let (dest, main) = export_target(item(Kind::Skill, "pdf"), &claude).unwrap();
+        assert_eq!(
+            (dest.clone(), main),
+            (
+                claude.join("skills/pdf"),
+                claude.join("skills/pdf/SKILL.md")
+            )
+        );
+        assert_eq!(
+            export_text(item(Kind::Skill, "pdf")).unwrap(),
+            "---\nname: pdf\n---\nPDF\n"
+        );
+        export_claude(item(Kind::Skill, "pdf"), &claude).unwrap();
+        assert!(claude.join("skills/pdf/reference.md").is_file());
+        assert!(
+            export_claude(item(Kind::Skill, "pdf"), &claude).is_err(),
+            "never over it"
+        );
+
+        assert_eq!(
+            export_claude(item(Kind::Role, "qa"), &claude).unwrap(),
+            claude.join("agents/qa.md")
+        );
+        assert_eq!(
+            export_claude(item(Kind::Preference, "tone"), &claude).unwrap(),
+            claude.join("rules/tone.md")
+        );
+    }
+
+    #[test]
     fn imports_from_claude_code_without_overwriting() {
         let dir = temp_dir("import-claude");
         let claude = dir.join(".claude");

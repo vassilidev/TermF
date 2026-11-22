@@ -452,3 +452,5 @@ pub fn export_text(text: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_native;
