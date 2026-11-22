@@ -557,9 +557,12 @@ pub fn check_questions(questions: &[Question]) -> Vec<String> {
             _ => Some(q.options.len()),
         };
         if !q.implications.is_empty() && choices.is_some_and(|n| q.implications.len() != n) {
-            problems.push(format!(
-                "question {id}: give one implication per option, or none"
-            ));
+            problems.push(match q.kind {
+                QuestionKind::Bool => {
+                    format!("question {id}: give two implications (yes, then no), or none")
+                }
+                _ => format!("question {id}: give one implication per option, or none"),
+            });
         }
     }
     problems
@@ -1179,6 +1182,7 @@ paths = ["services/**"]
         odd.implications = vec!["a".into(), "b".into()];
         let mut two = question("x y", QuestionKind::Bool, &[], &["maybe", "no"]);
         two.question = String::new();
+        two.implications = vec!["only one".into()];
         let all = check_questions(&[format.clone(), odd, two]).join("\n");
         for expected in [
             "two questions are named format",
@@ -1187,6 +1191,7 @@ paths = ["services/**"]
             "question format offers fewer than two options",
             "question format: \"PDF\" is not an answer it takes",
             "one implication per option",
+            "question x y: give two implications (yes, then no), or none",
             "question id \"x y\" is not made of",
             "question x y: \"maybe\" is not an answer it takes",
             "question x y proposes more than one answer",

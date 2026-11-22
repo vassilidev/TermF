@@ -6,6 +6,7 @@ import {
   budgetError,
   byTheme,
   current,
+  implications,
   editRouting,
   escalations,
   held,
@@ -200,6 +201,23 @@ const question = (id, kind, options = [], proposed = [], theme = "product") => (
   proposed,
   implications: [],
 });
+test("implications: one per option for a choice, yes then no, a free text's as they come", () => {
+  const choice = { ...question("format", "choice", ["CSV", "Excel"]), implications: ["light", " "] };
+  assert.deepEqual(implications(choice), [{ option: "CSV", text: "light" }]);
+  const odd = { ...question("format", "choice", ["CSV", "Excel"]), implications: ["light"] };
+  assert.deepEqual(implications(odd), [], "not one per option: none shown");
+  const bool = { ...question("public", "bool"), implications: ["a public link", "signed-in users only"] };
+  assert.deepEqual(implications(bool), [
+    { option: "yes", text: "a public link" },
+    { option: "no", text: "signed-in users only" },
+  ]);
+  const text = { ...question("title", "text", [], ["Multiply"]), implications: ["matches the page", "yours"] };
+  assert.deepEqual(implications(text), [
+    { option: null, text: "matches the page" },
+    { option: null, text: "yours" },
+  ]);
+});
+
 const routing = (more = {}) => ({
   kind: "feature",
   size: "M",

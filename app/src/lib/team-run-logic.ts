@@ -353,6 +353,18 @@ export function byTheme(questions: Question[]): [string, Question[]][] {
     .filter(([, list]) => list.length);
 }
 
+/**
+ * What each answer of a question implies, as the form lists it: a choice's options with theirs (one per option),
+ * yes then no for a yes/no question (two), a free text's as they come (`option` null); empty ones left out.
+ */
+export function implications(q: Question): { option: string | null; text: string }[] {
+  const options = q.kind === "bool" ? ["yes", "no"] : q.kind === "text" ? null : q.options;
+  if (options && q.implications.length !== options.length) return [];
+  return q.implications
+    .map((text, i) => ({ option: options ? options[i] : null, text: text.trim() }))
+    .filter((row) => row.text);
+}
+
 /** Whether the questions make a form: each has an id (one stored before the questionnaire is a bare sentence). */
 export function isForm(questions: Question[]): boolean {
   return questions.length > 0 && questions.every((q) => q.id);
