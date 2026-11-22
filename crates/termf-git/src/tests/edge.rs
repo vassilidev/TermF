@@ -162,12 +162,16 @@ fn a_detached_head_and_a_submodule_are_read() {
     );
     sb.git(&repo, &["commit", "-q", "-m", "Submodule"]);
     fs::write(repo.join("sub/README.md"), "changed\n").unwrap();
+    // TermF's diff stays the short one whatever the user's `diff.submodule` says.
+    sb.git(&repo, &["config", "diff.submodule", "diff"]);
     let state = sb.git.state(&repo).unwrap();
     let changes = &state.worktrees[0].changes;
     assert_eq!(changes.len(), 1, "{changes:?}");
     assert_eq!(changes[0].path, "sub");
     let diff = sb.git.diff(&repo, "sub", None, false).unwrap();
     assert!(!diff.partial, "{diff:?}");
+    assert_eq!((diff.added, diff.removed), (1, 1), "{diff:?}");
+    assert!(diff.hunks[0].lines[1].text.ends_with("-dirty"), "{diff:?}");
     let err = sb
         .git
         .stage(&repo, "sub", Some(&[pick(0, &[1])]), Some(&diff.id))

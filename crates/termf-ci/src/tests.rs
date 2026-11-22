@@ -624,6 +624,10 @@ fn reads_jobs_logs_and_acts_on_runs() {
     assert_eq!((log.lines.len(), log.errors.as_slice()), (2, &[1][..]));
     assert_eq!(log.lines[0], "ok");
     assert_eq!(ci.log(&repo, 102).unwrap().lines, ["old gh"]);
+    // Once gh said it does not know the flag, it is no longer passed.
+    let calls = sb.log().matches("--allow-escape-sequences").count();
+    assert_eq!(ci.log(&repo, 102).unwrap().lines, ["old gh"]);
+    assert_eq!(sb.log().matches("--allow-escape-sequences").count(), calls);
     let missing = ci.log(&repo, 101).unwrap_err().to_string();
     assert!(missing.contains("once the job has ended"), "{missing}");
 

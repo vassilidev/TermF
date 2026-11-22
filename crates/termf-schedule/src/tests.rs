@@ -806,13 +806,22 @@ fn real_launchd() {
     fs::set_permissions(&termf, fs::Permissions::from_mode(0o755)).unwrap();
     let task = env.task(&format!("QA {}", std::process::id()), "* * * * *");
     let id = env.scheduler.save(None, task, None).unwrap();
+
+    /// Unloads the entry even when an assertion fails first.
+    struct Uninstall<'a>(&'a Scheduler, &'a str);
+    impl Drop for Uninstall<'_> {
+        fn drop(&mut self) {
+            let _ = self.0.uninstall(self.1);
+        }
+    }
+    let guard = Uninstall(&env.scheduler, &id);
     env.scheduler.install(&id, &termf).unwrap();
     assert!(env.scheduler.installed(&id));
     let fired = (0..80).any(|_| {
         std::thread::sleep(std::time::Duration::from_secs(1));
         mark.exists()
     });
-    env.scheduler.uninstall(&id).unwrap();
+    drop(guard);
     let target = format!("gui/{}/dev.termf.schedule.{id}", termf_core::ipc::uid());
     let loaded = std::process::Command::new("launchctl")
         .args(["print", &target])
@@ -846,9 +855,8 @@ fn real_headless() {
         .claim(&id, &task, Trigger::Manual, None, Host::Cli)
         .unwrap()
         .unwrap();
-    let claude = termf_core::expand_tilde("~/.local/bin/claude");
-    let agent = termf_term::shell_quote(&claude.to_string_lossy());
-    let done = env.scheduler.run_headless(&run, &task, &agent).unwrap();
+    // Found where TermF looks for it (`termf_core::claude::binary`), as for a task of the app.
+    let done = env.scheduler.run_headless(&run, &task, "claude").unwrap();
     assert_eq!(done.status, Status::Succeeded, "{done:?}");
     let output = done.output.clone().unwrap_or_default().to_lowercase();
     assert!(output.contains("pong"), "{done:?}");

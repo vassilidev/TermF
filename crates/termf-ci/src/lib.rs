@@ -7,6 +7,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -33,6 +34,8 @@ pub struct Ci {
     /// A query → its last ETag and answer.
     cache: Mutex<HashMap<String, (String, Value)>>,
     me: OnceLock<Option<String>>,
+    /// gh answered that it does not know `--allow-escape-sequences`: not asked again.
+    old_gh: AtomicBool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -302,6 +305,7 @@ impl Ci {
             tickets,
             cache: Mutex::default(),
             me: OnceLock::new(),
+            old_gh: AtomicBool::new(false),
         }
     }
 
@@ -493,9 +497,13 @@ impl Ci {
         let path = format!("repos/{slug}/actions/jobs/{job}/logs");
         // Recent gh refuses a body with terminal escapes (colored logs) without this flag, which older ones do not
         // know; the escapes are removed by `parse_log`.
-        let mut args = vec!["api", &path, "--allow-escape-sequences"];
+        let mut args = vec!["api", &path];
+        if !self.old_gh.load(Ordering::Relaxed) {
+            args.push("--allow-escape-sequences");
+        }
         let mut answer = self.gh(&args, None)?;
-        if !answer.ok && answer.err.contains("unknown flag") {
+        if !answer.ok && answer.err.contains("unknown flag") && args.len() == 3 {
+            self.old_gh.store(true, Ordering::Relaxed);
             args.pop();
             answer = self.gh(&args, None)?;
         }

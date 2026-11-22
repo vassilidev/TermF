@@ -398,7 +398,8 @@ mod tests {
                 .map(|(t, _)| t.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
-            let offset = rng.below(28) as i32 * 3600 / 2 - 12 * 3600;
+            // Every half hour from -12:00 to +14:00.
+            let offset = rng.below(53) as i32 * 1800 - 12 * 3600;
             let tz = TimeZone::fixed(jiff::tz::Offset::from_seconds(offset).unwrap());
             let after =
                 Timestamp::from_second(1_767_225_600 + rng.below(5 * 365 * 86_400) as i64).unwrap();
