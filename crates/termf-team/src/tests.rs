@@ -373,6 +373,79 @@ fn task(id: &str, role: &str, hints: &[&str], deps: &[&str]) -> Value {
 }
 
 #[test]
+fn kickoff_researches_then_waits_for_your_decision_before_the_architecture() {
+    let env = Env::new("kickoff");
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src"], &[])])),
+    );
+    let options = Options {
+        workflow: Some("kickoff".into()),
+        ..Options::default()
+    };
+    let run = env.team.start(env.target.clone(), options).unwrap();
+    assert_eq!(run.budget, Some(25.0));
+    assert!(
+        run.steps.iter().all(|s| s.key != "reverse"),
+        "off unless the CTO routes it"
+    );
+    let run = env.state(RunState::Waiting);
+    assert_eq!(env.step(&run, "approve-decision").state, StepState::Waiting);
+    for key in ["frame", "research", "competition", "decide"] {
+        assert_eq!(env.step(&run, key).state, StepState::Done, "{key}");
+    }
+    assert_eq!(env.step(&run, "architecture").state, StepState::Pending);
+    assert!(
+        env.message("research", 1)
+            .contains("You are the researcher")
+    );
+    assert!(
+        env.message("competition", 1)
+            .contains("You are the competitive-analyst")
+    );
+    let decide = env.message("decide", 1);
+    for expected in [
+        "You are the cto",
+        "- research (researcher): research done",
+        "- competition (competitive-analyst): competition done",
+        "The user decides at the next gate",
+    ] {
+        assert!(decide.contains(expected), "{expected} in {decide}");
+    }
+
+    // Asking for changes at the gate sends the user's choice back to the decision note.
+    env.team
+        .revise(1, "approve-decision", "Take option B: a web app.")
+        .unwrap();
+    env.until("the decision again", |r| {
+        env.steps_log().contains(&"decide 2 end".to_owned())
+            && r.steps
+                .iter()
+                .any(|s| s.key == "approve-decision" && s.state == StepState::Waiting)
+    });
+    assert!(
+        env.message("decide", 2)
+            .contains("Take option B: a web app.")
+    );
+
+    env.team.approve(1, "approve-decision").unwrap();
+    let run = env.until("the plan gate", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "approve-plan" && s.state == StepState::Waiting)
+    });
+    assert_eq!(env.step(&run, "architecture").state, StepState::Done);
+    assert!(
+        env.message("architecture", 1)
+            .contains("The user decided on the decision note")
+    );
+    assert!(
+        env.message("plan", 1)
+            .contains("Plan the new project's skeleton")
+    );
+}
+
+#[test]
 fn plans_waits_at_the_gate_then_runs_the_dag() {
     let env = Env::new("dag");
     env.answer(
@@ -1763,7 +1836,7 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         "- analytics: Data analyst for product analytics. Use for",
         "- legal: Compliance analyst. Use for",
         "The routing, as JSON: kind (urgent-bug, bug,",
-        "docs, brand, copy, motion, database, integration, reliability, accessibility, ai, analytics, legal, other)",
+        "docs, brand, copy, motion, database, integration, reliability, accessibility, ai, analytics, legal, research, other)",
         "what the whole run should cost in US dollars, at most $15.00",
         "rulings (each decision you took, one a line: `Ruling: what — why — cost if wrong`)",
         "Each question you ask is an item of a questionnaire",

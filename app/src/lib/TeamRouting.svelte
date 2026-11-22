@@ -21,7 +21,8 @@
     ai: "roles2KindAi",
     analytics: "roles2KindAnalytics",
     legal: "roles2KindLegal",
-    other: "ctoEntryKindOther",
+    research: "greenfieldKindResearch",
+    other:"ctoEntryKindOther",
   };
 
   /** A request's nature as the CTO named it; one TermF does not know as it came. */

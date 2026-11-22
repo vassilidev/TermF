@@ -1,0 +1,37 @@
+extends = "default"
+description = "A new project from an idea, its repository empty or holding only its first commit: frame → research and competitors → decision note → you decide → architecture → plan of the skeleton → implement → checks → reviews → delivery"
+budget_usd = 25
+
+[steps.frame]
+optional = false
+prompt = "The request is the idea of a new project whose repository is still empty. Frame its first version: who it is for, the problem it solves for them, what the first version does and leaves out, and its constraints (platform, data, budget, deadline). Read the repository if it helps; change nothing. Put the criteria and the out-of-scope list in your report's summary; what the idea leaves open goes in your questionnaire, the questions on who it is for, the problem and the scope of the first version first, each with the answer you propose."
+
+[steps.research]
+enabled = true
+prompt = "Research what the new project's first decisions rest on, for the framed first version: the approaches, platforms, stacks, hosted services and libraries that fit, their maturity, licences, costs and limits, and what is known to fail. Several primary sources, each claim sourced and dated; at least two options with their trade-offs and your recommendation. Change nothing: put it in your report's summary."
+
+[steps.competition]
+enabled = true
+prompt = "Map the competitors and alternatives of the framed first version, open source and the \"do nothing\" option included: what each does, its features, public prices, positioning, strengths and weaknesses, public reviews, in a sourced comparison table, then what would set the project apart. \"Not found\" rather than an estimate. Change nothing: put it in your report's summary."
+
+[steps.decide]
+type = "agent"
+role = "cto"
+needs = ["research", "competition", "reverse"]
+prompt = "Write the decision note the user decides on before anything is built, as plain text without Markdown (no headings, tables or bold), since it is shown as written. First the context in one line: what the framing settled. Then each decision the start of the project needs (the scope of the first version, the platform and the stack, what to build and what to reuse), with its options as A, B, C…, each with its trade-offs taken from the research and competition reports and their sources; then your recommendation with its reason, as a line `Ruling: what — why — cost if wrong`; then what stays uncertain. The user decides at the next gate: they approve your recommendations, or send back their own choices, which then are final. Change nothing: put the note in your report's summary."
+
+[steps.approve-decision]
+type = "gate"
+needs = ["decide"]
+
+[steps.architecture]
+enabled = true
+optional = false
+needs = ["approve-decision"]
+prompt = "The user decided on the decision note: build on their choices. Settle the new project's stack and architecture and how the work splits along it: the layout of the repository, the modules and their contracts, the tooling (build, lint, format, tests, CI) and what the skeleton must hold so the first features land without rework. Change nothing: put them in your report's summary."
+
+[steps.ux]
+needs = ["approve-decision"]
+
+[steps.plan]
+prompt = "Plan the new project's skeleton as the architecture report sets it: the structure of the repository, its tooling, one test that runs, the CI, and a README that says what the project is and how to run it; no feature beyond what proves the skeleton works. Give each part to the role that builds it."

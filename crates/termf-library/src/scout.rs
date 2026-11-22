@@ -36,7 +36,9 @@ const KINDS: [Kind; 5] = [
 /// The only tools Claude Code gets.
 const TOOLS: &str = "WebSearch,WebFetch";
 const TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const MAX_PROMPT: usize = 512 << 10;
+// shortcut: about 150k tokens, the whole shipped library (530 KB) with a little room under a 200k context; examine
+// it in batches once it outgrows this.
+const MAX_PROMPT: usize = 576 << 10;
 const MAX_TEXT: usize = 64 << 10;
 const MAX_LINE: usize = 2000;
 const MAX_ENTRIES: usize = 60;

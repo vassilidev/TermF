@@ -211,6 +211,7 @@ fn proposes_a_team_for_each_kind_of_project() {
             ("architect", true, "design"),
             ("back", false, "no-back"),
             ("brand", true, "ui"),
+            ("competitive-analyst", false, "no-new"),
             ("copy", true, "ui"),
             ("dba", false, "no-data"),
             ("devops", true, "infra"),
@@ -220,6 +221,8 @@ fn proposes_a_team_for_each_kind_of_project() {
             ("legal", true, "web"),
             ("motion", true, "web"),
             ("qa", true, "tests"),
+            ("researcher", false, "no-new"),
+            ("reverse-engineer", false, "no-reverse"),
             ("seo", true, "web"),
             ("sre", false, "no-service"),
             ("ux", true, "ui"),
@@ -481,6 +484,38 @@ fn finds_what_calls_for_each_specialist() {
     );
     assert!(names("gem \"rails\", \"~> 8.0\"\n", "rails"));
     assert!(!names("gem \"rails-html-sanitizer\"\n", "rails"));
+}
+
+#[test]
+fn a_new_project_gets_its_researchers_and_captures_call_for_the_reverse_engineer() {
+    const NEW: Files = &[
+        ("README.md", "# Invoicy\n\nInvoices for freelancers.\n"),
+        (".gitignore", ""),
+    ];
+    const CLIENT: Files = &[
+        (
+            "package.json",
+            r#"{ "name": "client", "dependencies": { "express": "5" }, "devDependencies": { "mitmproxy": "1" } }"#,
+        ),
+        ("captures/Login.HAR", "{}"),
+    ];
+    let (_, config, data) = setup("new", &[("invoicy", NEW)]);
+    let new = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    for role in ["researcher", "competitive-analyst"] {
+        assert!(kept(&new).contains(&(role, true, "new")), "{role}");
+    }
+    assert!(kept(&new).contains(&("reverse-engineer", false, "no-reverse")));
+
+    let (_, config, data) = setup("reverse", &[("client", CLIENT)]);
+    let items = library(&config, "acme").unwrap();
+    let repos = crate::repos(&config, "acme", &test_globs(&items)).unwrap();
+    assert_eq!(
+        repos[0].signals["reverse"],
+        ["captures/Login.HAR", "mitmproxy"]
+    );
+    let client = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    assert!(kept(&client).contains(&("reverse-engineer", true, "reverse")));
+    assert!(kept(&client).contains(&("researcher", false, "no-new")));
 }
 
 #[test]

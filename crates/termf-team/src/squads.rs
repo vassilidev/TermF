@@ -244,6 +244,7 @@ mod tests {
                 "architect",
                 "back",
                 "brand",
+                "competitive-analyst",
                 "copy",
                 "dba",
                 "devops",
@@ -253,6 +254,8 @@ mod tests {
                 "legal",
                 "motion",
                 "qa",
+                "researcher",
+                "reverse-engineer",
                 "seo",
                 "sre",
                 "ux"

@@ -194,4 +194,8 @@ export const teamWhy = {
   "no-docs": "roles2WhyNoDocs",
   personal: "roles2WhyPersonal",
   "no-public": "roles2WhyNoPublic",
+  new: "greenfieldWhyNew",
+  "no-new": "greenfieldWhyNoNew",
+  reverse: "greenfieldWhyReverse",
+  "no-reverse": "greenfieldWhyNoReverse",
 } as const;
