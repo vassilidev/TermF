@@ -252,7 +252,8 @@ fn relay(app: &AppHandle, event: &TeamEvent, about: &str) -> Result<()> {
         step: event.step.clone(),
         role: step.and_then(|s| s.role.clone()),
         conversation: step.and_then(|s| s.session),
-        detail: Some(detail),
+        // A gate says nothing more than that it waits; a blocked step says why.
+        detail: (about == "blocked").then_some(detail),
         text: mask_text(&text),
     };
     agents.notify(cto.id, notice, true)

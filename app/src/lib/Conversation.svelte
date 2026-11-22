@@ -121,7 +121,8 @@
   $effect(() => {
     if (!cto) return;
     invoke<LibraryItem[]>("library_list", { kind: "role", project: session.project }).then(
-      (items) => (roles = items.filter((i) => i.active && i.name !== "cto").map((i) => i.name)),
+      // A shipped role plays in the team even when it is off for terminals.
+      (items) => (roles = items.filter((i) => (i.active || i.layer === "shipped") && i.name !== "cto").map((i) => i.name)),
       () => (roles = []),
     );
   });

@@ -181,7 +181,7 @@
     <ul class="list" class:picking={chosen.length > 0} aria-label={t("chatList")}>
       {#if app.project !== null && !ctoOf(app.project)}
         <li class="row">
-          <span class="box"></span>
+          <span class="slot" aria-hidden="true"></span>
           <button class="pick" onclick={showCto}>
             <span class="name">
               <span class="title">{t("ctoTitle", { project: currentProject()?.name ?? app.project })}</span>
@@ -363,6 +363,12 @@
   .name :global(.pin) {
     flex-shrink: 0;
     color: var(--accent-ink);
+  }
+
+  /* Where the other rows have their checkbox. */
+  .slot {
+    flex-shrink: 0;
+    width: 14px;
   }
 
   .none {
