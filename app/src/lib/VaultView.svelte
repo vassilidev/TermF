@@ -6,7 +6,9 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Lock from "@lucide/svelte/icons/lock";
   import Plus from "@lucide/svelte/icons/plus";
+  import Fingerprint from "@lucide/svelte/icons/fingerprint-pattern";
   import Search from "@lucide/svelte/icons/search";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import StickyNote from "@lucide/svelte/icons/sticky-note";
   import Timer from "@lucide/svelte/icons/timer";
   import VaultIcon from "@lucide/svelte/icons/lock-keyhole";
@@ -14,13 +16,26 @@
   import { getContext } from "svelte";
   import VaultEntry from "$lib/VaultEntry.svelte";
   import VaultForm from "$lib/VaultForm.svelte";
+  import VaultRecoveryKey from "$lib/VaultRecoveryKey.svelte";
+  import VaultSecurity from "$lib/VaultSecurity.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { app, type ViewId } from "$lib/state.svelte";
-  import { copy, failed, openEntry, refreshVault, setStatus, vault, type VaultStatus, type VaultView } from "$lib/vault.svelte";
+  import {
+    biometryName,
+    copy,
+    failed,
+    openEntry,
+    quickReady,
+    refreshVault,
+    setStatus,
+    vault,
+    type VaultStatus,
+    type VaultView,
+  } from "$lib/vault.svelte";
   import { entries, host, sections, visible, type Filter, type ItemInfo, type Kind } from "$lib/vault-logic";
 
   /** Mounted twice: in the current project's views ("vault") and under "This machine" ("vaultAll"). */
@@ -36,10 +51,15 @@
   let busy = $state(false);
   let error = $state("");
   let copying = $state("");
+  let security = $state(false);
+  let pin = $state("");
+  let recovering = $state(false);
+  let recoveryText = $state("");
 
   const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
   const status = $derived(vault.status);
-  const all = $derived(entries(vault.items, vault.secrets));
+  const asksKey = $derived(!!status?.keys);
+  const all =$derived(entries(vault.items, vault.secrets));
   const seen = $derived(visible(all, scope, "all", ""));
   const list = $derived(visible(all, scope, filter, query, projectName));
   const cut = $derived(sections(list, app.project, projectName));
@@ -52,10 +72,12 @@
   function select(key: string) {
     vault.selected[view] = key;
     editing = null;
+    security = false;
   }
 
   function create(kind: Kind) {
     editing = { item: null, kind };
+    security = false;
   }
 
   async function unlock(e: SubmitEvent) {
@@ -66,14 +88,34 @@
       if (!status?.initialized) {
         if (password !== again) throw t("vaultPasswordsDiffer");
         setStatus(await invoke<VaultStatus>("vault_init", { password, remember: false }));
+      } else if (recovering) {
+        if (password !== again) throw t("vaultPasswordsDiffer");
+        const done = await invoke<{ status: VaultStatus; recoveryKey: string }>("vault_recover", { recoveryKey: recoveryText, password });
+        vault.recoveryKey = { key: done.recoveryKey, reason: "recovered" };
+        recovering = false;
+        setStatus(done.status);
       } else {
-        setStatus(await invoke<VaultStatus>("vault_unlock", { password }));
+        const keyPin = asksKey && vault.methods?.keyPin ? pin : null;
+        setStatus(await invoke<VaultStatus>("vault_unlock", { password, pin: keyPin }));
       }
       await refreshVault();
     } catch (e) {
       error = failed(e);
     } finally {
-      password = again = "";
+      password = again = pin = recoveryText = "";
+      busy = false;
+    }
+  }
+
+  async function unlockQuick() {
+    busy = true;
+    error = "";
+    try {
+      setStatus(await invoke<VaultStatus>("vault_unlock_biometry", { reason: t("vault2ReasonUnlock") }));
+      await refreshVault();
+    } catch (e) {
+      error = failed(e);
+    } finally {
       busy = false;
     }
   }
@@ -120,7 +162,10 @@
 
   // Locked by hand, idle or asleep: what the form holds must go too.
   $effect(() => {
-    if (!status?.unlocked) editing = null;
+    if (!status?.unlocked) {
+      editing = null;
+      security = false;
+    }
   });
 </script>
 
@@ -129,6 +174,9 @@
     {#snippet actions()}
       {#if status?.unlocked}
         <button class="btn sm primary" onclick={() => create("login")}><Plus size={14} aria-hidden="true" />{t("vaultNew")}</button>
+        <button class="btn sm" aria-pressed={security} onclick={() => ((security = !security), (editing = null))}>
+          <ShieldCheck size={14} aria-hidden="true" />{t("vault2Security")}
+        </button>
         <button class="btn sm" onclick={lock}><Lock size={14} aria-hidden="true" />{t("vaultLock")}</button>
       {/if}
     {/snippet}
@@ -140,7 +188,9 @@
     </div>
   {/if}
 
-  {#if !status}
+  {#if vault.recoveryKey}
+    <div class="pane"><VaultRecoveryKey /></div>
+  {:else if !status}
     <div class="pane">
       <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("vaultLoading")}</p>
     </div>
@@ -148,35 +198,73 @@
     <div class="pane">
       <EmptyState
         icon={status.initialized ? Lock : VaultIcon}
-        title={status.initialized ? t("vaultLocked") : t("vaultCreateTitle")}
-        text={status.initialized ? t("vaultLockedText", { minutes: status.autoLockMinutes }) : t("vaultCreateText")}
+        title={recovering ? t("vault2RecoverTitle") : status.initialized ? t("vaultLocked") : t("vaultCreateTitle")}
+        text={recovering
+          ? t("vault2RecoverText")
+          : status.initialized
+            ? t("vaultLockedText", { minutes: status.autoLockMinutes })
+            : t("vaultCreateText")}
       >
         <form class="unlock" onsubmit={unlock}>
+          {#if status.initialized && !recovering && quickReady()}
+            <button type="button" class="btn primary quick-open" disabled={busy} onclick={unlockQuick}>
+              <Fingerprint size={16} aria-hidden="true" />{t("vault2OpenWith", { name: biometryName() })}
+            </button>
+            <p class="or muted"><span>{t("vault2Or")}</span></p>
+          {/if}
+          {#if recovering}
+            <label class="labelled">
+              {t("vault2Recovery")}
+              <!-- svelte-ignore a11y_autofocus (opened by its link) -->
+              <input
+                class="field mono"
+                bind:value={recoveryText}
+                placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                autocomplete="off"
+                spellcheck="false"
+                required
+                autofocus
+              />
+            </label>
+          {/if}
           <label class="labelled">
-            {status.initialized ? t("vaultMasterPassword") : t("vaultNewMasterPassword")}
+            {status.initialized && !recovering ? t("vaultMasterPassword") : t("vaultNewMasterPassword")}
             <!-- svelte-ignore a11y_autofocus (the only thing to do on this screen) -->
             <input
               class="field"
               type="password"
-              autocomplete={status.initialized ? "current-password" : "new-password"}
-              minlength={status.initialized ? undefined : 8}
+              autocomplete={status.initialized && !recovering ? "current-password" : "new-password"}
+              minlength={status.initialized && !recovering ? undefined : 8}
               bind:value={password}
               required
-              autofocus
+              autofocus={!recovering}
             />
           </label>
-          {#if !status.initialized}
+          {#if !status.initialized || recovering}
             <label class="labelled">
               {t("vaultPasswordAgain")}
               <input class="field" type="password" autocomplete="new-password" bind:value={again} required />
             </label>
+          {:else if asksKey && vault.methods?.keyPin}
+            <label class="labelled">
+              {t("vault2Pin")}
+              <input class="field" type="password" autocomplete="off" bind:value={pin} minlength="4" required />
+            </label>
           {/if}
           {#if error}<p class="notice error" role="alert">{error}</p>{/if}
-          <button type="submit" class="btn primary" disabled={busy || !password}>
+          <button type="submit" class="btn" class:primary={!quickReady() || recovering} disabled={busy || !password}>
             {#if busy}<LoaderCircle size={14} class="spin" aria-hidden="true" />{/if}
-            {status.initialized ? t("vaultUnlock") : t("vaultCreate")}
+            {recovering ? t("vault2RecoverRun") : status.initialized ? t("vaultUnlock") : t("vaultCreate")}
           </button>
+          {#if busy && asksKey && status.initialized && !recovering}
+            <p class="touch" role="status">{vault.methods?.keyPin ? t("vault2Touch") : t("vault2WindowsAsks")}</p>
+          {/if}
           {#if !status.initialized}<p class="muted fine">{t("vaultCreateWarning")}</p>{/if}
+          {#if recovering}
+            <button type="button" class="btn quiet" onclick={() => ((recovering = false), (error = ""))}>{t("cancel")}</button>
+          {:else if status.initialized && status.recovery}
+            <button type="button" class="btn quiet sm forgot" onclick={() => ((recovering = true), (error = ""))}>{t("vault2Forgot")}</button>
+          {/if}
         </form>
       </EmptyState>
     </div>
@@ -267,7 +355,9 @@
       </div>
 
       <div class="detail">
-        {#if editing}
+        {#if security}
+          <VaultSecurity onclose={() => (security = false)} />
+        {:else if editing}
           {#key editing}
             <VaultForm
               item={editing.item}
@@ -355,6 +445,39 @@
     margin: 0;
     font-size: var(--text-xs);
     text-align: center;
+  }
+
+  .quick-open {
+    justify-content: center;
+    height: 36px;
+  }
+
+  .or {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .or::before,
+  .or::after {
+    flex: 1;
+    border-top: 1px solid var(--border);
+    content: "";
+  }
+
+  .touch {
+    margin: 0;
+    color: var(--accent-text);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .forgot {
+    align-self: center;
+    color: var(--muted);
   }
 
   .side {

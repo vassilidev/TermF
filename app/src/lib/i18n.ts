@@ -2417,6 +2417,85 @@ const fr = {
   vaultUrlsPlaceholder: "https://github.com",
   vaultTotpPending: "··· ···",
 
+  // Password manager, slice 2: security keys as a second factor, Touch ID / Windows Hello, the recovery key.
+  vault2Security: "Sécurité",
+  vault2SecurityTitle: "Sécurité du coffre",
+  vault2ConfirmText: "Retape ton mot de passe maître pour changer la façon dont le coffre s'ouvre (valable 5 min).",
+  vault2PasswordOnly: "Mot de passe maître seul",
+  vault2PasswordAndKey: "Mot de passe maître + clé de sécurité",
+  vault2PasswordOnlyHint:
+    "Ajoute une clé de sécurité (YubiKey, SoloKey, Titan…) : le mot de passe seul n'ouvrira plus le coffre.",
+  vault2PasswordAndKeyHint:
+    "Sans une de tes clés, le mot de passe seul n'ouvre plus le coffre ; la clé de récupération, si.",
+  vault2Keys: "Clés de sécurité (FIDO2)",
+  vault2KeyAdded: "ajoutée {when}",
+  vault2KeyRemove: "Retirer {name}",
+  vault2AddKey: "Ajouter une clé",
+  vault2KeyName: "Nom de la clé",
+  vault2KeyNamePlaceholder: "YubiKey 5C",
+  vault2Pin: "PIN de la clé de sécurité",
+  vault2Touch: "Touche ta clé de sécurité quand elle clignote…",
+  vault2TouchTwice: "Touche ta clé quand elle clignote, deux fois…",
+  vault2WindowsAsks: "Windows demande le PIN et le toucher dans sa propre fenêtre.",
+  vault2Backup: "Ajoute une clé de secours : si tu perds celle-ci, seule la clé de récupération t'ouvrira le coffre.",
+  vault2RemoveTitle: "Retirer la clé « {name} » ?",
+  vault2RemoveText:
+    "Elle n'ouvrira plus le coffre. Si tu l'as perdue, change aussi ton mot de passe : une ancienne copie du fichier du coffre s'ouvre encore avec elle et l'ancien mot de passe.",
+  vault2RemoveLast: "C'est ta dernière clé : le mot de passe seul ouvrira de nouveau le coffre.",
+  vault2TouchId: "Touch ID",
+  vault2WindowsHello: "Windows Hello",
+  vault2Biometry: "Touch ID ou Windows Hello",
+  vault2BiometryOn: "Rouvrir le coffre avec {name}",
+  vault2BiometryDays: "Mot de passe redemandé après",
+  vault2Days: "{n} j",
+  vault2BiometryHint:
+    "{name} rouvre le coffre pendant ces jours après ta dernière ouverture par mot de passe ; le mot de passe revient après tout changement de sécurité.",
+  vault2HonestMac:
+    "À savoir : TermF n'est pas encore une app signée. Touch ID est une porte devant une clé gardée dans le trousseau de ce Mac, pas un verrou cryptographique : le trousseau réserve cette clé à TermF, Touch ID ne la chiffre pas. Le lien direct viendra avec l'app signée.",
+  vault2HonestWindows:
+    "À savoir : Windows Hello est demandé avant de lire la clé, mais le Gestionnaire d'identifiants laisse tout programme de ta session la lire, un agent compris, et ouvrir le coffre avec. N'active pas cette option si des agents tournent sur cette machine.",
+  vault2BiometryNone:
+    "Ni Touch ID ni Windows Hello n'est configuré ici (Linux n'a pas de biométrie système standard) : le coffre s'ouvre avec ton mot de passe et ta clé de sécurité.",
+  vault2BiometryUntil: "Sans mot de passe jusqu'au {date}.",
+  vault2BiometryPending: "Servira après ta prochaine ouverture par mot de passe.",
+  vault2ReasonUnlock: "déverrouiller le coffre",
+  vault2ReasonProd: "confirmer l'accès à la prod du coffre",
+  vault2ReasonEnable: "activer l'ouverture du coffre",
+  vault2OpenWith: "Ouvrir avec {name}",
+  vault2Or: "ou",
+  vault2Password: "Mot de passe maître",
+  vault2ChangePassword: "Changer le mot de passe",
+  vault2NewPassword: "Nouveau mot de passe maître",
+  vault2PasswordChanged: "Mot de passe maître changé.",
+  vault2Recovery: "Clé de récupération",
+  vault2RecoveryOn:
+    "Elle ouvre le coffre sans ta clé de sécurité ni ton mot de passe : range-la hors ligne, quiconque l'a ouvre le coffre. En créer une nouvelle rend l'ancienne inutilisable.",
+  vault2RecoveryOff:
+    "Pas de clé de récupération : un mot de passe oublié ne se retrouve pas. Elle est créée avec ta première clé de sécurité, ou ici.",
+  vault2RecoveryLost:
+    "Perdre le mot de passe et la clé de récupération, c'est perdre le coffre : personne, pas même TermF, ne peut le rouvrir.",
+  vault2RecoveryNew: "Nouvelle clé de récupération",
+  vault2RecoveryCreate: "Créer une clé de récupération",
+  vault2KeyTitle: "Ta clé de récupération",
+  vault2KeyFirst: "Clé de sécurité ajoutée : le coffre demande maintenant ton mot de passe et ta clé.",
+  vault2KeyRenewed: "Nouvelle clé de récupération : l'ancienne ne fonctionne plus.",
+  vault2KeyRecovered:
+    "Nouveau mot de passe enregistré, coffre ouvert. La clé de récupération utilisée ne fonctionne plus : voici la nouvelle. Retire ensuite la clé de sécurité perdue.",
+  vault2KeyOnce:
+    "Note-la ou imprime-la, puis range-la hors ligne : elle n'est montrée qu'une fois. Sans elle, perdre ta clé de sécurité ou ton mot de passe, c'est perdre le coffre.",
+  vault2KeyCopy: "Copier",
+  vault2KeyStored: "J'ai rangé ma clé de récupération en lieu sûr",
+  vault2Continue: "Continuer",
+  vault2Forgot: "Clé de sécurité perdue ou mot de passe oublié ?",
+  vault2RecoverTitle: "Ouvrir avec la clé de récupération",
+  vault2RecoverText:
+    "Elle ouvre le coffre sans ta clé de sécurité. Choisis un nouveau mot de passe maître ; tes clés de sécurité restent enregistrées, retire ensuite celle que tu as perdue.",
+  vault2RecoverRun: "Ouvrir et enregistrer",
+  vault2NoRecovery: "Ce coffre n'a pas de clé de récupération : sans ton mot de passe et ta clé de sécurité, il ne se rouvre pas.",
+  vault2WrongRecovery: "Clé de récupération incorrecte.",
+  vault2ProdKey: "Avec ma clé de sécurité",
+  vault2ProdBiometry: "Avec {name}",
+
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.
   gitView: "Git",
   gitShow: "Afficher Git",
@@ -4925,6 +5004,85 @@ const en: Record<Key, string> = {
   vaultUsernamePlaceholder: "alex@acme.dev",
   vaultUrlsPlaceholder: "https://github.com",
   vaultTotpPending: "··· ···",
+
+  // Password manager, slice 2: security keys as a second factor, Touch ID / Windows Hello, the recovery key.
+  vault2Security: "Security",
+  vault2SecurityTitle: "Vault security",
+  vault2ConfirmText: "Type your master password again to change how the vault opens (valid 5 min).",
+  vault2PasswordOnly: "Master password only",
+  vault2PasswordAndKey: "Master password + security key",
+  vault2PasswordOnlyHint:
+    "Add a security key (YubiKey, SoloKey, Titan…): the password alone will no longer open the vault.",
+  vault2PasswordAndKeyHint:
+    "Without one of your keys, the password alone no longer opens the vault; the recovery key does.",
+  vault2Keys: "Security keys (FIDO2)",
+  vault2KeyAdded: "added {when}",
+  vault2KeyRemove: "Remove {name}",
+  vault2AddKey: "Add a key",
+  vault2KeyName: "Key name",
+  vault2KeyNamePlaceholder: "YubiKey 5C",
+  vault2Pin: "Security key PIN",
+  vault2Touch: "Touch your security key when it blinks…",
+  vault2TouchTwice: "Touch your key when it blinks, twice…",
+  vault2WindowsAsks: "Windows asks for the PIN and the touch in its own window.",
+  vault2Backup: "Add a backup key: if you lose this one, only the recovery key will open the vault.",
+  vault2RemoveTitle: "Remove the key “{name}”?",
+  vault2RemoveText:
+    "It will no longer open the vault. If you lost it, change your password too: an older copy of the vault file still opens with it and the old password.",
+  vault2RemoveLast: "This is your last key: the password alone will open the vault again.",
+  vault2TouchId: "Touch ID",
+  vault2WindowsHello: "Windows Hello",
+  vault2Biometry: "Touch ID or Windows Hello",
+  vault2BiometryOn: "Reopen the vault with {name}",
+  vault2BiometryDays: "Password asked again after",
+  vault2Days: "{n} d",
+  vault2BiometryHint:
+    "{name} reopens the vault for these days after you last opened it with the password; the password comes back after any security change.",
+  vault2HonestMac:
+    "Good to know: TermF is not a signed app yet. Touch ID is a gate in front of a key kept in this Mac's keychain, not a cryptographic lock: the keychain keeps that key for TermF, Touch ID does not encrypt it. The direct bond comes with the signed app.",
+  vault2HonestWindows:
+    "Good to know: Windows Hello is asked before the key is read, but Credential Manager lets any program in your session read it, an agent included, and open the vault with it. Do not turn this on if agents run on this machine.",
+  vault2BiometryNone:
+    "Neither Touch ID nor Windows Hello is set up here (Linux has no standard system biometrics): the vault opens with your password and your security key.",
+  vault2BiometryUntil: "No password until {date}.",
+  vault2BiometryPending: "Works after you next open the vault with the password.",
+  vault2ReasonUnlock: "unlock the vault",
+  vault2ReasonProd: "confirm access to the vault's prod scope",
+  vault2ReasonEnable: "turn on opening the vault",
+  vault2OpenWith: "Open with {name}",
+  vault2Or: "or",
+  vault2Password: "Master password",
+  vault2ChangePassword: "Change the password",
+  vault2NewPassword: "New master password",
+  vault2PasswordChanged: "Master password changed.",
+  vault2Recovery: "Recovery key",
+  vault2RecoveryOn:
+    "It opens the vault without your security key or your password: keep it offline, whoever has it opens the vault. Making a new one makes the old one useless.",
+  vault2RecoveryOff:
+    "No recovery key: a forgotten password cannot be recovered. One is made with your first security key, or here.",
+  vault2RecoveryLost:
+    "Losing both the password and the recovery key means losing the vault: nobody, not even TermF, can open it again.",
+  vault2RecoveryNew: "New recovery key",
+  vault2RecoveryCreate: "Make a recovery key",
+  vault2KeyTitle: "Your recovery key",
+  vault2KeyFirst: "Security key added: the vault now asks for your password and your key.",
+  vault2KeyRenewed: "New recovery key: the old one no longer works.",
+  vault2KeyRecovered:
+    "New password saved, vault open. The recovery key you used no longer works: here is the new one. Then remove the lost security key.",
+  vault2KeyOnce:
+    "Write it down or print it, then keep it offline: it is shown only once. Without it, losing your security key or your password means losing the vault.",
+  vault2KeyCopy: "Copy",
+  vault2KeyStored: "I stored my recovery key somewhere safe",
+  vault2Continue: "Continue",
+  vault2Forgot: "Lost your security key or forgot your password?",
+  vault2RecoverTitle: "Open with the recovery key",
+  vault2RecoverText:
+    "It opens the vault without your security key. Choose a new master password; your security keys stay enrolled, then remove the one you lost.",
+  vault2RecoverRun: "Open and save",
+  vault2NoRecovery: "This vault has no recovery key: without your password and your security key, it cannot be opened.",
+  vault2WrongRecovery: "Wrong recovery key.",
+  vault2ProdKey: "With my security key",
+  vault2ProdBiometry: "With {name}",
 
   // Git in the project, slice 1: the branch graph, each branch's state and the everyday actions.
   gitView: "Git",
