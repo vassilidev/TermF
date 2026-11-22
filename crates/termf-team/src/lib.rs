@@ -1214,7 +1214,7 @@ impl Inner {
     }
 
     /// The criteria of the definition of done: `[team] done` of the project's file, else of `termf.toml`.
-    fn done_criteria(&self, run: &TeamRun) -> Result<Vec<String>> {
+    fn done_criteria(&self, run: &TeamRun) -> Result<Vec<(String, bool)>> {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         done::criteria(&[&project, &self.config_dir.join("termf.toml")])
     }
@@ -3727,6 +3727,8 @@ impl Inner {
                         "the definition of done is not met: {}. Deliver anyway only with your reason; or {note}",
                         done.unmet()
                     );
+                } else if !done.warned().is_empty() {
+                    note = format!("{note}. To know before: {}", done.warned());
                 }
                 run.done = Some(done);
                 self.wait(store, run, i, &note);
@@ -4655,7 +4657,7 @@ impl Inner {
             let ids = self.done_criteria(run)?;
             if !ids.is_empty() {
                 text.push_str(&format!(
-                    "\n## The definition of done\n\nTermF delivers the run only when {}.\n",
+                    "\n## The definition of done\n\n{}\n",
                     done::describe(&ids)
                 ));
             }

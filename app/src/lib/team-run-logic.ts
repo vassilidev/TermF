@@ -166,7 +166,7 @@ export type TeamRun = {
 export type RunRepo = { name: string; path: string; run: number; worktree: string; base: string | null };
 
 /** A criterion of the definition of done: `checks`, `review`, `security`, `visual` or `docs`. */
-export type Criterion = { id: string; met: boolean; note: string };
+export type Criterion = { id: string; met: boolean; note: string; warn?: boolean };
 /** The definition of done at the delivery gate; `overridden`: why the user delivered without it. */
 export type Done = { criteria: Criterion[]; overridden: string | null };
 /** A decision of a project's journal: a ruling of the CTO, or what the user decided at a gate. */
@@ -182,9 +182,9 @@ export type Decision = {
   at: number;
 };
 
-/** Whether the delivery may go: every criterion met, or the user passed over them. */
+/** Whether the delivery may go: every criterion met or only warning, or the user passed over them. */
 export function passes(done: Done | null | undefined): boolean {
-  return !done || done.overridden !== null || done.criteria.every((c) => c.met);
+  return !done || done.overridden !== null || done.criteria.every((c) => c.met || c.warn);
 }
 
 /** The CTO's escalation steps that decide on `step`. */

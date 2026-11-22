@@ -3026,6 +3026,8 @@ const fr = {
   disciplineDoneConfirm: "Livrer quand même",
   disciplineDoneOverridden: "Livré sans la définition de fini : {reason}",
   disciplineDoneStopped: "L'équipe s'est arrêtée avant sa gate de livraison : livrer sans ces critères est ta décision, gardée dans les décisions du projet.",
+  // QA team / tickets: a criterion of the definition of done that only warns.
+  qaTeamDoneWarned: "à savoir, ne bloque pas la livraison",
   disciplineEscalation: "Escalade au CTO",
   disciplineEscalated: "Escaladée au CTO",
   disciplineDecisions: "Décisions du projet",
@@ -6678,6 +6680,8 @@ const en: Record<Key, string> = {
   disciplineDoneConfirm: "Deliver anyway",
   disciplineDoneOverridden: "Delivered without the definition of done: {reason}",
   disciplineDoneStopped: "The team stopped before its delivery gate: delivering without these criteria is your decision, kept in the project's decisions.",
+  // QA team / tickets: a criterion of the definition of done that only warns.
+  qaTeamDoneWarned: "worth knowing, does not hold the delivery",
   disciplineEscalation: "Escalation to the CTO",
   disciplineEscalated: "Escalated to the CTO",
   disciplineDecisions: "Project decisions",

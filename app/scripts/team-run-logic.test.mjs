@@ -364,6 +364,8 @@ test("the delivery goes when every criterion of the definition of done holds, or
   assert.equal(passes(done(false)), false);
   assert.equal(passes(done(false, "the docs come next")), true);
   assert.equal(passes(null), true, "no gate read it: nothing holds the delivery here");
+  const warned = { criteria: [{ id: "docs", met: false, note: "no documentation changed", warn: true }], overridden: null };
+  assert.equal(passes(warned), true, "a criterion that only warns holds nothing");
 });
 
 test("a step's escalations are the CTO's steps that decide on it", () => {

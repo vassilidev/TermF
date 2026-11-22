@@ -3845,8 +3845,29 @@ fn a_team_stopped_short_of_its_gate_leaves_the_delivery_to_you() {
     let env = Env::new("done-stopped");
     let mut public = report("T1 done");
     public["public_change"] = true.into();
-    env.answer("implement:T1.json", public);
+    env.answer("implement:T1.json", public.clone());
+    // By default the documentation only warns: a public change without it is shown, and delivered.
     disciplined(&env, "");
+    let run = env.until("the delivery", delivery);
+    let done = run.done.clone().unwrap();
+    assert!(done.passes(), "{done:?}");
+    assert!(
+        done.warned()
+            .starts_with("docs (T1 changed the public behaviour"),
+        "{done:?}"
+    );
+    let gate = env.step(&run, "deliver");
+    let note = gate.note.clone().unwrap_or_default();
+    assert!(note.contains("To know before: docs"), "{note}");
+    assert_eq!(env.team.check_delivery(1).unwrap(), None);
+
+    // Named in `[team] done`, it holds the delivery.
+    let env = Env::new("done-stopped-docs");
+    env.answer("implement:T1.json", public);
+    disciplined(
+        &env,
+        "done = [\"checks\", \"review\", \"security\", \"docs\"]",
+    );
     env.until("the delivery", delivery);
     assert!(
         env.team.check_delivery(1).is_err(),
