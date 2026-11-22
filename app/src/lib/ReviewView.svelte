@@ -607,7 +607,7 @@
     gap: 6px;
     padding: 0 8px;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.5;
   }
 
