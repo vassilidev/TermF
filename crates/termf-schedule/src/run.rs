@@ -68,11 +68,12 @@ pub fn headless_command(agent: &str, task: &Task) -> Command {
 }
 
 /// Runs the task headless with `cmd` (see [`headless_command`]) and says how it ended. `started` gets the
-/// process id.
+/// process id; what the process said when it failed starts with `who`.
 pub(crate) fn headless(
     cmd: Command,
     task: &Task,
     timeout: Duration,
+    who: &str,
     started: impl FnOnce(u32),
 ) -> Outcome {
     let dir = termf_core::expand_tilde(&task.dir);
@@ -80,7 +81,13 @@ pub(crate) fn headless(
         return failed(format!("the folder {} does not exist", dir.display()));
     }
     match execute(cmd, &task.prompt, timeout, started) {
-        Ok((success, stdout, stderr)) => outcome(success, &stdout, &stderr),
+        Ok((success, stdout, stderr)) => {
+            let mut outcome = outcome(success, &stdout, &stderr);
+            if let Some(error) = &mut outcome.error {
+                *error = format!("{who}: {error}");
+            }
+            outcome
+        }
         Err(e) => failed(format!("{e:#}")),
     }
 }
