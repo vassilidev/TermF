@@ -2,7 +2,6 @@
   import type { Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Bot from "@lucide/svelte/icons/bot";
-  import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
   import Coffee from "@lucide/svelte/icons/coffee";
   import FileDown from "@lucide/svelte/icons/file-down";
   import FileUp from "@lucide/svelte/icons/file-up";
@@ -16,7 +15,6 @@
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import ContextReset from "$lib/ContextReset.svelte";
   import KeepAwake from "$lib/KeepAwake.svelte";
-  import MemorySettings from "$lib/MemorySettings.svelte";
   import ShortcutEditor from "$lib/ShortcutEditor.svelte";
   import SyncView from "$lib/SyncView.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -26,6 +24,8 @@
   import { claudeView, loadArtifacts, type Artifacts } from "$lib/claude.svelte";
   import { t } from "$lib/i18n";
   import { actions } from "$lib/keymap-logic";
+  import { hasWords } from "$lib/nav-logic";
+  import { configSections, editProject } from "$lib/project.svelte";
   import { exportConfig, importConfig, settings, type Section } from "$lib/settings.svelte";
   import { app, load } from "$lib/state.svelte";
   import { summary } from "$lib/sync.svelte";
@@ -55,12 +55,6 @@
     { id: "ci", label: "viewCi", icon: Workflow, words: ["ciNotify", "ciNotifyHelp", "ciNotifyMine", "ciNotifyAll"] },
     { id: "claude", label: "claudeViewTitle", icon: Bot, words: ["claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"] },
     {
-      id: "memory",
-      label: "expertMemoryTitle",
-      icon: BrainCircuit,
-      words: ["expertMemoryIntro", "expertMemorySources", "expertSourceClaude", "expertSourceGit", "expertSourceDocs"],
-    },
-    {
       id: "config",
       label: "settingsConfig",
       icon: Folder,
@@ -72,18 +66,11 @@
   let query = $state("");
   let error = $state("");
 
-  const fold = (s: string) =>
-    s
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase();
-  const found = $derived.by(() => {
-    const words = fold(query).split(/\s+/).filter(Boolean);
-    return sections.filter((s) => {
-      const text = fold([s.label, ...s.words].map((k) => t(k)).join(" "));
-      return words.every((w) => text.includes(w));
-    });
-  });
+  const matches = (keys: Key[]) => hasWords(keys.map((k) => t(k)).join(" "), query);
+  const found = $derived(sections.filter((s) => matches([s.label, ...s.words])));
+  // The project's memory moved to its Configuration: a search still finds it, as a link there.
+  const memory = configSections.find((s) => s.id === "memory")!;
+  const memoryLink = $derived(!!query.trim() && app.project !== null && matches([memory.label, ...memory.words]));
 
   // A search that hides the open section opens the first one it found.
   $effect(() => {
@@ -140,16 +127,19 @@
       </div>
     {/snippet}
     <SectionNav
-      items={found.map((s) => ({
-        id: s.id,
-        label: t(s.label),
-        icon: s.icon,
-        dot: s.id !== "sync" ? null : tone === "error" ? "error" : tone === "attention" ? "warn" : null,
-        dotLabel: t("syncNeedsYou"),
-      }))}
+      items={[
+        ...found.map((s) => ({
+          id: s.id as Section | "memory",
+          label: t(s.label),
+          icon: s.icon,
+          dot: s.id !== "sync" ? null : tone === "error" ? ("error" as const) : tone === "attention" ? ("warn" as const) : null,
+          dotLabel: t("syncNeedsYou"),
+        })),
+        ...(memoryLink ? [{ id: "memory" as const, label: t(memory.label), icon: memory.icon, apart: found.length > 0 }] : []),
+      ]}
       current={settings.section}
       label={t("settings")}
-      onselect={(id) => (settings.section = id)}
+      onselect={(id) => (id === "memory" ? editProject(app.project!, "memory") : (settings.section = id))}
       top={search}
       empty={t("filesNoResults")}
     />
@@ -213,8 +203,6 @@
               {t("claudeRedesignSkipConfirm")}
             </label>
             <p class="help">{t("claudeRedesignSkipConfirmHelp")}</p>
-          {:else if settings.section === "memory"}
-            <MemorySettings />
           {:else if settings.section === "config"}
             <h2>{t("settingsConfig")}</h2>
             {#if app.workspace}

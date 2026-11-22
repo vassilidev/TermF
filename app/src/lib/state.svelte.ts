@@ -9,7 +9,7 @@ import {
 import { t } from "$lib/i18n";
 import { loadKeys } from "$lib/keymap.svelte";
 import { projectsOf } from "$lib/nav-logic";
-import { go } from "$lib/panes-logic";
+import { go, leaves } from "$lib/panes-logic";
 import type { Side } from "$lib/split-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
 // Each module reads the other only inside functions, so the import cycles are safe.
@@ -145,8 +145,9 @@ class Ui {
   }
 
   set view(next: ViewId) {
-    if (next !== this.#view && next !== panes.other) panes.last = this.#view;
     const p = go({ ...panes, view: this.#view }, next);
+    if (holds(p, () => (this.view = next))) return;
+    if (next !== this.#view && next !== panes.other) panes.last = this.#view;
     this.#view = p.view;
     panes.other = p.other;
     panes.active = p.active;
@@ -156,6 +157,15 @@ class Ui {
 export const ui = new Ui();
 
 export const onScreen = (view: ViewId) => ui.view === view || panes.other === view;
+
+/** A page with a form registers here: whatever would close it, or take it off screen, asks it first. */
+export const held = { page: null as { view: ViewId; hold: (leave: () => void) => boolean } | null };
+
+/** Whether the page holds back a change of the panels to `after`: it asks, then runs `leave` unless kept. */
+export function holds(after: { view: ViewId; other: ViewId | null }, leave: () => void): boolean {
+  const page = held.page;
+  return !!page && leaves(page.view, { view: ui.view, other: panes.other }, after) && page.hold(leave);
+}
 
 /** Paths of the repositories ticked in the session launcher. */
 export const selected = new SvelteSet<string>();

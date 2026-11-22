@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { beside, clamp, close, decode, encode, go, leave, slots } from "../src/lib/panes-logic.ts";
+import { beside, clamp, close, decode, encode, go, leave, leaves, slots } from "../src/lib/panes-logic.ts";
 
 const one = { view: "terminals", other: null, active: 0, size: 0.5 };
 const known = ["terminals", "tickets", "files"];
@@ -71,6 +71,24 @@ test("kept from one launch to the next: two known views, else nothing", () => {
     size: 0.75,
   });
   assert.equal(decode(JSON.stringify({ left: "files", right: "tickets", size: "x" }), known).size, 0.5);
+});
+
+test("a page with unsaved changes is asked about only when a change takes it off screen", () => {
+  const page = "project";
+  const shown = { view: "project", other: null, active: 0, size: 0.5 };
+  // Another view in its panel, or the page closed beside another view: off screen.
+  assert.equal(leaves(page, shown, go(shown, "library")), true);
+  const two = { view: "project", other: "terminals", active: 0, size: 0.5 };
+  assert.equal(leaves(page, two, close(two, "project")), true);
+  // The keyboard to the other panel, or another view beside it: still shown.
+  assert.equal(leaves(page, two, go(two, "terminals")), false);
+  assert.equal(leaves(page, shown, beside(shown, "files")), false);
+  assert.equal(leaves(page, two, close(two, "terminals")), false);
+  // Beside, replaced by another view opened beside the active one.
+  const aside = { view: "terminals", other: "project", active: 0, size: 0.5 };
+  assert.equal(leaves(page, aside, beside(aside, "files")), true);
+  // Not shown at all: nothing to ask.
+  assert.equal(leaves(page, one, go(one, "tickets")), false);
 });
 
 test("leaving a page goes back in its own panel, or closes it when where it came from is beside it", () => {

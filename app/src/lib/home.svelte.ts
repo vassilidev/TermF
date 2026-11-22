@@ -5,7 +5,7 @@ import { pending, type StoredEvent } from "$lib/conversation-logic";
 import { askKey, waits, type Wait } from "$lib/home-logic";
 import { sessionProjects } from "$lib/project.svelte";
 import { awaitsDelivery } from "$lib/run-logic";
-import { app, setProject, ui, waitingSessions } from "$lib/state.svelte";
+import { app, onScreen, setProject, ui, waitingSessions } from "$lib/state.svelte";
 import { asks, type Ask, type TeamRun } from "$lib/team-run-logic";
 import { team } from "$lib/team.svelte";
 import { tickets } from "$lib/tickets.svelte";
@@ -125,6 +125,8 @@ export async function talkCto() {
   if (project === null) return;
   home.with = "cto";
   showHome();
+  // A page with unsaved changes may keep the screen: it asks first.
+  if (!onScreen("home")) return;
   await ensure(project, "cto");
   (await reach('[data-panel="home"] .composer textarea'))?.focus();
 }
@@ -138,6 +140,7 @@ export async function goToWait(w: Wait) {
   if (project !== null && project !== app.project) setProject(project);
   home.with = "cto";
   showHome();
+  if (!onScreen("home")) return;
   // The CTO's own request is its permission card, the last thing it said.
   const card = await reach(
     w.kind === "cto" ? '[data-panel="home"] [role="log"] .ask[role="group"]' : `[data-panel="home"] [data-wait="${w.key}"]`,
