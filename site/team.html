@@ -193,7 +193,7 @@ roles = { back = 2 }
 repos = ["billing-service"]
 paths = ["src/**", "tests/**"]
 max_parallel = 2</code></pre>
-    <p>When a run spans one squad, its lead plans it; when it spans several, the CTO plans every squad's batches, with the <code>squads</code> workflow. The setup assistant can propose squads when you create a project; outside of it, squads are edited in the project's file for now.</p>
+    <p>When a run spans one squad, its lead plans it; when it spans several, the CTO plans the batches, with the <code>squads</code> workflow, and each squad's lead splits its batch into tasks that TermF grafts into the run; a large batch waits for your approval. The setup assistant can propose squads when you create a project, and the project's Configuration has a squad editor.</p>
 
     <h2 id="review">The review loop</h2>
     <p>Once the tasks are merged and the checks have run, the reviewer reads the whole diff of the run. Each finding says where it is, what breaks and how to fix it, and it is either important or a nit. Important findings go back to the task that owns them, in a fresh session with the finding, and the reviewer looks again, up to two rounds by default. Nits are reported rather than fixed, unless you ask for fixes. A finding that no task clearly owns, or one still open after the last round, becomes a question for you; leaving it as it is asks for a reason, which stays in the run's report.</p>
