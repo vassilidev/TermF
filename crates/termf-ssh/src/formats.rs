@@ -5,8 +5,8 @@ use std::fmt;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use base64ct::{Base64UrlUnpadded, Encoding};
-use pkcs8::der::asn1::{BitStringRef, OctetStringRef};
-use pkcs8::der::{Decode, Document, Encode};
+use pkcs8::der::asn1::{AnyRef, BitStringRef, ContextSpecific, OctetStringRef};
+use pkcs8::der::{Decode, Document, Encode, Reader, SliceReader, TagNumber};
 use pkcs8::spki::{AlgorithmIdentifierRef, EncodePublicKey, SubjectPublicKeyInfoRef};
 use pkcs8::{
     DecodePrivateKey, EncodePrivateKey, EncryptedPrivateKeyInfo, LineEnding, ObjectIdentifier,
@@ -671,7 +671,7 @@ pub(crate) fn from_pkcs8(der: &[u8]) -> Result<Secret> {
             return Ok(Secret::Ec(curve, d));
         }
     }
-    if let Some(secret) = explicit_ec(info.private_key) {
+    if let Some(secret) = explicit_ec(info.private_key, info.algorithm.parameters) {
         return Ok(secret);
     }
     bail!(
@@ -681,28 +681,62 @@ pub(crate) fn from_pkcs8(der: &[u8]) -> Result<Secret> {
 }
 
 /// A SEC1 key whose curve is spelled out rather than named, as `ssh-keygen` built on LibreSSL (macOS) writes
-/// one: the curve of the scalar's size, kept only when the key's own public point proves it.
-fn explicit_ec(sec1: &[u8]) -> Option<Secret> {
-    use pkcs8::der::asn1::{AnyRef, ContextSpecific};
-    use pkcs8::der::{Reader, SliceReader, TagNumber};
-    let (d, public) = SliceReader::new(sec1)
+/// one: the curve whose base point the parameters give (`params`: PKCS#8's, else the key's own), and the key's
+/// public point, when it has one, must be its own.
+fn explicit_ec(sec1: &[u8], params: Option<AnyRef<'_>>) -> Option<Secret> {
+    let (d, own, public) = SliceReader::new(sec1)
         .ok()?
         .sequence(|r| {
             u8::decode(r)?;
             let d = OctetStringRef::decode(r)?;
-            ContextSpecific::<AnyRef>::decode_explicit(r, TagNumber::N0)?;
+            let own = ContextSpecific::<AnyRef>::decode_explicit(r, TagNumber::N0)?;
             let public = ContextSpecific::<BitStringRef>::decode_explicit(r, TagNumber::N1)?;
-            Ok((d.as_bytes(), public.map(|p| p.value.raw_bytes())))
+            Ok((
+                d.as_bytes(),
+                own.map(|p| p.value),
+                public.map(|p| p.value.raw_bytes()),
+            ))
         })
         .ok()?;
-    let public = public?;
-    // The point is uncompressed; the scalar may have lost its leading zeros (P-521).
-    let curve = CURVES
-        .into_iter()
-        .find(|c| public.len() == 1 + 2 * c.size() && d.len() <= c.size())?;
-    let mut padded = Zeroizing::new(vec![0; curve.size() - d.len()]);
+    let base = base_point(params.or(own)?)?;
+    let curve = CURVES.into_iter().find(|&c| {
+        let mut one = vec![0; c.size()];
+        one[c.size() - 1] = 1;
+        Secret::ec_point(c, &one).is_ok_and(|g| g == base || compressed(&g) == base)
+    })?;
+    // OpenSSL drops a scalar's leading zeros.
+    let d = &d[d.iter().take_while(|b| **b == 0).count()..];
+    let mut padded = Zeroizing::new(vec![0; curve.size().checked_sub(d.len())?]);
     padded.extend_from_slice(d);
-    (Secret::ec_point(curve, &padded).ok()? == public).then(|| Secret::Ec(curve, padded))
+    let point = Secret::ec_point(curve, &padded).ok()?;
+    public
+        .is_none_or(|p| p == point || p == compressed(&point))
+        .then(|| Secret::Ec(curve, padded))
+}
+
+/// The base point of explicit EC parameters (RFC 3279: version, field, curve, base, order, cofactor).
+fn base_point(params: AnyRef<'_>) -> Option<Vec<u8>> {
+    let der = params.to_der().ok()?;
+    SliceReader::new(&der)
+        .ok()?
+        .sequence(|r| {
+            u8::decode(r)?;
+            AnyRef::decode(r)?;
+            AnyRef::decode(r)?;
+            let base = OctetStringRef::decode(r)?.as_bytes().to_vec();
+            while !r.is_finished() {
+                AnyRef::decode(r)?;
+            }
+            Ok(base)
+        })
+        .ok()
+}
+
+fn compressed(point: &[u8]) -> Vec<u8> {
+    let size = (point.len() - 1) / 2;
+    let mut out = vec![2 + (point[point.len() - 1] & 1)];
+    out.extend_from_slice(&point[1..=size]);
+    out
 }
 
 /// The first PEM block whose label ends with `suffix` (OpenSSL may put `EC PARAMETERS` first).
@@ -726,9 +760,12 @@ fn pem_block<'a>(text: &'a str, suffix: &str) -> Option<(&'a str, &'a str)> {
     None
 }
 
-/// An ECDSA key in OpenSSH's format whose scalar lost its leading zero bytes, as OpenSSH writes an mpint (one
-/// P-256 key in 256, half of the P-521 ones): `ssh-key` 0.6 refuses it. `None`: not such a key.
-fn openssh_ecdsa(block: &str, pass: Option<&str>) -> Result<Option<(Secret, String, bool)>> {
+/// An ECDSA key in OpenSSH's format, read here: `ssh-key` 0.6 refuses one whose scalar lost its leading zero
+/// bytes, as OpenSSH writes an mpint (one P-256 key in 256, half of the P-521 ones). `None`: not an ECDSA key.
+pub(crate) fn openssh_ecdsa(
+    block: &str,
+    pass: Option<&str>,
+) -> Result<Option<(Secret, String, bool)>> {
     fn string<'a>(data: &mut &'a [u8]) -> Option<&'a [u8]> {
         let len = usize::try_from(u32::from_be_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
         let value = data.get(4..4usize.checked_add(len)?)?;
@@ -744,71 +781,69 @@ fn openssh_ecdsa(block: &str, pass: Option<&str>) -> Result<Option<(Secret, Stri
         return Ok(None);
     };
     let data = Zeroizing::new(data);
-    let mut rest = match data.strip_prefix(b"openssh-key-v1\0".as_slice()) {
-        Some(rest) => rest,
-        None => return Ok(None),
-    };
-    // The cipher, the KDF and its options, one key, its public half, then the private part.
-    let Some(cipher) = string(&mut rest) else {
-        return Ok(None);
-    };
-    let section = (|| {
+    let header = (|| {
+        let mut rest = data.strip_prefix(b"openssh-key-v1\0".as_slice())?;
+        let cipher = string(&mut rest)?;
         string(&mut rest)?;
         string(&mut rest)?;
         (rest.get(..4)? == [0, 0, 0, 1]).then_some(())?;
         rest = &rest[4..];
-        string(&mut rest)?;
-        string(&mut rest)
+        let mut public = string(&mut rest)?;
+        let kind = string(&mut public)?;
+        let section = string(&mut rest)?;
+        Some((cipher, kind, section, rest))
     })();
-    let Some(section) = section else {
+    let Some((cipher, kind, section, tag)) = header else {
         return Ok(None);
     };
+    let curve = match kind {
+        b"ecdsa-sha2-nistp256" => Curve::P256,
+        b"ecdsa-sha2-nistp384" => Curve::P384,
+        b"ecdsa-sha2-nistp521" => Curve::P521,
+        _ => return Ok(None),
+    };
+    let invalid = || anyhow!("invalid OpenSSH key");
     let encrypted = cipher != b"none";
     let mut plain = Zeroizing::new(section.to_vec());
     if encrypted {
-        let Ok(key) = PrivateKey::from_openssh(block) else {
-            return Ok(None);
+        let key = PrivateKey::from_openssh(block).map_err(|_| invalid())?;
+        let pass = passphrase(pass)?;
+        let cipher = key.cipher();
+        let tag = match cipher.has_tag() {
+            true => Some(tag.get(..16).ok_or_else(invalid)?.try_into()?),
+            false => None,
         };
-        if key.cipher().has_tag() {
-            return Ok(None);
-        }
         let (k, iv) = key
             .kdf()
-            .derive_key_and_iv(key.cipher(), passphrase(pass)?)
+            .derive_key_and_iv(cipher, pass)
+            .map_err(|_| invalid())?;
+        cipher
+            .decrypt(&k, &iv, &mut plain, tag)
             .map_err(|_| Locked::WrongPassphrase)?;
-        if key.cipher().decrypt(&k, &iv, &mut plain, None).is_err() {
-            return Ok(None);
-        }
     }
     let mut p: &[u8] = &plain;
     match (p.get(..4), p.get(4..8)) {
         (Some(a), Some(b)) if a == b => p = &p[8..],
         _ if encrypted => return Err(Locked::WrongPassphrase.into()),
-        _ => return Ok(None),
+        _ => return Err(invalid()),
     }
-    let curve = match string(&mut p) {
-        Some(b"ecdsa-sha2-nistp256") => Curve::P256,
-        Some(b"ecdsa-sha2-nistp384") => Curve::P384,
-        Some(b"ecdsa-sha2-nistp521") => Curve::P521,
-        _ => return Ok(None),
-    };
-    let (Some(_), Some(point), Some(d), Some(comment)) = (
+    let (Some(_), Some(_), Some(point), Some(d), Some(comment)) = (
+        string(&mut p),
         string(&mut p),
         string(&mut p),
         string(&mut p),
         string(&mut p),
     ) else {
-        return Ok(None);
+        return Err(invalid());
     };
     let d = &d[d.iter().take_while(|b| **b == 0).count()..];
-    if d.len() > curve.size() {
-        return Ok(None);
-    }
-    let mut padded = Zeroizing::new(vec![0; curve.size() - d.len()]);
+    let size = curve.size().checked_sub(d.len()).ok_or_else(invalid)?;
+    let mut padded = Zeroizing::new(vec![0; size]);
     padded.extend_from_slice(d);
-    if Secret::ec_point(curve, &padded).ok().as_deref() != Some(point) {
-        return Ok(None);
-    }
+    ensure!(
+        Secret::ec_point(curve, &padded).ok().as_deref() == Some(point),
+        invalid()
+    );
     let comment = String::from_utf8_lossy(comment).into_owned();
     Ok(Some((Secret::Ec(curve, padded), comment, encrypted)))
 }
@@ -874,15 +909,12 @@ pub(crate) fn parse(text: &str, pass: Option<&str>) -> Result<Parsed> {
                     )
                 })
             };
-            match read() {
-                Err(e) => match openssh_ecdsa(block, pass)? {
-                    Some((secret, comment, encrypted)) => Ok(Parsed {
-                        comment,
-                        ..parsed(secret, Format::Openssh, encrypted)
-                    }),
-                    None => Err(e),
-                },
-                read => read,
+            match openssh_ecdsa(block, pass)? {
+                Some((secret, comment, encrypted)) => Ok(Parsed {
+                    comment,
+                    ..parsed(secret, Format::Openssh, encrypted)
+                }),
+                None => read(),
             }
         }
         "PRIVATE KEY" => Ok(parsed(from_pkcs8(der()?.as_bytes())?, Format::Pkcs8, false)),
@@ -900,8 +932,12 @@ pub(crate) fn parse(text: &str, pass: Option<&str>) -> Result<Parsed> {
                 // pkcs5 reports a failed unpadding as `EncryptFailed` as well as `DecryptFailed`.
                 Err(_) => return Err(Locked::WrongPassphrase.into()),
             };
-            // A wrong passphrase can still unpad by chance: what follows is then not DER.
-            let secret = from_pkcs8(decrypted.as_bytes()).map_err(|_| Locked::WrongPassphrase)?;
+            // A wrong passphrase can still unpad by chance: what follows is then not DER. Readable DER that is
+            // no key TermF takes is said as such, never as a wrong passphrase.
+            if PrivateKeyInfo::try_from(decrypted.as_bytes()).is_err() {
+                return Err(Locked::WrongPassphrase.into());
+            }
+            let secret = from_pkcs8(decrypted.as_bytes())?;
             Ok(parsed(secret, Format::Pkcs8, true))
         }
         "RSA PRIVATE KEY" => {
@@ -917,7 +953,7 @@ pub(crate) fn parse(text: &str, pass: Option<&str>) -> Result<Parsed> {
                     return Ok(parsed(Secret::Ec(curve, d), Format::Sec1, false));
                 }
             }
-            if let Some(secret) = explicit_ec(doc.as_bytes()) {
+            if let Some(secret) = explicit_ec(doc.as_bytes(), None) {
                 return Ok(parsed(secret, Format::Sec1, false));
             }
             bail!("unsupported SEC1 key: P-256, P-384 or P-521 only")

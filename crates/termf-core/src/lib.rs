@@ -13,6 +13,7 @@ pub mod context;
 pub mod ipc;
 pub mod process;
 pub mod remote;
+#[cfg(feature = "test-util")]
 pub mod rng;
 pub mod shell;
 pub mod squads;

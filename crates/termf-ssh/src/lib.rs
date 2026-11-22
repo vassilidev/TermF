@@ -609,7 +609,15 @@ fn read_private(path: &Path) -> Result<Option<Private>> {
         return Ok(None);
     };
     if header == "-----BEGIN OPENSSH PRIVATE KEY-----" {
-        let key = PrivateKey::from_openssh(text)?;
+        let key = match PrivateKey::from_openssh(text) {
+            Ok(key) => key,
+            // An ECDSA key whose scalar lost its leading zeros, which ssh-key refuses.
+            Err(e) => {
+                let parsed = formats::parse(text, None).map_err(|_| e)?;
+                let pair = parsed.secret.to_ssh()?.context("not an SSH key")?;
+                PrivateKey::new(pair, &parsed.comment)?
+            }
+        };
         return Ok(Some(Private {
             encrypted: key.is_encrypted(),
             public: Some(key.public_key().clone()),

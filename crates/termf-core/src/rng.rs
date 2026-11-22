@@ -1,7 +1,6 @@
 //! A seeded generator for the property tests of every crate: the same seed gives the same cases, so a failure
 //! replays without a new dependency.
 
-/// SplitMix64.
 pub struct Rng(u64);
 
 impl Rng {
