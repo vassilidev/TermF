@@ -57,7 +57,8 @@ pub fn headless_command(agent: &str, task: &Task) -> Command {
     let args: Vec<String> = headless_args(task).iter().map(|a| shell_quote(a)).collect();
     let line = format!("{agent} {}", args.join(" "));
     // An agent: the allowlist of the environment, after the login shell's profile too.
-    let (tool, policy) = (Tool::of(agent), agent_env::current(None));
+    let dir = termf_core::expand_tilde(&task.dir);
+    let (tool, policy) = (Tool::of(agent), agent_env::for_dir(&dir));
     let wrapped = policy.wrap(&line, tool, agent_env::cli(), &[], shell_quote);
     let (program, args) = shell_command(Some(wrapped.as_ref().map_or(&line, |(w, _)| w)));
     let mut cmd = Command::new(program);
@@ -71,8 +72,7 @@ pub fn headless_command(agent: &str, task: &Task) -> Command {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    cmd.args(args)
-        .current_dir(termf_core::expand_tilde(&task.dir));
+    cmd.args(args).current_dir(dir);
     cmd
 }
 

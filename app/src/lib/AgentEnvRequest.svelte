@@ -6,7 +6,7 @@
   import { dropSecretRequest, type SecretRequest } from "$lib/agentenv.svelte";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
-  import { showVault, type VaultStatus } from "$lib/vault.svelte";
+  import { followStatus, showVault, vault } from "$lib/vault.svelte";
 
   /**
    * An agent's request for a key, as the Home shows it: what for, where to get one, then the key pasted here (kept in
@@ -28,14 +28,12 @@
   let password = $state("");
   let busy = $state(false);
   let error = $state("");
-  let status = $state<VaultStatus | null>(null);
+  // The app's own: it follows the vault opened or locked anywhere, this card included.
+  const status = $derived(vault.status);
   const locked = $derived(!!status?.initialized && !status.unlocked);
 
   $effect(() => {
-    invoke<VaultStatus>("vault_status").then(
-      (s) => (status = s),
-      () => {},
-    );
+    followStatus().catch(() => {});
   });
 
   async function answer(give: boolean) {
@@ -46,7 +44,6 @@
       dropSecretRequest(r.id);
     } catch (e) {
       const text = String(e);
-      if (/the vault is locked/.test(text) && status) status = { ...status, unlocked: false };
       error = /wrong master password/.test(text) ? t("vaultWrongPassword") : text;
     } finally {
       busy = false;

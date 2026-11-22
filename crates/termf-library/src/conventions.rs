@@ -1286,7 +1286,8 @@ pub fn ask(
     for (_, path) in &repos[1..] {
         cmd.arg("--add-dir").arg(path);
     }
-    termf_core::agent_env::current(None).apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
+    termf_core::agent_env::for_dir(&repos[0].1)
+        .apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
     let (status, stdout, stderr) = run(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT)
         .with_context(|| format!("cannot run Claude Code {claude}"))?;
     termf_core::claude::structured_output(&claude, status, &stdout, &stderr)

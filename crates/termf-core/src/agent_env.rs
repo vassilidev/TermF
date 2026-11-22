@@ -928,6 +928,25 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_gets_the_settings_of_the_project_that_lists_it() {
+        // The only test that sets the process's configured folder.
+        let config = dir("for-dir");
+        let repo = config.join("acme-api");
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(
+            config.join("projects/acme.toml"),
+            format!(
+                "name = \"acme\"\n[[repos]]\npath = \"{}\"\n\n[agents]\nenv_allow = [\"ACME_*\"]\n",
+                repo.display()
+            ),
+        )
+        .unwrap();
+        configure(config.clone(), None);
+        assert_eq!(for_dir(&repo.join("src")).allow, ["ACME_*"]);
+        assert!(for_dir(&config).allow.is_empty());
+    }
+
+    #[test]
     fn grants_and_allowlist_are_written_with_the_rest_of_the_files_kept() {
         let config = dir("write");
         let project = "# acme\nname = \"acme\" # the client\n\n[[repos]]\npath = \"~/acme\"\n";

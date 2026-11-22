@@ -73,6 +73,12 @@ function watch() {
   });
 }
 
+/** The vault's status, kept up to date from now on, for what shows it outside the Vault view. */
+export async function followStatus() {
+  watch();
+  if (!vault.status) setStatus(await invoke<VaultStatus>("vault_status"));
+}
+
 /** "2 ajouté(s), 1 en double version", in the user's language. */
 export function mergeText(rows: Merged[]): string {
   const words = { added: "vault3CountAdded", changed: "vault3CountChanged", deleted: "vault3CountDeleted", conflict: "vault3CountConflict" } as const;

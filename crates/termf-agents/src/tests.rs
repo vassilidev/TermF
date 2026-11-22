@@ -73,6 +73,7 @@ while IFS= read -r line; do
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
     *patience*) sleep 1; answer 'Done.'; result success ;;
     *echo-key*) answer "key=${PEXELS_API_KEY-none}"; result success ;;
+    *split-key*) delta "key=px-5f"; delta "3a9c, done"; answer "key=px-5f3a9c, done"; result success ;;
     *webhooks*) answer 'Three retries: src/webhooks.rs:12, and conversation 1111 (2026-11-20).'; result success ;;
     *) answer 'OK.'; result success ;;
   esac
@@ -1208,6 +1209,30 @@ fn a_session_gets_its_project_s_vault_keys_masked_in_what_it_says() {
     assert!(env.events(id).iter().any(
         |e| matches!(e, AgentEvent::Error { message } if message.contains("PISTE_CLIENT_ID"))
     ));
+    // Streamed in two pieces that each hold part of it: no piece shows any of it.
+    env.agents.send(id, "split-key").unwrap();
+    env.settle(id, 2, State::Idle);
+    let streamed: Vec<String> = env
+        .updates
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|u| match u {
+            Update::Event(StoredEvent {
+                session,
+                event: AgentEvent::Delta { text },
+                ..
+            }) if *session == id => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(!streamed.is_empty());
+    assert!(
+        streamed
+            .iter()
+            .all(|t| !t.contains("px-") && !t.contains("3a9c")),
+        "{streamed:?}"
+    );
 
     // A CTO conversation never gets them.
     env.agents.serve_mcp(

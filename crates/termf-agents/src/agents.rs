@@ -61,6 +61,8 @@ struct Inner {
     secrets: OnceLock<Secrets>,
     /// By session, the vault's values its process got: masked in what it reports.
     hidden: Mutex<HashMap<i64, Vec<String>>>,
+    /// By session, the end of the streamed text not sent yet: it may be the start of one of those values.
+    held: Mutex<HashMap<i64, String>>,
 }
 
 /// What the vault gives a process of a session (its id, its project): `[agents.secrets]`.
@@ -150,6 +152,7 @@ impl Agents {
                 guard: OnceLock::new(),
                 secrets: OnceLock::new(),
                 hidden: Mutex::default(),
+                held: Mutex::default(),
             }),
         };
         if let Err(e) = agents.inner.store().and_then(|s| agents.inner.reap(&s)) {
@@ -641,6 +644,28 @@ impl Inner {
         }
     }
 
+    /// What may go out of a streamed piece of text: masked with what came before it, less its last characters, which
+    /// could start a value the next piece ends.
+    fn stream(&self, id: i64, text: String) -> Option<String> {
+        let hidden = self.hidden.lock().unwrap();
+        let Some(values) = hidden.get(&id).filter(|v| !v.is_empty()) else {
+            return Some(text);
+        };
+        let mut held = self.held.lock().unwrap();
+        let mut all = held.remove(&id).unwrap_or_default() + &text;
+        for value in values {
+            all = all.replace(value.as_str(), MASK);
+        }
+        let longest = values.iter().map(|v| v.chars().count()).max().unwrap_or(1);
+        let chars = all.chars().count();
+        let cut = all
+            .char_indices()
+            .nth(chars.saturating_sub(longest - 1))
+            .map_or(all.len(), |(i, _)| i);
+        held.insert(id, all.split_off(cut));
+        (!all.is_empty()).then_some(all)
+    }
+
     fn record(&self, store: &Store, id: i64, event: AgentEvent) {
         let event = self.hide(id, event);
         match store.record(id, &event) {
@@ -980,19 +1005,20 @@ impl Inner {
             .process
             .as_ref()
             .is_some_and(|p| p.generation == generation);
-        if let AgentEvent::Delta { .. } = event {
-            if current {
-                let event = self.hide(id, event);
+        if let AgentEvent::Delta { text } = event {
+            if current && let Some(text) = self.stream(id, text) {
                 let (session, at) = (id, now());
                 (self.sink)(Update::Event(StoredEvent {
                     id: 0,
                     session,
                     at,
-                    event,
+                    event: AgentEvent::Delta { text },
                 }));
             }
             return Ok(());
         }
+        // The text event that follows holds the whole text, masked.
+        self.held.lock().unwrap().remove(&id);
         let mut session = store.session(id)?;
         let before = session.clone();
         let moves = current
