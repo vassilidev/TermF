@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_agents::{AgentSession, Agents, SessionSpec, StoredEvent, Update};
@@ -28,16 +28,29 @@ pub fn state(
     data_dir: PathBuf,
     team: termf_team::Notifier,
 ) -> AgentsState {
-    let app = app.clone();
-    AgentsState(Agents::new(config_dir, data_dir, move |update| {
+    let handle = app.clone();
+    let agents = Agents::new(config_dir, data_dir, move |update| {
         let _ = match update {
-            Update::Event(event) => app.emit("agent-event", event),
+            Update::Event(event) => handle.emit("agent-event", event),
             Update::Session(session) => {
                 team.session(session.id);
-                app.emit("agent-updated", session)
+                handle.emit("agent-updated", session)
             }
         };
-    }))
+    });
+    let (app, gone) = (app.clone(), app.clone());
+    agents.serve_mcp(
+        move |session| {
+            let state = app.try_state::<AppState>().context("TermF is starting")?;
+            state.api.mcp_server(session)
+        },
+        move |session| {
+            if let Some(state) = gone.try_state::<AppState>() {
+                state.api.revoke_mcp(session);
+            }
+        },
+    );
+    AgentsState(agents)
 }
 
 pub(crate) fn agents(app: &AppHandle) -> &Agents {

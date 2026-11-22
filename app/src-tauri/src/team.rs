@@ -32,7 +32,10 @@ pub fn state(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf, inbox: Inb
         move |update| {
             let _ = match update {
                 TeamUpdate::Run(run) => handle.emit("team-updated", run),
-                TeamUpdate::Event(event) => handle.emit("team-event", event),
+                TeamUpdate::Event(event) => {
+                    crate::cto::team_event(&handle, &event);
+                    handle.emit("team-event", event)
+                }
             };
         },
     );
@@ -58,7 +61,7 @@ pub fn shutdown(app: &AppHandle) {
     }
 }
 
-fn start(app: &AppHandle, run: i64, options: Options) -> Result<TeamRun> {
+pub(crate) fn start(app: &AppHandle, run: i64, options: Options) -> Result<TeamRun> {
     let state = state_of(app);
     let target = Target::of(&tickets(app).run(run)?, &state.config_dir, &state.data_dir)?;
     state.team.start(target, options)

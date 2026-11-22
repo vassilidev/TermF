@@ -13,6 +13,29 @@ pub const ENV_SOCKET: &str = "TERMF_SOCKET";
 /// A session's own token, which only reports that session's hooks.
 pub const ENV_TOKEN: &str = "TERMF_TOKEN";
 pub const ENV_SESSION: &str = "TERMF_SESSION_ID";
+/// What `termf mcp` asks with: the agent session it serves, and that session's own token, which only allows
+/// [`Call::Mcp`] for it.
+pub const ENV_MCP_SESSION: &str = "TERMF_MCP_SESSION";
+pub const ENV_MCP_TOKEN: &str = "TERMF_MCP_TOKEN";
+
+/// The tools of `termf mcp` that only read, and those that act: each action waits for the user's approval
+/// (an `ask` rule in the session's settings).
+pub const MCP_READ: [&str; 6] = [
+    "project",
+    "team_runs",
+    "team_run",
+    "ticket_runs",
+    "inbox",
+    "waiting",
+];
+pub const MCP_ACTIONS: [&str; 6] = [
+    "start_team_run",
+    "answer",
+    "approve",
+    "request_changes",
+    "stop_team_run",
+    "send_message",
+];
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Request {
@@ -79,6 +102,11 @@ pub enum Call {
     Review(ReviewCall),
     /// The project memory and its expert (crate `termf-memory`).
     Memory(MemoryCall),
+    /// A tool of `termf mcp`, for the agent session it serves, within that session's project.
+    Mcp {
+        session: i64,
+        tool: McpCall,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -91,6 +119,67 @@ pub enum MemoryCall {
         project: String,
         question: String,
         budget: Option<f64>,
+    },
+}
+
+/// The tools of `termf mcp` (names in [`MCP_READ`] and [`MCP_ACTIONS`]). None delivers, closes a run, pushes,
+/// or reaches the vault.
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "tool", rename_all = "snake_case", deny_unknown_fields)]
+pub enum McpCall {
+    // Braces, so that a field they do not take is refused as for the others.
+    Project {},
+    TeamRuns {},
+    TeamRun {
+        run: i64,
+    },
+    TicketRuns {},
+    Inbox {},
+    Waiting {},
+    /// The team of a ticket run (`run`), of a ticket that gets a run (`ticket`, `repo`), or of a request
+    /// without a ticket (`request`).
+    StartTeamRun {
+        #[serde(default)]
+        run: Option<i64>,
+        #[serde(default)]
+        ticket: Option<String>,
+        #[serde(default)]
+        request: Option<String>,
+        #[serde(default)]
+        repo: Option<String>,
+        #[serde(default)]
+        workflow: Option<String>,
+        #[serde(default)]
+        budget: Option<f64>,
+    },
+    Answer {
+        run: i64,
+        step: String,
+        answers: String,
+    },
+    Approve {
+        run: i64,
+        step: String,
+    },
+    RequestChanges {
+        run: i64,
+        step: String,
+        feedback: String,
+    },
+    StopTeamRun {
+        run: i64,
+    },
+    /// To the session of a run's step, or to a role: its step at work, else a direct conversation.
+    SendMessage {
+        #[serde(default)]
+        run: Option<i64>,
+        #[serde(default)]
+        step: Option<String>,
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        repo: Option<String>,
+        text: String,
     },
 }
 
@@ -348,11 +437,13 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
             == 0
 }
 
-/// What a token allows: the user's token (in the token file) everything, a session's token only its own hooks.
+/// What a token allows: the user's token (in the token file) everything, a session's token only its own hooks,
+/// an agent session's `termf mcp` token only its tools for that session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Full,
     Session(u32),
+    Mcp(i64),
 }
 
 impl Access {
@@ -360,20 +451,32 @@ impl Access {
         match (self, call) {
             (Access::Full, _) => true,
             (Access::Session(id), Call::Hook { session, .. }) => *session == id,
-            (Access::Session(_), _) => false,
+            (Access::Mcp(id), Call::Mcp { session, .. }) => *session == id,
+            _ => false,
         }
     }
 }
 
-/// The access `token` grants, given the user's token and each session's token.
-pub fn access(token: &str, user: &str, sessions: &HashMap<u32, String>) -> Option<Access> {
+/// The access `token` grants, given the user's token, each terminal session's token and each agent session's
+/// `termf mcp` token.
+pub fn access(
+    token: &str,
+    user: &str,
+    sessions: &HashMap<u32, String>,
+    mcp: &HashMap<i64, String>,
+) -> Option<Access> {
     if token_matches(token, user) {
         return Some(Access::Full);
     }
-    sessions
+    let session = sessions
         .iter()
         .find(|(_, t)| token_matches(token, t))
-        .map(|(id, _)| Access::Session(*id))
+        .map(|(id, _)| Access::Session(*id));
+    session.or_else(|| {
+        mcp.iter()
+            .find(|(_, t)| token_matches(token, t))
+            .map(|(id, _)| Access::Mcp(*id))
+    })
 }
 
 /// Whether a session needs the computer awake: its agent is working, or it is an agent that reports
@@ -649,9 +752,13 @@ mod tests {
     #[test]
     fn session_tokens_only_report_their_own_hooks() {
         let sessions = HashMap::from([(1, "s1".to_string()), (2, "s2".to_string())]);
-        assert_eq!(access("user", "user", &sessions), Some(Access::Full));
-        assert_eq!(access("s2", "user", &sessions), Some(Access::Session(2)));
-        assert_eq!(access("nope", "user", &sessions), None);
+        let none = HashMap::new();
+        assert_eq!(access("user", "user", &sessions, &none), Some(Access::Full));
+        assert_eq!(
+            access("s2", "user", &sessions, &none),
+            Some(Access::Session(2))
+        );
+        assert_eq!(access("nope", "user", &sessions, &none), None);
 
         let hook = |session| Call::Hook {
             session,
@@ -681,6 +788,74 @@ mod tests {
             assert!(!session.allows(call), "{call:?}");
             assert!(Access::Full.allows(call), "{call:?}");
         }
+    }
+
+    #[test]
+    fn mcp_tokens_only_call_their_own_tools() {
+        let mcp = HashMap::from([(7, "m7".to_string())]);
+        let tiles = HashMap::from([(1, "s1".to_string())]);
+        assert_eq!(access("m7", "user", &tiles, &mcp), Some(Access::Mcp(7)));
+        let tool = |session| Call::Mcp {
+            session,
+            tool: McpCall::TeamRuns {},
+        };
+        let access = Access::Mcp(7);
+        assert!(access.allows(&tool(7)));
+        assert!(!access.allows(&tool(8)), "another session's tools");
+        assert!(!Access::Session(1).allows(&tool(7)));
+        for call in [
+            Call::List,
+            Call::Deliver {
+                run: 1,
+                confirm: String::new(),
+            },
+            Call::Close {
+                run: 1,
+                force: true,
+            },
+            Call::Vault(VaultCall::Status),
+            Call::Team(TeamCall::Stop { run: None }),
+            Call::Agent(AgentCall::Send {
+                session: 7,
+                text: "hi".into(),
+            }),
+        ] {
+            assert!(!access.allows(&call), "{call:?}");
+        }
+    }
+
+    #[test]
+    fn mcp_tools_are_named_as_listed() {
+        let names: Vec<&str> = MCP_READ.iter().chain(&MCP_ACTIONS).copied().collect();
+        for name in &names {
+            let mut call = serde_json::Map::new();
+            call.insert("tool".into(), json!(name));
+            for (key, value) in [
+                ("run", json!(1)),
+                ("step", json!("plan")),
+                ("answers", json!("yes")),
+                ("feedback", json!("smaller")),
+                ("text", json!("hi")),
+            ] {
+                call.insert(key.into(), value);
+            }
+            let read = serde_json::from_value::<McpCall>(Value::Object(call.clone()));
+            // Unknown fields are refused: only the ones a tool takes.
+            let fields: &[&str] = match *name {
+                "team_run" | "stop_team_run" => &["run"],
+                "approve" => &["run", "step"],
+                "answer" => &["run", "step", "answers"],
+                "request_changes" => &["run", "step", "feedback"],
+                "send_message" => &["run", "step", "text"],
+                "start_team_run" => &["run"],
+                _ => &[],
+            };
+            call.retain(|k, _| k == "tool" || fields.contains(&k.as_str()));
+            assert!(read.is_err(), "{name} takes only its own fields");
+            let call = serde_json::from_value::<McpCall>(Value::Object(call)).unwrap();
+            assert_eq!(serde_json::to_value(&call).unwrap()["tool"], json!(name));
+        }
+        assert!(serde_json::from_value::<McpCall>(json!({"tool": "deliver", "run": 1})).is_err());
     }
 
     #[test]

@@ -75,7 +75,7 @@ pub async fn onboarding_seen(
     onboarding::seen(&state.config_dir, &data_dir().map_err(err)?, &project).map_err(err)
 }
 
-/// `proposal`: `tickets`, `worktree` or `ci`, once applied or refused with its own command.
+/// `proposal`: `tickets`, `worktree`, `ci` or `team`, once applied or refused with its own command.
 #[tauri::command]
 pub async fn onboarding_decide(
     state: State<'_, AppState>,
@@ -128,6 +128,54 @@ pub async fn claude_trust_set(
             &roots.join(", "),
         )?;
         Ok(repos)
+    })
+    .await
+}
+
+/// `choices`: what the card changed; `fresh` (by default): read the repositories again rather than reuse the
+/// last survey.
+#[tauri::command]
+pub async fn onboarding_team(
+    state: State<'_, AppState>,
+    project: String,
+    choices: Option<onboarding::Choices>,
+    fresh: Option<bool>,
+) -> CmdResult<onboarding::Team> {
+    blocking(&state, move |dir| {
+        onboarding::team(
+            dir,
+            &data_dir()?,
+            &project,
+            choices.unwrap_or_default(),
+            fresh.unwrap_or(true),
+        )
+    })
+    .await
+}
+
+/// The diff `edit` makes to the project's file, before it is written.
+#[tauri::command]
+pub async fn onboarding_team_preview(
+    state: State<'_, AppState>,
+    project: String,
+    edit: onboarding::Edit,
+) -> CmdResult<onboarding::Preview> {
+    blocking(&state, move |dir| {
+        onboarding::team_preview(dir, &project, &edit)
+    })
+    .await
+}
+
+/// Writes the accepted parts of the team; `replace`: the owner chose to replace what was changed by hand.
+#[tauri::command]
+pub async fn onboarding_team_save(
+    state: State<'_, AppState>,
+    project: String,
+    edit: onboarding::Edit,
+    replace: Option<bool>,
+) -> CmdResult<onboarding::State> {
+    blocking(&state, move |dir| {
+        onboarding::team_save(dir, &data_dir()?, &project, &edit, replace.unwrap_or(false))
     })
     .await
 }
