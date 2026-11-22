@@ -1128,7 +1128,7 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
     assert_eq!(fs::read(&backup).unwrap(), v1);
 
     vault.save_item(&human(), login(None, "GitHub")).unwrap();
-    assert_eq!(format(), 3);
+    assert_eq!(format(), 4);
     assert!(!backup.exists(), "gone once the new file reads back");
     assert_eq!(
         vault.value(&human(), &db, Access::Use).unwrap().expose(),
@@ -1138,7 +1138,7 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
 
     let mut newer: serde_json::Value =
         serde_json::from_slice(&fs::read(env.file()).unwrap()).unwrap();
-    newer["format"] = 4.into();
+    newer["format"] = 5.into();
     fs::write(env.file(), newer.to_string()).unwrap();
     let err = env
         .vault()
@@ -1213,7 +1213,7 @@ fn a_security_key_makes_the_password_alone_open_nothing() {
         "the keychain no longer keeps the password's key"
     );
     let json = fs::read_to_string(env.file()).unwrap();
-    assert!(json.contains("\"format\": 3") && !json.contains("YubiKey 5 "));
+    assert!(json.contains("\"format\": 4") && !json.contains("YubiKey 5 "));
 
     // Whoever has the file and the password, but not the key, opens nothing: not even by hand.
     let file = vault.read().unwrap();
@@ -1604,7 +1604,7 @@ fn migrates_a_format_2_vault_before_its_first_key() {
     env.plug(&[&yubikey]);
     vault.add_key(&human(), "YubiKey", Some(PIN)).unwrap();
     let file: serde_json::Value = serde_json::from_slice(&fs::read(env.file()).unwrap()).unwrap();
-    assert_eq!(file["format"], 3);
+    assert_eq!(file["format"], 4);
     assert!(!env.data().join("vault/vault.v2.json").exists());
     vault.lock(&human()).unwrap();
     vault
@@ -1717,3 +1717,6 @@ fn says_before_the_system_asks_whether_it_would_go_through() {
         Some("biometry off")
     );
 }
+
+/// The sync item by item, the export and the import (tranche 3).
+mod transfer;

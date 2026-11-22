@@ -71,6 +71,10 @@ export type Report = {
   affected_views: { url: string; state: string; viewports: string[] }[];
   out_of_scope_findings: string[];
   questions?: Question[];
+  /** A task's: its work changes what users or other programs rely on. */
+  public_change?: boolean;
+  /** A security review's: the vulnerabilities it confirmed. */
+  vulnerabilities?: string[];
 };
 export type Violation = { rule: string; file: string | null; message: string; blocking: boolean };
 /**
@@ -108,6 +112,12 @@ export type Step = {
   state: StepState;
   /** Its answer is the plan a `foreach` runs. */
   plan: boolean;
+  /** An escalation step: the step the CTO decides on. */
+  escalates?: string | null;
+  /** It went to the CTO once: next time, the user decides. */
+  escalated?: boolean;
+  /** The user accepted it as it is. */
+  accepted?: boolean;
   session: number | null;
   sessions: number[];
   attempt: number;
@@ -135,12 +145,41 @@ export type TeamRun = {
   answers?: Answer[];
   /** Every round of the code review, in order; absent from a run made before the review. */
   reviews?: Review[];
+  /** The definition of done as the delivery gate read it. */
+  done?: Done | null;
   steps: Step[];
   /** Why it waits, is paused, stopped or out of budget. */
   note: string | null;
   created: number;
   updated: number;
 };
+
+/** A criterion of the definition of done: `checks`, `review`, `security`, `visual` or `docs`. */
+export type Criterion = { id: string; met: boolean; note: string };
+/** The definition of done at the delivery gate; `overridden`: why the user delivered without it. */
+export type Done = { criteria: Criterion[]; overridden: string | null };
+/** A decision of a project's journal: a ruling of the CTO, or what the user decided at a gate. */
+export type Decision = {
+  id: number;
+  project: string;
+  run: number;
+  step: string;
+  by: "cto" | "you";
+  text: string;
+  replaces: number | null;
+  replacedBy: number | null;
+  at: number;
+};
+
+/** Whether the delivery may go: every criterion met, or the user passed over them. */
+export function passes(done: Done | null | undefined): boolean {
+  return !done || done.overridden !== null || done.criteria.every((c) => c.met);
+}
+
+/** The CTO's escalation steps that decide on `step`. */
+export function escalations(run: TeamRun, step: Step): Step[] {
+  return run.steps.filter((s) => s.escalates === step.key);
+}
 
 /**
  * The plan's tasks in levels: a task comes after every task it depends on, so those of one level may run together.

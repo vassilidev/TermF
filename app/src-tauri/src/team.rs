@@ -192,9 +192,34 @@ pub async fn team_workflows(app: AppHandle, run: i64) -> CmdResult<Vec<WorkflowV
     blocking(app, move |app| state_of(app).team.workflows(run)).await
 }
 
+/// `reason`: why the delivery gate passes although the definition of done is not met.
 #[tauri::command]
-pub async fn team_approve(app: AppHandle, run: i64, step: String) -> CmdResult<TeamRun> {
-    blocking(app, move |app| state_of(app).team.approve(run, &step)).await
+pub async fn team_approve(
+    app: AppHandle,
+    run: i64,
+    step: String,
+    reason: Option<String>,
+) -> CmdResult<TeamRun> {
+    blocking(app, move |app| {
+        let team = &state_of(app).team;
+        match reason {
+            Some(reason) => team.approve_anyway(run, &step, &reason),
+            None => team.approve(run, &step),
+        }
+    })
+    .await
+}
+
+/// The project's decisions, newest first.
+#[tauri::command]
+pub async fn team_decisions(
+    app: AppHandle,
+    project: String,
+) -> CmdResult<Vec<termf_team::Decision>> {
+    blocking(app, move |app| {
+        termf_team::decisions(&state_of(app).data_dir, &project)
+    })
+    .await
 }
 
 #[tauri::command]

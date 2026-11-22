@@ -60,7 +60,7 @@ usage:
   termf ssh assign <key> [<repo>]       make a repository (default: here) use only this key
   termf ssh assign --none [<repo>]      back to the default keys
   termf ssh trash <key>                 move a key to ~/.ssh/.termf-trash
-  termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions]
+  termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions,vault]
                                         sync this machine's config, encrypted, through a remote
   termf sync status                     remote, last sync, conflicts, missing repositories
   termf sync push | pull                sync now (pull only brings changes in)
@@ -69,7 +69,7 @@ usage:
   termf sync devices                    machines syncing, and when they last did
   termf sync change-password            re-encrypt everything; other machines need the new password
   termf sync recover                    set a new password with the recovery key
-  termf sync scopes <list>              choose what syncs: config, projects, conventions
+  termf sync scopes <list>              choose what syncs: config, projects, conventions, vault
   termf sync disable                    stop syncing on this machine
   termf run <ticket> [--project <id>] [--repo <name>]
                                         work on a ticket (URL, owner/repo#42, repo#42, #42, ACME-123)
@@ -207,6 +207,14 @@ usage:
                                         secret or the notes
   termf vault audit [--limit <n>] [--jsonl] | termf vault audit verify
                                         who read or changed what, or check the log's hash chain
+  termf vault export -o <file> [--project <id>]
+                                        the vault (or a project's part) sealed by an export password
+                                        asked on the terminal; --csv writes the logins and notes in clear,
+                                        after a warning
+  termf vault import <file> [--project <id>]
+                                        a TermF export (or a config export holding the vault), merged item
+                                        by item; or a Bitwarden, 1Password, Chrome, Edge, Firefox, Safari,
+                                        KeePassXC or KeePass export, shown first, duplicates left out
                                         (the scope is dev without --scope; every vault command that reads or
                                         writes a secret asks for the master password)
 kinds: skill, command, role, preference, rule, workflow";
