@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::hash::{BuildHasher, RandomState};
 use std::net::TcpListener;
 use std::path::Path;
 
@@ -72,16 +71,11 @@ pub(crate) fn allocate(
     let mut mine = given.remove(&key).unwrap_or_default();
     mine.retain(|name, _| names.contains(name));
     taken.extend(mine.values().copied());
-    let span = LAST - FIRST + 1;
     for name in names {
         if mine.contains_key(name) {
             continue;
         }
-        // From a random port: TermF processes with their own data folder (tests, another profile) all taking the
-        // lowest free one would start two servers on it before either listens.
-        let from = (RandomState::new().hash_one(name) % u64::from(span)) as u16;
-        let port = (0..span)
-            .map(|i| FIRST + (from + i) % span)
+        let port = (FIRST..=LAST)
             .find(|p| !taken.contains(p) && TcpListener::bind(("127.0.0.1", *p)).is_ok())
             .context("no free port left between 41000 and 41999")?;
         taken.push(port);

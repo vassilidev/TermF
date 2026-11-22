@@ -12,11 +12,17 @@ use termf_team::{Level, Options, RunState, Team, TeamUpdate};
 use super::*;
 use crate::diff::Image;
 
-/// Each test has its own data folder, so its own port allocations: the ones that start dev servers take turns.
-static SERIAL: Mutex<()> = Mutex::new(());
-
-fn serial() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+/// Each test has its own data folder, so its own port allocations: the ones that start dev servers take turns,
+/// with those of the other test runs on the machine too (two `cargo test` at once).
+fn serial() -> fs::File {
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(std::env::temp_dir().join("termf-visual-tests.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    lock
 }
 
 /// A dev server for tests, serving the files of the folder it runs in. Not `python3 -m http.server`: it looks
