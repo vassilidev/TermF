@@ -303,6 +303,7 @@ export const scenarios = [
       await t.prompt(first);
       await t.command("split-right");
       await s.click("section.launcher .segmented.agents:not(.place) label:last-child span");
+      await s.click(`section.launcher label.row[title=${JSON.stringify(box.acme)}] input`);
       await s.click("section.launcher button.open:not([disabled])");
       const ids = await s.wait(async () => {
         const list = await s.exec(() => [...document.querySelectorAll(".tile[data-session]")].filter((e) => e.getClientRects().length).map((e) => e.dataset.session));
@@ -420,6 +421,37 @@ export const scenarios = [
     },
   },
   {
+    name: "git: a merge conflict resolved with the other branch's side, then the merge continued",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("git");
+      box.git("checkout", "-q", "-b", "feature");
+      writeFileSync(join(box.acme, "README.md"), "# Acme API\n\nFrom the feature branch.\n");
+      box.git("commit", "-qam", "Feature README");
+      box.git("checkout", "-q", "main");
+      writeFileSync(join(box.acme, "README.md"), "# Acme API\n\nFrom main.\n");
+      box.git("commit", "-qam", "Main README");
+      try {
+        box.git("merge", "feature");
+      } catch {
+        // The conflict this scenario is about.
+      }
+      check(box.git("diff", "--name-only", "--diff-filter=U").trim() === "README.md", "no conflict to resolve");
+      await t.ready();
+      await t.project();
+      await t.view("git");
+      await s.click(`${pane} .op .op-actions button:first-child`);
+      await s.click(`${pane} li.conflict .conflict-actions button:nth-child(2)`);
+      await s.wait(() => box.git("diff", "--name-only", "--diff-filter=U").trim() === "", { what: "the conflict resolved" });
+      check(read(join(box.acme, "README.md")).includes("From the feature branch."), "the other branch's side is not the one kept");
+      await s.click(`${pane} .op .op-actions .btn.primary:not([disabled])`);
+      await s.wait(() => box.git("log", "-1", "--format=%P").trim().split(" ").length === 2, { what: "the merge commit" });
+      await t.settled("git");
+      await t.clean();
+    },
+  },
+  {
     name: "SSH keys: a new ed25519 key written in the throwaway home",
     views: [],
     async run(t) {
@@ -465,10 +497,30 @@ export const scenarios = [
       await t.view("home");
       await s.type(`${t.shown("home")} form.composer textarea`, "Add a health check endpoint");
       await s.click(`${t.shown("home")} form.composer button[type=submit]:not([disabled])`);
-      await s.wait(() => existsSync(box.calls) && read(box.calls).includes("Add a health check endpoint"), { what: "the message given to claude" });
-      await s.wait(async () => (await s.text(t.shown("home")))?.includes("Add a health check endpoint"), { what: "the message in the conversation" });
+      // The message goes to a headless session on its standard input; its answer comes back into the conversation.
+      await s.wait(async () => (await s.text(t.shown("home")))?.includes("Fake Claude received: Add a health check endpoint"), {
+        what: "the CTO's answer in the conversation",
+      });
+      check(/claude \["-p","--input-format","stream-json"/.test(read(box.calls)), "the CTO is not a headless session");
       await t.settled("home");
       await t.clean();
+    },
+  },
+  {
+    name: "shortcuts: the palette moved to Mod+Shift+Y, saved in termf.toml, and it opens the palette",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.command("shortcuts");
+      await s.click("#key-palette");
+      await s.waitFor("#key-palette.rec");
+      await s.press(Key.mod, Key.shift, "y");
+      await s.wait(() => /palette = ".*\+Y"/i.test(read(join(box.configDir, "termf.toml"))), { what: "the shortcut in termf.toml" });
+      await t.clean();
+      await s.exec(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      await s.press(Key.mod, Key.shift, "y");
+      await s.waitFor("dialog.palette");
     },
   },
   {
