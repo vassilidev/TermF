@@ -15,6 +15,11 @@ pub mod mask;
 pub mod settings;
 pub mod trust;
 
+pub mod account;
+pub mod native;
+pub mod sessions;
+pub mod usage;
+
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum State {
@@ -308,7 +313,7 @@ fn collect(kind: &str, root: &Path, dir: &Path, items: &mut Vec<Item>) {
     }
 }
 
-const KINDS: &[&str] = &["skills", "agents", "commands", "output-styles", "rules"];
+pub(crate) const KINDS: &[&str] = &["skills", "agents", "commands", "output-styles", "rules"];
 
 fn extensions(env: &Env) -> Vec<Folder> {
     use settings::Scope;
@@ -414,6 +419,25 @@ fn interface(env: &Env) -> Interface {
     Interface {
         keybindings: file_info(None, env.claude_dir.join("keybindings.json")),
         themes,
+    }
+}
+
+#[derive(Serialize, Debug)]
+pub struct Files {
+    pub extensions: Vec<Folder>,
+    pub memory: Memory,
+}
+
+/// Skills and the like, and memory, read again without the slow commands of `overview`.
+pub fn files(env: &Env) -> Files {
+    let auto_dir = settings::read(env)
+        .effective
+        .into_iter()
+        .find(|e| e.key == "autoMemoryDirectory")
+        .and_then(|e| e.value.as_str().map(termf_core::expand_tilde));
+    Files {
+        extensions: extensions(env),
+        memory: memory(env, auto_dir),
     }
 }
 

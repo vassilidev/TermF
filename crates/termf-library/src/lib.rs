@@ -18,7 +18,9 @@ mod claude;
 pub mod conventions;
 pub mod scout;
 
-pub use claude::{Imported, Outcome, import_claude, materialize};
+pub use claude::{
+    Imported, Outcome, export_claude, export_target, export_text, import_claude, materialize,
+};
 
 static SHIPPED: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../library");
 
