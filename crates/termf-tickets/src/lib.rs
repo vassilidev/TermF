@@ -34,7 +34,9 @@ pub use run::{
     PrCheck, Unpushed,
 };
 pub use secrets::{Keychain, Secrets};
-pub use sources::{Configured, GithubTracker, JiraTracker, McpTracker, Sources, Trackers};
+pub use sources::{
+    Configured, GithubTracker, JiraTracker, McpTracker, Sources, Trackers, write_trackers,
+};
 pub use store::{Event, Run, RunEvent, RunStatus, utc};
 
 use sources::Source;

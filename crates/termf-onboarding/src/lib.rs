@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use termf_library::conventions;
 use termf_library::{Layer, Scope};
 
+pub mod setup;
 mod team;
 pub use team::{
     Choices, Edit, Part, Preview, Team, preview as team_preview, save as team_save, team,
@@ -331,7 +332,7 @@ fn listed(dir: &Path, keep: impl Fn(&str) -> bool) -> Vec<String> {
     names
 }
 
-fn facts(name: &str, path: &Path, tests: &[String]) -> Facts {
+pub(crate) fn facts(name: &str, path: &Path, tests: &[String]) -> Facts {
     let present = |files: &[&str]| -> Vec<String> {
         files
             .iter()
