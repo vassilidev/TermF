@@ -25,15 +25,16 @@ impl Sandbox {
              [tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[core]\n\thooksPath = /dev/null\n\tautocrlf = false\n",
         )
         .unwrap();
-        let path = std::env::join_paths(
-            std::iter::once(bin.clone()).chain(std::env::split_paths(
-                &std::env::var_os("PATH").unwrap_or_default(),
-            )),
-        )
+        let path = std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )))
         .unwrap();
         let env = vec![
             ("HOME".into(), home.to_string_lossy().into_owned()),
-            ("GIT_CONFIG_GLOBAL".into(), config.to_string_lossy().into_owned()),
+            (
+                "GIT_CONFIG_GLOBAL".into(),
+                config.to_string_lossy().into_owned(),
+            ),
             ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
             ("PATH".into(), path.to_string_lossy().into_owned()),
         ];
@@ -113,7 +114,7 @@ fn branch<'a>(state: &'a State, name: &str) -> &'a Branch {
 
 #[test]
 fn parses_refs_with_any_subject() {
-    let out = "refs/heads/main\0aaa\0\0*\0\0refs/remotes/origin/main\0origin\0refs/heads/main\0/w/acme\0Alex\01700000000\0Fix: a, b\0\n\
+    let out = "refs/heads/main\0aaa\0\0*\0\0refs/remotes/origin/main\0origin\0refs/heads/main\0/w/acme\0Alex\x001700000000\0Fix: a, b\0\n\
                refs/tags/v1\0ttt\0bbb\0 \0\0\0\0\0\0\0\0Release 1\0\n";
     let refs = parse_refs(out);
     assert_eq!(refs.len(), 2);
@@ -129,7 +130,7 @@ fn parses_refs_with_any_subject() {
 
 #[test]
 fn parses_log_records() {
-    let out = "c3\0c2 f1\0Alex\0170\0Merge branch 'feature'\0c2\0c1\0Sam\0160\0Subject with\ttab\0c1\0\0Alex\0150\0Initial\0";
+    let out = "c3\0c2 f1\0Alex\x00170\0Merge branch 'feature'\0c2\0c1\0Sam\x00160\0Subject with\ttab\0c1\0\0Alex\x00150\0Initial\0";
     let commits = parse_log(out);
     assert_eq!(commits.len(), 3);
     assert_eq!(commits[0].parents, ["c2", "f1"]);
@@ -169,7 +170,10 @@ fn parses_status_v2() {
     assert_eq!(changes[2].path, "moved.rs");
     assert_eq!(changes[2].from.as_deref(), Some("old.rs"));
     assert!(changes[3].conflict && !changes[2].conflict);
-    assert_eq!((changes[4].path.as_str(), changes[4].index), ("notes.md", '?'));
+    assert_eq!(
+        (changes[4].path.as_str(), changes[4].index),
+        ("notes.md", '?')
+    );
 }
 
 #[test]
@@ -181,7 +185,11 @@ fn counts_changes_beyond_the_listed_ones() {
 
 #[test]
 fn finds_the_remote_of_a_remote_branch() {
-    let remotes = vec!["origin".to_owned(), "team/fork".to_owned(), "team".to_owned()];
+    let remotes = vec![
+        "origin".to_owned(),
+        "team/fork".to_owned(),
+        "team".to_owned(),
+    ];
     assert_eq!(
         remote_of("refs/remotes/team/fork/feature", &remotes).map(String::as_str),
         Some("team/fork")
@@ -221,12 +229,22 @@ fn state_and_graph_of_branches_merges_tags_and_worktrees() {
     sb.git(&repo, &["tag", "-a", "v1.0.0", "-m", "Release 1.0.0"]);
     sb.git(
         &repo,
-        &["merge", "-q", "--no-ff", "feature/export", "-m", "Merge feature/export"],
+        &[
+            "merge",
+            "-q",
+            "--no-ff",
+            "feature/export",
+            "-m",
+            "Merge feature/export",
+        ],
     );
     let merge = sb.git(&repo, &["rev-parse", "HEAD"]);
     sb.git(&repo, &["branch", "topic", &c1]);
     let wt = sb.path("wt-topic");
-    sb.git(&repo, &["worktree", "add", "-q", wt.to_str().unwrap(), "topic"]);
+    sb.git(
+        &repo,
+        &["worktree", "add", "-q", wt.to_str().unwrap(), "topic"],
+    );
     let t1 = sb.commit(&wt, "topic.rs", "t\n", "Start the topic");
     fs::write(wt.join("topic.rs"), "changed\n").unwrap();
     fs::write(repo.join("README.md"), "dirty\n").unwrap();
@@ -397,15 +415,15 @@ fn pull_fast_forwards_only() {
     assert_eq!(sb.git(&repo, &["rev-parse", "HEAD"]), ours);
 
     sb.git(&repo, &["switch", "-q", "-c", "local-only"]);
-    assert_eq!(
-        sb.git.pull(&repo).unwrap().outcome,
-        PullOutcome::NoUpstream
-    );
+    assert_eq!(sb.git.pull(&repo).unwrap().outcome, PullOutcome::NoUpstream);
 
     // An upstream deleted on the remote and pruned.
     sb.git(&other, &["push", "-q", "origin", "main:gone-soon"]);
     sb.git(&repo, &["fetch", "-q", "origin"]);
-    sb.git(&repo, &["switch", "-q", "-c", "follows", "origin/gone-soon"]);
+    sb.git(
+        &repo,
+        &["switch", "-q", "-c", "follows", "origin/gone-soon"],
+    );
     sb.git(&other, &["push", "-q", "origin", "--delete", "gone-soon"]);
     sb.git(&repo, &["fetch", "-q", "--prune", "origin"]);
     let state = sb.git.state(&repo).unwrap();
@@ -451,7 +469,10 @@ fn push_sets_the_upstream_and_never_forces() {
         main_before
     );
     let state = sb.git.state(&repo).unwrap();
-    assert_eq!(branch(&state, "fix").upstream.as_deref(), Some("origin/fix"));
+    assert_eq!(
+        branch(&state, "fix").upstream.as_deref(),
+        Some("origin/fix")
+    );
 
     // Someone else pushed first: git refuses, nothing is forced.
     sb.commit(&other, "api.rs", "theirs\n", "Theirs");
@@ -476,9 +497,15 @@ fn creates_renames_and_deletes_branches() {
     let repo = sb.clone("acme");
     let base = sb.git(&repo, &["rev-parse", "HEAD"]);
 
-    sb.git.create(&repo, "from-remote", "origin/main", false).unwrap();
+    sb.git
+        .create(&repo, "from-remote", "origin/main", false)
+        .unwrap();
     let state = sb.git.state(&repo).unwrap();
-    assert_eq!(branch(&state, "from-remote").upstream, None, "tracks nothing");
+    assert_eq!(
+        branch(&state, "from-remote").upstream,
+        None,
+        "tracks nothing"
+    );
     assert_eq!(state.current.as_deref(), Some("main"));
 
     sb.git.create(&repo, "work", &base, true).unwrap();
@@ -486,7 +513,10 @@ fn creates_renames_and_deletes_branches() {
         sb.git.state(&repo).unwrap().current.as_deref(),
         Some("work")
     );
-    let err = format!("{:#}", sb.git.create(&repo, "bad name", "main", false).unwrap_err());
+    let err = format!(
+        "{:#}",
+        sb.git.create(&repo, "bad name", "main", false).unwrap_err()
+    );
     assert!(err.contains("not a valid branch name"), "{err}");
     assert!(sb.git.create(&repo, "work", "main", false).is_err());
 
@@ -508,7 +538,14 @@ fn creates_renames_and_deletes_branches() {
     let err = format!("{:#}", sb.git.delete(&repo, "work", &one).unwrap_err());
     assert!(err.contains("new commits"), "{err}");
     sb.git.delete(&repo, "work", &two).unwrap();
-    assert!(!sb.git.state(&repo).unwrap().branches.iter().any(|b| b.name == "work"));
+    assert!(
+        !sb.git
+            .state(&repo)
+            .unwrap()
+            .branches
+            .iter()
+            .any(|b| b.name == "work")
+    );
     let err = format!("{:#}", sb.git.delete(&repo, "main", &base).unwrap_err());
     assert!(err.contains("main"), "the current branch stays: {err}");
 }
@@ -519,12 +556,24 @@ fn deletes_a_remote_branch() {
     let repo = sb.clone("acme");
     sb.git(&repo, &["push", "-q", "origin", "main:old/feature"]);
     sb.git(&repo, &["fetch", "-q", "origin"]);
-    assert!(branch(&sb.git.state(&repo).unwrap(), "origin/old/feature").remote.is_some());
-    sb.git.delete_remote(&repo, "origin", "old/feature").unwrap();
-    let state = sb.git.state(&repo).unwrap();
-    assert!(!state.branches.iter().any(|b| b.name == "origin/old/feature"));
     assert!(
-        sb.git(&repo, &["ls-remote", "origin", "refs/heads/old/feature"]).is_empty()
+        branch(&sb.git.state(&repo).unwrap(), "origin/old/feature")
+            .remote
+            .is_some()
+    );
+    sb.git
+        .delete_remote(&repo, "origin", "old/feature")
+        .unwrap();
+    let state = sb.git.state(&repo).unwrap();
+    assert!(
+        !state
+            .branches
+            .iter()
+            .any(|b| b.name == "origin/old/feature")
+    );
+    assert!(
+        sb.git(&repo, &["ls-remote", "origin", "refs/heads/old/feature"])
+            .is_empty()
     );
     assert!(sb.git.delete_remote(&repo, "origin", "-x").is_err());
 }

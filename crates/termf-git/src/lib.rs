@@ -232,7 +232,9 @@ const REF_FIELDS: usize = 12;
 fn parse_refs(out: &str) -> Vec<RawRef> {
     let fields: Vec<&str> = out.split('\0').collect();
     fields
-        .chunks_exact(REF_FIELDS)
+        .as_chunks::<REF_FIELDS>()
+        .0
+        .iter()
         .map(|f| RawRef {
             // Each line ends with a newline after its last NUL.
             name: f[0].trim_start_matches('\n').to_owned(),
@@ -257,7 +259,9 @@ const LOG_FIELDS: usize = 5;
 fn parse_log(out: &str) -> Vec<Commit> {
     let fields: Vec<&str> = out.split('\0').collect();
     fields
-        .chunks_exact(LOG_FIELDS)
+        .as_chunks::<LOG_FIELDS>()
+        .0
+        .iter()
         .map(|f| Commit {
             oid: f[0].trim_start_matches('\n').to_owned(),
             parents: f[1].split_whitespace().map(str::to_owned).collect(),
@@ -477,7 +481,12 @@ impl Git {
     fn counts(&self, repo: &Path, left: &str, right: &str) -> Result<(u32, u32)> {
         let out = self.run(
             repo,
-            &["rev-list", "--left-right", "--count", &format!("{left}...{right}")],
+            &[
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{left}...{right}"),
+            ],
         )?;
         let mut n = out.split_whitespace().map(|n| n.parse().unwrap_or(0));
         Ok((n.next().unwrap_or(0), n.next().unwrap_or(0)))
@@ -512,9 +521,7 @@ impl Git {
             let local = r.name.starts_with("refs/heads/");
             let remote = (!local).then(|| remote_of(&r.name, &remotes).cloned());
             let upstream = (local && !r.upstream.is_empty()).then(|| r.upstream.clone());
-            let gone = upstream
-                .as_deref()
-                .is_some_and(|u| !names.contains(u));
+            let gone = upstream.as_deref().is_some_and(|u| !names.contains(u));
             let (ahead, behind) = match &upstream {
                 Some(u) if !gone => self.counts(repo, &r.name, u)?,
                 _ => (0, 0),
@@ -750,7 +757,10 @@ impl Git {
     }
 
     fn push_remote(&self, repo: &Path, branch: &str, upstream: &str) -> Result<String> {
-        for key in [format!("branch.{branch}.pushRemote"), "remote.pushDefault".into()] {
+        for key in [
+            format!("branch.{branch}.pushRemote"),
+            "remote.pushDefault".into(),
+        ] {
             if let Some(remote) = self.lookup(repo, &["config", "--get", &key])? {
                 return Ok(remote);
             }

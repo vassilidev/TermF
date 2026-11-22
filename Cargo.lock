@@ -5491,6 +5491,7 @@ dependencies = [
  "termf-claude",
  "termf-core",
  "termf-files",
+ "termf-git",
  "termf-library",
  "termf-memory",
  "termf-onboarding",
