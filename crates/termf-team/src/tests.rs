@@ -253,7 +253,7 @@ impl Env {
         self.agents.shutdown();
         // In the app, the threads that saw the processes end are gone with it. As long as `until`: under load,
         // each killed process's end goes through the store like any other write.
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(120);
         while termf_agents::sessions(&self.data).unwrap().iter().any(|s| {
             matches!(
                 s.state,
@@ -290,8 +290,9 @@ impl Env {
         self.team.run(1).unwrap()
     }
 
+    /// Two minutes at most: on a loaded machine, a run of fake agents takes far longer than alone.
     fn until(&self, what: &str, done: impl Fn(&TeamRun) -> bool) -> TeamRun {
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(120);
         loop {
             let run = self.run();
             if done(&run) {
@@ -5030,34 +5031,38 @@ fn a_plan_over_two_repositories_works_in_each() {
         "web joins the run with its first task"
     );
 
-    // Its worktree takes a while to prepare (a checkout hook): the team answers meanwhile.
-    let marker = env.root.join("preparing");
+    // Its worktree takes a while to prepare (a checkout hook held until the test lets it go, two minutes at
+    // most): the team answers meanwhile.
+    let (marker, release, prepared) = (
+        env.root.join("preparing"),
+        env.root.join("release"),
+        env.root.join("prepared"),
+    );
     let hook = web.join(".git/hooks/post-checkout");
     fs::write(
         &hook,
         format!(
-            "#!/bin/sh\n[ -e '{0}' ] && exit 0\ntouch '{0}'\nsleep 3\n",
-            marker.display()
+            "#!/bin/sh\n[ -e '{0}' ] && exit 0\ntouch '{0}'\ni=0\nwhile [ ! -e '{1}' ] && [ $i -lt 1200 ]; do sleep 0.1; i=$((i+1)); done\ntouch '{2}'\n",
+            marker.display(),
+            release.display(),
+            prepared.display()
         ),
     )
     .unwrap();
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
-    let asked = Instant::now();
     env.team.approve(1, "approve-plan").unwrap();
     assert!(
-        asked.elapsed() < Duration::from_secs(2),
-        "{:?}",
-        asked.elapsed()
+        !prepared.exists(),
+        "the approval waited for the preparation"
     );
     env.until("web being prepared", |_| marker.exists());
-    let asked = Instant::now();
     env.team.set_rules(1, None, BTreeMap::new()).unwrap();
     assert!(
-        asked.elapsed() < Duration::from_secs(2),
-        "a command answers while a repository is prepared: {:?}",
-        asked.elapsed()
+        !prepared.exists(),
+        "a command answers while a repository is prepared"
     );
+    fs::write(&release, "").unwrap();
     let run = env.until("the delivery gate", delivery);
     assert_eq!(run.repos.len(), 1);
     let joined = run.repos[0].clone();
