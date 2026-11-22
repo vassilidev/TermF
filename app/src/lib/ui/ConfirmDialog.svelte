@@ -79,7 +79,7 @@
   }
 
   .confirm::backdrop {
-    background: rgb(10 12 20 / 0.32);
+    background: var(--scrim, rgb(10 12 20 / 0.3));
   }
 
   h2 {

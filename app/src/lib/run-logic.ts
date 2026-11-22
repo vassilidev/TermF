@@ -172,7 +172,10 @@ export type Shown = { status: string; label: Key | null };
  */
 export function shown(ticket: Ticket | null | undefined, team?: Team | null): Shown {
   if (ticket && (ticket.status === "closed" || ticket.status === "failed")) return { status: ticket.status, label: null };
-  if (ticket?.status === "delivered") return { status: "delivered", label: ticket.prState ? "ticketsUiReady" : null };
+  if (ticket?.status === "delivered") {
+    const label = ticket.prState === "merged" ? "ticketsUiReady" : ticket.prState === "closed" ? "uxfT1ClosedReady" : null;
+    return { status: "delivered", label };
+  }
   if (!team) return { status: ticket?.status ?? "running", label: null };
   if (asking(team) || (ticket && awaitsDelivery(ticket, team))) return { status: "waiting", label: null };
   const states: Record<string, Shown> = {
