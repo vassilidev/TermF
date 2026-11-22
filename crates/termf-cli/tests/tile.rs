@@ -149,15 +149,21 @@ fn screen(sessions: &Sessions) -> String {
     out
 }
 
+/// Letters and digits only: how the screen draws spaces (cursor moves or blanks) does not matter.
+fn letters(sessions: &Sessions) -> String {
+    screen(sessions)
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
 fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool, sessions: &Sessions) {
     let deadline = Instant::now() + Duration::from_secs(secs);
     while !done() {
         if Instant::now() > deadline {
-            let s = screen(sessions);
-            panic!(
-                "timed out on {what}; screen:\n{}",
-                &s[s.len().saturating_sub(3000)..]
-            );
+            let s: Vec<char> = screen(sessions).chars().collect();
+            let tail: String = s[s.len().saturating_sub(3000)..].iter().collect();
+            panic!("timed out on {what}; screen:\n{tail}");
         }
         thread::sleep(Duration::from_millis(200));
     }
@@ -252,15 +258,12 @@ fn real_tile() {
     until(
         "the trust question or the prompt",
         60,
-        || {
-            let s = screen(&sessions);
-            s.contains("Itrustthisfolder") || events("SessionStart") > 0
-        },
+        || letters(&sessions).contains("Itrustthisfolder") || events("SessionStart") > 0,
         &sessions,
     );
     if events("SessionStart") == 0 {
         assert!(
-            screen(&sessions).contains("❯No,exit"),
+            letters(&sessions).contains("NoexitYesItrustthisfolder"),
             "{}",
             screen(&sessions)
         );
@@ -355,6 +358,7 @@ fn real_tile() {
     thread::sleep(Duration::from_secs(5));
     let saved = std::fs::read_to_string(&handoff).unwrap_or_default();
 
+    let open = tile.lock().unwrap().statuses.clone();
     let started = Instant::now();
     sessions.kill(id).unwrap();
     thread::sleep(Duration::from_secs(3));
@@ -384,9 +388,11 @@ fn real_tile() {
     );
     assert!(t.statuses.contains(&Status::Working));
     assert!(t.statuses.contains(&Status::Waiting));
-    assert!(
-        !t.statuses.contains(&Status::Done),
-        "a /clear is not the end"
+    assert!(!open.contains(&Status::Done), "a /clear is not the end");
+    assert_eq!(
+        t.statuses.last(),
+        Some(&Status::Done),
+        "hung up, Claude Code ends on its own and says so (SessionEnd)"
     );
     let resets = t
         .events

@@ -4,6 +4,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, ensure};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -70,9 +71,14 @@ impl Shared {
         if overflow > 0 {
             // A replay starts at a line, never inside a character or an escape sequence.
             let rest = self.scrollback.range(overflow..).take(LINE_SEARCH);
+            // shortcut: with no line and no escape sequence starting near the cut, a replay may start inside a
+            // sequence left unfinished; trim by parsing the sequences if that ever shows.
             let cut = match rest.clone().position(|&b| b == b'\n') {
                 Some(i) => overflow + i + 1,
-                None => overflow + rest.take_while(|&&b| b & 0xC0 == 0x80).count(),
+                None => match rest.clone().position(|&b| b == 0x1b) {
+                    Some(i) => overflow + i,
+                    None => overflow + rest.take_while(|&&b| b & 0xC0 == 0x80).count(),
+                },
             };
             self.scrollback.drain(..cut);
         }
@@ -105,17 +111,39 @@ struct Process {
     child: ChildRef,
 }
 
-/// Hangs up on the process, then kills it if it is still there shortly after, as one that ignores
-/// SIGHUP would be. In the background: nothing waits for it.
-fn end(child: &ChildRef) {
-    let child = child.clone();
-    std::thread::spawn(move || {
+/// How long a hung-up process has to end by itself (Claude Code saves its conversation and runs its SessionEnd
+/// hooks) before it is killed.
+const GRACE: Duration = Duration::from_secs(5);
+
+/// Hangs up on the process, waits up to [`GRACE`] for it to end, then kills it, as one that ignores SIGHUP.
+fn hang_up(child: &ChildRef) {
+    let running = |child: &mut Box<dyn Child + Send + Sync>| matches!(child.try_wait(), Ok(None));
+    {
         let mut child = child.lock().unwrap();
         // Already reaped: its pid may belong to another process by now.
-        if matches!(child.try_wait(), Ok(None)) {
-            let _ = child.kill();
+        if !running(&mut child) {
+            return;
         }
-    });
+        // SIGHUP under Unix (TerminateProcess under Windows).
+        let _ = child.clone_killer().kill();
+    }
+    let deadline = Instant::now() + GRACE;
+    while Instant::now() < deadline {
+        if !running(&mut child.lock().unwrap()) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let mut child = child.lock().unwrap();
+    if running(&mut child) {
+        let _ = child.kill();
+    }
+}
+
+/// [`hang_up`] in the background: nothing waits for it.
+fn end(child: &ChildRef) {
+    let child = child.clone();
+    std::thread::spawn(move || hang_up(&child));
 }
 
 #[derive(Default)]
@@ -186,7 +214,8 @@ impl Sessions {
             shared.process += 1;
             shared.exit = None;
         }
-        end(&old);
+        // Never two processes at once: the new one may resume the same conversation.
+        hang_up(&old);
         let process = match self.start(id, &spec, &shared) {
             Ok(process) => process,
             Err(e) => {
@@ -256,12 +285,14 @@ impl Sessions {
                     }
                 }
                 // Polled, so `end` never waits behind a process that closed its terminal but lives on.
+                let mut pause = Duration::from_millis(10);
                 let code = loop {
                     match thread_child.lock().unwrap().try_wait() {
                         Ok(Some(status)) => break Some(status.exit_code()),
-                        Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                        Ok(None) => std::thread::sleep(pause),
                         Err(_) => break None,
                     }
+                    pause = (pause * 2).min(Duration::from_secs(1));
                 };
                 {
                     let mut shared = thread_shared.lock().unwrap();

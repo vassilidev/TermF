@@ -221,7 +221,7 @@ impl Api {
                 .args
                 .extend(agents::permission(app, *session, request)),
             Call::Say { session, .. } => {
-                let sessions = self.list(&app.state::<AppState>().sessions);
+                let sessions = crate::tiles(&app.state::<AppState>());
                 if let Ok(id) = ipc::find_session(&sessions, session) {
                     let title = sessions
                         .iter()
@@ -1684,7 +1684,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call, caller: &Stream) -> Resul
             serde_json::to_value(session)?
         }
         Call::Say { session, text } => {
-            let id = ipc::find_session(&state.api.list(&state.sessions), &session)?;
+            let id = ipc::find_session(&crate::tiles(state), &session)?;
             state.sessions.type_line(id, &text)?;
             state.api.input(app, id, b"\r");
             Value::Null

@@ -1683,9 +1683,10 @@ fn real_crash_child() {
 /// own, ended at once); at the next launch its Claude Code, still running, is killed and the session
 /// stopped; the next message resumes the conversation. A long turn interrupted, then another message; the
 /// session taken over in a real terminal (`claude --resume` in a PTY, as a tile), a message typed there, the
-/// terminal closed and the session handed back: the conversation goes on headless, never two processes at
-/// once (whether it knows what was said in the terminal is printed: it did not, twice). A throwaway folder
-/// and config, your Claude Code account.
+/// terminal closed and the session handed back: the conversation goes on headless with what was said in the
+/// terminal, never two processes at once. Run from a Claude Code session, as it often is, it also checks that
+/// neither process is that session's child (which would save no transcript). A throwaway folder and config, your
+/// Claude Code account.
 /// `cargo test -p termf-agents -- --ignored real_claude_restart --nocapture`
 #[test]
 #[ignore]
@@ -1843,11 +1844,34 @@ fn real_claude_restart() {
         .unwrap();
     // Only the answer holds the word.
     wait("the answer in the terminal", &|s| s.contains("mango"));
-    std::thread::sleep(Duration::from_secs(3));
+    // The terminal's Claude Code saves the exchange in the conversation's transcript.
+    let projects = PathBuf::from(std::env::var("HOME").unwrap()).join(".claude/projects");
+    let saved = || {
+        fs::read_dir(&projects).unwrap().flatten().any(|p| {
+            fs::read_to_string(p.path().join(format!("{session_id}.jsonl")))
+                .is_ok_and(|t| t.contains("mango"))
+        })
+    };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !saved() {
+        assert!(
+            Instant::now() < deadline,
+            "the terminal's turn is not in the transcript: {}",
+            screen()
+        );
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    // Closed first, as it may take longer than the 1 s `handback` waits in tests: Claude Code ends on its own.
+    let closing = Instant::now();
+    sessions.terminate(tile).unwrap();
+    assert_eq!(ended.recv_timeout(Duration::from_secs(10)), Ok(tile));
+    println!(
+        "real_claude_restart: the terminal ended {:?} after its hang-up",
+        closing.elapsed()
+    );
     let back = agents
-        .handback(id, |tile| sessions.terminate(tile).unwrap())
+        .handback(id, |_| panic!("the terminal already ended"))
         .unwrap();
-    assert_eq!(ended.recv_timeout(Duration::from_secs(5)), Ok(tile));
     assert_ne!(back.state, State::Interactive);
     agents
         .send(
@@ -1863,11 +1887,7 @@ fn real_claude_restart() {
         .output();
     let _ = fs::remove_dir_all(&root);
     println!("real_claude_restart: ${cost:.4} headless (the terminal's turn not counted)");
-    // Not asserted: twice the resumed session did not know the terminal's answer (see STATUS §4).
-    println!(
-        "real_claude_restart: the turn typed in the terminal seen after the hand-back: {}",
-        last_reply(&events).contains("mango")
-    );
+    assert!(last_reply(&events).contains("mango"), "{events:#?}");
 }
 
 /// Codex CLI as `codex exec --json` answers, its lines from developers.openai.com/codex/noninteractive and
@@ -2297,4 +2317,55 @@ fn the_first_codex_process_left_by_the_last_launch_is_stopped() {
         |_| {},
     );
     env.until("the orphan killed", || !running(pid));
+}
+
+/// TermF started from a Claude Code session (an agent running `pnpm tauri dev`, a test run in it): the Claude
+/// Code it starts must not inherit that session's markers, or it is its child and saves no transcript (Claude
+/// Code 2.1.330: "Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker"), so a hand-back resumes
+/// without what was said in the terminal. Runs itself again with the markers in its environment; the fake
+/// `claude` writes down the environment it gets, with the allowlist and with `env = "inherit"`.
+#[test]
+fn a_session_is_no_child_of_the_claude_code_termf_runs_in() {
+    const MARKED: &str = "TERMF_TEST_UNDER_CLAUDE_CODE";
+    if std::env::var_os(MARKED).is_none() {
+        let mut again = std::process::Command::new(std::env::current_exe().unwrap());
+        again
+            .args([
+                "--exact",
+                "tests::a_session_is_no_child_of_the_claude_code_termf_runs_in",
+            ])
+            .env(MARKED, "1");
+        for marker in termf_core::claude::SESSION_MARKERS {
+            again.env(marker, "parent");
+        }
+        let out = again.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+        return;
+    }
+    for inherit in [false, true] {
+        let env = Env::new(&format!("marked-{inherit}"));
+        if inherit {
+            let toml = env.root.join("config/termf.toml");
+            let text = fs::read_to_string(&toml).unwrap();
+            fs::write(
+                &toml,
+                text.replace("[agents]\n", "[agents]\nenv = \"inherit\"\n"),
+            )
+            .unwrap();
+        }
+        let id = env.agents.start(env.spec(), Some("hello")).unwrap().id;
+        env.settle(id, 1, State::Idle);
+        let seen = env.log("env");
+        assert!(seen.contains("PATH="), "{seen}");
+        for marker in termf_core::claude::SESSION_MARKERS {
+            assert!(
+                !seen.lines().any(|l| l.starts_with(&format!("{marker}="))),
+                "inherit {inherit}: {marker} reached Claude Code"
+            );
+        }
+    }
 }

@@ -408,7 +408,10 @@ impl AgentEnv {
         tool: Option<Tool>,
         all: impl IntoIterator<Item = (OsString, OsString)>,
     ) -> Vec<(OsString, OsString)> {
-        let all: Vec<_> = all.into_iter().collect();
+        let all: Vec<_> = all
+            .into_iter()
+            .filter(|(k, _)| !crate::claude::SESSION_MARKERS.iter().any(|m| k == m))
+            .collect();
         if self.inherit {
             return all;
         }
@@ -421,6 +424,9 @@ impl AgentEnv {
     /// `cmd` starts with what [`AgentEnv::keep`] keeps of TermF's environment, plus what was set on it.
     pub fn apply(&self, cmd: &mut Command, tool: Option<Tool>) {
         if self.inherit {
+            for marker in crate::claude::SESSION_MARKERS {
+                cmd.env_remove(marker);
+            }
             return;
         }
         let set: Vec<(OsString, Option<OsString>)> = cmd
@@ -698,6 +704,58 @@ mod tests {
             ..AgentEnv::default()
         };
         assert_eq!(inherit.keep(None, all.clone()), all);
+    }
+
+    /// TermF started from a Claude Code session: its agents are no children of that session, in either mode, and
+    /// Claude Code's own settings still reach them.
+    #[test]
+    fn an_agent_never_gets_the_markers_of_the_claude_code_termf_runs_in() {
+        let mut all = vars(&[
+            ("PATH", "/usr/bin"),
+            ("CLAUDE_CODE_USE_BEDROCK", "1"),
+            ("CLAUDE_CODE_GIT_BASH_PATH", "C:/git/bash.exe"),
+        ]);
+        all.extend(
+            crate::claude::SESSION_MARKERS
+                .iter()
+                .map(|m| (OsString::from(m), OsString::from("parent"))),
+        );
+        let kept = [false, true].map(|inherit| {
+            names(
+                &AgentEnv {
+                    inherit,
+                    ..AgentEnv::default()
+                }
+                .keep(Some(Tool::Claude), all.clone()),
+            )
+        });
+        for kept in kept {
+            assert_eq!(
+                kept,
+                [
+                    "PATH",
+                    "CLAUDE_CODE_USE_BEDROCK",
+                    "CLAUDE_CODE_GIT_BASH_PATH"
+                ]
+            );
+        }
+        let mut cmd = Command::new("claude");
+        cmd.env("CLAUDECODE", "1");
+        AgentEnv {
+            inherit: true,
+            ..AgentEnv::default()
+        }
+        .apply(&mut cmd, Some(Tool::Claude));
+        let removed: Vec<_> = cmd
+            .get_envs()
+            .filter(|(_, v)| v.is_none())
+            .map(|(k, _)| k.to_owned())
+            .collect();
+        assert_eq!(
+            removed.len(),
+            crate::claude::SESSION_MARKERS.len(),
+            "{removed:?}"
+        );
     }
 
     #[test]
