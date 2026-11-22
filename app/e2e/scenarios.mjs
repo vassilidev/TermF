@@ -130,6 +130,49 @@ export const scenarios = [
     },
   },
   {
+    name: "terminal: off screen, xterm goes; back, it shows what was written meanwhile",
+    views: [],
+    only: ["linux", "macos"],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      await t.command(`repo-shell-${box.acme}`);
+      const id = await t.tile();
+      await t.prompt(id);
+      // Asks where the cursor is while shown, then waits to be hidden, asks again (TermF answers for the missing
+      // view), and once shown again tells whether the replay typed anything into it.
+      const cpr = "printf '\\033[6n'; read -rs -d R -t 5";
+      const script = [
+        `${cpr} first; seq 1 50`,
+        'until [ -e "$HOME/hidden" ]; do sleep 0.1; done',
+        `${cpr} asked; echo "asked-\${#asked}"; touch "$HOME/written"`,
+        'read -rs -t 5 -n 1 late; echo "late-${#late}"',
+      ].join("; ");
+      await t.typeIn(id, script + Key.enter);
+      await s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === "50"), { what: "50 in the terminal" });
+      await t.view("home");
+      await s.wait(() => s.exec((sid) => !document.querySelector(`.tile[data-session="${sid}"] .xterm`), id), {
+        what: "the hidden terminal to let xterm go",
+      });
+      writeFileSync(join(box.home, "hidden"), "");
+      await s.wait(() => existsSync(join(box.home, "written")), { what: "the shell to write while hidden", timeout: 30_000 });
+      await t.view("terminals");
+      const lines = await s.wait(
+        async () => {
+          const lines = (await t.terminal(id)).split("\n").map((l) => l.trim());
+          return lines.includes("50") && lines.some((l) => l.startsWith("late-")) && lines;
+        },
+        { what: "the scrollback and what was written while hidden", timeout: 30_000 },
+      );
+      // The answer can come before `read -s` silences the terminal, which then echoes it on that line.
+      const asked = lines.find((l) => l.includes("asked-"));
+      check(asked?.endsWith("asked-5"), `the cursor position asked while hidden: ${asked}`);
+      check(lines.includes("late-0"), `the replay typed into the shell: ${lines.find((l) => l.startsWith("late-"))}`);
+      await t.clean();
+    },
+  },
+  {
     name: "agent: open Claude Code (fake), see its status, talk to it",
     views: [],
     async run(t) {

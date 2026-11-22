@@ -58,6 +58,10 @@ struct Shared {
     process: u64,
     /// When the program last wrote.
     written: Option<std::time::Instant>,
+    /// The view attached, which answers the terminal's queries; while there is none, the session does (`answers`).
+    view: Option<u64>,
+    /// The process's input.
+    input: Option<Arc<Mutex<Box<dyn Write + Send>>>>,
 }
 
 impl Shared {
@@ -68,6 +72,15 @@ impl Shared {
         self.scrollback.drain(..overflow);
         if let Some(sink) = self.sink.as_mut() {
             sink(Output::Data(chunk.to_vec()));
+        }
+        let answer = if self.view.is_none() {
+            answers(chunk)
+        } else {
+            Vec::new()
+        };
+        if let Some(input) = self.input.as_ref().filter(|_| !answer.is_empty()) {
+            let mut input = input.lock().unwrap();
+            let _ = input.write_all(&answer).and_then(|_| input.flush());
         }
     }
 
@@ -91,7 +104,7 @@ struct Session {
 
 struct Process {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
@@ -137,7 +150,7 @@ impl Sessions {
                 cwd: spec.cwd,
                 agent: spec.agent,
                 master: process.master,
-                writer: Arc::new(Mutex::new(process.writer)),
+                writer: process.writer,
                 killer: process.killer,
                 shared,
             },
@@ -180,7 +193,6 @@ impl Sessions {
             .get_mut(&id)
             .ok_or_else(|| anyhow!("unknown session {id}"))?;
         session.master = process.master;
-        *session.writer.lock().unwrap() = process.writer;
         session.killer = process.killer;
         Ok(())
     }
@@ -214,8 +226,19 @@ impl Sessions {
 
         let killer = child.clone_killer();
         let mut reader = pair.master.try_clone_reader()?;
-        let writer = pair.master.take_writer()?;
-        let process = shared.lock().unwrap().process;
+        let input = pair.master.take_writer()?;
+        // One handle for the whole session, there before the first output, which may ask the terminal something.
+        let (writer, process) = {
+            let mut shared = shared.lock().unwrap();
+            let writer = match &shared.input {
+                Some(writer) => {
+                    *writer.lock().unwrap() = input;
+                    writer.clone()
+                }
+                None => shared.input.insert(Arc::new(Mutex::new(input))).clone(),
+            };
+            (writer, shared.process)
+        };
 
         let thread_shared = shared.clone();
         let on_exit = self.on_exit.clone();
@@ -250,8 +273,9 @@ impl Sessions {
         })
     }
 
-    /// Replaces the output sink and returns the scrollback, so a new view replays history then streams.
-    pub fn attach(&self, id: u32, mut sink: Sink) -> Result<Vec<u8>> {
+    /// Replaces the output sink and returns the scrollback, so a new view replays history then streams. `view` names
+    /// it for its `detach`; it answers the terminal's queries from now on.
+    pub fn attach(&self, id: u32, view: u64, mut sink: Sink) -> Result<Vec<u8>> {
         let shared = self.with(id, |s| s.shared.clone())?;
         let mut shared = shared.lock().unwrap();
         let snapshot = shared.scrollback.iter().copied().collect();
@@ -259,7 +283,21 @@ impl Sessions {
             sink(Output::Exit(code));
         }
         shared.sink = Some(sink);
+        shared.view = Some(view);
         Ok(snapshot)
+    }
+
+    /// Ends `view` if it is still the one attached, else does nothing and returns false: `sink` takes its place, which
+    /// only wants to hear of the exit, while the output fills the scrollback for the next `attach`.
+    pub fn detach(&self, id: u32, view: u64, sink: Sink) -> Result<bool> {
+        let shared = self.with(id, |s| s.shared.clone())?;
+        let mut shared = shared.lock().unwrap();
+        if shared.view != Some(view) {
+            return Ok(false);
+        }
+        shared.sink = Some(sink);
+        shared.view = None;
+        Ok(true)
     }
 
     pub fn write(&self, id: u32, data: &[u8]) -> Result<()> {
@@ -339,6 +377,34 @@ impl Sessions {
     }
 }
 
+/// What a terminal answers to the queries in `chunk`, for a session no view answers: its attributes and status (as
+/// xterm.js does), the cursor at the top left, where a program started in a new terminal finds it, and the colours of
+/// the app's terminal theme (`Terminal.svelte`).
+// shortcut: a query cut across two reads, or the cursor asked for once it has moved, gets no true answer; follow the
+// screen in the backend if a program needs it.
+fn answers(chunk: &[u8]) -> Vec<u8> {
+    const REPLIES: [(&[u8], &[u8]); 8] = [
+        (b"\x1b[c", b"\x1b[?1;2c"),
+        (b"\x1b[0c", b"\x1b[?1;2c"),
+        (b"\x1b[5n", b"\x1b[0n"),
+        (b"\x1b[6n", b"\x1b[1;1R"),
+        (b"\x1b]10;?\x07", b"\x1b]10;rgb:dcdc/dfdf/e6e6\x07"),
+        (b"\x1b]11;?\x07", b"\x1b]11;rgb:1111/1212/1616\x07"),
+        (b"\x1b]10;?\x1b\\", b"\x1b]10;rgb:dcdc/dfdf/e6e6\x1b\\"),
+        (b"\x1b]11;?\x1b\\", b"\x1b]11;rgb:1111/1212/1616\x1b\\"),
+    ];
+    let mut out = Vec::new();
+    for at in (0..chunk.len()).filter(|&i| chunk[i] == 0x1b) {
+        if let Some((_, reply)) = REPLIES
+            .iter()
+            .find(|(query, _)| chunk[at..].starts_with(query))
+        {
+            out.extend_from_slice(reply);
+        }
+    }
+    out
+}
+
 fn size(cols: u16, rows: u16) -> PtySize {
     PtySize {
         cols,
@@ -386,6 +452,7 @@ mod tests {
         let snapshot = sessions
             .attach(
                 id,
+                1,
                 Box::new(move |out| {
                     let _ = tx.send(out);
                 }),
@@ -451,6 +518,92 @@ mod tests {
     }
 
     #[test]
+    fn detached_output_waits_in_the_scrollback() {
+        let sessions = Sessions::default();
+        let id = sessions
+            .spawn(spec(
+                "/bin/sh",
+                &["-c", "read x; printf 'after %s' \"$x\"; exit 4"],
+            ))
+            .unwrap();
+        let (seen, data) = mpsc::channel();
+        sessions
+            .attach(id, 7, Box::new(move |out| drop(seen.send(out))))
+            .unwrap();
+        let (tx, rx) = mpsc::channel();
+        let exits = Box::new(move |out| {
+            if let Output::Exit(code) = out {
+                let _ = tx.send(code);
+            }
+        });
+        assert!(sessions.detach(id, 7, exits).unwrap());
+        sessions.write(id, b"hidden\n").unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(Some(4)));
+        assert_eq!(data.try_iter().count(), 0, "the attached view heard on");
+        let (text, code) = collect(&sessions, id);
+        assert!(text.contains("after hidden"), "got {text:?}");
+        assert_eq!(code, Some(4));
+    }
+
+    #[test]
+    fn a_late_detach_leaves_the_newer_view_alone() {
+        let sessions = Sessions::default();
+        let id = sessions.spawn(spec("/bin/cat", &[])).unwrap();
+        sessions.attach(id, 1, Box::new(|_| {})).unwrap();
+        let (tx, rx) = mpsc::channel();
+        sessions
+            .attach(
+                id,
+                2,
+                Box::new(move |out| {
+                    if let Output::Data(d) = out {
+                        let _ = tx.send(d);
+                    }
+                }),
+            )
+            .unwrap();
+        assert!(!sessions.detach(id, 1, Box::new(|_| {})).unwrap());
+        sessions.write(id, b"still here\n").unwrap();
+        let mut seen = String::new();
+        while !seen.contains("still here") {
+            let d = rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the newer view went deaf");
+            seen.push_str(&String::from_utf8_lossy(&d));
+        }
+    }
+
+    #[test]
+    fn answers_the_terminal_queries_while_no_view_does() {
+        let (tx, exited) = mpsc::channel();
+        let sessions = Sessions::default().on_exit(move |id| {
+            let _ = tx.send(id);
+        });
+        // Waits for its go, then asks where the cursor is and prints the answer in hex, as a TUI starting off screen.
+        let script = "read go; stty raw -echo; printf '\\033[6n'; head -c 6 | od -An -tx1";
+        let id = sessions.spawn(spec("/bin/sh", &["-c", script])).unwrap();
+        sessions.attach(id, 1, Box::new(|_| {})).unwrap();
+        assert!(sessions.detach(id, 1, Box::new(|_| {})).unwrap());
+        sessions.write(id, b"go\n").unwrap();
+        assert_eq!(exited.recv_timeout(Duration::from_secs(10)), Ok(id));
+        let text = String::from_utf8_lossy(&sessions.attach(id, 2, Box::new(|_| {})).unwrap())
+            .into_owned();
+        let hex = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(hex.contains("1b 5b 31 3b 31 52"), "got {text:?}");
+    }
+
+    #[test]
+    fn answers_only_what_a_terminal_is_asked() {
+        assert_eq!(answers(b"hello \x1b[1mbold\x1b[0m"), b"");
+        assert_eq!(answers(b"\x1b[6n"), b"\x1b[1;1R");
+        assert_eq!(
+            answers(b"x\x1b[c\x1b]11;?\x1b\\"),
+            b"\x1b[?1;2c\x1b]11;rgb:1111/1212/1616\x1b\\"
+        );
+        assert_eq!(answers(b"\x1b]10;?\x07"), b"\x1b]10;rgb:dcdc/dfdf/e6e6\x07");
+    }
+
+    #[test]
     fn reports_exit_without_a_view() {
         let (tx, rx) = mpsc::channel();
         let sessions = Sessions::default().on_exit(move |id| {
@@ -501,6 +654,7 @@ mod tests {
             &sessions
                 .attach(
                     id,
+                    1,
                     Box::new(move |out| {
                         if let Output::Data(d) = out {
                             let _ = tx.send(d);
@@ -533,6 +687,7 @@ mod tests {
         let snapshot = sessions
             .attach(
                 id,
+                1,
                 Box::new(move |out| {
                     if let Output::Data(d) = out {
                         let _ = tx.send(d);
@@ -571,7 +726,7 @@ mod tests {
             .spawn(spec("/bin/sh", &["-c", "printf first; exec cat"]))
             .unwrap();
         sessions.resize(id, 101, 31).unwrap();
-        while !String::from_utf8_lossy(&sessions.attach(id, Box::new(|_| {})).unwrap())
+        while !String::from_utf8_lossy(&sessions.attach(id, 1, Box::new(|_| {})).unwrap())
             .contains("first")
         {
             std::thread::sleep(Duration::from_millis(20));
