@@ -4004,6 +4004,31 @@ const fr = {
   usage2AnyWindow: "quota d'usage",
   usage2ShowUsage: "Voir l'usage",
   usage2FromConversation: "D'après la session « {session} », {when}.",
+  // Sessions: the /loop and scheduled tasks of each Claude Code session.
+  loopsPill: "Boucles et tâches planifiées de cette session",
+  loopsEveryMin: "{n} min",
+  loopsEveryH: "{n} h",
+  loopsEveryD: "{n} j",
+  loopsAuto: "auto",
+  loopsWatch: "veille",
+  loopsKindLoop: "/loop",
+  loopsKindCron: "Tâche planifiée",
+  loopsKindOnce: "Rappel unique",
+  loopsKindMonitor: "Surveillance (Monitor)",
+  loopsInterval: "toutes les {every}",
+  loopsIntervalAuto: "intervalle choisi par Claude",
+  loopsIntervalAutoLast: "intervalle choisi par Claude (dernier : {every})",
+  loopsNext: "prochaine exécution {when}",
+  loopsCreated: "créée {when}",
+  loopsUntil: "jusqu'à {when}",
+  loopsDefaultPrompt: "Prompt de maintenance par défaut (ou loop.md)",
+  loopsReminder: "Elle s'arrête si tu fermes cette session. Pour une tâche qui doit durer, utilise le Planificateur de TermF.",
+  loopsToTask: "En faire une tâche du Planificateur",
+  loopsSchedulerTitle: "Boucles des sessions ouvertes",
+  loopsSchedulerEmpty: "Aucune boucle active dans les sessions ouvertes.",
+  loopsShowSession: "Voir la session",
+  loopsTeamFlag:
+    "Cet agent a programmé une boucle dans sa session ({what}). Elle ne s'exécutera pas : TermF pilote le run et arrête la session à la fin de l'étape.",
 };
 
 type Key = keyof typeof fr;
@@ -7981,6 +8006,31 @@ const en: Record<Key, string> = {
   usage2AnyWindow: "usage limit",
   usage2ShowUsage: "See usage",
   usage2FromConversation: "From the session “{session}”, {when}.",
+  // Sessions: the /loop and scheduled tasks of each Claude Code session.
+  loopsPill: "Loops and scheduled tasks of this session",
+  loopsEveryMin: "{n} min",
+  loopsEveryH: "{n} h",
+  loopsEveryD: "{n} d",
+  loopsAuto: "auto",
+  loopsWatch: "watch",
+  loopsKindLoop: "/loop",
+  loopsKindCron: "Scheduled task",
+  loopsKindOnce: "One-time reminder",
+  loopsKindMonitor: "Watch (Monitor)",
+  loopsInterval: "every {every}",
+  loopsIntervalAuto: "interval chosen by Claude",
+  loopsIntervalAutoLast: "interval chosen by Claude (last: {every})",
+  loopsNext: "next run {when}",
+  loopsCreated: "created {when}",
+  loopsUntil: "until {when}",
+  loopsDefaultPrompt: "Default maintenance prompt (or loop.md)",
+  loopsReminder: "It stops if you close this session. For a task that must last, use TermF's Scheduler.",
+  loopsToTask: "Make it a Scheduler task",
+  loopsSchedulerTitle: "Loops of open sessions",
+  loopsSchedulerEmpty: "No active loop in the open sessions.",
+  loopsShowSession: "Show the session",
+  loopsTeamFlag:
+    "This agent scheduled a loop in its session ({what}). It will not run: TermF drives the run and ends the session with the step.",
 };
 
 const messages = { fr, en };

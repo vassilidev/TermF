@@ -2,6 +2,7 @@
   import { approxUsd, budgetLabel } from "$lib/usage.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import CalendarClock from "@lucide/svelte/icons/calendar-clock";
+  import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Cloud from "@lucide/svelte/icons/cloud";
   import Copy from "@lucide/svelte/icons/copy";
@@ -16,6 +17,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ScheduleForm from "$lib/ScheduleForm.svelte";
+  import { detail, kindLabel, toTask } from "$lib/SessionLoops.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
@@ -35,11 +37,16 @@
     type ExecutionStatus,
     type TaskEntry,
   } from "$lib/schedule.svelte";
-  import { shortPath } from "$lib/state.svelte";
+  import { app, shortPath } from "$lib/state.svelte";
+  import { focusSession } from "$lib/commands";
+  import { liveLoops, tileName } from "$lib/tile-logic";
 
   const ROUTINES = "https://claude.ai/code/routines";
 
   const tasks = $derived(schedule.tasks ?? []);
+  const sessionLoops = $derived(
+    app.sessions.filter((s) => s.running).flatMap((session) => liveLoops(session.loops, Date.now()).map((loop) => ({ session, loop }))),
+  );
   const current = $derived(tasks.find((e) => e.id === schedule.selected) ?? tasks[0]);
   const editing = $derived(
     schedule.editing === null ? undefined : schedule.editing === "" ? null : tasks.find((e) => e.id === schedule.editing),
@@ -177,7 +184,7 @@
     label={t("schedulerView")}
     tabs={[
       { id: "tasks", label: t("schedulerTabTasks"), count: schedule.tasks ? tasks.length : null },
-      { id: "others", label: t("schedulerTabOthers") },
+      { id: "others", label: t("schedulerTabOthers"), count: sessionLoops.length || null },
     ]}
     selected={schedule.tab}
     onselect={(tab) => (tab === "others" ? showOthers() : (schedule.tab = "tasks"))}
@@ -233,6 +240,31 @@
           <section>
             <h2><Repeat size={16} aria-hidden="true" />{t("schedulerLoopsTitle")}</h2>
             <p class="muted">{t("schedulerLoopsHelp")}</p>
+          </section>
+          <section>
+            <h2><Repeat size={16} aria-hidden="true" />{t("loopsSchedulerTitle")}</h2>
+            {#if !sessionLoops.length}
+              <p class="notice">{t("loopsSchedulerEmpty")}</p>
+            {:else}
+              <p class="muted">{t("loopsReminder")}</p>
+              <ul class="desktop">
+                {#each sessionLoops as { session, loop } (`${session.id}:${loop.id}`)}
+                  {@const make = toTask(session, loop)}
+                  <li>
+                    <span class="name">{tileName(session.title, session.agent ?? "shell")} · {kindLabel(loop)}</span>
+                    <span class="desc">{detail(loop, Date.now())}</span>
+                    <pre class="prompt">{loop.prompt || t("loopsDefaultPrompt")}</pre>
+                    <span class="mono muted">{shortPath(session.cwd)}</span>
+                    <span class="loop-actions">
+                      <button class="btn sm" onclick={() => focusSession(session.id)}>{t("loopsShowSession")}</button>
+                      {#if make}
+                        <button class="btn sm" onclick={make}><CalendarPlus size={14} aria-hidden="true" />{t("loopsToTask")}</button>
+                      {/if}
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           </section>
         </div>
       </div>
@@ -685,6 +717,12 @@
 
   .desktop .desc {
     white-space: normal;
+  }
+
+  .loop-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .link-row {

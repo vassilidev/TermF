@@ -58,6 +58,8 @@ export const schedule = $state({
   selected: null as string | null,
   /** The form: the id of the task edited, "" for a new one, null when closed. */
   editing: null as string | null,
+  /** What a new task's form starts with, e.g. a session's loop. */
+  draft: null as Partial<Task> | null,
   /** The selected task's runs, newest first. */
   history: [] as Execution[],
   desktop: null as DesktopTask[] | null,
@@ -73,6 +75,14 @@ export function showScheduler() {
   ui.view = "scheduler";
   schedule.loaded = true;
   refresh();
+}
+
+/** Opens the form of a new task that does what a session's loop does. */
+export function scheduleLoop(draft: Pick<Task, "prompt" | "dir" | "cron">) {
+  showScheduler();
+  schedule.tab = "tasks";
+  schedule.draft = draft;
+  schedule.editing = "";
 }
 
 export async function refresh() {

@@ -157,6 +157,13 @@
     {/if}
   {/if}
   {@render violations(step)}
+  {#if step.loops?.length}
+    <ul class="violations">
+      {#each step.loops as what, i (i)}
+        <li><TriangleAlert size={13} aria-hidden="true" /><span>{t("loopsTeamFlag", { what })}</span></li>
+      {/each}
+    </ul>
+  {/if}
   {#if step.kind === "review"}{@render reviewRounds(step)}{/if}
   <!-- While the gate waits, its card shows the definition of done. -->
   {#if step.kind === "connector" && step.state === "done" && run.done}<DoneCriteria done={run.done} />{/if}

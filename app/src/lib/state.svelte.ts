@@ -13,6 +13,7 @@ import { go, leaves } from "$lib/panes-logic";
 import type { Side } from "$lib/split-logic";
 import type { RemotePolicy, RemoteState } from "$lib/remote-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
+import type { Loop } from "$lib/tile-logic";
 // Each module reads the other only inside functions, so the import cycles are safe.
 import { place } from "$lib/tabs.svelte";
 import { tickets } from "$lib/tickets.svelte";
@@ -60,6 +61,8 @@ export type Session = {
   context: Gauge | null;
   /** The team role the session works for, once runs launch roles (phase 4). */
   role?: string | null;
+  /** Its `/loop`s and scheduled tasks, for Claude Code sessions that report to TermF. */
+  loops?: Loop[];
 };
 export type ResetPhase = "idle" | "queued" | "handoff" | "clearing" | "resuming";
 export type ResetFailure =
@@ -250,6 +253,10 @@ export function init(): () => void {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.context = payload.context;
   });
+  const unlistenLoops = listen<{ id: number; loops: Loop[] }>("session-loops", ({ payload }) => {
+    const session = app.sessions.find((s) => s.id === payload.id);
+    if (session) session.loops = payload.loops;
+  });
   const unlistenRemote = listen<{ id: number; remoteControl: boolean; remote: RemoteState | null }>("session-remote", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) Object.assign(session, { remoteControl: payload.remoteControl, remote: payload.remote });
@@ -262,6 +269,7 @@ export function init(): () => void {
     unlistenSync.then((stop) => stop());
     unlistenContext.then((stop) => stop());
     unlistenRemote.then((stop) => stop());
+    unlistenLoops.then((stop) => stop());
   };
 }
 

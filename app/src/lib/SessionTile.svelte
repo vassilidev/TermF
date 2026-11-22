@@ -9,6 +9,7 @@
   import X from "@lucide/svelte/icons/x";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import RemoteSwitch from "$lib/RemoteSwitch.svelte";
+  import SessionLoops from "$lib/SessionLoops.svelte";
   import Terminal from "$lib/Terminal.svelte";
   import { phase } from "$lib/remote-logic";
   import { setRemote, turnOn } from "$lib/remote.svelte";
@@ -18,7 +19,7 @@
   import { display } from "$lib/keymap.svelte";
   import type { Rect, Side } from "$lib/split-logic";
   import { activate, terminals } from "$lib/tabs.svelte";
-  import { tileName } from "$lib/tile-logic";
+  import { liveLoops, tileName } from "$lib/tile-logic";
   import { grid, onScreen, resetContext, ticked, type Session } from "$lib/state.svelte";
 
   /**
@@ -31,6 +32,7 @@
   const name = $derived(tileName(session.title, session.agent ?? "shell"));
   const asking = $derived(terminals.asking === session.id);
   const remote = $derived(session.running ? (session.remote ?? null) : null);
+  const loops = $derived(session.running ? liveLoops(session.loops, Date.now()) : []);
   const pct = (n: number) => `${n * 100}%`;
 
   const remoteOn = () => turnOn(session.id);
@@ -95,6 +97,7 @@
     {/if}
     <span class="title" title={session.cwd}><b>{name}</b><span class="tool">{session.agent ?? t("shell")}</span></span>
     {#if session.context && session.running}<ContextGauge gauge={session.context} />{/if}
+    {#if loops.length}<SessionLoops {session} {loops} />{/if}
     {#if remote && phase(remote) !== "off"}
       <RemoteSwitch id={session.id} rc={remote} />
     {:else if session.remoteControl && !session.remote}
