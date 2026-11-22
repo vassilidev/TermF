@@ -137,7 +137,7 @@
       {/if}
       {#if preview}
         {@const p = preview}
-        <button class="btn sm primary" onclick={() => deliver(p)} disabled={!!busy}>
+        <button class="btn primary" onclick={() => deliver(p)} disabled={!!busy}>
           {#if busy === "deliver"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
           {t("deliverConfirm")}
         </button>

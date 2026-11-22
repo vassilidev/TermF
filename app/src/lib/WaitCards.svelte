@@ -191,7 +191,7 @@
         {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
       </button>
     {/if}
-    <button class="btn sm" class:primary disabled={!!busy || (!(drafts[draftOf(key)] ?? "").trim() && ask.step.kind !== "shell")} onclick={() => revise(key)}>
+    <button class="btn" class:sm={!primary} class:primary disabled={!!busy || (!(drafts[draftOf(key)] ?? "").trim() && ask.step.kind !== "shell")} onclick={() => revise(key)}>
       {@render spinner(`revise:${key}`)}{submit}
     </button>
   </div>
@@ -213,7 +213,7 @@
 {/snippet}
 
 {#snippet approveButton(key: string, label: string)}
-  <button class="btn sm" class:primary disabled={!!busy} onclick={() => approve(key)}>
+  <button class="btn" class:sm={!primary} class:primary disabled={!!busy} onclick={() => approve(key)}>
     {#if spinning(`approve:${key}`)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Check size={14} aria-hidden="true" />{/if}
     {label}
   </button>
@@ -228,7 +228,7 @@
       <b>{t("teamRunsAskDeliver")}</b>
       {#if !held}
         <span class="end">
-          <button class="btn sm" class:primary disabled={!!busy} {onclick}>
+          <button class="btn" class:sm={!primary} class:primary disabled={!!busy} {onclick}>
             {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
             {t("runDeliver")}
           </button>
@@ -355,7 +355,7 @@
                   <button class="btn sm quiet left" onclick={() => showRun(run.run)}>{t("ux3t2SeePlan")}</button>
                 {/if}
                 {#if ask.kind === "visual" && review}
-                  <button class="btn sm" class:primary={primary && reviewDecides} onclick={() => review && showReview(review.id)}>
+                  <button class="btn" class:sm={!(primary && reviewDecides)} class:primary={primary && reviewDecides} onclick={() => review && showReview(review.id)}>
                     <Images size={14} aria-hidden="true" />{t("review5bOpen")}
                   </button>
                 {/if}
