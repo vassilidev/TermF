@@ -132,15 +132,23 @@ pub async fn claude_trust_set(
     .await
 }
 
-/// The team the assistant proposes for the project now; `choices`: what the card changed.
+/// `choices`: what the card changed; `fresh` (by default): read the repositories again rather than reuse the
+/// last survey.
 #[tauri::command]
 pub async fn onboarding_team(
     state: State<'_, AppState>,
     project: String,
     choices: Option<onboarding::Choices>,
+    fresh: Option<bool>,
 ) -> CmdResult<onboarding::Team> {
     blocking(&state, move |dir| {
-        onboarding::team(dir, &data_dir()?, &project, choices.unwrap_or_default())
+        onboarding::team(
+            dir,
+            &data_dir()?,
+            &project,
+            choices.unwrap_or_default(),
+            fresh.unwrap_or(true),
+        )
     })
     .await
 }

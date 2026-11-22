@@ -159,10 +159,7 @@ fn keeps_only_the_well_formed_part_of_claude_s_answer() {
         "TermF's own team questions come last, and the team cannot be split here"
     );
     assert_eq!(analysis.questions[3].default, Vec::<String>::new());
-    assert_eq!(
-        analysis.questions[4].text,
-        "Combien d'agents à la fois par rôle de code (front, back) ?"
-    );
+    assert_eq!(analysis.questions[4].text, "obTeamQSize");
     assert_eq!(analysis.dropped.len(), 4 + 7, "{:?}", analysis.dropped);
     assert!(
         analysis

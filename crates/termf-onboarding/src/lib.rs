@@ -424,7 +424,7 @@ pub fn analyze(
     analysis.lang = if lang == "fr" { "fr" } else { "en" }.into();
     let (model, effort) = conventions::settings(config_dir);
     analysis.model = model.clone();
-    let asked = team::questions(&analysis.repos, &analysis.lang);
+    let asked = team::questions(&analysis.repos);
     analysis.questions = asked.clone();
     change(config_dir, data_dir, project, |s| {
         if s.analysis.is_none() {

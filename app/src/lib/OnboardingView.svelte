@@ -263,6 +263,19 @@
     if (!error) await decide("ci", "accepted", notify);
   }
 
+  type Key = Parameters<typeof t>[0];
+  const teamOptions: Record<string, Key> = {
+    one: "obTeamOneSquad",
+    split: "obTeamPerPart",
+    own: "obTeamQOwn",
+    sonnet: "obTeamQThrifty",
+    opus: "obTeamQQuality",
+  };
+  // TermF's own questions come as translation keys and option codes, Claude Code's as text.
+  const ours = (q: Question) => q.id.startsWith("team-");
+  const qText = (q: Question) => (ours(q) ? t(q.text as Key) : q.text);
+  const optionText = (q: Question, option: string) =>
+    ours(q) && option in teamOptions ? t(teamOptions[option]) : option;
   const none = (list: string[]) => (list.length ? list.join(", ") : t("obNothing"));
   /** A repository's facts that are there; an empty one says nothing. */
   const rows = (r: Facts) =>
@@ -346,11 +359,11 @@
     <input
       class="field"
       value={value[0] ?? ""}
-      aria-label={q.text}
+      aria-label={qText(q)}
       oninput={(e) => (answers[q.id] = [e.currentTarget.value])}
     />
   {:else if q.kind === "multi"}
-    <div class="chips" role="group" aria-label={q.text}>
+    <div class="chips" role="group" aria-label={qText(q)}>
       {#each q.options as option (option)}
         <label class="chip" class:on={value.includes(option)}>
           <input type="checkbox" checked={value.includes(option)} onchange={() => (answers[q.id] = pick(q, value, option))} />
@@ -360,7 +373,7 @@
     </div>
   {:else}
     {@const options = q.kind === "bool" ? ["yes", "no"] : q.options}
-    <div class="segmented" role="radiogroup" aria-label={q.text}>
+    <div class="segmented" role="radiogroup" aria-label={qText(q)}>
       {#each options as option (option)}
         <button
           type="button"
@@ -368,7 +381,7 @@
           aria-checked={value[0] === option}
           onclick={() => (answers[q.id] = pick(q, value, option))}
         >
-          {q.kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : option}
+          {q.kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : optionText(q, option)}
         </button>
       {/each}
     </div>
@@ -443,7 +456,7 @@
                 <legend>{t(themeLabel[theme])}</legend>
                 {#each list as q (q.id)}
                   <div class="question">
-                    <span class="q-text">{q.text}</span>
+                    <span class="q-text">{qText(q)}</span>
                     {@render answer(q)}
                   </div>
                 {/each}

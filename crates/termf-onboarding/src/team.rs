@@ -5,7 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -115,13 +116,11 @@ const INFRA_FILES: [&str; 13] = [
 ];
 const MAX_INFRA: usize = 12;
 
-/// A part of a repository's code: a package of a monorepo, a folder with its own manifest, or the repository.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Part {
     /// Relative to the repository, `""` for the whole of it.
     pub path: String,
-    /// The package's name, else the folder's.
     pub name: String,
     /// `front` (a user interface) or `back` (anything else: a server, a library, a tool).
     pub role: String,
@@ -129,8 +128,6 @@ pub struct Part {
     pub web: bool,
 }
 
-/// What the team needs from a repository: its monorepo tool and parts, the globs of `tests` that match its
-/// files, its CI and infrastructure.
 pub(crate) fn survey(repo: &Path, facts: &mut Facts, tests: &[String]) {
     let files = files(repo);
     (facts.workspace, facts.parts) = parts(repo);
@@ -142,7 +139,6 @@ pub(crate) fn survey(repo: &Path, facts: &mut Facts, tests: &[String]) {
     facts.infra = infra(&files);
 }
 
-/// The repository's files, relative and with `/`, leaving out dependency, build and hidden folders.
 fn files(repo: &Path) -> Vec<String> {
     let (mut found, mut seen) = (Vec::new(), 0);
     let mut queue = VecDeque::from([(repo.to_path_buf(), String::new())]);
@@ -198,8 +194,7 @@ fn infra(files: &[String]) -> Vec<String> {
     found.into_iter().take(MAX_INFRA).collect()
 }
 
-/// The parts of a repository: its workspace's packages, its first-level folders with a manifest, and the
-/// repository itself unless its manifest only holds a workspace's tooling.
+/// The repository itself counts unless its manifest only holds a workspace's tooling.
 fn parts(repo: &Path) -> (Option<String>, Vec<Part>) {
     let (tool, members) = workspace(repo).map_or((None, Vec::new()), |(t, m)| (Some(t), m));
     let mut rels = vec![String::new()];
@@ -254,7 +249,6 @@ fn has_manifest(dir: &Path) -> bool {
     MANIFESTS.iter().any(|m| dir.join(m).is_file())
 }
 
-/// The monorepo tool and the folders its workspace lists.
 fn workspace(repo: &Path) -> Option<(&'static str, Vec<String>)> {
     let read = |f: &str| fs::read_to_string(repo.join(f)).ok();
     let strings = |v: &Value| -> Vec<String> {
@@ -303,7 +297,7 @@ fn workspace(repo: &Path) -> Option<(&'static str, Vec<String>)> {
     Some((tool, expand(repo, &patterns)))
 }
 
-/// The strings of `key: [..]`, or of the `- item` lines under `key:`, in a simple YAML file.
+/// Enough YAML for a `pnpm-workspace.yaml`: `key: [..]`, or `- item` lines under `key:`.
 fn yaml_list(text: &str, key: &str) -> Vec<String> {
     let clean = |s: &str| {
         let s = s.split(" #").next().unwrap_or_default().trim();
@@ -330,7 +324,6 @@ fn yaml_list(text: &str, key: &str) -> Vec<String> {
         .collect()
 }
 
-/// The folders of a `go.work`: `use ./api`, or a `use ( … )` block.
 fn go_uses(text: &str) -> Vec<String> {
     let (mut found, mut block) = (Vec::new(), false);
     for line in text
@@ -356,7 +349,6 @@ fn go_uses(text: &str) -> Vec<String> {
     found
 }
 
-/// A workspace's folders: literal ones, and those under `dir/*` (or `dir/**`) that hold a manifest.
 fn expand(repo: &Path, patterns: &[String]) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     for pattern in patterns.iter().filter(|p| !p.starts_with('!')) {
@@ -449,11 +441,9 @@ fn part(repo: &Path, rel: &str) -> Option<Part> {
     None
 }
 
-/// A role a session may play, as the team needs it.
 pub(crate) struct RoleInfo {
     name: String,
     plannable: bool,
-    model: Option<String>,
 }
 
 pub(crate) fn roles(items: &[Item]) -> Vec<RoleInfo> {
@@ -464,16 +454,11 @@ pub(crate) fn roles(items: &[Item]) -> Vec<RoleInfo> {
         .map(|i| RoleInfo {
             name: i.name.clone(),
             plannable: termf_library::plannable(i),
-            model: i
-                .meta
-                .get("model")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
         })
         .collect()
 }
 
-/// qa's globs, as its frontmatter gives them: the test files the survey looks for.
+/// From the frontmatter, not the layered settings: those hold what the assistant narrowed last time.
 pub(crate) fn test_globs(items: &[Item]) -> Vec<String> {
     items
         .iter()
@@ -482,7 +467,6 @@ pub(crate) fn test_globs(items: &[Item]) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Each repository's parts, with its name.
 fn units(repos: &[Facts]) -> Vec<(&str, &Part)> {
     repos
         .iter()
@@ -511,56 +495,36 @@ fn large(repos: &[Facts]) -> bool {
         || repos.iter().filter(|r| !r.parts.is_empty()).count() > 1
 }
 
-/// What only the owner can say of the team, asked with Claude Code's questions.
-pub(crate) fn questions(repos: &[Facts], lang: &str) -> Vec<Question> {
-    let fr = lang == "fr";
-    let text = |fr_text: &str, en_text: &str| if fr { fr_text } else { en_text }.to_owned();
+/// What only the owner can say of the team. Their text is a key of the interface's translations and their
+/// options are codes: the interface words them, like the rest of it.
+pub(crate) fn questions(repos: &[Facts]) -> Vec<Question> {
     let large = large(repos);
-    let question = |id: &str, text: String, options: Vec<String>, default: usize| Question {
+    let question = |id: &str, text: &str, options: &[&str], default: usize| Question {
         id: id.into(),
         theme: Theme::Agents,
-        text,
+        text: text.into(),
         kind: Kind::Choice,
-        default: vec![options[default].clone()],
-        options,
+        options: options.iter().map(|o| o.to_string()).collect(),
+        default: vec![options[default].into()],
     };
     let mut asked = vec![question(
         SIZE,
-        text(
-            "Combien d'agents à la fois par rôle de code (front, back) ?",
-            "How many agents at once per code role (front, back)?",
-        ),
-        ["1", "2", "3"].map(str::to_owned).to_vec(),
+        "obTeamQSize",
+        &["1", "2", "3"],
         usize::from(large),
     )];
     if splittable(&units(repos)) {
         asked.push(question(
             SPLIT,
-            text(
-                "Comment organiser l'équipe d'agents ?",
-                "How should the agents' team be organized?",
-            ),
-            vec![
-                text("Une seule squad", "One squad"),
-                text(
-                    "Une squad par partie : web et api",
-                    "A squad per part: web and api",
-                ),
-            ],
+            "obTeamQSquads",
+            &["one", "split"],
             usize::from(large),
         ));
     }
     asked.push(question(
         MODEL,
-        text(
-            "Quel modèle pour les agents ?",
-            "Which model for the agents?",
-        ),
-        vec![
-            text("Celui de chaque rôle", "Each role's own"),
-            text("Économe : sonnet partout", "Thrifty: sonnet everywhere"),
-            text("Qualité : opus partout", "Quality: opus everywhere"),
-        ],
+        "obTeamQModel",
+        &["own", "sonnet", "opus"],
         0,
     ));
     asked
@@ -570,17 +534,15 @@ pub(crate) fn questions(repos: &[Facts], lang: &str) -> Vec<Question> {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Choices {
-    /// Roles kept (`true`) or left out (`false`) against what the survey proposes.
+    /// Against what the survey proposes.
     pub keep: BTreeMap<String, bool>,
-    /// A squad per part rather than one.
     pub split: Option<bool>,
     /// Sessions at once of each code role (front, back).
     pub size: Option<usize>,
-    /// `sonnet` or `opus` for every role; `""` keeps each role's own.
+    /// `""` keeps each role's own.
     pub model: Option<String>,
 }
 
-/// The choices the answers make.
 fn answered(questions: &[Question], answers: &BTreeMap<String, Vec<String>>) -> Choices {
     let index = |id: &str| {
         let q = questions.iter().find(|q| q.id == id)?;
@@ -600,16 +562,13 @@ fn answered(questions: &[Question], answers: &BTreeMap<String, Vec<String>>) -> 
 pub struct RoleChoice {
     pub role: String,
     pub keep: bool,
-    /// Why, as a code the interface words: `front`, `back`, `tests`, `no-tests`, `infra`, `ui`, `web`, `design`,
-    /// `own` (a role of the user's library), or `no-front`, `no-back`, `no-infra`, `no-ui`, `no-web`.
+    /// A code the interface words, with `detail`: `own` is a role of the user's library.
     pub why: String,
-    /// What the survey found for it: folders, globs, files.
     pub detail: Vec<String>,
     /// Kept or left out by the owner, against the survey.
     pub chosen: bool,
 }
 
-/// A `[[squads]]` entry, as the assistant writes it.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct Squad {
@@ -621,7 +580,6 @@ pub struct Squad {
     pub domains: Vec<String>,
 }
 
-/// `[[squads]]` and `[team] staff`.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct Composition {
@@ -641,7 +599,7 @@ pub struct Settings {
     pub effort: Option<String>,
 }
 
-/// What the assistant writes in the project's file: each part only once accepted.
+/// Only the parts the owner accepted.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct Edit {
@@ -651,7 +609,6 @@ pub struct Edit {
 }
 
 impl Edit {
-    /// Its parts: `team`, `workflow`, `roles.<name>`.
     fn keys(&self) -> Vec<String> {
         let mut keys = Vec::new();
         if self.team.is_some() {
@@ -668,9 +625,7 @@ impl Edit {
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
-    /// The file has nothing of it yet.
     New,
-    /// The file already says the same.
     Same,
     /// The file has what the assistant wrote last time: replacing it loses nothing.
     Changed,
@@ -681,22 +636,20 @@ pub enum Status {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Team {
-    /// The choices the proposal follows, each filled in.
+    /// Each filled in.
     pub choices: Choices,
-    /// Whether the front and the back can each have their squad.
     pub splittable: bool,
-    /// The roles that take tasks, kept or left out, and why.
+    /// The roles that take tasks.
     pub roles: Vec<RoleChoice>,
-    /// The roles that are workflow steps rather than tasks (`po`, `lead`, `secops`…).
+    /// The roles that are workflow steps rather than tasks.
     pub steps: Vec<String>,
     pub proposal: Edit,
-    /// By part of the proposal (`team`, `workflow`, `roles.<name>`).
     pub status: BTreeMap<String, Status>,
-    /// The project's file.
+    /// The parts the file holds as written by hand, `same` ones too: writing them takes `replace`.
+    pub hand: Vec<String>,
     pub path: String,
 }
 
-/// A label for a part: its folder, or its repository when it is the whole of it.
 fn label(repo: &str, part: &Part, many: bool) -> String {
     match (part.path.as_str(), many) {
         ("", _) => repo.to_owned(),
@@ -724,7 +677,6 @@ fn globs(mine: &[&str], others: &[&str]) -> Vec<String> {
     found.into_iter().collect()
 }
 
-/// The proposal: the roles that serve and why, then what to write for them.
 fn propose(
     repos: &[Facts],
     roles: &[RoleInfo],
@@ -903,10 +855,9 @@ fn propose(
     writes("devops", devops_writes);
     let model = effective.model.clone().unwrap_or_default();
     if !model.is_empty() {
+        // Even a role whose frontmatter has that model: a global `[roles.<name>]` could set another.
         for role in roles.iter().filter(|r| !r.plannable || kept(&r.name)) {
-            if role.model.as_deref() != Some(&model) {
-                settings.entry(role.name.clone()).or_default().model = Some(model.clone());
-            }
+            settings.entry(role.name.clone()).or_default().model = Some(model.clone());
         }
     }
     let workflow = if squads.len() > 1 {
@@ -945,13 +896,43 @@ fn library(config_dir: &Path, project: &str) -> Result<Vec<Item>> {
     termf_library::resolve(config_dir, &scope)
 }
 
-/// The proposal for the project as it is now: a new survey, the library's roles, the owner's answers, then what
-/// the card changed (`card`), each part with where the project's file stands.
-pub fn team(config_dir: &Path, data_dir: &Path, project: &str, card: Choices) -> Result<Team> {
+/// The last survey of each project (by state file), so that a choice in the card re-proposes without reading
+/// every repository again.
+static SURVEYS: Mutex<BTreeMap<PathBuf, Vec<Facts>>> = Mutex::new(BTreeMap::new());
+
+/// The proposal from the library's roles, the owner's answers, then what the card changed (`card`), on a new
+/// survey when `fresh`, else on the last one. A setting the assistant wrote and no longer proposes becomes a
+/// part that removes it.
+pub fn team(
+    config_dir: &Path,
+    data_dir: &Path,
+    project: &str,
+    card: Choices,
+    fresh: bool,
+) -> Result<Team> {
     let state = crate::load(config_dir, data_dir, project)?;
     let items = library(config_dir, project)?;
     let roles = roles(&items);
-    let repos = crate::repos(config_dir, project, &test_globs(&items))?;
+    let key = crate::file(config_dir, data_dir, project)?;
+    let kept = match fresh {
+        true => None,
+        false => SURVEYS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .cloned(),
+    };
+    let repos = match kept {
+        Some(repos) => repos,
+        None => {
+            let repos = crate::repos(config_dir, project, &test_globs(&items))?;
+            SURVEYS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(key, repos.clone());
+            repos
+        }
+    };
     let answers = match &state.analysis {
         Some(a) => answered(&a.questions, &state.answers),
         None => Choices::default(),
@@ -962,29 +943,36 @@ pub fn team(config_dir: &Path, data_dir: &Path, project: &str, card: Choices) ->
         size: card.size.or(answers.size),
         model: card.model.or(answers.model),
     };
-    let (choices, role_choices, proposal) = propose(&repos, &roles, &given);
+    let (choices, role_choices, mut proposal) = propose(&repos, &roles, &given);
     let file = termf_core::project_file(config_dir, project)?;
     let text = fs::read_to_string(&file)?;
     let before = table(&text)?;
+    for role in state.team.keys().filter_map(|k| k.strip_prefix("roles.")) {
+        if !held(&before, &format!("roles.{role}")).is_null() {
+            proposal.roles.entry(role.to_owned()).or_default();
+        }
+    }
     let after = table(&render(&text, &proposal)?)?;
-    let status = proposal
-        .keys()
-        .into_iter()
-        .map(|key| {
-            let (now, then) = (held(&before, &key), held(&after, &key));
-            let status = if now == then {
-                Status::Same
-            } else if now.is_null() {
-                Status::New
-            } else if state.team.get(&key) == Some(&now) {
-                Status::Changed
-            } else {
-                Status::Edited
-            };
-            (key, status)
-        })
-        .collect();
+    let (mut status, mut hand) = (BTreeMap::new(), Vec::new());
+    for key in proposal.keys() {
+        let (now, then) = (held(&before, &key), held(&after, &key));
+        let by_hand = !now.is_null() && state.team.get(&key) != Some(&now);
+        let found = if now == then {
+            Status::Same
+        } else if now.is_null() {
+            Status::New
+        } else if by_hand {
+            Status::Edited
+        } else {
+            Status::Changed
+        };
+        if by_hand {
+            hand.push(key.clone());
+        }
+        status.insert(key, found);
+    }
     Ok(Team {
+        hand,
         choices,
         splittable: splittable(&units(&repos)),
         roles: role_choices,
@@ -1046,7 +1034,6 @@ fn strings(list: &[String]) -> Array {
     list.iter().map(String::as_str).collect()
 }
 
-/// `edit` written into the project's file, keeping the rest of it.
 fn render(text: &str, edit: &Edit) -> Result<String> {
     let mut doc: DocumentMut = text.parse().context("invalid project file")?;
     if let Some(workflow) = &edit.workflow {
@@ -1120,13 +1107,8 @@ fn render(text: &str, edit: &Edit) -> Result<String> {
     Ok(doc.to_string())
 }
 
-/// `edit` checked against the library, written into the project's file and read back as a team: the file
-/// and its text before and after.
-fn written(
-    config_dir: &Path,
-    project: &str,
-    edit: &Edit,
-) -> Result<(std::path::PathBuf, String, String)> {
+/// Checked against the library, and read back as a team before anything is written.
+fn written(config_dir: &Path, project: &str, edit: &Edit) -> Result<(PathBuf, String, String)> {
     let items = library(config_dir, project)?;
     let known: Vec<String> = roles(&items).into_iter().map(|r| r.name).collect();
     let role = |name: &str| {
@@ -1196,7 +1178,6 @@ fn written(
     Ok((file, before, after))
 }
 
-/// The change `edit` makes to the project's file, before it is written.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Preview {
     pub path: String,
@@ -1211,8 +1192,7 @@ pub fn preview(config_dir: &Path, project: &str, edit: &Edit) -> Result<Preview>
     })
 }
 
-/// Writes `edit` into the project's file and records it. A part changed by hand since the assistant last wrote
-/// it is only replaced with `replace`.
+/// A part changed by hand since the assistant last wrote it is only replaced with `replace`.
 pub fn save(
     config_dir: &Path,
     data_dir: &Path,

@@ -197,7 +197,7 @@ fn surveys_the_code_of_each_kind_of_repository() {
 #[test]
 fn proposes_a_team_for_each_kind_of_project() {
     let (_, config, data) = setup("simple", &[("shop", SIMPLE)]);
-    let simple = team(&config, &data, "acme", Choices::default()).unwrap();
+    let simple = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert_eq!(
         kept(&simple),
         [
@@ -235,7 +235,7 @@ fn proposes_a_team_for_each_kind_of_project() {
     assert!(simple.status.values().all(|s| *s == Status::New));
 
     let (_, config, data) = setup("mono", &[("acme", MONOREPO)]);
-    let mono = team(&config, &data, "acme", Choices::default()).unwrap();
+    let mono = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert!(mono.splittable);
     assert_eq!(
         (mono.choices.split, mono.choices.size),
@@ -277,7 +277,7 @@ fn proposes_a_team_for_each_kind_of_project() {
     );
 
     let (_, config, data) = setup("cargo", &[("engine", CARGO)]);
-    let cargo = team(&config, &data, "acme", Choices::default()).unwrap();
+    let cargo = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert_eq!(
         composition(&cargo).squads[0].roles,
         BTreeMap::from([("back".into(), 2), ("qa".into(), 1)])
@@ -290,7 +290,7 @@ fn proposes_a_team_for_each_kind_of_project() {
     );
 
     let (_, config, data) = setup("api", &[("billing", API)]);
-    let api = team(&config, &data, "acme", Choices::default()).unwrap();
+    let api = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert_eq!(
         composition(&api).squads[0].roles,
         BTreeMap::from([("back".into(), 1), ("qa".into(), 1)])
@@ -305,16 +305,21 @@ fn the_answers_and_the_card_shape_the_proposal() {
     let (_, config, data) = setup("choices", &[("acme", MONOREPO)]);
     let items = library(&config, "acme").unwrap();
     let repos = crate::repos(&config, "acme", &test_globs(&items)).unwrap();
-    let asked = questions(&repos, "en");
+    let asked = questions(&repos);
     let ids: Vec<&str> = asked.iter().map(|q| q.id.as_str()).collect();
     assert_eq!(ids, [SIZE, SPLIT, MODEL]);
     assert_eq!(asked[0].default, ["2"]);
-    assert_eq!(asked[1].default, ["A squad per part: web and api"]);
+    assert_eq!(asked[1].default, ["split"]);
+    assert_eq!(
+        (asked[2].text.as_str(), &asked[2].options),
+        ("obTeamQModel", &strings(&["own", "sonnet", "opus"])),
+        "the interface words them"
+    );
     assert!(asked.iter().all(|q| crate::accepts(q, &q.default)));
 
     let answers = BTreeMap::from([
-        (SPLIT.to_owned(), strings(&["One squad"])),
-        (MODEL.to_owned(), strings(&["Quality: opus everywhere"])),
+        (SPLIT.to_owned(), strings(&["one"])),
+        (MODEL.to_owned(), strings(&["opus"])),
     ]);
     let (choices, _, edit) = propose(&repos, &roles(&items), &answered(&asked, &answers));
     assert_eq!(choices.split, Some(false));
@@ -338,8 +343,20 @@ fn the_answers_and_the_card_shape_the_proposal() {
         .collect();
     assert_eq!(
         models,
-        ["back", "devops", "front", "qa"],
-        "only the roles not on opus yet"
+        [
+            "architect",
+            "back",
+            "cto",
+            "devops",
+            "front",
+            "lead",
+            "pm",
+            "po",
+            "qa",
+            "secops",
+            "ux"
+        ],
+        "every kept role and every step, even those already on opus: a global setting could say otherwise"
     );
 
     let card = Choices {
@@ -348,7 +365,7 @@ fn the_answers_and_the_card_shape_the_proposal() {
         model: Some("sonnet".into()),
         ..Choices::default()
     };
-    let shaped = team(&config, &data, "acme", card).unwrap();
+    let shaped = team(&config, &data, "acme", card, true).unwrap();
     assert_eq!(shaped.choices.size, Some(3), "at most 3 at once");
     let devops = shaped.roles.iter().find(|r| r.role == "devops").unwrap();
     assert!(!devops.keep && devops.chosen && devops.why == "infra");
@@ -366,15 +383,127 @@ fn the_answers_and_the_card_shape_the_proposal() {
         Some("sonnet")
     );
     assert_eq!(
-        shaped.proposal.roles["front"].model, None,
-        "front is on sonnet already"
+        shaped.proposal.roles["front"].model.as_deref(),
+        Some("sonnet")
     );
+}
+
+#[test]
+fn a_chosen_model_wins_over_a_global_setting() {
+    let (_, config, data) = setup("global-model", &[("billing", API)]);
+    put(
+        &config.join("termf.toml"),
+        "[roles.back]\nmodel = \"opus\"\n",
+    );
+    let card = Choices {
+        model: Some("sonnet".into()),
+        ..Choices::default()
+    };
+    let proposed = team(&config, &data, "acme", card, true).unwrap();
+    save(&config, &data, "acme", &proposed.proposal, false).unwrap();
+    let scope = Scope {
+        project: Some("acme".into()),
+        ..Scope::default()
+    };
+    let back = termf_library::role(&config, &scope, "back").unwrap();
+    assert_eq!(
+        back.meta["model"],
+        json!("sonnet"),
+        "the frontmatter's sonnet alone would lose to opus"
+    );
+}
+
+#[test]
+fn back_to_each_role_s_own_model_removes_what_the_assistant_wrote() {
+    let (_, config, data) = setup("model-back", &[("acme", MONOREPO)]);
+    let quality = Choices {
+        model: Some("opus".into()),
+        ..Choices::default()
+    };
+    let first = team(&config, &data, "acme", quality, true).unwrap();
+    save(&config, &data, "acme", &first.proposal, false).unwrap();
+    let file = config.join("projects/acme.toml");
+    assert!(
+        fs::read_to_string(&file)
+            .unwrap()
+            .contains("[roles.lead]\nmodel = \"opus\"")
+    );
+
+    let own = Choices {
+        model: Some(String::new()),
+        keep: BTreeMap::from([("devops".into(), false)]),
+        ..Choices::default()
+    };
+    let back = team(&config, &data, "acme", own, false).unwrap();
+    assert_eq!(back.proposal.roles["lead"], Settings::default());
+    assert_eq!(
+        back.proposal.roles["devops"],
+        Settings::default(),
+        "a role left out since"
+    );
+    assert_eq!(back.proposal.roles["qa"].model, None);
+    assert_eq!(back.status["roles.lead"], Status::Changed);
+    save(&config, &data, "acme", &back.proposal, false).unwrap();
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(
+        !text.contains("[roles.lead]") && !text.contains("[roles.devops]"),
+        "{text}"
+    );
+    assert!(!text.contains("model = "), "{text}");
+    assert!(text.contains("[roles.qa]\nwrites = "), "{text}");
+}
+
+#[test]
+fn a_hand_written_part_already_in_place_takes_replace_to_change() {
+    let (_, config, data) = setup("hand-same", &[("acme", MONOREPO)]);
+    let file = config.join("projects/acme.toml");
+    let text = fs::read_to_string(&file).unwrap() + "\n[workflows]\ndefault = \"squads\"\n";
+    fs::write(&file, &text).unwrap();
+    let proposed = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    assert_eq!(proposed.status["workflow"], Status::Same);
+    assert_eq!(proposed.hand, ["workflow"]);
+    let changed = Edit {
+        workflow: Some("default".into()),
+        ..Edit::default()
+    };
+    let e = save(&config, &data, "acme", &changed, false).unwrap_err();
+    assert!(e.to_string().contains("changed by hand"), "{e}");
+    save(&config, &data, "acme", &changed, true).unwrap();
+    assert!(
+        fs::read_to_string(&file)
+            .unwrap()
+            .contains("default = \"default\"")
+    );
+    let after = team(&config, &data, "acme", Choices::default(), false).unwrap();
+    assert!(after.hand.is_empty(), "now the assistant's own");
+}
+
+#[test]
+fn keeps_what_inline_tables_hold() {
+    let (_, config, data) = setup("inline", &[("billing", API)]);
+    let file = config.join("projects/acme.toml");
+    let text = fs::read_to_string(&file).unwrap().replace(
+        "name = \"Acme\"\n",
+        "name = \"Acme\"\nworkflows = { default = \"hotfix\", note = \"by hand\" }\n\
+         roles = { qa = { skills = [\"pytest\"], deny = [\"Bash(rm:*)\"] } }\n",
+    );
+    fs::write(&file, &text).unwrap();
+    let proposed = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    assert_eq!(proposed.status["workflow"], Status::Edited);
+    save(&config, &data, "acme", &proposed.proposal, true).unwrap();
+    let back: toml::Table = toml::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(back["workflows"]["default"].as_str(), Some("default"));
+    assert_eq!(back["workflows"]["note"].as_str(), Some("by hand"));
+    let qa = &back["roles"]["qa"];
+    assert_eq!(qa["skills"], toml::Value::Array(vec!["pytest".into()]));
+    assert_eq!(qa["deny"], toml::Value::Array(vec!["Bash(rm:*)".into()]));
+    assert_eq!(qa["writes"], toml::Value::Array(vec!["**/*_test.*".into()]));
 }
 
 #[test]
 fn writes_the_team_into_the_project_file_and_keeps_the_rest() {
     let (_, config, data) = setup("write", &[("acme", MONOREPO)]);
-    let proposed = team(&config, &data, "acme", Choices::default()).unwrap();
+    let proposed = team(&config, &data, "acme", Choices::default(), true).unwrap();
     let shown = preview(&config, "acme", &proposed.proposal).unwrap();
     assert!(shown.path.ends_with("acme.toml"));
     assert!(
@@ -422,7 +551,7 @@ fn writes_the_team_into_the_project_file_and_keeps_the_rest() {
         logged.detail,
         "team, workflow, roles.back, roles.devops, roles.front, roles.qa"
     );
-    let again = team(&config, &data, "acme", Choices::default()).unwrap();
+    let again = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert!(
         again.status.values().all(|s| *s == Status::Same),
         "{:?}",
@@ -450,7 +579,7 @@ fn writes_the_team_into_the_project_file_and_keeps_the_rest() {
 #[test]
 fn refuses_what_would_not_read_back() {
     let (_, config, data) = setup("refuse", &[("billing", API)]);
-    let base = team(&config, &data, "acme", Choices::default())
+    let base = team(&config, &data, "acme", Choices::default(), true)
         .unwrap()
         .proposal;
     let refused = |edit: Edit, why: &str| {
@@ -522,7 +651,7 @@ fn refuses_what_would_not_read_back() {
 #[test]
 fn a_new_proposal_respects_what_was_changed_by_hand() {
     let (dir, config, data) = setup("again", &[("acme", MONOREPO)]);
-    let first = team(&config, &data, "acme", Choices::default()).unwrap();
+    let first = team(&config, &data, "acme", Choices::default(), true).unwrap();
     save(&config, &data, "acme", &first.proposal, false).unwrap();
     let file = config.join("projects/acme.toml");
 
@@ -531,7 +660,7 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
     let text = text.replace("front = 2, qa = 1", "front = 3, qa = 1")
         + "\n[roles.ux]\neffort_range = [\"medium\", \"high\"]\n";
     fs::write(&file, &text).unwrap();
-    let now = team(&config, &data, "acme", Choices::default()).unwrap();
+    let now = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert_eq!(now.status["team"], Status::Edited);
     assert_eq!(now.status["workflow"], Status::Same);
     let e = save(&config, &data, "acme", &now.proposal, false).unwrap_err();
@@ -554,7 +683,14 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
         r#"{ "name": "@acme/admin", "dependencies": { "react": "19" } }"#,
     );
     put(&acme.join("apps/web/public/robots.txt"), "");
-    let later = team(&config, &data, "acme", Choices::default()).unwrap();
+    let kept_survey = team(&config, &data, "acme", Choices::default(), false).unwrap();
+    assert!(
+        !composition(&kept_survey).squads[0]
+            .paths
+            .contains(&"apps/admin/**".into()),
+        "a choice in the card reuses the last survey"
+    );
+    let later = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert!(kept(&later).contains(&("docs", true, "own")));
     assert!(kept(&later).contains(&("seo", true, "web")));
     assert_eq!(
@@ -582,7 +718,7 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
         text.contains("effort_range = [\"medium\", \"high\"]"),
         "kept: not the assistant's"
     );
-    let settled = team(&config, &data, "acme", Choices::default()).unwrap();
+    let settled = team(&config, &data, "acme", Choices::default(), true).unwrap();
     assert!(
         settled.status.values().all(|s| *s == Status::Same),
         "{:?}",

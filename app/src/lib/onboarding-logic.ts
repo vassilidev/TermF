@@ -135,9 +135,9 @@ export function toReview(
   return keys.filter((key) => status[key] !== "same" || decisions[key]);
 }
 
-/** Whether writing `edit` replaces a part changed by hand since the assistant wrote it. */
-export function replacesHand(edit: TeamEdit, status: Record<string, TeamStatus>): boolean {
-  return teamKeys(edit).some((key) => status[key] === "edited");
+/** Whether writing `edit` touches a part the file holds as written by hand, even one already in place. */
+export function replacesHand(edit: TeamEdit, hand: string[]): boolean {
+  return teamKeys(edit).some((key) => hand.includes(key));
 }
 
 /** Globs typed one per line or separated by commas. */

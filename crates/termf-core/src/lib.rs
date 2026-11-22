@@ -467,11 +467,14 @@ pub fn save_keys(config_dir: &Path, keys: &BTreeMap<String, String>) -> Result<(
     })
 }
 
-/// `parent[name]` as a table, replacing whatever else was there.
+/// `parent[name]` as a table: an inline table becomes one with its keys, anything else is replaced.
 pub fn table_in<'a>(parent: &'a mut Table, name: &str) -> &'a mut Table {
     let item = parent.entry(name).or_insert(toml_edit::table());
     if !item.is_table() {
-        *item = toml_edit::table();
+        *item = match std::mem::take(item).into_table() {
+            Ok(table) => Item::Table(table),
+            Err(_) => toml_edit::table(),
+        };
     }
     item.as_table_mut().expect("just made a table")
 }
@@ -885,6 +888,27 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_table_written_inline_keeps_its_keys() {
+        let mut doc: DocumentMut = "keys = { macos = { find = \"Cmd+F\" } }\nname = 1\n"
+            .parse()
+            .unwrap();
+        let keys = table_in(doc.as_table_mut(), "keys");
+        let macos = table_in(keys, "macos");
+        macos.insert("open", value("Cmd+O"));
+        let text = doc.to_string();
+        let back: toml::Table = toml::from_str(&text).unwrap();
+        assert_eq!(
+            back["keys"]["macos"]["find"].as_str(),
+            Some("Cmd+F"),
+            "{text}"
+        );
+        assert_eq!(back["keys"]["macos"]["open"].as_str(), Some("Cmd+O"));
+        assert_eq!(back["name"].as_integer(), Some(1));
+        let mut doc: DocumentMut = "keys = 3\n".parse().unwrap();
+        assert!(table_in(doc.as_table_mut(), "keys").is_empty());
     }
 
     #[test]

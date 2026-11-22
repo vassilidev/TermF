@@ -110,10 +110,12 @@ test("team: reviewed part by part, only the accepted parts written, as changed",
   assert.deepEqual(teamEdit(proposal, {}, changes), { team: null, workflow: null, roles: {} });
 });
 
-test("team: replacing a hand edit only when an accepted part was changed by hand", () => {
-  const status = { team: "edited", workflow: "same", "roles.qa": "changed" };
-  assert.equal(replacesHand({ team: proposal.team, workflow: null, roles: {} }, status), true);
-  assert.equal(replacesHand({ team: null, workflow: "default", roles: { qa: {} } }, status), false);
+test("team: replacing what was written by hand, even a part already in place, only when it is written", () => {
+  const hand = ["team", "workflow"];
+  assert.equal(replacesHand({ team: proposal.team, workflow: null, roles: {} }, hand), true);
+  assert.equal(replacesHand({ team: null, workflow: "default", roles: {} }, hand), true, "in place, then changed");
+  assert.equal(replacesHand({ team: null, workflow: null, roles: { qa: {} } }, hand), false);
+  assert.equal(replacesHand({ team: proposal.team, workflow: "squads", roles: {} }, []), false);
 });
 
 test("team: a part already in place is not to review, unless decided anyway", () => {

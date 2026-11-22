@@ -32,6 +32,7 @@
     steps: string[];
     proposal: TeamEdit;
     status: Record<string, TeamStatus>;
+    hand: string[];
     path: string;
   };
 
@@ -82,13 +83,23 @@
   const models = ["", "haiku", "sonnet", "opus"];
   const efforts = ["", "low", "medium", "high", "xhigh", "max"];
 
-  onMount(load);
+  const changed = (key: string) =>
+    key === "workflow"
+      ? changes.workflow !== undefined && changes.workflow !== team?.proposal.workflow
+      : key.startsWith("roles.") && changes.roles[key.slice(6)] !== undefined;
 
-  async function load() {
+  onMount(() => load(true));
+
+  let request = 0;
+
+  /** `fresh`: read the repositories again; a choice in the card reuses the last survey. */
+  async function load(fresh = false) {
+    const mine = ++request;
     try {
-      team = await invoke<Team>("onboarding_team", { project, choices });
+      const next = await invoke<Team>("onboarding_team", { project, choices, fresh });
+      if (mine === request) team = next;
     } catch (e) {
-      error = String(e);
+      if (mine === request) error = String(e);
     }
   }
 
@@ -156,7 +167,7 @@
     error = "";
     try {
       ondecided(
-        await invoke("onboarding_team_save", { project, edit, replace: replacesHand(edit, team.status) }),
+        await invoke("onboarding_team_save", { project, edit, replace: replacesHand(edit, team.hand) }),
       );
       preview = null;
       decisions = {};
@@ -186,7 +197,7 @@
     {/if}
     <button class="btn sm quiet" aria-expanded={editing === key} onclick={() => modify(key)}>{t("obEdit")}</button>
   </header>
-  {#if team?.status[key] === "edited"}
+  {#if team?.status[key] === "edited" || (team?.hand.includes(key) && changed(key))}
     <p class="notice warn" role="status">{t("obTeamEdited")}</p>
   {/if}
 {/snippet}
@@ -322,7 +333,7 @@
             <dt>{t("obTeamWrites")}</dt>
             <dd>{#each s.writes ?? [] as g (g)}<code>{g}</code>{:else}<span class="muted">—</span>{/each}</dd>
           {/if}
-          {#if s.model}<dt>{t("obTeamModel")}</dt><dd>{s.model}</dd>{/if}
+          {#if s.model || !(s.writes || s.effort)}<dt>{t("obTeamModel")}</dt><dd>{s.model ?? t("obTeamOwn")}</dd>{/if}
           {#if s.effort}<dt>{t("obTeamEffort")}</dt><dd>{s.effort}</dd>{/if}
         </dl>
         {#if editing === key}
