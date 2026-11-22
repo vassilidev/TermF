@@ -136,7 +136,8 @@ def rebase(page, prefix):
         if re.match(r"(https?:|mailto:|data:|#|/)", url):
             return m.group(0)
         return f'{m.group(1)}="{prefix}{url[2:] if url.startswith("./") else url}"'
-    return re.sub(r'\b(href|src)="([^"]*)"', fix, page)
+    page = re.sub(r'\b(href|src)="([^"]*)"', fix, page)
+    return re.sub(r'\bsrcset="([^"]*)"', lambda m: 'srcset="' + ", ".join(prefix + u.strip() for u in m.group(1).split(",")) + '"', page)
 
 
 def page(path, title, desc, body, ld, og_type="website", current="", script=""):

@@ -440,6 +440,8 @@ how = [
   "It proposes the team, the ticket sources, the worktree recipe, CI and the stack's skills; accept them, or set one aside to customise later.",
   "The summary shows the exact project file before anything is written; Create opens the project's Home, with the CTO ready.",
 ]
+visual = "shot:setup|New project: what TermF proposes after reading the repositories, the agents' team, ticket sources, worktree setup, CI/CD and skills"
+caption = "Creating a project: the proposal, one block at a time. Sample data."
 default = [
   "Nothing is written before you click Create; Escape drops everything.",
   "Trusting the repositories in Claude Code is opt-in, explained repository by repository: the box is unchecked.",
@@ -596,6 +598,8 @@ how = [
   "Merge, rebase, cherry-pick or revert from a branch or a commit; on a conflict, keep one side, or open the file in TermF's editor, then continue, skip or abort.",
   "Stash, tag, and open a file's history or blame; a commit opens with its message, files and diffs.",
 ]
+visual = "shot:git|The Git view: local and remote branches, worktrees and stashes, and the commit graph of every branch"
+caption = "The Git view of a repository. Sample data."
 default = [
   "Read when the view shows, after each action and when the window comes back to the front, never by polling.",
   "Pull only fast-forwards; force-push only with <code>--force-with-lease</code>, never on the default branch, with the branch name to type.",
@@ -847,6 +851,8 @@ how = [
   "Past sessions: resume, duplicate, purge; usage and limits; account and version.",
   "Simple settings are edited through a diff preview; secrets are masked.",
 ]
+visual = "shot:claude|The Claude view: version, account, model, permission mode and everything installed"
+caption = "Everything Claude Code knows on this machine. Sample data."
 default = ["A marketplace command is shown with its hash and runs only after you accept."]
 tune = ["Edit from the view, or with the command line."]
 commands = [["termf claude settings get | set | unset", "settings by scope"], ["termf claude mcp add | remove", "MCP servers"], ["termf claude sessions", "past sessions"]]
@@ -926,6 +932,8 @@ how = [
   "Run again, failed jobs only, cancel, or start a workflow with its inputs.",
   "In a run, the pull request's checks show beside the work; Send the failure to the agent types a framed excerpt into its session.",
 ]
+visual = "shot:ci|CI/CD: the runs of a repository, and a failed job's log stopped on its first error"
+caption = "A failed run, its log opened on the first error. Sample data."
 default = ["Notifications for the runs that concern you.", "The guard keeps a run's agents from starting or cancelling CI."]
 tune = ["<code>[ci] notify = mine | all | off</code>."]
 commands = [["termf ci runs | view | logs --errors", "runs and logs"], ["termf ci rerun [--failed] | cancel | dispatch", "act on them"]]
@@ -948,6 +956,8 @@ how = [
   "Pin a comment on the image, read why it changed and which texts changed, with their reason.",
   "Approve, ask for changes or refuse each screen; with several screens, the swipe mode goes through them one card at a time, from the keyboard or the trackpad.",
 ]
+visual = "shot:review|The visual review page: the before and after slider on a changed screen, a pin, the comment for the agent and the decision buttons"
+caption = "The review page, in slider mode. Sample data."
 default = ["Desktop and light theme only, until you add more.", "Skipped until the visual-review rule is on.", "Each decision is saved at once; earlier versions stay readable."]
 tune = ["<code>[visual]</code>: routes, viewports (desktop, tablet, mobile), themes, threshold, login, images on the pull request."]
 commands = [["termf review start | show | decide | pr", "reviews from a terminal"]]
@@ -968,6 +978,8 @@ how = [
   "Inconsistencies lists hard-coded values with the token to use, sizes off the scale, near-identical colours, unused or undefined tokens, an incomplete dark theme, contrasts under WCAG AA and duplicate components; each one opens at its line in TermF's editor.",
   "Fix with the team writes a message to the CTO with the findings you picked; nothing is sent or started without you.",
 ]
+visual = "shot:design|The Design system view: tokens by family and the inconsistencies found, contrast, hard-coded values, sizes off the scale"
+caption = "Tokens and inconsistencies of a repository. Sample data."
 default = [
   "Read-only: nothing from the repository runs, no Node, no git; a <code>tailwind.config</code> is read as plain text.",
   "Follows <code>.gitignore</code> and skips dependencies, builds, tests and generated files.",
@@ -1020,6 +1032,8 @@ how = [
   "In Security, add a security key (FIDO2) as a second factor, turn on Touch ID or Windows Hello, change the master password; a recovery key opens the vault if you lose the key or the password.",
   "Import from Bitwarden, 1Password, Chrome or Edge, Firefox, Safari or KeePassXC; export the vault, or one project, to an encrypted file.",
 ]
+visual = "shot:vault|The vault: the project's logins, notes and secrets, with a GitHub login open on its two-factor code"
+caption = "The vault of a project. Sample data."
 default = [
   "Argon2id and XChaCha20-Poly1305; locks after 10 minutes, and on sleep.",
   "A revealed password hides again after 30 seconds, a note after two minutes.",
@@ -1135,6 +1149,8 @@ how = [
   "Run a recipe with its form; the exact command shows as you type, and the result comes back masked.",
   "When an agent asks, an approval card shows the command, the target and the environment, with a countdown; prod asks your master password.",
 ]
+visual = "shot:ops|Ops: the project's connections, a production SSH server with its checks, and the recipes that run on it"
+caption = "A connection, tested, with its recipes. Sample data."
 default = [
   "A connection is invisible to agents until you allow it, masked or in full.",
   "Your system's own clients run it (<code>ssh</code>, <code>psql</code>, <code>mysql</code>, <code>kubectl</code>…); keys are never read and secrets never go on the command line.",
