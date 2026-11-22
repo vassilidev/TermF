@@ -3,10 +3,16 @@ import assert from "node:assert/strict";
 import {
   byTheme,
   githubIssues,
+  globList,
+  members,
   pick,
   reachable,
   recipeLines,
+  replacesHand,
+  teamEdit,
+  teamKeys,
   ticketProposal,
+  toReview,
   trustState,
 } from "../src/lib/onboarding-logic.ts";
 
@@ -79,4 +85,49 @@ test("a recipe in a few words per repository", () => {
     { repo: "api", parts: ["pnpm install", ".env", ".env", "TERMF_PORT_WEB", "pnpm db:migrate"] },
     { repo: "docs", parts: [] },
   ]);
+});
+
+const squad = { id: "main", lead: "lead", roles: { front: 2, qa: 1 }, repos: [], paths: [], domains: [] };
+const proposal = {
+  team: { squads: [squad], staff: ["architect"] },
+  workflow: "default",
+  roles: { qa: { writes: ["**/*.test.*"] }, front: { model: "opus" } },
+};
+
+test("team: reviewed part by part, only the accepted parts written, as changed", () => {
+  assert.deepEqual(teamKeys(proposal), ["team", "workflow", "roles.qa", "roles.front"]);
+  assert.deepEqual(teamKeys({ team: null, workflow: null, roles: {} }), []);
+  const decisions = { team: "accepted", workflow: "rejected", "roles.qa": "accepted" };
+  assert.deepEqual(teamEdit(proposal, decisions, { roles: {} }), {
+    team: proposal.team,
+    workflow: null,
+    roles: { qa: { writes: ["**/*.test.*"] } },
+  });
+  const changes = { workflow: "squads", roles: { qa: { writes: ["tests/**"], effort: "high" } } };
+  const changed = teamEdit(proposal, { ...decisions, workflow: "accepted" }, changes);
+  assert.equal(changed.workflow, "squads");
+  assert.deepEqual(changed.roles.qa, { writes: ["tests/**"], effort: "high" });
+  assert.deepEqual(teamEdit(proposal, {}, changes), { team: null, workflow: null, roles: {} });
+});
+
+test("team: replacing what was written by hand, even a part already in place, only when it is written", () => {
+  const hand = ["team", "workflow"];
+  assert.equal(replacesHand({ team: proposal.team, workflow: null, roles: {} }, hand), true);
+  assert.equal(replacesHand({ team: null, workflow: "default", roles: {} }, hand), true, "in place, then changed");
+  assert.equal(replacesHand({ team: null, workflow: null, roles: { qa: {} } }, hand), false);
+  assert.equal(replacesHand({ team: proposal.team, workflow: "squads", roles: {} }, []), false);
+});
+
+test("team: a part already in place is not to review, unless decided anyway", () => {
+  const keys = ["team", "workflow", "roles.qa"];
+  const status = { team: "same", workflow: "new", "roles.qa": "same" };
+  assert.deepEqual(toReview(keys, status, {}), ["workflow"]);
+  assert.deepEqual(toReview(keys, status, { "roles.qa": "accepted" }), ["workflow", "roles.qa"]);
+  assert.deepEqual(toReview(keys, { team: "same", workflow: "same", "roles.qa": "same" }, {}), []);
+});
+
+test("team: globs and members in a few words", () => {
+  assert.deepEqual(globList(" apps/web/** \n\npackages/ui/**, apps/web/**,"), ["apps/web/**", "packages/ui/**"]);
+  assert.deepEqual(globList("  "), []);
+  assert.deepEqual(members({ front: 2, qa: 1 }), ["front ×2", "qa"]);
 });

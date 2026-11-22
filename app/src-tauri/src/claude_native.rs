@@ -155,9 +155,10 @@ fn library_item(
     termf_library::explain(&state.config_dir, &scope, kind, name)
 }
 
+/// Async, like the other commands that read the library: its stack may walk a large repository.
 #[tauri::command]
-pub fn claude_export_preview(
-    state: State<AppState>,
+pub async fn claude_export_preview(
+    state: State<'_, AppState>,
     kind: Kind,
     name: String,
     to: Scope,
@@ -183,9 +184,9 @@ pub fn claude_export_preview(
 /// you saw the diff, and goes to TermF's trash first.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn claude_export_item(
-    state: State<AppState>,
-    native_state: State<NativeState>,
+pub async fn claude_export_item(
+    state: State<'_, AppState>,
+    native_state: State<'_, NativeState>,
     kind: Kind,
     name: String,
     to: Scope,

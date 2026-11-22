@@ -91,6 +91,25 @@ pub struct Settings {
     pub keys: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(deserialize_with = "vault_settings")]
     pub vault: VaultSettings,
+    pub memory: MemorySettings,
+}
+
+/// `[memory]` in `termf.toml`: the project memory the expert searches (crate `termf-memory`).
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(default)]
+pub struct MemorySettings {
+    pub enabled: bool,
+    /// Sources left out of the index, by id (`claude`, `git`…).
+    pub exclude: Vec<String>,
+}
+
+impl Default for MemorySettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            exclude: Vec::new(),
+        }
+    }
 }
 
 /// `[vault]` in `termf.toml`.
@@ -275,6 +294,7 @@ impl Default for Settings {
             artifacts: ArtifactSettings::default(),
             keys: BTreeMap::new(),
             vault: VaultSettings::default(),
+            memory: MemorySettings::default(),
         }
     }
 }
@@ -432,6 +452,17 @@ pub fn save_vault_auto_lock(config_dir: &Path, minutes: u32) -> Result<()> {
     })
 }
 
+pub fn save_memory(config_dir: &Path, settings: &MemorySettings) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        let table = table_in(doc.as_table_mut(), "memory");
+        table.insert("enabled", value(settings.enabled));
+        table.insert(
+            "exclude",
+            value(settings.exclude.iter().collect::<toml_edit::Array>()),
+        );
+    })
+}
+
 /// Saves this system's shortcuts changed in the UI as `[keys.<system>]`, like `save_keep_awake`: `keys` holds
 /// only those that differ from the defaults; the other systems' tables are kept. `quick_terminal_shortcut`
 /// moves into `[keys]`: the UI sends it for this system, and the other systems, which it held for too, get it.
@@ -467,11 +498,14 @@ pub fn save_keys(config_dir: &Path, keys: &BTreeMap<String, String>) -> Result<(
     })
 }
 
-/// `parent[name]` as a table, replacing whatever else was there.
-fn table_in<'a>(parent: &'a mut Table, name: &str) -> &'a mut Table {
+/// `parent[name]` as a table: an inline table becomes one with its keys, anything else is replaced.
+pub fn table_in<'a>(parent: &'a mut Table, name: &str) -> &'a mut Table {
     let item = parent.entry(name).or_insert(toml_edit::table());
     if !item.is_table() {
-        *item = toml_edit::table();
+        *item = match std::mem::take(item).into_table() {
+            Ok(table) => Item::Table(table),
+            Err(_) => toml_edit::table(),
+        };
     }
     item.as_table_mut().expect("just made a table")
 }
@@ -698,6 +732,58 @@ fn write_layouts(config_dir: &Path, mut layouts: Vec<Layout>) -> Result<()> {
     write_atomic(&config_dir.join("layouts.toml"), &text)
 }
 
+/// A line diff (`-` removed, `+` added, ` ` context) of the changed part; empty when nothing changes.
+pub fn diff(before: &str, after: &str) -> String {
+    const CONTEXT: usize = 3;
+    let (a, b): (Vec<&str>, Vec<&str>) = (before.lines().collect(), after.lines().collect());
+    let prefix = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let suffix = a[prefix..]
+        .iter()
+        .rev()
+        .zip(b[prefix..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (am, bm) = (&a[prefix..a.len() - suffix], &b[prefix..b.len() - suffix]);
+    if am.is_empty() && bm.is_empty() {
+        return String::new();
+    }
+    // Longest common subsequence of the changed middle, which is small: one block.
+    let mut lcs = vec![vec![0u32; bm.len() + 1]; am.len() + 1];
+    for i in (0..am.len()).rev() {
+        for j in (0..bm.len()).rev() {
+            lcs[i][j] = if am[i] == bm[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let mut out: Vec<String> = a[prefix.saturating_sub(CONTEXT)..prefix]
+        .iter()
+        .map(|l| format!(" {l}"))
+        .collect();
+    let (mut i, mut j) = (0, 0);
+    while i < am.len() || j < bm.len() {
+        if i < am.len() && j < bm.len() && am[i] == bm[j] {
+            out.push(format!(" {}", am[i]));
+            (i, j) = (i + 1, j + 1);
+        } else if i < am.len() && (j == bm.len() || lcs[i + 1][j] >= lcs[i][j + 1]) {
+            out.push(format!("-{}", am[i]));
+            i += 1;
+        } else {
+            out.push(format!("+{}", bm[j]));
+            j += 1;
+        }
+    }
+    let tail = a.len() - suffix;
+    out.extend(
+        a[tail..(tail + CONTEXT).min(a.len())]
+            .iter()
+            .map(|l| format!(" {l}")),
+    );
+    out.join("\n") + "\n"
+}
+
 /// Writes through a temporary file so a crash never leaves a half-written config.
 pub fn write_atomic(file: &Path, text: &str) -> Result<()> {
     let tmp = file.with_extension("toml.tmp");
@@ -836,6 +922,27 @@ mod tests {
     }
 
     #[test]
+    fn a_table_written_inline_keeps_its_keys() {
+        let mut doc: DocumentMut = "keys = { macos = { find = \"Cmd+F\" } }\nname = 1\n"
+            .parse()
+            .unwrap();
+        let keys = table_in(doc.as_table_mut(), "keys");
+        let macos = table_in(keys, "macos");
+        macos.insert("open", value("Cmd+O"));
+        let text = doc.to_string();
+        let back: toml::Table = toml::from_str(&text).unwrap();
+        assert_eq!(
+            back["keys"]["macos"]["find"].as_str(),
+            Some("Cmd+F"),
+            "{text}"
+        );
+        assert_eq!(back["keys"]["macos"]["open"].as_str(), Some("Cmd+O"));
+        assert_eq!(back["name"].as_integer(), Some(1));
+        let mut doc: DocumentMut = "keys = 3\n".parse().unwrap();
+        assert!(table_in(doc.as_table_mut(), "keys").is_empty());
+    }
+
+    #[test]
     fn saves_keep_awake_and_keeps_comments() {
         let dir = temp_dir("keep-awake");
         fs::write(
@@ -881,6 +988,24 @@ mod tests {
             let found = settings(text).ticket_agent().unwrap_err().to_string();
             assert!(found.contains(error), "{text}: {found}");
         }
+    }
+
+    #[test]
+    fn saves_memory_settings() {
+        let dir = temp_dir("memory");
+        fs::write(dir.join("termf.toml"), "# mine\nkeep_awake = \"off\"\n").unwrap();
+        assert_eq!(
+            load_settings(&dir).unwrap().memory,
+            MemorySettings::default()
+        );
+        let off = MemorySettings {
+            enabled: false,
+            exclude: vec!["claude".into(), "git".into()],
+        };
+        save_memory(&dir, &off).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\n"), "comments kept: {text}");
+        assert_eq!(load_settings(&dir).unwrap().memory, off);
     }
 
     #[test]

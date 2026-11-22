@@ -6,13 +6,14 @@
   import Search from "@lucide/svelte/icons/search";
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
+  import StackOffers from "$lib/StackOffers.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
   import { openSetup } from "$lib/onboarding.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { lang, t } from "$lib/i18n";
-  import { library, showLibrary } from "$lib/library.svelte";
+  import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
   import { closeProject } from "$lib/project.svelte";
   import { app, repoName, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
   import { added } from "$lib/team-logic";
@@ -40,6 +41,8 @@
 
   // The Worktrees tab tells why a recipe cannot be read; here it only gives its state.
   if (project) invoke<{ saved: boolean }>("worktree_recipe", { project: project.id }).then((r) => (recipe = r), () => {});
+  let stacks = $state<RepoStack[]>([]);
+  if (project) invoke<RepoStack[]>("library_stack", { project: project.id }).then((s) => (stacks = s), () => {});
 
   // The page is the current project's: switching projects switches the page, and every project leaves it.
   $effect(() => {
@@ -223,6 +226,13 @@
             <ClaudeTrust project={project.id} />
           </section>
 
+          {#if stacks.some((s) => s.mcp.length || s.sources.length)}
+            <section class="offers">
+              <h2>{t("stackOffersTitle")}</h2>
+              <StackOffers {stacks} />
+            </section>
+          {/if}
+
           <div class="danger-zone">
             {#if confirming}
               <p role="alert">{t("confirmDeleteProject", { name: project.name })}</p>
@@ -311,6 +321,12 @@
     margin: 0 0 8px;
     font-size: var(--text-md);
     font-weight: 650;
+  }
+
+  .offers {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   h2 small {

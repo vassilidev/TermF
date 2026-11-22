@@ -2,6 +2,7 @@
   import type { Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Bot from "@lucide/svelte/icons/bot";
+  import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
   import Coffee from "@lucide/svelte/icons/coffee";
   import FileDown from "@lucide/svelte/icons/file-down";
   import FileUp from "@lucide/svelte/icons/file-up";
@@ -15,6 +16,7 @@
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import ContextReset from "$lib/ContextReset.svelte";
   import KeepAwake from "$lib/KeepAwake.svelte";
+  import MemorySettings from "$lib/MemorySettings.svelte";
   import ShortcutEditor from "$lib/ShortcutEditor.svelte";
   import SyncView from "$lib/SyncView.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -52,6 +54,12 @@
     },
     { id: "ci", label: "viewCi", icon: Workflow, words: ["ciNotify", "ciNotifyHelp", "ciNotifyMine", "ciNotifyAll"] },
     { id: "claude", label: "claudeViewTitle", icon: Bot, words: ["claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"] },
+    {
+      id: "memory",
+      label: "expertMemoryTitle",
+      icon: BrainCircuit,
+      words: ["expertMemoryIntro", "expertMemorySources", "expertSourceClaude", "expertSourceGit", "expertSourceDocs"],
+    },
     {
       id: "config",
       label: "settingsConfig",
@@ -205,6 +213,8 @@
               {t("claudeRedesignSkipConfirm")}
             </label>
             <p class="help">{t("claudeRedesignSkipConfirmHelp")}</p>
+          {:else if settings.section === "memory"}
+            <MemorySettings />
           {:else if settings.section === "config"}
             <h2>{t("settingsConfig")}</h2>
             {#if app.workspace}

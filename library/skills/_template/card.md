@@ -1,0 +1,7 @@
+- Version: read it in <the manifest key or lockfile entry>.
+- Docs for this version: <the bundled docs folder, the llms.txt or the versioned page>.
+- Verify: `<the project's command>`, `<the canonical command>`.
+- <A major pitfall of this version, then what to do instead.>
+- <A major pitfall.>
+- <A major pitfall.>
+- Read the skill `example-tech` before <the tasks it covers>.

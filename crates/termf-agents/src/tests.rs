@@ -68,6 +68,8 @@ while IFS= read -r line; do
     *structured*) answer '{"ok":true}'; result success ',"structured_output":{"ok":true}' ;;
     *budget*) result error_max_budget_usd ',"is_error":true,"terminal_reason":"budget_exhausted","errors":["Reached maximum budget ($0.05)"]' ;;
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
+    *patience*) sleep 1; answer 'Done.'; result success ;;
+    *webhooks*) answer 'Three retries: src/webhooks.rs:12, and conversation 1111 (2026-11-20).'; result success ;;
     *) answer 'OK.'; result success ;;
   esac
 done
@@ -350,12 +352,18 @@ fn runs_several_turns_on_one_process() {
             "manual"
         ]
     );
-    assert_eq!(
-        args[0][17..],
-        termf_core::claude::SECRET_DENY
-            .iter()
-            .flat_map(|rule| ["--disallowedTools", rule])
-            .collect::<Vec<_>>()
+    let deny: Vec<&str> = termf_core::claude::SECRET_DENY
+        .iter()
+        .flat_map(|rule| ["--disallowedTools", rule])
+        .collect();
+    assert_eq!(args[0][17..17 + deny.len()], deny);
+    // Then only what the shipped library brings, such as its skills for every stack.
+    let library = &args[0][17 + deny.len()..];
+    assert!(
+        library.chunks(2).all(|pair| {
+            ["--plugin-dir", "--append-system-prompt-file"].contains(&pair[0].as_str())
+        }),
+        "{library:?}"
     );
     assert_eq!(
         fs::canonicalize(env.log("cwd").trim()).unwrap(),
@@ -434,6 +442,100 @@ fn plays_a_role_and_answers_with_its_schema() {
     };
     let error = env.agents.start(unknown, None).unwrap_err().to_string();
     assert!(error.contains("no role named nobody"), "{error}");
+}
+
+#[test]
+fn the_expert_reads_only_and_never_reaches_the_network() {
+    let env = Env::new("expert");
+    let spec = SessionSpec {
+        role: Some("expert".into()),
+        ..env.spec()
+    };
+    let session = env.agents.start(spec, None).unwrap();
+    let denied = &session.spec.disallowed_tools;
+    for tool in [
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "Bash",
+        "PowerShell",
+        "WebFetch",
+        "WebSearch",
+    ] {
+        assert!(denied.iter().any(|t| t == tool), "{tool}: {denied:?}");
+    }
+    assert!(
+        !denied.iter().any(|t| t == "Read" || t == "Agent"),
+        "it reads and searches wide"
+    );
+    assert_eq!(
+        (
+            session.spec.model.as_deref(),
+            session.spec.effort.as_deref()
+        ),
+        (Some("haiku"), Some("low")),
+        "the spec's own model and effort win over the role's"
+    );
+}
+
+#[test]
+fn a_message_written_during_a_turn_goes_once_it_ends() {
+    let env = Env::new("queue");
+    let id = env
+        .agents
+        .start(env.spec(), Some("patience please"))
+        .unwrap()
+        .id;
+    assert!(
+        env.agents.send_or_queue(id, "hello").unwrap(),
+        "kept for the end of the turn"
+    );
+    assert!(env.agents.send_or_queue(id, "and hello again").unwrap());
+    env.settle(id, 2, State::Idle);
+    let said: Vec<String> = env
+        .events(id)
+        .into_iter()
+        .filter_map(|e| match e {
+            AgentEvent::User { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["patience please", "hello\n\nand hello again"]);
+    assert!(
+        !env.agents.send_or_queue(id, "hello").unwrap(),
+        "between two turns: at once"
+    );
+    env.settle(id, 3, State::Idle);
+}
+
+#[test]
+fn consults_an_agent_for_another_and_waits_for_its_answer() {
+    let env = Env::new("consult");
+    let ask = |prompt: &str| {
+        let spec = SessionSpec {
+            role: Some("expert".into()),
+            budget: Some(0.5),
+            ..env.spec()
+        };
+        env.agents.consult(spec, prompt, Duration::from_secs(20))
+    };
+    let (session, text) = ask("Why do webhooks retry?").unwrap();
+    assert!(text.contains("src/webhooks.rs:12"), "{text}");
+    assert_eq!(
+        session.state,
+        State::Stopped,
+        "its process ends with the answer"
+    );
+    assert_eq!(session.spec.budget, Some(0.5));
+    let (session, text) = ask("permission to write a file").unwrap();
+    assert_eq!(text, "Not written.", "nobody can approve a tool");
+    let refused = env
+        .events(session.id)
+        .into_iter()
+        .any(|e| matches!(e, AgentEvent::PermissionAnswer { allow: false, .. }));
+    assert!(refused);
+    let error = ask("over budget").unwrap_err().to_string();
+    assert!(error.contains("budget ran out"), "{error}");
 }
 
 #[test]
@@ -930,6 +1032,286 @@ fn refuses_what_cannot_start() {
     assert!(refused(|s| s.agent = Some("codex".into())).contains("no agent codex"));
     assert!(env.agents.send(42, "hi").is_err());
     assert!(env.agents.sessions().unwrap().is_empty());
+}
+
+fn arg_after<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    let i = args.iter().position(|a| a == flag)?;
+    args.get(i + 1).map(String::as_str)
+}
+
+#[test]
+fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
+    let env = Env::new("mcp");
+    let other = env.root.join("api");
+    fs::create_dir_all(&other).unwrap();
+    let config = env.root.join("config");
+    fs::create_dir_all(config.join("projects")).unwrap();
+    fs::write(
+        config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n[[repos]]\npath = \"{}\"\n",
+            env.dir.display(),
+            other.display()
+        ),
+    )
+    .unwrap();
+    let spec = SessionSpec {
+        project: Some("acme".into()),
+        role: Some("cto".into()),
+        permission_mode: Some("bypassPermissions".into()),
+        mcp: true,
+        ..env.spec()
+    };
+    let error = env.agents.start(spec.clone(), Some("hi")).unwrap_err();
+    assert!(error.to_string().contains("needs the app"), "{error}");
+
+    // Each process gets a token of its own; `live` holds the ones not voided yet.
+    let live: Arc<Mutex<Vec<(i64, u32)>>> = Arc::default();
+    let issued = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let (given, gone) = (live.clone(), live.clone());
+    env.agents.serve_mcp(
+        move |id| {
+            let n = issued.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            given.lock().unwrap().retain(|(s, _)| *s != id);
+            given.lock().unwrap().push((id, n));
+            Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string(), "TERMF_MCP_TOKEN": format!("cap-{n}")}}))
+        },
+        move |id| gone.lock().unwrap().retain(|(s, _)| *s != id),
+    );
+    let session = env.agents.create(spec).unwrap();
+    assert_eq!(
+        session.state,
+        State::Stopped,
+        "no process until its first message"
+    );
+    assert!(env.args().is_empty(), "no process yet: {:?}", env.args());
+    assert_eq!(session.spec.permission_mode.as_deref(), Some("manual"));
+    let id = session.id;
+    env.agents.send(id, "say hello").unwrap();
+    env.settle(id, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    assert_eq!(arg_after(&args, "--permission-mode"), Some("manual"));
+    assert!(args.contains(&"--restricted".into()), "{args:?}");
+    assert!(args.contains(&"--strict-mcp-config".into()), "{args:?}");
+    assert_eq!(arg_after(&args, "--tools"), Some("Read,Grep,Glob"));
+    assert_eq!(arg_after(&args, "--add-dir"), Some(other.to_str().unwrap()));
+    let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
+    let names = |key: &str| -> Vec<String> {
+        serde_json::from_value(settings["permissions"][key].clone()).unwrap()
+    };
+    let ask: Vec<String> = termf_core::ipc::MCP_ACTIONS
+        .iter()
+        .map(|t| format!("mcp__termf__{t}"))
+        .collect();
+    assert_eq!(names("ask"), ask, "every action waits for the user");
+    assert!(names("allow").iter().all(|t| !ask.contains(t)));
+    for tool in ["Bash", "WebFetch", "WebSearch", "Edit", "Write"] {
+        assert!(names("deny").contains(&tool.to_string()), "{tool}");
+    }
+    let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
+    let config: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        config["mcpServers"]["termf"]["env"]["TERMF_MCP_SESSION"],
+        id.to_string()
+    );
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(&file).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600, "it holds the session's token");
+
+    let error = env.agents.takeover(id).unwrap_err();
+    assert!(error.to_string().contains("stays in TermF"), "{error}");
+    assert_eq!(env.session(id).state, State::Idle);
+
+    assert_eq!(*live.lock().unwrap(), [(id, 1)]);
+    env.agents.stop(id).unwrap();
+    env.until("the token voided", || live.lock().unwrap().is_empty());
+    assert!(!file.exists(), "its config goes with the process");
+    env.agents.send(id, "say hello").unwrap();
+    env.settle(id, 2, State::Idle);
+    assert_eq!(
+        *live.lock().unwrap(),
+        [(id, 2)],
+        "a new token, never the old one"
+    );
+    // A process that ends on its own takes its token with it.
+    env.agents.send(id, "crash").unwrap();
+    env.until("the crash", || env.session(id).state == State::Error);
+    env.until("the token voided", || live.lock().unwrap().is_empty());
+
+    let plain = env.agents.start(env.spec(), Some("say hello")).unwrap();
+    env.settle(plain.id, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    for flag in ["--restricted", "--mcp-config", "--tools", "--settings"] {
+        assert!(
+            !args.contains(&flag.into()),
+            "{flag} only with TermF's tools"
+        );
+    }
+}
+
+#[test]
+fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
+    let env = Env::new("expert-tools");
+    let po = SessionSpec {
+        role: Some("po".into()),
+        allowed_tools: vec!["mcp__termf__ask_expert".into()],
+        ..env.spec()
+    };
+    let alone = env.agents.start(po.clone(), Some("say hello")).unwrap().id;
+    env.settle(alone, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    assert!(
+        !args.contains(&"--mcp-config".into()),
+        "no app, no expert: the step still runs"
+    );
+    env.agents.serve_mcp(
+        |id| Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string()}})),
+        |_| {},
+    );
+    let run = |spec: SessionSpec| {
+        let id = env.agents.start(spec, Some("say hello")).unwrap().id;
+        env.settle(id, 1, State::Idle);
+        let args = env.args().pop().unwrap();
+        let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
+        let config: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+        let tools = config["mcpServers"]["termf"]["env"]["TERMF_MCP_TOOLS"].clone();
+        (args, tools)
+    };
+
+    let expert = SessionSpec {
+        role: Some("expert".into()),
+        mcp: true,
+        ..env.spec()
+    };
+    let (args, tools) = run(expert);
+    assert_eq!(tools, "memory_search,memory_read");
+    assert_eq!(
+        arg_after(&args, "--tools"),
+        Some("Read,Grep,Glob,Agent"),
+        "sub-agents read"
+    );
+    assert!(args.contains(&"--strict-mcp-config".into()) && args.contains(&"--restricted".into()));
+    let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
+    let permissions = &settings["permissions"];
+    assert_eq!(
+        permissions["allow"],
+        json!(["mcp__termf__memory_search", "mcp__termf__memory_read"])
+    );
+    assert!(permissions["ask"].is_null(), "no action at all");
+    for tool in [
+        "Bash",
+        "PowerShell",
+        "WebFetch",
+        "WebSearch",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+    ] {
+        assert!(
+            permissions["deny"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(tool)),
+            "{tool}"
+        );
+    }
+
+    let (args, tools) = run(po);
+    assert_eq!(tools, "ask_expert");
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["--allowedTools", "mcp__termf__ask_expert"])
+    );
+    for flag in [
+        "--restricted",
+        "--strict-mcp-config",
+        "--tools",
+        "--settings",
+    ] {
+        assert!(
+            !args.contains(&flag.into()),
+            "{flag}: a team step keeps its own tools"
+        );
+    }
+}
+
+#[test]
+fn termf_notices_reach_the_agent_apart_from_the_user() {
+    let env = Env::new("notices");
+    let notice = |about: &str, text: &str| Notice {
+        about: about.into(),
+        run: Some(3),
+        text: text.into(),
+        ..Notice::default()
+    };
+    let session = env.agents.create(env.spec()).unwrap();
+    let id = session.id;
+    env.agents
+        .notify(
+            id,
+            notice("waiting", "Run 3: the gate approve-plan waits."),
+            true,
+        )
+        .unwrap();
+    assert!(
+        env.args().is_empty(),
+        "a session without a process is never woken"
+    );
+    env.agents.send(id, "say hello").unwrap();
+    env.settle(id, 1, State::Idle);
+    let stdin = env.log("stdin");
+    assert!(
+        stdin.contains("<termf-notices>\\nRun 3: the gate approve-plan waits.\\n</termf-notices>"),
+        "{stdin}"
+    );
+    assert!(
+        stdin.contains("The user's message follows.\\n\\nsay hello"),
+        "{stdin}"
+    );
+    assert_eq!(
+        env.events(id)
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::User { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        ["say hello"],
+        "the user's own words only"
+    );
+    assert_eq!(env.kinds(id)[..3], ["notice", "started", "user"]);
+
+    env.agents
+        .notify(id, notice("direct", "The user wrote to back."), false)
+        .unwrap();
+    env.agents
+        .notify(id, notice("blocked", "Run 3: step t1 is blocked."), true)
+        .unwrap();
+    env.settle(id, 2, State::Idle);
+    let stdin = env.log("stdin");
+    let last = stdin.lines().last().unwrap();
+    assert!(
+        last.contains("The user wrote to back.\\nRun 3: step t1 is blocked."),
+        "{last}"
+    );
+    assert!(last.contains("act only on their answer"), "{last}");
+    assert_eq!(env.kinds(id).iter().filter(|k| *k == "user").count(), 1);
+
+    env.agents.send(id, "slow").unwrap();
+    env.until("the slow turn", || env.log("stdin").contains("slow"));
+    env.agents
+        .notify(id, notice("waiting", "Run 3: the gate visual waits."), true)
+        .unwrap();
+    env.agents.interrupt(id).unwrap();
+    env.settle(id, 4, State::Idle);
+    assert!(
+        env.log("stdin")
+            .lines()
+            .last()
+            .unwrap()
+            .contains("the gate visual waits"),
+        "read once the turn under way ended"
+    );
 }
 
 /// Checks the stream-json format against the real Claude Code, with Haiku, for a few cents. Writes a

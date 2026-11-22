@@ -94,6 +94,7 @@ test("shortcuts on macOS", () => {
   assert.deepEqual(press(key("t", "KeyT", { metaKey: true })), { id: "new_session" });
   assert.equal(press(key("t", "KeyT", { metaKey: true, shiftKey: true })), null);
   assert.deepEqual(press(key("k", "KeyK", { metaKey: true }), true), { id: "palette" });
+  assert.deepEqual(press(key("H", "KeyH", { metaKey: true, shiftKey: true }), true), { id: "talk_cto" });
   assert.equal(press(key("k", "KeyK", { ctrlKey: true })), null);
   assert.equal(press(key("1", "Digit1", { metaKey: true, altKey: true })), null);
   assert.deepEqual(press(key("`", "Backquote", { ctrlKey: true }), true), { id: "quick_terminal" });
@@ -138,6 +139,7 @@ test("shortcuts on Linux and Windows", () => {
   assert.equal(press(key("2", "Digit2", { altKey: true }), true), null);
   assert.deepEqual(press(key("@", "Digit2", { altKey: true, shiftKey: true }), true), { id: "project", n: 2 });
   assert.deepEqual(press(key("l", "KeyL", { ctrlKey: true, shiftKey: true }), true), { id: "launch_ticket" });
+  assert.deepEqual(press(key("H", "KeyH", { ctrlKey: true, shiftKey: true }), true), { id: "talk_cto" });
   // No terminal in Files: Shift is not taken there.
   const files = { mac: false, inTerminal: false, view: "files", limits: nine };
   assert.deepEqual(match(key("p", "KeyP", { ctrlKey: true }), other, files), { id: "find_file" });

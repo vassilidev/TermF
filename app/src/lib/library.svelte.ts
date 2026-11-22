@@ -1,7 +1,8 @@
 import { app, ui } from "$lib/state.svelte";
 
 export type Kind = "skill" | "command" | "role" | "preference" | "rule" | "workflow";
-export type Layer = "shipped" | "global" | "project" | "repo" | "run";
+export type Layer = "shipped" | "package" | "global" | "project" | "repo" | "run";
+export type Package = { name: string; version: string | null };
 export type Item = {
   kind: Kind;
   name: string;
@@ -17,7 +18,24 @@ export type Item = {
   shadows: Layer[];
   toggles: Partial<Record<Layer, boolean>>;
   active: boolean;
+  /** The stack's tags its `termf-stacks` names (`*`: every stack), which switch a shipped skill on. */
+  activatedBy: string[];
+  /** The installed package that ships it, for the package layer. */
+  package: Package | null;
 };
+/** A repository of the project, as `library_stack` reads it. */
+export type RepoStack = {
+  name: string;
+  path: string;
+  tags: { name: string; version: string | null; source: string }[];
+  skills: { name: string; path: string; package: Package }[];
+  guides: { package: Package; path: string }[];
+  trusted: boolean;
+  mcp: { name: string; for: string; server: Record<string, unknown>; docs: string; runsCode: boolean }[];
+  sources: { repo: string; for: string; url: string; command: string; license: string }[];
+};
+
+export const packageLabel = (p: Package) => (p.version ? `${p.name} ${p.version}` : p.name);
 export type Imported = {
   kind: Kind;
   name: string;

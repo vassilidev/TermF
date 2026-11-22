@@ -1,5 +1,6 @@
 extends = "default"
 description = "Urgent fix: no plan gate"
+approve_route = false
 
 [steps.approve-plan]
 enabled = false
