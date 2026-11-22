@@ -144,6 +144,8 @@ mod tests {
         assert_eq!(kind, None);
         #[cfg(target_os = "macos")]
         assert!(kind.is_none() || kind == Some("touchId"));
+        #[cfg(windows)]
+        assert!(kind.is_none() || kind == Some("windowsHello"));
     }
 
     /// Shows the system's prompt: run by hand on a machine with Touch ID or Windows Hello.
