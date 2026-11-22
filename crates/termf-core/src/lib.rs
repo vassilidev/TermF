@@ -7,6 +7,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 
+pub mod agent_env;
 pub mod claude;
 pub mod cli_agents;
 pub mod context;
@@ -78,6 +79,8 @@ pub struct Settings {
     pub scan_depth: usize,
     /// System-wide quick terminal shortcut; empty means none.
     pub quick_terminal_shortcut: String,
+    /// `[agents]` but `env`, `env_allow` and `secrets`, which say what agents get of the environment (`agent_env`).
+    #[serde(deserialize_with = "agent_commands")]
     pub agents: BTreeMap<String, String>,
     pub editor: Option<String>,
     pub keep_awake: KeepAwake,
@@ -217,6 +220,22 @@ fn vault_settings<'de, D: serde::Deserializer<'de>>(
     Ok(VaultSettings {
         auto_lock_minutes: minutes.unwrap_or(VaultSettings::default().auto_lock_minutes),
     })
+}
+
+fn agent_commands<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<BTreeMap<String, String>, D::Error> {
+    let entries = BTreeMap::<String, toml::Value>::deserialize(deserializer)?;
+    entries
+        .into_iter()
+        .filter(|(name, _)| !["env", "env_allow", "secrets"].contains(&name.as_str()))
+        .map(|(name, command)| match command {
+            toml::Value::String(command) => Ok((name, command)),
+            _ => Err(serde::de::Error::custom(format!(
+                "[agents] {name}: the command that runs it"
+            ))),
+        })
+        .collect()
 }
 
 /// The id of the system-wide quick terminal shortcut in `[keys]`.
@@ -684,6 +703,21 @@ pub fn load_projects(config_dir: &Path) -> Result<Vec<Project>> {
     }
     projects.sort_by_key(|p| p.name.to_lowercase());
     Ok(projects)
+}
+
+/// The project whose repository holds `path`: the first that lists it.
+pub fn project_of(config_dir: &Path, path: &Path) -> Result<Option<String>> {
+    // The current folder comes resolved (`/private/tmp` on macOS), a project's path as written.
+    let real = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let path = real(path);
+    Ok(load_projects(config_dir)?
+        .into_iter()
+        .find(|p| {
+            p.repos
+                .iter()
+                .any(|r| path.starts_with(real(Path::new(&r.path))))
+        })
+        .map(|p| p.id))
 }
 
 /// Creates a project (`id: None`) or rewrites one, and returns its id. Comments, unknown keys and the

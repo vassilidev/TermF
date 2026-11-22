@@ -7,6 +7,7 @@ import { sessionProjects } from "$lib/project.svelte";
 import { awaitsDelivery } from "$lib/run-logic";
 import { app, onScreen, setProject, ui, waitingSessions } from "$lib/state.svelte";
 import { ops } from "$lib/ops.svelte";
+import { agentEnv } from "$lib/agentenv.svelte";
 import { asks, type Ask, type TeamRun } from "$lib/team-run-logic";
 import { team } from "$lib/team.svelte";
 import { tickets } from "$lib/tickets.svelte";
@@ -55,13 +56,14 @@ export function projectWaits(project: string | null): Wait[] {
       .map((a) => ({ id: a.id, updated: a.updated, cto: !!a.mcp && a.role === "cto" })),
     decisions(project).map((d) => ({ run: d.run.run, step: d.step, kind: d.ask?.kind ?? "deliver", updated: d.run.updated })),
     ops.requests.filter((r) => mine([r.project])),
+    agentEnv.requests.filter((r) => mine([r.project])),
   );
 }
 
 /** The project a wait belongs to, for a wait listed under every project. */
 export function waitProject(w: Wait): string | null {
   if ("run" in w) return team.runs.find((r) => r.run === w.run)?.target.project ?? null;
-  if (w.kind === "ops") return w.project;
+  if (w.kind === "ops" || w.kind === "secret") return w.project;
   if (w.kind === "tile") {
     const session = app.sessions.find((s) => s.id === w.id);
     return session ? (sessionProjects(session)[0] ?? null) : null;

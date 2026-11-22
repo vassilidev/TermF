@@ -13,6 +13,7 @@ const FAKE: &str = r#"
 [ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
 { echo "--- $$"; printf '%s\n' "$@"; } >> "$log.args"
 pwd > "$log.cwd"
+env > "$log.env"
 printf '%s' "${TERMF_MCP_TOKEN-}" > "$log.mcptoken"
 # Last, so a test that sees a process start also sees its arguments.
 echo "start $$" >> "$log.events"
@@ -72,6 +73,8 @@ while IFS= read -r line; do
     *budget*) result error_max_budget_usd ',"is_error":true,"terminal_reason":"budget_exhausted","errors":["Reached maximum budget ($0.05)"]' ;;
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
     *patience*) sleep 1; answer 'Done.'; result success ;;
+    *echo-key*) answer "key=${PEXELS_API_KEY-none}"; result success ;;
+    *split-key*) delta "key=px-5f"; delta "3a9c, done"; answer "key=px-5f3a9c, done"; result success ;;
     *webhooks*) answer 'Three retries: src/webhooks.rs:12, and conversation 1111 (2026-11-20).'; result success ;;
     *) answer 'OK.'; result success ;;
   esac
@@ -1164,6 +1167,84 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
             "{flag} only with TermF's tools"
         );
     }
+}
+
+#[test]
+fn a_session_gets_its_project_s_vault_keys_masked_in_what_it_says() {
+    let env = Env::new("secrets");
+    let config = env.root.join("config");
+    fs::create_dir_all(config.join("projects")).unwrap();
+    let project = format!(
+        "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n",
+        env.dir.display()
+    );
+    fs::write(config.join("projects/acme.toml"), project).unwrap();
+    let asked: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
+    let seen = asked.clone();
+    env.agents.serve_secrets(move |_, project| {
+        seen.lock().unwrap().push(project.map(str::to_owned));
+        Given {
+            vars: vec![("PEXELS_API_KEY".into(), "px-5f3a9c".into())],
+            note: Some("TermF: the vault has no value for PISTE_CLIENT_ID".into()),
+        }
+    });
+    let id = env.agents.start(env.spec(), Some("echo-key")).unwrap().id;
+    env.settle(id, 1, State::Idle);
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [Some("acme".to_owned())],
+        "the project of its folder"
+    );
+    assert!(env.log("env").contains("PEXELS_API_KEY=px-5f3a9c"));
+    let stored = serde_json::to_string(&env.events(id)).unwrap();
+    assert!(stored.contains("key=••••••"), "{stored}");
+    assert!(
+        !stored.contains("px-5f3a9c"),
+        "never in what TermF keeps or shows"
+    );
+    assert!(env.events(id).iter().any(
+        |e| matches!(e, AgentEvent::Error { message } if message.contains("PISTE_CLIENT_ID"))
+    ));
+    // Streamed in two pieces that each hold part of it: no piece shows any of it.
+    env.agents.send(id, "split-key").unwrap();
+    env.settle(id, 2, State::Idle);
+    let streamed: Vec<String> = env
+        .updates
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|u| match u {
+            Update::Event(StoredEvent {
+                session,
+                event: AgentEvent::Delta { text },
+                ..
+            }) if *session == id => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(!streamed.is_empty());
+    assert!(
+        streamed
+            .iter()
+            .all(|t| !t.contains("px-") && !t.contains("3a9c")),
+        "{streamed:?}"
+    );
+
+    // A CTO conversation never gets them.
+    env.agents.serve_mcp(
+        |id| Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string()}})),
+        |_| {},
+    );
+    let cto = SessionSpec {
+        project: Some("acme".into()),
+        role: Some("cto".into()),
+        mcp: true,
+        ..env.spec()
+    };
+    let cto = env.agents.start(cto, Some("echo-key")).unwrap().id;
+    env.settle(cto, 1, State::Idle);
+    assert!(!env.log("env").contains("PEXELS_API_KEY"));
+    assert_eq!(asked.lock().unwrap().len(), 1);
 }
 
 #[test]

@@ -1,3 +1,4 @@
+mod agentenv;
 mod agents;
 mod api;
 mod biometry;
@@ -47,6 +48,8 @@ use termf_term::{Output, Sessions};
 
 struct AppState {
     config_dir: PathBuf,
+    /// What gives a terminal's agent the vault's values for its project.
+    vault: Arc<termf_vault::Vault>,
     sessions: Sessions,
     quick_terminal: quick_terminal::QuickTerminal,
     api: api::Api,
@@ -236,6 +239,7 @@ pub fn run() {
         .setup(move |app| {
             window::open(app.handle(), &data_dir);
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
+            termf_core::agent_env::configure(config_dir.clone(), api::termf_binary());
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new(settings.api.confirm_cli);
             app.manage(tray::Tray::new(settings.tray));
@@ -268,6 +272,7 @@ pub fn run() {
             ));
             app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
             app.manage(ops::state(config_dir.clone(), data_dir.clone()));
+            app.manage(agentenv::state(config_dir.clone()));
             app.manage(memory::start(
                 app.handle(),
                 config_dir.clone(),
@@ -275,6 +280,7 @@ pub fn run() {
             ));
             app.manage(AppState {
                 config_dir,
+                vault: vault::shared(app.handle()),
                 sessions: api.sessions(app.handle().clone()),
                 quick_terminal: Default::default(),
                 api,
@@ -610,10 +616,18 @@ pub fn run() {
             ops::ops_sql_export,
             ops::ops_follow_start,
             ops::ops_follow_stop,
+            agentenv::agentenv_requests,
+            agentenv::agentenv_answer,
+            agentenv::agentenv_settings,
+            agentenv::agentenv_allow_set,
+            agentenv::agentenv_grants,
+            agentenv::agentenv_revoke,
             onboarding::setup_repos,
             onboarding::setup_detect,
             onboarding::setup_draft,
             onboarding::setup_preview,
+            onboarding::greenfield_plan,
+            onboarding::greenfield_create,
             vault::vault_status,
             vault::vault_init,
             vault::vault_unlock,

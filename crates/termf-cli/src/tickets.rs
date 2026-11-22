@@ -124,14 +124,25 @@ pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
             for commit in &preview.commits {
                 println!("commit     {} {}", &commit.commit[..7], commit.subject);
             }
-            if !yes && !confirmed("Commit these changes, push and open the pull request? [y/N] ")? {
+            let question = match &preview.local {
+                Some(into) => format!(
+                    "No origin: commit these changes and merge the branch into {into} here? [y/N] "
+                ),
+                None => "Commit these changes, push and open the pull request? [y/N] ".to_owned(),
+            };
+            if !yes && !confirmed(&question)? {
                 bail!("not delivered");
             }
+            let local = preview.local.clone();
             let delivery: Delivery = serde_json::from_value(call(Call::Deliver {
                 run: id,
                 confirm: preview.fingerprint,
             })?)?;
-            println!("{}", delivery.run.pr_url.unwrap_or_default());
+            match (delivery.run.pr_url, local) {
+                (Some(url), _) => println!("{url}"),
+                (None, Some(into)) => println!("merged into {into}"),
+                (None, None) => {}
+            }
             if let Some(warning) = delivery.warning {
                 eprintln!("termf: warning: {warning}");
             }

@@ -41,9 +41,12 @@ force and cites it; what it cannot source stays "to check".
    Done when each question has a route that needs no key or uses one already set.
 3. **Credentials.** Use the PISTE credentials only by their names inside the command; get the token and call
    the API in the same shell call, keeping the token in a shell variable that is never echoed. Never ask the
-   user to paste a key into the conversation or to store one; TermF does not hand keys to agents. When a
-   French point needs the API, the credentials are absent and a Légifrance page cannot settle it, report
-   `blocked` with the reason (which text, why the page is not enough) and propose the two variable names.
+   user to paste a key into the conversation. When a French point needs the API, the credentials are absent
+   and a Légifrance page cannot settle it: if your session has TermF's `request_secret` tool, ask there for
+   `PISTE_CLIENT_ID` and `PISTE_CLIENT_SECRET` (what for, and `https://piste.gouv.fr/registration` as
+   `signup_url`); you never get the values, and granted they are in your environment only once your step or
+   session starts again. Otherwise, or until then, report `blocked` with the reason (which text, why the page
+   is not enough) and the two variable names.
    Done when every request needs no key or uses one already in the environment.
 4. **Find the version in force.** France: search `CODE_DATE` (codes) or `LODA_DATE` (laws, decrees) with a
    `DATE_VERSION` filter set to today, or to the date that matters, then read the article by its LEGIARTI id.
