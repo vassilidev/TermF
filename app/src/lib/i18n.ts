@@ -2316,6 +2316,24 @@ const fr = {
   ux3t3AllProjects: "S'applique à tous les projets.",
   ux3t3Unsaved: "« {name} » a des modifications non enregistrées.",
   ux3t3Discard: "Abandonner",
+
+  // UX pass 3 · T4: navigation by project, this machine tucked away.
+  ux3t4Views: "Vues du projet",
+  ux3t4ProjectViews: "Vues de {project}",
+  ux3t4HelpHome:
+    "Le projet d'un coup d'œil : parle au CTO, qui mène l'équipe, ou à l'expert ; règle ici ce qui t'attend ; vois qui travaille, les runs ouverts et les tickets à traiter.",
+  ux3t4HelpConfig:
+    "Tout ce qui règle le projet, par section : nom et dépôts, mise en route, tickets, équipe, bibliothèque, worktrees, mémoire, confiance Claude Code. La recherche trouve une section ; Échap revient où tu étais.",
+  ux3t4TipElsewhere:
+    "Les conversations s'ouvrent depuis l'Accueil (« En service »), la bibliothèque depuis la Configuration ; la palette mène partout.",
+  ux3t4Tour1Title: "Tes projets",
+  ux3t4Tour1:
+    "Chaque projet a ses vues : Accueil, Terminaux, Tickets, Fichiers, CI/CD, Configuration. Clique un projet pour y passer sans quitter la vue où tu es, ou cherche-le au clavier.",
+  ux3t4Tour2:
+    "Tu y parles au CTO, qui mène l'équipe, et tu règles sur place ce qui t'attend : questions, plans, autorisations, livraisons. Le raccourci t'emmène à la prochaine attente.",
+  ux3t4Tour4Title: "Cette machine, la palette et l'aide",
+  ux3t4Tour4:
+    "Réglages, Claude, clés SSH et planificateur valent pour toute la machine : ils sont rangés ici. La palette trouve tout au clavier ; appuie sur ? hors d'un terminal pour l'aide de la vue où tu es, cette visite s'y relance.",
 };
 
 type Key = keyof typeof fr;
@@ -4620,6 +4638,23 @@ const en: Record<Key, string> = {
   ux3t3AllProjects: "Applies to every project.",
   ux3t3Unsaved: "“{name}” has unsaved changes.",
   ux3t3Discard: "Discard",
+
+  // UX pass 3 · T4: navigation by project, this machine tucked away.
+  ux3t4Views: "Project views",
+  ux3t4ProjectViews: "{project} views",
+  ux3t4HelpHome:
+    "The project at a glance: talk to the CTO, who leads the team, or to the expert; settle here what waits for you; see who is working, the open runs and the tickets to handle.",
+  ux3t4HelpConfig:
+    "Everything that sets up the project, by section: name and repositories, setup, tickets, team, library, worktrees, memory, Claude Code trust. The search finds a section; Escape goes back where you were.",
+  ux3t4TipElsewhere: "Conversations open from the Home (“On duty”), the library from the Configuration; the palette leads everywhere.",
+  ux3t4Tour1Title: "Your projects",
+  ux3t4Tour1:
+    "Each project has its views: Home, Terminals, Tickets, Files, CI/CD, Configuration. Click a project to switch to it without leaving the view you are on, or find it from the keyboard.",
+  ux3t4Tour2:
+    "Talk to the CTO, who leads the team, and settle right there what waits for you: questions, plans, permissions, deliveries. The shortcut takes you to the next one.",
+  ux3t4Tour4Title: "This machine, the palette and help",
+  ux3t4Tour4:
+    "Settings, Claude, SSH keys and the scheduler apply to the whole machine: they are tucked away here. The palette finds everything from the keyboard; press ? outside a terminal for help on the view you are on, where this tour starts again.",
 };
 
 const messages = { fr, en };

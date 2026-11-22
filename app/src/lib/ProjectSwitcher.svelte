@@ -4,8 +4,8 @@
 </script>
 
 <script lang="ts">
+  import { tick } from "svelte";
   import Check from "@lucide/svelte/icons/check";
-  import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
   import Layers from "@lucide/svelte/icons/layers";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
@@ -14,11 +14,12 @@
   import Popover from "$lib/ui/Popover.svelte";
   import { keys } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { aria } from "$lib/keymap.svelte";
   import { editProject, tallies } from "$lib/project.svelte";
   import { app, setProject, ui } from "$lib/state.svelte";
 
-  let trigger = $state<HTMLButtonElement>();
+  /** The navigation's project list, which the search (⌘O) opens over; Escape gives the focus back to it. */
+  let { anchor }: { anchor: HTMLElement | undefined } = $props();
+
   let list = $state<HTMLUListElement>();
   let query = $state("");
   let index = $state(0);
@@ -44,10 +45,12 @@
     if (!ui.switcher) query = "";
   });
 
-  function choose(id: string | null) {
+  /** The keyboard lands on the project just picked, in the navigation. */
+  async function choose(id: string | null) {
     setProject(id);
     ui.switcher = false;
-    trigger?.focus();
+    await tick();
+    anchor?.parentElement?.querySelector<HTMLElement>(".project[aria-current]")?.focus();
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -63,25 +66,7 @@
   }
 </script>
 
-<button
-  bind:this={trigger}
-  class="switcher"
-  aria-haspopup="dialog"
-  aria-expanded={ui.switcher}
-  aria-keyshortcuts={aria("switch_project")}
-  title={keys.switcher ? `${t("navSwitchProject")} (${keys.switcher})` : t("navSwitchProject")}
-  onclick={() => (ui.switcher = !ui.switcher)}
->
-  {#if current}
-    <span class="mark" aria-hidden="true">{initial(current.name)}</span>
-  {:else}
-    <span class="mark all" aria-hidden="true"><Layers size={14} /></span>
-  {/if}
-  <span class="name">{current?.name ?? t("ticketsAll")}</span>
-  <ChevronsUpDown size={14} aria-hidden="true" />
-</button>
-
-<Popover bind:open={ui.switcher} {trigger} label={t("projects")} width={352}>
+<Popover bind:open={ui.switcher} trigger={anchor} label={t("projects")} width={352}>
   <div class="search">
     <Search size={14} aria-hidden="true" />
     <input
@@ -142,40 +127,6 @@
 </Popover>
 
 <style>
-  .switcher {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    height: 44px;
-    padding: 0 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: none;
-    color: var(--text);
-    text-align: left;
-  }
-
-  .switcher:hover,
-  .switcher[aria-expanded="true"] {
-    background: var(--hover);
-  }
-
-  .switcher > :global(svg) {
-    flex-shrink: 0;
-    color: var(--muted);
-  }
-
-  .name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--text-md);
-    font-weight: 600;
-  }
-
   .mark {
     display: grid;
     place-items: center;

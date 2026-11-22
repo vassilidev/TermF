@@ -11,13 +11,10 @@
 
   /** Each step points at the navigation, where the thing it teaches lives; the shortcuts come from the registry. */
   const steps: Step[] = [
-    { at: ".nav .switcher", title: "t6bTour1Title", text: "t6bTour1", keys: ["switch_project", "project"] },
-    { at: '[data-view="terminals"]', title: "t6bTour2Title", text: "t6bTour2", keys: ["new_session", "split_right", "split_down"] },
-    { at: ".nav .find", title: "t6bTour3Title", text: "t6bTour3", keys: ["next_waiting", "palette"] },
-    { at: '[data-view="tickets"]', title: "viewTickets", text: "t6bTour4", keys: ["launch_ticket"] },
-    { at: '[data-view="conversations"]', title: "t6bTour5Title", text: "t6bTour5", keys: [] },
-    { at: '[data-view="files"]', title: "t6bTour6Title", text: "t6bTour6", keys: ["split_view", "other_panel"] },
-    { at: '[data-view="settings"]', title: "t6bTour7Title", text: "t6bTour7", keys: ["help"] },
+    { at: ".nav .projects", title: "ux3t4Tour1Title", text: "ux3t4Tour1", keys: ["switch_project", "project"] },
+    { at: '.nav [data-view="home"]', title: "ux3t1Home", text: "ux3t4Tour2", keys: ["next_waiting", "talk_cto"] },
+    { at: '.nav [data-view="terminals"]', title: "t6bTour2Title", text: "t6bTour2", keys: ["new_session", "split_right", "split_down"] },
+    { at: ".nav .machine", title: "ux3t4Tour4Title", text: "ux3t4Tour4", keys: ["palette", "help"] },
   ];
   const mod = isMac ? "⌘" : "Ctrl";
 

@@ -1,38 +1,66 @@
 <script lang="ts">
   import BellRing from "@lucide/svelte/icons/bell-ring";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Coffee from "@lucide/svelte/icons/coffee";
   import Columns2 from "@lucide/svelte/icons/columns-2";
   import Layers from "@lucide/svelte/icons/layers";
-  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
+  import Monitor from "@lucide/svelte/icons/monitor";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import PanelRight from "@lucide/svelte/icons/panel-right";
+  import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
-  import SettingsIcon from "@lucide/svelte/icons/settings";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import X from "@lucide/svelte/icons/x";
   import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
-  import { showCto, waitingAgents } from "$lib/agents.svelte";
+  import { waitingAgents } from "$lib/agents.svelte";
   import { waitingRuns } from "$lib/team.svelte";
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { aria } from "$lib/keymap.svelte";
   import { validProject } from "$lib/nav-logic";
-  import { tallies } from "$lib/project.svelte";
+  import { editProject, tallies } from "$lib/project.svelte";
   import { showSettings } from "$lib/settings.svelte";
   import { app, onScreen, panes, setProject, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
   import { summary } from "$lib/sync.svelte";
-  import { groups, views, type View } from "$lib/views";
+  import { views, type View } from "$lib/views";
   import Popover from "$lib/ui/Popover.svelte";
   import { isMac } from "$lib/files.svelte";
   import { closePanel, openBeside } from "$lib/panes.svelte";
 
+  const machineKey = "termf.machine";
+
   const waiting = $derived(waitingSessions().length + waitingAgents().length + waitingRuns().length);
-  const settingsView = views.find((v) => v.id === "settings")!;
+  const projectViews = views.filter((v) => v.group === "project");
+  const machineViews = views.filter((v) => v.group === "machine");
   let menu = $state<{ view: View; trigger: HTMLElement } | null>(null);
   let menuOpen = $state(false);
+  let heading = $state<HTMLElement>();
+  let machineOpen = $state(storedMachine());
   const besideKey = isMac ? "⌘" : "Ctrl";
+
+  function storedMachine(): boolean {
+    try {
+      return localStorage.getItem(machineKey) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function toggleMachine() {
+    machineOpen = !machineOpen;
+    try {
+      localStorage.setItem(machineKey, machineOpen ? "1" : "0");
+    } catch {
+      // Storage off: folded again at the next launch.
+    }
+  }
+
+  // The view on screen is never folded away.
+  $effect(() => {
+    if (machineViews.some((v) => onScreen(v.id))) machineOpen = true;
+  });
 
   function pick(e: MouseEvent, view: View) {
     if (isMac ? e.metaKey : e.ctrlKey) openBeside(view.id);
@@ -52,12 +80,14 @@
 
   const side = (id: ViewId) => (!panes.other || !onScreen(id) ? null : (ui.view === id) === (panes.active === 0) ? "left" : "right");
   const projects = $derived(app.workspace?.projects ?? []);
-  const current = $derived(projects.find((p) => p.id === app.project));
   const counts = $derived(tallies());
-  /** Sync needs the owner (password, conflicts, recovery key, error): a dot on Settings. */
+  /** Sync needs the owner (password, conflicts, recovery key, error): a dot on Settings, or on "This machine" folded. */
   const tone = $derived(summary(app.sync).tone);
   const flagged = $derived(tone === "attention" || tone === "error");
   const settingsLabel = $derived(flagged ? `${t("settings")} · ${t("syncNeedsYou")}` : t("settings"));
+  const machineLabel = $derived(
+    flagged && !machineOpen ? `${t("settingsContext")} · ${t("syncNeedsYou")}` : t("settingsContext"),
+  );
 
   // A remembered or current project that no longer exists falls back to every project.
   $effect(() => {
@@ -65,8 +95,43 @@
   });
 </script>
 
+{#snippet item(view: View)}
+  {@const count = view.count?.()}
+  {@const at = side(view.id)}
+  {@const alert = view.id === "settings" && flagged}
+  <li>
+    <button
+      class="nav-item"
+      class:beside={at && ui.view !== view.id}
+      aria-current={ui.view === view.id ? "page" : undefined}
+      aria-label={alert ? settingsLabel : undefined}
+      title={alert ? settingsLabel : undefined}
+      data-view={view.id}
+      onclick={(e) => pick(e, view)}
+      oncontextmenu={(e) => openMenu(e, view)}
+    >
+      <view.icon size={16} aria-hidden="true" />
+      <span class="label">{t(view.label)}</span>
+      {#if at}
+        {@const Side = at === "left" ? PanelLeft : PanelRight}
+        <Side class="side" size={13} aria-hidden="true" />
+        {#if ui.view !== view.id}<span class="sr-only">{t("t6bBeside")}</span>{/if}
+      {/if}
+      {#if count}<span class="count" class:hot={view.hot}>{count}</span>{/if}
+      {#if alert}<span class="dot {tone}" aria-hidden="true"></span>{/if}
+    </button>
+  </li>
+{/snippet}
+
+{#snippet tree()}
+  <ul class="views" aria-label={t("ux3t4Views")}>
+    {#each projectViews as view (view.id)}
+      {@render item(view)}
+    {/each}
+  </ul>
+{/snippet}
+
 <nav class="nav" aria-label={t("navLabel")}>
-  <ProjectSwitcher />
   <button
     class="find"
     aria-haspopup="dialog"
@@ -76,12 +141,6 @@
     <Search size={14} aria-hidden="true" /><span>{t("navSearch")}</span>
     {#if keys.palette}<kbd>{keys.palette}</kbd>{/if}
   </button>
-  {#if current}
-    <button class="find" onclick={showCto} aria-keyshortcuts={aria("talk_cto")} title={t("ctoTalkTo", { project: current.name })}>
-      <MessageSquareText size={14} aria-hidden="true" /><span>{t("ctoTalk")}</span>
-      {#if keys.cto}<kbd>{keys.cto}</kbd>{/if}
-    </button>
-  {/if}
   {#if waiting}
     <button
       class="wait"
@@ -95,19 +154,20 @@
   {/if}
 
   <div class="scroll">
-    <h2 class="group">{t("projects")}</h2>
-    <ul>
-      <li>
-        <button class="nav-item" aria-current={app.project === null ? "true" : undefined} onclick={() => setProject(null)}>
-          <span class="mark all" aria-hidden="true"><Layers size={13} /></span>
-          <span class="label">{t("ticketsAll")}</span>
-        </button>
-      </li>
+    <!-- Where ⌘O's project search opens, and where the focus comes back to when it closes. -->
+    <div class="group" tabindex="-1" bind:this={heading}>
+      <h2>{t("projects")}</h2>
+      <button class="icon-btn sm" aria-label={t("newProject")} title={t("newProject")} onclick={() => editProject("")}>
+        <Plus size={14} aria-hidden="true" />
+      </button>
+    </div>
+    <ul class="projects">
       {#each projects as project, i (project.id)}
+        {@const open = app.project === project.id}
         <li>
           <button
-            class="nav-item"
-            aria-current={app.project === project.id ? "true" : undefined}
+            class="nav-item project"
+            aria-current={open ? "true" : undefined}
             aria-keyshortcuts={i < 9 ? aria("project", i + 1) : undefined}
             title={i < 9 && keys.project(i + 1) ? `${t("navSwitchTo", { name: project.name })} (${keys.project(i + 1)})` : undefined}
             onclick={() => setProject(project.id)}
@@ -116,75 +176,58 @@
             <span class="label">{project.name}</span>
             <ProjectTally tally={counts[project.id]} />
           </button>
+          {#if open}{@render tree()}{/if}
         </li>
       {/each}
+      <li>
+        <button class="nav-item project" aria-current={app.project === null ? "true" : undefined} onclick={() => setProject(null)}>
+          <span class="mark all" aria-hidden="true"><Layers size={13} /></span>
+          <span class="label">{t("ticketsAll")}</span>
+        </button>
+        {#if app.project === null}{@render tree()}{/if}
+      </li>
     </ul>
-
-    {#each groups as [group, title] (group)}
-      <h2 class="group">{t(title)}</h2>
-      <ul>
-        {#each views.filter((v) => v.group === group) as view (view.id)}
-          {@const count = view.count?.()}
-          {@const at = side(view.id)}
-          <li>
-            <button
-              class="nav-item"
-              class:beside={at && ui.view !== view.id}
-              aria-current={ui.view === view.id ? "page" : undefined}
-              data-view={view.id}
-              onclick={(e) => pick(e, view)}
-              oncontextmenu={(e) => openMenu(e, view)}
-            >
-              <view.icon size={16} aria-hidden="true" />
-              <span class="label">{t(view.label)}</span>
-              {#if at}
-                {@const Side = at === "left" ? PanelLeft : PanelRight}
-                <Side class="side" size={13} aria-hidden="true" />
-                {#if ui.view !== view.id}<span class="sr-only">{t("t6bBeside")}</span>{/if}
-              {/if}
-              {#if count}<span class="count" class:hot={view.hot}>{count}</span>{/if}
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/each}
   </div>
 
   <div class="foot">
-    <button
-      class="nav-item"
-      class:beside={side("settings") && ui.view !== "settings"}
-      aria-current={ui.view === "settings" ? "page" : undefined}
-      aria-label={settingsLabel}
-      title={settingsLabel}
-      data-view="settings"
-      onclick={(e) => pick(e, settingsView)}
-      oncontextmenu={(e) => openMenu(e, settingsView)}
-    >
-      <SettingsIcon size={16} aria-hidden="true" />{t("settings")}
-      {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
-    </button>
-    {#if app.keepAwake?.active}
-      <button
-        class="icon-btn awake"
-        onclick={() => showSettings("awake")}
-        aria-label={t("keepAwakeActive")}
-        title={t("keepAwakeActive")}
-      >
-        <Coffee size={16} aria-hidden="true" />
+    <div class="row">
+      <button class="nav-item machine" aria-expanded={machineOpen} aria-label={machineLabel} title={machineLabel} onclick={toggleMachine}>
+        <Monitor size={16} aria-hidden="true" />
+        <span class="label">{t("settingsContext")}</span>
+        {#if flagged && !machineOpen}<span class="dot {tone}" aria-hidden="true"></span>{/if}
+        <ChevronRight class="chev" size={14} aria-hidden="true" />
       </button>
+      {#if app.keepAwake?.active}
+        <button
+          class="icon-btn awake"
+          onclick={() => showSettings("awake")}
+          aria-label={t("keepAwakeActive")}
+          title={t("keepAwakeActive")}
+        >
+          <Coffee size={16} aria-hidden="true" />
+        </button>
+      {/if}
+      <button
+        class="icon-btn"
+        onclick={toggleQuickTerminal}
+        aria-label={t("quickTerminal")}
+        aria-keyshortcuts={aria("quick_terminal")}
+        title={keys.quick ? `${t("quickTerminal")} (${keys.quick})` : t("quickTerminal")}
+      >
+        <SquareTerminal size={16} aria-hidden="true" />
+      </button>
+    </div>
+    {#if machineOpen}
+      <ul class="views" aria-label={t("settingsContext")}>
+        {#each machineViews as view (view.id)}
+          {@render item(view)}
+        {/each}
+      </ul>
     {/if}
-    <button
-      class="icon-btn"
-      onclick={toggleQuickTerminal}
-      aria-label={t("quickTerminal")}
-      aria-keyshortcuts={aria("quick_terminal")}
-      title={keys.quick ? `${t("quickTerminal")} (${keys.quick})` : t("quickTerminal")}
-    >
-      <SquareTerminal size={16} aria-hidden="true" />
-    </button>
   </div>
 </nav>
+
+<ProjectSwitcher anchor={heading} />
 
 <Popover bind:open={menuOpen} trigger={menu?.trigger} label={menu ? t(menu.view.label) : ""} width={240}>
   {#if menu}
@@ -276,8 +319,16 @@
   }
 
   .group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin: 14px 0 2px;
-    padding: 0 8px;
+    padding: 0 2px 0 8px;
+    border-radius: var(--radius-sm);
+  }
+
+  .group h2 {
+    margin: 0;
     color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 600;
@@ -292,6 +343,23 @@
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+
+  /* A project's views and this machine's hang from a thread under their parent's mark. */
+  .views {
+    position: relative;
+    margin: 1px 0 4px;
+    padding-left: 17px;
+  }
+
+  .views::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 16px;
+    width: 1px;
+    background: var(--border);
   }
 
   .nav :global(.nav-item) {
@@ -309,22 +377,31 @@
     text-align: left;
   }
 
+  .views .nav-item {
+    gap: 9px;
+    padding-left: 10px;
+  }
+
   .nav :global(.nav-item > svg) {
     flex-shrink: 0;
     color: var(--muted);
   }
 
-  .nav :global(.nav-item:hover),
-  .nav :global(.nav-item[aria-expanded="true"]) {
+  .nav :global(.nav-item:hover) {
     background: var(--hover);
   }
 
-  .nav :global(.nav-item[aria-current]) {
+  .nav :global(.nav-item[aria-current="page"]) {
     background: var(--selected);
   }
 
-  .nav :global(.nav-item[aria-current] > svg) {
+  .nav :global(.nav-item[aria-current="page"] > svg) {
     color: var(--accent-ink);
+  }
+
+  /* The current project reads by its filled mark and weight; the highlight stays on the view shown. */
+  .project[aria-current] {
+    font-weight: 650;
   }
 
   .nav .nav-item.beside {
@@ -409,14 +486,33 @@
 
   .foot {
     display: flex;
-    align-items: center;
-    gap: 2px;
+    flex-direction: column;
+    gap: 1px;
     padding-top: 6px;
     border-top: 1px solid var(--border);
   }
 
-  .foot :global(.nav-item) {
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .row .nav-item {
     flex: 1;
+    min-width: 0;
+  }
+
+  .machine :global(.chev) {
+    transition: transform var(--dur-fast) ease-out;
+  }
+
+  .machine[aria-expanded="true"] :global(.chev) {
+    transform: rotate(90deg);
+  }
+
+  .foot .views {
+    margin-bottom: 0;
   }
 
   .awake {
@@ -424,9 +520,9 @@
   }
 
   .dot {
+    flex-shrink: 0;
     width: 7px;
     height: 7px;
-    margin-left: auto;
     border-radius: 50%;
     background: var(--waiting);
   }
