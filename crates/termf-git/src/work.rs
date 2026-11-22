@@ -422,9 +422,8 @@ pub(crate) fn parse_diff(out: &str, max_lines: usize) -> Vec<FileDiff> {
             file.header.push(line.to_owned());
             continue;
         }
-        let Some(kind) = line.chars().next() else {
-            continue;
-        };
+        // With `diff.suppressBlankEmpty`, an empty context line comes without its space.
+        let kind = line.chars().next().unwrap_or(' ');
         if kind == '\\' {
             if let Some(last) = file.hunks.last_mut().and_then(|h| h.lines.last_mut()) {
                 last.no_eol = true;
@@ -454,7 +453,7 @@ pub(crate) fn parse_diff(out: &str, max_lines: usize) -> Vec<FileDiff> {
         if let Some(hunk) = file.hunks.last_mut() {
             hunk.lines.push(DiffLine {
                 kind,
-                text: line[1..].to_owned(),
+                text: line.get(1..).unwrap_or_default().to_owned(),
                 old: o,
                 new: n,
                 no_eol: false,
@@ -490,6 +489,18 @@ pub(crate) fn parse_diff(out: &str, max_lines: usize) -> Vec<FileDiff> {
 /// The path of `diff --git a/<p> b/<p>` when nothing else names it (a mode change, a binary file): both halves are
 /// the same path.
 fn same_halves(rest: &str) -> String {
+    if let Some(inner) = rest.strip_prefix('"') {
+        // The first name ends at the first quote not escaped.
+        let mut escaped = false;
+        let end = inner.find(|c| {
+            let end = !escaped && c == '"';
+            escaped = !escaped && c == '\\';
+            end
+        });
+        if let Some(end) = end {
+            return side_path(&rest[..end + 2]).unwrap_or_default();
+        }
+    }
     let n = rest.len().saturating_sub(5) / 2;
     unquote(rest.get(2..2 + n).unwrap_or(rest))
 }
@@ -515,32 +526,60 @@ pub(crate) fn build_patch(diff: &FileDiff, picks: &[Pick], reverse: bool) -> Res
         let Some(pick) = picks.iter().find(|p| p.hunk == i) else {
             continue;
         };
-        let mut body = String::new();
-        let (mut olds, mut news, mut changed) = (0u32, 0u32, false);
-        for (j, line) in hunk.lines.iter().enumerate() {
-            let picked = pick.lines.as_ref().is_none_or(|l| l.contains(&j));
-            let kind = match (line.kind, picked) {
-                (' ', _) => ' ',
-                (k, true) => {
-                    changed = true;
-                    k
+        let kinds: Vec<Option<char>> = hunk
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(j, line)| {
+                let picked = pick.lines.as_ref().is_none_or(|l| l.contains(&j));
+                match (line.kind, picked) {
+                    (' ', _) => Some(' '),
+                    (k, true) => Some(k),
+                    // A line left as it is stays on the side applied to, and is missing from the other.
+                    ('+', false) if reverse => Some(' '),
+                    ('-', false) if !reverse => Some(' '),
+                    _ => None,
                 }
-                // A line left as it is stays on the side applied to, and is missing from the other.
-                ('+', false) if reverse => ' ',
-                ('-', false) if !reverse => ' ',
-                _ => continue,
+            })
+            .collect();
+        if !kinds.iter().any(|k| matches!(k, Some('+' | '-'))) {
+            continue;
+        }
+        let mut body = String::new();
+        let (mut olds, mut news) = (0u32, 0u32);
+        for (j, (line, kind)) in hunk.lines.iter().zip(&kinds).enumerate() {
+            let Some(kind) = *kind else {
+                continue;
             };
             olds += u32::from(kind != '+');
             news += u32::from(kind != '-');
-            body.push(kind);
-            body.push_str(&line.text);
-            body.push('\n');
-            if line.no_eol {
-                body.push_str("\\ No newline at end of file\n");
+            // A line without its final newline must end each side it is on; a line written after it on a side
+            // gives it the newline there. Only the side not applied to ever gains one.
+            let ends = |side: char| {
+                line.no_eol
+                    && !kinds[j + 1..]
+                        .iter()
+                        .flatten()
+                        .any(|&k| k == ' ' || k == side)
+            };
+            let (old_end, new_end) = (ends('-'), ends('+'));
+            let mut put = |k: char, no_eol: bool| {
+                body.push(k);
+                body.push_str(&line.text);
+                body.push('\n');
+                if no_eol {
+                    body.push_str("\\ No newline at end of file\n");
+                }
+            };
+            match kind {
+                '-' => put('-', old_end),
+                '+' => put('+', new_end),
+                _ if old_end == new_end => put(' ', old_end),
+                _ => {
+                    put('-', old_end);
+                    put('+', new_end);
+                }
             }
-        }
-        if !changed {
-            continue;
         }
         any = true;
         // git numbers an empty side from the line before it.
@@ -1014,6 +1053,7 @@ impl Git {
     /// Applies a stash, dropping it when `pop` and it applied cleanly; conflicts are left to resolve.
     pub fn stash_apply(&self, dir: &Path, index: usize, oid: &str, pop: bool) -> Result<Outcome> {
         let name = self.stash_ref(dir, index, oid)?;
+        self.idle(dir)?;
         self.operate(dir, &["stash", if pop { "pop" } else { "apply" }, &name])
     }
 
@@ -1099,7 +1139,8 @@ impl Git {
         Ok(!self.run(dir, &["ls-files", "-u", "-z"])?.is_empty())
     }
 
-    /// Refuses to start an operation over one in progress.
+    /// Refuses to start an operation over one in progress, or over conflicts left (by a stash, say): git's refusal
+    /// would read as the new operation stopping on them.
     fn idle(&self, dir: &Path) -> Result<()> {
         if let Some(op) = self.operation(dir)? {
             bail!(
@@ -1107,6 +1148,10 @@ impl Git {
                 op.kind.verb()
             );
         }
+        ensure!(
+            !self.conflicted(dir)?,
+            "conflicts are left here: resolve them first"
+        );
         Ok(())
     }
 
@@ -1470,8 +1515,8 @@ impl Git {
         })
     }
 
-    /// Force-pushes a local branch with a lease: git refuses when the remote branch is no longer `theirs`, the
-    /// commit the user saw, or holds commits never integrated here (`--force-if-includes`). Returns the remote.
+    /// Force-pushes a local branch with a lease: refused when the remote branch is no longer `theirs`, the commit
+    /// the user saw, or holds commits never integrated here. Returns the remote.
     pub fn force_push(&self, repo: &Path, branch: &str, theirs: &str) -> Result<String> {
         let plan = self.force_plan(repo, branch)?;
         ensure!(
@@ -1480,12 +1525,25 @@ impl Git {
             plan.remote
         );
         let full = format!("refs/heads/{branch}");
+        // An expected value turns git's `--force-if-includes` off: its check, here. `theirs` must be in the branch
+        // or in one of its reflog entries, so only what was once integrated here is dropped.
+        let reflog = self.output(repo, &["log", "-g", "--format=^%H", &full])?;
+        let revs = format!(
+            "{theirs}\n^{full}\n{}",
+            String::from_utf8_lossy(&reflog.stdout)
+        );
+        ensure!(
+            self.run_input(repo, &["rev-list", "-1", "--stdin"], &revs)?
+                .trim()
+                .is_empty(),
+            "{}/{branch} holds commits never integrated here: pull or rebase first",
+            plan.remote
+        );
         self.run_remote(
             repo,
             &[
                 "push",
-                &format!("--force-with-lease={full}"),
-                "--force-if-includes",
+                &format!("--force-with-lease={full}:{theirs}"),
                 &plan.remote,
                 &format!("{full}:{full}"),
             ],

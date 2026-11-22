@@ -94,6 +94,34 @@ fn unquotes_paths() {
     assert_eq!(unquote("plain name"), "plain name");
     assert_eq!(unquote(r#""tab\there""#), "tab\there");
     assert_eq!(unquote(r#""\303\251t\303\251""#), "été");
+
+    // A binary file names itself only on the `diff --git` line, quoted.
+    let out = "diff --git \"a/caf\\303\\251 \\\"x\\\".png\" \"b/caf\\303\\251 \\\"x\\\".png\"\nindex 1..2 100644\n\
+               Binary files \"a/caf\\303\\251 \\\"x\\\".png\" and \"b/caf\\303\\251 \\\"x\\\".png\" differ\n";
+    let files = parse_diff(out, 100);
+    assert_eq!(files[0].path, "café \"x\".png");
+    assert!(files[0].binary);
+}
+
+#[test]
+fn reads_empty_context_lines_without_their_space() {
+    // `diff.suppressBlankEmpty` drops the space of an empty context line.
+    let out = "diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -1,4 +1,4 @@\n a\n\n-b\n+B\n c\n";
+    let lines = &parse_diff(out, 100)[0].hunks[0].lines;
+    assert_eq!(lines.len(), 5);
+    assert_eq!(
+        (
+            lines[1].kind,
+            lines[1].text.as_str(),
+            lines[1].old,
+            lines[1].new
+        ),
+        (' ', "", Some(2), Some(2))
+    );
+    assert_eq!(
+        (lines[2].old, lines[3].new, lines[4].new),
+        (Some(3), Some(3), Some(4))
+    );
 }
 
 #[test]
@@ -278,7 +306,33 @@ fn stages_up_to_a_missing_final_newline() {
     sb.git
         .stage(&repo, "f.txt", Some(&[all]), Some(&diff.id))
         .unwrap();
-    assert_eq!(sb.git(&repo, &["show", ":f.txt"]), "a\nb\nc");
+    let index = |sb: &Sandbox| sb.git.run(&repo, &["show", ":f.txt"]).unwrap();
+    assert_eq!(index(&sb), "a\nb\nc");
+
+    // Some of the lines after it: `b` gains its newline, nothing sticks to it.
+    let one_line = |sb: &Sandbox, kind: char, text: &str, staged: bool| {
+        let diff = sb.git.diff(&repo, "f.txt", None, staged).unwrap();
+        let (h, l) = index_of(&diff, kind, text);
+        let picks = [pick(h, &[l])];
+        if staged {
+            sb.git
+                .unstage(&repo, "f.txt", None, Some(&picks), Some(&diff.id))
+        } else {
+            sb.git.stage(&repo, "f.txt", Some(&picks), Some(&diff.id))
+        }
+        .unwrap();
+    };
+    sb.git.unstage(&repo, "f.txt", None, None, None).unwrap();
+    one_line(&sb, '+', "c", false);
+    assert_eq!(index(&sb), "a\nb\nc");
+    sb.git.unstage(&repo, "f.txt", None, None, None).unwrap();
+    one_line(&sb, '+', "b", false);
+    assert_eq!(index(&sb), "a\nb\nb\n");
+
+    // Unstaged alone, the removed `b` comes back before the lines kept, with a newline.
+    sb.git.stage(&repo, "f.txt", None, None).unwrap();
+    one_line(&sb, '-', "b", true);
+    assert_eq!(index(&sb), "a\nb\nb\nc");
 }
 
 #[test]
@@ -499,6 +553,13 @@ fn stashes_list_show_apply_pop_and_drop() {
     assert!(!popped.ok && popped.pending, "{popped:?}");
     assert!(popped.output.contains("CONFLICT"), "{}", popped.output);
     assert_eq!(sb.git.stashes(&repo).unwrap().len(), 2);
+    // Its conflicts left, nothing else starts: git's refusal would read as stopping on them.
+    for err in [
+        sb.git.merge(&repo, "main").unwrap_err(),
+        sb.git.stash_apply(&repo, 1, &draft.oid, false).unwrap_err(),
+    ] {
+        assert!(format!("{err:#}").contains("conflicts are left"), "{err:#}");
+    }
     sb.git
         .resolve(&repo, "README.md", Resolution::Theirs)
         .unwrap();
@@ -907,7 +968,7 @@ fn force_pushes_with_a_lease_never_on_the_default_branch() {
     let remote = sb.git(&repo, &["ls-remote", "origin", "refs/heads/feature"]);
     assert!(remote.starts_with(&theirs));
 
-    // Fetched but never integrated: --force-if-includes refuses too.
+    // Fetched but never integrated: refused too (what --force-if-includes does).
     assert!(try_git(&sb, &repo, &["fetch", "-q", "origin"]));
     let plan = sb.git.force_plan(&repo, "feature").unwrap();
     assert_eq!(plan.theirs, theirs);
@@ -917,9 +978,17 @@ fn force_pushes_with_a_lease_never_on_the_default_branch() {
             .force_push(&repo, "feature", &plan.theirs)
             .unwrap_err()
     );
-    assert!(err.contains("rejected"), "{err}");
+    assert!(err.contains("never integrated"), "{err}");
     assert!(
         sb.git(&repo, &["ls-remote", "origin", "refs/heads/feature"])
             .starts_with(&theirs)
     );
+
+    // Integrated then rewritten away (a rebase): still in the reflog, so the push goes through.
+    sb.git(&repo, &["reset", "-q", "--hard", &theirs]);
+    sb.git(
+        &repo,
+        &["commit", "-q", "--amend", "-m", "Theirs, reworded"],
+    );
+    sb.git.force_push(&repo, "feature", &theirs).unwrap();
 }
