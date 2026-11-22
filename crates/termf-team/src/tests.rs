@@ -1421,6 +1421,7 @@ fn reads_the_target_of_a_ticket_run() {
         updated: 0,
         claude_session: None,
         pr_state: None,
+        parent: None,
         session_id: None,
     };
     let target = Target::of(&run, &env.config, &env.data).unwrap();
