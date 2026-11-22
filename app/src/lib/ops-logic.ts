@@ -125,6 +125,31 @@ export function runsOn(recipe: Recipe, c: Connection): boolean {
   return recipe.connection ? recipe.connection === c.name : recipe.run.some((v) => v.kind === c.kind);
 }
 
+/** Where a connection reaches, as TermF's cards say it (`Connection::target`). */
+export function target(c: Connection, all: Connection[]): string {
+  const at = (user: string | undefined, host: string) => (user ? `${user}@${host}` : host);
+  switch (c.kind) {
+    case "ssh":
+      return c.jump ? `${at(c.user, c.host ?? "")} (via ${c.jump})` : at(c.user, c.host ?? "");
+    case "postgres":
+    case "mysql": {
+      const db = `${at(c.user, c.host ?? "127.0.0.1")}/${c.database ?? ""}`;
+      const server = c.via ? all.find((x) => x.name === c.via) : undefined;
+      return server ? `${db} (tunnel through ${target(server, all)})` : db;
+    }
+    case "kubernetes":
+      return c.namespace ? `${c.context ?? ""} / ${c.namespace}` : (c.context ?? "");
+    case "cloudwatch":
+      return c.log_group ?? "";
+    case "gcp":
+      return c.gcp_project ?? "gcloud";
+    case "loki":
+      return c.url ?? "";
+    case "datadog":
+      return `api.${c.site ?? "datadoghq.com"}`;
+  }
+}
+
 /** Only what the kind takes, without empty values: what gets saved. */
 export function clean(c: Connection): Connection {
   const form = FORM[c.kind];

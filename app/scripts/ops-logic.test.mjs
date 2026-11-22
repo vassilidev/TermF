@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clean, historyRow, missing, runsOn, secondsLeft } from "../src/lib/ops-logic.ts";
+import { clean, historyRow, missing, runsOn, secondsLeft, target } from "../src/lib/ops-logic.ts";
 
 const recipe = (name, kinds, connection) => ({ name, connection, run: kinds.map((kind) => ({ kind })) });
 
@@ -58,4 +58,12 @@ test("the history reads an audit entry of a recipe", () => {
   assert.equal(secondsLeft(100, 160), 0);
   assert.equal(secondsLeft(200.4, 100), 100);
   assert.equal(secondsLeft(null, 100), null);
+});
+
+test("a target reads as the approval card says it", () => {
+  const ssh = { name: "acme-prod", kind: "ssh", env: "prod", host: "acme-prod", user: "deploy", jump: "bastion" };
+  const db = { name: "acme-db", kind: "postgres", env: "prod", database: "acme", user: "readonly", via: "acme-prod" };
+  assert.equal(target(ssh, [ssh]), "deploy@acme-prod (via bastion)");
+  assert.equal(target(db, [ssh, db]), "readonly@127.0.0.1/acme (tunnel through deploy@acme-prod (via bastion))");
+  assert.equal(target({ name: "dd", kind: "datadog", env: "prod" }, []), "api.datadoghq.com");
 });
