@@ -145,6 +145,7 @@ pub fn start(
 }
 
 pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
+    crate::team::team(app).check_delivery(id)?;
     let tickets = tickets(app);
     let delivered = tickets.deliver(id, confirm);
     // Even a failed delivery may have pushed or opened the pull request.
@@ -482,7 +483,11 @@ pub async fn tickets_events(app: AppHandle, id: i64) -> CmdResult<Vec<RunEvent>>
 
 #[tauri::command]
 pub async fn tickets_deliver_preview(app: AppHandle, id: i64) -> CmdResult<DeliveryPreview> {
-    blocking(app, move |app| tickets(app).deliver_preview(id)).await
+    blocking(app, move |app| {
+        crate::team::team(app).check_delivery(id)?;
+        tickets(app).deliver_preview(id)
+    })
+    .await
 }
 
 #[tauri::command]

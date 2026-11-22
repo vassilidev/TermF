@@ -138,3 +138,10 @@ test("a GitHub pull request is named owner/repo#n", () => {
   assert.equal(prName("https://github.com/acme/api/pull/486/files"), "acme/api#486");
   assert.equal(prName("https://gitlab.example/acme/api/-/merge_requests/3"), "https://gitlab.example/acme/api/-/merge_requests/3");
 });
+
+test("the CTO's escalation shows through the step it decides on, never as a stage of its own", () => {
+  const steps = [step("implement:T1", "pending", "task"), { ...step("escalate-implement-T1", "running"), escalates: "implement:T1" }, step("deliver", "pending", "connector")];
+  assert.equal(flat(stages(ticket(), team(steps))), "tasks:working deliver:pending");
+  assert.deepEqual(stepLabel("escalate-implement-T1"), { name: "disciplineEscalation" });
+  assert.deepEqual(stepLabel("escalate-review"), { name: "disciplineEscalation" });
+});

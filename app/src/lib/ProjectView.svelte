@@ -11,6 +11,7 @@
   import MemorySettings from "$lib/MemorySettings.svelte";
   import OnboardingJournal from "$lib/OnboardingJournal.svelte";
   import StackOffers from "$lib/StackOffers.svelte";
+  import TeamDecisions from "$lib/TeamDecisions.svelte";
   import TeamRoles from "$lib/TeamRoles.svelte";
   import TeamSquads from "$lib/TeamSquads.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
@@ -420,6 +421,7 @@
             <p class="help">{t("t6bHelpTeam")}</p>
             <TeamSquads project={id} />
             <TeamRoles project={id} />
+            <TeamDecisions project={id} />
           </section>
 
           <section class="sec" hidden={current !== "worktrees"} aria-labelledby="config-worktrees">

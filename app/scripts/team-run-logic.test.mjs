@@ -6,10 +6,12 @@ import {
   byTheme,
   current,
   editRouting,
+  escalations,
   held,
   isForm,
   levels,
   notices,
+  passes,
   progress,
   proposed,
   runs,
@@ -332,4 +334,20 @@ test("held: only the last round of a blocked review that asks you has sent nothi
   assert.equal(held(run, review("blocked"), first), false, "an earlier round was sent");
   assert.equal(held(run, review("done"), second), false, "decided: what was sent went");
   assert.equal(held({ reviews: [first] }, review("blocked"), first), false, "blocked for another reason: nothing held");
+});
+
+test("the delivery goes when every criterion of the definition of done holds, or the user passed over them", () => {
+  const done = (met, overridden = null) => ({ criteria: [{ id: "checks", met: true, note: "passed" }, { id: "docs", met, note: "" }], overridden });
+  assert.equal(passes(done(true)), true);
+  assert.equal(passes(done(false)), false);
+  assert.equal(passes(done(false, "the docs come next")), true);
+  assert.equal(passes(null), true, "no gate read it: nothing holds the delivery here");
+});
+
+test("a step's escalations are the CTO's steps that decide on it", () => {
+  const t1 = step("implement:T1", "pending", { kind: "task" });
+  const cto = step("escalate-implement-T1", "running", { role: "cto", escalates: "implement:T1" });
+  const r = run([t1, step("implement:T2", "done", { kind: "task" }), cto]);
+  assert.deepEqual(escalations(r, t1), [cto]);
+  assert.deepEqual(escalations(r, r.steps[1]), []);
 });
