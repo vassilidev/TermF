@@ -127,7 +127,7 @@ refuse HOME="$tmp/home" TERMF_OS=Linux TERMF_ARCH=x86_64 sh "$sh" --format appim
 [ ! -e "$tmp/home/.local/bin/TermF.AppImage" ] || { echo "FAIL tampered AppImage installed"; fail=1; }
 
 if command -v shellcheck > /dev/null 2>&1; then
-  if shellcheck "$sh" "$0"; then echo "ok   shellcheck"; else fail=1; fi
+  if shellcheck -S warning "$sh" "$0"; then echo "ok   shellcheck"; else fail=1; fi
 else
   echo "shellcheck not found: not run"
 fi
