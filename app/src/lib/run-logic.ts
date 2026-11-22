@@ -141,7 +141,9 @@ export function stepLabel(key: string, task: string | null = null): { name: Key 
  * What a wait is called, on its card and in a list of waits: the title's key, and whether it names the step (as
  * `{step}`).
  */
-export function askTitle(ask: Pick<Ask, "kind"> & { step: Pick<Ask["step"], "key" | "kind" | "plan"> }): { key: Key; step: boolean } {
+export function askTitle(
+  ask: Pick<Ask, "kind"> & { step: Pick<Ask["step"], "key" | "kind" | "plan"> & { batch?: boolean } },
+): { key: Key; step: boolean } {
   const fixed: Partial<Record<Ask["kind"], Key>> = {
     route: "ctoEntryAskRoute",
     plan: "teamRunsAskPlan",
@@ -152,6 +154,8 @@ export function askTitle(ask: Pick<Ask, "kind"> & { step: Pick<Ask["step"], "key
   if (own) return { key: own, step: false };
   if (ask.kind === "blocked") return { key: "teamRunsAskBlocked", step: true };
   if (ask.kind === "gate") return { key: "teamRunsAskGate", step: true };
+  if (ask.kind === "subplan") return { key: "teams2AskSubplan", step: true };
+  if (ask.step.batch) return { key: "teams2AskSubplanQuestions", step: true };
   if (ask.step.key === "triage") return { key: "ctoEntryAskQuestions", step: false };
   if (ask.step.plan) return { key: "teamRunsAskPlanQuestions", step: false };
   // Another review than the code review, such as the migrations', is named by its step.
@@ -210,4 +214,20 @@ export function baseUpdate(
 export function prName(url: string): string {
   const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
   return m ? `${m[1]}#${m[2]}` : url;
+}
+
+type Related = Ticket & { id: number; parent?: number | null };
+export type RepoState = "working" | "open" | "merged" | "closed" | "gone";
+
+/**
+ * A change over several repositories: the run `id` first, then the runs of its other repositories, each with where
+ * its pull request is. Empty for a run of one repository.
+ */
+export function repoRuns<R extends Related>(runs: R[], id: number): { run: R; state: RepoState }[] {
+  const own = runs.find((r) => r.id === id);
+  const others = runs.filter((r) => r.parent === id).sort((a, b) => a.id - b.id);
+  if (!own || !others.length) return [];
+  const state = (r: R): RepoState =>
+    r.prState === "merged" || r.prState === "closed" ? r.prState : r.prUrl ? "open" : r.status === "closed" ? "gone" : "working";
+  return [own, ...others].map((run) => ({ run, state: state(run) }));
 }

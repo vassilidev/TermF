@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS runs (
     created INTEGER NOT NULL,
     updated INTEGER NOT NULL,
     claude_session TEXT,
-    pr_state TEXT
+    pr_state TEXT,
+    parent INTEGER
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
@@ -51,10 +52,14 @@ CREATE TABLE IF NOT EXISTS listed (
 PRAGMA user_version = 3;
 ";
 
-const RUN_COLUMNS: &str = "id, project, provider, ticket_key, ticket_url, title, repo, worktree, branch, base, status, pr_url, created, updated, claude_session, pr_state";
+const RUN_COLUMNS: &str = "id, project, provider, ticket_key, ticket_url, title, repo, worktree, branch, base, status, pr_url, created, updated, claude_session, pr_state, parent";
 
 /// Columns added since the table first shipped: a database made before gets them when opened.
-const ADDED_COLUMNS: [&str; 2] = ["claude_session", "pr_state"];
+const ADDED_COLUMNS: [(&str, &str); 3] = [
+    ("claude_session", "TEXT"),
+    ("pr_state", "TEXT"),
+    ("parent", "INTEGER"),
+];
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -117,6 +122,9 @@ pub struct Run {
     /// `merged` or `closed` once its pull request is; then the run may be cleaned up.
     #[serde(default)]
     pub pr_state: Option<String>,
+    /// The run it works for in another repository of the project, when the team's plan of that run spans several.
+    #[serde(default)]
+    pub parent: Option<i64>,
     /// The terminal session of the run, while the app that opened it runs: never stored.
     #[serde(default)]
     pub session_id: Option<u32>,
@@ -276,11 +284,11 @@ impl Store {
             )
             .map(|n| n > 0)
         };
-        for column in ADDED_COLUMNS {
+        for (column, kind) in ADDED_COLUMNS {
             // The app and the CLI may both add it: the one that loses finds it there.
             if !has(column)?
                 && let Err(e) =
-                    conn.execute(&format!("ALTER TABLE runs ADD COLUMN {column} TEXT"), [])
+                    conn.execute(&format!("ALTER TABLE runs ADD COLUMN {column} {kind}"), [])
                 && !has(column)?
             {
                 return Err(e.into());
@@ -352,6 +360,23 @@ impl Store {
         self.record(id, &event)?;
         tx.commit()?;
         Ok(Some(self.run(id)?))
+    }
+
+    pub(crate) fn set_parent(&self, id: i64, parent: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runs SET parent = ?2, updated = ?3 WHERE id = ?1",
+            params![id, parent, now()],
+        )?;
+        Ok(())
+    }
+
+    /// The runs of the other repositories of run `id`, oldest first.
+    pub(crate) fn children(&self, id: i64) -> Result<Vec<Run>> {
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT {RUN_COLUMNS} FROM runs WHERE parent = ?1 ORDER BY id"
+        ))?;
+        let runs = statement.query_map([id], read_run)?;
+        Ok(runs.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Forgets the state of the run's pull request: delivered again, or reopened.
@@ -497,6 +522,7 @@ fn read_run(row: &Row) -> rusqlite::Result<Run> {
         updated: row.get(13)?,
         claude_session: row.get(14)?,
         pr_state: row.get(15)?,
+        parent: row.get(16)?,
         session_id: None,
     })
 }
