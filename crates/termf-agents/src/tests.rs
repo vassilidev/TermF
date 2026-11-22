@@ -11,11 +11,12 @@ use super::*;
 /// It logs its arguments, folder, stdin, and when it starts and ends, next to itself.
 const FAKE: &str = r#"
 [ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
-echo "start $$" >> "$log.events"
-trap 'echo "exit $$" >> "$log.events"' EXIT
 { echo "--- $$"; printf '%s\n' "$@"; } >> "$log.args"
 pwd > "$log.cwd"
 printf '%s' "${TERMF_MCP_TOKEN-}" > "$log.mcptoken"
+# Last, so a test that sees a process start also sees its arguments.
+echo "start $$" >> "$log.events"
+trap 'echo "exit $$" >> "$log.events"' EXIT
 prev=
 for a in "$@"; do
   if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi
@@ -1652,8 +1653,9 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
         (None, None),
         "the role file's sonnet and effort are Claude Code's"
     );
+    // A process's end is recorded before the session's new state is saved: each wait below takes both.
     env.until("the first turn and its process's end", || {
-        env.turns(id) == 1 && env.exits(id) == 1
+        env.turns(id) == 1 && env.exits(id) == 1 && env.session(id).state == State::Idle
     });
     let session = env.session(id);
     assert_eq!(session.state, State::Idle, "no process between turns");
@@ -1676,7 +1678,7 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
 
     env.agents.send(id, "and again").unwrap();
     env.until("the second turn", || {
-        env.turns(id) == 2 && env.exits(id) == 2
+        env.turns(id) == 2 && env.exits(id) == 2 && env.session(id).state == State::Idle
     });
     let runs = Env::cli_args(&codex);
     assert_eq!(runs.len(), 2, "one process per turn");
@@ -1720,26 +1722,20 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
             .any(|e| matches!(e, AgentEvent::ToolUse { id, .. } if id == "item_0"))
     });
     env.agents.interrupt(id).unwrap();
-    env.until("the interrupted turn", || {
-        env.turns(id) == 3 && env.exits(id) == 3
+    env.until("the interrupted turn, the conversation going on", || {
+        env.turns(id) == 3 && env.exits(id) == 3 && env.session(id).state == State::Idle
     });
     assert_eq!(turn_end(&env.events(id)).0, Outcome::Interrupted);
-    assert_eq!(
-        env.session(id).state,
-        State::Idle,
-        "the conversation goes on"
-    );
 
     env.agents.send(id, "this will fail").unwrap();
     env.until("the failed turn", || {
-        env.turns(id) == 4 && env.exits(id) == 4
+        env.turns(id) == 4 && env.exits(id) == 4 && env.session(id).state == State::Error
     });
     let (outcome, _, _, error, _) = turn_end(&env.events(id));
     assert_eq!(
         (outcome, error.as_deref()),
         (Outcome::Error, Some("model overloaded"))
     );
-    assert_eq!(env.session(id).state, State::Error);
 
     let takeover = env.agents.takeover(id).unwrap();
     assert_eq!(takeover.agent, "codex");
@@ -1764,7 +1760,7 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
     };
     let id = env.agents.start(spec, Some("what is this")).unwrap().id;
     env.until("the first turn", || {
-        env.turns(id) == 1 && env.exits(id) == 1
+        env.turns(id) == 1 && env.exits(id) == 1 && env.session(id).state == State::Idle
     });
     let session = env.session(id);
     assert_eq!(
@@ -1806,7 +1802,7 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
 
     env.agents.send(id, "more").unwrap();
     env.until("the second turn", || {
-        env.turns(id) == 2 && env.exits(id) == 2
+        env.turns(id) == 2 && env.exits(id) == 2 && env.session(id).state == State::Idle
     });
     let runs = Env::cli_args(&gemini);
     assert_eq!(
@@ -1842,7 +1838,7 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
     );
     env.agents.interrupt(id).unwrap();
     env.until("the interrupted turn, then the one it kept", || {
-        env.turns(id) == 4 && env.exits(id) == 4
+        env.turns(id) == 4 && env.exits(id) == 4 && env.session(id).state == State::Idle
     });
     let ends: Vec<Outcome> = env
         .events(id)
