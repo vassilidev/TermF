@@ -894,8 +894,8 @@ impl Team {
         inner.drop_worktree(&run, i);
         let step = &mut run.steps[i];
         step.state = StepState::Pending;
+        // Its escalation stays spent: once per step, then the user.
         step.attempt = 0;
-        step.escalated = false;
         step.accepted = false;
         step.worktree = None;
         step.feedback = None;
@@ -3009,6 +3009,9 @@ impl Inner {
             } else if !run.steps[i].needs.contains(&key) {
                 run.steps[i].needs.push(key);
             }
+        }
+        if !reviews {
+            return;
         }
         // New work to review: its rounds count anew.
         for j in 0..run.steps.len() {
