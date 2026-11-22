@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -1034,7 +1034,9 @@ fn handle(app: &AppHandle, conn: Stream) -> Result<()> {
 }
 
 /// Whether the client closed the connection; nothing it sends is expected while it waits for a reply.
+#[cfg(unix)]
 fn hung_up(caller: &Stream) -> bool {
+    use std::io::Read;
     if caller.set_nonblocking(true).is_err() {
         return false;
     }
@@ -1045,6 +1047,37 @@ fn hung_up(caller: &Stream) -> bool {
     };
     let _ = caller.set_nonblocking(false);
     gone
+}
+
+/// A named pipe read with nothing to read looks like its end (`ERROR_NO_DATA` becomes EOF), so the pipe is asked.
+#[cfg(windows)]
+fn hung_up(caller: &Stream) -> bool {
+    use std::os::windows::io::{AsHandle, AsRawHandle};
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn PeekNamedPipe(
+            pipe: *mut std::ffi::c_void,
+            buffer: *mut std::ffi::c_void,
+            size: u32,
+            read: *mut u32,
+            available: *mut u32,
+            left: *mut u32,
+        ) -> i32;
+    }
+    let Stream::NamedPipe(pipe) = caller;
+    let null = std::ptr::null_mut();
+    // SAFETY: the handle lives as long as `caller`, and with no buffer the call only says whether the pipe is
+    // still connected.
+    unsafe {
+        PeekNamedPipe(
+            pipe.as_handle().as_raw_handle(),
+            null,
+            0,
+            null.cast(),
+            null.cast(),
+            null.cast(),
+        ) == 0
+    }
 }
 
 fn reply(conn: &mut BufReader<Stream>, reply: &Reply) -> Result<()> {
