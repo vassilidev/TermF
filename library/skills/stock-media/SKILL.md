@@ -4,9 +4,10 @@ description: >-
   Finds and downloads royalty-free photos, videos, music and sound effects through the official APIs of
   Openverse, Wikimedia Commons, Pexels, Pixabay, Unsplash, Freesound and Jamendo, with each file's licence
   checked before use and recorded in a CREDITS.md beside the project; keyless sources by default, a key only
-  when the user already put it in the session's environment. Use when a task needs outside images, footage, a music bed,
-  sound effects or b-roll for a video, a page, a deck or brand guidelines. Not for the project's own images or
-  screenshots, nor for compressing or exporting files the project already has (logo-export).
+  when the user already put it in the session's environment. Use it before answering whenever a task needs
+  outside images, footage, a music bed, sound effects or b-roll for a video, a page, a deck or brand guidelines,
+  or asks where to find them and under which licence. Not for the project's own images or screenshots, nor for
+  compressing or exporting files the project already has (logo-export).
 license: MIT
 metadata:
   termf-stacks: "*"

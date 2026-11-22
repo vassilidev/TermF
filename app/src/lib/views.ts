@@ -38,6 +38,10 @@ type Key = Parameters<typeof t>[0];
 export type View = {
   id: ViewId;
   label: Key;
+  /** What it is for, in a few words: the navigation's tooltip and the palette's second line. */
+  hint?: Key;
+  /** Set apart from the views before it: the project's tools after its daily work. */
+  apart?: boolean;
   /** The palette's command that shows it. */
   command: Key;
   icon: Component;
@@ -64,6 +68,7 @@ export const views: View[] = [
   {
     id: "home",
     label: "ux3t1Home",
+    hint: "uxfT1HintHome",
     command: "ux3t1ShowHome",
     icon: House,
     group: "project",
@@ -76,6 +81,7 @@ export const views: View[] = [
   {
     id: "terminals",
     label: "viewTerminals",
+    hint: "uxfT1HintTerminals",
     command: "showTerminals",
     icon: LayoutGrid,
     group: "project",
@@ -86,6 +92,7 @@ export const views: View[] = [
   {
     id: "tickets",
     label: "viewTickets",
+    hint: "uxfT1HintTickets",
     command: "showTickets",
     icon: Ticket,
     group: "project",
@@ -97,6 +104,7 @@ export const views: View[] = [
   {
     id: "files",
     label: "viewFiles",
+    hint: "uxfT1HintFiles",
     command: "showFiles",
     icon: FolderTree,
     group: "project",
@@ -107,6 +115,7 @@ export const views: View[] = [
   {
     id: "git",
     label: "gitView",
+    hint: "uxfT1HintGit",
     command: "gitShow",
     icon: GitBranch,
     group: "project",
@@ -117,6 +126,7 @@ export const views: View[] = [
   {
     id: "ci",
     label: "viewCi",
+    hint: "uxfT1HintCi",
     command: "showCi",
     icon: Workflow,
     group: "project",
@@ -127,6 +137,8 @@ export const views: View[] = [
   {
     id: "design",
     label: "designView",
+    hint: "uxfT1HintDesign",
+    apart: true,
     command: "designShow",
     icon: Palette,
     group: "project",
@@ -137,6 +149,7 @@ export const views: View[] = [
   {
     id: "vault",
     label: "vaultTitle",
+    hint: "uxfT1HintVault",
     command: "vaultShow",
     icon: LockKeyhole,
     group: "project",
@@ -147,6 +160,7 @@ export const views: View[] = [
   {
     id: "ops",
     label: "opsView",
+    hint: "uxfT1HintOps",
     command: "opsShow",
     icon: Server,
     group: "project",
@@ -159,6 +173,7 @@ export const views: View[] = [
   {
     id: "project",
     label: "ux3t3Config",
+    hint: "uxfT1HintConfig",
     command: "ticketsEditProject",
     icon: SlidersHorizontal,
     group: "project",
@@ -170,6 +185,7 @@ export const views: View[] = [
   {
     id: "conversations",
     label: "chatView",
+    hint: "uxfT1HintConversations",
     command: "chatShow",
     icon: MessagesSquare,
     group: "linked",
@@ -180,6 +196,7 @@ export const views: View[] = [
   {
     id: "library",
     label: "viewLibrary",
+    hint: "uxfT1HintLibrary",
     command: "showLibrary",
     icon: LibraryBig,
     group: "linked",
@@ -190,6 +207,7 @@ export const views: View[] = [
   {
     id: "settings",
     label: "settings",
+    hint: "uxfT1HintSettings",
     command: "settings",
     icon: SettingsIcon,
     group: "machine",
@@ -200,6 +218,7 @@ export const views: View[] = [
   {
     id: "claude",
     label: "claudeViewTitle",
+    hint: "uxfT1HintClaude",
     command: "claudeViewShow",
     icon: Bot,
     group: "machine",
@@ -210,6 +229,7 @@ export const views: View[] = [
   {
     id: "ssh",
     label: "viewSsh",
+    hint: "uxfT1HintSsh",
     command: "showSsh",
     icon: KeyRound,
     group: "machine",
@@ -220,6 +240,7 @@ export const views: View[] = [
   {
     id: "scheduler",
     label: "schedulerView",
+    hint: "uxfT1HintScheduler",
     command: "schedulerShow",
     icon: CalendarClock,
     group: "machine",
@@ -229,7 +250,8 @@ export const views: View[] = [
   },
   {
     id: "vaultAll",
-    label: "vaultTitle",
+    label: "uxfT1VaultAll",
+    hint: "uxfT1HintVaultAll",
     command: "vaultShowAll",
     icon: LockKeyhole,
     group: "machine",
