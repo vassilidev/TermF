@@ -197,6 +197,10 @@ fn fixture(name: &str) -> Fixture {
     }
 }
 
+fn on() -> termf_core::MemorySettings {
+    termf_core::MemorySettings::default()
+}
+
 fn sources_of(hits: &[Hit]) -> Vec<Source> {
     hits.iter().map(|h| h.source).collect()
 }
@@ -249,7 +253,7 @@ fn indexes_every_source_of_the_project() {
     );
     assert_eq!(done.changed, 12);
 
-    let find = |q: &str| memory.search("acme", q, &[], 10).unwrap();
+    let find = |q: &str| memory.search(&on(), "acme", q, &[], 10).unwrap();
     let hits = find("why do webhooks retry");
     assert_eq!(hits[0].source, Source::Claude);
     assert_eq!(hits[0].title, "Webhook retries");
@@ -285,18 +289,18 @@ fn indexes_every_source_of_the_project() {
     assert!(find("subagent chatter").is_empty());
     assert!(find("rm -rf").is_empty(), "tool calls are not indexed");
     let git_only = memory
-        .search("acme", "invoices", &[Source::Git], 10)
+        .search(&on(), "acme", "invoices", &[Source::Git], 10)
         .unwrap();
     assert_eq!(sources_of(&git_only), [Source::Git]);
     assert!(
         memory
-            .search("other", "rounding", &[], 10)
+            .search(&on(), "other", "rounding", &[], 10)
             .unwrap()
             .is_empty()
     );
     // FTS5's own syntax is never taken from the question.
     for odd in ["\"", "NEAR(a b)", "a* OR -b", "(", "x:y", "", "é"] {
-        memory.search("acme", odd, &[], 10).unwrap();
+        memory.search(&on(), "acme", odd, &[], 10).unwrap();
     }
 }
 
@@ -327,11 +331,16 @@ fn indexes_only_what_changed() {
     );
     assert!(
         !memory
-            .search("acme", "quarterly", &[], 5)
+            .search(&on(), "acme", "quarterly", &[], 5)
             .unwrap()
             .is_empty()
     );
-    assert!(memory.search("acme", "nightly", &[], 5).unwrap().is_empty());
+    assert!(
+        memory
+            .search(&on(), "acme", "nightly", &[], 5)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -339,7 +348,7 @@ fn never_stores_a_secret() {
     let f = fixture("masking");
     let memory = Memory::open(&f.paths.data_dir).unwrap();
     memory.index(&f.paths, "acme", &vault).unwrap();
-    let db = Connection::open(f.paths.data_dir.join("termf.db")).unwrap();
+    let db = Connection::open(f.paths.data_dir.join("memory.db")).unwrap();
     let bodies: Vec<String> = db
         .prepare("SELECT title || ' ' || body FROM memory_fts")
         .unwrap()
@@ -352,7 +361,12 @@ fn never_stores_a_secret() {
         assert!(!all.contains(secret), "{secret} was indexed");
     }
     assert!(all.contains("Deploy with the token"));
-    assert!(memory.search("acme", "staple", &[], 5).unwrap().is_empty());
+    assert!(
+        memory
+            .search(&on(), "acme", "staple", &[], 5)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -366,22 +380,22 @@ fn reads_a_document_page_by_page() {
     let memory = Memory::open(&f.paths.data_dir).unwrap();
     memory.index(&f.paths, "acme", &vault).unwrap();
     let hit = memory
-        .search("acme", "ledger line", &[Source::Docs], 1)
+        .search(&on(), "acme", "ledger line", &[Source::Docs], 1)
         .unwrap()
         .remove(0);
-    let first = memory.read("acme", hit.id, 0).unwrap();
+    let first = memory.read(&on(), "acme", hit.id, 0).unwrap();
     assert!(first.text.len() <= PAGE && first.size > PAGE);
     let next = first.next.unwrap();
-    let second = memory.read("acme", hit.id, next).unwrap();
+    let second = memory.read(&on(), "acme", hit.id, next).unwrap();
     assert_eq!(second.offset, next);
     let e = next + second.text.find('é').unwrap();
-    let inside = memory.read("acme", hit.id, e + 1).unwrap();
+    let inside = memory.read(&on(), "acme", hit.id, e + 1).unwrap();
     assert_eq!(inside.offset, e, "back to a character's start");
     assert!(
-        memory.read("other", hit.id, 0).is_err(),
+        memory.read(&on(), "other", hit.id, 0).is_err(),
         "another project's document"
     );
-    assert!(memory.read("acme", 999_999, 0).is_err());
+    assert!(memory.read(&on(), "acme", 999_999, 0).is_err());
 }
 
 #[test]
@@ -397,7 +411,7 @@ fn a_source_switched_off_or_the_memory_off_is_emptied() {
     memory.index(&f.paths, "acme", &vault).unwrap();
     assert!(
         memory
-            .search("acme", "webhooks", &[], 5)
+            .search(&on(), "acme", "webhooks", &[], 5)
             .unwrap()
             .is_empty()
     );
@@ -414,6 +428,144 @@ fn a_source_switched_off_or_the_memory_off_is_emptied() {
     memory.index(&f.paths, "acme", &vault).unwrap();
     let status = memory.status(&f.paths.config_dir, "acme").unwrap();
     assert!(!status.enabled && status.sources.iter().all(|s| s.docs == 0));
+}
+
+/// The same repository in a second project.
+fn second_project(f: &Fixture) {
+    put(
+        &f.paths.config_dir.join("projects/beta.toml"),
+        &format!(
+            "name = \"Beta\"\n[[repos]]\npath = {:?}\n",
+            f.repo.to_string_lossy()
+        ),
+    );
+}
+
+#[test]
+fn switching_off_forgets_every_project_at_once_and_nothing_is_found_meanwhile() {
+    let f = fixture("forget");
+    second_project(&f);
+    let memory = Memory::open(&f.paths.data_dir).unwrap();
+    memory.index_all(&f.paths, &vault).unwrap();
+    let hit = memory
+        .search(&on(), "beta", "webhooks", &[], 5)
+        .unwrap()
+        .remove(0);
+
+    let mut settings = termf_core::MemorySettings {
+        enabled: true,
+        exclude: vec!["claude".into()],
+    };
+    // Read before the documents are dropped: a source left out is out at once.
+    assert!(
+        memory
+            .search(&settings, "beta", "webhooks", &[], 5)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(memory.read(&settings, "beta", hit.id, 0).is_err());
+    memory.forget(&settings).unwrap();
+    for project in ["acme", "beta"] {
+        let status = memory.status(&f.paths.config_dir, project).unwrap();
+        let claude = status
+            .sources
+            .iter()
+            .find(|s| s.source == Source::Claude)
+            .unwrap();
+        assert_eq!(
+            claude.docs, 0,
+            "{project}: dropped without being indexed again"
+        );
+        assert!(
+            status.sources.iter().any(|s| s.docs > 0),
+            "{project}: the rest stays"
+        );
+    }
+
+    settings.enabled = false;
+    let readme = memory
+        .search(&on(), "acme", "billing", &[], 5)
+        .unwrap()
+        .remove(0);
+    assert!(
+        memory
+            .search(&settings, "acme", "billing", &[], 5)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(memory.read(&settings, "acme", readme.id, 0).is_err());
+    memory.forget(&settings).unwrap();
+    for project in ["acme", "beta"] {
+        let status = memory.status(&f.paths.config_dir, project).unwrap();
+        assert!(status.sources.iter().all(|s| s.docs == 0), "{project}");
+        assert!(status.indexed.is_none(), "{project}");
+    }
+}
+
+#[test]
+fn a_project_gone_from_the_config_is_forgotten() {
+    let f = fixture("gone");
+    second_project(&f);
+    let memory = Memory::open(&f.paths.data_dir).unwrap();
+    memory.index_all(&f.paths, &vault).unwrap();
+    assert!(
+        !memory
+            .search(&on(), "beta", "webhooks", &[], 5)
+            .unwrap()
+            .is_empty()
+    );
+    fs::remove_file(f.paths.config_dir.join("projects/beta.toml")).unwrap();
+    memory.index_all(&f.paths, &vault).unwrap();
+    assert!(
+        memory
+            .search(&on(), "beta", "webhooks", &[], 5)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !memory
+            .search(&on(), "acme", "webhooks", &[], 5)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn other_writers_pass_while_a_large_project_is_indexed() {
+    let f = fixture("writers");
+    for n in 0..300 {
+        put(
+            &f.repo.join(format!("docs/note-{n}.md")),
+            &format!("Note {n} about invoices.\n"),
+        );
+    }
+    git(&f.repo, &["add", "-A"]);
+    let try_write = |file: &str| {
+        let db = Connection::open(f.paths.data_dir.join(file)).unwrap();
+        // No waiting at all: a write lock held by the indexing would make it fail.
+        db.busy_timeout(std::time::Duration::ZERO).unwrap();
+        db.execute_batch("BEGIN IMMEDIATE; COMMIT;").is_ok()
+    };
+    let (masked, blocked) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
+    let mask = |text: &str| {
+        masked.set(masked.get() + 1);
+        if !try_write("memory.db") || !try_write("termf.db") {
+            blocked.set(blocked.get() + 1);
+        }
+        vault(text)
+    };
+    let memory = Memory::open(&f.paths.data_dir).unwrap();
+    let done = memory.index(&f.paths, "acme", &mask).unwrap();
+    assert!(done.changed > 300, "{done:?}");
+    assert!(
+        masked.get() > 900,
+        "title, provenance and body of each document"
+    );
+    assert_eq!(
+        blocked.get(),
+        0,
+        "masking runs outside any write transaction"
+    );
 }
 
 #[test]

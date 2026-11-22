@@ -30,27 +30,39 @@
 
   const project = $derived(currentProject());
 
-  $effect(() => {
-    const id = app.project;
-    status = null;
-    error = "";
-    if (id === null) return;
+  /** Only while `id` is still the current project: another one's panel may be showing by then. */
+  function load(id: string) {
     invoke<MemoryStatus>("memory_status", { project: id }).then(
       (s) => {
         if (app.project === id) status = s;
       },
-      (e) => (error = String(e)),
+      (e) => {
+        if (app.project === id) error = String(e);
+      },
     );
+  }
+
+  $effect(() => {
+    const id = app.project;
+    status = null;
+    error = "";
+    if (id !== null) load(id);
   });
 
   async function run(command: string, args: Record<string, unknown>) {
+    const id = app.project;
     busy = true;
     error = "";
     try {
       const next = await invoke<MemoryStatus | null>(command, args);
-      if (next) status = next;
+      if (app.project === id) {
+        if (next) status = next;
+      } else if (app.project !== null) {
+        // The settings are the same for every project: the one shown now reads them again.
+        load(app.project);
+      }
     } catch (e) {
-      error = String(e);
+      if (app.project === id) error = String(e);
     } finally {
       busy = false;
     }

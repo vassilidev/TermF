@@ -161,6 +161,7 @@
     const vars = { run: n.run ?? "", step: n.step ?? "", role: n.role ?? "" };
     const keys = { waiting: "ctoNoticeWaiting", blocked: "ctoNoticeBlocked", step: "ctoNoticeStep", direct: "ctoNoticeDirect" } as const;
     if (n.about === "direct" && n.run) return t("ctoNoticeBusy", vars);
+    if (n.about === "queued") return t("expertNoticeQueued", vars);
     return n.about in keys ? t(keys[n.about as keyof typeof keys], vars) : n.text;
   }
 
@@ -295,7 +296,7 @@
   {:else if item.type === "handed_back"}
     <p class="sys"><Undo2 size={14} aria-hidden="true" />{t("chatHandedBack")}</p>
   {:else if item.type === "notice"}
-    {@const opens = item.about === "step" || item.about === "direct" ? item.conversation : undefined}
+    {@const opens = ["step", "direct", "queued"].includes(item.about) ? item.conversation : undefined}
     <div class="termf" class:asks={item.about === "waiting" || item.about === "blocked"} role="note">
       <Megaphone size={14} aria-hidden="true" />
       <p>

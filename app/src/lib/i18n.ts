@@ -2070,6 +2070,7 @@ const fr = {
   expertToolAsk: "Demander à l'expert",
   expertToolSearch: "Chercher dans la mémoire du projet",
   expertToolRead: "Lire une source de la mémoire",
+  expertNoticeQueued: "Message gardé pour {role} : il le lira à la fin de sa réponse en cours",
   // The CTO's triage: free requests, the routing and its gate, the questionnaire.
   ctoEntryRequest: "Demande",
   ctoEntryFromRun: "Un run de ticket",
@@ -4217,6 +4218,7 @@ const en: Record<Key, string> = {
   expertToolAsk: "Ask the expert",
   expertToolSearch: "Search the project memory",
   expertToolRead: "Read a source of the memory",
+  expertNoticeQueued: "Message kept for {role}: it reads it once its answer under way ends",
   // The CTO's triage: free requests, the routing and its gate, the questionnaire.
   ctoEntryRequest: "Request",
   ctoEntryFromRun: "A ticket run",

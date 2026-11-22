@@ -454,6 +454,7 @@ fn real_expert() {
                 serde_json::to_value(
                     memory
                         .search(
+                            &Default::default(),
                             "acme",
                             tool["query"].as_str().unwrap_or_default(),
                             &sources,
@@ -465,6 +466,7 @@ fn real_expert() {
             Some("memory_read") => serde_json::to_value(
                 memory
                     .read(
+                        &Default::default(),
                         "acme",
                         tool["id"].as_i64().unwrap_or(0),
                         tool["offset"].as_u64().unwrap_or(0) as usize,

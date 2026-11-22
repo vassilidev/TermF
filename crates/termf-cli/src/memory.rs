@@ -9,23 +9,20 @@ use termf_tickets::utc;
 
 use crate::{Client, take_opt};
 
-/// `--project`, else the project that lists the current folder.
-fn project(args: &mut Vec<&str>) -> Result<Option<String>> {
-    if let Some(id) = take_opt(args, "--project")? {
-        return Ok(Some(id));
+/// `project` (from `--project`), else the project that lists the current folder.
+fn or_here(project: Option<String>) -> Result<String> {
+    match project {
+        Some(id) => Ok(id),
+        None => termf_memory::project_of(
+            &termf_core::default_config_dir()?,
+            &std::env::current_dir()?,
+        )?
+        .context("no project lists this folder: add --project <id>"),
     }
-    termf_memory::project_of(
-        &termf_core::default_config_dir()?,
-        &std::env::current_dir()?,
-    )
-}
-
-fn needs(project: Option<String>) -> Result<String> {
-    project.context("no project lists this folder: add --project <id>")
 }
 
 pub fn run(mut args: Vec<&str>) -> Result<()> {
-    let project = project(&mut args)?;
+    let project = take_opt(&mut args, "--project")?;
     match args.first().copied() {
         Some("search") => {
             args.remove(0);
@@ -40,8 +37,15 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
             if args.is_empty() {
                 bail!(crate::USAGE);
             }
+            let settings = termf_core::load_settings(&termf_core::default_config_dir()?)?.memory;
             let memory = Memory::open(&termf_core::default_data_dir()?)?;
-            let hits = memory.search(&needs(project)?, &args.join(" "), &sources, limit)?;
+            let hits = memory.search(
+                &settings,
+                &or_here(project)?,
+                &args.join(" "),
+                &sources,
+                limit,
+            )?;
             if hits.is_empty() {
                 println!("nothing found");
             }
@@ -59,6 +63,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 println!("        {}", snippet.replace('\n', " "));
             }
         }
+        // Every project unless one is named.
         Some("reindex") if args.len() == 1 => {
             let statuses =
                 Client::connect(None)?.call(Call::Memory(MemoryCall::Reindex { project }))?;
@@ -94,7 +99,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
 }
 
 pub fn ask(mut args: Vec<&str>) -> Result<()> {
-    let project = needs(project(&mut args)?)?;
+    let project = or_here(take_opt(&mut args, "--project")?)?;
     let budget = take_opt(&mut args, "--budget")?
         .map(|b| {
             b.parse::<f64>()

@@ -81,7 +81,8 @@ pub fn standing(app: &AppHandle, id: &str, role: &str) -> Result<AgentSession> {
 #[serde(rename_all = "camelCase")]
 pub struct Addressed {
     pub session: AgentSession,
-    /// `step`: the session of the role's step at work in a team run; `direct`: a conversation with the role.
+    /// `step`: the session of the role's step at work in a team run; `direct`: a conversation with the role;
+    /// `queued`: the expert's conversation, which takes it at the end of its turn under way.
     pub via: &'static str,
     /// The step: the one that got the message, or, with `direct`, the one in the middle of a turn that could not.
     pub run: Option<i64>,
@@ -142,13 +143,14 @@ pub fn address(
     ensure!(!text.trim().is_empty(), "the message is empty");
     let agents = agents(app);
     let project = project(app, id)?;
-    // The expert answers in its own conversation, with the project memory: it never works at a step.
+    // The expert answers in its own conversation, with the project memory: it never works at a step. In the
+    // middle of a turn, it gets the message at its end.
     if role == termf_agents::EXPERT {
         let session = standing(app, id, role)?;
-        agents.send(session.id, text)?;
+        let queued = agents.send_or_queue(session.id, text)?;
         return Ok(Addressed {
             session: agents.session(session.id)?,
-            via: "direct",
+            via: if queued { "queued" } else { "direct" },
             run: None,
             step: None,
         });
@@ -238,6 +240,9 @@ fn tell(app: &AppHandle, project: &str, role: &str, text: &str, to: &Addressed) 
         (_, Some(run), Some(step)) => format!(
             "The user wrote to {role} directly, in conversation {id} ({cwd}), its step {step} of team run {run} \
              being in the middle of a turn: {text}"
+        ),
+        ("queued", ..) => format!(
+            "The user wrote to {role}, in conversation {id}, which reads it once its turn under way ends: {text}"
         ),
         _ => format!("The user wrote to {role} directly, in conversation {id} ({cwd}): {text}"),
     };

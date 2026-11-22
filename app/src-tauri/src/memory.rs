@@ -80,7 +80,7 @@ fn index(app: &AppHandle, project: Option<&str>) -> Result<Vec<Status>> {
             vec![id.to_owned()]
         }
         None => memory
-            .index_all(&state.paths, &mask)
+            .index_all(&state.paths, &mask)?
             .into_iter()
             .map(|(id, result)| {
                 if let Err(e) = result {
@@ -103,9 +103,11 @@ pub fn search(
     sources: &[Source],
     limit: usize,
 ) -> Result<Vec<Hit>> {
-    let memory = Memory::open(&state(app).paths.data_dir)?;
+    let state = state(app);
+    let settings = termf_core::load_settings(&state.paths.config_dir)?.memory;
+    let memory = Memory::open(&state.paths.data_dir)?;
     let mask = masking(app);
-    let mut hits = memory.search(project, query, sources, limit)?;
+    let mut hits = memory.search(&settings, project, query, sources, limit)?;
     for hit in &mut hits {
         hit.snippet = mask(&hit.snippet);
         hit.title = mask(&hit.title);
@@ -114,8 +116,10 @@ pub fn search(
 }
 
 pub fn read(app: &AppHandle, project: &str, id: i64, offset: usize) -> Result<Page> {
-    let memory = Memory::open(&state(app).paths.data_dir)?;
-    let mut page = memory.read(project, id, offset)?;
+    let state = state(app);
+    let settings = termf_core::load_settings(&state.paths.config_dir)?.memory;
+    let memory = Memory::open(&state.paths.data_dir)?;
+    let mut page = memory.read(&settings, project, id, offset)?;
     page.text = masking(app)(&page.text);
     Ok(page)
 }
@@ -195,7 +199,7 @@ pub async fn memory_status(app: AppHandle, project: String) -> CmdResult<Status>
     .await
 }
 
-/// Saves the settings, then brings the project's index in line with them (the others follow in the background).
+/// Saves the settings, drops what they leave out from every project at once, then indexes the project given.
 #[tauri::command]
 pub async fn memory_settings_save(
     app: AppHandle,
@@ -206,7 +210,13 @@ pub async fn memory_settings_save(
         for source in &settings.exclude {
             Source::parse(source)?;
         }
-        termf_core::save_memory(&state(app).paths.config_dir, &settings)?;
+        let state = state(app);
+        termf_core::save_memory(&state.paths.config_dir, &settings)?;
+        {
+            // After an indexing under way, which read the old settings.
+            let _one = state.indexing.lock().unwrap();
+            Memory::open(&state.paths.data_dir)?.forget(&settings)?;
+        }
         match project {
             Some(id) => Ok(index(app, Some(&id))?.pop()),
             None => Ok(None),

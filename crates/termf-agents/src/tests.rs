@@ -68,6 +68,7 @@ while IFS= read -r line; do
     *structured*) answer '{"ok":true}'; result success ',"structured_output":{"ok":true}' ;;
     *budget*) result error_max_budget_usd ',"is_error":true,"terminal_reason":"budget_exhausted","errors":["Reached maximum budget ($0.05)"]' ;;
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
+    *patience*) sleep 1; answer 'Done.'; result success ;;
     *webhooks*) answer 'Three retries: src/webhooks.rs:12, and conversation 1111 (2026-11-20).'; result success ;;
     *) answer 'OK.'; result success ;;
   esac
@@ -469,6 +470,36 @@ fn the_expert_reads_only_and_never_reaches_the_network() {
         (Some("haiku"), Some("low")),
         "the spec's own model and effort win over the role's"
     );
+}
+
+#[test]
+fn a_message_written_during_a_turn_goes_once_it_ends() {
+    let env = Env::new("queue");
+    let id = env
+        .agents
+        .start(env.spec(), Some("patience please"))
+        .unwrap()
+        .id;
+    assert!(
+        env.agents.send_or_queue(id, "hello").unwrap(),
+        "kept for the end of the turn"
+    );
+    assert!(env.agents.send_or_queue(id, "and hello again").unwrap());
+    env.settle(id, 2, State::Idle);
+    let said: Vec<String> = env
+        .events(id)
+        .into_iter()
+        .filter_map(|e| match e {
+            AgentEvent::User { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["patience please", "hello\n\nand hello again"]);
+    assert!(
+        !env.agents.send_or_queue(id, "hello").unwrap(),
+        "between two turns: at once"
+    );
+    env.settle(id, 3, State::Idle);
 }
 
 #[test]

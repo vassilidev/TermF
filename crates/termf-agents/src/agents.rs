@@ -62,6 +62,8 @@ struct Live {
     /// TermF's notices the agent has not read yet, and whether one should start a turn of its own.
     notices: Vec<String>,
     wake: bool,
+    /// The user's messages written during a turn: they go, as one, once it ends.
+    queued: Vec<String>,
     /// Permission requests waiting for an answer, with the tool input each asks about.
     pending: HashMap<String, Value>,
     interrupting: bool,
@@ -183,6 +185,22 @@ impl Agents {
         let store = inner.store()?;
         let mut live = inner.live.lock().unwrap();
         inner.deliver(&store, id, live.entry(id).or_default(), Some(text))
+    }
+
+    /// Sends a message now between two turns; during one, keeps it for its end (`true`), when it goes as the
+    /// user's message, so that nothing written to a busy agent is lost.
+    pub fn send_or_queue(&self, id: i64, text: &str) -> Result<bool> {
+        ensure!(!text.trim().is_empty(), "the message is empty");
+        let inner = &self.inner;
+        let store = inner.store()?;
+        let mut live = inner.live.lock().unwrap();
+        let entry = live.entry(id).or_default();
+        if matches!(store.session(id)?.state, State::Working | State::Waiting) {
+            entry.queued.push(text.to_owned());
+            return Ok(true);
+        }
+        inner.deliver(&store, id, entry, Some(text))?;
+        Ok(false)
     }
 
     /// Shows a notice from TermF in the conversation; the agent reads it with the next message. `wake`: in a
@@ -607,12 +625,21 @@ impl Inner {
         if entry.process.is_none() {
             self.launch(store, id, entry)?;
         }
-        self.write(entry, &self.runtime.message(&message(&entry.notices, text)))?;
+        let mut said = entry.queued.clone();
+        said.extend(text.map(str::to_owned));
+        let text = (!said.is_empty()).then(|| said.join("\n\n"));
+        self.write(
+            entry,
+            &self
+                .runtime
+                .message(&message(&entry.notices, text.as_deref())),
+        )?;
         entry.notices.clear();
+        entry.queued.clear();
         entry.wake = false;
         entry.interrupting = false;
         if let Some(text) = text {
-            self.record(store, id, AgentEvent::User { text: text.into() });
+            self.record(store, id, AgentEvent::User { text });
         }
         self.set_state(store, id, entry, State::Working)
     }
@@ -840,7 +867,8 @@ impl Inner {
             session.tile = tile(entry);
             (self.sink)(Update::Session(session.clone()));
         }
-        if current && entry.wake && !entry.busy && session.state == State::Idle {
+        let due = entry.wake || !entry.queued.is_empty();
+        if current && due && !entry.busy && session.state == State::Idle {
             self.deliver(store, id, entry, None)?;
         }
         Ok(())

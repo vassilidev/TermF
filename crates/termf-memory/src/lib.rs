@@ -1,18 +1,20 @@
 //! The project memory the expert searches: a local full-text index, per project, of what the project kept —
 //! Claude Code conversations of its repositories and their worktrees, ticket runs and team plans and reports,
 //! TermF's headless conversations, the project's library and conventions, `CLAUDE.md` and automatic memory,
-//! the repositories' docs and git history, and the claude.ai artifacts TermF saw there. SQLite FTS5 in
-//! `termf.db`, updated incrementally: a document is read again only when its stamp (modification time and size,
-//! commit, update time) changed. Every text is masked before it is stored; nothing leaves the machine.
+//! the repositories' docs and git history, and the claude.ai artifacts TermF saw there. SQLite FTS5 in its own
+//! `memory.db`, so that indexing never holds the lock the agents and the team write `termf.db` under; updated
+//! incrementally: a document is read again only when its stamp (modification time and size, commit, update time)
+//! changed. Every text is masked before it is stored, outside any write transaction; nothing leaves the machine.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use termf_core::MemorySettings;
 
 mod sources;
 #[cfg(test)]
@@ -44,6 +46,8 @@ pub const MAX_BODY: usize = 256 << 10;
 pub const PAGE: usize = 24 << 10;
 const MAX_TITLE: usize = 160;
 const MAX_HITS: usize = 50;
+/// Documents written per transaction: the write lock is held for a moment only.
+const BATCH: usize = 64;
 
 /// Where a project's memory is read from.
 #[derive(Clone, Debug)]
@@ -223,7 +227,7 @@ impl Memory {
     pub fn open(data_dir: &Path) -> Result<Self> {
         fs::create_dir_all(data_dir)
             .with_context(|| format!("cannot create {}", data_dir.display()))?;
-        let file = data_dir.join("termf.db");
+        let file = data_dir.join("memory.db");
         let conn =
             Connection::open(&file).with_context(|| format!("cannot open {}", file.display()))?;
         // The app and the CLI may write at the same time.
@@ -252,7 +256,7 @@ impl Memory {
         let mut errors = HashMap::new();
         for source in Source::ALL {
             let known = self.stamps(&project.id, source)?;
-            let found = if !settings.enabled || settings.exclude.iter().any(|s| s == source.id()) {
+            let found = if !included(&settings, source) {
                 Found::default()
             } else {
                 match sources::collect(source, paths, project, &known) {
@@ -263,16 +267,26 @@ impl Memory {
                     }
                 }
             };
-            let tx = self.conn.unchecked_transaction()?;
-            for key in known.keys().filter(|k| !found.keys.contains(*k)) {
-                self.remove(&project.id, source, key)?;
-                done.removed += 1;
+            let gone: Vec<&String> = known.keys().filter(|k| !found.keys.contains(*k)).collect();
+            for keys in gone.chunks(BATCH) {
+                let tx = self.conn.unchecked_transaction()?;
+                for key in keys {
+                    self.remove(&project.id, source, key)?;
+                }
+                tx.commit()?;
+                done.removed += keys.len();
             }
-            for doc in found.docs {
-                self.put(&project.id, source, doc, mask)?;
-                done.changed += 1;
+            let mut docs = found.docs;
+            while !docs.is_empty() {
+                let batch: Vec<Doc> = docs.drain(..docs.len().min(BATCH)).collect();
+                let rows: Vec<Row> = batch.into_iter().map(|doc| row(doc, mask)).collect();
+                let tx = self.conn.unchecked_transaction()?;
+                for row in &rows {
+                    self.put(&project.id, source, row)?;
+                }
+                tx.commit()?;
+                done.changed += rows.len();
             }
-            tx.commit()?;
         }
         self.conn.execute(
             "INSERT INTO memory_state (project, indexed, errors) VALUES (?1, ?2, ?3)
@@ -282,20 +296,60 @@ impl Memory {
         Ok(done)
     }
 
-    /// Indexes every project; one that fails does not stop the others.
+    /// Indexes every project; one that fails does not stop the others. What the settings left out, and the
+    /// projects gone from the config, are dropped first.
     pub fn index_all(
         &self,
         paths: &Paths,
         mask: &dyn Fn(&str) -> String,
-    ) -> Vec<(String, Result<Indexed>)> {
-        termf_core::load_projects(&paths.config_dir)
-            .unwrap_or_default()
+    ) -> Result<Vec<(String, Result<Indexed>)>> {
+        let projects = termf_core::load_projects(&paths.config_dir)?;
+        let settings = termf_core::load_settings(&paths.config_dir)?.memory;
+        self.drop_where(|project, source| {
+            !projects.iter().any(|p| p.id == project) || !included(&settings, source)
+        })?;
+        Ok(projects
             .into_iter()
             .map(|p| {
                 let result = self.index(paths, &p.id, mask);
                 (p.id, result)
             })
-            .collect()
+            .collect())
+    }
+
+    /// Drops at once, in every project, what `settings` leave out: the whole memory when it is off.
+    pub fn forget(&self, settings: &MemorySettings) -> Result<usize> {
+        self.drop_where(|_, source| !included(settings, source))
+    }
+
+    /// Drops the documents of the projects and sources `drop` names, in small transactions.
+    fn drop_where(&self, drop: impl Fn(&str, Source) -> bool) -> Result<usize> {
+        let mut query = self
+            .conn
+            .prepare("SELECT id, project, source FROM memory_docs")?;
+        let all: Vec<(i64, String, String)> = query
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let ids: Vec<i64> = all
+            .into_iter()
+            .filter(|(_, project, source)| Source::parse(source).is_ok_and(|s| drop(project, s)))
+            .map(|(id, ..)| id)
+            .collect();
+        for batch in ids.chunks(BATCH) {
+            let tx = self.conn.unchecked_transaction()?;
+            for id in batch {
+                self.conn
+                    .execute("DELETE FROM memory_fts WHERE rowid = ?1", [id])?;
+                self.conn
+                    .execute("DELETE FROM memory_docs WHERE id = ?1", [id])?;
+            }
+            tx.commit()?;
+        }
+        self.conn.execute(
+            "DELETE FROM memory_state WHERE project NOT IN (SELECT DISTINCT project FROM memory_docs)",
+            [],
+        )?;
+        Ok(ids.len())
     }
 
     fn stamps(&self, project: &str, source: Source) -> Result<HashMap<String, String>> {
@@ -326,40 +380,34 @@ impl Memory {
         Ok(())
     }
 
-    fn put(
-        &self,
-        project: &str,
-        source: Source,
-        doc: Doc,
-        mask: &dyn Fn(&str) -> String,
-    ) -> Result<()> {
-        self.remove(project, source, &doc.key)?;
-        let title = clean(&cut(&doc.title, MAX_TITLE), mask);
-        let body = clean(tail(&doc.body, MAX_BODY), mask);
+    fn put(&self, project: &str, source: Source, row: &Row) -> Result<()> {
+        self.remove(project, source, &row.key)?;
         self.conn.execute(
             "INSERT INTO memory_docs (project, source, key, stamp, title, locator, at, size)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 project,
                 source.id(),
-                doc.key,
-                doc.stamp,
-                title,
-                clean(&doc.locator, mask),
-                doc.at,
-                body.len() as i64
+                row.key,
+                row.stamp,
+                row.title,
+                row.locator,
+                row.at,
+                row.body.len() as i64
             ],
         )?;
         self.conn.execute(
             "INSERT INTO memory_fts (rowid, title, body) VALUES (?1, ?2, ?3)",
-            params![self.conn.last_insert_rowid(), title, body],
+            params![self.conn.last_insert_rowid(), row.title, row.body],
         )?;
         Ok(())
     }
 
-    /// The documents of `project` that best match `query`, from the sources named (all when none).
+    /// The documents of `project` that best match `query`, from the sources named (all when none) that
+    /// `settings` include; nothing while the memory is off.
     pub fn search(
         &self,
+        settings: &MemorySettings,
         project: &str,
         query: &str,
         sources: &[Source],
@@ -368,11 +416,11 @@ impl Memory {
         let Some(matching) = fts_query(query) else {
             return Ok(Vec::new());
         };
-        let wanted: Vec<&str> = if sources.is_empty() {
-            Source::ALL.iter().map(|s| s.id()).collect()
-        } else {
-            sources.iter().map(|s| s.id()).collect()
-        };
+        let wanted: Vec<&str> = Source::ALL
+            .into_iter()
+            .filter(|s| (sources.is_empty() || sources.contains(s)) && included(settings, *s))
+            .map(Source::id)
+            .collect();
         let mut query = self.conn.prepare(
             "SELECT d.id, d.source, d.title, d.locator, d.at,
                     snippet(memory_fts, 1, '[', ']', '…', 24)
@@ -413,8 +461,16 @@ impl Memory {
         .collect()
     }
 
-    /// One document of `project`, from `offset` (bytes, moved back to a character's start).
-    pub fn read(&self, project: &str, id: i64, offset: usize) -> Result<Page> {
+    /// One document of `project`, from `offset` (bytes, moved back to a character's start); none from a source
+    /// `settings` leave out.
+    pub fn read(
+        &self,
+        settings: &MemorySettings,
+        project: &str,
+        id: i64,
+        offset: usize,
+    ) -> Result<Page> {
+        ensure!(settings.enabled, "the project memory is off");
         let row = self
             .conn
             .query_row(
@@ -436,11 +492,16 @@ impl Memory {
         let Some((source, title, locator, at, body)) = row else {
             bail!("no document {id} in this project's memory");
         };
+        let source = Source::parse(&source)?;
+        ensure!(
+            included(settings, source),
+            "no document {id} in this project's memory"
+        );
         let start = body.floor_char_boundary(offset.min(body.len()));
         let end = body.floor_char_boundary((start + PAGE).min(body.len()));
         Ok(Page {
             id,
-            source: Source::parse(&source)?,
+            source,
             title,
             locator,
             at,
@@ -500,11 +561,43 @@ impl Memory {
     }
 }
 
+fn included(settings: &MemorySettings, source: Source) -> bool {
+    settings.enabled && !settings.exclude.iter().any(|s| s == source.id())
+}
+
+/// A document ready to be written: masked, cut to size.
+struct Row {
+    key: String,
+    stamp: String,
+    title: String,
+    locator: String,
+    at: i64,
+    body: String,
+}
+
+fn row(doc: Doc, mask: &dyn Fn(&str) -> String) -> Row {
+    Row {
+        title: clean(&cut(&doc.title, MAX_TITLE), mask),
+        body: clean(tail(&doc.body, MAX_BODY), mask),
+        locator: clean(&doc.locator, mask),
+        key: doc.key,
+        stamp: doc.stamp,
+        at: doc.at,
+    }
+}
+
 /// The project whose repository holds `path`: the first that lists it.
 pub fn project_of(config_dir: &Path, path: &Path) -> Result<Option<String>> {
+    // The current folder comes resolved (`/private/tmp` on macOS), a project's path as written.
+    let real = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let path = real(path);
     Ok(termf_core::load_projects(config_dir)?
         .into_iter()
-        .find(|p| p.repos.iter().any(|r| path.starts_with(&r.path)))
+        .find(|p| {
+            p.repos
+                .iter()
+                .any(|r| path.starts_with(real(Path::new(&r.path))))
+        })
         .map(|p| p.id))
 }
 
