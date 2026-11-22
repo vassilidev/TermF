@@ -1528,16 +1528,22 @@ effort_range = ["high", "high"]
             squad(task("T6", "front", &["web/z.txt"], &[]), "web"),
         ])),
     );
-    for (id, file) in [
-        ("T1", "src/api/a.txt"),
-        ("T2", "src/api/b.txt"),
-        ("T3", "web/x.txt"),
-        ("T4", "web/y.txt"),
-        ("T6", "web/z.txt"),
+    // T3 ends only once T4 has begun (30 s at most): one front at a time fails the order checked below, whatever
+    // the load, where a fixed pause could end T3 before a slow start of T4.
+    let t4_begun = format!(
+        "i=0; until grep -qx 'implement:T4 1 begin' '{}.steps' || [ $i -ge 300 ]; do sleep 0.1; i=$((i + 1)); done",
+        env.log
+    );
+    for (id, file, wait) in [
+        ("T1", "src/api/a.txt", "sleep 1"),
+        ("T2", "src/api/b.txt", "sleep 1"),
+        ("T3", "web/x.txt", t4_begun.as_str()),
+        ("T4", "web/y.txt", "sleep 1"),
+        ("T6", "web/z.txt", "sleep 1"),
     ] {
         env.script(
             &format!("implement:{id}"),
-            &format!("sleep 1; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
+            &format!("{wait}; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
         );
     }
     // T4 strays out of its squad once.
