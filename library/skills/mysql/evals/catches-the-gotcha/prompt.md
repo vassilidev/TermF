@@ -4,4 +4,4 @@ max_turns: 10
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-We are moving our MySQL 8.0 server to 9.7 LTS. Our old PHP app connects with a user created as `IDENTIFIED WITH mysql_native_password`, and our my.cnf has `default_authentication_plugin=mysql_native_password`. What do we need to change, and can we upgrade straight from 8.0 to 9.7?
+We are moving our MySQL 8.0 server to 9.7 LTS. Look at our my.cnf and the migration that creates the app user: what do we need to change, and can we upgrade straight from 8.0 to 9.7?

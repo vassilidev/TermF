@@ -42,7 +42,7 @@ SOFTWARE.
 
 ## Skills — lot C
 
-Some skills in `library/skills/` adapt short passages from the MIT-licensed work below, rewritten and shortened; each lists it in the `credits` key of its `metadata`. Everything else in these skills is written from the official pages in their `termf-sources` and restated without copying: OWASP (CC BY-SA 4.0), Terraform (BUSL-1.1), MongoDB, Redis (CC BY-NC-SA 4.0), MySQL and AWS (CC BY-SA 4.0) documentation are cited by identifier and link only.
+Some skills in `library/skills/` adapt short passages from the MIT-licensed work below, rewritten and shortened; each lists it in the `credits` key of its `metadata`. Everything else in these skills is written from the official pages in their `termf-sources` and restated without copying. These sources are cited by identifier and link only, because of their licences: OWASP (CC BY-SA 4.0), AWS documentation (CC BY-SA 4.0), Terraform documentation (BUSL-1.1), Redis documentation (CC BY-NC-SA 4.0, non-commercial), MongoDB documentation (site terms: no copying, non-commercial use), MySQL documentation (proprietary, Oracle).
 
 | Source | Commit | License | Files adapted | Used in |
 |---|---|---|---|---|

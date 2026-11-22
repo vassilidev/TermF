@@ -46,7 +46,7 @@ No search engine publishes an official agent skill; Google Search Central is the
 
 ## Security
 
-- Serialize JSON-LD with a JSON encoder and escape `<` as `<`, so content from users cannot close the `<script>` tag and inject HTML.
+- Serialize JSON-LD with a JSON encoder, then replace `<` with `\u003c` (and `>` with `\u003e`, `&` with `\u0026`) before putting it in `<script type="application/ld+json">`, so content from users cannot close the tag and inject HTML. In JavaScript: `JSON.stringify(data).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026")`; or use a framework helper that already does it.
 - Build canonical, hreflang, Open Graph and sitemap URLs from the configured site origin; a URL taken from the `Host` header lets an attacker point your canonicals elsewhere through cache poisoning.
 - `robots.txt` is public: listing private paths there advertises them. Protect staging and admin areas with authentication, and send `X-Robots-Tag: noindex` on staging.
 - Keep private, user-specific and token-bearing URLs out of sitemaps and canonicals.

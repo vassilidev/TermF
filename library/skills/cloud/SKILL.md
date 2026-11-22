@@ -8,7 +8,6 @@ description: >-
   touches cdk.json, template.yaml, samconfig.toml, *.bicep, azure.yaml, app.yaml, cloudbuild.yaml, an AWS,
   Google Cloud or Azure SDK, or aws, gcloud, az or azd commands. Not for Terraform or OpenTofu code
   (terraform) nor Kubernetes manifests (kubernetes).
-paths: "**/cdk.json, **/samconfig.toml, **/template.y*ml, **/*.bicep, **/*.bicepparam, **/azure.yaml, **/cloudbuild.y*ml"
 license: MIT
 metadata:
   termf-stacks: "aws gcp azure"

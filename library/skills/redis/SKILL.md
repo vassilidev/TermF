@@ -6,7 +6,6 @@ description: >-
   eviction, and the licence question when adding a Redis server. Use when a task touches a Redis or Valkey
   client (redis, ioredis, redis-py, go-redis, Jedis, Lettuce, Predis), REDIS_URL, redis.conf or redis-cli.
   Not for SQL databases (sql-postgres, mysql) nor MongoDB (mongodb).
-paths: "**/redis.conf, **/valkey.conf, **/*redis*.*, **/*valkey*.*"
 license: MIT
 metadata:
   termf-stacks: "redis valkey"

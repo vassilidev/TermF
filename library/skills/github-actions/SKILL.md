@@ -29,7 +29,7 @@ GitHub has no official agent skill for Actions; `github/awesome-copilot` has a c
    - `concurrency:` with `cancel-in-progress: true` for pull request workflows; never cancel a deploy halfway.
    - Release and deploy jobs build from scratch instead of restoring caches written by pull request jobs, which anyone can fill.
    Done when `actionlint` reports nothing on the files you touched.
-4. Pin what you added the way the repository does. With a lockfile: run `gh actions-lock` and commit `actions.lock` with the workflow. Without one: a full 40-character commit SHA taken from the action's own repository, followed by `# vX.Y.Z`. Done when `zizmor` reports no `unpinned-uses` on your lines.
+4. Pin what you added the way the repository does. With a lockfile: run `gh actions-lock` and commit `actions.lock` with the workflow. Without one: a full 40-character commit SHA taken from the action's own repository, followed by `# vX.Y.Z`. Done when `gh actions-lock --verify` passes (with a lockfile), or when `zizmor` reports no `unpinned-uses` on your lines (without one).
 5. Run the commands of `## Verify` and put each one with its result in your report. Done when they pass, or when the failure is reported with its output.
 
 ## Gotchas

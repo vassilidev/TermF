@@ -34,7 +34,7 @@ Docker publishes its own skills in `docker/skills` (Apache-2.0): `docker-build-s
 - `docker build --check .` runs the Dockerfile checks without building and exits non-zero on any violation (Dockerfile frontend 1.8+, Buildx 0.15+). `# check=error=true` under `# syntax=docker/dockerfile:1` makes a normal build fail on them too.
 - `ARG` and `ENV` values stay in the image metadata and history, so a token passed that way ships with the image (the check `SecretsUsedInArgOrEnv` flags it). Use `RUN --mount=type=secret,id=npm_token` and `docker build --secret id=npm_token,env=NPM_TOKEN`.
 - Engine 29 makes the containerd image store the default on fresh installs and removed Docker Content Trust from the CLI: `DOCKER_CONTENT_TRUST=1` no longer verifies anything, so pin images by digest instead.
-- In a TermF worktree, `COMPOSE_PROJECT_NAME`, `PORT` and `TERMF_PORT_<SERVICE>` are set so parallel worktrees do not share containers or ports. Use them from the environment (`"${TERMF_PORT_DB:-5432}:5432"` only if the task asks to change the file) and keep `-p` and hard-coded host ports out of your commands.
+- In a TermF worktree, `COMPOSE_PROJECT_NAME`, `PORT` and `TERMF_PORT_<SERVICE>` are set so parallel worktrees do not share containers or ports. Use them from the environment (`"127.0.0.1:${TERMF_PORT_DB:-5432}:5432"`, only if the task asks to change the file) and keep `-p` and hard-coded host ports out of your commands.
 
 ## Verify
 
