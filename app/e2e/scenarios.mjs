@@ -416,6 +416,16 @@ export const scenarios = [
       await s.type(`${pane} form.inline-form input.field`, "e2e stash");
       await s.click(`${pane} form.inline-form button.primary:not([disabled])`);
       await s.wait(() => box.git("status", "--porcelain") === "" && box.git("stash", "list").includes("e2e stash"), { what: "the stash" });
+      const pick = `${pane} button.pick`;
+      const index = await s.wait(
+        () => s.exec((css) => [...document.querySelectorAll(css)].findIndex((b) => b.textContent.includes("e2e stash")) + 1, pick),
+        { what: "the stash in the list" },
+      );
+      await s.click(pick, index - 1);
+      await s.click(`${pane} dl.meta + .actions .btn.primary:not([disabled])`);
+      await s.wait(() => read(join(box.acme, "README.md")).includes("Stashed by e2e.") && box.git("stash", "list") === "", {
+        what: "the change back and the stash gone",
+      });
       await t.settled("git");
       await t.clean();
     },
@@ -503,6 +513,49 @@ export const scenarios = [
       });
       check(/claude \["-p","--input-format","stream-json"/.test(read(box.calls)), "the CTO is not a headless session");
       await t.settled("home");
+      await t.clean();
+    },
+  },
+  {
+    name: "Remote Control: Claude Code (fake) opened from the launcher with Remote Control on",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      await t.command("launcher");
+      await s.click("section.launcher .segmented.agents:not(.place) label:first-child span");
+      await s.click(`section.launcher label.row[title=${JSON.stringify(box.acme)}] input`);
+      await s.click("section.launcher .rc input.switch:not([disabled])");
+      await s.click("section.launcher button.open:not([disabled])");
+      await s.wait(() => existsSync(box.calls) && /claude \[[^\n]*"--remote-control"/.test(read(box.calls)), { what: "claude started with --remote-control" });
+      const id = await t.tile();
+      await s.waitFor(`.tile[data-session="${id}"] [data-status="idle"]`, { timeout: 30_000 });
+      await t.clean();
+    },
+  },
+  {
+    name: "library: a skill switched off for the project, written in its file",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("library");
+      const file = join(box.configDir, "projects", "acme.toml");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      const row = `${pane} .list li.row`;
+      const { name, on } = await s.wait(() =>
+        s.exec((css) => {
+          const li = document.querySelector(css);
+          return li && { name: li.querySelector(".name").textContent, on: li.querySelector("input.switch").checked };
+        }, row),
+      );
+      const before = read(file);
+      await s.click(`${row} input.switch:not([disabled])`);
+      await s.wait(() => s.exec((css, was) => document.querySelector(`${css} input.switch`)?.checked === !was, row, on), { what: "the switch flipped" });
+      await s.wait(() => read(file) !== before && read(file).includes(name), { what: `${name} in acme.toml` });
+      await t.settled("library");
       await t.clean();
     },
   },
