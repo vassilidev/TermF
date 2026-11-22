@@ -15,6 +15,7 @@ mod keep_awake;
 mod library;
 mod memory;
 mod onboarding;
+mod ops;
 mod quick_terminal;
 mod schedule;
 mod ssh;
@@ -296,6 +297,7 @@ pub fn run() {
                 data_dir.clone(),
             ));
             app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
+            app.manage(ops::state(config_dir.clone(), data_dir.clone()));
             app.manage(memory::start(
                 app.handle(),
                 config_dir.clone(),
@@ -602,6 +604,16 @@ pub fn run() {
             onboarding::onboarding_team_save,
             onboarding::claude_trust,
             onboarding::claude_trust_set,
+            ops::ops_overview,
+            ops::ops_connection_save,
+            ops::ops_connection_delete,
+            ops::ops_test,
+            ops::ops_plan,
+            ops::ops_run,
+            ops::ops_reveal,
+            ops::ops_history,
+            ops::ops_requests,
+            ops::ops_answer,
             onboarding::setup_repos,
             onboarding::setup_detect,
             onboarding::setup_draft,

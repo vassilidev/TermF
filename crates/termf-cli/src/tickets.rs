@@ -165,11 +165,26 @@ pub fn guard() -> ExitCode {
     let command = payload["tool_input"]["command"]
         .as_str()
         .unwrap_or_default();
-    match termf_tickets::guard(command) {
-        Some(reason) => {
-            eprintln!("{reason}");
-            ExitCode::from(2)
-        }
-        None => ExitCode::SUCCESS,
+    if let Some(reason) = termf_tickets::guard(command) {
+        eprintln!("{reason}");
+        return ExitCode::from(2);
     }
+    // The trifecta rule (ARCHITECTURE §12.4): once a recipe read prod for this session, the user approves each
+    // way out. Claude Code asks them: in the terminal of a tile, through TermF's card for a headless session.
+    let tool = payload["tool_name"].as_str().unwrap_or("Bash");
+    let session = payload["session_id"].as_str().unwrap_or_default();
+    let data = std::env::var_os(termf_core::ipc::ENV_DATA_DIR)
+        .map(std::path::PathBuf::from)
+        .or_else(|| termf_core::default_data_dir().ok());
+    if let Some(reason) = termf_tickets::egress(tool, command)
+        && data.is_some_and(|d| termf_core::taint::session(&d, session))
+    {
+        let ask = serde_json::json!({ "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": reason,
+        } });
+        println!("{ask}");
+    }
+    ExitCode::SUCCESS
 }

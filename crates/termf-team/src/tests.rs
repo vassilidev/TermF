@@ -628,6 +628,36 @@ fn checks_the_plan_and_its_questions() {
 }
 
 #[test]
+fn a_team_started_after_prod_was_read_has_no_way_out_from_its_first_session() {
+    let env = Env::new("read-prod");
+    env.answer(
+        "plan.1.json",
+        env.plan(json!([task("T1", "back", &[], &[])])),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        plan_only: true,
+        read_prod: true,
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.until("the plan's session", |r| r.steps[0].session.is_some());
+    let spec = env
+        .agents
+        .session(run.steps[0].session.unwrap())
+        .unwrap()
+        .spec;
+    for tool in ["WebFetch", "WebSearch", "Bash(curl *)"] {
+        assert!(
+            spec.disallowed_tools.iter().any(|t| t == tool),
+            "{tool}: {:?}",
+            spec.disallowed_tools
+        );
+    }
+    assert!(termf_core::taint::run(&env.data, env.target.run));
+}
+
+#[test]
 fn needs_a_valid_report() {
     let env = Env::new("report");
     env.answer(

@@ -76,6 +76,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 rules: levels(&rules)?.into_iter().collect(),
                 budget,
                 plan_only: *action == "plan",
+                ..Options::default()
             };
             let request = match request {
                 Some(text) => Some(serde_json::to_value(Request {

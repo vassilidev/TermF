@@ -11,6 +11,8 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Route from "@lucide/svelte/icons/route";
   import Send from "@lucide/svelte/icons/send";
+  import ServerCog from "@lucide/svelte/icons/server-cog";
+  import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -19,6 +21,7 @@
   import Conversation from "$lib/Conversation.svelte";
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
+  import OpsRequest from "$lib/OpsRequest.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
@@ -30,6 +33,7 @@
   import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject, type Decision } from "$lib/home.svelte";
   import { ago, t } from "$lib/i18n";
   import { analyzing, openSetup, setup } from "$lib/onboarding.svelte";
+  import { ops } from "$lib/ops.svelte";
   import type { Step } from "$lib/onboarding-logic";
   import { newProject } from "$lib/newproject.svelte";
   import { sessionProjects, tallies } from "$lib/project.svelte";
@@ -216,6 +220,12 @@
         context: [what, a ? repoName(a.cwd) : ""].filter(Boolean).join(" · "),
       };
     }
+    if (w.kind === "ops") {
+      const r = ops.requests.find((x) => x.id === w.id);
+      if (!r) return { icon: ShieldAlert, title: "", context: "" };
+      const title = t(r.kind === "approve" ? "opsWaitTitle" : "opsWaitPropose", { recipe: r.plan.recipe });
+      return { icon: r.kind === "approve" ? ShieldAlert : ServerCog, title, context: `${r.plan.connection} · ${r.plan.env}` };
+    }
     const d = "run" in w ? decisionsOf(null).find((x) => x.run.run === w.run && x.step === w.step) : undefined;
     if (!d) return { icon: BellRing, title: "", context: "" };
     const title = !d.ask
@@ -389,6 +399,9 @@
     </article>
   {/if}
   {#each placed.rest as key (key)}{@render cards(key)}{/each}
+  {#each ops.requests.filter((r) => r.project === project?.id) as r (r.id)}
+    <div class="decision"><OpsRequest request={r} primary={main === null} /></div>
+  {/each}
 {/snippet}
 
 <div class="home-view">

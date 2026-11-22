@@ -10,6 +10,7 @@ import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import Palette from "@lucide/svelte/icons/palette";
+import Server from "@lucide/svelte/icons/server";
 import SettingsIcon from "@lucide/svelte/icons/settings";
 import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
 import Ticket from "@lucide/svelte/icons/ticket";
@@ -23,6 +24,7 @@ import { files, showFiles } from "$lib/files.svelte";
 import { git, showGit } from "$lib/git.svelte";
 import { projectWaits, showHome } from "$lib/home.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
+import { ops, showOps } from "$lib/ops.svelte";
 import { showConfig } from "$lib/project.svelte";
 import { schedule, showScheduler } from "$lib/schedule.svelte";
 import { settings, showSettings } from "$lib/settings.svelte";
@@ -141,6 +143,18 @@ export const views: View[] = [
     show: showVault,
     loaded: () => vault.loaded,
     load: () => import("$lib/VaultView.svelte"),
+  },
+  {
+    id: "ops",
+    label: "opsView",
+    command: "opsShow",
+    icon: Server,
+    group: "project",
+    show: showOps,
+    loaded: () => ops.loaded,
+    load: () => import("$lib/OpsView.svelte"),
+    count: () => ops.requests.filter((r) => r.project === app.project).length || undefined,
+    hot: true,
   },
   {
     id: "project",
