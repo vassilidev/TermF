@@ -50,7 +50,7 @@ export function mostRecent<R extends Repo>(repos: R[]): R | null {
   return repos.reduce<R | null>((best, r) => (!best || (r.modified ?? 0) > (best.modified ?? 0) ? r : best), null);
 }
 
-export type Group = "projects" | "sessions" | "repos" | "others" | "views" | "machine" | "actions";
+export type Group = "projects" | "sessions" | "repos" | "others" | "views" | "machine" | "vault" | "actions";
 export type Command = {
   id: string;
   label: string;

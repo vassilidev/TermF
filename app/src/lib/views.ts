@@ -2,9 +2,11 @@ import type { Component } from "svelte";
 import Bot from "@lucide/svelte/icons/bot";
 import CalendarClock from "@lucide/svelte/icons/calendar-clock";
 import FolderTree from "@lucide/svelte/icons/folder-tree";
+import GitBranch from "@lucide/svelte/icons/git-branch";
 import House from "@lucide/svelte/icons/house";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import Palette from "@lucide/svelte/icons/palette";
@@ -18,6 +20,7 @@ import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
 import { design, showDesign } from "$lib/design.svelte";
 import { files, showFiles } from "$lib/files.svelte";
+import { git, showGit } from "$lib/git.svelte";
 import { projectWaits, showHome } from "$lib/home.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { showConfig } from "$lib/project.svelte";
@@ -26,6 +29,7 @@ import { settings, showSettings } from "$lib/settings.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
 import { app, ui, type ViewId } from "$lib/state.svelte";
 import { showTickets, tickets } from "$lib/tickets.svelte";
+import { showVault, showVaultAll, vault } from "$lib/vault.svelte";
 
 type Key = Parameters<typeof t>[0];
 
@@ -99,6 +103,16 @@ export const views: View[] = [
     load: () => import("$lib/FilesView.svelte"),
   },
   {
+    id: "git",
+    label: "gitView",
+    command: "gitShow",
+    icon: GitBranch,
+    group: "project",
+    show: showGit,
+    loaded: () => git.loaded,
+    load: () => import("$lib/GitView.svelte"),
+  },
+  {
     id: "ci",
     label: "viewCi",
     command: "showCi",
@@ -117,6 +131,16 @@ export const views: View[] = [
     show: showDesign,
     loaded: () => design.loaded,
     load: () => import("$lib/DesignView.svelte"),
+  },
+  {
+    id: "vault",
+    label: "vaultTitle",
+    command: "vaultShow",
+    icon: LockKeyhole,
+    group: "project",
+    show: showVault,
+    loaded: () => vault.loaded,
+    load: () => import("$lib/VaultView.svelte"),
   },
   {
     id: "project",
@@ -188,6 +212,16 @@ export const views: View[] = [
     show: showScheduler,
     loaded: () => schedule.loaded,
     load: () => import("$lib/SchedulerView.svelte"),
+  },
+  {
+    id: "vaultAll",
+    label: "vaultTitle",
+    command: "vaultShowAll",
+    icon: LockKeyhole,
+    group: "machine",
+    show: showVaultAll,
+    loaded: () => vault.loadedAll,
+    load: () => import("$lib/VaultView.svelte"),
   },
 ];
 

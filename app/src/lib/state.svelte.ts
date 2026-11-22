@@ -81,6 +81,7 @@ export type ViewId =
   | "terminals"
   | "conversations"
   | "files"
+  | "git"
   | "library"
   | "ssh"
   | "tickets"
@@ -91,7 +92,9 @@ export type ViewId =
   | "project"
   | "run"
   | "settings"
-  | "onboarding";
+  | "onboarding"
+  | "vault"
+  | "vaultAll";
 
 const projectKey = "termf.project";
 

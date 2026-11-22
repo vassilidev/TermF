@@ -20,6 +20,7 @@
     conversations: ["chatView", "t6bHelpConversations"],
     tickets: ["viewTickets", "t6bHelpTickets"],
     files: ["viewFiles", "t6bHelpFiles"],
+    git: ["gitView", "gitHelp"],
     library: ["viewLibrary", "t6bHelpLibrary"],
     ci: ["viewCi", "t6bHelpCi"],
     design: ["designView", "designHelp"],
@@ -29,6 +30,8 @@
     settings: ["settings", "t6bHelpSettings"],
     project: ["ux3t3Config", "ux3t4HelpConfig"],
     onboarding: ["obConfigure", "t6bHelpOnboarding"],
+    vault: ["vaultTitle", "vaultHelp"],
+    vaultAll: ["vaultTitle", "vaultHelp"],
   };
 
   let dialog: HTMLDialogElement;

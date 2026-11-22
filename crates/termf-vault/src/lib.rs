@@ -25,14 +25,22 @@ use termf_sync::crypto::{self, Kdf, Key};
 use zeroize::{Zeroize, Zeroizing};
 
 pub mod audit;
+mod generate;
+mod item;
 mod mask;
 mod reference;
 #[cfg(test)]
 mod tests;
+mod totp;
 
 pub use audit::{Action, Actor, ActorKind, Entry, Event, Verification};
+pub use generate::{Recipe, generate};
+pub use item::{Field, ItemDraft, ItemInfo, Kind, TotpInfo};
 pub use mask::{Masked, Masker};
 pub use reference::check as check_reference;
+pub use totp::{Algorithm, Totp};
+
+use item::Item;
 
 /// The keychain's service name for the vault's key.
 pub const KEYCHAIN: &str = "dev.termf.vault";
@@ -40,11 +48,12 @@ pub const MIN_PASSWORD: usize = 8;
 pub const DEFAULT_AUTO_LOCK_MINUTES: u32 = 10;
 const DIR: &str = "vault";
 const FILE: &str = "vault.json";
-const FORMAT: u32 = 1;
+/// 2: the password manager's items. A TermF that only knows 1 would drop them when it writes, so it refuses 2.
+const FORMAT: u32 = 2;
 const PROD_REAUTH: u64 = 5 * 60;
 /// The wall clock ran this much more than the monotonic one, which stands still while the machine sleeps.
 const SLEEP_GAP: u64 = 30;
-const MAX_VALUE: usize = 64 << 10;
+pub(crate) const MAX_VALUE: usize = 64 << 10;
 const DAMAGED: &str = "the vault file is damaged or was not written by TermF";
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,12 +105,6 @@ impl SecretId {
     }
 
     fn check(&self) -> Result<()> {
-        let word = |s: &str| {
-            !s.is_empty()
-                && s.len() <= 128
-                && s.chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c))
-        };
         ensure!(
             word(&self.name)
                 && self
@@ -110,13 +113,21 @@ impl SecretId {
             "a secret's name is letters, digits, _ . and - (128 at most), starting with a letter or _"
         );
         if let Some(project) = &self.project {
-            ensure!(
-                word(project) && !project.starts_with(['.', '-']),
-                "invalid project id"
-            );
+            ensure!(valid_project(project), "invalid project id");
         }
         Ok(())
     }
+}
+
+fn word(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c))
+}
+
+pub(crate) fn valid_project(project: &str) -> bool {
+    word(project) && !project.starts_with(['.', '-'])
 }
 
 impl fmt::Display for SecretId {
@@ -398,6 +409,8 @@ fn kdf() -> Kdf {
 #[derive(Serialize, Deserialize, Default)]
 struct Content {
     secrets: Vec<Stored>,
+    #[serde(default)]
+    items: Vec<Item>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -495,15 +508,19 @@ impl Vault {
         };
         let file: VaultFile = serde_json::from_slice(&bytes).map_err(|_| anyhow!(DAMAGED))?;
         ensure!(
-            file.format == FORMAT,
+            (1..=FORMAT).contains(&file.format),
             "this vault was written by a newer TermF"
         );
         Ok(file)
     }
 
-    /// Through a temporary file readable only by the user, renamed over the vault.
     fn write(&self, file: &VaultFile) -> Result<()> {
-        let tmp = self.dir.join(format!(".{FILE}.tmp"));
+        self.write_bytes(FILE, &serde_json::to_vec_pretty(file)?)
+    }
+
+    /// Through a temporary file readable only by the user, renamed over the old one.
+    fn write_bytes(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        let tmp = self.dir.join(format!(".{name}.tmp"));
         let mut options = fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
@@ -511,9 +528,37 @@ impl Vault {
         let mut out = options.open(&tmp)?;
         #[cfg(unix)]
         out.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-        out.write_all(&serde_json::to_vec_pretty(file)?)?;
+        out.write_all(bytes)?;
         out.sync_all()?;
-        fs::rename(&tmp, self.dir.join(FILE)).context("cannot write the vault")
+        fs::rename(&tmp, self.dir.join(name)).context("cannot write the vault")
+    }
+
+    /// Before the first write in a newer format, the file as it was is copied to `vault.v<format>.json`, until the
+    /// new one reads back ([`Vault::drop_backup`]).
+    fn back_up(&self, file: &mut VaultFile) -> Result<Option<String>> {
+        if file.format == FORMAT {
+            return Ok(None);
+        }
+        let backup = format!("vault.v{}.json", file.format);
+        // A copy left by an earlier vault is replaced: this file is the one to keep.
+        self.write_bytes(&backup, &fs::read(self.dir.join(FILE))?)?;
+        file.format = FORMAT;
+        Ok(Some(backup))
+    }
+
+    /// The copy goes once the new file reads back as written: it would keep deleted secrets readable.
+    fn drop_backup(&self, backup: &str, key: &Key, content: &Content) -> Result<()> {
+        let written = Zeroizing::new(serde_json::to_vec(content)?);
+        let read = self
+            .read()
+            .and_then(|f| f.open(key))
+            .and_then(|c| Ok(Zeroizing::new(serde_json::to_vec(&c)?)));
+        match read {
+            Ok(read) if *read == *written => Ok(fs::remove_file(self.dir.join(backup))?),
+            _ => bail!(
+                "the vault was rewritten in its new format but does not read back as written: its previous file is kept as vault/{backup}"
+            ),
+        }
     }
 
     /// One writer at a time, across the app and the CLI.
@@ -619,11 +664,19 @@ impl Vault {
 
     /// The data key, unless locked: counts as activity.
     fn key(&self) -> Result<(String, Key)> {
+        self.key_for(true)
+    }
+
+    /// `active: false`: a use that must not keep the vault open, like a TOTP code shown on screen, refreshed
+    /// while nobody is there.
+    fn key_for(&self, active: bool) -> Result<(String, Key)> {
         self.check();
         let now = self.now();
         let mut session = self.session.lock().unwrap();
         let session = session.as_mut().ok_or(Locked)?;
-        session.last = now;
+        if active {
+            session.last = now;
+        }
         Ok((session.id.clone(), session.key.key()))
     }
 
@@ -764,7 +817,11 @@ impl Vault {
     }
 
     fn open(&self) -> Result<Content> {
-        let (id, key) = self.key()?;
+        self.open_for(true)
+    }
+
+    fn open_for(&self, active: bool) -> Result<Content> {
+        let (id, key) = self.key_for(active)?;
         let file = self.read()?;
         ensure!(file.id == id, Locked);
         file.open(&key)
@@ -778,9 +835,13 @@ impl Vault {
         ensure!(file.id == id, Locked);
         let mut content = file.open(&key)?;
         let out = change(&mut content)?;
+        let backup = self.back_up(&mut file)?;
         file.seal(&key, &content)?;
         self.record(event)?;
         self.write(&file)?;
+        if let Some(backup) = backup {
+            self.drop_backup(&backup, &key, &content)?;
+        }
         Ok(out)
     }
 
@@ -891,12 +952,13 @@ impl Vault {
     /// A secret's value, or what its reference resolves to. Audited before it is returned: no entry, no value.
     pub fn value(&self, actor: &Actor, id: &SecretId, access: Access) -> Result<Secret> {
         if access == Access::Reveal && actor.kind != ActorKind::Human {
-            let _ = self.record(Event {
-                target: Some(id.clone()),
-                detail: Some("only the user reveals a secret".into()),
-                ..Event::new(actor, Action::Refused)
-            });
-            bail!("only the user reveals a secret");
+            return Err(self.refuse(
+                Event {
+                    target: Some(id.clone()),
+                    ..Event::new(actor, Action::Refused)
+                },
+                "only the user reveals a secret",
+            ));
         }
         self.prod_gate(actor, id)?;
         let stored = self
@@ -928,10 +990,144 @@ impl Vault {
         Ok(secret)
     }
 
-    /// Masks every value the vault holds (not the references, unknown until resolved: [`Masker::add`]).
+    /// Recorded, then returned as the error.
+    fn refuse(&self, event: Event, why: &str) -> anyhow::Error {
+        let _ = self.record(Event {
+            detail: Some(why.into()),
+            ..event
+        });
+        anyhow!("{why}")
+    }
+
+    /// Masks every secret's value (not the references, unknown until resolved: [`Masker::add`]), and from the
+    /// items the passwords of 8 characters or more, the TOTP secrets and the notes' lines that look like keys.
     pub fn masker(&self) -> Result<Masker> {
-        Ok(Masker::new(
-            self.open()?.secrets.iter().filter_map(|s| s.value.as_ref()),
-        ))
+        let content = self.open()?;
+        let mut masker = Masker::new(content.secrets.iter().filter_map(|s| s.value.as_ref()));
+        for item in &content.items {
+            // A short password ("admin", "1234") or a note's prose would hide ordinary words everywhere.
+            if let Some(password) = item.password.as_ref().filter(|p| p.len() >= 8) {
+                masker.add(password);
+            }
+            if let Some(totp) = &item.totp {
+                masker.add(&totp.secret);
+            }
+            if let Some(notes) = &item.notes {
+                masker.add_key_lines(notes);
+            }
+        }
+        Ok(masker)
+    }
+
+    /// Every item, or those `project` sees (its own and the global ones), by title.
+    pub fn items(&self, project: Option<&str>) -> Result<Vec<ItemInfo>> {
+        let mut list: Vec<ItemInfo> = self
+            .open()?
+            .items
+            .iter()
+            .filter(|i| project.is_none() || i.project.is_none() || i.project.as_deref() == project)
+            .map(Item::info)
+            .collect();
+        list.sort_by_cached_key(|i| (i.title.to_lowercase(), i.id.clone()));
+        Ok(list)
+    }
+
+    /// Creates an item (`draft.id: None`) or changes one.
+    pub fn save_item(&self, actor: &Actor, draft: ItemDraft) -> Result<ItemInfo> {
+        let totp = draft.check()?;
+        let now = self.clock.wall();
+        let id = match &draft.id {
+            Some(id) => id.clone(),
+            None => crypto::hex(&crypto::random::<16>()),
+        };
+        let event = Event {
+            item: Some(id.clone()),
+            ..Event::new(actor, Action::Write)
+        };
+        self.modify(event, |content| {
+            let i = match content.items.iter().position(|i| i.id == id) {
+                Some(i) => i,
+                None => {
+                    ensure!(draft.id.is_none(), "no such item");
+                    content.items.push(Item {
+                        id: id.clone(),
+                        kind: draft.kind,
+                        project: None,
+                        title: String::new(),
+                        urls: Vec::new(),
+                        username: String::new(),
+                        password: None,
+                        totp: None,
+                        notes: None,
+                        agents: false,
+                        created: now,
+                        updated: now,
+                    });
+                    content.items.len() - 1
+                }
+            };
+            let item = &mut content.items[i];
+            item.apply(draft, totp, now);
+            Ok(item.info())
+        })
+    }
+
+    pub fn delete_item(&self, actor: &Actor, id: &str) -> Result<()> {
+        let event = Event {
+            item: Some(id.into()),
+            ..Event::new(actor, Action::Delete)
+        };
+        self.modify(event, |content| {
+            let before = content.items.len();
+            content.items.retain(|i| i.id != id);
+            ensure!(content.items.len() < before, "no such item");
+            Ok(())
+        })
+    }
+
+    /// An item's value, as [`Vault::value`] gives a secret's: only the user reveals one, and an agent uses one
+    /// only from an item the user opened to agents. Audited before it is returned: no entry, no value.
+    pub fn item_value(
+        &self,
+        actor: &Actor,
+        id: &str,
+        field: Field,
+        access: Access,
+    ) -> Result<Secret> {
+        let refused = Event {
+            item: Some(id.into()),
+            ..Event::new(actor, Action::Refused)
+        };
+        let agent = actor.kind != ActorKind::Human;
+        if access == Access::Reveal && agent {
+            return Err(self.refuse(refused, "only the user reveals a secret"));
+        }
+        let item = self
+            .open_for(field != Field::Totp)?
+            .items
+            .into_iter()
+            .find(|i| i.id == id)
+            .context("no such item")?;
+        if agent && !item.agents {
+            return Err(self.refuse(refused, "this item is not open to agents"));
+        }
+        let value = match field {
+            Field::Password => item.password,
+            Field::Notes => item.notes,
+            Field::Seed => item.totp.map(|t| t.secret),
+            Field::Totp => item.totp.map(|t| t.code(self.clock.wall())),
+        }
+        .with_context(|| format!("this item has no {}", field.as_str()))?;
+        let action = match access {
+            Access::Reveal => Action::Reveal,
+            Access::Use => Action::Read,
+        };
+        self.record(Event {
+            item: Some(id.into()),
+            size: Some(value.len() as u64),
+            detail: Some(field.as_str().into()),
+            ..Event::new(actor, action)
+        })?;
+        Ok(value)
     }
 }

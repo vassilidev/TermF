@@ -1,0 +1,12 @@
+[package]
+name = "termf-git"
+description = "Git in a project: the commit graph of every branch, each branch's state, the worktrees and everyday actions, through the git CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+termf-core = { path = "../termf-core" }
