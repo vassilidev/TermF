@@ -322,7 +322,9 @@ fn chosen_repo(resolution: &crate::Resolution, repo: Option<&str>) -> Result<cra
         Some(wanted) => resolution
             .repos
             .iter()
-            .find(|r| r.name.eq_ignore_ascii_case(wanted) || Path::new(&r.path) == Path::new(wanted))
+            .find(|r| {
+                r.name.eq_ignore_ascii_case(wanted) || Path::new(&r.path) == Path::new(wanted)
+            })
             .cloned()
             .with_context(|| format!("no repository {wanted} in project {}", resolution.project)),
         None => {
@@ -406,12 +408,12 @@ impl Tickets {
         let ticket = self
             .provider(&resolution.project, &resolution.ticket.provider)?
             .fetch(&resolution.ticket)?;
-        self.open(&resolution.project, &chosen, &ticket)
+        self.open_run(&resolution.project, &chosen, &ticket, session)
     }
 
     /// Prepares a run, as `start` does, for a request the user wrote in TermF instead of a tracker's ticket: its
     /// ticket is the request, of the provider `request`, with no address; delivering it touches no tracker.
-    pub fn start_request(&self, text: &str, project: &str, repo: Option<&str>) -> Result<Launch> {
+    pub fn start_request(&self, text: &str, project: &str, repo: Option<&str>) -> Result<Run> {
         let text = text.trim();
         ensure!(!text.is_empty(), "say what the request is");
         let reference = crate::TicketRef {
@@ -433,11 +435,17 @@ impl Tickets {
             comments: Vec::new(),
             links: crate::links([text], ""),
         };
-        self.open(project, &chosen, &ticket)
+        Ok(self.open_run(project, &chosen, &ticket, false)?.run)
     }
 
     /// The run of `ticket` in `project`'s repository `chosen`: its worktree, its brief, its preparation.
-    fn open(&self, project: &str, chosen: &crate::RepoChoice, ticket: &Ticket) -> Result<Launch> {
+    fn open_run(
+        &self,
+        project: &str,
+        chosen: &crate::RepoChoice,
+        ticket: &Ticket,
+        session: bool,
+    ) -> Result<Launch> {
         let store = Store::open(&self.data_dir)?;
         let mut run = store.create(project, ticket, &chosen.path)?;
         let conversation = uuid::Uuid::new_v4().to_string();
