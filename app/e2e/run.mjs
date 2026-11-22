@@ -70,6 +70,10 @@ async function attempt(scenario) {
     return error;
   } finally {
     clearTimeout(timer);
+    if (t.app) {
+      const synthetic = await new Session(t.s.base, t.s.id).exec(() => window.__e2e?.synthetic).catch(() => 0);
+      if (synthetic) log(`  (${synthetic} input${synthetic > 1 ? "s" : ""} sent by script after WebKit dropped them)`);
+    }
     await t.stop().catch(() => {});
     box.cleanup();
   }

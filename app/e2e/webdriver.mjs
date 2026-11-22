@@ -45,16 +45,39 @@ export class Session {
     return this.wait(still, { what: `${css} to be visible, still and uncovered` });
   }
 
-  /** Pointer actions, not a script: the page gets trusted events, as from a mouse. */
+  /**
+   * Pointer actions first, so the page gets trusted events as from a mouse. Under xvfb WebKitGTK drops some of them:
+   * a click the page did not see on the element is then made by script, and counted in `window.__e2e.synthetic`.
+   */
   async click(css, index = 0) {
     const { x, y } = await this.point(css, index);
+    const before = await this.exec(() => window.__e2e?.clicks.length ?? 0);
     const actions = [
       { type: "pointerMove", origin: "viewport", x, y, duration: 0 },
       { type: "pointerDown", button: 0 },
       { type: "pointerUp", button: 0 },
     ];
     await this.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] });
+    const seen = (c, i, n) => {
+      const el = document.querySelectorAll(c)[i];
+      const clicks = window.__e2e?.clicks ?? [];
+      return clicks.length > n && (!el || clicks.slice(n).some((target) => el.contains(target)));
+    };
+    const landed = await this.wait(() => this.exec(seen, css, index, before), { timeout: 1000, every: 25 }).catch(() => false);
+    if (!landed) {
+      await this.exec(
+        (c, i) => {
+          const el = document.querySelectorAll(c)[i];
+          el.focus?.();
+          el.click();
+          if (window.__e2e) window.__e2e.synthetic++;
+        },
+        css,
+        index,
+      );
+    }
   }
+
 
   async type(css, text, index = 0) {
     await this.click(css, index);

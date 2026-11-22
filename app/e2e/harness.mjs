@@ -40,7 +40,8 @@ function tauriDriver() {
 function prepare() {
   if (window.__e2e) return;
   const errors = [];
-  window.__e2e = { errors };
+  window.__e2e = { errors, clicks: [], synthetic: 0 };
+  document.addEventListener("click", (e) => window.__e2e.clicks.push(e.target), true);
   const push = (m) => errors.push(String(m).slice(0, 600));
   const error = console.error.bind(console);
   console.error = (...a) => (push(a.map((x) => x?.stack ?? x).join(" ")), error(...a));
@@ -174,9 +175,17 @@ export function helpers(box, port, signal) {
       }
     },
 
+    /** Ctrl+K; a chord WebKitGTK drops under xvfb is sent by script, counted like the clicks. */
     async palette() {
       await t.s.exec(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
       await t.s.press(Key.ctrl, "k");
+      const opened = await t.s.waitFor("dialog.palette", { timeout: 1500 }).catch(() => false);
+      if (opened) return;
+      await t.s.exec(() => {
+        const init = { key: "k", code: "KeyK", ctrlKey: true, bubbles: true, cancelable: true };
+        document.body.dispatchEvent(new KeyboardEvent("keydown", init));
+        window.__e2e.synthetic++;
+      });
       await t.s.waitFor("dialog.palette");
     },
 
@@ -243,6 +252,7 @@ export function helpers(box, port, signal) {
 
     async typeIn(id, text) {
       await t.s.click(`.tile[data-session="${id}"] .xterm-screen`);
+      await t.s.exec((sid) => document.querySelector(`.tile[data-session="${sid}"] .xterm-helper-textarea`).focus(), id);
       await t.s.keys(text);
     },
   };
