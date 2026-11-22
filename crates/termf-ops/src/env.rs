@@ -12,12 +12,23 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use termf_vault::Secret;
 
-/// The keys of a `.env` and their values, in the file's order; a key set twice keeps its last value.
-pub fn parse(text: &str) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
-    let mut lines = text.lines();
-    while let Some(line) = lines.next() {
-        let line = line.trim_start();
+/// A key of a `.env`, its value, and the lines (`start..end`) that hold it.
+struct Entry {
+    key: String,
+    value: String,
+    lines: std::ops::Range<usize>,
+}
+
+/// Every entry of a `.env`, in the file's order. A quoted value goes on over the next lines up to its closing
+/// quote; without one, it is the rest of its own line, and the next lines are read as entries.
+fn entries(text: &str) -> Vec<Entry> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < lines.len() {
+        let start = at;
+        at += 1;
+        let line = lines[start].trim_start();
         let line = line.strip_prefix("export ").unwrap_or(line).trim_start();
         let Some((key, rest)) = line.split_once('=') else {
             continue;
@@ -31,49 +42,66 @@ pub fn parse(text: &str) -> Vec<(String, String)> {
             continue;
         }
         let rest = rest.trim_start();
+        let plain = || match rest.find(" #") {
+            Some(cut) => rest[..cut].trim_end().to_owned(),
+            None => rest.trim_end().to_owned(),
+        };
         let value = match rest.chars().next() {
             Some(quote @ ('"' | '\'')) => {
-                // A quoted value may go on over the next lines, up to its closing quote.
                 let mut body = rest[1..].to_owned();
-                let mut value = None;
+                let mut next = at;
                 loop {
                     if let Some(end) = closing(&body, quote) {
-                        value = Some(body[..end].to_owned());
-                        break;
+                        at = next;
+                        let value = &body[..end];
+                        break if quote == '"' {
+                            unescape(value)
+                        } else {
+                            value.to_owned()
+                        };
                     }
-                    match lines.next() {
-                        Some(next) => {
-                            body.push('\n');
-                            body.push_str(next);
-                        }
-                        None => break,
-                    }
-                }
-                let Some(value) = value else { continue };
-                if quote == '"' {
-                    unescape(&value)
-                } else {
-                    value
+                    let Some(more) = lines.get(next) else {
+                        break plain();
+                    };
+                    body.push('\n');
+                    body.push_str(more);
+                    next += 1;
                 }
             }
-            _ => match rest.find(" #") {
-                Some(at) => rest[..at].trim_end().to_owned(),
-                None => rest.trim_end().to_owned(),
-            },
+            _ => plain(),
         };
-        out.retain(|(k, _)| k != key);
-        out.push((key.to_owned(), value));
+        out.push(Entry {
+            key: key.to_owned(),
+            value,
+            lines: start..at,
+        });
     }
     out
 }
 
-/// Where the quote that ends a value is, a `\"` not counted in double quotes.
+/// The keys of a `.env` and their values, in the file's order; a key set twice keeps its last value.
+pub fn parse(text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for e in entries(text) {
+        out.retain(|(k, _)| *k != e.key);
+        out.push((e.key, e.value));
+    }
+    out
+}
+
+/// Where the quote that ends a value is: one that ends its line (a comment may follow), a `\"` not counted in
+/// double quotes. A quote within a line is the value's, or the next key's opening one.
 fn closing(body: &str, quote: char) -> Option<usize> {
     let mut escaped = false;
     for (i, c) in body.char_indices() {
         match c {
             '\\' if quote == '"' && !escaped => escaped = true,
-            c if c == quote && !escaped => return Some(i),
+            c if c == quote && !escaped => {
+                let after = body[i + 1..].split('\n').next().unwrap_or_default().trim();
+                if after.is_empty() || after.starts_with('#') {
+                    return Some(i);
+                }
+            }
             _ => escaped = false,
         }
     }
@@ -242,13 +270,17 @@ pub fn write(worktree: &Path, key: &str, value: &Secret) -> Result<()> {
         Err(e) => return Err(e).with_context(|| format!("cannot read {}", file.display())),
     };
     let line = format!("{key}={}", quoted(value.expose()));
+    // Every line of the key's entries goes, a quoted value over several lines whole.
+    let gone: Vec<std::ops::Range<usize>> = entries(&old)
+        .into_iter()
+        .filter(|e| e.key == key)
+        .map(|e| e.lines)
+        .collect();
     let mut lines: Vec<&str> = old
         .lines()
-        .filter(|l| {
-            let l = l.trim_start();
-            let l = l.strip_prefix("export ").unwrap_or(l).trim_start();
-            l.split_once('=').map(|(k, _)| k.trim()) != Some(key)
-        })
+        .enumerate()
+        .filter(|(i, _)| !gone.iter().any(|r| r.contains(i)))
+        .map(|(_, l)| l)
         .collect();
     lines.push(&line);
     let text = termf_vault::Zeroizing::new(lines.join("\n") + "\n");
@@ -300,6 +332,29 @@ mod tests {
                 ("APP_ENV", "prod"),
             ]
         );
+    }
+
+    #[test]
+    fn a_quote_never_closed_holds_its_own_line_only() {
+        let parsed = parse("A=\"never closed\nB=2\nC='x y'\nD=\"also open # here\n");
+        let keys: Vec<(&str, &str)> = parsed
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                ("A", "\"never closed"),
+                ("B", "2"),
+                ("C", "x y"),
+                ("D", "\"also open")
+            ]
+        );
+        let spans: Vec<_> = entries("A=\"x\ny\"\nB=1\n")
+            .into_iter()
+            .map(|e| (e.key, e.lines))
+            .collect();
+        assert_eq!(spans, [("A".to_owned(), 0..2), ("B".to_owned(), 2..3)]);
     }
 
     #[test]

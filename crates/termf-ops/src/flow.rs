@@ -399,8 +399,9 @@ impl Ops<'_> {
         })
     }
 
-    /// Audits what the user does with the value of `key` in a `.env` output (`size`: its bytes), before it is done:
-    /// in the history as the run is, with the event and the key, never the value.
+    /// Audits what the user does with the value of `key` in a `.env` output (`size`: its bytes): in the history as
+    /// the run is, with the event and the key, never the value. A value shown or copied is audited before it leaves;
+    /// a value written, once it is (`error`: why it was not).
     pub fn record_use(
         &self,
         project: &str,
@@ -408,6 +409,7 @@ impl Ops<'_> {
         what: Use,
         key: &str,
         size: usize,
+        error: Option<String>,
     ) -> Result<Entry> {
         let (event, run) = match what {
             Use::Reveal => ("reveal", None),
@@ -421,7 +423,7 @@ impl Ops<'_> {
             command: &plan.command,
             approval: "user",
             exit: None,
-            error: None,
+            error,
             truncated: false,
             event: Some(event),
             key: Some(key),
@@ -463,7 +465,19 @@ impl Ops<'_> {
             .collect::<Result<_>>()?;
         let values: Vec<Secret> = used.iter().map(|(_, s)| s.clone()).collect();
         let lines = redact::Lines::new(masker.as_ref(), &values, &plan.redact);
-        let detail = Detail {
+        // What would refuse the start is checked before the audit, which no line may precede.
+        ensure!(
+            plan.base.tunnel.is_none() && plan.base.stdin.is_empty(),
+            "{} cannot be followed: it needs a tunnel or its input",
+            plan.recipe
+        );
+        ensure!(
+            self.runner.find(&plan.base.program).is_some(),
+            "{} is not installed or not on the PATH: install {}",
+            plan.base.program,
+            crate::install_hint(&plan.base.program)
+        );
+        let mut detail = Detail {
             recipe: &plan.recipe,
             mode: plan.mode,
             params: &plan.params,
@@ -507,8 +521,16 @@ impl Ops<'_> {
                     errors: errors.mask(&said).0,
                 })
             },
-        )?;
-        Ok((plan, following))
+        );
+        match following {
+            Ok(following) => Ok((plan, following)),
+            Err(e) => {
+                // The start was audited: the entry after it says it failed.
+                detail.error = Some(format!("{e:#}"));
+                self.append(project, &actor, &plan, &detail, None, None)?;
+                Err(e)
+            }
+        }
     }
 
     /// Runs the plan for `actor`, masks and audits it: no audit entry, no output.

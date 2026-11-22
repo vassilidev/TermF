@@ -320,9 +320,13 @@ pub fn table(
     limits: &Limits,
 ) -> Output {
     let values = values(masker, &raw.used);
-    let mut table = crate::sql::table(kind, &raw.stdout);
+    let (mut table, cut) = crate::sql::table(kind, &raw.stdout);
+    // A client stopped past the limit may have printed its last long line in pieces, each looking whole.
+    if raw.stopped.is_some() {
+        table.rows.pop();
+    }
     let rows = limits.rows.unwrap_or(crate::sql::ROWS);
-    let truncated = table.rows.len() > rows;
+    let truncated = cut || raw.stopped.is_some() || table.rows.len() > rows;
     table.rows.truncate(rows);
     let mut masks = 0;
     for cell in table
@@ -343,7 +347,8 @@ pub fn table(
         bytes: raw.bytes,
         masks,
         millis: raw.millis,
-        table: (!table.columns.is_empty()).then_some(table),
+        // mysql prints nothing for a query without rows, not even its columns: an empty table, not a failure.
+        table: (raw.exit == Some(0) || !table.columns.is_empty()).then_some(table),
         ..Output::default()
     }
 }

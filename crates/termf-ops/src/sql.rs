@@ -5,9 +5,10 @@
 //! with a `LIMIT` added when the query has none; the client runs it in a read-only transaction with a timeout
 //! ([`args`]), for a user TermF asks to be read-only when the connection is tested.
 
+use std::fmt;
 use std::ops::ControlFlow;
 
-use anyhow::{Error, Result, anyhow, bail, ensure};
+use serde::Serialize;
 use sqlparser::ast::{
     Expr, LimitClause, ObjectName, ObjectNamePart, Query, Select, Statement, TableFactor, Visit,
     Visitor,
@@ -89,16 +90,103 @@ pub const REFUSED_PREFIXES: &[&str] = &[
 /// The rows a query returns when its recipe says nothing.
 pub const ROWS: usize = 500;
 
-fn refused(name: &ObjectName) -> ControlFlow<Error> {
+/// Why the SQL console refuses a query: what the app translates.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Why {
+    /// Not a Postgres or MySQL connection.
+    Database,
+    Empty,
+    Control,
+    /// MySQL: a backslash.
+    Backslash,
+    /// MySQL: `/*! … */` or `/*M! … */`.
+    Executable,
+    /// `subject`: the parser's message.
+    Unreadable,
+    /// `subject`: how many statements.
+    Several,
+    /// `subject`: the statement's first word.
+    NotRead,
+    ExplainAnalyze,
+    ExplainOnly,
+    Into,
+    Locks,
+    /// `subject`: the function's name.
+    Function,
+}
+
+/// A query refused, with what to name in the reason.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct Refused {
+    pub code: Why,
+    pub subject: String,
+}
+
+impl Refused {
+    fn new(code: Why, subject: impl Into<String>) -> Self {
+        Self {
+            code,
+            subject: subject.into(),
+        }
+    }
+}
+
+impl fmt::Display for Refused {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = &self.subject;
+        match self.code {
+            Why::Database => write!(f, "SQL runs on a Postgres or MySQL connection"),
+            Why::Empty => write!(f, "the query is empty"),
+            Why::Control => write!(
+                f,
+                "a query holds no control character but line breaks and tabs"
+            ),
+            Why::Backslash => write!(
+                f,
+                "MySQL: no backslash in the query (its meaning depends on the server's sql_mode); write it CHAR(92)"
+            ),
+            Why::Executable => write!(
+                f,
+                "MySQL: no executable comment (/*! … */ or /*M! … */) in the SQL console"
+            ),
+            Why::Unreadable => write!(f, "not a query TermF can read: {s}"),
+            Why::Several => write!(f, "one statement at a time: this holds {s}"),
+            Why::NotRead => write!(
+                f,
+                "{s} is not a read: the SQL console runs one SELECT, WITH … SELECT, EXPLAIN, SHOW or DESCRIBE"
+            ),
+            Why::ExplainAnalyze => write!(
+                f,
+                "EXPLAIN ANALYZE runs the statement it explains ({s}): only a query is explained"
+            ),
+            Why::ExplainOnly => write!(f, "the SQL console explains only a query, not {s}"),
+            Why::Into => write!(
+                f,
+                "SELECT … INTO writes a table, a file or variables: the SQL console only reads"
+            ),
+            Why::Locks => write!(
+                f,
+                "FOR UPDATE / FOR SHARE locks rows: the SQL console only reads"
+            ),
+            Why::Function => write!(
+                f,
+                "{s}() acts beyond reading: TermF refuses it in the SQL console"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Refused {}
+
+fn refused(name: &ObjectName) -> ControlFlow<Refused> {
     let last = match name.0.last() {
         Some(ObjectNamePart::Identifier(i)) => i.value.to_lowercase(),
         Some(ObjectNamePart::Function(f)) => f.name.value.to_lowercase(),
         None => return ControlFlow::Continue(()),
     };
     if REFUSED.contains(&last.as_str()) || REFUSED_PREFIXES.iter().any(|p| last.starts_with(p)) {
-        return ControlFlow::Break(anyhow!(
-            "{last}() acts beyond reading: TermF refuses it in the SQL console"
-        ));
+        return ControlFlow::Break(Refused::new(Why::Function, last));
     }
     ControlFlow::Continue(())
 }
@@ -116,9 +204,9 @@ fn keyword(statement: &Statement) -> String {
 struct Guard;
 
 impl Visitor for Guard {
-    type Break = Error;
+    type Break = Refused;
 
-    fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<Error> {
+    fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<Refused> {
         use Statement as S;
         match statement {
             S::Query(_)
@@ -152,51 +240,39 @@ impl Visitor for Guard {
                         let name = o.name.value.to_lowercase();
                         name == "analyze" || name == "analyse"
                     });
-                ControlFlow::Break(if analyzed {
-                    anyhow!(
-                        "EXPLAIN ANALYZE runs the statement it explains ({}): only a query is explained",
-                        keyword(statement)
-                    )
+                let code = if analyzed {
+                    Why::ExplainAnalyze
                 } else {
-                    anyhow!(
-                        "the SQL console explains only a query, not {}",
-                        keyword(statement)
-                    )
-                })
+                    Why::ExplainOnly
+                };
+                ControlFlow::Break(Refused::new(code, keyword(statement)))
             }
-            other => ControlFlow::Break(anyhow!(
-                "{} is not a read: the SQL console runs one SELECT, WITH … SELECT, EXPLAIN, SHOW or DESCRIBE",
-                keyword(other)
-            )),
+            other => ControlFlow::Break(Refused::new(Why::NotRead, keyword(other))),
         }
     }
 
-    fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Error> {
+    fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Refused> {
         if !query.locks.is_empty() {
-            return ControlFlow::Break(anyhow!(
-                "FOR UPDATE / FOR SHARE locks rows: the SQL console only reads"
-            ));
+            return ControlFlow::Break(Refused::new(Why::Locks, ""));
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Error> {
+    fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Refused> {
         if select.into.is_some() {
-            return ControlFlow::Break(anyhow!(
-                "SELECT … INTO writes a table, a file or variables: the SQL console only reads"
-            ));
+            return ControlFlow::Break(Refused::new(Why::Into, ""));
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Error> {
+    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Refused> {
         match expr {
             Expr::Function(f) => refused(&f.name),
             _ => ControlFlow::Continue(()),
         }
     }
 
-    fn pre_visit_table_factor(&mut self, table: &TableFactor) -> ControlFlow<Error> {
+    fn pre_visit_table_factor(&mut self, table: &TableFactor) -> ControlFlow<Refused> {
         match table {
             TableFactor::Table {
                 name,
@@ -237,39 +313,39 @@ fn limited(query: &Query) -> bool {
 }
 
 /// The query to run, or why the SQL console refuses it. `rows`: the `LIMIT` added to a query without one.
-pub fn analyze(sql: &str, kind: Kind, rows: usize) -> Result<String> {
+pub fn analyze(sql: &str, kind: Kind, rows: usize) -> Result<String, Refused> {
     let mysql = match kind {
         Kind::Postgres => false,
         Kind::Mysql => true,
-        _ => bail!("SQL runs on a Postgres or MySQL connection"),
+        _ => return Err(Refused::new(Why::Database, "")),
     };
+    let refuse = |code: Why| Err(Refused::new(code, ""));
     // The servers end a `--` comment at a lone \r too: one form of line end, the same for every reader.
     let sql = sql.replace("\r\n", "\n").replace('\r', "\n");
-    ensure!(
-        !sql.chars()
-            .any(|c| c.is_control() && c != '\n' && c != '\t'),
-        "a query holds no control character but line breaks and tabs"
-    );
+    if sql
+        .chars()
+        .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        return refuse(Why::Control);
+    }
     if mysql {
         // Whether a backslash escapes depends on the server's sql_mode (NO_BACKSLASH_ESCAPES), which TermF cannot
         // know: where a string ends would be a guess.
-        ensure!(
-            !sql.contains('\\'),
-            "MySQL: no backslash in the query (its meaning depends on the server's sql_mode); write it CHAR(92)"
-        );
+        if sql.contains('\\') {
+            return refuse(Why::Backslash);
+        }
         // MySQL runs what /*! … */ holds, MariaDB what /*M! … */ holds.
         let lower = sql.to_lowercase();
-        ensure!(
-            !lower.contains("/*!") && !lower.contains("/*m!"),
-            "MySQL: no executable comment (/*! … */ or /*M! … */) in the SQL console"
-        );
+        if lower.contains("/*!") || lower.contains("/*m!") {
+            return refuse(Why::Executable);
+        }
     }
     let dialect: &dyn Dialect = if mysql {
         &MySqlDialect {}
     } else {
         &PostgreSqlDialect {}
     };
-    let unreadable = |e: &dyn std::fmt::Display| anyhow!("not a query TermF can read: {e}");
+    let unreadable = |e: &dyn fmt::Display| Refused::new(Why::Unreadable, e.to_string());
     let tokens = Tokenizer::new(dialect, &sql)
         .with_unescape(false)
         .tokenize_with_location()
@@ -279,7 +355,7 @@ pub fn analyze(sql: &str, kind: Kind, rows: usize) -> Result<String> {
         .filter(|t| !matches!(t.token, Token::Whitespace(_) | Token::SemiColon))
         .collect();
     let (Some(first), Some(last)) = (significant.first(), significant.last()) else {
-        bail!("the query is empty");
+        return refuse(Why::Empty);
     };
     let (start, end) = (offset(&sql, first.span.start), offset(&sql, last.span.end));
     let statements = Parser::new(dialect)
@@ -287,11 +363,9 @@ pub fn analyze(sql: &str, kind: Kind, rows: usize) -> Result<String> {
         .with_tokens_with_locations(tokens.clone())
         .parse_statements()
         .map_err(|e| unreadable(&e))?;
-    ensure!(
-        statements.len() == 1,
-        "one statement at a time: this holds {}",
-        statements.len()
-    );
+    if statements.len() != 1 {
+        return Err(Refused::new(Why::Several, statements.len().to_string()));
+    }
     if let ControlFlow::Break(e) = statements[0].visit(&mut Guard) {
         return Err(e);
     }
@@ -338,8 +412,9 @@ pub struct Table {
     pub rows: Vec<Vec<String>>,
 }
 
-/// psql's `--csv`: fields between commas, in double quotes when they hold a comma, a quote or a line break.
-fn csv(text: &str) -> Vec<Vec<String>> {
+/// psql's `--csv`: fields between commas, in double quotes when they hold a comma, a quote or a line break. Only
+/// records that end: a last one without its line break was cut by the output's limit, and is dropped (`true`).
+fn csv(text: &str) -> (Vec<Vec<String>>, bool) {
     let (mut records, mut record, mut field) = (Vec::new(), Vec::new(), String::new());
     let (mut quoted, mut chars) = (false, text.chars().peekable());
     while let Some(c) = chars.next() {
@@ -360,17 +435,16 @@ fn csv(text: &str) -> Vec<Vec<String>> {
             (false, c) => field.push(c),
         }
     }
-    // A last line cut by the output's limit is dropped, as a half value would mislead.
-    if !quoted && (!field.is_empty() || !record.is_empty()) {
-        record.push(field);
-        records.push(record);
-    }
-    records
+    (records, quoted || !field.is_empty() || !record.is_empty())
 }
 
-/// mysql's `--batch`: tab-separated, `\t`, `\n`, `\\` and `\0` escaped.
-fn tsv(text: &str) -> Vec<Vec<String>> {
-    text.lines()
+/// mysql's `--batch`: tab-separated, `\t`, `\n`, `\\` and `\0` escaped; a last line without its line break is
+/// dropped (`true`), as in [`csv`].
+fn tsv(text: &str) -> (Vec<Vec<String>>, bool) {
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    let partial = lines.pop().is_some_and(|last| !last.is_empty());
+    let records = lines
+        .into_iter()
         .map(|line| {
             line.split('\t')
                 .map(|field| {
@@ -393,24 +467,26 @@ fn tsv(text: &str) -> Vec<Vec<String>> {
                 })
                 .collect()
         })
-        .collect()
+        .collect();
+    (records, partial)
 }
 
-/// The client's output as a table: the first record names the columns.
-pub fn table(kind: Kind, text: &str) -> Table {
-    let mut records = if kind == Kind::Mysql {
+/// The client's output as a table, the first record naming the columns; `true` when a cut record was dropped.
+pub fn table(kind: Kind, text: &str) -> (Table, bool) {
+    let (mut records, cut) = if kind == Kind::Mysql {
         tsv(text)
     } else {
         csv(text)
     };
     if records.is_empty() {
-        return Table::default();
+        return (Table::default(), cut);
     }
     let columns = records.remove(0);
-    Table {
+    let table = Table {
         columns,
         rows: records,
-    }
+    };
+    (table, cut)
 }
 
 /// The table as text for an agent or the terminal: tab-separated, a line per row.
@@ -430,11 +506,11 @@ pub fn render(table: &Table) -> String {
 mod tests {
     use super::*;
 
-    fn pg(sql: &str) -> Result<String> {
+    fn pg(sql: &str) -> Result<String, Refused> {
         analyze(sql, Kind::Postgres, 500)
     }
 
-    fn my(sql: &str) -> Result<String> {
+    fn my(sql: &str) -> Result<String, Refused> {
         analyze(sql, Kind::Mysql, 500)
     }
 
@@ -678,7 +754,45 @@ mod tests {
             let e = my(sql).expect_err(sql).to_string();
             assert!(e.contains(why), "{sql:?}: {e}");
         }
-        assert!(analyze("SELECT 1", Kind::Ssh, 500).is_err());
+        assert_eq!(
+            analyze("SELECT 1", Kind::Ssh, 500).unwrap_err().code,
+            Why::Database
+        );
+    }
+
+    #[test]
+    fn a_refusal_carries_its_code_and_what_it_names() {
+        for (sql, code, subject) in [
+            ("", Why::Empty, ""),
+            ("SELECT 1; SELECT 2", Why::Several, "2"),
+            ("delete from users", Why::NotRead, "DELETE"),
+            (
+                "WITH g AS (UPDATE t SET x = 1 RETURNING *) SELECT * FROM g",
+                Why::NotRead,
+                "UPDATE",
+            ),
+            (
+                "EXPLAIN ANALYZE DELETE FROM t",
+                Why::ExplainAnalyze,
+                "DELETE",
+            ),
+            ("EXPLAIN DELETE FROM t", Why::ExplainOnly, "DELETE"),
+            ("SELECT * INTO b FROM t", Why::Into, ""),
+            ("SELECT * FROM t FOR UPDATE", Why::Locks, ""),
+            ("SELECT PG_READ_FILE('/x')", Why::Function, "pg_read_file"),
+            ("SELECT 1\u{7}", Why::Control, ""),
+        ] {
+            let r = pg(sql).expect_err(sql);
+            assert_eq!((r.code, r.subject.as_str()), (code, subject), "{sql:?}");
+        }
+        assert_eq!(pg("SELEC 1").unwrap_err().code, Why::Unreadable);
+        assert_eq!(my("SELECT 'a\\b'").unwrap_err().code, Why::Backslash);
+        assert_eq!(my("SELECT 1 /*!1*/").unwrap_err().code, Why::Executable);
+        let json = serde_json::to_value(pg("TRUNCATE t").unwrap_err()).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"code": "notRead", "subject": "TRUNCATE"})
+        );
     }
 
     #[test]
@@ -700,10 +814,11 @@ mod tests {
 
     #[test]
     fn results_read_as_tables() {
-        let t = table(
+        let (t, cut) = table(
             Kind::Postgres,
             "id,email,note\n1,alice@example.com,\"a, \"\"quoted\"\"\nline\"\n2,NULL,\n3,cut,\"half",
         );
+        assert!(cut);
         assert_eq!(t.columns, ["id", "email", "note"]);
         assert_eq!(
             t.rows,
@@ -712,9 +827,23 @@ mod tests {
                 vec!["2", "NULL", ""],
             ]
         );
-        let t = table(Kind::Mysql, "id\tnote\n1\ta\\tb\\nc\\\\d\n2\tNULL\n");
+        let (t, cut) = table(Kind::Mysql, "id\tnote\n1\ta\\tb\\nc\\\\d\n2\tNULL\n");
+        assert!(!cut);
         assert_eq!(t.rows, [vec!["1", "a\tb\nc\\d"], vec!["2", "NULL"]]);
         assert_eq!(render(&t), "id\tnote\n1\ta\\tb\\nc\\\\d\n2\tNULL\n");
-        assert_eq!(table(Kind::Postgres, ""), Table::default());
+        assert_eq!(table(Kind::Postgres, ""), (Table::default(), false));
+    }
+
+    #[test]
+    fn a_last_record_without_its_line_break_was_cut_and_is_dropped() {
+        // Unquoted, so the CSV reader alone cannot tell it ends early.
+        let (t, cut) = table(Kind::Postgres, "id,total\n1,1240.00\n2,12");
+        assert!(cut);
+        assert_eq!(t.rows, [vec!["1", "1240.00"]]);
+        let (t, cut) = table(Kind::Mysql, "id\ttotal\n1\t1240.00\n2\t12");
+        assert!(cut);
+        assert_eq!(t.rows, [vec!["1", "1240.00"]]);
+        let (t, cut) = table(Kind::Mysql, "id\n");
+        assert!(!cut && t.rows.is_empty() && t.columns == ["id"]);
     }
 }

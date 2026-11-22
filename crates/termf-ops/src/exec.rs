@@ -808,12 +808,25 @@ pub struct Following {
     child: Arc<Mutex<Child>>,
 }
 
-impl Drop for Following {
-    fn drop(&mut self) {
+impl Following {
+    /// Kills the client and its process group, unless it already ended: once waited for, its number (and its
+    /// group's) may be another program's. True when it signalled.
+    pub fn stop(&self) -> bool {
         let mut child = self.child.lock().unwrap();
+        // Under the lock the follower cannot wait for it in between: alive here means not reaped.
+        if !matches!(child.try_wait(), Ok(None)) {
+            return false;
+        }
         #[cfg(unix)]
         termf_core::process::kill_group(child.id());
         let _ = child.kill();
+        true
+    }
+}
+
+impl Drop for Following {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 

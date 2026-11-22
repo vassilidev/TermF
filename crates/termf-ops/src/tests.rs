@@ -1343,9 +1343,9 @@ fn a_production_env_is_masked_revealed_one_by_one_and_an_agent_gets_only_its_nam
         out.text
     );
 
-    ops.record_use("acme", &plan, Use::Reveal, "STRIPE_KEY", 21)
+    ops.record_use("acme", &plan, Use::Reveal, "STRIPE_KEY", 21, None)
         .unwrap();
-    ops.record_use("acme", &plan, Use::Write(42), "STRIPE_KEY", 21)
+    ops.record_use("acme", &plan, Use::Write(42), "STRIPE_KEY", 21, None)
         .unwrap();
     let details: Vec<String> = ops
         .history("acme", 10)
@@ -1432,7 +1432,12 @@ fn a_value_written_into_a_run_worktree_is_private_hidden_from_git_and_goes_with_
     let worktree = env.root.join("wt-42");
     let path = worktree.to_string_lossy().into_owned();
     git(&repo, &["worktree", "add", "-q", "-b", "termf/42", &path]);
-    fs::write(worktree.join(".env"), "APP_ENV=development\n").unwrap();
+    // A quoted value over several lines, replaced whole: none of its lines is left to break the file.
+    fs::write(
+        worktree.join(".env"),
+        "APP_ENV=development\nPEM=\"-----BEGIN KEY-----\nAAAA\n-----END KEY-----\"\nDEBUG=1\n",
+    )
+    .unwrap();
 
     env::write(
         &worktree,
@@ -1441,12 +1446,20 @@ fn a_value_written_into_a_run_worktree_is_private_hidden_from_git_and_goes_with_
     )
     .unwrap();
     env::write(&worktree, "APP_ENV", &Secret::new("production".into())).unwrap();
+    env::write(&worktree, "PEM", &Secret::new("line 1\nline 2".into())).unwrap();
     let file = worktree.join(".env");
+    let written = fs::read_to_string(&file).unwrap();
+    assert!(
+        !written.contains("AAAA") && !written.contains("END KEY"),
+        "{written}"
+    );
     assert_eq!(
-        env::parse(&fs::read_to_string(&file).unwrap()),
+        env::parse(&written),
         [
+            ("DEBUG".to_owned(), "1".to_owned()),
             ("STRIPE_KEY".to_owned(), "sk_live 51H'x".to_owned()),
-            ("APP_ENV".to_owned(), "production".to_owned())
+            ("APP_ENV".to_owned(), "production".to_owned()),
+            ("PEM".to_owned(), "line 1\nline 2".to_owned()),
         ]
     );
     assert_eq!(
@@ -1550,6 +1563,7 @@ exec sleep 30"#,
             .success()
     };
     assert!(alive());
+    assert!(following.stop(), "a running client is stopped");
     drop(following);
     for _ in 0..100 {
         if !alive() {
@@ -1586,4 +1600,143 @@ exec sleep 30"#,
         refused.to_string().contains("no recipe logs-follow"),
         "{refused}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stream_that_ended_is_never_signalled_and_one_that_cannot_start_is_not_audited() {
+    let env = Fixture::new("ended");
+    env.fake("ssh", SSH);
+    env.fake("journalctl", r#"echo "10:00:01 api: started"; exit 0"#);
+    env.connection(PROD_SSH);
+    env.connection(
+        r#"
+name = "acme-loki"
+kind = "loki"
+env = "prod"
+url = "https://loki.acme.test"
+"#,
+    );
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&got);
+    let (_, following) = ops
+        .follow(
+            "acme",
+            "logs-follow",
+            "acme-prod",
+            &BTreeMap::new(),
+            move |s| sink.lock().unwrap().push(s),
+        )
+        .unwrap();
+    let ended = || {
+        got.lock().unwrap().iter().find_map(|s| match s {
+            Streamed::End { exit, .. } => Some(*exit),
+            Streamed::Lines { .. } => None,
+        })
+    };
+    for _ in 0..100 {
+        if ended().is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(ended(), Some(Some(0)), "{:?}", got.lock().unwrap());
+    // Its number (and its group's) may be another program's by now.
+    assert!(!following.stop(), "an ended client was signalled");
+    drop(following);
+
+    let entries = ops.history("acme", 50).unwrap().len();
+    let missing = ops
+        .follow(
+            "acme",
+            "logs-follow",
+            "acme-loki",
+            &params(&[("query", "{app=\"web\"}")]),
+            |_| {},
+        )
+        .err()
+        .expect("no logcli in the test's PATH");
+    assert!(
+        missing.to_string().contains("logcli is not installed"),
+        "{missing}"
+    );
+    assert_eq!(
+        ops.history("acme", 50).unwrap().len(),
+        entries,
+        "audited a stream that never started"
+    );
+    let plan = ops
+        .plan(
+            "acme",
+            "env-fetch",
+            "acme-prod",
+            &params(&[("path", "/srv/.env")]),
+        )
+        .unwrap();
+    ops.record_use(
+        "acme",
+        &plan,
+        Use::Write(42),
+        "APP_ENV",
+        10,
+        Some(".env is tracked by git".into()),
+    )
+    .unwrap();
+    let last = ops.history("acme", 1).unwrap().remove(0);
+    let detail = last.detail.unwrap();
+    assert!(
+        detail.contains("\"event\":\"write\"") && detail.contains("tracked by git"),
+        "{detail}"
+    );
+}
+
+#[test]
+fn a_query_without_rows_is_an_empty_table_and_a_cut_one_says_so() {
+    let limits = Limits {
+        rows: Some(500),
+        ..Limits::default()
+    };
+    let raw = |stdout: &str, exit: Option<i32>, stopped: Option<&str>| Raw {
+        stdout: stdout.into(),
+        exit,
+        stopped: stopped.map(Into::into),
+        ..Raw::default()
+    };
+    let none = redact::table(raw("", Some(0), None), Kind::Mysql, None, &[], &limits);
+    let table = none.table.expect("a query without rows has a table");
+    assert!(table.rows.is_empty() && !none.truncated);
+    let failed = redact::table(raw("", Some(1), None), Kind::Mysql, None, &[], &limits);
+    assert!(failed.table.is_none(), "a failed query has no table");
+    let cut = redact::table(
+        raw("id,total\n1,1240.00\n2,12", Some(0), None),
+        Kind::Postgres,
+        None,
+        &[],
+        &limits,
+    );
+    assert_eq!(cut.table.unwrap().rows, [vec!["1", "1240.00"]]);
+    assert!(cut.truncated);
+    // A long last line stopped in pieces: each looks whole, the last is not shown.
+    let stopped = redact::table(
+        raw(
+            "id\tnote\n1\tshort\n2\taaaaaaaa\n",
+            None,
+            Some("stopped past 20 bytes"),
+        ),
+        Kind::Mysql,
+        None,
+        &[],
+        &limits,
+    );
+    assert_eq!(stopped.table.unwrap().rows, [vec!["1", "short"]]);
+    assert!(stopped.truncated);
 }
