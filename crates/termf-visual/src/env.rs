@@ -148,6 +148,11 @@ impl Server {
         port: u16,
         log: &Path,
     ) -> Result<Server> {
+        // Another server there would be captured instead of this one.
+        ensure!(
+            !answers(port),
+            "port {port} is already taken by another server: stop it, then start again"
+        );
         let line = command
             .replace("{{ port }}", &port.to_string())
             .replace("{{port}}", &port.to_string());

@@ -20,3 +20,6 @@ termf-term = { path = "../termf-term" }
 termf-tickets = { path = "../termf-tickets" }
 termf-worktree = { path = "../termf-worktree" }
 toml = "1.2.2"
+
+[dev-dependencies]
+termf-agents = { path = "../termf-agents" }

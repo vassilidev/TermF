@@ -363,6 +363,16 @@ impl Visual {
         let config = config::load(&inner.config_dir, &repo)?;
         env::commit(&inner.env, &repo, &base)?;
         env::commit(&inner.env, &repo, &head)?;
+        // The same comparison again is the next version of its review.
+        let same = store.all()?.into_iter().find(|r| {
+            r.run.is_none()
+                && config::same(&r.repo_path, &repo)
+                && r.base == base
+                && r.head.as_ref() == Some(&head)
+        });
+        if let Some(review) = same {
+            return self.begin(&store, review, None, None, request.routes);
+        }
         let review = Review {
             id: 0,
             run: None,
