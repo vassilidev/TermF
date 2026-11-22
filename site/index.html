@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TermF · Stop using Claude Code alone</title>
-<meta name="description" content="TermF is a free, open source desktop app for developers who use Claude Code. Describe a ticket to the CTO; a team of agents sized to it works in parallel, and you approve the pull request. macOS, Windows, Linux.">
+<title>Stop using Claude Code (alone) · TermF</title>
+<meta name="description" content="TermF is a free, open source desktop app that gives Claude Code a CTO and a team of agents. You say what you want, the team does the work, you approve the pull request. macOS, Windows, Linux.">
 <link rel="canonical" href="https://vassilidev.github.io/TermF/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="TermF">
-<meta property="og:title" content="TermF · Stop using Claude Code alone">
-<meta property="og:description" content="A desktop app for Claude Code. Describe a ticket to the CTO; a team of agents sized to it takes it to a pull request you approve. Free, open source, runs on your machine.">
+<meta property="og:title" content="Stop using Claude Code (alone) · TermF">
+<meta property="og:description" content="Give Claude Code a CTO and a team of agents. One window, on your machine. Free and open source.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta property="og:image:type" content="image/png">
@@ -17,8 +17,8 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="TermF · Stop using Claude Code alone">
-<meta name="twitter:description" content="A desktop app for Claude Code. Describe a ticket to the CTO; a team of agents sized to it takes it to a pull request you approve.">
+<meta name="twitter:title" content="Stop using Claude Code (alone) · TermF">
+<meta name="twitter:description" content="Give Claude Code a CTO and a team of agents. One window, on your machine. Free and open source.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
@@ -29,6 +29,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
 <link rel="preload" href="fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="media/launch-poster.webp" as="image" fetchpriority="high">
 <link rel="stylesheet" href="site.css">
 <script>try{const t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}</script>
 <script type="application/ld+json">
@@ -61,7 +62,7 @@
 }
 </script>
 </head>
-<body>
+<body class="home">
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="nav" id="nav">
@@ -80,143 +81,158 @@
 <main id="main">
 <div class="rail">
   <section class="hero" aria-labelledby="hero-h">
-    <img class="app-icon" src="icon.svg" alt="" width="84" height="84">
-    <h1 id="hero-h"><span class="grad">Stop using Claude&nbsp;Code alone.</span></h1>
-    <p class="sub">TermF is a free desktop app that gives your Claude Code a CTO and a team of agents. You describe the ticket, they ship the pull request, you approve it.</p>
-    <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+    <a class="news" href="https://github.com/vassilidev/TermF/releases/tag/v0.2.0"><img src="icon.svg" alt="" width="18" height="18">New in 0.2.0<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+    <h1 id="hero-h">Stop using Claude&nbsp;Code <span class="alone"><span>(alone).</span></span></h1>
+    <p class="sub">Give it a CTO and a team of agents. One window, on your machine.</p>
     <div class="ctas">
       <a class="btn" id="get" href="download.html">Download for macOS</a>
       <a class="btn ghost" href="docs/">Read the docs</a>
     </div>
     <script>
       // Name the visitor's system before the first paint; iPads report a Mac platform, touch tells them apart
-      (() => {
+      const os = (() => {
         const ua = navigator.userAgent, p = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
-        const os = /android|iphone|ipad|ipod/i.test(ua) || (p.includes('mac') && navigator.maxTouchPoints > 1) ? null
+        return /android|iphone|ipad|ipod/i.test(ua) || (p.includes('mac') && navigator.maxTouchPoints > 1) ? null
           : p.includes('win') ? 'Windows' : p.includes('linux') || /linux|x11|cros/i.test(ua) ? 'Linux' : 'macOS';
-        document.getElementById('get').textContent = os ? 'Download for ' + os : 'Download TermF';
-        if (os === 'Windows') document.querySelector('#install code').textContent = 'irm https://vassilidev.github.io/TermF/install.ps1 | iex';
       })();
+      document.getElementById('get').textContent = os ? 'Download for ' + os : 'Download TermF';
     </script>
-    <p class="meta">Free and open source, for macOS, Windows and Linux. Runs on your machine.</p>
-  </section>
-
-  <div class="show">
-    <figure class="app-frame" id="reel" data-video>
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="(max-width: 1200px) 100vw, 1120px">
-        <img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="(max-width: 1200px) 100vw, 1120px" width="1600" height="1000" fetchpriority="high" alt="TermF's project Home: the conversation with the CTO, a plan waiting for approval, and what waits for you and the agents at work">
-      </picture>
-      <button class="film-btn" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i><span>Watch TermF</span></button>
+    <p class="meta">Free · open source · macOS, Windows, Linux</p>
+    <figure class="win" id="reel" data-video>
+      <div class="win-bar"><i></i><i></i><i></i><span aria-hidden="true">TermF</span><button class="pause" type="button" aria-label="Pause the video" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button></div>
+      <video muted loop playsinline preload="none" poster="media/launch-poster.webp" width="1600" height="900" aria-label="TermF at work: you ask the CTO, a team of agents works on it live, and the pull request waits for you. Silent, sample data."><source src="media/launch.webm" type="video/webm"><source src="media/launch.mp4" type="video/mp4"></video>
+      <button class="play" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i>Play the video</button>
     </figure>
-    <div class="float a agent" aria-hidden="true"><span class="ini">BA</span><b>Back-end developer</b><span class="state working">Working</span><code>runs pytest tests/test_export.py</code></div>
-    <div class="float b agent" aria-hidden="true"><span class="ini">RE</span><b>Code reviewer</b><span class="state done">Done</span><code>no finding, 1 round</code></div>
-  </div>
+  </section>
 
-  <p class="row log"><span>1</span><b>THE WORK</b><span>cto · start the team on #57 · export invoices to CSV</span></p>
-  <section class="row" aria-labelledby="work-h">
-    <div class="head">
-      <h2 id="work-h">One window for the whole job.</h2>
-      <p>From the ticket to the pull request, without leaving the app.</p>
-    </div>
-    <div class="bento">
-      <div class="cell w3">
-        <h3>Talk to the CTO</h3>
-        <p>Ask in your own words. It sizes the team and asks before anything starts.</p>
-        <div class="frag" aria-hidden="true">
-          <div class="bubble">Start the team on #57</div>
-          <div class="ask"><p>Start a team run</p><code>acme/platform#57 · export invoices to CSV</code><div class="acts"><span class="mini">Deny</span><span class="mini go">Allow</span></div></div>
+  <section class="row" aria-labelledby="how-h">
+    <div class="head"><h2 id="how-h">How it works.</h2></div>
+    <ol class="steps">
+      <li>
+        <div class="vis" aria-hidden="true">
+          <div class="repos">
+            <span><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>api</span>
+            <span><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>web-dashboard</span>
+            <span><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>billing</span>
+            <span class="team"><span class="ini c-product">PO</span><span class="ini c-build">BA</span><span class="ini c-build">FR</span><span class="ini c-quality">QA</span>Your team, ready</span>
+          </div>
         </div>
-      </div>
-      <div class="cell w3">
-        <h3>Every session in one window</h3>
-        <p>Claude Code, Codex, Gemini or a shell, each with its state and its context.</p>
-        <div class="frag" aria-hidden="true">
-          <div class="sess"><span class="gauge" style="--g:42%"></span><span class="t">api <small>· claude</small></span><span class="state working">Working</span></div>
-          <div class="sess"><span class="gauge" style="--g:68%"></span><span class="t">web-dashboard <small>· claude</small></span><span class="state waiting">Waiting for you</span></div>
-          <div class="sess"><span class="gauge" style="--g:21%"></span><span class="t">billing <small>· codex</small></span><span class="state done">Done</span></div>
+        <h3><span class="n">1</span>Open your repos</h3>
+        <p>Pick the repositories you work on. TermF reads them and proposes a team.</p>
+      </li>
+      <li>
+        <div class="vis" aria-hidden="true">
+          <div class="chat">
+            <p class="me">Add a CSV export to the invoices page.</p>
+            <p class="cto"><span class="ini c-cto">CTO</span>On it. Four agents will take it from here.</p>
+          </div>
         </div>
-      </div>
-      <div class="cell w2">
-        <h3>See every change</h3>
-        <p>The diff, the checks and the reviews, before you approve.</p>
-        <div class="frag" aria-hidden="true">
-          <div class="diff"><div class="f">src/export/csv.ts <span><span class="p">+42</span> −3</span></div><div class="del">− return json(rows)</div><div class="add">+ return toCsv(rows, format)</div><div class="add">+ export function toCsv(rows, f) {</div><div class="end"><span class="mini go">Approve</span></div></div>
+        <h3><span class="n">2</span>Tell the CTO what you want</h3>
+        <p>In your own words, or with a ticket from GitHub, GitLab, Jira or Linear.</p>
+      </li>
+      <li>
+        <div class="vis" aria-hidden="true">
+          <div class="pr">
+            <p><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg>Export invoices to CSV</p>
+            <small>Closes #57 · <b>+42</b> −3</small>
+            <div><span class="state done">Checks passed</span><span class="mini go">Approve</span></div>
+          </div>
         </div>
-      </div>
-      <div class="cell w2">
-        <h3>Secrets stay yours</h3>
-        <p>A vault per project. An agent never sees a value.</p>
-        <div class="frag" aria-hidden="true">
-          <div class="kv"><span>STRIPE_SECRET_KEY</span><span class="dots">••••••••</span><span class="tag">prod</span></div>
-          <div class="kv"><span>DATABASE_URL</span><span class="dots">••••••••</span><span class="tag">dev</span></div>
-          <div class="safe"><svg class="i" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>Never given to agents</div>
+        <h3><span class="n">3</span>Approve the pull request</h3>
+        <p>The team builds, tests and reviews it. You check the result and say yes.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="row" aria-labelledby="features-h">
+    <div class="head"><h2 id="features-h">A whole team. You stay in charge.</h2></div>
+    <div class="tiles">
+      <article class="tile w4 dark" id="team">
+        <div class="vis" aria-hidden="true">
+          <div class="squad">
+            <div class="agent" data-run="0"><span class="ini c-product">PO</span><b>Product owner</b><span class="state">Queued</span><code>writes the acceptance criteria</code></div>
+            <div class="agent" data-run="2"><span class="ini c-build">BA</span><b>Back-end developer</b><span class="state">Queued</span><code>runs pytest tests/test_export.py</code></div>
+            <div class="agent" data-run="2"><span class="ini c-build">FR</span><b>Front-end developer</b><span class="state">Queued</span><code>runs pnpm test --filter invoices</code></div>
+            <div class="agent" data-run="4"><span class="ini c-quality">RE</span><b>Code reviewer</b><span class="state">Queued</span><code>reads the whole diff</code></div>
+          </div>
+          <div class="deliver" data-run="5"><p>Pull request <code>Closes #57</code></p><span class="state">Queued</span></div>
         </div>
-      </div>
-      <div class="cell w2">
-        <h3>Failures go back</h3>
-        <p>A failed check returns to the agent that caused it.</p>
-        <div class="frag" aria-hidden="true">
-          <div class="ci"><span class="ok">✓</span><span>lint</span><small>12 s</small></div>
-          <div class="ci"><span class="ko">✕</span><span>test (ubuntu)</span><small>3 min</small></div>
-          <span class="back"><span class="state working">Working</span>back-end fixes it</span>
+        <h3><a href="docs/team.html">A team sized to every ticket<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></h3>
+        <p><!-- gen:count -->29<!-- /gen:count --> agents, each a Claude Code session with one job. The CTO brings in only the ones your ticket needs.</p>
+      </article>
+      <article class="tile w2">
+        <div class="vis" aria-hidden="true">
+          <ol class="track">
+            <li data-run="0">Frame<span class="state">Queued</span></li>
+            <li data-run="1">Plan<span class="state">Queued</span></li>
+            <li data-run="2">Build<span class="state">Queued</span></li>
+            <li data-run="3">Test<span class="state">Queued</span></li>
+            <li data-run="4">Review<span class="state">Queued</span></li>
+            <li data-run="5">Deliver<span class="state">Queued</span></li>
+          </ol>
         </div>
-      </div>
+        <h3><a href="docs/runs.html">Watch it work, live<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></h3>
+        <p>Every step, and what each agent is doing right now.</p>
+      </article>
+      <article class="tile w2">
+        <div class="vis" aria-hidden="true">
+          <div class="sessions">
+            <div class="sess"><svg viewBox="0 0 24 24"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg><span>api</span><span class="state working">Working</span></div>
+            <div class="sess"><svg viewBox="0 0 24 24"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg><span>web-dashboard</span><span class="state waiting">Waiting for you</span></div>
+            <div class="sess"><svg viewBox="0 0 24 24"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg><span>billing</span><span class="state done">Done</span></div>
+          </div>
+        </div>
+        <h3><a href="docs/terminals.html">All your sessions in one window<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></h3>
+        <p>Claude Code, Codex, Gemini or a shell, each showing its state.</p>
+      </article>
+      <article class="tile w4">
+        <div class="vis" aria-hidden="true">
+          <div class="ba">
+            <div class="scr"><div class="bar"><b>Invoices</b></div><div class="rowx"><span>INV-1042</span><span>Acme Corp</span><span>$1,200.00</span></div><div class="rowx"><span>INV-1041</span><span>Globex</span><span>$860.00</span></div><div class="rowx"><span>INV-1040</span><span>Initech</span><span>$2,415.50</span></div></div>
+            <div class="scr after"><div class="bar"><b>Invoices</b><span class="new">Export to CSV</span></div><div class="rowx"><span>INV-1042</span><span>Acme Corp</span><span>$1,200.00</span></div><div class="rowx"><span>INV-1041</span><span>Globex</span><span>$860.00</span></div><div class="rowx"><span>INV-1040</span><span>Initech</span><span>$2,415.50</span></div></div>
+            <span class="lab">Before</span><span class="lab r">After</span>
+            <span class="handle"><svg class="i" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/></svg></span>
+          </div>
+        </div>
+        <h3><a href="docs/visual-review.html">See the change before you say yes<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></h3>
+        <p>Every changed screen, before and after, side by side or with a slider.</p>
+      </article>
+      <article class="tile w3">
+        <div class="vis" aria-hidden="true">
+          <div class="vault">
+            <div class="kv"><svg class="i" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></svg><span>STRIPE_SECRET_KEY</span><span class="dots">••••••••</span></div>
+            <div class="ask"><p>Read the logs on prod-1?</p><small>Asked by the back-end developer</small><div><span class="mini">Deny</span><span class="mini go">Allow</span></div></div>
+          </div>
+        </div>
+        <h3><a href="docs/vault.html">Your secrets and servers stay safe<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></h3>
+        <p>Agents never read a secret, and every command on a server waits for your OK.</p>
+      </article>
+      <article class="tile w3">
+        <div class="vis" aria-hidden="true">
+          <ul class="local">
+            <li><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 8 5 5m0-5-5 5"/></svg>No sign-up</li>
+            <li><svg class="i" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></svg>No server</li>
+            <li><svg class="i" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>No telemetry</li>
+          </ul>
+        </div>
+        <h3><a href="docs/security.html">Everything stays on your machine<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></h3>
+        <p>Your projects, runs and logs live on your computer. Free and open source.</p>
+      </article>
     </div>
   </section>
-</div>
 
-<section class="band" id="team" aria-labelledby="team-h">
-  <div class="rail">
-    <p class="row log"><span>2</span><b>THE TEAM</b><span>cto · triage: medium · po, lead, back, front, qa, reviewer</span></p>
-    <div class="head">
-      <h2 id="team-h"><!-- gen:count -->29<!-- /gen:count --> agents. The CTO picks who&nbsp;works.</h2>
-      <p>Each agent is a Claude Code session with one job. Only the ones your ticket needs join, and you watch them work, live.</p>
+  <section class="row last" aria-labelledby="last-h">
+    <h2 id="last-h">Install in <span class="grad">one command.</span></h2>
+    <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+    <div class="ctas">
+      <a class="btn" href="download.html">Download</a>
+      <a class="btn ghost" href="docs/installation.html">Installation guide</a>
+      <a class="btn ghost" href="docs/">Docs</a>
     </div>
-    <div class="crew-live" aria-label="An example run, live">
-      <div class="agent" data-run="0"><span class="ini c-product">PO</span><b>Product owner</b><span class="state">Queued</span><code>writes the acceptance criteria</code></div>
-      <div class="agent" data-run="1"><span class="ini c-build">LE</span><b>Tech lead</b><span class="state">Queued</span><code>plan: 3 tasks, you approved</code></div>
-      <div class="agent" data-run="2"><span class="ini c-build">BA</span><b>Back-end developer</b><span class="state">Queued</span><code>runs pytest tests/test_export.py</code></div>
-      <div class="agent" data-run="2"><span class="ini c-build">FR</span><b>Front-end developer</b><span class="state">Queued</span><code>runs pnpm test --filter invoices</code></div>
-      <div class="agent" data-run="3"><span class="ini c-quality">QA</span><b>QA engineer</b><span class="state">Queued</span><code>proves AC1, AC2 and AC3</code></div>
-      <div class="agent" data-run="4"><span class="ini c-quality">RE</span><b>Code reviewer</b><span class="state">Queued</span><code>reads the whole diff</code></div>
-    </div>
-    <div class="deliver"><p>Pull request <code>Closes #57</code><span class="state">Queued</span></p><span class="mini go">Deliver</span></div>
-    <p class="band-foot"><a class="more" href="docs/team.html"><span>Meet all <!-- gen:count -->29<!-- /gen:count --> agents</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a><a class="quiet" href="docs/team-vs-solo.html">Team or one session? The numbers</a></p>
-  </div>
-</section>
-
-<div class="rail">
-  <p class="row log"><span>3</span><b>WORKS WITH</b><span>agents · tickets · pull requests · ci</span></p>
-  <section aria-labelledby="tools-h">
-    <div class="head">
-      <h2 id="tools-h">Works with the tools you already use.</h2>
-    </div>
-    <div class="tools">
-      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg><b>Claude Code</b><span>the CTO and the team</span></div>
-      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg><b>Codex</b><span>terminals, any role</span></div>
-      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg><b>Gemini</b><span>terminals, any role</span></div>
-      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg><b>GitHub</b><span>tickets, PRs, CI</span></div>
-      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><b>GitLab</b><span>tickets</span></div>
-      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg><b>Jira</b><span>tickets</span></div>
-      <div class="tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z"/></svg><b>Linear</b><span>tickets</span></div>
-      <div class="tool"><span class="mcp" aria-hidden="true">MCP</span><b>MCP</b><span>any ticket server</span></div>
-    </div>
-  </section>
-  <p class="row log"><span>4</span><b>INSTALL</b><span>one command · macos · windows · linux</span></p>
-  <section class="last" aria-labelledby="last-h">
-    <h2 id="last-h"><span class="grad">Install in one command.</span></h2>
-    <div class="cmd"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
-    <div class="ctas"><a class="btn" href="download.html">Every file, on the download page</a></div>
     <p>Needs Claude Code. Early version: the builds are not signed by Apple or Microsoft yet, the one-line install avoids their warning.</p>
   </section>
 </div>
 </main>
-
-<dialog class="film" aria-label="TermF, the film">
-  <form method="dialog"><button aria-label="Close the film"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></form>
-  <video controls playsinline preload="none" poster="media/launch-poster.webp"><source src="media/launch.webm" type="video/webm"><source src="media/launch.mp4" type="video/mp4"></video>
-</dialog>
 
 <footer class="foot">
   <div class="foot-in">
@@ -229,17 +245,14 @@
 <script>
 const root = document.documentElement, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// The theme switch: the screenshots follow it too
 const themeBtn = document.querySelector('.theme');
 const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-const syncTheme = () => {
-  themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
-  for (const s of document.querySelectorAll('picture source')) s.media = root.dataset.theme ? (dark() ? 'all' : 'not all') : '(prefers-color-scheme: dark)';
-};
+const syncTheme = () => themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
 themeBtn.addEventListener('click', () => { root.dataset.theme = dark() ? 'light' : 'dark'; try { localStorage.setItem('theme', root.dataset.theme); } catch {} syncTheme(); });
 syncTheme();
 
 // Copy the install command
+if (os === 'Windows') document.querySelector('#install code').textContent = 'irm https://vassilidev.github.io/TermF/install.ps1 | iex';
 for (const b of document.querySelectorAll('.cmd .copy')) b.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(b.previousElementSibling.textContent); } catch { return; }
   b.classList.add('ok'); b.lastChild.textContent = 'Copied';
@@ -256,43 +269,42 @@ fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
   })
   .catch(() => {});
 
-// The film, once site/media/ has it (the build then marks the frame), in a dialog
-const reel = document.getElementById('reel'), film = document.querySelector('.film'), video = film.querySelector('video');
+// The silent loop, once site/media/ has it (the build then marks the window); with reduced motion, the poster and a
+// play button. A pause button either way: the loop never ends on its own
+const reel = document.getElementById('reel'), video = reel.querySelector('video');
 if ('video' in reel.dataset) {
-  const btn = reel.querySelector('.film-btn');
-  btn.hidden = false;
-  video.addEventListener('loadedmetadata', () => { btn.lastChild.textContent = `TermF in ${Math.round(video.duration)} s`; }, {once: true});
-  video.preload = 'metadata';
-  video.load();
-  btn.addEventListener('click', () => { film.showModal(); video.play().catch(() => {}); });
-  film.addEventListener('close', () => video.pause());
-  film.addEventListener('click', e => { if (e.target === film) film.close(); });
+  const pause = reel.querySelector('.pause'), play = reel.querySelector('.play');
+  const sync = () => { pause.classList.toggle('paused', video.paused); pause.setAttribute('aria-label', video.paused ? 'Play the video' : 'Pause the video'); };
+  video.addEventListener('play', () => { play.hidden = true; sync(); });
+  video.addEventListener('pause', sync);
+  pause.addEventListener('click', () => video.paused ? video.play() : video.pause());
+  play.addEventListener('click', () => video.play());
+  pause.hidden = false;
+  sync();
+  if (reduce) play.hidden = false;
+  else { video.preload = 'auto'; video.play().catch(() => { play.hidden = false; }); }
 }
 
 // The team at work: each step of the example run goes from queued to working to done, then the pull request waits
-const cards = [...document.querySelectorAll('.crew-live .agent')], deliver = document.querySelector('.deliver');
-const steps = Math.max(...cards.map(c => +c.dataset.run)) + 1;
-const set = (el, state, label) => { const s = el.querySelector('.state'); s.className = 'state ' + state; s.textContent = label; };
+const runs = [...document.querySelectorAll('[data-run]')], last = Math.max(...runs.map(e => +e.dataset.run));
+const label = {done: 'Done', working: 'Working', waiting: 'Waiting for you', '': 'Queued'};
 function frame(step) {
-  for (const c of cards) {
-    const r = +c.dataset.run;
-    set(c, r < step ? 'done' : r === step ? 'working' : '', r < step ? 'Done' : r === step ? 'Working' : 'Queued');
-    c.classList.toggle('on', r === step);
-    c.classList.toggle('idle', r > step);
+  for (const el of runs) {
+    const r = +el.dataset.run, s = r < step ? 'done' : r > step ? '' : r === last ? 'waiting' : 'working', pill = el.querySelector('.state');
+    pill.className = 'state ' + s; pill.textContent = label[s];
+    el.classList.toggle('on', r === step);
+    el.classList.toggle('idle', r > step);
   }
-  const ready = step >= steps;
-  set(deliver, ready ? 'waiting' : '', ready ? 'Waiting for you' : 'Queued');
-  deliver.classList.toggle('ready', ready);
 }
-if (reduce) frame(steps);
+if (reduce) frame(last);
 else {
   let step = 0, timer = null;
   frame(0);
-  const tick = () => { step = (step + 1) % (steps + 3); frame(Math.min(step, steps)); };
+  const tick = () => { step = (step + 1) % (last + 4); frame(Math.min(step, last)); };
   new IntersectionObserver(([e]) => {
     clearInterval(timer);
-    if (e.isIntersecting) timer = setInterval(tick, 1600);
-  }, {threshold: .3}).observe(document.querySelector('.crew-live'));
+    if (e.isIntersecting) timer = setInterval(tick, 1500);
+  }, {threshold: .3}).observe(document.getElementById('team'));
 }
 </script>
 </body>
