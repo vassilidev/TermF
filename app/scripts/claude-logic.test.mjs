@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alerts, filterArtifacts, nextSort, selection, sortArtifacts, toggleAll, updatedAt, updatedDay } from "../src/lib/claude-logic.ts";
+import { alerts, field, filterArtifacts, nextSort, selection, sortArtifacts, toggleAll, updatedAt, updatedDay } from "../src/lib/claude-logic.ts";
 
 const art = (id, title, owner, updated, cwd = null, seen = 0) => ({ id, url: `https://claude.ai/code/artifact/${id}`, title, owner, updated, cwd, seen });
 const list = [
@@ -100,4 +100,29 @@ test("the overview lists what needs a look, worst first", () => {
   );
   const broken = alerts(o({ account: { auth: null, authError: "claude: not found" }, plugins: { error: "exit 2" } }));
   assert.deepEqual(broken.map((a) => [a.section, a.text]), [["mcp", "exit 2"], ["account", "claude: not found"]]);
+});
+
+test("the settings editor shows a form for simple keys of the schema, JSON for the rest", () => {
+  const schema = {
+    $defs: { mode: { type: "string", enum: ["default", "plan"] } },
+    properties: {
+      model: { type: "string", description: "Override the model.\nMore." },
+      effortLevel: { type: "string", enum: ["low", "high"] },
+      cleanupPeriodDays: { type: "integer" },
+      autoMemoryEnabled: { type: "boolean" },
+      theme: { anyOf: [{ type: "string", enum: ["dark"] }, { type: "string" }] },
+      permissions: { type: "object", properties: { allow: { type: "array" }, defaultMode: { $ref: "#/$defs/mode" } } },
+      env: { type: "object", additionalProperties: { type: "string" } },
+    },
+  };
+  assert.deepEqual(field(schema, "model"), { kind: "text", values: [], description: "Override the model." });
+  assert.deepEqual(field(schema, "effortLevel").values, ["low", "high"]);
+  assert.equal(field(schema, "cleanupPeriodDays").kind, "number");
+  assert.equal(field(schema, "autoMemoryEnabled").kind, "bool");
+  assert.equal(field(schema, "theme").kind, "text");
+  assert.deepEqual(field(schema, "permissions.defaultMode").values, ["default", "plan"]);
+  assert.equal(field(schema, "permissions.allow").kind, "json");
+  assert.equal(field(schema, "env.NODE_ENV").kind, "text");
+  assert.equal(field(schema, "env").kind, "json");
+  assert.equal(field(schema, "someFutureKey").kind, "json");
 });
