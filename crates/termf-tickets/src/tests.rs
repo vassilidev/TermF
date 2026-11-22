@@ -1262,6 +1262,21 @@ fn runs_a_request_written_in_termf() {
         "no ticket to close or link: {log}"
     );
     assert!(!log.contains("comments"), "no tracker to write to");
+
+    // A request whose team does not start: its run closes as it was made, without force.
+    let unused = t
+        .start_request("Rename the export", "acme", Some("front"))
+        .unwrap();
+    let tree = PathBuf::from(unused.worktree.clone().unwrap());
+    let branch = unused.branch.clone().unwrap();
+    let closed = t.close(unused.id, false, || {}).unwrap();
+    assert_eq!(closed.status, RunStatus::Closed);
+    assert!(!tree.exists());
+    assert_eq!(
+        sb.git(&front, &["branch", "--list", &branch]),
+        "",
+        "its branch goes too"
+    );
 }
 
 #[test]

@@ -604,8 +604,9 @@ impl Team {
     }
 
     /// Sets the routing in place of the CTO's, while the triage waits for answers or its routing for the user's
-    /// approval: checked as the CTO's is, then applied.
-    pub fn route(&self, id: i64, mut routing: Routing) -> Result<TeamRun> {
+    /// approval: checked as the CTO's is, then applied. Its `budget_usd` only brings the run's budget down, as
+    /// the CTO's advice does; `budget`, the user's own amount, replaces it, even above.
+    pub fn route(&self, id: i64, mut routing: Routing, budget: Option<f64>) -> Result<TeamRun> {
         let inner = &self.inner;
         let _lock = inner.lock.lock().unwrap();
         let store = inner.store()?;
@@ -633,13 +634,14 @@ impl Team {
             "the routing is not valid:\n- {}",
             problems.join("\n- ")
         );
-        if routing.budget_usd > 0.0 {
+        if let Some(budget) = budget {
             ensure!(
-                routing.budget_usd > run.cost,
+                budget.is_finite() && budget > run.cost,
                 "the run has spent ${:.2}: give it a bigger budget",
                 run.cost
             );
-            run.budget = Some(routing.budget_usd);
+            run.budget = Some(budget);
+            routing.budget_usd = budget;
         }
         routing.changed = true;
         inner.normalize(&run, &mut routing);
@@ -1120,12 +1122,30 @@ impl Inner {
         self.done(store, run, i, &summary);
     }
 
-    /// Whether the user approves the routing of `run` to `workflow`: the project's `[team] approve_route`, else
-    /// the workflow's, else `termf.toml`'s, else yes.
-    fn route_gate(&self, run: &TeamRun, workflow: &workflow::Workflow) -> Result<bool> {
+    /// Whether the user approves the routing of `run` to `routed`: always when `routed` has fewer gates than the
+    /// workflow of the launch; else the project's `[team] approve_route`, else the launch workflow's, else
+    /// `termf.toml`'s, else yes. Never the routed workflow's own word: an untrusted ticket may have steered the
+    /// CTO to it.
+    fn route_gate(&self, run: &TeamRun, routed: &workflow::Workflow) -> Result<bool> {
+        // Until the routing applies, the run's workflow is the launch's.
+        let launch = workflow::load(
+            &self.config_dir,
+            Some(&run.target.project),
+            Some(&run.target.repo_path),
+            &run.workflow,
+        )?;
+        let gates = |w: &workflow::Workflow| -> Result<usize> {
+            Ok(w.steps()?
+                .iter()
+                .filter(|(_, s)| s.kind == StepKind::Gate)
+                .count())
+        };
+        if gates(routed)? < gates(&launch)? {
+            return Ok(true);
+        }
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         Ok(
-            match route::flag(&project, "approve_route")?.or(workflow.approve_route) {
+            match route::flag(&project, "approve_route")?.or(launch.approve_route) {
                 Some(on) => on,
                 None => route::flag(&self.config_dir.join("termf.toml"), "approve_route")?
                     .unwrap_or(true),
@@ -2090,6 +2110,10 @@ impl Inner {
             let j = run.index(key).ok()?;
             if run.steps[j].agent() {
                 return Some(j);
+            }
+            // The triage is behind the routing gate: a step of the routed workflow never takes it up again.
+            if key == ROUTE {
+                continue;
             }
             if run.steps[j].kind == StepKind::Foreach {
                 let prefix = format!("{key}:");

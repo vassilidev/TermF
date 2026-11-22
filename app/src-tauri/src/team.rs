@@ -70,18 +70,34 @@ fn start(
     options: Options,
 ) -> Result<TeamRun> {
     let state = state_of(app);
-    let run = match (run, request) {
-        (Some(run), None) => tickets(app).run(run)?,
+    let begin = |run: &termf_tickets::Run| {
+        let target = Target::of(run, &state.config_dir, &state.data_dir)?;
+        state.team.start(target, options)
+    };
+    match (run, request) {
+        (Some(run), None) => begin(&tickets(app).run(run)?),
         (None, Some(r)) => {
             api::run_guard(&app.state::<AppState>())?;
             let run = tickets(app).start_request(&r.text, &r.project, r.repo.as_deref())?;
             updated(app, &run);
-            run
+            closed_on_error(begin(&run), || {
+                crate::tickets::close(app, run.id, false).map(|_| ())
+            })
         }
         _ => bail!("give the team a run, or a request"),
+    }
+}
+
+/// A request's run exists only for its team: when the team does not start, the run is closed (as
+/// `tickets_close` without force) so that no worktree or branch is left behind; then the error goes back.
+fn closed_on_error<T>(started: Result<T>, close: impl FnOnce() -> Result<()>) -> Result<T> {
+    let Err(e) = started else {
+        return started;
     };
-    let target = Target::of(&run, &state.config_dir, &state.data_dir)?;
-    state.team.start(target, options)
+    match close() {
+        Ok(()) => Err(e),
+        Err(left) => Err(e.context(format!("its run is still open: {left:#}"))),
+    }
 }
 
 fn levels(rules: impl IntoIterator<Item = (String, String)>) -> Result<BTreeMap<String, Level>> {
@@ -140,8 +156,16 @@ pub async fn team_start(
 }
 
 #[tauri::command]
-pub async fn team_route(app: AppHandle, run: i64, routing: Routing) -> CmdResult<TeamRun> {
-    blocking(app, move |app| state_of(app).team.route(run, routing)).await
+pub async fn team_route(
+    app: AppHandle,
+    run: i64,
+    routing: Routing,
+    budget: Option<f64>,
+) -> CmdResult<TeamRun> {
+    blocking(app, move |app| {
+        state_of(app).team.route(run, routing, budget)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -231,4 +255,34 @@ pub async fn team_squads(app: AppHandle, project: String) -> CmdResult<termf_tea
         termf_team::squads::view(&state_of(app).config_dir, &project)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_request_whose_team_does_not_start_closes_its_run() {
+        let closed = std::cell::Cell::new(false);
+        let close = || {
+            closed.set(true);
+            Ok(())
+        };
+        let started: Result<i32> = closed_on_error(Ok(1), close);
+        assert_eq!(started.unwrap(), 1);
+        assert!(!closed.get(), "a team at work keeps its run");
+
+        let failed: Result<i32> = closed_on_error(Err(anyhow::anyhow!("bad budget")), close);
+        assert_eq!(failed.unwrap_err().to_string(), "bad budget");
+        assert!(closed.get());
+
+        let stuck: Result<i32> = closed_on_error(Err(anyhow::anyhow!("bad budget")), || {
+            Err(anyhow::anyhow!("uncommitted work"))
+        });
+        let text = format!("{:#}", stuck.unwrap_err());
+        assert!(
+            text.contains("its run is still open: uncommitted work") && text.contains("bad budget"),
+            "{text}"
+        );
+    }
 }

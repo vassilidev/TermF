@@ -480,7 +480,8 @@ fn answerable(q: &Question, answer: &str) -> bool {
 }
 
 /// What is wrong with the user's answers to `questions`: each one answered, in the shape its kind takes (a
-/// multiple choice may tick nothing).
+/// multiple choice may tick nothing). An answer of the user's own may stand in for the options of a choice, so
+/// that no question leaves them stuck.
 pub fn check_answers(
     questions: &[Question],
     answers: &BTreeMap<String, Vec<String>>,
@@ -494,7 +495,11 @@ pub fn check_answers(
     for q in questions {
         let answer = answers.get(&q.id).map(Vec::as_slice).unwrap_or_default();
         let one = q.kind != QuestionKind::Multi;
-        if (one && answer.len() != 1) || answer.iter().any(|a| !answerable(q, a)) {
+        let valid = |a: &String| match q.kind {
+            QuestionKind::Bool => answerable(q, a),
+            _ => !a.trim().is_empty(),
+        };
+        if (one && answer.len() != 1) || !answer.iter().all(valid) {
             problems.push(format!("answer question {}: {}", q.id, q.question));
         }
     }
@@ -822,10 +827,21 @@ paths = ["services/**"]
             ("name", &["invoices.csv"]),
         ]);
         assert_eq!(check_answers(&good, &full), Vec::<String>::new());
+        let own = answers(&[
+            ("format", &["PDF, as the bank asks"]),
+            ("columns", &["date", "tax code"]),
+            ("public", &["no"]),
+            ("name", &["invoices.csv"]),
+        ]);
+        assert_eq!(
+            check_answers(&good, &own),
+            Vec::<String>::new(),
+            "an answer of one's own for a choice"
+        );
         let wrong = answers(&[
-            ("format", &["PDF"]),
-            ("columns", &["date", "tax"]),
-            ("public", &["yes", "no"]),
+            ("format", &[]),
+            ("columns", &["date", " "]),
+            ("public", &["maybe"]),
             ("ghost", &["x"]),
         ]);
         let all = check_answers(&good, &wrong).join("\n");
