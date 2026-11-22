@@ -322,9 +322,10 @@
           <ol class="timeline" aria-label={t("ux3t2Stages")}>
             {#each timeline as stage (stage.id)}
               {@const [Icon, said] = stageStatus[stage.state]}
-              <li class={stage.state} aria-current={stage.state === "waiting" || stage.state === "working" ? "step" : undefined}>
+              {@const label = stageLabel(stage.id)}
+              <li class={stage.state} aria-current={stage.state === "waiting" || stage.state === "working" ? "step" : undefined} title={label}>
                 <span class="st">
-                  <Icon size={14} aria-hidden="true" />{stageLabel(stage.id)}<span class="sr-only">, {t(said)}</span>
+                  <Icon size={14} aria-hidden="true" /><span class="label">{label}</span><span class="sr-only">, {t(said)}</span>
                 </span>
               </li>
             {/each}
@@ -633,6 +634,7 @@
   }
 
   .timeline {
+    container: stages / inline-size;
     display: flex;
     align-items: center;
     margin: 0;
@@ -673,6 +675,18 @@
     gap: 6px;
     height: 26px;
     white-space: nowrap;
+  }
+
+  /* Too narrow for every name: the stages done or to come keep their icon, the current one its name. */
+  @container stages (max-width: 640px) {
+    li:not([aria-current]) .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
   }
 
   .done .st {
