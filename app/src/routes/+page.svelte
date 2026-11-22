@@ -24,6 +24,7 @@
   import { watchAgents } from "$lib/agents.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
+  import { sync, watchSync } from "$lib/sync.svelte";
   import { watchTeam } from "$lib/team.svelte";
   import { tickets, watchTickets } from "$lib/tickets.svelte";
   import { setup, watchSetup } from "$lib/onboarding.svelte";
@@ -46,8 +47,9 @@
     const stopTour = watchTour();
     const stopTeam = watchTeam();
     const stopVisual = watchVisual();
+    const stopSync = watchSync();
     const stopUpdates = watchUpdates();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopVisual(), stopUpdates());
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopVisual(), stopSync(), stopUpdates());
   });
 
   function drag(e: PointerEvent) {
@@ -83,8 +85,15 @@
   <div class="main">
     <ApiConfirm />
     <UpdateBanner />
-    {#if app.error || app.workspace?.apiError || app.workspace?.quickTerminalError || app.workspace?.scanTruncated}
+    {#if app.error || app.workspace?.apiError || app.workspace?.quickTerminalError || app.workspace?.scanTruncated || sync.pulled}
       <div class="banners">
+        {#if sync.pulled}
+          <Banner ondismiss={() => (sync.pulled = null)}>
+            {t("sync2PulledTitle")}
+            {#if sync.pulled.restart.includes("confirmCli")}{t("sync2PulledRestart")}{/if}
+            {#if sync.pulled.sessions}{t("sync2PulledSessions")}{/if}
+          </Banner>
+        {/if}
         {#if app.error}
           <Banner kind="error" ondismiss={() => (app.error = "")}>{app.error}</Banner>
         {/if}

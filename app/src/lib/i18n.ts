@@ -3062,6 +3062,49 @@ const fr = {
   roles2WhyNoDocs: "ni dossier de doc, ni spec d'API, ni changelog",
   roles2WhyPersonal: "Données personnelles : {detail}",
   roles2WhyNoPublic: "ni site public ni données personnelles repérées",
+  // Sync: S3 and WebDAV remotes, SSH keys, forgetting a device, cloning, reload after a pull.
+  sync2S3: "S3",
+  sync2Webdav: "WebDAV",
+  sync2S3Endpoint: "Adresse du service",
+  sync2S3Bucket: "Bucket",
+  sync2S3Region: "Région",
+  sync2S3Prefix: "Dossier dans le bucket (facultatif)",
+  sync2S3Access: "Clé d'accès (access key id)",
+  sync2S3Secret: "Clé secrète",
+  sync2S3Help:
+    "AWS S3, Cloudflare R2, MinIO, Backblaze B2… adressés par chemin : adresse / bucket / dossier. Pour R2, la région est auto. Le service doit refuser une écriture dont la condition If-Match ou If-None-Match échoue : TermF le vérifie avant d'activer. Il faut curl 8.3 ou plus récent.",
+  sync2WebdavUrl: "Adresse du dossier WebDAV",
+  sync2WebdavUser: "Utilisateur",
+  sync2WebdavPassword: "Mot de passe",
+  sync2WebdavHelp:
+    "Nextcloud, ownCloud, Apache, rclone… en HTTPS de préférence. Le serveur doit accepter PROPFIND, GET, PUT, DELETE et MKCOL, donner un ETag à chaque fichier et respecter If-Match / If-None-Match : TermF le vérifie avant d'activer.",
+  sync2Credentials:
+    "Ces identifiants restent dans le trousseau du système de cette machine, jamais dans un fichier synchronisé ni sur une ligne de commande.",
+  sync2ScopeSsh: "Clés SSH",
+  sync2ScopeSshHelp: "les paires de clés de ~/.ssh et les hôtes ajoutés par TermF",
+  sync2SshWarnTitle: "Synchroniser tes clés SSH privées ?",
+  sync2SshWarn:
+    "Tes clés privées partent sur le remote, chiffrées par la clé de la synchro : qui a le mot de passe de synchro peut les lire. Une clé protégée par une phrase de passe le reste. Une clé de même nom mais différente n'est jamais remplacée : tu choisis laquelle garder.",
+  sync2SshConfirm: "Synchroniser mes clés SSH",
+  sync2KeyConflict:
+    "Deux clés différentes portent ce nom. Garder l'autre met la tienne dans la corbeille ~/.ssh/.termf-trash ; garder la tienne la laisse ici sans l'envoyer aux autres machines.",
+  sync2Forget: "Oublier…",
+  sync2ForgetTitle: "Oublier {name}",
+  sync2ForgetHelp:
+    "Cet appareil quitte la liste et la clé de données change : ce qu'il a gardé ne déchiffre plus les prochaines synchros, et il dira qu'il a été oublié. Tes autres machines te redemanderont le mot de passe une fois, et une nouvelle clé de récupération remplace l'actuelle. Si quelqu'un d'autre connaît le mot de passe, change-le aussi.",
+  sync2ForgetRun: "Oublier cet appareil",
+  sync2KeyForgot:
+    "Appareil oublié. Tes autres machines te redemanderont le mot de passe, et l'ancienne clé de récupération ne fonctionne plus.",
+  sync2ForgottenStatus: "Cette machine a été retirée de la synchro",
+  sync2ForgottenHelp:
+    "Une autre machine l'a oubliée : plus rien ne se synchronise ici. Pour la rejoindre de nouveau, désactive la synchro sur cette machine, puis réactive-la avec le mot de passe.",
+  sync2Clone: "Cloner ici",
+  sync2CloneElsewhere: "Ailleurs…",
+  sync2CloneInto: "Dans {path}",
+  sync2Cloning: "Clonage…",
+  sync2PulledTitle: "Réglages reçus d'une autre machine : appliqués.",
+  sync2PulledRestart: "Le réglage [api] confirm_cli de termf.toml s'appliquera au prochain démarrage de TermF.",
+  sync2PulledSessions: "Les agents déjà lancés gardent leur bibliothèque et leurs conventions jusqu'à leur relance.",
   // New project setup: pick the repositories, see what TermF detects, keep or set aside its proposal, create.
   setupStepRepos: "Dépôts",
   setupStepDetect: "Détection",
@@ -6401,6 +6444,48 @@ const en: Record<Key, string> = {
   roles2WhyNoDocs: "no docs folder, API spec nor changelog",
   roles2WhyPersonal: "Personal data: {detail}",
   roles2WhyNoPublic: "no public website nor personal data found",
+  sync2S3: "S3",
+  sync2Webdav: "WebDAV",
+  sync2S3Endpoint: "Service address",
+  sync2S3Bucket: "Bucket",
+  sync2S3Region: "Region",
+  sync2S3Prefix: "Folder in the bucket (optional)",
+  sync2S3Access: "Access key id",
+  sync2S3Secret: "Secret key",
+  sync2S3Help:
+    "AWS S3, Cloudflare R2, MinIO, Backblaze B2… addressed by path: address / bucket / folder. For R2, the region is auto. The service must refuse a write whose If-Match or If-None-Match condition fails: TermF checks it before turning sync on. Needs curl 8.3 or newer.",
+  sync2WebdavUrl: "WebDAV folder address",
+  sync2WebdavUser: "User",
+  sync2WebdavPassword: "Password",
+  sync2WebdavHelp:
+    "Nextcloud, ownCloud, Apache, rclone… over HTTPS preferably. The server must accept PROPFIND, GET, PUT, DELETE and MKCOL, give each file an ETag and honor If-Match / If-None-Match: TermF checks it before turning sync on.",
+  sync2Credentials:
+    "These credentials stay in this machine's system keychain, never in a synced file nor on a command line.",
+  sync2ScopeSsh: "SSH keys",
+  sync2ScopeSshHelp: "the key pairs of ~/.ssh and the hosts TermF added",
+  sync2SshWarnTitle: "Sync your private SSH keys?",
+  sync2SshWarn:
+    "Your private keys go to the remote, encrypted by the sync's key: whoever has the sync password can read them. A key protected by a passphrase stays protected. A different key with the same name is never replaced: you choose which one to keep.",
+  sync2SshConfirm: "Sync my SSH keys",
+  sync2KeyConflict:
+    "Two different keys have this name. Keeping the other one moves yours to the ~/.ssh/.termf-trash folder; keeping yours leaves it here without sending it to the other machines.",
+  sync2Forget: "Forget…",
+  sync2ForgetTitle: "Forget {name}",
+  sync2ForgetHelp:
+    "This device leaves the list and the data key changes: what it kept no longer decrypts the next syncs, and it will say it was forgotten. Your other machines will ask for the password once, and a new recovery key replaces the current one. If someone else knows the password, change it too.",
+  sync2ForgetRun: "Forget this device",
+  sync2KeyForgot:
+    "Device forgotten. Your other machines will ask for the password again, and the old recovery key no longer works.",
+  sync2ForgottenStatus: "This machine was removed from the sync",
+  sync2ForgottenHelp:
+    "Another machine forgot it: nothing syncs here anymore. To join again, turn sync off on this machine, then turn it back on with the password.",
+  sync2Clone: "Clone here",
+  sync2CloneElsewhere: "Elsewhere…",
+  sync2CloneInto: "Into {path}",
+  sync2Cloning: "Cloning…",
+  sync2PulledTitle: "Settings received from another machine: applied.",
+  sync2PulledRestart: "The [api] confirm_cli setting of termf.toml will apply the next time TermF starts.",
+  sync2PulledSessions: "Agents already started keep their library and conventions until they are started again.",
   // New project setup: pick the repositories, see what TermF detects, keep or set aside its proposal, create.
   setupStepRepos: "Repositories",
   setupStepDetect: "Detection",
