@@ -126,7 +126,8 @@ pub fn tail(text: &str) -> String {
 }
 
 /// A program's error output for a message: its start, where the error line is, then its end when cut in between,
-/// without stack frames. Each line is cut at 200 characters (a minified source line in a Node trace).
+/// as long as the start and always its last line, without stack frames. Each line is cut at 200 characters (a
+/// minified source line in a Node trace).
 pub fn excerpt(text: &str) -> String {
     let lines: Vec<String> = text
         .lines()
@@ -154,7 +155,12 @@ pub fn excerpt(text: &str) -> String {
         .iter()
         .rev()
         .filter(|l| !l.starts_with("at "))
-        .take_while(fits(200))
+        .enumerate()
+        .take_while({
+            let mut fits = fits(600);
+            move |(i, l)| fits(l) || *i == 0
+        })
+        .map(|(_, l)| l)
         .collect();
     end.reverse();
     let mut out: Vec<&str> = lines[..head].iter().map(String::as_str).collect();
@@ -194,6 +200,13 @@ mod tests {
         );
         assert_eq!(lines[lines.len() - 2..], ["…", "Node.js v26.0.0"]);
         assert!(said.len() < 1000, "{said}");
+
+        // A long last line after a noisy start: the error is still there, cut.
+        let noise = "Loading profile: nvm use default (node v22.20.0)\n".repeat(15);
+        let error = format!("API Error: 401 {}", "x".repeat(245));
+        let said = excerpt(&format!("{noise}{error}\n"));
+        assert!(said.contains("\nAPI Error: 401 xxx"), "{said}");
+        assert!(said.ends_with("x…"), "{said}");
 
         assert_eq!(excerpt("  Error: not logged in \n"), "Error: not logged in");
         assert_eq!(excerpt(""), "");
