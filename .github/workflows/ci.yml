@@ -50,6 +50,9 @@ jobs:
           pnpm build
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The e2e bridge only builds with its feature: checked on the quick Linux run of the pull requests.
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p termf-app --all-targets --features e2e -- -D warnings
       - run: cargo test --workspace
 
   # The real app (debug build) driven by tauri-driver under xvfb, and the performance budgets of ARCHITECTURE §2.4.

@@ -300,18 +300,20 @@ export function helpers(box, port, signal) {
     },
 
     /** A `<select>`'s option, as a pick in its list would. */
-    choose(css, value) {
-      return t.s.exec(
+    async choose(css, value) {
+      const found = await t.s.exec(
         (c, v) => {
           const el = document.querySelector(c);
+          if (!el || ![...el.options].some((o) => o.value === v && !o.disabled)) return false;
           el.value = v;
           el.dispatchEvent(new Event("input", { bubbles: true }));
           el.dispatchEvent(new Event("change", { bubbles: true }));
-          return el.value === v;
+          return true;
         },
         css,
         value,
       );
+      if (!found) throw new Error(`no option ${JSON.stringify(value)} in ${css}`);
     },
 
     async view(id, { allow } = {}) {

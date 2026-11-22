@@ -121,6 +121,11 @@ export const scenarios = [
       await s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === answer), {
         what: `${answer} in the terminal`,
       });
+      if (!t.windows) {
+        // The bridge's token never reaches a terminal (e2e build only; the WebDriver's app has none anyway).
+        await t.typeIn(id, "echo token-${TERMF_E2E_TOKEN:-none}" + Key.enter);
+        await showsLine(t, id, "token-none");
+      }
       await t.clean();
     },
   },
@@ -366,7 +371,8 @@ export const scenarios = [
       await s.waitFor('dialog.help[open]');
       await t.clean();
       await s.press(Key.escape);
-      await s.waitGone("dialog.help[open]");
+      // Gone from the page, not only closed: the app itself let go of the help.
+      await s.wait(() => s.exec(() => !document.querySelector("dialog.help")), { what: "the help to go away" });
       await t.command("tour");
       await s.waitFor('[aria-labelledby="tour-title"]');
       for (let step = 0; step < 4; step++) await s.click('[aria-labelledby="tour-title"] footer .primary');

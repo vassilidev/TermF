@@ -71,9 +71,16 @@ function processesMac() {
 
 const mac = process.platform === "darwin";
 const processes = () => (windows ? processesWindows() : mac ? processesMac() : processesLinux());
-// WebKit's processes on macOS are launchd's children: the app's are those that came with it.
-const webkit = () => new Set(processes().filter((p) => /^com\.apple\.WebKit\./.test(p.name)).map((p) => p.pid));
-let webkitBefore = new Set();
+// WebKit's processes on macOS are launchd's children, but they get the environment of the app they serve: the app's
+// are those whose HOME is its sandbox's, never Safari's or Mail's.
+let sandboxHome = null;
+const homeOf = (pid) => {
+  try {
+    return execFileSync("launchctl", ["print", `pid/${pid}`], { encoding: "utf8" }).match(/^\s*HOME => (.*)$/m)?.[1];
+  } catch {
+    return undefined;
+  }
+};
 
 /** `root`: the WebDriver's process, or the app's own when the harness started it. */
 function appTree(root, only = () => true) {
@@ -82,7 +89,7 @@ function appTree(root, only = () => true) {
   const below = (pid) => children(pid).flatMap((c) => [c, ...below(c.pid)]);
   const app = [...all.filter((p) => p.pid === root), ...below(root)].find((p) => /^termf-app/.test(p.name));
   if (!app) throw new Error("the app's process is not found");
-  const helpers = mac ? all.filter((p) => /^com\.apple\.WebKit\./.test(p.name) && !webkitBefore.has(p.pid)) : [];
+  const helpers = mac ? all.filter((p) => /^com\.apple\.WebKit\./.test(p.name) && homeOf(p.pid) === sandboxHome) : [];
   return [app, ...below(app.pid).filter(only), ...helpers];
 }
 
@@ -115,7 +122,7 @@ export async function measure(port, log) {
     t?.app && (await t.stop(), box.cleanup());
     box = createSandbox();
     t = helpers(box, port);
-    if (mac) webkitBefore = webkit();
+    sandboxHome = box.home;
     const app = await t.start();
     const shown = await t.s.wait(
       async () => (await t.s.exec(() => !!document.querySelector('.nav [data-project="acme"]'))) && Date.now(),

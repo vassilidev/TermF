@@ -26,13 +26,24 @@ pub struct Pending {
     waiting: Mutex<HashMap<u64, Sender<String>>>,
 }
 
+/// Takes the bridge's variables out of the environment as it reads them: a terminal or an agent started by the app
+/// never inherits the token. Called from `run`, before Tauri or anything else has started a thread.
 pub fn plugin() -> Option<TauriPlugin<Wry>> {
-    let port: u16 = std::env::var("TERMF_E2E_PORT").ok()?.parse().ok()?;
-    let token = std::env::var("TERMF_E2E_TOKEN")
-        .ok()
-        .filter(|t| t.len() >= 32)?;
+    let take = |name: &str| {
+        let value = std::env::var(name).ok();
+        // SAFETY: still single-threaded (see above), so no other thread reads the environment meanwhile.
+        unsafe { std::env::remove_var(name) };
+        value
+    };
+    let (port, token, init) = (
+        take("TERMF_E2E_PORT"),
+        take("TERMF_E2E_TOKEN"),
+        take("TERMF_E2E_INIT"),
+    );
+    let port: u16 = port?.parse().ok()?;
+    let token = token.filter(|t| t.len() >= 32)?;
     // The tests' own setup (error collection), run before the page's scripts.
-    let init = std::env::var("TERMF_E2E_INIT").unwrap_or_default();
+    let init = init.unwrap_or_default();
     let plugin = tauri::plugin::Builder::new("e2e")
         .js_init_script(init)
         .setup(move |app, _| {
@@ -90,14 +101,14 @@ fn serve(app: &AppHandle, stream: TcpStream, token: &str) -> std::io::Result<()>
     reader.read_exact(&mut body)?;
     let route = request.split(' ').take(2).collect::<Vec<_>>().join(" ");
     let (status, reply) = match (authorized, route.as_str()) {
-        (false, _) => (401, "\"a token is required\"".to_string()),
+        (false, _) => (401, json("a token is required")),
         (true, "GET /status") => (200, window_number(app).to_string()),
         (true, "POST /eval") => eval(app, &String::from_utf8_lossy(&body)),
         (true, "POST /quit") => {
             app.exit(0);
             (200, "null".into())
         }
-        _ => (404, "\"no such route\"".into()),
+        _ => (404, json("no such route")),
     };
     let mut stream = stream;
     write!(
@@ -108,10 +119,14 @@ fn serve(app: &AppHandle, stream: TcpStream, token: &str) -> std::io::Result<()>
     )
 }
 
+fn json(message: &str) -> String {
+    serde_json::Value::from(message).to_string()
+}
+
 /// `expr` is a JavaScript expression, awaited in the window; the reply is `{"ok", "value"}` as JSON.
 fn eval(app: &AppHandle, expr: &str) -> (u16, String) {
     let Some(window) = app.get_webview_window("main") else {
-        return (503, "\"no window yet\"".into());
+        return (503, json("no window yet"));
     };
     let pending = app.state::<Pending>();
     let id = pending.next.fetch_add(1, Ordering::Relaxed);
@@ -132,7 +147,7 @@ fn eval(app: &AppHandle, expr: &str) -> (u16, String) {
     pending.waiting.lock().unwrap().remove(&id);
     match reply {
         Ok(json) => (200, json),
-        Err(e) => (504, format!("{e:?}")),
+        Err(e) => (504, json(&e)),
     }
 }
 
@@ -146,10 +161,9 @@ fn window_number(app: &AppHandle) -> String {
         let (tx, rx) = channel();
         let w = window.clone();
         let _ = window.run_on_main_thread(move || {
-            let n = w.ns_window().ok().map(|ptr| {
+            let n = w.ns_window().ok().map(|ptr| -> isize {
                 let ns: &objc2::runtime::AnyObject = unsafe { &*(ptr as *const _) };
-                let n: isize = unsafe { objc2::msg_send![ns, windowNumber] };
-                n
+                unsafe { objc2::msg_send![ns, windowNumber] }
             });
             let _ = tx.send(n);
         });

@@ -31,7 +31,10 @@ export function assertSafe() {
   }
 }
 
-/** A tiny program that runs `node <fakes>/<its name>.mjs`, since Windows only finds `.exe` files on the PATH. */
+/**
+ * A tiny program that runs `node <fakes>/<its name>.mjs`, since Windows only finds `.exe` files on the PATH. The
+ * sandbox's paths come from `e2e.env` beside it, `KEY=value` per line: agents do not pass them on.
+ */
 let shim;
 function windowsShim() {
   if (shim) return shim;
@@ -43,7 +46,12 @@ function windowsShim() {
 fn main() {
     let exe = std::env::current_exe().unwrap();
     let script = std::path::Path::new(${JSON.stringify(fakes)}).join(format!("{}.mjs", exe.file_stem().unwrap().to_string_lossy()));
-    let status = Command::new(${JSON.stringify(process.execPath)}).arg(script).args(std::env::args_os().skip(1)).status();
+    let mut cmd = Command::new(${JSON.stringify(process.execPath)});
+    let vars = std::fs::read_to_string(exe.with_file_name("e2e.env")).unwrap_or_default();
+    for (k, v) in vars.lines().filter_map(|l| l.split_once('=')) {
+        cmd.env(k, v);
+    }
+    let status = cmd.arg(script).args(std::env::args_os().skip(1)).status();
     exit(status.map_or(1, |s| s.code().unwrap_or(1)));
 }
 `,
@@ -81,11 +89,12 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     TERMF_E2E_RELEASES: join(root, "releases.json"),
     TERMF_E2E_GH_RUNS: join(root, "gh-runs.json"),
   };
+  // In the shims, not only in the app's environment: agents get a minimal environment of their own.
+  if (windows) writeFileSync(join(bin, "e2e.env"), Object.entries(scratch).map(([k, v]) => `${k}=${v}\n`).join(""));
   for (const name of ["claude", "gh", "curl"]) {
     if (windows) copyFileSync(windowsShim(), join(bin, `${name}.exe`));
     else {
       const file = join(bin, name);
-      // In the shim, not only in the app's environment: agents get a minimal environment of their own.
       const own = Object.entries(scratch).map(([k, v]) => `export ${k}=${JSON.stringify(v)}\n`).join("");
       writeFileSync(file, `#!/bin/sh\n${own}exec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(fakes, `${name}.mjs`))} "$@"\n`);
       chmodSync(file, 0o755);

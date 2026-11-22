@@ -76,8 +76,9 @@ function clickAt(css, index, x, y) {
   const at = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, view: window, detail: 1 };
   const pointer = (type, buttons) =>
     target.dispatchEvent(new PointerEvent(type, { ...at, buttons, pointerId: 1, pointerType: "mouse", isPrimary: true }));
-  const down = pointer("pointerdown", 1) && target.dispatchEvent(new MouseEvent("mousedown", { ...at, buttons: 1 }));
-  if (down) {
+  pointer("pointerdown", 1);
+  // Focus is mousedown's default action: a cancelled pointerdown does not stop it.
+  if (target.dispatchEvent(new MouseEvent("mousedown", { ...at, buttons: 1 }))) {
     const focusable = target.closest("input, textarea, select, button, a[href], [tabindex], [contenteditable=''], [contenteditable=true]");
     if (focusable) focusable.focus();
     else if (document.activeElement instanceof HTMLElement && !document.activeElement.contains(target)) document.activeElement.blur();
@@ -114,6 +115,19 @@ function typeKeys(keys, chord) {
     (document.activeElement ?? document.body).dispatchEvent(e);
     return !e.defaultPrevented;
   };
+  // HTML's implicit submission: the form's default button is clicked (nothing if it is disabled); without one, the
+  // form is submitted only when it has a single field that blocks it. Never from a checkbox, radio, range or colour.
+  const blocking = ["text", "search", "url", "tel", "email", "password", "date", "month", "week", "time", "datetime-local", "number"];
+  const submitImplicitly = (input) => {
+    const form = input.form;
+    if (!form || !blocking.includes(input.type)) return;
+    const submitter = [...form.elements].find((e) => (e instanceof HTMLButtonElement || e instanceof HTMLInputElement) && ["submit", "image"].includes(e.type));
+    if (submitter) {
+      if (!submitter.disabled) submitter.click();
+    } else if ([...form.elements].filter((e) => e instanceof HTMLInputElement && blocking.includes(e.type)).length === 1) {
+      form.requestSubmit();
+    }
+  };
   const command = held.ctrlKey || held.metaKey || held.altKey;
   for (const k of keys) {
     if (modifiers[k]) continue;
@@ -121,13 +135,14 @@ function typeKeys(keys, chord) {
     if (named[k]) {
       const [key, keyCode, code = key] = named[k];
       if (fire("keydown", key, code, keyCode) && !command) {
-        const form = el?.closest?.("form");
         if (key === "Enter" && fire("keypress", key, code, keyCode, 13)) {
-          if (el instanceof HTMLInputElement && form) form.requestSubmit();
+          if (el instanceof HTMLInputElement) submitImplicitly(el);
           else if (el instanceof HTMLButtonElement) el.click();
           else document.execCommand("insertLineBreak");
         } else if (key === "Escape") {
-          const dialog = el?.closest?.("dialog[open]") ?? [...document.querySelectorAll("dialog[open]")].at(-1);
+          // As the browser does: only a modal dialog closes on Escape, the one on top, after its cancellable `cancel`.
+          const modals = [...document.querySelectorAll("dialog:modal")];
+          const dialog = modals.find((d) => d.contains(el)) ?? modals.at(-1);
           if (dialog && dialog.dispatchEvent(new Event("cancel", { cancelable: true }))) dialog.close();
         } else if (key === "Backspace") document.execCommand("delete");
         else if (key === "Delete") document.execCommand("forwardDelete");
