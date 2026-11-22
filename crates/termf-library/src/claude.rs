@@ -400,6 +400,20 @@ mod tests {
     use super::*;
     use crate::{put, set_toggle, temp_dir};
 
+    /// A scope without the skills TermF ships, some of which are always on: the test sees only its own.
+    fn own_skills_only() -> Scope {
+        let off = crate::SHIPPED
+            .get_dir("skills")
+            .into_iter()
+            .flat_map(|d| d.dirs())
+            .filter_map(|d| Some(format!("-{}", d.path().file_name()?.to_str()?)))
+            .collect();
+        Scope {
+            overrides: crate::Toggles::from([("skills".to_owned(), off)]),
+            ..Scope::default()
+        }
+    }
+
     #[test]
     fn materializes_the_active_items_for_claude_code() {
         let dir = temp_dir("materialize");
@@ -436,7 +450,7 @@ mod tests {
         set_toggle(&config, None, Kind::Rule, "scope-strict", Some(true)).unwrap();
         set_toggle(&config, None, Kind::Command, "handoff", Some(true)).unwrap();
 
-        let prompt = materialize(&config, &Scope::default(), &session)
+        let prompt = materialize(&config, &own_skills_only(), &session)
             .unwrap()
             .unwrap();
         let plugin = session.join("plugin");
@@ -660,7 +674,7 @@ mod tests {
             let scope = Scope {
                 role: role.map(Into::into),
                 stack: vec![stack(trusted)],
-                ..Scope::default()
+                ..own_skills_only()
             };
             let prompt = materialize(&config, &scope, &session)
                 .unwrap()
@@ -727,11 +741,46 @@ mod tests {
     }
 
     #[test]
+    fn a_shipped_skill_for_every_stack_is_in_every_session_without_any_tag() {
+        let dir = temp_dir("materialize-any");
+        let session = dir.join("session");
+        let items = resolve(&dir, &Scope::default()).unwrap();
+        let prompt = materialize(&dir, &Scope::default(), &session)
+            .unwrap()
+            .map(|f| fs::read_to_string(f).unwrap())
+            .unwrap_or_default();
+        let any = items.iter().filter(|i| {
+            i.layer == Layer::Shipped && crate::metadata_list(i, "termf-stacks") == [crate::ANY]
+        });
+        for item in any {
+            assert!(
+                item.active && item.activated_by == [crate::ANY],
+                "{}",
+                item.name
+            );
+            assert!(
+                session
+                    .join("plugin/skills")
+                    .join(&item.name)
+                    .join("SKILL.md")
+                    .is_file(),
+                "{}: in the session",
+                item.name
+            );
+            assert!(
+                prompt.contains(&format!("#### {}\n", item.name)),
+                "{}: its card, though no tag was detected:\n{prompt}",
+                item.name
+            );
+        }
+    }
+
+    #[test]
     fn keeps_the_hooks_manifest_and_writes_nothing_when_nothing_is_on() {
         let dir = temp_dir("materialize-empty");
         let session = dir.join("session");
         assert_eq!(
-            materialize(&dir, &Scope::default(), &session).unwrap(),
+            materialize(&dir, &own_skills_only(), &session).unwrap(),
             None
         );
         assert!(!session.join("plugin").exists());
@@ -741,7 +790,7 @@ mod tests {
             "{\"name\":\"termf\",\"description\":\"hooks\"}",
         );
         set_toggle(&dir, None, Kind::Role, "po", Some(true)).unwrap();
-        materialize(&dir, &Scope::default(), &session).unwrap();
+        materialize(&dir, &own_skills_only(), &session).unwrap();
         let manifest =
             fs::read_to_string(session.join("plugin/.claude-plugin/plugin.json")).unwrap();
         assert!(manifest.contains("hooks"));

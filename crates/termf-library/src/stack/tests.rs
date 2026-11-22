@@ -266,6 +266,83 @@ fn reads_php_and_ruby_with_their_lockfiles() {
 }
 
 #[test]
+fn reads_the_test_frameworks_of_php_ruby_and_java() {
+    let php = repo(
+        "pest",
+        &[
+            (
+                "composer.json",
+                r#"{"require-dev": {"pestphp/pest": "^5.3", "phpunit/phpunit": "^12.0"}}"#,
+            ),
+            (
+                "composer.lock",
+                r#"{"packages": [], "packages-dev": [{"name": "pestphp/pest", "version": "v5.3.1"}]}"#,
+            ),
+        ],
+    );
+    let tags = detect(&php).tags;
+    assert_eq!(version(&tags, "pest").as_deref(), Some("5.3.1"));
+    assert_eq!(tag(&tags, "pest").source, "composer.lock");
+    assert_eq!(version(&tags, "phpunit").as_deref(), Some("12.0"));
+
+    let ruby = repo(
+        "rspec",
+        &[
+            (
+                "Gemfile",
+                "group :test do\n  gem \"rspec-rails\", \"~> 8.0\"\n  gem \"minitest\"\nend\n",
+            ),
+            (
+                "Gemfile.lock",
+                "GEM\n  specs:\n    minitest (5.26.0)\n    rspec-rails (8.0.2)\n",
+            ),
+        ],
+    );
+    let tags = detect(&ruby).tags;
+    assert_eq!(version(&tags, "rspec").as_deref(), Some("8.0.2"));
+    assert_eq!(version(&tags, "minitest").as_deref(), Some("5.26.0"));
+
+    let maven = repo(
+        "junit-maven",
+        &[(
+            "pom.xml",
+            "<project><dependencies>\n<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId></dependency>\n<dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId></dependency>\n<dependency><groupId>x</groupId><artifactId>y</artifactId><version>9.9</version></dependency>\n</dependencies></project>",
+        )],
+    );
+    let tags = detect(&maven).tags;
+    assert!(names(&tags).contains(&"junit"));
+    assert_eq!(
+        version(&tags, "junit"),
+        None,
+        "managed by Spring Boot: another dependency's version is not junit's"
+    );
+
+    let gradle = repo(
+        "junit-gradle",
+        &[(
+            "build.gradle",
+            "dependencies {\n    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'\n}\n",
+        )],
+    );
+    assert_eq!(
+        version(&detect(&gradle).tags, "junit").as_deref(),
+        Some("5.13.4")
+    );
+    let spring = repo(
+        "junit-spring",
+        &[(
+            "build.gradle.kts",
+            "plugins { id(\"org.springframework.boot\") version \"4.1.2\" }\ndependencies { testImplementation(\"org.springframework.boot:spring-boot-starter-test\") }\n",
+        )],
+    );
+    let tags = detect(&spring).tags;
+    assert!(
+        names(&tags).contains(&"junit"),
+        "by default with Spring Boot's test starter"
+    );
+}
+
+#[test]
 fn reads_containers_infrastructure_and_ci() {
     let dir = repo(
         "infra",

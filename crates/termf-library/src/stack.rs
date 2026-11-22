@@ -33,16 +33,20 @@ pub const TAGS: &[&str] = &[
     "ios",
     "java",
     "jest",
+    "junit",
     "kotlin",
     "kubernetes",
     "laravel",
+    "minitest",
     "mongodb",
     "mysql",
     "nextjs",
     "node",
     "nuxt",
     "opentofu",
+    "pest",
     "php",
+    "phpunit",
     "playwright",
     "postgres",
     "prisma",
@@ -51,6 +55,7 @@ pub const TAGS: &[&str] = &[
     "rails",
     "react",
     "redis",
+    "rspec",
     "ruby",
     "rust",
     "spring-boot",
@@ -759,6 +764,34 @@ fn maven(repo: &Path, rel: &str, found: &mut Found) {
     if text.contains("kotlin-maven-plugin") || text.contains("kotlin-stdlib") {
         found.add("kotlin", None, rel);
     }
+    // The version of a dependency's own `<version>`, not a later one's.
+    let declared = |marker: &str| {
+        let rest = &text[text.find(marker)?..];
+        let block = &rest[..rest.find("</dependency>").unwrap_or(rest.len())];
+        after(block, "<version>", "", "<").and_then(clean)
+    };
+    for marker in [
+        "<groupId>org.junit.jupiter</groupId>",
+        "<artifactId>junit</artifactId>",
+        "<artifactId>spring-boot-starter-test</artifactId>",
+    ] {
+        if text.contains(marker) {
+            let version = declared(marker).filter(|_| !marker.contains("spring-boot"));
+            found.add("junit", version, rel);
+        }
+    }
+}
+
+/// The version of the first `group:artifact:version` coordinate that starts with one of `prefixes`.
+fn coordinate(text: &str, prefixes: &[&str]) -> Option<Option<String>> {
+    prefixes.iter().find_map(|prefix| {
+        let at = text.find(prefix)?;
+        let coordinate: String = text[at..]
+            .chars()
+            .take_while(|c| !matches!(c, '"' | '\'' | ')' | '\n'))
+            .collect();
+        Some(coordinate.split(':').nth(2).and_then(clean))
+    })
 }
 
 /// The version a Gradle plugin is applied with: `id("x") version "1.2"` or `id 'x' version '1.2'`.
@@ -799,6 +832,15 @@ fn gradle(repo: &Path, rel: &str, found: &mut Found) {
         || text.contains("plugins.kotlin")
     {
         found.add("kotlin", plugin_version(&text, "kotlin"), rel);
+    }
+    let junit = coordinate(
+        &text,
+        &["org.junit.jupiter:", "org.junit:junit-bom:", "junit:junit:"],
+    );
+    if let Some(version) = junit {
+        found.add("junit", version, rel);
+    } else if text.contains("spring-boot-starter-test") {
+        found.add("junit", None, rel);
     }
 }
 
@@ -870,17 +912,19 @@ fn php(repo: &Path, dir: &str, rel: &str, found: &mut Found) {
         .iter()
         .find(|d| deps.contains_key(**d))
         .map(|d| version(d));
-    let redis = deps
-        .contains_key("predis/predis")
-        .then(|| version("predis/predis"));
-    if let Some((v, source)) = laravel {
-        found.add("laravel", v, &source);
+    let mut tags = vec![("laravel", laravel), ("symfony", symfony)];
+    for (dep, tag) in [
+        ("pestphp/pest", "pest"),
+        ("phpunit/phpunit", "phpunit"),
+        ("predis/predis", "redis"),
+    ] {
+        tags.push((tag, deps.contains_key(dep).then(|| version(dep))));
     }
-    if let Some((v, source)) = symfony {
-        found.add("symfony", v, &source);
-    }
-    if let Some((_, source)) = redis {
-        found.add("redis", None, &source);
+    for (tag, found_as) in tags {
+        if let Some((v, source)) = found_as {
+            // predis' version is not Redis'.
+            found.add(tag, v.filter(|_| tag != "redis"), &source);
+        }
     }
 }
 
@@ -912,6 +956,9 @@ fn ruby(repo: &Path, dir: &str, rel: &str, found: &mut Found) {
         ("pg", "postgres"),
         ("mysql2", "mysql"),
         ("redis", "redis"),
+        ("rspec-rails", "rspec"),
+        ("rspec", "rspec"),
+        ("minitest", "minitest"),
     ] {
         if gems.iter().any(|g| g == gem) {
             match locked(gem) {
