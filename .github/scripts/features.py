@@ -381,7 +381,7 @@ def roster():
     for g in crew["groups"][1:]:
         if by_crew[g["id"]]:
             cols.append(f'<div class="org-col c-{g["color"]}"><h3>{g["name"]}</h3><ul>{"".join(tile(r) for r in by_crew[g["id"]])}</ul></div>')
-    return (f'<div class="org"><ul class="org-head c-{crew["groups"][0]["color"]}">{"".join(tile(r) for r in head)}</ul>'
+    return (f'<div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-{crew["groups"][0]["color"]}">{"".join(tile(r) for r in head)}</ul>'
             f'<div class="org-cols" style="--cols:{len(cols)}">{"".join(cols)}</div></div>')
 
 

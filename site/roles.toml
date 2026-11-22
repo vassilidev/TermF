@@ -131,6 +131,7 @@ never = "Changes a page's content or layout, or any text the ticket did not give
 [roles.qa]
 label = "QA engineer"
 group = "quality"
+access = "Writes tests only"
 short = "Proves each criterion"
 does = "Checks every acceptance criterion on the merged work, with evidence, and adds the missing regression tests."
 when = "Last in a medium or large plan, once the code tasks are done."

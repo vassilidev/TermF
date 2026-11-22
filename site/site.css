@@ -193,6 +193,8 @@ section{padding:144px 0 0}
 .mark.you{background:var(--waiting);box-shadow:none;color:#2e1d00}
 .org{--link-gap:26px}
 .org-head{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto) minmax(0,1fr);gap:16px;align-items:center;position:relative}
+.org-you{display:flex;flex-direction:column;align-items:center;margin:0}
+.org-you::after{content:"";height:20px;border-left:2px dashed var(--waiting)}
 .org-head li:first-child{grid-column:2}
 .org-head li:nth-child(2){justify-self:start}
 .org-head::after{content:"";position:absolute;left:50%;bottom:calc(-1 * var(--link-gap));height:var(--link-gap);border-left:2px solid var(--line2)}
@@ -388,7 +390,7 @@ section{padding:144px 0 0}
 .crumbs a{color:var(--mute)}
 .crumb-g{display:inline-flex;align-items:center;gap:6px}
 .crumb-g svg{width:16px;height:16px}
-.article{display:grid;grid-template-columns:15rem minmax(0,44rem);gap:64px;padding-top:64px;align-items:start}
+.article{display:grid;grid-template-columns:15rem minmax(0,44rem);gap:64px;margin-top:64px;align-items:start}
 .toc{position:sticky;top:104px;font-size:.9rem}
 .toc p{margin:0 0 10px;font-weight:700;font-size:.82rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
 .toc ol{list-style:none;margin:0;padding:0;border-left:1px solid var(--line)}
@@ -423,8 +425,8 @@ section{padding:144px 0 0}
 .status b{color:var(--soft);font-weight:650}
 
 /* The team page: how the agents work together, then a card per agent */
-.team-org{padding-top:64px}
-.flow-sec{padding-top:120px}
+.team-org{margin-top:64px}
+.flow-sec{margin-top:120px;padding-top:0}
 .flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px}
 .flow li{position:relative;display:flex;flex-direction:column;gap:10px;padding:18px 16px;border-radius:14px;background:var(--sheet);border:1px solid var(--line)}
 .flow li::before{content:"";position:absolute;top:-1px;left:16px;right:16px;height:3px;border-radius:0 0 3px 3px;background:var(--working);opacity:.25;animation:pass 7.2s infinite;animation-delay:calc(var(--i) * 1.2s)}
@@ -438,7 +440,7 @@ section{padding:144px 0 0}
 .flow p{margin:0;font-size:.93rem;line-height:1.5;color:var(--soft)}
 .flow .gate-tag{margin-top:auto;align-self:flex-start;padding:4px 10px;border-radius:999px;background:var(--waiting);color:#2e1d00;font-weight:650;font-size:.8rem;line-height:1.3}
 .flow-note{margin:18px 0 0;max-width:46rem;font-size:.92rem;color:var(--mute)}
-.crews{display:grid;gap:80px;padding-top:120px}
+.crews{display:grid;gap:80px;margin-top:120px}
 .crew,.group{padding-top:0}
 .crew>header{max-width:44rem;margin:0 0 24px}
 .crew>header h2{display:flex;align-items:center;gap:14px;margin-bottom:10px}
@@ -457,7 +459,7 @@ section{padding:144px 0 0}
 .agent dd{margin:0;font-size:.95rem;line-height:1.5;color:var(--soft)}
 .chips-m{list-style:none;margin:auto 0 0;padding:14px 0 0;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
 .chips-m li{padding:2px 9px;border-radius:999px;background:var(--ground);border:1px solid var(--line);color:var(--soft);font:500 .8rem/1.5 var(--mono)}
-.agent.big{grid-column:span 2;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 32px;align-content:start;padding:28px 28px 22px}
+.agent.big{grid-column:span 2;align-self:start;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 32px;align-content:start;padding:28px 28px 22px}
 .agent.big dl{grid-column:2;grid-row:1/3}
 .agent.big .chips-m{grid-column:1/-1}
 .agent.big .mark{min-width:60px;height:60px;font-size:1.3rem;border-radius:14px}
@@ -466,7 +468,7 @@ section{padding:144px 0 0}
 .agent:target{border-color:var(--c);box-shadow:var(--shadow)}
 
 /* The catalogue: a contents column, then each group with a card per feature */
-.catalog{display:grid;grid-template-columns:15.5rem minmax(0,1fr);gap:56px;padding-top:56px;align-items:start}
+.catalog{display:grid;grid-template-columns:15.5rem minmax(0,1fr);gap:56px;margin-top:56px;align-items:start}
 .cat-toc{position:sticky;top:100px}
 .cat-toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
 .cat-toc a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;color:var(--soft);font-size:.92rem;font-weight:500;line-height:1.3;text-decoration:none}
@@ -537,7 +539,7 @@ section{padding:144px 0 0}
 .cat .st svg{width:18px;height:18px}
 
 /* Download */
-.dl-main{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:40px;align-items:start;padding-top:40px}
+.dl-main{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:40px;align-items:start;margin-top:40px}
 .dl-main>section:not(.dl-card){padding-top:0}
 .dl-card{background:var(--console);color:var(--console-ink);border-radius:18px;padding:28px;border:1px solid var(--console-edge)}
 .dl-card h2{margin:0 0 6px;font:850 clamp(2rem,3.4vw,2.8rem)/.92 var(--display);text-transform:uppercase;letter-spacing:-.005em}
@@ -617,9 +619,10 @@ footer{margin-top:144px;border-top:1px solid var(--line);overflow:hidden}
   .split.flip>:first-child{order:1}
   .article{grid-template-columns:minmax(0,1fr);gap:0}
   .toc{position:static;margin-bottom:40px}
-  .cat-toc{position:static}
-  .cat-toc ol{display:flex;flex-wrap:wrap;gap:6px}
-  .cat-toc a{padding:6px 10px;border:1px solid var(--line);background:var(--sheet)}
+  .cat-toc{position:static;margin:0 -28px;padding:0 28px;overflow-x:auto;scrollbar-width:none}
+  .cat-toc ol{display:flex;gap:6px;width:max-content}
+  .cat-toc a{padding:6px 12px;border:1px solid var(--line);background:var(--sheet);white-space:nowrap}
+  .cat-toc small{display:none}
   .fams,.agents{grid-template-columns:repeat(2,minmax(0,1fr))}
   .trio{grid-template-columns:minmax(0,1fr);gap:32px}
   .cards.three{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -664,7 +667,9 @@ footer{margin-top:144px;border-top:1px solid var(--line);overflow:hidden}
   .app .pt{white-space:pre-wrap}
   .app.duo{flex-direction:column}
   .app .nav-a{width:auto}
+  .cat-toc{margin:0 -18px;padding:0 18px}
   .app .steps-list .row{flex-wrap:wrap}
+  .app .steps-list .t{flex:1 1 calc(100% - 40px)}
   .app .steps-list .pill-s{margin-left:34px}
   .next-read{grid-template-columns:minmax(0,1fr)}
   .dl-card .alts{min-height:3.4em}
