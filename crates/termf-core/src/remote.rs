@@ -173,7 +173,10 @@ mod tests {
             name(Some("acme"), Some("ACME-123"), Some("back")),
             "acme/ACME-123/back"
         );
-        assert_eq!(name(Some("acme"), Some("acme/api#482"), None), "acme/api#482");
+        assert_eq!(
+            name(Some("acme"), Some("acme/api#482"), None),
+            "acme/api#482"
+        );
         assert_eq!(name(Some("acme"), Some("api"), None), "acme/api");
         assert_eq!(name(None, Some("api"), Some("")), "api");
         assert_eq!(name(None, None, None), "");
@@ -187,7 +190,15 @@ mod tests {
             link("session_01AbC-x_9").as_deref(),
             Some("https://claude.ai/code/session_01AbC-x_9")
         );
-        for bad in ["", "a/b", "x?y=1", "../evil", "a b", "javascript:x", &"a".repeat(201)] {
+        for bad in [
+            "",
+            "a/b",
+            "x?y=1",
+            "../evil",
+            "a b",
+            "javascript:x",
+            &"a".repeat(201),
+        ] {
             assert_eq!(link(bad), None, "{bad}");
         }
     }
