@@ -17,8 +17,9 @@ use termf_vault::{
 
 use crate::{CmdResult, err};
 
-/// A sleep is seen within this after waking, before anything else can use the key.
-const TICK: Duration = Duration::from_secs(5);
+/// How soon the key leaves memory once idle or after a sleep. Any use checks first, so this is not what
+/// protects it: a slow tick saves energy.
+const TICK: Duration = Duration::from_secs(15);
 
 pub struct VaultState {
     vault: Arc<Vault>,

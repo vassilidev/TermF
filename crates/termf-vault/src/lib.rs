@@ -552,7 +552,8 @@ impl Vault {
 
     pub fn status(&self) -> Result<Status> {
         self.check();
-        let remembered = self.initialized() && self.read()?.remembered;
+        // A damaged file still has a status; unlocking says what is wrong.
+        let remembered = self.read().is_ok_and(|f| f.remembered);
         let now = self.now();
         let session = self.session.lock().unwrap();
         let prod_until = session.as_ref().and_then(|s| {

@@ -318,7 +318,7 @@ fn runs_several_turns_on_one_process() {
     );
     assert_eq!(args[0][10], session.session_id);
     assert_eq!(
-        args[0][11..],
+        args[0][11..17],
         [
             "--model",
             "haiku",
@@ -327,6 +327,13 @@ fn runs_several_turns_on_one_process() {
             "--permission-mode",
             "manual"
         ]
+    );
+    assert_eq!(
+        args[0][17..],
+        termf_core::claude::SECRET_DENY
+            .iter()
+            .flat_map(|rule| ["--disallowedTools", rule])
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         fs::canonicalize(env.log("cwd").trim()).unwrap(),

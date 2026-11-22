@@ -50,7 +50,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
         ["lock"] => app(VaultCall::Lock)?,
         ["status"] if vault.initialized() => {
             if let Err(e) = app(VaultCall::Status) {
-                println!("vault       locked ({e:#})");
+                println!("vault       locked in TermF ({e})");
             }
         }
         ["status"] => println!("No vault yet: termf vault init creates one."),
@@ -119,10 +119,10 @@ fn open(vault: &Vault, actor: &Actor) -> Result<()> {
 
 fn app(call: VaultCall) -> Result<()> {
     let status = Client::connect(None)
-        .and_then(|mut c| c.call(Call::Vault(call)))
         .context(
             "TermF is not running; the other vault commands ask for the master password themselves",
-        )?;
+        )?
+        .call(Call::Vault(call))?;
     print_status(&status);
     Ok(())
 }
