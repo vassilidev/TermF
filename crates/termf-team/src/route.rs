@@ -60,9 +60,26 @@ pub struct Routing {
     /// The CTO's decision journal: `Ruling: what — why — cost if wrong`, one a decision.
     #[serde(default)]
     pub rulings: Vec<String>,
+    /// Decisions of the project the CTO goes back on, each with the ruling that takes its place.
+    #[serde(default)]
+    pub replaces: Vec<Replace>,
     /// The user changed the CTO's routing, or set it.
     #[serde(default)]
     pub changed: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Replace {
+    /// `D<id>`.
+    pub decision: String,
+    pub ruling: String,
+}
+
+impl Replace {
+    /// The id of the decision it names.
+    pub fn id(&self) -> Option<i64> {
+        self.decision.trim().strip_prefix('D')?.parse().ok()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -107,7 +124,33 @@ pub fn schema() -> Value {
         "questions": questions_schema(),
         "budget_usd": { "type": "number" },
         "rulings": strings(),
+        "replaces": {
+            "type": "array",
+            "items": object(json!({ "decision": { "type": "string" }, "ruling": { "type": "string" } })),
+        },
     }))
+}
+
+/// What is wrong with the decisions a routing replaces: each must be one of `in_force`, once, with a ruling.
+pub fn check_replaces(routing: &Routing, in_force: &[i64]) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (n, r) in routing.replaces.iter().enumerate() {
+        match r.id() {
+            Some(id) if in_force.contains(&id) => {
+                if routing.replaces[..n].iter().any(|o| o.id() == Some(id)) {
+                    problems.push(format!("decision {} is replaced twice", r.decision));
+                }
+            }
+            _ => problems.push(format!(
+                "{} is not a decision of the project in force",
+                r.decision
+            )),
+        }
+        if r.ruling.trim().is_empty() {
+            problems.push(format!("say what replaces {}", r.decision));
+        }
+    }
+    problems
 }
 
 impl WorkflowView {
@@ -340,6 +383,7 @@ mod tests {
             questions: vec![],
             budget_usd: 4.0,
             rulings: vec![],
+            replaces: vec![],
             changed: false,
         }
     }
@@ -440,7 +484,7 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
-        assert!(schema()["required"].as_array().unwrap().len() == 11);
+        assert!(schema()["required"].as_array().unwrap().len() == 12);
     }
 
     #[test]

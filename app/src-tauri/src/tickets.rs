@@ -145,8 +145,15 @@ pub fn start(
 }
 
 pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
+    let team = crate::team::team(app);
+    let unmet = team.check_delivery(id)?;
     let tickets = tickets(app);
     let delivered = tickets.deliver(id, confirm);
+    if let (Ok(_), Some(done)) = (&delivered, &unmet)
+        && let Err(e) = team.delivered_without(id, done)
+    {
+        eprintln!("termf: run {id}: delivered, the decision not kept: {e:#}");
+    }
     // Even a failed delivery may have pushed or opened the pull request.
     if let Ok(run) = tickets.run(id) {
         updated(app, &run);
@@ -480,9 +487,23 @@ pub async fn tickets_events(app: AppHandle, id: i64) -> CmdResult<Vec<RunEvent>>
     blocking(app, move |app| tickets(app).events(id)).await
 }
 
+/// What a delivery would send; `done`: what the definition of done misses, when the run's team stopped short of its
+/// delivery gate and the delivery is the user's.
+#[derive(Serialize)]
+pub struct Preview {
+    #[serde(flatten)]
+    preview: DeliveryPreview,
+    done: Option<termf_team::done::Done>,
+}
+
 #[tauri::command]
-pub async fn tickets_deliver_preview(app: AppHandle, id: i64) -> CmdResult<DeliveryPreview> {
-    blocking(app, move |app| tickets(app).deliver_preview(id)).await
+pub async fn tickets_deliver_preview(app: AppHandle, id: i64) -> CmdResult<Preview> {
+    blocking(app, move |app| {
+        let done = crate::team::team(app).check_delivery(id)?;
+        let preview = tickets(app).deliver_preview(id)?;
+        Ok(Preview { preview, done })
+    })
+    .await
 }
 
 #[tauri::command]

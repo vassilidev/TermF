@@ -58,7 +58,7 @@ export const configSections: { id: ConfigSection; label: Key; icon: Component; w
     icon: Ticket,
     words: ["ticketsHelp", "ticketsGithubIssues", "ticketsGithubProject", "ticketsJira", "ticketsMcp"],
   },
-  { id: "team", label: "t5Team", icon: Users, words: ["t6bHelpTeam", "metaRoles", "t5EditRoles", "rsSquads", "rsStaff"] },
+  { id: "team", label: "t5Team", icon: Users, words: ["t6bHelpTeam", "metaRoles", "t5EditRoles", "rsSquads", "rsStaff", "disciplineDecisions"] },
   { id: "library", label: "viewLibrary", icon: LibraryBig, words: ["t6bHelpLibrary"] },
   { id: "worktrees", label: "wtTitle", icon: GitBranch, words: ["wtIntro", "t5RecipeEdit"] },
   {

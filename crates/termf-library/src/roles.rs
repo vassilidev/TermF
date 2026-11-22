@@ -322,12 +322,29 @@ writes = ["-packages/ui/**"]
             "the frontmatter's"
         );
         assert_eq!(value(&settings, "effort_range").0, json!(["high", "xhigh"]));
+        let shipped = [
+            "Edit(**/migrations/**)",
+            "Edit(**/Migrations/**)",
+            "Edit(**/migration/**)",
+            "Edit(**/Migration/**)",
+            "Edit(**/db/migrate/**)",
+            "Edit(**/alembic/versions/**)",
+            "Edit(**/drizzle/**)",
+            "Edit(**/*.prisma)",
+            "Edit(**/schema.sql)",
+            "Edit(**/db/schema.rb)",
+            "Edit(**/db/structure.sql)",
+            "Edit(/infra/**)",
+            "Edit(/terraform/**)",
+            "Edit(.github/workflows/**)",
+        ];
         assert_eq!(
             value(&settings, "deny"),
             (
-                json!(["Read(.env)"]),
-                vec!["global".into(), "project".into()]
+                json!([&shipped[..], &["Read(.env)"]].concat()),
+                vec!["role".into(), "global".into(), "project".into()]
             ),
+            "the paths the shipped front may not change, then the layers'"
         );
         assert_eq!(value(&settings, "skills").0, json!(["a11y"]));
 
@@ -349,7 +366,7 @@ writes = ["-packages/ui/**"]
         );
         assert_eq!(
             value(&settings, "deny").0,
-            json!(["Read(.env)", "WebFetch"]),
+            json!([&shipped[..], &["Read(.env)", "WebFetch"]].concat()),
             "and deny more, never less"
         );
         assert!(!item.meta.contains_key("permission_mode"));
