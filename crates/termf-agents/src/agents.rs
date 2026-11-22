@@ -118,8 +118,6 @@ pub struct Takeover {
     pub args: Vec<String>,
     /// Its terminal must have TermF's guard too.
     pub guard: bool,
-    /// Its project, which a terminal in a step's worktree would not find from its folder.
-    pub project: Option<String>,
 }
 
 impl Agents {
@@ -430,7 +428,6 @@ impl Agents {
             title: spec.title.clone(),
             args: runtime(&session.runtime).interactive_args(spec, &session.session_id),
             guard: spec.guard,
-            project: spec.project.clone(),
         })
     }
 

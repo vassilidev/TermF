@@ -13,6 +13,7 @@ pub mod cli_agents;
 pub mod context;
 pub mod ipc;
 pub mod process;
+pub mod remote;
 pub mod shell;
 pub mod squads;
 pub mod taint;
@@ -98,7 +99,34 @@ pub struct Settings {
     pub vault: VaultSettings,
     pub memory: MemorySettings,
     pub api: ApiSettings,
+    pub tray: TraySettings,
     pub updates: UpdateSettings,
+}
+
+/// `[tray]` in `termf.toml`: the icon in the menu bar or the notification area, and the count on the dock or taskbar
+/// icon, both of what waits for the user.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct TraySettings {
+    pub icon: bool,
+    pub badge: bool,
+}
+
+impl Default for TraySettings {
+    fn default() -> Self {
+        Self {
+            icon: true,
+            badge: true,
+        }
+    }
+}
+
+pub fn save_tray(config_dir: &Path, tray: TraySettings) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        let table = table_in(doc.as_table_mut(), "tray");
+        table.insert("icon", value(tray.icon));
+        table.insert("badge", value(tray.badge));
+    })
 }
 
 /// `[updates]` in `termf.toml`: TermF's own updates.
@@ -399,6 +427,7 @@ impl Default for Settings {
             vault: VaultSettings::default(),
             memory: MemorySettings::default(),
             api: ApiSettings::default(),
+            tray: TraySettings::default(),
             updates: UpdateSettings::default(),
         }
     }
@@ -456,6 +485,8 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub repos: Vec<Repo>,
+    #[serde(rename = "remoteControl")]
+    pub remote: remote::Policy,
 }
 
 #[derive(Deserialize)]
@@ -463,6 +494,8 @@ struct ProjectFile {
     name: String,
     #[serde(default)]
     repos: Vec<RepoEntry>,
+    remote_control: Option<toml::Value>,
+    remote_control_roles: Option<toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -661,6 +694,10 @@ pub fn load_projects(config_dir: &Path) -> Result<Vec<Project>> {
             id: path.file_stem().unwrap().to_string_lossy().into_owned(),
             name: file.name,
             repos,
+            remote: remote::Policy::read(
+                file.remote_control.as_ref(),
+                file.remote_control_roles.as_ref(),
+            ),
         });
     }
     projects.sort_by_key(|p| p.name.to_lowercase());
@@ -1390,6 +1427,18 @@ mod tests {
         fs::write(dir.join("termf.toml"), "vault = \"odd\"\n").unwrap();
         save_vault_auto_lock(&dir, 25).unwrap();
         assert_eq!(load_settings(&dir).unwrap().vault.auto_lock_minutes, 25);
+    }
+
+    #[test]
+    fn saves_the_tray_settings() {
+        let dir = temp_dir("tray");
+        assert_eq!(load_settings(&dir).unwrap().tray, TraySettings::default());
+        let off = TraySettings {
+            icon: false,
+            badge: true,
+        };
+        save_tray(&dir, off).unwrap();
+        assert_eq!(load_settings(&dir).unwrap().tray, off);
     }
 
     #[test]

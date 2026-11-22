@@ -10,6 +10,7 @@ use interprocess::local_socket::{GenericFilePath, Stream, prelude::*};
 use serde_json::Value;
 use termf_core::cli_agents::CODEX_TURN_DONE;
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary};
+use termf_core::remote;
 use termf_library::archive::{self, Action, Status};
 use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
@@ -622,9 +623,12 @@ fn forward_hook(event: String) -> Result<()> {
     Ok(())
 }
 
-fn forward(event: String, payload: Value) -> Result<Value> {
+fn forward(event: String, mut payload: Value) -> Result<Value> {
     // Not started by TermF: nothing to report to.
     let session = env::var(ipc::ENV_SESSION)?.parse()?;
+    if let (Some(map), Ok(bridge)) = (payload.as_object_mut(), env::var(remote::ENV_BRIDGE)) {
+        map.insert(remote::PAYLOAD_BRIDGE.into(), bridge.into());
+    }
     // Waiting for the reply keeps consecutive hooks in order.
     Client::connect(Some(env::var(ipc::ENV_TOKEN)?))?.call(Call::Hook {
         session,

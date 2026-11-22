@@ -425,6 +425,9 @@ pub struct SessionSummary {
     /// Context gauge and reset, for Claude Code sessions that report through hooks.
     #[serde(default)]
     pub context: Option<crate::context::Gauge>,
+    /// Remote Control of a Claude Code tile that reports to TermF, which can turn it on and off.
+    #[serde(default)]
+    pub remote: Option<crate::remote::State>,
 }
 
 /// Serializes `msg` as one line; serde_json escapes newlines inside strings.
@@ -905,6 +908,7 @@ mod tests {
             remote_control: false,
             agent_session_id: None,
             context: None,
+            remote: None,
         }
     }
 

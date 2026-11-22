@@ -736,11 +736,7 @@ fn keeps_to_the_budget() {
 #[test]
 fn takes_over_and_hands_back_without_two_processes() {
     let env = Env::new("takeover");
-    let spec = SessionSpec {
-        project: Some("acme".into()),
-        ..env.spec()
-    };
-    let id = env.agents.start(spec, Some("hello")).unwrap().id;
+    let id = env.agents.start(env.spec(), Some("hello")).unwrap().id;
     let session = env.settle(id, 1, State::Idle);
     let takeover = env.agents.takeover(id).unwrap();
     assert_eq!(
@@ -762,7 +758,6 @@ fn takes_over_and_hands_back_without_two_processes() {
             .map(String::from)
             .to_vec(),
             guard: false,
-            project: Some("acme".into()),
         }
     );
     assert!(

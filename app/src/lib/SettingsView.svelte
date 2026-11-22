@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import BellDot from "@lucide/svelte/icons/bell-dot";
   import Bot from "@lucide/svelte/icons/bot";
   import CircleArrowUp from "@lucide/svelte/icons/circle-arrow-up";
   import Coffee from "@lucide/svelte/icons/coffee";
@@ -23,6 +24,7 @@
   import KeepAwake from "$lib/KeepAwake.svelte";
   import Requirements from "$lib/Requirements.svelte";
   import ShortcutEditor from "$lib/ShortcutEditor.svelte";
+  import TraySettings from "$lib/TraySettings.svelte";
   import SyncView from "$lib/SyncView.svelte";
   import UpdateSettings from "$lib/UpdateSettings.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -49,6 +51,7 @@
       icon: Coffee,
       words: ["keepAwakeAuto", "keepAwakeAlways", "keepAwakeOff", "keepDisplayOn", "keepAwakeHelp"],
     },
+    { id: "tray", label: "remoteTrayTitle", icon: BellDot, words: ["remoteTrayIcon", "remoteTrayBadge", "remoteTrayHelp"] },
     {
       id: "context",
       label: "contextSettings",
@@ -208,6 +211,8 @@
         <div class="page">
           {#if settings.section === "awake"}
             <KeepAwake />
+          {:else if settings.section === "tray"}
+            <TraySettings />
           {:else if settings.section === "updates"}
             <UpdateSettings />
           {:else if settings.section === "tools"}

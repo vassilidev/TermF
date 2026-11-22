@@ -20,9 +20,11 @@ use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{
     self, AgentCall, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent,
 };
+use termf_core::remote;
 use termf_core::{agent_env, cli_agents};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
+use crate::remote::{Relaunch, Restart, Step, Tile};
 use crate::{AppState, agents, schedule, team, tickets, visual};
 
 struct Meta {
@@ -39,6 +41,8 @@ struct Meta {
     /// A session TermF runs for itself, with no tile until it needs the user.
     hidden: bool,
     policy: Option<Policy>,
+    /// The switch of a Claude Code tile that reports to TermF; `remote_control` says how the others started.
+    remote: Option<Tile>,
     /// A Codex CLI terminal's prompt: Codex says when a turn ends, not when one starts.
     typed: Option<ipc::Typed>,
 }
@@ -59,6 +63,14 @@ const CALLER_CHECK: Duration = Duration::from_millis(250);
 struct ContextEvent {
     id: u32,
     context: Gauge,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RemoteEvent {
+    id: u32,
+    remote_control: bool,
+    remote: Option<remote::State>,
 }
 
 struct Endpoint {
@@ -307,9 +319,11 @@ impl Api {
             status: meta
                 .and_then(|m| m.status)
                 .map(|s| if info.running { s } else { Status::Done }),
-            remote_control: meta.is_some_and(|m| m.remote_control),
+            remote_control: meta
+                .is_some_and(|m| m.remote.as_ref().map_or(m.remote_control, Tile::on)),
             agent_session_id: meta.and_then(|m| m.agent_session_id.clone()),
             context: meta.and_then(|m| m.reset.as_ref()).map(|r| r.gauge.clone()),
+            remote: meta.and_then(|m| m.remote.as_ref()).map(Tile::state),
             id: info.id,
             title: info.title,
             cwd: info.cwd,
@@ -339,6 +353,9 @@ impl Api {
             .unwrap()
             .retain(|w| w.send(event.clone()).is_ok());
         app.state::<AppState>().keep_awake.update(app);
+        if status == Status::Idle {
+            self.remote_later(app, id);
+        }
     }
 
     /// Handles a hook, or the status line `termf statusline` reports, and returns what `termf hook`
@@ -361,6 +378,7 @@ impl Api {
                 m.agent_session_id = Some(agent_session.into());
             }
         }
+        self.remote_seen(app, id, event, payload);
         if event == "StatusLine" && current {
             crate::claude_native::status_line(app, id, payload);
         }
@@ -512,6 +530,270 @@ impl Api {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// A tile's switch. `/remote-control <name>` turns it on in the running process; off, or on for a process that
+    /// cannot connect, takes the same conversation to a new process (`--resume`), kept from connecting when off.
+    /// Either waits for the agent to be at its prompt, unless `now`.
+    pub fn remote_set(&self, app: &AppHandle, id: u32, on: bool, now: bool) -> Result<()> {
+        let data_dir = self.endpoint.as_ref().map(|e| e.data_dir.clone());
+        let (at_prompt, newly_locked, done) = {
+            let mut meta = self.meta.lock().unwrap();
+            let m = meta.get_mut(&id).context("unknown session")?;
+            let at_prompt = now || m.status == Some(Status::Idle);
+            let conversation = m.agent_session_id.clone();
+            let tile = m.remote.as_mut().context(
+                "only the Claude Code sessions that report to TermF have the Remote Control switch",
+            )?;
+            // Marked by Ops since its last hook, an idle session would otherwise connect.
+            let conversation = conversation.or_else(|| tile.relaunch.conversation.clone());
+            let prod = on
+                && data_dir.as_deref().is_some_and(|d| {
+                    crate::remote::prod_read(d, conversation.as_deref(), tile.run)
+                });
+            let newly_locked = prod && !tile.locked;
+            (at_prompt, newly_locked, tile.set(on, prod))
+        };
+        self.remote_changed(app, id);
+        if newly_locked {
+            self.remote_now(app, id, true)?;
+        }
+        done?;
+        if at_prompt {
+            self.remote_now(app, id, now)?;
+        }
+        Ok(())
+    }
+
+    /// Every session off at once, mid-turn or not: the tiles in a new process, those started with Remote Control
+    /// but without TermF's hooks by ending their process. Returns how many were on.
+    pub fn remote_cut_all(&self, app: &AppHandle) -> usize {
+        let (tiles, bare, changed) = cut_all(&mut self.meta.lock().unwrap());
+        for &id in &changed {
+            self.remote_changed(app, id);
+        }
+        for &id in &tiles {
+            if let Err(e) = self.remote_now(app, id, true) {
+                eprintln!("termf: session {id}: Remote Control not cut: {e:#}");
+            }
+        }
+        let sessions = &app.state::<AppState>().sessions;
+        let running: Vec<u32> = sessions
+            .list()
+            .iter()
+            .filter(|s| s.running)
+            .map(|s| s.id)
+            .collect();
+        let bare: Vec<u32> = bare.into_iter().filter(|id| running.contains(id)).collect();
+        for &id in &bare {
+            if let Err(e) = sessions.terminate(id) {
+                eprintln!("termf: session {id}: not ended: {e:#}");
+            }
+            let event = RemoteEvent {
+                id,
+                remote_control: false,
+                remote: None,
+            };
+            let _ = app.emit("session-remote", event);
+        }
+        tiles.len() + bare.len()
+    }
+
+    /// Does what the switch waits for. Without `force`, a draft in the prompt or a context reset under way keeps it
+    /// waiting: typing would join the draft, a new process would lose it.
+    fn remote_now(&self, app: &AppHandle, id: u32, force: bool) -> Result<()> {
+        let (step, name) = {
+            let mut meta = self.meta.lock().unwrap();
+            let Some(m) = meta.get_mut(&id) else {
+                return Ok(());
+            };
+            let busy = !force && m.reset.as_ref().is_some_and(|r| r.draft() || r.active());
+            let Some(tile) = m.remote.as_mut() else {
+                return Ok(());
+            };
+            let step = tile.next();
+            tile.pending = busy && step != Step::Nothing;
+            if tile.pending {
+                return Ok(());
+            }
+            if step == Step::Type {
+                tile.asked = true;
+            }
+            (step, tile.name.clone())
+        };
+        let done = match step {
+            Step::Nothing => Ok(()),
+            Step::Type => app
+                .state::<AppState>()
+                .sessions
+                .type_line(id, &format!("/remote-control {name}")),
+            Step::Relaunch => self.relaunch(app, id),
+        };
+        self.remote_changed(app, id);
+        done
+    }
+
+    /// The agent is back at its prompt: what the switch waits for, once it had time to draw it.
+    fn remote_later(&self, app: &AppHandle, id: u32) {
+        let pending = self
+            .meta
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|m| m.remote.as_ref())
+            .is_some_and(|t| t.pending);
+        if !pending {
+            return;
+        }
+        let app = app.clone();
+        thread::spawn(move || {
+            thread::sleep(TYPE_AFTER);
+            let api = &app.state::<AppState>().api;
+            let idle = api
+                .meta
+                .lock()
+                .unwrap()
+                .get(&id)
+                .is_some_and(|m| m.status == Some(Status::Idle));
+            if idle && let Err(e) = api.remote_now(&app, id, false) {
+                eprintln!("termf: session {id}: Remote Control: {e:#}");
+            }
+        });
+    }
+
+    /// The tile's conversation in a new process, connected or kept from connecting as the switch and the lock want.
+    fn relaunch(&self, app: &AppHandle, id: u32) -> Result<()> {
+        let state = app.state::<AppState>();
+        let live = state
+            .sessions
+            .list()
+            .into_iter()
+            .find(|s| s.id == id && s.running);
+        let (relaunch, conversation, connect) = {
+            let mut meta = self.meta.lock().unwrap();
+            let m = meta.get_mut(&id).context("unknown session")?;
+            let known = m.agent_session_id.clone();
+            let tile = m.remote.as_mut().context("no Remote Control here")?;
+            let restart = tile.restart(known.as_deref())?;
+            match (live.is_some(), restart) {
+                (
+                    true,
+                    Restart::In {
+                        conversation,
+                        connect,
+                    },
+                ) => (tile.relaunch.clone(), conversation, connect),
+                // Its process ended, and its connection with it; or it has no conversation yet, nothing to lose.
+                (live, _) => {
+                    (tile.bridge, tile.asked) = (None, false);
+                    drop(meta);
+                    if live {
+                        state.sessions.terminate(id)?;
+                    }
+                    return Ok(());
+                }
+            }
+        };
+        if let Some(settings) = &relaunch.settings {
+            crate::remote::block(settings, connect.is_none())?;
+        }
+        let mut line = relaunch.line(Some(&conversation), connect.as_deref())?;
+        let mut env = relaunch.env.clone();
+        if let Some(allowlist) = &relaunch.allowlist {
+            let names: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
+            let cli = termf_binary();
+            let tool = Some(Tool::Claude);
+            if let Some((wrapped, spec)) =
+                allowlist.wrap(&line, tool, cli.as_deref(), &names, shell_quote)
+            {
+                line = wrapped;
+                env.push((agent_env::SPEC.into(), spec));
+            }
+        }
+        let (program, args) = shell_command(Some(&line));
+        let info = live.expect("checked above");
+        // The process replaced may still fire hooks (its SessionEnd, with its old connection): none counts.
+        self.revoke_session(id);
+        state.sessions.respawn_with(id, |_| {
+            Ok(SpawnSpec {
+                title: info.title,
+                program,
+                args,
+                cwd: relaunch.cwd.clone(),
+                agent: info.agent,
+                cols: 120,
+                rows: 32,
+                env,
+                base_env: relaunch.base_env.clone(),
+            })
+        })?;
+        if let Some(tile) = self
+            .meta
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .and_then(|m| m.remote.as_mut())
+        {
+            tile.asked = connect.is_some();
+            tile.blocked = connect.is_none();
+            tile.bridge = None;
+        }
+        self.set_status(app, id, Status::Starting);
+        Ok(())
+    }
+
+    /// What a hook says of Remote Control: connected or not, and whether the session read production data, which
+    /// cuts it at once.
+    fn remote_seen(&self, app: &AppHandle, id: u32, event: &str, payload: &Value) {
+        let bridge = payload.get(remote::PAYLOAD_BRIDGE).and_then(Value::as_str);
+        // The status line may run without the hooks' environment: only a hook tells it is off.
+        if event == "StatusLine" && bridge.is_none() {
+            return;
+        }
+        let data_dir = self.endpoint.as_ref().map(|e| e.data_dir.clone());
+        let (changed, cut) = {
+            let mut meta = self.meta.lock().unwrap();
+            let Some(m) = meta.get_mut(&id) else {
+                return;
+            };
+            let conversation = m.agent_session_id.clone();
+            let Some(tile) = m.remote.as_mut() else {
+                return;
+            };
+            let locked = data_dir
+                .as_deref()
+                .is_some_and(|d| crate::remote::prod_read(d, conversation.as_deref(), tile.run));
+            let before = tile.state();
+            let cut = tile.seen(bridge, locked);
+            (tile.state() != before, cut)
+        };
+        if changed {
+            self.remote_changed(app, id);
+        }
+        if cut {
+            let app = app.clone();
+            // After this hook's answer: the process it came from is the one cut.
+            thread::spawn(move || {
+                thread::sleep(TYPE_AFTER);
+                if let Err(e) = app.state::<AppState>().api.remote_now(&app, id, true) {
+                    eprintln!("termf: session {id}: Remote Control not cut: {e:#}");
+                }
+            });
+        }
+    }
+
+    fn remote_changed(&self, app: &AppHandle, id: u32) {
+        let event = self.meta.lock().unwrap().get(&id).and_then(|m| {
+            let tile = m.remote.as_ref()?;
+            Some(RemoteEvent {
+                id,
+                remote_control: tile.on(),
+                remote: Some(tile.state()),
+            })
+        });
+        if let Some(event) = event {
+            let _ = app.emit("session-remote", event);
+        }
     }
 
     /// Typing into a waiting session answers it (e.g. approves a tool), which no hook reports right away.
@@ -689,6 +971,34 @@ fn random_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// What "cut all" reaches, each switched off: the tiles that were on or on their way, the sessions started with
+/// Remote Control but without TermF's hooks (only their end cuts them), and every tile whose state changed (a
+/// question gone too).
+fn cut_all(meta: &mut HashMap<u32, Meta>) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    let (mut tiles, mut bare, mut changed) = (Vec::new(), Vec::new(), Vec::new());
+    for (&id, m) in meta.iter_mut() {
+        match m.remote.as_mut() {
+            Some(tile) => {
+                let before = tile.state();
+                if tile.on() || tile.asked {
+                    tiles.push(id);
+                }
+                tile.want = false;
+                tile.ask = false;
+                if tile.state() != before {
+                    changed.push(id);
+                }
+            }
+            None if m.remote_control => {
+                m.remote_control = false;
+                bare.push(id);
+            }
+            None => {}
+        }
+    }
+    (tiles, bare, changed)
+}
+
 /// What a ticket run adds to its Claude Code session: the project whose library applies, the file that
 /// holds its task, what its worktree's setup gives it (ports, Compose project name), and its conversation
 /// (a new one with its first message, or one resumed).
@@ -699,8 +1009,21 @@ pub struct RunSession<'a> {
     pub args: &'a [String],
 }
 
+/// What a Claude Code tile's Remote Control starts with (ARCHITECTURE §6.6): the user's choice at launch, else the
+/// project's and the role's mode; and what its name on the phone, `<project>/<ticket>/<role>`, is made of. The project
+/// is the one that lists the folder unless given; the folder's name stands for a ticket.
+#[derive(Default)]
+pub struct Remote<'a> {
+    pub on: Option<bool>,
+    pub project: Option<&'a str>,
+    pub ticket: Option<&'a str>,
+    pub role: Option<&'a str>,
+    /// The ticket run the session works for.
+    pub run: Option<i64>,
+}
+
 /// Starts a session. A Claude Code agent gets an ephemeral plugin whose hooks report its status,
-/// and Remote Control when asked; other agents and shells get neither.
+/// and Remote Control as `remote` says; other agents and shells get neither.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
     state: &AppState,
@@ -709,7 +1032,7 @@ pub fn spawn(
     title: String,
     cols: u16,
     rows: u16,
-    remote_control: bool,
+    remote: Remote,
     run: Option<RunSession>,
     // Added at the end of the agent's command.
     args: &[String],
@@ -722,27 +1045,24 @@ pub fn spawn(
         cwd,
         title,
         (cols, rows),
-        remote_control,
+        remote,
         run,
         None,
         guard,
         args,
-        None,
     )
 }
 
-/// Starts a headless session taken over in a terminal: in its project, and through the `termf guard` hook when it
-/// had it (a team's step).
-#[allow(clippy::too_many_arguments)]
-pub fn spawn_taken_over(
+/// Starts a session whose Bash commands go through the `termf guard` hook, as a ticket run's: a headless
+/// session of a team's step, taken over in a terminal.
+pub fn spawn_guarded(
     state: &AppState,
     agent: &str,
     cwd: PathBuf,
     title: String,
-    size: (u16, u16),
+    (cols, rows): (u16, u16),
+    remote: Remote,
     args: &[String],
-    guard: bool,
-    project: Option<&str>,
 ) -> Result<SessionSummary> {
     launch(
         state,
@@ -750,13 +1070,12 @@ pub fn spawn_taken_over(
         agent_command(state, Some(agent))?,
         cwd,
         title,
-        size,
-        false,
+        (cols, rows),
+        remote,
         None,
         None,
-        guard,
+        true,
         args,
-        project,
     )
 }
 
@@ -800,12 +1119,14 @@ pub fn spawn_task(
         cwd,
         title,
         (120, 32),
-        false,
+        Remote {
+            on: Some(false),
+            ..Remote::default()
+        },
         None,
         Some(&task),
         false,
         &[],
-        None,
     )
 }
 
@@ -835,6 +1156,7 @@ pub fn spawn_command(
                 reset: None,
                 hidden: false,
                 policy: None,
+                remote: None,
                 typed: None,
             },
         );
@@ -873,17 +1195,39 @@ fn launch(
     cwd: PathBuf,
     title: String,
     (cols, rows): (u16, u16),
-    remote_control: bool,
+    remote: Remote,
     run: Option<RunSession>,
     task: Option<&Task>,
     guard: bool,
     args: &[String],
-    // Known by the caller when the folder does not say it (a step's worktree).
-    project: Option<&str>,
 ) -> Result<SessionSummary> {
     let tool = command.as_deref().and_then(Tool::of);
     let is_claude = tool == Some(Tool::Claude);
-    let remote_control = remote_control && is_claude;
+    // TermF's own tasks never get Remote Control.
+    let remote_tile = is_claude && task.is_none();
+    let (project, policy) = match remote_tile {
+        true => crate::remote::project_policy(&state.config_dir, remote.project, &cwd),
+        false => Default::default(),
+    };
+    let conversation = remote::conversation(run.as_ref().map_or(&[], |r| r.args))
+        .or_else(|| remote::conversation(args));
+    let locked = remote_tile
+        && state
+            .api
+            .endpoint
+            .as_ref()
+            .is_some_and(|e| crate::remote::prod_read(&e.data_dir, conversation, remote.run));
+    let (remote_control, ask) = remote::at_start(remote.on, policy.mode(remote.role), locked);
+    let remote_control = remote_control && remote_tile;
+    let folder = cwd.file_name().map(|f| f.to_string_lossy().into_owned());
+    let mut remote_name = remote::name(
+        project.as_deref(),
+        remote.ticket.or(folder.as_deref()),
+        remote.role,
+    );
+    if remote_name.is_empty() {
+        remote_name = title.clone();
+    }
     // Session folders live with the local API, which clears them at startup.
     let sessions_dir = match &state.api.endpoint {
         Some(endpoint) if tool.is_some() => Some(endpoint.data_dir.join("sessions")),
@@ -937,23 +1281,21 @@ fn launch(
                 reset: (hooks.is_some() && is_claude).then(Reset::default),
                 hidden: task.is_some_and(|t| t.hidden),
                 policy: task.and_then(|t| t.policy.clone()),
+                remote: None,
                 typed: (hooks.is_some() && tool == Some(Tool::Codex)).then(ipc::Typed::default),
             },
         );
         let mut extra = Vec::new();
+        let mut settings_file = None;
         let mut env: Vec<(String, String)> = run
             .as_ref()
             .map(|r| r.env.clone().into_iter().collect())
             .unwrap_or_default();
         let mut warnings: Vec<String> = old.iter().cloned().collect();
         // An agent starts with the allowlist and what TermF gives it: a shell keeps all of TermF's environment.
-        let policy = command.as_ref().map(|_| {
-            let project = project.or(run.as_ref().map(|r| r.project));
-            let project = project.map(str::to_owned).or_else(|| {
-                termf_core::project_of(&state.config_dir, &cwd)
-                    .ok()
-                    .flatten()
-            });
+        let allowlist = command.as_ref().map(|_| {
+            let run_project = run.as_ref().map(|r| r.project);
+            let project = project_for(&state.config_dir, remote.project, run_project, &cwd);
             let actor = termf_vault::Actor::agent(None, Some(format!("terminal {id}")));
             let project = project.as_deref();
             let given = crate::agentenv::given(&state.vault, &state.config_dir, project, &actor);
@@ -961,6 +1303,10 @@ fn launch(
             warnings.extend(given.note);
             agent_env::load(&state.config_dir, project)
         });
+        let base_env = allowlist
+            .as_ref()
+            .filter(|p| !p.inherit)
+            .map(|p| p.keep(tool, std::env::vars_os()));
         if let (Some(tool), None) = (codex_or_gemini, &old) {
             let prompt = dir.as_ref().and_then(|dir| library(state, &cwd, dir, None));
             let tile = cli_agents::tile(
@@ -1001,10 +1347,14 @@ fn launch(
                     claude::merge_settings(&mut all, more);
                     fs::write(&settings, serde_json::to_string_pretty(&all)?)?;
                 }
+                if remote_tile && locked {
+                    crate::remote::block(&settings, true)?;
+                }
                 extra.push(format!(
                     "--settings {}",
                     shell_quote(&settings.to_string_lossy())
                 ));
+                settings_file = Some(settings);
             }
             let prompt = task
                 .is_none_or(|t| t.policy.is_none())
@@ -1031,24 +1381,54 @@ fn launch(
                 shell_quote(&settings.to_string_lossy())
             ));
         }
+        let before = extra.clone();
         if remote_control {
-            extra.push(format!("--remote-control {}", shell_quote(&title)));
+            extra.push(format!("--remote-control {}", shell_quote(&remote_name)));
         }
+        let mut after = Vec::new();
         if let Some(run) = &run {
             // Before the variadic options, which would take the first message as one of their values.
             extra.extend(run.args.iter().map(|a| shell_quote(a)));
             if let Some(folder) = run.brief.parent() {
-                extra.push(format!(
+                after.push(format!(
                     "--add-dir {}",
                     shell_quote(&folder.to_string_lossy())
                 ));
             }
             // Defense in depth with the `termf guard` hook, not a guarantee: TermF pushes once the user
             // delivers the run.
-            extra.push(format!(
+            after.push(format!(
                 "--disallowedTools {}",
                 shell_quote("Bash(git push:*)")
             ));
+            extra.extend(after.iter().cloned());
+        }
+        if remote_tile
+            && hooks.is_some()
+            && let Some(m) = state.api.meta.lock().unwrap().get_mut(&id)
+        {
+            m.remote = Some(Tile {
+                name: remote_name.clone(),
+                want: remote_control,
+                asked: remote_control,
+                blocked: locked,
+                ask,
+                locked,
+                run: remote.run,
+                relaunch: Relaunch {
+                    command: command.clone().unwrap_or_default(),
+                    before,
+                    after,
+                    trailing: remote::strip_conversation(args),
+                    cwd: cwd.clone(),
+                    env: env.clone(),
+                    settings: settings_file,
+                    conversation: conversation.map(str::to_owned),
+                    base_env: base_env.clone(),
+                    allowlist: allowlist.clone(),
+                },
+                ..Tile::default()
+            });
         }
         if let Some(task) = task {
             extra.extend(task.args.iter().map(|a| shell_quote(a)));
@@ -1073,16 +1453,13 @@ fn launch(
             }
             other => other,
         };
-        let base_env = policy
-            .as_ref()
-            .filter(|p| !p.inherit)
-            .map(|p| p.keep(tool, std::env::vars_os()));
         // Before the lines it prints first: the program the wrapper resolves is the agent's.
         let mut command = command;
-        if let (Some(policy), Some(c)) = (&policy, &command) {
+        if let (Some(allowlist), Some(c)) = (&allowlist, &command) {
             let names: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
             let cli = termf_binary();
-            if let Some((wrapped, spec)) = policy.wrap(c, tool, cli.as_deref(), &names, shell_quote)
+            if let Some((wrapped, spec)) =
+                allowlist.wrap(c, tool, cli.as_deref(), &names, shell_quote)
             {
                 command = Some(wrapped);
                 env.push((agent_env::SPEC.into(), spec));
@@ -1115,6 +1492,17 @@ fn launch(
         running: true,
         exit_code: None,
     }))
+}
+
+/// An agent's project: the caller's (a step's worktree does not say it), else its run's, else its folder's.
+fn project_for(
+    config_dir: &Path,
+    given: Option<&str>,
+    run: Option<&str>,
+    cwd: &Path,
+) -> Option<String> {
+    let known = given.or(run).map(str::to_owned);
+    known.or_else(|| termf_core::project_of(config_dir, cwd).ok().flatten())
 }
 
 /// Writes the repository's library into the session folder and returns the system prompt file, if any.
@@ -1287,7 +1675,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call, caller: &Stream) -> Resul
                 title,
                 120,
                 32,
-                false,
+                Remote::default(),
                 None,
                 &[],
             )?;
@@ -1375,6 +1763,39 @@ fn type_later(app: AppHandle, id: u32, step: u64, line: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_step_taken_over_keeps_its_project_whatever_its_folder() {
+        let root = std::env::temp_dir().join(format!("termf-api-project-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let repo = root.join("acme-api");
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::create_dir_all(root.join("config/projects")).unwrap();
+        let file = format!(
+            "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n",
+            repo.display()
+        );
+        fs::write(root.join("config/projects/acme.toml"), file).unwrap();
+        let config = root.join("config");
+        // A team step's worktree lives in TermF's data folder, which no project lists.
+        let worktree = root.join("data/team/12/back");
+        fs::create_dir_all(&worktree).unwrap();
+        let project = |given, run, cwd: &Path| project_for(&config, given, run, cwd);
+        assert_eq!(
+            project(Some("acme"), None, &worktree).as_deref(),
+            Some("acme")
+        );
+        assert_eq!(
+            project(None, Some("acme"), &worktree).as_deref(),
+            Some("acme")
+        );
+        assert_eq!(
+            project(None, None, &repo.join("src")).as_deref(),
+            Some("acme")
+        );
+        assert_eq!(project(None, None, &worktree), None);
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn a_run_needs_its_guard() {
@@ -1541,6 +1962,64 @@ mod tests {
         assert!(
             !endpoint.allows(&hook),
             "what it left running reports nothing"
+        );
+        // Started again in place (`relaunch`): the new process gets a token of its own, the old one stays refused.
+        endpoint
+            .session_tokens
+            .lock()
+            .unwrap()
+            .insert(3, "s3-new".into());
+        assert!(!endpoint.allows(&hook), "the replaced process's SessionEnd");
+        let new = Request {
+            token: "s3-new".into(),
+            ..hook
+        };
+        assert!(endpoint.allows(&new));
+    }
+
+    fn meta(remote_control: bool, remote: Option<Tile>) -> Meta {
+        Meta {
+            title: String::new(),
+            status: None,
+            since: Instant::now(),
+            remote_control,
+            agent_session_id: None,
+            dir: None,
+            reset: None,
+            hidden: false,
+            policy: None,
+            remote,
+            typed: None,
+        }
+    }
+
+    #[test]
+    fn cut_all_reaches_every_session_and_every_question() {
+        let tile = |want: bool, asked: bool, ask: bool| Tile {
+            want,
+            asked,
+            ask,
+            ..Tile::default()
+        };
+        let mut all = HashMap::from([
+            (1, meta(true, Some(tile(true, false, false)))),
+            (2, meta(false, Some(tile(false, true, false)))),
+            (3, meta(false, Some(tile(false, false, true)))),
+            (4, meta(false, Some(tile(false, false, false)))),
+            (5, meta(true, None)),
+            (6, meta(false, None)),
+        ]);
+        let (mut tiles, bare, mut changed) = cut_all(&mut all);
+        tiles.sort();
+        changed.sort();
+        assert_eq!(tiles, [1, 2], "on, or on its way");
+        assert_eq!(bare, [5], "started with Remote Control, without hooks");
+        assert_eq!(changed, [1, 3], "the switch off, the question gone");
+        assert!(!all[&5].remote_control);
+        assert!(
+            all.values()
+                .filter_map(|m| m.remote.as_ref())
+                .all(|t| !t.want && !t.ask)
         );
     }
 }

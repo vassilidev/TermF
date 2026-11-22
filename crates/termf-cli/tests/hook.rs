@@ -34,7 +34,17 @@ fn fake_termf(name: &str, reply: Value) -> (String, JoinHandle<Value>) {
 }
 
 fn termf(args: &[&str], socket: &str, stdin: &str) -> String {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_termf"))
+    termf_with(args, socket, stdin, None)
+}
+
+/// `bridge`: the Remote Control session Claude Code gives the hook's environment while connected.
+fn termf_with(args: &[&str], socket: &str, stdin: &str, bridge: Option<&str>) -> String {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_termf"));
+    command.env_remove("CLAUDE_CODE_BRIDGE_SESSION_ID");
+    if let Some(bridge) = bridge {
+        command.env("CLAUDE_CODE_BRIDGE_SESSION_ID", bridge);
+    }
+    let mut child = command
         .args(args)
         .env("TERMF_SOCKET", socket)
         .env("TERMF_TOKEN", "session-token")
@@ -79,6 +89,21 @@ fn prints_what_termf_answers_a_hook() {
         ""
     );
     assert_eq!(request.join().unwrap()["params"]["event"], "SessionStart");
+}
+
+#[test]
+fn tells_termf_the_remote_control_session() {
+    let (socket, request) = fake_termf("bridge", Value::Null);
+    let stop = json!({"session_id": "abc", "hook_event_name": "Stop"});
+    termf_with(
+        &["hook", "Stop"],
+        &socket,
+        &stop.to_string(),
+        Some("session_01Ab"),
+    );
+    let payload = request.join().unwrap()["params"]["payload"].clone();
+    assert_eq!(payload["termf_bridge"], "session_01Ab");
+    assert_eq!(payload["session_id"], "abc");
 }
 
 #[test]
