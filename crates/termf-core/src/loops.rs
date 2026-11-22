@@ -12,7 +12,11 @@ const RECURRING_MAX_AGE_MS: u64 = 7 * DAY_MS;
 /// A Monitor watch's deadline: 5 minutes by default, at most 30.
 const MONITOR_DEFAULT_MS: u64 = 5 * 60 * 1000;
 const MONITOR_MAX_MS: u64 = 30 * 60 * 1000;
+/// Kept of a step's scheduled prompt, in a team run's report.
 const PROMPT_CHARS: usize = 300;
+/// The prompts `/loop` schedules for its built-in maintenance prompt (or `loop.md`), with an interval and without.
+const DEFAULT_PROMPT: &str = "<<autonomous-loop>>";
+const DEFAULT_DYNAMIC: &str = "<<autonomous-loop-dynamic>>";
 /// Ids of what Claude Code has not named yet: a typed `/loop` before its first tool call, and the next turn of a
 /// self-paced loop until a `Stop` lists it (real ids have 8 characters).
 const TYPED: &str = "loop";
@@ -69,7 +73,7 @@ impl Loops {
                         },
                         every,
                         recurring: true,
-                        prompt: cap(prompt),
+                        prompt: prompt_of(prompt),
                         from_loop: true,
                         ..fresh(now)
                     });
@@ -118,16 +122,16 @@ impl Loops {
                     .unwrap_or(true);
                 let ends = match output["maxAgeMs"].as_u64() {
                     Some(0) => None,
-                    Some(age) => Some(now + age),
-                    None => Some(now + RECURRING_MAX_AGE_MS),
+                    Some(age) => Some(now.saturating_add(age)),
+                    None => Some(now.saturating_add(RECURRING_MAX_AGE_MS)),
                 };
                 self.0.push(Loop {
                     id: id.into(),
                     cron: input["cron"].as_str().map(Into::into),
                     every: typed.as_ref().and_then(|t| t.every),
                     recurring,
-                    prompt: cap(str_of(&input["prompt"])),
-                    from_loop: typed.is_some(),
+                    prompt: prompt_of(str_of(&input["prompt"])),
+                    from_loop: typed.is_some() || input["prompt"] == DEFAULT_PROMPT,
                     next_run: output["nextFireAt"].as_u64(),
                     ends: ends.filter(|_| recurring),
                     ..fresh(now)
@@ -161,13 +165,13 @@ impl Loops {
                     kind: Kind::Wakeup,
                     every: delay,
                     recurring: true,
-                    prompt: cap(str_of(&input["prompt"])),
+                    prompt: prompt_of(str_of(&input["prompt"])),
                     from_loop: true,
                     created,
                     next_run: output["scheduledFor"]
                         .as_u64()
-                        .or(delay.map(|d| now + d * 1000)),
-                    ends: Some(created + RECURRING_MAX_AGE_MS),
+                        .or(delay.map(|d| now.saturating_add(d.saturating_mul(1000)))),
+                    ends: Some(created.saturating_add(RECURRING_MAX_AGE_MS)),
                     ..fresh(now)
                 });
             }
@@ -196,8 +200,8 @@ impl Loops {
                 self.0.push(Loop {
                     id: id.into(),
                     kind: Kind::Monitor,
-                    prompt: cap(what),
-                    ends: Some(now + timeout),
+                    prompt: prompt_of(what),
+                    ends: Some(now.saturating_add(timeout)),
                     ..fresh(now)
                 });
             }
@@ -221,6 +225,8 @@ impl Loops {
         for cron in crons {
             let id = str_of(&cron["id"]);
             let recurring = cron["recurring"].as_bool().unwrap_or(true);
+            // Capped at 1000 characters there: the tools' own prompt is kept.
+            let prompt = str_of(&cron["prompt"]);
             let seen = known.iter().position(|l| l.id == id).or_else(|| {
                 (!recurring)
                     .then(|| known.iter().position(|l| l.id == ARMED))
@@ -228,19 +234,27 @@ impl Loops {
             });
             let mut l = match seen {
                 Some(i) => known.remove(i),
-                None => Loop {
+                None if recurring => Loop {
                     recurring,
-                    ends: recurring.then_some(now + RECURRING_MAX_AGE_MS),
+                    prompt: prompt_of(prompt),
+                    from_loop: prompt == DEFAULT_PROMPT,
+                    ends: Some(now.saturating_add(RECURRING_MAX_AGE_MS)),
                     ..fresh(now)
                 },
+                // Nothing but its prompt tells a self-paced loop's next turn from a one-time reminder.
+                None if prompt == DEFAULT_DYNAMIC => Loop {
+                    kind: Kind::Wakeup,
+                    recurring: true,
+                    from_loop: true,
+                    ends: Some(now.saturating_add(RECURRING_MAX_AGE_MS)),
+                    ..fresh(now)
+                },
+                None => continue,
             };
             l.id = id.into();
             if l.kind == Kind::Cron {
                 l.cron = cron["schedule"].as_str().map(Into::into).or(l.cron);
                 l.recurring = recurring;
-            }
-            if let Some(prompt) = cron["prompt"].as_str() {
-                l.prompt = cap(prompt);
             }
             self.0.push(l);
         }
@@ -273,6 +287,16 @@ fn str_of(v: &Value) -> &str {
     v.as_str().unwrap_or_default()
 }
 
+/// The prompt as Claude Code runs it, empty for `/loop`'s built-in one.
+fn prompt_of(text: &str) -> String {
+    let text = text.trim();
+    if [DEFAULT_PROMPT, DEFAULT_DYNAMIC].contains(&text) {
+        String::new()
+    } else {
+        text.into()
+    }
+}
+
 fn cap(text: &str) -> String {
     let text = text.trim();
     match text.char_indices().nth(PROMPT_CHARS) {
@@ -302,9 +326,9 @@ fn interval(token: &str) -> Option<u64> {
     let n: u64 = n.parse().ok()?;
     let secs = match unit {
         "s" => n,
-        "m" => n * 60,
-        "h" => n * 3600,
-        "d" => n * 86400,
+        "m" => n.checked_mul(60)?,
+        "h" => n.checked_mul(3600)?,
+        "d" => n.checked_mul(86400)?,
         _ => return None,
     };
     (secs > 0).then_some(secs)
@@ -537,5 +561,78 @@ mod tests {
         );
         assert!(scheduled("ScheduleWakeup", &json!({"stop": true})).is_none());
         assert!(scheduled("Bash", &json!({"command": "ls"})).is_none());
+    }
+
+    #[test]
+    fn the_prompt_is_kept_whole_and_the_built_in_one_is_empty() {
+        let mut loops = Loops::default();
+        let long = "check the deploy ".repeat(100);
+        let created = tool(
+            "CronCreate",
+            json!({"cron": "*/5 * * * *", "prompt": long}),
+            json!({"id": "aaaa1111", "recurring": true}),
+        );
+        loops.hook("PostToolUse", &created, T0);
+        let clipped = format!("{}… [+700 chars]", &long[..1000]);
+        let stop = json!({"session_crons": [{"id": "aaaa1111", "schedule": "*/5 * * * *", "recurring": true, "prompt": clipped}]});
+        loops.hook("Stop", &stop, T0 + 1000);
+        assert_eq!(loops.active(T0 + 1000)[0].prompt, long.trim());
+
+        let mut loops = Loops::default();
+        loops.hook("UserPromptSubmit", &json!({"prompt": "/loop 10m"}), T0);
+        let bare = tool(
+            "CronCreate",
+            json!({"cron": "*/10 * * * *", "prompt": DEFAULT_PROMPT}),
+            json!({"id": "bbbb2222", "recurring": true}),
+        );
+        loops.hook("PostToolUse", &bare, T0);
+        let l = &loops.active(T0)[0];
+        assert_eq!((l.prompt.as_str(), l.from_loop), ("", true));
+    }
+
+    #[test]
+    fn a_huge_interval_or_delay_never_overflows() {
+        let mut loops = Loops::default();
+        let typed = json!({"prompt": "/loop 999999999999999999d check"});
+        loops.hook("UserPromptSubmit", &typed, T0);
+        assert_eq!(loops.active(T0)[0].every, None);
+        let wake = tool(
+            "ScheduleWakeup",
+            json!({"delaySeconds": u64::MAX, "prompt": "go on"}),
+            json!({}),
+        );
+        loops.hook("PostToolUse", &wake, u64::MAX - 1);
+        let created = tool(
+            "CronCreate",
+            json!({"cron": "* * * * *", "prompt": "x"}),
+            json!({"id": "cccc3333", "recurring": true, "maxAgeMs": u64::MAX}),
+        );
+        loops.hook("PostToolUse", &created, T0);
+        let watch = tool("Monitor", json!({"command": "tail -f log"}), json!({}));
+        loops.hook("PostToolUse", &watch, u64::MAX);
+        assert_eq!(loops.0.len(), 3);
+    }
+
+    #[test]
+    fn after_a_resume_only_a_marked_wakeup_comes_back_as_a_loop() {
+        let mut loops = Loops::default();
+        let stop = json!({"session_crons": [
+            {"id": "dddd4444", "schedule": "12 10 23 11 *", "recurring": false, "prompt": "babysit the PR"},
+            {"id": "eeee5555", "schedule": "40 10 23 11 *", "recurring": false, "prompt": DEFAULT_DYNAMIC},
+            {"id": "ffff6666", "schedule": "*/15 * * * *", "recurring": true, "prompt": DEFAULT_PROMPT},
+        ]});
+        loops.hook("Stop", &stop, T0);
+        let shown: Vec<_> = loops
+            .active(T0)
+            .into_iter()
+            .map(|l| (l.id, l.kind, l.recurring, l.from_loop, l.prompt))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("eeee5555".into(), Kind::Wakeup, true, true, String::new()),
+                ("ffff6666".into(), Kind::Cron, true, true, String::new()),
+            ]
+        );
     }
 }
