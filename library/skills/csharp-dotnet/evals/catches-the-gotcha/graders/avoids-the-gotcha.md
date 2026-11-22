@@ -1,5 +1,6 @@
 ---
-type: regex
-pattern: 'FullyQualifiedName'
-match: not_contains
+type: llm
 ---
+
+PASS if the command it gives to run the class uses the xUnit v3 option `--filter-class` (for example `dotnet test --project tests/Acme.Orders.Tests --filter-class Acme.Orders.Tests.OrderTotalsTests`).
+FAIL if the command it gives uses the VSTest syntax `--filter "FullyQualifiedName~..."` as the way to run it.
