@@ -161,6 +161,15 @@
     if (shown === "proposals") untrack(loadProposals);
   });
 
+  // Read again when the library changes, the trust given at the next step included.
+  $effect(() => {
+    void library.version;
+    if (shown !== "proposals" || !project) return;
+    invoke<RepoStack[]>("library_stack", { project: project.id })
+      .then((list) => (stacks = list))
+      .catch((e) => (error = String(e)));
+  });
+
   async function call<T>(what: string, command: string, args: Record<string, unknown> = {}): Promise<T | undefined> {
     busy = what;
     error = "";
@@ -208,9 +217,6 @@
 
   async function loadProposals() {
     const id = project!.id;
-    invoke<RepoStack[]>("library_stack", { project: id })
-      .then((list) => (stacks = list))
-      .catch((e) => (error = String(e)));
     try {
       [sources, recipe, notify] = await Promise.all([
         invoke<Sources>("tickets_sources", { project: id }),

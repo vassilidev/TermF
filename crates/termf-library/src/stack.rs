@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -189,28 +190,29 @@ struct Survey {
 
 /// The repository's tags, by name.
 pub fn stack_tags(repo: &Path) -> Vec<Tag> {
-    survey(repo).tags
+    survey(repo, head(repo).as_deref()).tags
 }
 
-/// Read again only when the repository's `HEAD` moves.
+/// How long the survey of a folder outside git is kept.
+const NO_HEAD_FOR: Duration = Duration::from_secs(10);
+
+/// Read again when the repository's `HEAD` moves; a folder outside git, after a few seconds.
 // shortcut: a manifest changed but not committed is seen after the next commit or restart; key on the files' times
 // too if that bites.
-fn survey(repo: &Path) -> Survey {
-    static CACHE: Mutex<BTreeMap<PathBuf, (String, Survey)>> = Mutex::new(BTreeMap::new());
-    let head = head(repo);
-    if let Some(head) = &head
-        && let Some((at, survey)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(repo)
-        && at == head
+fn survey(repo: &Path, head: Option<&str>) -> Survey {
+    type Entry = (Option<String>, Instant, Survey);
+    static CACHE: Mutex<BTreeMap<PathBuf, Entry>> = Mutex::new(BTreeMap::new());
+    if let Some((at, when, survey)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(repo)
+        && at.as_deref() == head
+        && (head.is_some() || when.elapsed() < NO_HEAD_FOR)
     {
         return survey.clone();
     }
     let survey = detect(repo);
-    if let Some(head) = head {
-        CACHE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(repo.to_path_buf(), (head, survey.clone()));
-    }
+    CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(
+        repo.to_path_buf(),
+        (head.map(str::to_owned), Instant::now(), survey.clone()),
+    );
     survey
 }
 
@@ -770,9 +772,10 @@ fn maven(repo: &Path, rel: &str, found: &mut Found) {
         let block = &rest[..rest.find("</dependency>").unwrap_or(rest.len())];
         after(block, "<version>", "", "<").and_then(clean)
     };
+    // JUnit 5 and later only: the `junit` skill is not written for JUnit 4.
     for marker in [
         "<groupId>org.junit.jupiter</groupId>",
-        "<artifactId>junit</artifactId>",
+        "<groupId>org.junit.platform</groupId>",
         "<artifactId>spring-boot-starter-test</artifactId>",
     ] {
         if text.contains(marker) {
@@ -833,9 +836,14 @@ fn gradle(repo: &Path, rel: &str, found: &mut Found) {
     {
         found.add("kotlin", plugin_version(&text, "kotlin"), rel);
     }
+    // JUnit 5 and later only: `junit:junit` is JUnit 4.
     let junit = coordinate(
         &text,
-        &["org.junit.jupiter:", "org.junit:junit-bom:", "junit:junit:"],
+        &[
+            "org.junit.jupiter:",
+            "org.junit.platform:",
+            "org.junit:junit-bom:",
+        ],
     );
     if let Some(version) = junit {
         found.add("junit", version, rel);
@@ -983,8 +991,9 @@ fn compose_file(repo: &Path, rel: &str, found: &mut Found) {
         let Some(image) = service["image"].as_str() else {
             continue;
         };
-        let (name, tag) = image.split_once(':').unwrap_or((image, ""));
-        let name = name.rsplit('/').next().unwrap_or(name);
+        // `registry.local:5000/postgres:16`: the registry's port is not the tag.
+        let last = image.rsplit('/').next().unwrap_or(image);
+        let (name, tag) = last.split_once(':').unwrap_or((last, ""));
         if let Some((_, db)) = IMAGES.iter().find(|(i, _)| *i == name) {
             // `17-alpine`: the variant is not part of the version.
             found.add(db, clean(tag.split('-').next().unwrap_or(tag)), rel);
@@ -1099,18 +1108,73 @@ pub struct RepoStack {
 
 impl RepoStack {
     /// The repository at `path` as it is now, `trusted` false.
+    /// Its packages are looked at again only when a manifest, a lockfile or a package folder changed.
     pub fn read(name: &str, path: &Path) -> RepoStack {
-        let survey = survey(path);
+        type Entry = (Option<String>, Vec<Option<SystemTime>>, RepoStack);
+        static CACHE: Mutex<BTreeMap<PathBuf, Entry>> = Mutex::new(BTreeMap::new());
+        let head = head(path);
+        let survey = survey(path, head.as_deref());
+        let times = installed_times(path, &survey.manifests);
+        if let Some((at, when, stack)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(path)
+            && *at == head
+            && *when == times
+        {
+            return RepoStack {
+                name: name.into(),
+                ..stack.clone()
+            };
+        }
         let (skills, guides) = installed(path, &survey.manifests);
-        RepoStack {
+        let stack = RepoStack {
             name: name.into(),
             path: path.into(),
             tags: survey.tags,
             skills,
             guides,
             trusted: false,
+        };
+        CACHE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(path.into(), (head, times, stack.clone()));
+        stack
+    }
+}
+
+/// What changes when packages are installed: the manifests, the lockfiles and the package folders of the
+/// repository and of each folder with a manifest.
+fn installed_times(repo: &Path, manifests: &[String]) -> Vec<Option<SystemTime>> {
+    const FILES: [&str; 12] = [
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lock",
+        "node_modules",
+        "composer.json",
+        "composer.lock",
+        "vendor",
+        "pyproject.toml",
+        "uv.lock",
+        "poetry.lock",
+    ];
+    let mut dirs = vec![repo.to_path_buf()];
+    for manifest in manifests {
+        let dir = repo
+            .join(manifest)
+            .parent()
+            .map_or(repo.into(), Path::to_path_buf);
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
         }
     }
+    let time = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut times = Vec::new();
+    for dir in dirs {
+        times.extend(FILES.iter().map(|f| time(&dir.join(f))));
+        times.extend(site_packages(&dir).iter().map(|s| time(s)));
+    }
+    times
 }
 
 /// Skill folders under `dir/sub`: `sub/<name>/SKILL.md`, and one level deeper for a package that groups them.

@@ -93,12 +93,13 @@ async fn workspace(
     })
 }
 
-/// `agent: None` opens a plain login shell.
+/// `agent: None` opens a plain login shell. Async, so that reading the library of a large repository never holds
+/// the window.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-fn pty_spawn(
+async fn pty_spawn(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     agent: Option<String>,
     cwd: String,
     title: String,

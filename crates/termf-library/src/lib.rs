@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use anyhow::{Context, Result, bail, ensure};
 use include_dir::{Dir, DirEntry, include_dir};
@@ -240,11 +242,29 @@ impl Scope {
 fn stack_of(name: &str, path: &Path) -> stack::RepoStack {
     let mut repo = stack::RepoStack::read(name, path);
     if !repo.skills.is_empty() || !repo.guides.is_empty() {
-        let file = termf_claude::trust::file();
-        repo.trusted = termf_claude::trust::state(&file, &[(name.into(), path.into())])
-            .is_ok_and(|t| t.first().is_some_and(|t| t.trusted));
+        repo.trusted = trusted(name, path);
     }
     repo
+}
+
+/// Claude Code's trust of the repository, read again when Claude Code's config file changes.
+fn trusted(name: &str, path: &Path) -> bool {
+    type Entry = (Option<SystemTime>, bool);
+    static CACHE: Mutex<BTreeMap<PathBuf, Entry>> = Mutex::new(BTreeMap::new());
+    let file = termf_claude::trust::file();
+    let changed = fs::metadata(&file).and_then(|m| m.modified()).ok();
+    if let Some((at, on)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(path)
+        && *at == changed
+    {
+        return *on;
+    }
+    let on = termf_claude::trust::state(&file, &[(name.into(), path.into())])
+        .is_ok_and(|t| t.first().is_some_and(|t| t.trusted));
+    CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path.into(), (changed, on));
+    on
 }
 
 /// `<config>/library`, or a project's `<config>/projects/<id>/library`.
@@ -281,17 +301,8 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
         if layer == Layer::Shipped {
             scanned.extend(packaged(&scope.stack));
         }
-        for mut item in scanned {
-            let key = (item.kind, item.name.clone());
-            // Otherwise a cloned repository could swap the content of an item you enabled by name.
-            if layer == Layer::Repo && items.contains_key(&key) {
-                continue;
-            }
-            if let Some(hidden) = items.remove(&key) {
-                item.shadows = hidden.shadows;
-                item.shadows.push(hidden.layer);
-            }
-            items.insert(key, item);
+        for item in scanned {
+            place(&mut items, item, &scope.stack);
         }
     }
 
@@ -311,6 +322,30 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
         }
     }
     Ok(items.into_values().collect())
+}
+
+/// Adds `item` over the less specific item of the same kind and name, which it hides.
+fn place(items: &mut BTreeMap<(Kind, String), Item>, mut item: Item, stack: &[stack::RepoStack]) {
+    let key = (item.kind, item.name.clone());
+    // Otherwise a cloned repository, or what its packages installed, could swap the content of an item you
+    // enabled by name.
+    let cloned = item.layer == Layer::Repo
+        || (item.layer == Layer::Package && !trusted_package(&item, stack));
+    if cloned && items.contains_key(&key) {
+        return;
+    }
+    if let Some(hidden) = items.remove(&key) {
+        item.shadows = hidden.shadows;
+        item.shadows.push(hidden.layer);
+    }
+    items.insert(key, item);
+}
+
+/// A package's skill from a repository Claude Code trusts.
+fn trusted_package(item: &Item, stack: &[stack::RepoStack]) -> bool {
+    stack
+        .iter()
+        .any(|r| r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path)))
 }
 
 /// Where an item stands before the toggles: on for the user's own layers; a shipped one when its
@@ -337,10 +372,7 @@ fn starts_on(item: &mut Item, scope: &Scope) -> bool {
             item.activated_by.dedup();
             !item.activated_by.is_empty()
         }
-        Layer::Package => scope
-            .stack
-            .iter()
-            .any(|r| r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path))),
+        Layer::Package => trusted_package(item, &scope.stack),
         Layer::Repo | Layer::Run => false,
     }
 }
@@ -600,7 +632,12 @@ fn stack_tags_of(item: &Item) -> Vec<String> {
 /// The skills the installed packages of the stack's repositories ship, once each.
 fn packaged(stack: &[stack::RepoStack]) -> Vec<Item> {
     let mut items: Vec<Item> = Vec::new();
-    for skill in stack.iter().flat_map(|r| &r.skills) {
+    // A skill several repositories ship comes from one Claude Code trusts, when there is one.
+    let repos = stack
+        .iter()
+        .filter(|r| r.trusted)
+        .chain(stack.iter().filter(|r| !r.trusted));
+    for skill in repos.flat_map(|r| &r.skills) {
         if items.iter().any(|i| i.name == skill.name) {
             continue;
         }
@@ -1255,6 +1292,69 @@ mod tests {
                 .active,
             "switched on in one click"
         );
+    }
+
+    #[test]
+    fn a_package_skill_from_an_untrusted_repository_never_replaces_another() {
+        let repo = Path::new("/w/acme");
+        let ours = parse(
+            Kind::Skill,
+            "nextjs".into(),
+            "Ours.\n",
+            Layer::Shipped,
+            None,
+            String::new(),
+        );
+        let theirs = parse(
+            Kind::Skill,
+            "nextjs".into(),
+            "Theirs.\n",
+            Layer::Package,
+            Some(repo.join("node_modules/next/skills/nextjs")),
+            String::new(),
+        );
+        for (trusted, kept) in [(false, "Ours.\n"), (true, "Theirs.\n")] {
+            let stack = vec![stack(repo, &["nextjs"], trusted)];
+            let mut items = BTreeMap::new();
+            place(&mut items, ours.clone(), &stack);
+            place(&mut items, theirs.clone(), &stack);
+            assert_eq!(
+                items[&(Kind::Skill, "nextjs".to_owned())].body,
+                kept,
+                "trusted: {trusted}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_package_skill_two_repositories_ship_comes_from_the_trusted_one() {
+        let dir = temp_dir("package-two-repos");
+        let mut repos = Vec::new();
+        for (name, trusted) in [("cloned", false), ("mine", true)] {
+            let path = dir.join(name);
+            let skill = path.join("node_modules/ai/skills/ai-sdk");
+            put(
+                &skill.join("SKILL.md"),
+                &format!("---\ndescription: {name}\n---\n"),
+            );
+            let mut repo = stack(&path, &[], trusted);
+            repo.skills = vec![stack::PackageSkill {
+                name: "ai-sdk".into(),
+                path: skill,
+                package: stack::Package {
+                    name: "ai".into(),
+                    version: None,
+                },
+            }];
+            repos.push(repo);
+        }
+        let scope = Scope {
+            stack: repos,
+            ..Scope::default()
+        };
+        let ai = explain(&dir, &scope, Kind::Skill, "ai-sdk").unwrap();
+        assert_eq!(ai.description.as_deref(), Some("mine"));
+        assert!(ai.active);
     }
 
     #[test]

@@ -340,6 +340,26 @@ fn reads_the_test_frameworks_of_php_ruby_and_java() {
         names(&tags).contains(&"junit"),
         "by default with Spring Boot's test starter"
     );
+
+    let android = repo(
+        "junit4",
+        &[
+            (
+                "app/build.gradle.kts",
+                "plugins { id(\"com.android.application\") }\ndependencies { testImplementation(\"junit:junit:4.13.2\") }\n",
+            ),
+            (
+                "lib/pom.xml",
+                "<project><dependencies><dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>4.13.2</version></dependency></dependencies></project>",
+            ),
+        ],
+    );
+    let tags = detect(&android).tags;
+    assert!(names(&tags).contains(&"android"));
+    assert!(
+        !names(&tags).contains(&"junit"),
+        "JUnit 4 is not what the junit skill covers: {tags:?}"
+    );
 }
 
 #[test]
@@ -350,7 +370,7 @@ fn reads_containers_infrastructure_and_ci() {
             ("Dockerfile", "FROM node:24\n"),
             (
                 "compose.yaml",
-                "services:\n  db:\n    image: postgres:17-alpine\n  cache:\n    image: valkey/valkey:9.2\n  app:\n    build: .\n",
+                "services:\n  db:\n    image: registry.local:5000/postgres:17-alpine\n  cache:\n    image: valkey/valkey:9.2\n  app:\n    build: .\n",
             ),
             (
                 "infra/main.tf",
@@ -480,8 +500,8 @@ fn reads_a_repository_again_only_when_its_head_moves() {
     put(&plain.join("Cargo.toml"), "[package]\n");
     assert_eq!(
         names(&stack_tags(&plain)),
-        ["go", "rust"],
-        "no HEAD, no cache"
+        ["go"],
+        "outside git, kept a few seconds"
     );
 }
 
@@ -648,6 +668,44 @@ fn finds_the_skills_and_docs_that_installed_packages_ship() {
         sources.iter().all(|s| s.repo != "laravel/boost"),
         "installed already"
     );
+}
+
+#[test]
+fn looks_at_installed_packages_again_only_when_they_change() {
+    let dir = repo(
+        "installed-cache",
+        &[
+            ("package.json", r#"{"dependencies": {"ai": "^7"}}"#),
+            ("package-lock.json", "{}"),
+        ],
+    );
+    assert!(RepoStack::read("acme", &dir).skills.is_empty());
+
+    put(
+        &dir.join("node_modules/ai/skills/ai-sdk/SKILL.md"),
+        "---\nname: ai-sdk\n---\n",
+    );
+    // An install rewrites the lockfile: set its time so that the change shows whatever the clock's resolution.
+    let lock = fs::File::options()
+        .write(true)
+        .open(dir.join("package-lock.json"))
+        .unwrap();
+    lock.set_modified(SystemTime::now() + Duration::from_secs(60))
+        .unwrap();
+    let names: Vec<String> = RepoStack::read("acme", &dir)
+        .skills
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    assert_eq!(names, ["ai-sdk"]);
+
+    fs::remove_file(dir.join("node_modules/ai/skills/ai-sdk/SKILL.md")).unwrap();
+    assert_eq!(
+        RepoStack::read("other", &dir).skills.len(),
+        1,
+        "nothing the package manager touches changed: kept"
+    );
+    assert_eq!(RepoStack::read("other", &dir).name, "other");
 }
 
 #[test]
