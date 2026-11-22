@@ -201,3 +201,111 @@ fn serves_nothing_without_termf_s_capability() {
     );
     assert!(requests.lock().unwrap().is_empty());
 }
+
+/// The CTO conversation with the real Claude Code, Haiku and this `termf mcp`, against a stand-in for TermF: it
+/// reads the team with a tool, and an action waits for the user. A few cents; a throwaway folder and config,
+/// your Claude Code account. `cargo test -p termf-cli --test mcp -- --ignored real_cto --nocapture`
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_cto() {
+    use std::time::{Duration, Instant};
+    use termf_agents::{AgentEvent, Agents, SessionSpec, State};
+
+    let (socket, requests) = fake_termf("real", |request| {
+        let summary = json!({"run": 12, "ticket": "ACME-42", "title": "Login page", "state": "waiting",
+            "atWork": [], "waits": [{"step": "approve-plan", "state": "waiting", "note": "the plan waits for your approval"}]});
+        match request["params"]["tool"]["tool"].as_str() {
+            Some("team_runs") => json!({"ok": [summary]}),
+            Some("waiting") => {
+                json!({"ok": {"terminals": [], "conversations": [], "teamRuns": [summary]}})
+            }
+            Some("team_run") => json!({"ok": summary}),
+            Some("project") => {
+                json!({"ok": {"id": "acme", "name": "Acme", "repos": [], "roles": []}})
+            }
+            _ => json!({"ok": []}),
+        }
+    });
+    let root = std::env::temp_dir().join(format!("termf-cto-real-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (dir, config) = (root.join("repo"), root.join("config"));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("termf.toml"), "[agents]\nclaude = \"claude\"\n").unwrap();
+    let agents = Agents::build(config, root.join("data"), Vec::new(), |_| {});
+    agents.serve_mcp(move |id| {
+        Ok(json!({"type": "stdio", "command": env!("CARGO_BIN_EXE_termf"), "args": ["mcp"],
+                  "env": {"TERMF_SOCKET": socket, "TERMF_MCP_TOKEN": TOKEN, "TERMF_MCP_SESSION": id.to_string()}}))
+    });
+    let spec = SessionSpec {
+        cwd: dir,
+        role: Some("cto".into()),
+        model: Some("haiku".into()),
+        effort: Some("low".into()),
+        budget: Some(0.40),
+        mcp: true,
+        ..SessionSpec::default()
+    };
+    let id = agents.create(spec).unwrap().id;
+    let events = || agents.events(id, 0).unwrap();
+    let wait = |done: &dyn Fn() -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(180);
+        while !done() {
+            assert!(Instant::now() < deadline, "{:#?}", events());
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    };
+    let turns = || {
+        events()
+            .iter()
+            .filter(|e| matches!(e.event, AgentEvent::TurnEnd { .. }))
+            .count()
+    };
+    let state = || agents.session(id).unwrap().state;
+
+    agents.send(id, "Où en est l'équipe ?").unwrap();
+    wait(&|| turns() == 1 && state() != State::Working);
+    let used: Vec<String> = events()
+        .iter()
+        .filter_map(|e| match &e.event {
+            AgentEvent::ToolUse { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    println!("tools: {used:?}");
+    assert!(
+        used.iter().any(|n| n.starts_with("mcp__termf__")),
+        "{:#?}",
+        events()
+    );
+    assert!(!requests.lock().unwrap().is_empty());
+
+    agents
+        .send(
+            id,
+            "Approuve l'étape approve-plan du run 12, avec l'outil approve.",
+        )
+        .unwrap();
+    wait(&|| state() == State::Waiting || turns() == 2);
+    let asked = events().iter().rev().find_map(|e| match &e.event {
+        AgentEvent::Permission { request, tool, .. } => Some((request.clone(), tool.clone())),
+        _ => None,
+    });
+    let (request, tool) = asked.expect("the action waits for the user");
+    assert_eq!(tool, "mcp__termf__approve");
+    agents
+        .answer(id, &request, false, Some("Not now."))
+        .unwrap();
+    wait(&|| turns() == 2 && state() != State::Working);
+    let approvals = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r["params"]["tool"]["tool"] == "approve")
+        .count();
+    assert_eq!(approvals, 0, "refused: never reached TermF");
+    println!("cost: ${:.4}", agents.session(id).unwrap().cost);
+    let _ = agents.stop(id);
+    let _ = std::fs::remove_dir_all(&root);
+}
