@@ -5,12 +5,19 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to a pull request cancels its older run; main keeps every run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The owner's platform is macOS: main runs there, pull requests get one quick Linux run.
+# Windows and Linux packages are still built by release.yml.
 jobs:
   check:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-24.04, windows-latest]
+        os: ${{ github.event_name == 'push' && fromJSON('["macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +50,7 @@ jobs:
   # The real app (debug build) driven by tauri-driver under xvfb, and the performance budgets of ARCHITECTURE §2.4.
   # Not on macOS (no WebDriver for its webview), not yet on Windows (docs/STATUS.md §4).
   e2e:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -84,10 +92,11 @@ jobs:
 
   # site/install.sh and site/install.ps1, run dry against a fake GitHub API, then one real install in a throwaway home.
   install-scripts:
+    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-24.04, windows-latest]
+        os: ${{ fromJSON('["macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

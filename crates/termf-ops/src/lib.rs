@@ -13,15 +13,19 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table};
 
+pub mod env;
 mod exec;
 mod flow;
 mod recipe;
 pub mod redact;
+pub mod sql;
 #[cfg(test)]
 mod tests;
 
-pub use exec::{Check, Raw, Runner, Secrets, vault_first};
-pub use flow::{APPROVAL_WAIT, Agent, Approvals, Ops, Request, Seen, SeenConnection, SeenRecipe};
+pub use exec::{Check, Following, Raw, Runner, Secrets, vault_first};
+pub use flow::{
+    APPROVAL_WAIT, Agent, Approvals, Ops, Request, Seen, SeenConnection, SeenRecipe, Streamed, Use,
+};
 pub use recipe::{
     Approval, Arg, Limits, Mode, Param, ParamKind, Plan, Recipe, Variant, check as check_param,
     plan, quote,

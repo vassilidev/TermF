@@ -191,6 +191,6 @@
     background: var(--hover);
     color: var(--muted);
     font-family: var(--font-ui);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 </style>

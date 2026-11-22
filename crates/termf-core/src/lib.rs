@@ -11,6 +11,7 @@ pub mod agent_env;
 pub mod claude;
 pub mod cli_agents;
 pub mod context;
+pub mod db;
 pub mod ipc;
 pub mod process;
 pub mod remote;

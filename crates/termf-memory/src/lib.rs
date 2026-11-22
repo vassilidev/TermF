@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -228,11 +228,7 @@ impl Memory {
         fs::create_dir_all(data_dir)
             .with_context(|| format!("cannot create {}", data_dir.display()))?;
         let file = data_dir.join("memory.db");
-        let conn =
-            Connection::open(&file).with_context(|| format!("cannot open {}", file.display()))?;
-        // The app and the CLI may write at the same time.
-        conn.busy_timeout(Duration::from_secs(5))?;
-        let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
+        let conn = termf_core::db::open(&file)?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self { conn })
     }

@@ -6,6 +6,7 @@ import {
   budgetError,
   byTheme,
   current,
+  implications,
   editRouting,
   escalations,
   held,
@@ -200,6 +201,23 @@ const question = (id, kind, options = [], proposed = [], theme = "product") => (
   proposed,
   implications: [],
 });
+test("implications: one per option for a choice, yes then no, a free text's as they come", () => {
+  const choice = { ...question("format", "choice", ["CSV", "Excel"]), implications: ["light", " "] };
+  assert.deepEqual(implications(choice), [{ option: "CSV", text: "light" }]);
+  const odd = { ...question("format", "choice", ["CSV", "Excel"]), implications: ["light"] };
+  assert.deepEqual(implications(odd), [], "not one per option: none shown");
+  const bool = { ...question("public", "bool"), implications: ["a public link", "signed-in users only"] };
+  assert.deepEqual(implications(bool), [
+    { option: "yes", text: "a public link" },
+    { option: "no", text: "signed-in users only" },
+  ]);
+  const text = { ...question("title", "text", [], ["Multiply"]), implications: ["matches the page", "yours"] };
+  assert.deepEqual(implications(text), [
+    { option: null, text: "matches the page" },
+    { option: null, text: "yours" },
+  ]);
+});
+
 const routing = (more = {}) => ({
   kind: "feature",
   size: "M",
@@ -346,6 +364,8 @@ test("the delivery goes when every criterion of the definition of done holds, or
   assert.equal(passes(done(false)), false);
   assert.equal(passes(done(false, "the docs come next")), true);
   assert.equal(passes(null), true, "no gate read it: nothing holds the delivery here");
+  const warned = { criteria: [{ id: "docs", met: false, note: "no documentation changed", warn: true }], overridden: null };
+  assert.equal(passes(warned), true, "a criterion that only warns holds nothing");
 });
 
 test("a step's escalations are the CTO's steps that decide on it", () => {
