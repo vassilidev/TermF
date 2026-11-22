@@ -52,8 +52,8 @@ icon = "workflow"
 
 [[groups]]
 id = "visual"
-name = "Visual review"
-intro = "Before and after screenshots of every changed screen, as a step where the team waits for you."
+name = "Design and visual review"
+intro = "Your design system read from the code, with its inconsistencies, and before and after screenshots of every changed screen."
 icon = "scan-eye"
 not_yet = ["The review page: side by side, slider, overlay, heatmap, pins and a swipe mode"]
 
@@ -119,7 +119,7 @@ read = "team.html#cto"
 [[features]]
 slug = "triage"
 group = "team"
-name = "Triage and the path"
+name = "Triage: how the team takes a ticket"
 tagline = "The CTO reads each request and picks how the team handles it."
 keywords = "routing route workflow budget squads hotfix kind size"
 problem = '''<p>A typo fix and an epic should not go through the same process. Before a team run starts, the CTO reads the request and the project and proposes the path: what kind of work it is, how big, which workflow, which optional steps, which squads, what budget. You approve it before anything starts.</p>'''
@@ -206,7 +206,7 @@ read = "team.html#roles"
 [[features]]
 slug = "squads"
 group = "team"
-name = "Squads"
+name = "Squads for bigger projects"
 tagline = "Split a bigger project into teams with their own scope."
 keywords = "squads teams staff lead parallel repositories paths domains"
 problem = '''<p>On a project with several repositories or areas, one flat team steps on its own toes. Squads give each area its lead, its members and how many of each, its repositories, its paths and how many tasks it runs at once. The roles that serve every squad form the staff.</p>'''
@@ -337,6 +337,38 @@ limits = ["A shell command started before a restart is not always killed.", "Tak
 tried = "Budgets and the emergency stop were tested with a fake Claude Code; taking over with the guard, by the code only."
 related = ["runs", "cto", "terminals"]
 read = "team.html#control"
+
+[[features]]
+slug = "agent-browser"
+group = "team"
+name = "The agents' browser"
+tagline = "The front, QA, UX and SEO agents open your pages and check them themselves."
+keywords = "browser chrome headless playwright puppeteer screenshot click form console network qa front ux seo dev server"
+problem = '''<p>An agent that changes a screen should look at it. The agents' browser gives a session a headless Chrome on its worktree's own dev server: it opens a page at a desktop, tablet or mobile size, in the light or dark theme, reads it, clicks, fills forms, waits, takes screenshots and reads the console and the network. It cannot reach your accounts or the rest of the web.</p>'''
+how = [
+  "An agent opens a page of its worktree; the first time, TermF starts the repository's dev server on a port of its own.",
+  "It reads the page as an accessibility tree, clicks, fills fields, waits for a text and takes screenshots.",
+  "It reads the console and the network, including the requests TermF blocked.",
+  "When the session ends, Chrome, its throwaway profile and the dev server go away.",
+]
+default = [
+  "On for front, QA, UX and SEO, in team steps and in direct conversations.",
+  "The system's Chrome, Chromium or Edge, headless, with a throwaway profile: never your keychain, your extensions or your sync.",
+  "Only localhost and the origins you allow; downloads are refused, and no tool runs JavaScript the agent wrote.",
+]
+tune = [
+  "Give it to another role: <code>[roles.&lt;role&gt;] allowedTools = [\"+mcp__termf__browser_*\"]</code>.",
+  "Allow more origins, a staging site for example: <code>[browser] origins</code>.",
+  "<code>[browser] tiles = true</code> offers it to the project's Claude Code terminals too, with a permission prompt.",
+]
+commands = []
+limits = [
+  "Tried for real on macOS only.",
+  "On Windows, the throwaway profile and the dev server's log may stay in the temporary folder.",
+  "A page an agent checked does not count as a visual review, which needs a before.",
+]
+tried = "Run with a real Chrome on macOS, and with a real Claude Code (Haiku) in the QA role, which opened a page, clicked and read the console."
+related = ["visual-review", "roles", "worktrees"]
 
 # ------------------------------------------------------------------------------------------------------------ projects
 
@@ -546,7 +578,7 @@ related = ["status", "panels", "files"]
 [[features]]
 slug = "status"
 group = "terminals"
-name = "State, gauge and context reset"
+name = "Session state and context reset"
 tagline = "Working, waiting for you or done, and a context that never overflows."
 keywords = "status hooks notifications context gauge reset handoff clear canary"
 problem = '''<p>You should not have to watch every session to know which one needs you. Each Claude Code session shows its state, read from Claude Code's own hooks, and its context gauge; a notification tells you when one waits or finishes. When a context fills up, TermF can hand it off, clear it and resume.</p>'''
@@ -645,7 +677,7 @@ related = ["runs", "skills", "projects"]
 [[features]]
 slug = "library"
 group = "library"
-name = "The layered library"
+name = "The library of roles, rules and skills"
 tagline = "Roles, rules, skills, workflows and commands, from shipped to repository."
 keywords = "library layers global project repository plugin export import config"
 problem = '''<p>What an agent gets should be visible and yours to change. TermF's library holds roles, rules, skills, preferences, workflows and commands in layers, shipped, packages, global, project, repository, and tells you why each one applies.</p>'''
@@ -846,8 +878,36 @@ tune = ["<code>[visual]</code>: routes, viewports (desktop, tablet, mobile), the
 commands = [["termf review start | show | decide | pr", "reviews from a terminal"]]
 limits = ["The review page is not built: the gate asks you to look at the result in the run's worktree.", "Chrome on Linux and Windows has not been tried."]
 tried = "The engine ran with a real Chrome on macOS through automated tests."
-related = ["workflows", "code-review", "delivery"]
+related = ["design-system", "agent-browser", "workflows"]
 read = "how-it-works.html#visual"
+
+[[features]]
+slug = "design-system"
+group = "visual"
+name = "The Design system view"
+tagline = "Your design system, read from the code, with its inconsistencies."
+keywords = "design system tokens colors contrast wcag tailwind css variables scss dtcg components storybook brand guidelines pdf dark theme"
+problem = '''<p>Tokens drift, colours get typed by hand, a dark theme stays half done. The Design system view reads a repository's design system without running anything from it: its tokens, its components and their variants, and every inconsistency it finds, each with the file and the line. A Brand guidelines tab shows the logos and the guidelines, and exports them to PDF.</p>'''
+how = [
+  "Open Design system among the project's views, or from the palette; pick the repository when the project has several.",
+  "TermF reads the tokens (CSS custom properties, Tailwind, SCSS, W3C design tokens) in both themes, and the Svelte, Vue, Astro and JSX components with their variants and stories.",
+  "Inconsistencies lists hard-coded values with the token to use, sizes off the scale, near-identical colours, unused or undefined tokens, an incomplete dark theme, contrasts under WCAG AA and duplicate components; each one opens at its line in TermF's editor.",
+  "Fix with the team writes a message to the CTO with the findings you picked; nothing is sent or started without you.",
+]
+default = [
+  "Read-only: nothing from the repository runs, no Node, no git; a <code>tailwind.config</code> is read as plain text.",
+  "Follows <code>.gitignore</code> and skips dependencies, builds, tests and generated files.",
+  "Bounded at 4,000 files and 8 seconds.",
+]
+tune = ["Pick which findings go to the team.", "The Brand guidelines tab reads <code>brand/</code> and <code>BRAND.md</code>, where the brand designer writes; export the guidelines to PDF."]
+commands = []
+limits = [
+  "Checked with a simulated backend, not yet in the app's real window; the PDF export was tried with Chrome on macOS only.",
+  "Components are listed, not rendered: rendering a Storybook would mean running the repository's code.",
+  "CSS-in-JS (styled-components, MUI themes, vanilla-extract) is not read.",
+]
+tried = "Covered by automated tests on throwaway repositories and by reading TermF's own app and site; the PDF export ran with a real Chrome on macOS."
+related = ["creative", "visual-review", "agent-browser"]
 
 # ------------------------------------------------------------------------------------------------------------- machine
 

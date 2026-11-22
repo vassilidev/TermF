@@ -4,7 +4,7 @@
 
 [[groups]]
 id = "contact"
-name = "Who you talk to"
+name = "The CTO and the expert"
 intro = "The CTO is your one point of contact. The expert answers your questions about the project."
 color = "cto"
 
@@ -76,7 +76,7 @@ label = "UX designer"
 group = "product"
 short = "Specifies flows and states"
 does = "Specifies how the change looks and behaves: flows, screens, every state, keyboard and screen reader."
-when = "Before the front-end tasks, when the interface changes and the ticket gives no design."
+when = "When the interface changes and the ticket gives no design: before the plan, or before the front-end tasks."
 never = "Writes code, or invents visible text the ticket did not give."
 
 [roles.architect]
@@ -84,7 +84,7 @@ label = "Architect"
 group = "product"
 short = "Settles design decisions"
 does = "Settles a design decision: options with their trade-offs, a proposed decision, and the contracts the other tasks build on."
-when = "First in a plan, for a large task or a decision that crosses modules or squads."
+when = "For a large task or a decision that crosses modules or squads: before the plan, or first in it."
 never = "Writes code. Not called for a change that fits one module's existing design."
 
 [roles.lead]

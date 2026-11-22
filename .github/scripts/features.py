@@ -30,7 +30,7 @@ def frontmatter(path):
         key, sep, value = line.partition(":")
         if sep and not line.startswith((" ", "\t", "-")):
             meta[key.strip()] = value.strip()
-    for key in ("disallowedTools", "writes"):
+    for key in ("disallowedTools", "allowedTools", "writes"):
         if key in meta:
             meta[key] = [x.strip().strip("\"'") for x in meta[key].strip("[]").split(",") if x.strip()]
     return meta
@@ -55,6 +55,8 @@ def role_card(path):
     else:
         access = "Reads only" if {"Edit", "Write"} <= set(denied) else "Edits files"
     limits = [label for tool, label in (("Bash", "No shell"), ("WebFetch", "No web")) if tool in denied]
+    if any(t.startswith("mcp__termf__browser") for t in meta.get("allowedTools", [])):
+        limits.append("Uses a browser")
     words = re.split(r"[-_\s]+", name)
     mark = known.get("mark") or (words[0][0] + words[1][0] if len(words) > 1 else name[:2]).upper()
     return {"name": name, "mark": mark, "model": meta.get("model", ""), "effort": meta.get("effort", ""),
@@ -380,7 +382,8 @@ def roster():
     cols = []
     for g in crew["groups"][1:]:
         if by_crew[g["id"]]:
-            cols.append(f'<div class="org-col c-{g["color"]}"><h3>{g["name"]}</h3><ul>{"".join(tile(r) for r in by_crew[g["id"]])}</ul></div>')
+            cols.append(f'<div class="org-col c-{g["color"]}"><p class="oh" id="org-{g["id"]}">{g["name"]}</p>'
+                        f'<ul aria-labelledby="org-{g["id"]}">{"".join(tile(r) for r in by_crew[g["id"]])}</ul></div>')
     return (f'<div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-{crew["groups"][0]["color"]}">{"".join(tile(r) for r in head)}</ul>'
             f'<div class="org-cols" style="--cols:{len(cols)}">{"".join(cols)}</div></div>')
 
