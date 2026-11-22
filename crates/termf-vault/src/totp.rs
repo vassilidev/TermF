@@ -93,6 +93,30 @@ impl Totp {
         base32(self.secret.expose())
     }
 
+    /// As an `otpauth://totp/` link, for another manager to read.
+    pub(crate) fn uri(&self, label: &str) -> Secret {
+        let label: String = label
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                    char::from(b).to_string()
+                }
+                _ => format!("%{b:02X}"),
+            })
+            .collect();
+        let algorithm = match self.algorithm {
+            Algorithm::Sha1 => "SHA1",
+            Algorithm::Sha256 => "SHA256",
+            Algorithm::Sha512 => "SHA512",
+        };
+        Secret::new(format!(
+            "otpauth://totp/{label}?secret={}&algorithm={algorithm}&digits={}&period={}",
+            self.secret.expose(),
+            self.digits,
+            self.period
+        ))
+    }
+
     /// The code valid at `at` (Unix seconds), zero-padded.
     pub fn code(&self, at: u64) -> Secret {
         let key = self.key().unwrap_or_default();
