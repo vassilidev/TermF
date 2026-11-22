@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::*;
+use crate::fido::soft::SoftKey;
 
 /// Never the system keychain. Clones share it, as the app and the CLI share the machine's keychain.
 #[derive(Default, Clone)]
@@ -53,6 +54,8 @@ struct Env {
     root: PathBuf,
     store: MemoryStore,
     clock: TestClock,
+    /// Simulated security keys plugged into this machine, never a real one.
+    plugged: Arc<Mutex<Vec<SoftKey>>>,
 }
 
 impl Env {
@@ -64,6 +67,7 @@ impl Env {
             root,
             store: MemoryStore::default(),
             clock: TestClock(Arc::new(Mutex::new((1_800_000_000, Duration::ZERO)))),
+            plugged: Arc::default(),
         }
     }
 
@@ -78,6 +82,11 @@ impl Env {
             Box::new(self.store.clone()),
             Box::new(self.clock.clone()),
         )
+        .with_keys(fido::soft::keys(self.plugged.clone()))
+    }
+
+    fn plug(&self, keys: &[&SoftKey]) {
+        *self.plugged.lock().unwrap() = keys.iter().map(|k| (*k).clone()).collect();
     }
 
     fn file(&self) -> PathBuf {
@@ -1154,4 +1163,469 @@ fn hashes_an_entry_without_an_item_as_before() {
     vault.init(&human(), PASSWORD, false).unwrap();
     let json = serde_json::to_string(&vault.audit(1).unwrap()[0]).unwrap();
     assert!(!json.contains("\"item\""), "{json}");
+}
+
+const PIN: &str = "4242";
+
+fn err(result: Result<impl Sized>) -> String {
+    result.map(|_| ()).unwrap_err().to_string()
+}
+
+fn key() -> SoftKey {
+    SoftKey::new(Some(PIN))
+}
+
+#[test]
+fn a_security_key_makes_the_password_alone_open_nothing() {
+    let env = Env::new("factor");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, true).unwrap();
+    assert!(vault.status().unwrap().remembered);
+    let db = id("DATABASE_URL", Scope::Dev);
+    vault
+        .set(&human(), &db, Secret::new(VALUE.into()), None)
+        .unwrap();
+    let (yubikey, backup) = (key(), key());
+    env.plug(&[&yubikey]);
+    assert_eq!(
+        err(vault.add_key(&human(), "  ", Some(PIN))),
+        "a security key needs a name (64 characters at most)"
+    );
+    let (added, recovery) = vault.add_key(&human(), " YubiKey 5 ", Some(PIN)).unwrap();
+    assert_eq!(added.name, "YubiKey 5");
+    let recovery = recovery.expect("the first key brings a recovery key");
+    assert_eq!(recovery.expose().len(), 39);
+    let status = vault.status().unwrap();
+    assert!(status.keys == 1 && status.recovery && !status.remembered);
+    assert!(
+        env.store.0.lock().unwrap().is_empty(),
+        "the keychain no longer keeps the password's key"
+    );
+    let json = fs::read_to_string(env.file()).unwrap();
+    assert!(json.contains("\"format\": 3") && !json.contains("YubiKey 5 "));
+
+    // Whoever has the file and the password, but not the key, opens nothing: not even by hand.
+    let file = vault.read().unwrap();
+    let kek = file.derive(PASSWORD).unwrap();
+    assert!(file.unwrap(&kek).is_none());
+
+    vault.lock(&human()).unwrap();
+    env.plug(&[]);
+    assert_eq!(
+        err(vault.unlock(&human(), Some(PASSWORD), None, Some(PIN))),
+        "plug in your security key"
+    );
+    env.plug(&[&yubikey]);
+    assert_eq!(
+        err(vault.unlock(&human(), Some(PASSWORD), None, None)),
+        "the security key's PIN is needed"
+    );
+    assert_eq!(
+        err(vault.unlock(&human(), Some(PASSWORD), None, Some("0000"))),
+        "wrong PIN for the security key"
+    );
+    assert_eq!(
+        err(vault.unlock(&human(), Some("not the password"), None, Some(PIN))),
+        "wrong master password"
+    );
+    assert_eq!(
+        err(vault.unlock(&human(), Some(PASSWORD), Some(true), Some(PIN))),
+        "the keychain cannot stand in for a security key"
+    );
+    let other = key();
+    env.plug(&[&other]);
+    assert_eq!(
+        err(vault.unlock(&human(), Some(PASSWORD), None, Some(PIN))),
+        "this security key is not one of the vault's"
+    );
+    env.plug(&[&yubikey]);
+    let status = vault
+        .unlock(&human(), Some(PASSWORD), None, Some(PIN))
+        .unwrap();
+    assert!(status.unlocked && status.prod_until.is_some());
+    assert_eq!(
+        vault.audit(1).unwrap()[0].detail.as_deref(),
+        Some("security key")
+    );
+    assert_eq!(
+        vault.value(&human(), &db, Access::Use).unwrap().expose(),
+        VALUE
+    );
+
+    // A backup key, added while the first stays plugged in; either one opens.
+    env.plug(&[&yubikey, &backup]);
+    let (second, again) = vault.add_key(&human(), "Backup", Some(PIN)).unwrap();
+    assert!(again.is_none(), "only the first key brings a recovery key");
+    assert_eq!(
+        err(vault.add_key(&human(), "Same", Some(PIN))),
+        "this security key is already enrolled"
+    );
+    let names: Vec<String> = vault.keys().unwrap().into_iter().map(|k| k.name).collect();
+    assert_eq!(names, ["YubiKey 5", "Backup"]);
+    vault.lock(&human()).unwrap();
+    env.plug(&[&backup]);
+    vault
+        .unlock(&human(), Some(PASSWORD), None, Some(PIN))
+        .unwrap();
+
+    // The lost one goes; the backup still opens, the lost one no longer does.
+    vault.remove_key(&human(), &added.id).unwrap();
+    vault.lock(&human()).unwrap();
+    env.plug(&[&yubikey]);
+    assert_eq!(
+        err(vault.unlock(&human(), Some(PASSWORD), None, Some(PIN))),
+        "this security key is not one of the vault's"
+    );
+    env.plug(&[&backup]);
+    vault
+        .unlock(&human(), Some(PASSWORD), None, Some(PIN))
+        .unwrap();
+
+    // Without the last one, the password alone opens it again.
+    vault.remove_key(&human(), &second.id).unwrap();
+    assert_eq!(vault.status().unwrap().keys, 0);
+    vault.lock(&human()).unwrap();
+    env.plug(&[]);
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
+    assert_eq!(
+        vault.value(&human(), &db, Access::Use).unwrap().expose(),
+        VALUE
+    );
+    let details: Vec<String> = vault
+        .audit(100)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.action == Action::Security)
+        .filter_map(|e| e.detail)
+        .collect();
+    assert_eq!(details.len(), 4, "{details:?}");
+    assert!(details.iter().all(|d| d.starts_with("security key")));
+    assert!(vault.verify().unwrap().ok);
+}
+
+#[test]
+fn asks_for_the_password_again_before_changing_how_it_opens() {
+    let env = Env::new("confirm");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    assert!(vault.status().unwrap().confirmed_until.is_some());
+    env.clock.awake(5 * 60);
+    assert!(vault.status().unwrap().confirmed_until.is_none());
+    let yubikey = key();
+    env.plug(&[&yubikey]);
+    let refused = vault.add_key(&human(), "YubiKey", Some(PIN)).unwrap_err();
+    assert!(refused.downcast_ref::<Unconfirmed>().is_some());
+    assert_eq!(yubikey.touches(), 0, "refused before the key is touched");
+    assert!(vault.change_password(&human(), "a new password").is_err());
+    assert!(vault.new_recovery(&human()).is_err());
+    assert!(vault.set_quick(&human(), Some(7)).is_err());
+    assert_eq!(
+        err(vault.reauth(&human(), "not it")),
+        "wrong master password"
+    );
+    vault.reauth(&human(), PASSWORD).unwrap();
+    vault.add_key(&human(), "YubiKey", Some(PIN)).unwrap();
+
+    // A key proves itself for prod, not for changes.
+    env.clock.awake(5 * 60);
+    assert_eq!(
+        err(vault.reauth_key(&human(), Some("0000"))),
+        "wrong PIN for the security key"
+    );
+    let status = vault.reauth_key(&human(), Some(PIN)).unwrap();
+    assert!(status.prod_until.is_some() && status.confirmed_until.is_none());
+    let other = key();
+    env.plug(&[&other]);
+    assert!(vault.reauth_key(&human(), Some(PIN)).is_err());
+    // With a key enrolled, the password still confirms changes without a touch: the session knows the key's part.
+    env.plug(&[]);
+    vault.reauth(&human(), PASSWORD).unwrap();
+    assert!(vault.status().unwrap().confirmed_until.is_some());
+}
+
+#[test]
+fn the_recovery_key_opens_without_the_lost_key_and_sets_a_new_password() {
+    let env = Env::new("recover");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let github = vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    let (lost, kept) = (key(), key());
+    env.plug(&[&lost]);
+    let (lost_info, recovery) = vault.add_key(&human(), "Lost", Some(PIN)).unwrap();
+    let recovery = recovery.unwrap();
+    env.plug(&[&kept]);
+    vault.add_key(&human(), "Kept", Some(PIN)).unwrap();
+    vault.lock(&human()).unwrap();
+    env.plug(&[]);
+
+    let typo = recovery.expose().replace('-', " ").to_lowercase();
+    assert_eq!(
+        err(vault.recover(
+            &human(),
+            "0000-0000-0000-0000-0000-0000-0000-0000",
+            "a new password"
+        )),
+        "wrong recovery key"
+    );
+    assert!(vault.recover(&human(), &typo, "short").is_err());
+    assert!(!vault.status().unwrap().unlocked);
+    let (status, renewed) = vault.recover(&human(), &typo, "a new password").unwrap();
+    assert!(status.unlocked && status.keys == 2 && status.confirmed_until.is_some());
+    assert_ne!(renewed.expose(), recovery.expose());
+    assert_eq!(
+        vault
+            .item_value(&human(), &github.id, Field::Password, Access::Reveal)
+            .unwrap()
+            .expose(),
+        "hunter2-github-0123"
+    );
+    assert!(!format!("{renewed:?}").contains(&renewed.expose()[..4]));
+
+    // The lost key goes right away, the recovery key used no longer works.
+    vault.remove_key(&human(), &lost_info.id).unwrap();
+    vault.lock(&human()).unwrap();
+    assert_eq!(
+        err(vault.recover(&human(), recovery.expose(), "another password")),
+        "wrong recovery key"
+    );
+    env.plug(&[&kept]);
+    assert_eq!(
+        err(vault.unlock(&human(), Some(PASSWORD), None, Some(PIN))),
+        "wrong master password"
+    );
+    vault
+        .unlock(&human(), Some("a new password"), None, Some(PIN))
+        .unwrap();
+    let actions = env.actions(&vault);
+    assert!(actions.contains(&Action::UnlockFailed));
+
+    // A vault without a recovery key says so.
+    let bare = Env::new("recover-none");
+    let none = bare.vault();
+    none.init(&human(), PASSWORD, false).unwrap();
+    none.lock(&human()).unwrap();
+    assert_eq!(
+        err(none.recover(&human(), recovery.expose(), "a new password")),
+        "this vault has no recovery key"
+    );
+    // One can be made without a security key, and the newest is the one that works.
+    none.unlock(&human(), Some(PASSWORD), None, None).unwrap();
+    let first = none.new_recovery(&human()).unwrap();
+    let second = none.new_recovery(&human()).unwrap();
+    none.lock(&human()).unwrap();
+    assert!(
+        none.recover(&human(), first.expose(), "a new password")
+            .is_err()
+    );
+    none.recover(&human(), second.expose(), "a new password")
+        .unwrap();
+}
+
+#[test]
+fn changes_the_master_password() {
+    let env = Env::new("password");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, true).unwrap();
+    assert_eq!(
+        err(vault.change_password(&human(), "short")),
+        "the master password needs 8 characters or more"
+    );
+    vault.change_password(&human(), "a new password").unwrap();
+    vault.lock(&human()).unwrap();
+    assert!(vault.unlock(&human(), Some(PASSWORD), None, None).is_err());
+    vault.unlock(&human(), None, None, None).unwrap();
+    assert!(
+        vault.status().unwrap().remembered,
+        "the keychain keeps the new key"
+    );
+    vault.lock(&human()).unwrap();
+    vault
+        .unlock(&human(), Some("a new password"), None, None)
+        .unwrap();
+
+    let yubikey = key();
+    env.plug(&[&yubikey]);
+    vault.add_key(&human(), "YubiKey", Some(PIN)).unwrap();
+    vault.change_password(&human(), "a third password").unwrap();
+    vault.lock(&human()).unwrap();
+    assert!(
+        vault
+            .unlock(&human(), Some("a new password"), None, Some(PIN))
+            .is_err()
+    );
+    vault
+        .unlock(&human(), Some("a third password"), None, Some(PIN))
+        .unwrap();
+}
+
+#[test]
+fn touch_id_reopens_for_some_days_then_asks_for_the_password() {
+    let env = Env::new("quick");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    assert_eq!(
+        err(vault.set_quick(&human(), Some(31))),
+        "Touch ID or Windows Hello reopens the vault for 1 to 30 days"
+    );
+    let now = env.clock.wall();
+    let status = vault.set_quick(&human(), Some(7)).unwrap();
+    assert_eq!(status.quick_days, Some(7));
+    assert_eq!(status.quick_until, Some(now + 7 * 86_400));
+    assert!(
+        env.store
+            .0
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|k| k.ends_with(".quick"))
+    );
+
+    vault.lock(&human()).unwrap();
+    let app = env.vault();
+    let status = app.unlock_quick(&human()).unwrap();
+    assert!(status.unlocked);
+    assert!(status.prod_until.is_none() && status.confirmed_until.is_none());
+    assert_eq!(app.audit(1).unwrap()[0].detail.as_deref(), Some("biometry"));
+    assert!(
+        app.set_quick(&human(), Some(3))
+            .unwrap_err()
+            .downcast_ref::<Unconfirmed>()
+            .is_some()
+    );
+    assert!(app.reauth_quick(&human()).unwrap().prod_until.is_some());
+    // The password is checked against the session's keys, which Touch ID brought back whole.
+    app.reauth(&human(), PASSWORD).unwrap();
+
+    // A slot moved forward by hand no longer opens.
+    app.lock(&human()).unwrap();
+    let path = env.data().join("vault/quick.json");
+    let original = fs::read(&path).unwrap();
+    let mut tampered: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    tampered["until"] = (now + 30 * 86_400).into();
+    fs::write(&path, tampered.to_string()).unwrap();
+    assert_eq!(
+        err(app.unlock_quick(&human())),
+        "the keychain's key no longer opens the vault: the master password is needed"
+    );
+    assert!(app.status().unwrap().quick_until.is_none());
+
+    // The password brings it back, for 7 days from then.
+    app.unlock(&human(), Some(PASSWORD), None, None).unwrap();
+    assert_eq!(app.status().unwrap().quick_until, Some(now + 7 * 86_400));
+    app.lock(&human()).unwrap();
+    env.clock.asleep(7 * 86_400);
+    assert_eq!(
+        err(app.unlock_quick(&human())),
+        "7 days went by: the master password is needed"
+    );
+
+    // Any change to how it opens asks for the password first again.
+    app.unlock(&human(), Some(PASSWORD), None, None).unwrap();
+    assert!(app.status().unwrap().quick_until.is_some());
+    let yubikey = key();
+    env.plug(&[&yubikey]);
+    app.add_key(&human(), "YubiKey", Some(PIN)).unwrap();
+    let status = app.status().unwrap();
+    assert!(status.quick_until.is_none() && status.quick_days == Some(7));
+    assert!(
+        !env.store
+            .0
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|k| k.ends_with(".quick"))
+    );
+    app.lock(&human()).unwrap();
+    assert_eq!(
+        err(app.unlock_quick(&human())),
+        "the master password is needed"
+    );
+
+    // With a key enrolled, Touch ID reopens without it, and the key still proves itself after.
+    app.unlock(&human(), Some(PASSWORD), None, Some(PIN))
+        .unwrap();
+    app.lock(&human()).unwrap();
+    env.plug(&[]);
+    app.unlock_quick(&human()).unwrap();
+    env.plug(&[&yubikey]);
+    app.reauth_key(&human(), Some(PIN)).unwrap();
+
+    app.reauth(&human(), PASSWORD).unwrap();
+    let status = app.set_quick(&human(), None).unwrap();
+    assert_eq!((status.quick_days, status.quick_until), (None, None));
+    assert!(!path.exists());
+    assert!(
+        app.reauth_quick(&human()).is_err(),
+        "off: no reauth by Touch ID either"
+    );
+}
+
+#[test]
+fn migrates_a_format_2_vault_before_its_first_key() {
+    let env = Env::new("migrate-2");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    vault.save_item(&human(), login(None, "GitHub")).unwrap();
+    let mut file: serde_json::Value =
+        serde_json::from_slice(&fs::read(env.file()).unwrap()).unwrap();
+    file["format"] = 2.into();
+    fs::write(env.file(), file.to_string()).unwrap();
+    let v2 = fs::read(env.file()).unwrap();
+    vault.lock(&human()).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
+    assert_eq!(fs::read(env.file()).unwrap(), v2, "reading changes nothing");
+
+    let yubikey = key();
+    env.plug(&[&yubikey]);
+    vault.add_key(&human(), "YubiKey", Some(PIN)).unwrap();
+    let file: serde_json::Value = serde_json::from_slice(&fs::read(env.file()).unwrap()).unwrap();
+    assert_eq!(file["format"], 3);
+    assert!(!env.data().join("vault/vault.v2.json").exists());
+    vault.lock(&human()).unwrap();
+    vault
+        .unlock(&human(), Some(PASSWORD), None, Some(PIN))
+        .unwrap();
+    assert_eq!(vault.items(None).unwrap().len(), 1);
+}
+
+#[test]
+fn never_shows_a_pin_a_recovery_key_or_a_factor() {
+    let env = Env::new("factor-leaks");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let yubikey = key();
+    env.plug(&[&yubikey]);
+    let (info, recovery) = vault.add_key(&human(), "YubiKey", Some(PIN)).unwrap();
+    let recovery = recovery.unwrap();
+    let shown = format!("{info:?} {:?} {:?}", vault.status().unwrap(), recovery);
+    assert!(!shown.contains(recovery.expose()) && !shown.contains(PIN));
+    let audit = serde_json::to_string(&vault.audit(100).unwrap()).unwrap();
+    assert!(!audit.contains(recovery.expose()) && !audit.contains(PIN));
+    vault.lock(&human()).unwrap();
+    for e in [
+        vault
+            .unlock(&human(), Some(PASSWORD), None, Some("9999"))
+            .unwrap_err(),
+        vault.recover(&human(), "WRONG-KEY", PASSWORD).unwrap_err(),
+    ] {
+        assert!(!format!("{e:#} {e:?}").contains("9999"));
+        assert!(!format!("{e:#}").contains(PASSWORD));
+    }
+}
+
+/// With a real security key plugged in, by hand: `TERMF_KEY_PIN=<its PIN> cargo test -p termf-vault -- --ignored
+/// real_security_key` (Windows asks for the PIN itself). A throwaway vault in a temporary folder; the key keeps
+/// nothing (the credential is not resident). Touch the key three times.
+#[test]
+#[ignore]
+fn real_security_key() {
+    let env = Env::new("real-key");
+    let vault = env.vault().with_keys(fido::system());
+    let pin = std::env::var("TERMF_KEY_PIN").ok();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    vault.add_key(&human(), "Real key", pin.as_deref()).unwrap();
+    vault.lock(&human()).unwrap();
+    vault
+        .unlock(&human(), Some(PASSWORD), None, pin.as_deref())
+        .unwrap();
 }
