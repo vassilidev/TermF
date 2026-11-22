@@ -19,6 +19,7 @@
     kinds,
     library,
     matches,
+    packageLabel,
     type Item,
     type Kind,
     type Layer,
@@ -62,6 +63,7 @@
   };
   const layerLabel: Record<Layer, Parameters<typeof t>[0]> = {
     shipped: "layerShipped",
+    package: "stackLayer",
     global: "layerGlobal",
     project: "layerProject",
     repo: "layerRepo",
@@ -69,6 +71,7 @@
   };
   const layerDefault = {
     shipped: "whyShipped",
+    package: "stackWhyPackage",
     global: "whyGlobal",
     project: "whyProject",
     repo: "whyRepo",
@@ -91,7 +94,12 @@
 
   /** From the default of its layer to the most specific toggle, the last one deciding. */
   function reasons(item: Item): string[] {
-    const list = [t(layerDefault[item.layer])];
+    const start = item.activatedBy.includes("*")
+      ? "stackWhyAlways"
+      : item.activatedBy.length
+        ? "stackWhyOn"
+        : layerDefault[item.layer];
+    const list = [t(start)];
     const global = item.toggles.global;
     if (global !== undefined) list.push(t(global ? "whyOnGlobal" : "whyOffGlobal"));
     const own = item.toggles.project;
@@ -259,6 +267,15 @@
                   <li>{reason}</li>
                 {/each}
               </ol>
+              {#if item.activatedBy.length && !item.activatedBy.includes("*")}
+                <p class="origin">
+                  {t("stackActivatedBy")}
+                  {#each item.activatedBy as tag (tag)}<span class="badge">{tag}</span>{/each}
+                </p>
+              {/if}
+              {#if item.package}
+                <p class="origin">{t("stackFromPackage", { package: packageLabel(item.package) })}</p>
+              {/if}
               {#if item.shadows.length}
                 <p class="shadows">
                   {t("whyShadows", {
@@ -410,7 +427,8 @@
   }
 
   .why,
-  .shadows {
+  .shadows,
+  .origin {
     grid-column: 1 / -1;
     margin: 0;
     color: var(--muted);
@@ -433,6 +451,13 @@
 
   .why li:last-child {
     color: var(--text);
+  }
+
+  .origin {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
   }
 
   .meta {

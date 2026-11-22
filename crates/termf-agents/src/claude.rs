@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 use termf_core::context::Gauge;
-use termf_core::ipc::{MCP_ACTIONS, MCP_READ};
+use termf_core::ipc::{MCP_ACTIONS, MCP_EXPERT, MCP_READ};
 
 use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
 
@@ -15,19 +15,53 @@ pub const TOOL_OUTPUT: usize = 4000;
 
 pub struct ClaudeCode;
 
-/// The built-in tools a session with TermF's tools keeps: reading the repositories.
-const MCP_BUILT_IN: &str = "Read,Grep,Glob";
+/// The role whose conversation searches the project memory, and the tool another role calls it with.
+pub const EXPERT: &str = "expert";
+pub const ASK_EXPERT: &str = "mcp__termf__ask_expert";
+
+fn expert(spec: &SessionSpec) -> bool {
+    spec.mcp && spec.role.as_deref() == Some(EXPERT)
+}
+
+/// The tools of `termf mcp` a session gets: the expert's conversation searches the project memory; a CTO
+/// conversation reads and acts; a role that lists `mcp__termf__ask_expert` in its allowed tools only asks the
+/// expert; any other session none.
+pub fn mcp_tools(spec: &SessionSpec) -> Vec<&'static str> {
+    if expert(spec) {
+        MCP_EXPERT.to_vec()
+    } else if spec.mcp {
+        MCP_READ.iter().chain(&MCP_ACTIONS).copied().collect()
+    } else if spec.allowed_tools.iter().any(|t| t == ASK_EXPERT) {
+        vec!["ask_expert"]
+    } else {
+        Vec::new()
+    }
+}
 
 /// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user
-/// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web.
-pub fn mcp_settings() -> Value {
+/// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web. The
+/// expert, read-only, has no action, and its read-only sub-agents search wide.
+pub fn mcp_settings(spec: &SessionSpec) -> Value {
     let tools = |names: &[&str]| -> Vec<String> {
         names.iter().map(|n| format!("mcp__termf__{n}")).collect()
     };
+    let mut deny = vec![
+        "Bash",
+        "PowerShell",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "WebSearch",
+    ];
+    if expert(spec) {
+        return json!({ "permissions": { "allow": tools(&MCP_EXPERT), "deny": deny } });
+    }
+    deny.push("Agent");
     json!({ "permissions": {
         "allow": tools(&MCP_READ),
         "ask": tools(&MCP_ACTIONS),
-        "deny": ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent"],
+        "deny": deny,
     } })
 }
 
@@ -109,22 +143,21 @@ impl AgentRuntime for ClaudeCode {
         if spec.mcp {
             // Trifecta (ARCHITECTURE §12.4): no command, no web, no MCP server but TermF's, none of the
             // user's or the repository's settings files, the file tools kept to the repositories.
+            let built_in = if expert(spec) {
+                "Read,Grep,Glob,Agent"
+            } else {
+                "Read,Grep,Glob"
+            };
             args.extend(
-                [
-                    "--restricted",
-                    "--tools",
-                    MCP_BUILT_IN,
-                    "--strict-mcp-config",
-                ]
-                .map(Into::into),
+                ["--restricted", "--tools", built_in, "--strict-mcp-config"].map(Into::into),
             );
-            settings["permissions"] = mcp_settings()["permissions"].take();
-            if let Some(config) = launch.mcp {
-                args.extend(["--mcp-config".into(), config.to_string_lossy().into_owned()]);
-            }
+            settings["permissions"] = mcp_settings(spec)["permissions"].take();
             for dir in launch.dirs {
                 args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
             }
+        }
+        if let Some(config) = launch.mcp {
+            args.extend(["--mcp-config".into(), config.to_string_lossy().into_owned()]);
         }
         if settings != json!({}) {
             args.extend(["--settings".into(), settings.to_string()]);

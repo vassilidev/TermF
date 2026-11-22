@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { t } from "$lib/i18n";
+  import { library } from "$lib/library.svelte";
   import { trustState, type RepoTrust } from "$lib/onboarding-logic";
   import { shortPath } from "$lib/state.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
@@ -29,6 +30,8 @@
     try {
       repos = await invoke<RepoTrust[]>("claude_trust_set", { project, on });
       agreed = false;
+      // The skills the repositories' packages ship start on or off with the trust.
+      library.version++;
     } catch (e) {
       error = String(e);
     } finally {

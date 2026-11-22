@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use anyhow::{Context, Result, bail, ensure};
 use include_dir::{Dir, DirEntry, include_dir};
@@ -14,10 +16,13 @@ use toml_edit::{Array, DocumentMut, Table};
 use yaml_rust2::{Yaml, YamlLoader};
 
 pub mod archive;
+#[cfg(test)]
+mod catalog;
 mod claude;
 pub mod conventions;
 mod roles;
 pub mod scout;
+pub mod stack;
 
 pub use claude::{
     Imported, Outcome, export_claude, export_target, export_text, import_claude, materialize,
@@ -87,6 +92,9 @@ impl fmt::Display for Kind {
 pub enum Layer {
     /// Built into TermF, from the `library/` folder of its repository.
     Shipped,
+    /// Skills the installed packages of the repository ship (`node_modules`, `vendor`, a virtualenv). They start
+    /// on where Claude Code trusts the repository, and pass before a shipped skill of the same name.
+    Package,
     /// `<config>/library/`, switched on and off in `termf.toml`.
     Global,
     /// `<config>/projects/<id>/library/`, switched on and off in `projects/<id>.toml`.
@@ -102,6 +110,7 @@ impl fmt::Display for Layer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad(match self {
             Layer::Shipped => "shipped",
+            Layer::Package => "package",
             Layer::Global => "global",
             Layer::Project => "project",
             Layer::Repo => "repo",
@@ -137,6 +146,10 @@ pub struct Item {
     pub toggles: BTreeMap<Layer, bool>,
     /// Global and project items start on, shipped and repository ones off; the most specific toggle decides.
     pub active: bool,
+    /// The tags of the stack its `metadata.termf-stacks` names, which switch a shipped item on.
+    pub activated_by: Vec<String>,
+    /// The installed package that ships it, for the package layer.
+    pub package: Option<stack::Package>,
     /// Path inside its layer, to copy a shipped item.
     #[serde(skip)]
     rel: String,
@@ -160,6 +173,9 @@ pub struct Scope {
     /// The squad the session works in: its `[squads.roles.<name>]` settings, and the preferences and rules
     /// whose `applies_to` says `squad:<id>`.
     pub squad: Option<String>,
+    /// The session's repository, or each repository of the project without one: their tags switch the shipped
+    /// skills on, and their installed packages bring skills.
+    pub stack: Vec<stack::RepoStack>,
 }
 
 impl Scope {
@@ -167,8 +183,22 @@ impl Scope {
     /// project that lists it.
     pub fn new(config_dir: &Path, path: Option<&Path>, project: Option<String>) -> Result<Scope> {
         let Some(path) = path else {
+            // The stack is a hint: a project file that cannot be read leaves it empty, as before the stack.
+            let repos = match &project {
+                Some(id) => termf_core::load_projects(config_dir)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|p| &p.id == id)
+                    .map(|p| p.repos)
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            };
             return Ok(Scope {
                 project,
+                stack: repos
+                    .iter()
+                    .map(|r| stack_of(&r.name, Path::new(&r.path)))
+                    .collect(),
                 ..Scope::default()
             });
         };
@@ -176,20 +206,65 @@ impl Scope {
             .ancestors()
             .find(|d| d.join(".git").exists())
             .unwrap_or(path);
+        let projects = match project {
+            Some(_) => termf_core::load_projects(config_dir).unwrap_or_default(),
+            None => termf_core::load_projects(config_dir)?,
+        };
         let project = match project {
             Some(id) => Some(id),
             // shortcut: a repository listed in several projects gets the first one, until sessions know their project.
-            None => termf_core::load_projects(config_dir)?
-                .into_iter()
+            None => projects
+                .iter()
                 .find(|p| p.repos.iter().any(|r| path.starts_with(&r.path)))
-                .map(|p| p.id),
+                .map(|p| p.id.clone()),
         };
+        let name = projects
+            .iter()
+            .flat_map(|p| &p.repos)
+            .find(|r| path.starts_with(&r.path))
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| {
+                repo.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            });
         Ok(Scope {
             project,
             repo: Some(repo.to_path_buf()),
+            stack: vec![stack_of(&name, repo)],
             ..Scope::default()
         })
     }
+}
+
+/// The repository's stack, with Claude Code's trust read only when its packages bring something.
+fn stack_of(name: &str, path: &Path) -> stack::RepoStack {
+    let mut repo = stack::RepoStack::read(name, path);
+    if !repo.skills.is_empty() || !repo.guides.is_empty() {
+        repo.trusted = trusted(name, path);
+    }
+    repo
+}
+
+/// Claude Code's trust of the repository, read again when Claude Code's config file changes.
+fn trusted(name: &str, path: &Path) -> bool {
+    type Entry = (Option<SystemTime>, bool);
+    static CACHE: Mutex<BTreeMap<PathBuf, Entry>> = Mutex::new(BTreeMap::new());
+    let file = termf_claude::trust::file();
+    let changed = fs::metadata(&file).and_then(|m| m.modified()).ok();
+    if let Some((at, on)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(path)
+        && *at == changed
+    {
+        return *on;
+    }
+    let on = termf_claude::trust::state(&file, &[(name.into(), path.into())])
+        .is_ok_and(|t| t.first().is_some_and(|t| t.trusted));
+    CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path.into(), (changed, on));
+    on
 }
 
 /// `<config>/library`, or a project's `<config>/projects/<id>/library`.
@@ -222,17 +297,12 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
     ];
     let mut items: BTreeMap<(Kind, String), Item> = BTreeMap::new();
     for (layer, source) in sources {
-        for mut item in source.map(|s| s.scan(layer)).unwrap_or_default() {
-            let key = (item.kind, item.name.clone());
-            // Otherwise a cloned repository could swap the content of an item you enabled by name.
-            if layer == Layer::Repo && items.contains_key(&key) {
-                continue;
-            }
-            if let Some(hidden) = items.remove(&key) {
-                item.shadows = hidden.shadows;
-                item.shadows.push(hidden.layer);
-            }
-            items.insert(key, item);
+        let mut scanned = source.map(|s| s.scan(layer)).unwrap_or_default();
+        if layer == Layer::Shipped {
+            scanned.extend(packaged(&scope.stack));
+        }
+        for item in scanned {
+            place(&mut items, item, &scope.stack);
         }
     }
 
@@ -243,7 +313,7 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
     }
     toggles.push((Layer::Run, scope.overrides.clone()));
     for item in items.values_mut() {
-        item.active = matches!(item.layer, Layer::Global | Layer::Project);
+        item.active = starts_on(item, scope);
         for (layer, list) in &toggles {
             if let Some(on) = toggle(list, item.kind, &item.name) {
                 item.toggles.insert(*layer, on);
@@ -252,6 +322,59 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
         }
     }
     Ok(items.into_values().collect())
+}
+
+/// Adds `item` over the less specific item of the same kind and name, which it hides.
+fn place(items: &mut BTreeMap<(Kind, String), Item>, mut item: Item, stack: &[stack::RepoStack]) {
+    let key = (item.kind, item.name.clone());
+    // Otherwise a cloned repository, or what its packages installed, could swap the content of an item you
+    // enabled by name.
+    let cloned = item.layer == Layer::Repo
+        || (item.layer == Layer::Package && !trusted_package(&item, stack));
+    if cloned && items.contains_key(&key) {
+        return;
+    }
+    if let Some(hidden) = items.remove(&key) {
+        item.shadows = hidden.shadows;
+        item.shadows.push(hidden.layer);
+    }
+    items.insert(key, item);
+}
+
+/// A package's skill from a repository Claude Code trusts.
+fn trusted_package(item: &Item, stack: &[stack::RepoStack]) -> bool {
+    stack
+        .iter()
+        .any(|r| r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path)))
+}
+
+/// Where an item stands before the toggles: on for the user's own layers; a shipped one when its
+/// `metadata.termf-stacks` names a tag of the stack (noted in `activated_by`), or always for `*`; a package's
+/// skill where Claude Code trusts its repository; off for a repository's.
+fn starts_on(item: &mut Item, scope: &Scope) -> bool {
+    match item.layer {
+        Layer::Global | Layer::Project => true,
+        Layer::Shipped if stack_tags_of(item).iter().any(|t| t == ANY) => {
+            item.activated_by = vec![ANY.into()];
+            true
+        }
+        Layer::Shipped => {
+            let stack: Vec<&str> = scope
+                .stack
+                .iter()
+                .flat_map(|r| &r.tags)
+                .map(|t| t.name.as_str())
+                .collect();
+            item.activated_by = stack_tags_of(item)
+                .into_iter()
+                .filter(|t| stack.contains(&t.as_str()))
+                .collect();
+            item.activated_by.dedup();
+            !item.activated_by.is_empty()
+        }
+        Layer::Package => trusted_package(item, &scope.stack),
+        Layer::Repo | Layer::Run => false,
+    }
 }
 
 /// Whether a preference or a rule applies to a session that plays `role` in `squad`. No role: those of every
@@ -375,7 +498,11 @@ impl Source<'_> {
                     },
                     _ => continue,
                 };
-                if name.is_empty() || name.starts_with('.') {
+                // A shipped `_name` is a template for authors, not an item.
+                if name.is_empty()
+                    || name.starts_with('.')
+                    || (matches!(self, Source::Shipped) && name.starts_with('_'))
+                {
                     continue;
                 }
                 // A folder without its main file is not an item (yet).
@@ -459,8 +586,76 @@ fn parse(
         shadows: Vec::new(),
         toggles: BTreeMap::new(),
         active: false,
+        activated_by: Vec::new(),
+        package: None,
         rel,
     }
+}
+
+/// A space- or comma-separated value of the frontmatter's `metadata`, such as `termf-stacks`.
+pub fn metadata_list(item: &Item, key: &str) -> Vec<String> {
+    item.meta
+        .get("metadata")
+        .and_then(|m| m.get(key))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .split([' ', ','])
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The sources an item adapts passages from, never put in a prompt: a role lists them in `credits`, a skill in
+/// `metadata.credits` (its frontmatter's `metadata` holds text only), separated by `;`.
+pub fn credits(meta: &Map<String, Value>) -> Vec<String> {
+    let mut found = list_of(meta.get("credits"));
+    let skill = meta.get("metadata").and_then(|m| m.get("credits"));
+    found.extend(
+        skill
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .split(';')
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_owned),
+    );
+    found
+}
+
+/// `termf-stacks: "*"`: a skill for every stack, such as a testing method. `termf-versions: "*"`: any version.
+pub const ANY: &str = "*";
+
+fn stack_tags_of(item: &Item) -> Vec<String> {
+    metadata_list(item, "termf-stacks")
+}
+
+/// The skills the installed packages of the stack's repositories ship, once each.
+fn packaged(stack: &[stack::RepoStack]) -> Vec<Item> {
+    let mut items: Vec<Item> = Vec::new();
+    // A skill several repositories ship comes from one Claude Code trusts, when there is one.
+    let repos = stack
+        .iter()
+        .filter(|r| r.trusted)
+        .chain(stack.iter().filter(|r| !r.trusted));
+    for skill in repos.flat_map(|r| &r.skills) {
+        if items.iter().any(|i| i.name == skill.name) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(skill.path.join("SKILL.md")) else {
+            continue;
+        };
+        let mut item = parse(
+            Kind::Skill,
+            skill.name.clone(),
+            &text,
+            Layer::Package,
+            Some(skill.path.clone()),
+            String::new(),
+        );
+        item.package = Some(skill.package.clone());
+        items.push(item);
+    }
+    items
 }
 
 /// A frontmatter list. Claude Code accepts a comma-separated string where a list is expected.
@@ -721,6 +916,7 @@ mod tests {
                     "qa",
                     "seo",
                     "secops",
+                    "expert",
                     "reviewer",
                 ][..],
             ),
@@ -747,8 +943,12 @@ mod tests {
         assert_eq!(rule.applies_to, ["front", "back", "devops", "seo"]);
         assert_eq!(rule.meta["level"], "block");
         assert_eq!(find(&items, Kind::Role, "secops").meta["effort"], "xhigh");
+        for role in ["po", "pm", "architect", "cto"] {
+            let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
+            assert_eq!(tools, "mcp__termf__ask_expert", "{role} asks the expert");
+        }
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 13, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 14, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);
@@ -758,7 +958,8 @@ mod tests {
                 .lines()
                 .count();
             assert!((20..=60).contains(&lines), "{name}: {lines} lines");
-            let planner_only = ["cto", "lead", "po", "pm", "secops", "reviewer"].contains(&name);
+            let planner_only =
+                ["cto", "lead", "po", "pm", "secops", "expert", "reviewer"].contains(&name);
             assert_eq!(plannable(role), !planner_only, "{name}");
             if let Some(credits) = role.meta.get("credits") {
                 assert!(credits.as_array().is_some_and(|c| !c.is_empty()), "{name}");
@@ -940,5 +1141,260 @@ mod tests {
         assert_eq!(Kind::parse("skills"), Some(Kind::Skill));
         assert_eq!(Kind::parse("preference"), Some(Kind::Preference));
         assert_eq!(Kind::parse("nope"), None);
+    }
+
+    fn stack(path: &Path, tags: &[&str], trusted: bool) -> stack::RepoStack {
+        stack::RepoStack {
+            name: "acme".into(),
+            path: path.into(),
+            tags: tags
+                .iter()
+                .map(|t| stack::Tag {
+                    name: (*t).into(),
+                    version: None,
+                    source: "package.json".into(),
+                })
+                .collect(),
+            trusted,
+            ..stack::RepoStack::default()
+        }
+    }
+
+    #[test]
+    fn reads_the_credits_of_a_role_and_of_a_skill() {
+        let role = parse_markdown("---\ncredits:\n  - \"a/b@1 (MIT): x.md\"\n---\n")
+            .unwrap()
+            .0;
+        assert_eq!(credits(&role), ["a/b@1 (MIT): x.md"]);
+        let skill = parse_markdown(
+            "---\nmetadata:\n  credits: \"a/b@1 (MIT): x.md; c/d@2 (Apache-2.0): y.md\"\n---\n",
+        )
+        .unwrap()
+        .0;
+        assert_eq!(
+            credits(&skill),
+            ["a/b@1 (MIT): x.md", "c/d@2 (Apache-2.0): y.md"]
+        );
+    }
+
+    #[test]
+    fn the_stack_switches_on_the_shipped_skills_it_names() {
+        let skill = "---\nname: nextjs\nmetadata:\n  termf-stacks: \"nextjs react\"\n---\n";
+        let shipped = |stack_tags: &[&str], layer: Layer| {
+            let mut item = parse(
+                Kind::Skill,
+                "nextjs".into(),
+                skill,
+                layer,
+                None,
+                String::new(),
+            );
+            let scope = Scope {
+                stack: vec![stack(Path::new("/r"), stack_tags, false)],
+                ..Scope::default()
+            };
+            (starts_on(&mut item, &scope), item.activated_by)
+        };
+        assert_eq!(
+            shipped(&["react", "web"], Layer::Shipped),
+            (true, vec!["react".into()])
+        );
+        assert_eq!(
+            shipped(&["nextjs", "react"], Layer::Shipped),
+            (true, vec!["nextjs".into(), "react".into()])
+        );
+        assert_eq!(shipped(&["vue"], Layer::Shipped), (false, vec![]));
+        let mut always = parse(
+            Kind::Skill,
+            "tests-first".into(),
+            "---\nmetadata:\n  termf-stacks: \"*\"\n---\n",
+            Layer::Shipped,
+            None,
+            String::new(),
+        );
+        assert!(
+            starts_on(&mut always, &Scope::default()),
+            "a skill for every stack, whatever was detected"
+        );
+        assert_eq!(always.activated_by, [ANY]);
+        assert_eq!(
+            shipped(&["nextjs"], Layer::Repo),
+            (false, vec![]),
+            "a repository's skill waits to be switched on"
+        );
+        assert!(
+            shipped(&[], Layer::Global).0,
+            "the user's own skills start on"
+        );
+    }
+
+    #[test]
+    fn offers_the_skills_of_installed_packages_and_the_toggles_keep_the_last_word() {
+        let dir = temp_dir("package-layer");
+        let repo = dir.join("repo");
+        put(
+            &repo.join("node_modules/ai/skills/ai-sdk/SKILL.md"),
+            "---\nname: ai-sdk\ndescription: Builds with the AI SDK.\n---\nUse it.\n",
+        );
+        put(
+            &repo.join("node_modules/ai/skills/mine/SKILL.md"),
+            "---\ndescription: package\n---\n",
+        );
+        put(
+            &dir.join("library/skills/mine/SKILL.md"),
+            "---\ndescription: global\n---\n",
+        );
+        let mut on_disk = stack(&repo, &["react"], false);
+        on_disk.skills = ["ai-sdk", "mine"]
+            .iter()
+            .map(|name| stack::PackageSkill {
+                name: (*name).into(),
+                path: repo.join("node_modules/ai/skills").join(name),
+                package: stack::Package {
+                    name: "ai".into(),
+                    version: Some("7.0.177".into()),
+                },
+            })
+            .collect();
+        let scope = |trusted: bool| Scope {
+            stack: vec![stack::RepoStack {
+                trusted,
+                ..on_disk.clone()
+            }],
+            ..Scope::default()
+        };
+
+        let items = resolve(&dir, &scope(false)).unwrap();
+        let ai = find(&items, Kind::Skill, "ai-sdk");
+        assert_eq!(ai.layer, Layer::Package);
+        assert!(!ai.active, "offered, off until the repository is trusted");
+        assert_eq!(ai.description.as_deref(), Some("Builds with the AI SDK."));
+        assert_eq!(
+            ai.package.as_ref().unwrap().version.as_deref(),
+            Some("7.0.177")
+        );
+        let mine = find(&items, Kind::Skill, "mine");
+        assert_eq!(
+            (mine.layer, mine.description.as_deref()),
+            (Layer::Global, Some("global")),
+            "the user's own skill passes before a package's"
+        );
+        assert_eq!(mine.shadows, [Layer::Package]);
+
+        assert!(
+            explain(&dir, &scope(true), Kind::Skill, "ai-sdk")
+                .unwrap()
+                .active
+        );
+        set_toggle(&dir, None, Kind::Skill, "ai-sdk", Some(false)).unwrap();
+        assert!(
+            !explain(&dir, &scope(true), Kind::Skill, "ai-sdk")
+                .unwrap()
+                .active
+        );
+        set_toggle(&dir, None, Kind::Skill, "ai-sdk", Some(true)).unwrap();
+        assert!(
+            explain(&dir, &scope(false), Kind::Skill, "ai-sdk")
+                .unwrap()
+                .active,
+            "switched on in one click"
+        );
+    }
+
+    #[test]
+    fn a_package_skill_from_an_untrusted_repository_never_replaces_another() {
+        let repo = Path::new("/w/acme");
+        let ours = parse(
+            Kind::Skill,
+            "nextjs".into(),
+            "Ours.\n",
+            Layer::Shipped,
+            None,
+            String::new(),
+        );
+        let theirs = parse(
+            Kind::Skill,
+            "nextjs".into(),
+            "Theirs.\n",
+            Layer::Package,
+            Some(repo.join("node_modules/next/skills/nextjs")),
+            String::new(),
+        );
+        for (trusted, kept) in [(false, "Ours.\n"), (true, "Theirs.\n")] {
+            let stack = vec![stack(repo, &["nextjs"], trusted)];
+            let mut items = BTreeMap::new();
+            place(&mut items, ours.clone(), &stack);
+            place(&mut items, theirs.clone(), &stack);
+            assert_eq!(
+                items[&(Kind::Skill, "nextjs".to_owned())].body,
+                kept,
+                "trusted: {trusted}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_package_skill_two_repositories_ship_comes_from_the_trusted_one() {
+        let dir = temp_dir("package-two-repos");
+        let mut repos = Vec::new();
+        for (name, trusted) in [("cloned", false), ("mine", true)] {
+            let path = dir.join(name);
+            let skill = path.join("node_modules/ai/skills/ai-sdk");
+            put(
+                &skill.join("SKILL.md"),
+                &format!("---\ndescription: {name}\n---\n"),
+            );
+            let mut repo = stack(&path, &[], trusted);
+            repo.skills = vec![stack::PackageSkill {
+                name: "ai-sdk".into(),
+                path: skill,
+                package: stack::Package {
+                    name: "ai".into(),
+                    version: None,
+                },
+            }];
+            repos.push(repo);
+        }
+        let scope = Scope {
+            stack: repos,
+            ..Scope::default()
+        };
+        let ai = explain(&dir, &scope, Kind::Skill, "ai-sdk").unwrap();
+        assert_eq!(ai.description.as_deref(), Some("mine"));
+        assert!(ai.active);
+    }
+
+    #[test]
+    fn a_scope_reads_the_stack_of_its_repository_or_of_its_project() {
+        let dir = temp_dir("scope-stack");
+        let (web, api) = (dir.join("web"), dir.join("api"));
+        put(
+            &web.join("package.json"),
+            r#"{"dependencies": {"react": "19.3.1"}}"#,
+        );
+        put(&api.join("go.mod"), "module api\n\ngo 1.27\n");
+        fs::create_dir_all(web.join(".git")).unwrap();
+        put(
+            &dir.join("projects/acme.toml"),
+            &format!(
+                "name = \"Acme\"\n[[repos]]\nname = \"front\"\npath = {:?}\n[[repos]]\npath = {:?}\n",
+                web.to_string_lossy(),
+                api.to_string_lossy()
+            ),
+        );
+        let scope = Scope::new(&dir, Some(&web.join("src")), None).unwrap();
+        assert_eq!(scope.stack.len(), 1);
+        assert_eq!(scope.stack[0].name, "front");
+        assert_eq!(scope.stack[0].tags[0].name, "react");
+        assert_eq!(scope.stack[0].tags[0].version.as_deref(), Some("19.3.1"));
+
+        let project = Scope::new(&dir, None, Some("acme".into())).unwrap();
+        let tags: Vec<&str> = project
+            .stack
+            .iter()
+            .flat_map(|r| r.tags.iter().map(|t| t.name.as_str()))
+            .collect();
+        assert_eq!(tags, ["react", "go"]);
+        assert!(Scope::new(&dir, None, None).unwrap().stack.is_empty());
     }
 }

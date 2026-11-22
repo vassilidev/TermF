@@ -1,0 +1,10 @@
+- Version: read it in the lockfile entries for `react` and `react-dom` (same version); a Next.js App Router app renders with the React canary bundled in `next`.
+- Docs for this version: none in the package; `https://react.dev/llms.txt`, and any react.dev page with `.md` appended.
+- Verify: the project's `lint`, `typecheck`, `test` scripts; else `npx tsc --noEmit`, `npx eslint .` with `eslint-plugin-react-hooks` 7.
+- 19.3: `<ViewTransition>` and Fragment refs are stable (`import { ViewTransition } from 'react'`); only Transition updates animate.
+- 19.3: browser-only UI uses `use(browser())` from `react-dom` under `<Suspense>`, not a mount-flag Effect.
+- 19.3: Strict Mode double-invokes Effects during hydration too, so every Effect needs a correct cleanup.
+- React Compiler 1.0: when the project uses it, new code adds no `useMemo`, `useCallback` or `memo`.
+- Reuse the project's design system and its state, form and data libraries; add none.
+- `'use client'` goes on the smallest interactive leaf; props crossing it are serializable, and Server Function arguments are untrusted.
+- Read the skill `react` before writing components, hooks, Effects, forms or Server Components.

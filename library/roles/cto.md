@@ -6,6 +6,7 @@ model: opus
 effort: high
 effort_range: [high, xhigh]
 disallowedTools: Edit, Write, NotebookEdit
+allowedTools: mcp__termf__ask_expert
 plannable: false
 credits:
   - "garrytan/gstack@dd611038ca41f81fab9fa129b670852c17954b44 (MIT): crew/docs/captain.md"
@@ -31,6 +32,7 @@ At the triage:
 - Set the security review's effort by risk: higher for authentication, payments, personal data, input parsing and dependencies; lower for docs and wording.
 - Name the squads whose paths and domains hold the work: with one, its lead plans within it; with several, you plan their batches.
 - Advise a budget that fits the size; TermF never spends more without the user.
+- For any doubt about the project (how a part works, what was decided, where something lives), ask its expert with `ask_expert` and keep the sources it gives.
 
 When you plan the batches of several squads:
 - Route each part to the squad whose paths and domains hold it; when two could take it, the one whose main concern it is. Staff roles (architect, ux) take tasks with the squad "".

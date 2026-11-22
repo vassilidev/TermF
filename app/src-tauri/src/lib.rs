@@ -10,6 +10,7 @@ mod cto;
 mod files;
 mod keep_awake;
 mod library;
+mod memory;
 mod onboarding;
 mod quick_terminal;
 mod schedule;
@@ -93,12 +94,13 @@ async fn workspace(
     })
 }
 
-/// `agent: None` opens a plain login shell.
+/// `agent: None` opens a plain login shell. Async, so that reading the library of a large repository never holds
+/// the window.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-fn pty_spawn(
+async fn pty_spawn(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     agent: Option<String>,
     cwd: String,
     title: String,
@@ -291,6 +293,11 @@ pub fn run() {
                 data_dir.clone(),
             ));
             app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
+            app.manage(memory::start(
+                app.handle(),
+                config_dir.clone(),
+                data_dir.clone(),
+            ));
             app.manage(AppState {
                 config_dir,
                 sessions: api.sessions(app.handle().clone()),
@@ -351,6 +358,7 @@ pub fn run() {
             keep_awake::keep_awake_state,
             keep_awake::keep_awake_set,
             library::library_list,
+            library::library_stack,
             library::library_toggle,
             library::library_explain,
             library::library_import_claude,
@@ -473,6 +481,10 @@ pub fn run() {
             claude::artifacts_confirm,
             claude::artifacts_delete,
             claude::artifacts_edit,
+            memory::memory_status,
+            memory::memory_settings_save,
+            memory::memory_reindex,
+            memory::expert_open,
             claude_native::claude_files,
             claude_native::claude_file_read,
             claude_native::claude_file_preview,

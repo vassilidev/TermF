@@ -56,7 +56,7 @@ pub fn state(
     AgentsState(agents)
 }
 
-fn agents(app: &AppHandle) -> &Agents {
+pub(crate) fn agents(app: &AppHandle) -> &Agents {
     &app.state::<AgentsState>().inner().0
 }
 
