@@ -2,7 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import { currentProject } from "$lib/files.svelte";
-  import { ago, t } from "$lib/i18n";
+  import { ago, lang, t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
 
   type MemorySource = "claude" | "agents" | "runs" | "library" | "memory" | "docs" | "git" | "artifacts";
@@ -99,7 +99,7 @@
         {#if busy}
           {t("expertMemoryIndexing")}
         {:else if status.indexed}
-          {t("expertMemoryIndexed", { ago: ago(status.indexed), count: status.sources.reduce((n, s) => n + s.docs, 0) })}
+          {t("expertMemoryIndexed", { ago: ago(status.indexed), count: status.sources.reduce((n, s) => n + s.docs, 0).toLocaleString(lang) })}
         {:else}
           {t("expertMemoryNever")}
         {/if}
@@ -121,7 +121,7 @@
         <input type="checkbox" checked={s.included} onchange={(e) => toggle(s.source, e.currentTarget.checked)} />
         <span class="name">{t(labels[s.source])}</span>
         {#if s.included && status.enabled}
-          <span class="count">{t("expertMemoryDocs", { count: s.docs })}</span>
+          <span class="count">{t("expertMemoryDocs", { count: s.docs.toLocaleString(lang) })}</span>
         {/if}
       </label>
       {#if s.error && s.included}
