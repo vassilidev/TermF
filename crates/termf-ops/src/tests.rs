@@ -1093,3 +1093,94 @@ fn the_user_types_the_environment_to_run_a_recipe_that_writes() {
     );
     assert!(agent_tried.is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn any_argument_reaches_the_shell_as_it_is() {
+    use termf_core::rng::{AWKWARD, Rng};
+    let mut rng = Rng::new(0x9007);
+    let args: Vec<String> = (0..300)
+        .map(|_| rng.text(AWKWARD, 16).replace('\0', ""))
+        .collect();
+    let script = args
+        .iter()
+        .map(|a| format!("printf '%s\\0' {}", quote(a)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let out = std::process::Command::new("/bin/sh")
+        .args(["-c", &script])
+        .output()
+        .unwrap();
+    let got: Vec<&str> = std::str::from_utf8(&out.stdout)
+        .unwrap()
+        .split_terminator('\0')
+        .collect();
+    assert_eq!(
+        got.len(),
+        args.len(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for (got, arg) in got.iter().zip(&args) {
+        assert_eq!(got, arg);
+    }
+}
+
+#[test]
+fn no_value_of_the_vault_survives_the_masking_nor_the_cut() {
+    use termf_core::rng::{AWKWARD, Rng};
+    let mask = termf_claude::mask::MASK;
+    let mut rng = Rng::new(0x3a5c);
+    for case in 0..2000 {
+        let values: Vec<String> = (0..1 + rng.below(3))
+            .map(|_| {
+                loop {
+                    let v = rng.text(AWKWARD, 20);
+                    if v.len() >= 4 && !v.contains('•') {
+                        break v;
+                    }
+                }
+            })
+            .collect();
+        let mut stdout = String::new();
+        for _ in 0..rng.below(8) {
+            stdout.push_str(&rng.text(AWKWARD, 20));
+            if rng.chance(2) {
+                stdout.push_str(rng.pick(&values));
+            }
+        }
+        let limits = Limits {
+            lines: 1 + rng.below(6),
+            bytes: rng.below(200),
+            ..Limits::default()
+        };
+        let raw = Raw {
+            stdout: stdout.clone(),
+            stderr: stdout,
+            used: values.iter().map(|v| Secret::new(v.clone())).collect(),
+            ..Raw::default()
+        };
+        let personal: &[Redact] = if rng.chance(2) {
+            &Redact::PERSONAL
+        } else {
+            &[]
+        };
+        let out = redact::mask(raw, None, personal, &limits);
+        for v in &values {
+            assert!(
+                !out.text.contains(v.as_str()) && !out.errors.contains(v.as_str()),
+                "case {case}: {v:?} in {:?}",
+                out.text
+            );
+        }
+        assert!(
+            out.text.len() <= limits.bytes.max(mask.len()),
+            "case {case}: {} bytes",
+            out.text.len()
+        );
+        assert!(
+            out.text.matches('\n').count() <= limits.lines,
+            "case {case}"
+        );
+    }
+}
