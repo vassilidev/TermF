@@ -50,6 +50,9 @@ jobs:
           pnpm build
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The e2e bridge only builds with its feature: checked on the quick Linux run of the pull requests.
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p termf-app --all-targets --features e2e -- -D warnings
       - run: cargo test --workspace
 
   # The real app (debug build) driven by tauri-driver under xvfb, and the performance budgets of ARCHITECTURE §2.4.
@@ -92,6 +95,40 @@ jobs:
         if: always()
         with:
           name: e2e-linux
+          path: app/e2e/out/
+          if-no-files-found: ignore
+
+  # The same scenarios on macOS, where no WebDriver exists: the app's e2e build drives its window through its bridge.
+  e2e-macos:
+    if: github.event_name == 'push'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e
+      - name: Build the e2e app and the CLI (debug)
+        working-directory: app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm e2e:build
+      - name: End-to-end scenarios and performance
+        working-directory: app
+        run: pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-macos
           path: app/e2e/out/
           if-no-files-found: ignore
 

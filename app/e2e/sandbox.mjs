@@ -1,5 +1,5 @@
-// A throwaway world for one run of the app: home, config, data, a git repository "acme", and fake `claude` and
-// `gh` first on the PATH. Nothing of the machine's own config, keyring or accounts is reachable from it.
+// A throwaway world for one run of the app: home, config, data, a git repository "acme", and fake `claude`, `gh`
+// and `curl` first on the PATH. Nothing of the machine's own config, keyring or accounts is reachable from it.
 import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const windows = process.platform === "win32";
+const mac = process.platform === "darwin";
 const here = dirname(fileURLToPath(import.meta.url));
 const fakes = join(here, "fakes");
 
@@ -30,7 +31,10 @@ export function assertSafe() {
   }
 }
 
-/** A tiny program that runs `node <fakes>/<its name>.mjs`, since Windows only finds `.exe` files on the PATH. */
+/**
+ * A tiny program that runs `node <fakes>/<its name>.mjs`, since Windows only finds `.exe` files on the PATH. The
+ * sandbox's paths come from `e2e.env` beside it, `KEY=value` per line: agents do not pass them on.
+ */
 let shim;
 function windowsShim() {
   if (shim) return shim;
@@ -42,7 +46,12 @@ function windowsShim() {
 fn main() {
     let exe = std::env::current_exe().unwrap();
     let script = std::path::Path::new(${JSON.stringify(fakes)}).join(format!("{}.mjs", exe.file_stem().unwrap().to_string_lossy()));
-    let status = Command::new(${JSON.stringify(process.execPath)}).arg(script).args(std::env::args_os().skip(1)).status();
+    let mut cmd = Command::new(${JSON.stringify(process.execPath)});
+    let vars = std::fs::read_to_string(exe.with_file_name("e2e.env")).unwrap_or_default();
+    for (k, v) in vars.lines().filter_map(|l| l.split_once('=')) {
+        cmd.env(k, v);
+    }
+    let status = cmd.arg(script).args(std::env::args_os().skip(1)).status();
     exit(status.map_or(1, |s| s.code().unwrap_or(1)));
 }
 `,
@@ -58,23 +67,36 @@ function git(cwd, env, ...args) {
 
 /** `lang`: the system language the app sees ("en" or "fr"). `project`: an "acme" project with the repository. */
 export function createSandbox({ lang = "en", project = true, dark = false } = {}) {
-  // The long form: Windows gives the temporary folder as RUNNER~1, which the app would not show the same.
-  const root = mkdtempSync(join(realpathSync.native(tmpdir()), "termf-e2e-"));
+  // The long form: Windows gives the temporary folder as RUNNER~1, which the app would not show the same. On macOS
+  // /tmp: under /var/folders the app's socket path would pass the 104 bytes a socket allows.
+  const root = mkdtempSync(join(realpathSync.native(mac ? "/tmp" : tmpdir()), "termf-e2e-"));
   const home = join(root, "home");
   const bin = join(root, "bin");
   const code = join(home, "code");
   const acme = join(code, "acme");
+  const support = join(home, "Library", "Application Support");
   const dirs = windows
     ? windowsDirs()
-    : { configDir: join(home, ".config", "termf"), dataDir: join(home, ".local", "share", "dev.termf.app") };
+    : mac
+      ? { configDir: join(support, "termf"), dataDir: join(support, "dev.termf.app") }
+      : { configDir: join(home, ".config", "termf"), dataDir: join(home, ".local", "share", "dev.termf.app") };
   if (windows) for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
   for (const d of [bin, acme, join(dirs.configDir, "projects")]) mkdirSync(d, { recursive: true });
 
-  for (const name of ["claude", "gh"]) {
+  // Where the fakes log their calls and read what the scenario gives them.
+  const scratch = {
+    TERMF_E2E_LOG: join(root, "calls.log"),
+    TERMF_E2E_RELEASES: join(root, "releases.json"),
+    TERMF_E2E_GH_RUNS: join(root, "gh-runs.json"),
+  };
+  // In the shims, not only in the app's environment: agents get a minimal environment of their own.
+  if (windows) writeFileSync(join(bin, "e2e.env"), Object.entries(scratch).map(([k, v]) => `${k}=${v}\n`).join(""));
+  for (const name of ["claude", "gh", "curl"]) {
     if (windows) copyFileSync(windowsShim(), join(bin, `${name}.exe`));
     else {
       const file = join(bin, name);
-      writeFileSync(file, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(fakes, `${name}.mjs`))} "$@"\n`);
+      const own = Object.entries(scratch).map(([k, v]) => `export ${k}=${JSON.stringify(v)}\n`).join("");
+      writeFileSync(file, `#!/bin/sh\n${own}exec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(fakes, `${name}.mjs`))} "$@"\n`);
       chmodSync(file, 0o755);
     }
   }
@@ -92,7 +114,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     LC_ALL: locale,
     GIT_CONFIG_GLOBAL: gitconfig,
     GIT_CONFIG_NOSYSTEM: "1",
-    TERMF_E2E_LOG: join(root, "calls.log"),
+    ...scratch,
   });
   if (!windows) {
     Object.assign(env, {
@@ -104,6 +126,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
       // No session bus: no keyring of the machine, no single instance shared with a TermF already open.
       DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(root, "no-bus")}`,
       NO_AT_BRIDGE: "1",
+      BASH_SILENCE_DEPRECATION_WARNING: "1",
     });
     if (dark) env.GTK_THEME = "Adwaita:dark";
     // A login shell resets the PATH (Debian's /etc/profile): the profile puts the fakes back first, as a user's would.
