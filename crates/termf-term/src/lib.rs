@@ -50,6 +50,8 @@ struct Shared {
     scrollback: VecDeque<u8>,
     sink: Option<Sink>,
     exit: Option<Option<u32>>,
+    /// Which process of the session is current: one replaced by `respawn_with` ends unheard.
+    process: u64,
     /// When the program last wrote.
     written: Option<std::time::Instant>,
 }
@@ -81,6 +83,12 @@ struct Session {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     shared: Arc<Mutex<Shared>>,
+}
+
+struct Process {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
 #[derive(Default)]
@@ -116,6 +124,64 @@ impl Sessions {
     pub fn spawn_with(&self, build: impl FnOnce(u32) -> Result<SpawnSpec>) -> Result<u32> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let spec = build(id)?;
+        let shared = Arc::new(Mutex::new(Shared::default()));
+        let process = self.start(id, &spec, &shared)?;
+        self.map.lock().unwrap().insert(
+            id,
+            Session {
+                title: spec.title,
+                cwd: spec.cwd,
+                agent: spec.agent,
+                master: process.master,
+                writer: Arc::new(Mutex::new(process.writer)),
+                killer: process.killer,
+                shared,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Ends a session's process and starts another in its place, at the same size: same id, same view and scrollback,
+    /// and no exit reported for the one replaced.
+    pub fn respawn_with(
+        &self,
+        id: u32,
+        build: impl FnOnce(u32) -> Result<SpawnSpec>,
+    ) -> Result<()> {
+        let (shared, size) = self.with(id, |s| (s.shared.clone(), s.master.get_size()))?;
+        let mut spec = build(id)?;
+        if let Ok(size) = size {
+            (spec.cols, spec.rows) = (size.cols, size.rows);
+        }
+        let mut old = self.with(id, |s| s.killer.clone_killer())?;
+        {
+            let mut shared = shared.lock().unwrap();
+            shared.process += 1;
+            shared.exit = None;
+        }
+        let _ = old.kill();
+        let process = match self.start(id, &spec, &shared) {
+            Ok(process) => process,
+            Err(e) => {
+                // Nothing runs in the session any more: it ends as if its process had.
+                shared.lock().unwrap().finish(None);
+                if let Some(on_exit) = &self.on_exit {
+                    on_exit(id);
+                }
+                return Err(e);
+            }
+        };
+        let mut map = self.map.lock().unwrap();
+        let session = map
+            .get_mut(&id)
+            .ok_or_else(|| anyhow!("unknown session {id}"))?;
+        session.master = process.master;
+        *session.writer.lock().unwrap() = process.writer;
+        session.killer = process.killer;
+        Ok(())
+    }
+
+    fn start(&self, id: u32, spec: &SpawnSpec, shared: &Arc<Mutex<Shared>>) -> Result<Process> {
         let pair = native_pty_system().openpty(size(spec.cols, spec.rows))?;
 
         let mut cmd = CommandBuilder::new(&spec.program);
@@ -139,7 +205,7 @@ impl Sessions {
         let killer = child.clone_killer();
         let mut reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
-        let shared = Arc::new(Mutex::new(Shared::default()));
+        let process = shared.lock().unwrap().process;
 
         let thread_shared = shared.clone();
         let on_exit = self.on_exit.clone();
@@ -156,25 +222,22 @@ impl Sessions {
                     }
                 }
                 let code = child.wait().ok().map(|s| s.exit_code());
-                thread_shared.lock().unwrap().finish(code);
+                {
+                    let mut shared = thread_shared.lock().unwrap();
+                    if shared.process != process {
+                        return;
+                    }
+                    shared.finish(code);
+                }
                 if let Some(on_exit) = on_exit {
                     on_exit(id);
                 }
             })?;
-
-        self.map.lock().unwrap().insert(
-            id,
-            Session {
-                title: spec.title,
-                cwd: spec.cwd,
-                agent: spec.agent,
-                master: pair.master,
-                writer: Arc::new(Mutex::new(writer)),
-                killer,
-                shared,
-            },
-        );
-        Ok(id)
+        Ok(Process {
+            master: pair.master,
+            writer,
+            killer,
+        })
     }
 
     /// Replaces the output sink and returns the scrollback, so a new view replays history then streams.
@@ -467,5 +530,50 @@ mod tests {
         assert!(!sessions.list()[0].running);
         sessions.terminate(id).unwrap();
         assert!(sessions.terminate(id + 1).is_err());
+    }
+
+    #[test]
+    fn respawns_in_place_at_the_same_size() {
+        let (tx, exits) = mpsc::channel();
+        let sessions = Sessions::with_env(|id| vec![("TERMF_TEST_ID".into(), id.to_string())])
+            .on_exit(move |id| {
+                let _ = tx.send(id);
+            });
+        let id = sessions
+            .spawn(spec("/bin/sh", &["-c", "printf first; exec cat"]))
+            .unwrap();
+        sessions.resize(id, 101, 31).unwrap();
+        while !String::from_utf8_lossy(&sessions.attach(id, Box::new(|_| {})).unwrap())
+            .contains("first")
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        sessions
+            .respawn_with(id, |same| {
+                assert_eq!(same, id);
+                Ok(spec(
+                    "/bin/sh",
+                    &[
+                        "-c",
+                        "printf \"second $TERMF_TEST_ID $(stty size)\"; exit 4",
+                    ],
+                ))
+            })
+            .unwrap();
+        let (text, code) = collect(&sessions, id);
+        assert!(text.contains("first"), "the scrollback stays: {text:?}");
+        assert!(text.contains(&format!("second {id} 31 101")), "{text:?}");
+        assert_eq!(code, Some(4), "the new process's exit");
+        assert_eq!(exits.recv_timeout(Duration::from_secs(10)), Ok(id));
+        assert!(
+            exits.recv_timeout(Duration::from_millis(300)).is_err(),
+            "the process replaced ends unheard"
+        );
+        assert_eq!(sessions.list().len(), 1);
+        assert!(
+            sessions
+                .respawn_with(id + 1, |_| Ok(spec("/bin/true", &[])))
+                .is_err()
+        );
     }
 }

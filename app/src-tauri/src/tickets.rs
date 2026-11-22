@@ -119,7 +119,7 @@ pub fn start(
         format!("{} · {}", run.ticket.key, run.title),
         cols,
         rows,
-        false,
+        remote_of(run),
         Some(api::RunSession {
             project: &run.project,
             brief: &launch.brief,
@@ -197,7 +197,7 @@ pub fn resume(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<Resumed>
         format!("{} · {}", run.ticket.key, run.title),
         cols,
         rows,
-        false,
+        remote_of(run),
         Some(api::RunSession {
             project: &run.project,
             brief: &launch.brief,
@@ -215,6 +215,16 @@ pub fn resume(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<Resumed>
         run,
         warning: launch.warning,
     })
+}
+
+/// A run's tile follows its project's Remote Control, named after its ticket.
+fn remote_of(run: &Run) -> api::Remote<'_> {
+    api::Remote {
+        project: Some(&run.project),
+        ticket: Some(&run.ticket.key),
+        run: Some(run.id),
+        ..api::Remote::default()
+    }
 }
 
 /// A session still running in the run's conversation: the run's own (`mine`), or any whose hooks say they are
@@ -618,6 +628,7 @@ mod tests {
             remote_control: false,
             agent_session_id: conversation.map(Into::into),
             context: None,
+            remote: None,
         };
         let c = "0b9c3c1e-5f0a-4d6b-9a57-3f1d2c4e8a10";
         let live = [

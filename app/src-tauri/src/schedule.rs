@@ -129,7 +129,7 @@ fn open_tile(app: &AppHandle, task: &Task) -> Result<()> {
         task.name.clone(),
         120,
         32,
-        false,
+        api::Remote::default(),
         None,
         &termf_schedule::tile_args(task),
     )?;
