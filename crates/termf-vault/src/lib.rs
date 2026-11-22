@@ -717,6 +717,9 @@ pub struct Vault {
     session: Mutex<Option<Session>>,
     on_lock: Option<Told>,
     keys: Box<dyn SecurityKeys>,
+    /// This process keeps the Touch ID / Windows Hello slot fresh: the app only, since the keychain lets the
+    /// process that wrote an item read it without asking, and the app could not read one the CLI wrote.
+    quick: bool,
 }
 
 type Told = Box<dyn Fn(&Status) + Send + Sync>;
@@ -734,7 +737,14 @@ impl Vault {
             session: Mutex::new(None),
             on_lock: None,
             keys: Box::new(fido::Unavailable),
+            quick: false,
         }
+    }
+
+    /// The app: an opening by password reopens Touch ID or Windows Hello for its days.
+    pub fn with_quick(mut self) -> Self {
+        self.quick = true;
+        self
     }
 
     /// `keys`: [`fido::system`], the security keys this machine reaches.
@@ -1456,7 +1466,7 @@ impl Vault {
 
     /// The password was just typed: Touch ID or Windows Hello reopens the vault for its days again.
     fn reopen_quick(&self, id: &str, material: &Material) {
-        if let Some(quick) = self.quick(id) {
+        if let Some(quick) = self.quick(id).filter(|_| self.quick) {
             // A convenience: without the keychain, the status says it is not ready.
             let _ = self.seal_quick(id, quick.days, material);
         }

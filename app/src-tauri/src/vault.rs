@@ -37,6 +37,7 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
         Box::new(SystemClock::default()),
     )
     .with_keys(termf_vault::fido::system())
+    .with_quick()
     .on_lock(move |status| {
         let _ = told.emit("vault-status", status);
     });

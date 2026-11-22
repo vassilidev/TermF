@@ -83,6 +83,17 @@ impl Env {
             Box::new(self.clock.clone()),
         )
         .with_keys(fido::soft::keys(self.plugged.clone()))
+        .with_quick()
+    }
+
+    /// The CLI: the same, but it never touches the Touch ID slot.
+    fn cli(&self) -> Vault {
+        Vault::new(
+            &self.data(),
+            Box::new(self.store.clone()),
+            Box::new(self.clock.clone()),
+        )
+        .with_keys(fido::soft::keys(self.plugged.clone()))
     }
 
     fn plug(&self, keys: &[&SoftKey]) {
@@ -1518,6 +1529,14 @@ fn touch_id_reopens_for_some_days_then_asks_for_the_password() {
         err(app.unlock_quick(&human())),
         "7 days went by: the master password is needed"
     );
+
+    // The CLI opening with the password leaves the slot alone; the app brings it back.
+    env.cli()
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap();
+    assert!(app.status().unwrap().quick_until.is_none());
+    app.unlock(&human(), Some(PASSWORD), None, None).unwrap();
+    assert!(app.status().unwrap().quick_until.is_some());
 
     // Any change to how it opens asks for the password first again.
     app.unlock(&human(), Some(PASSWORD), None, None).unwrap();
