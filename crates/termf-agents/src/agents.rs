@@ -144,9 +144,7 @@ impl Agents {
         if let Some(role) = spec.role.clone() {
             play(&inner.config_dir, &mut spec, &role)?;
         }
-        let session = inner
-            .store()?
-            .create(inner.runtime.id(), &uuid()?, &spec)?;
+        let session = inner.store()?.create(inner.runtime.id(), &uuid()?, &spec)?;
         (inner.sink)(Update::Session(session.clone()));
         Ok(session)
     }

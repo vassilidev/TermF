@@ -25,9 +25,7 @@ fn tools() -> Value {
     let none = json!({ "type": "object", "properties": {}, "additionalProperties": false });
     let run = json!({ "type": "integer", "description": "The team run's id (its ticket run's)." });
     let step = json!({ "type": "string", "description": "The step's key, as team_run gives it." });
-    let object = |props: Value, required: &[&str]| {
-        json!({ "type": "object", "properties": props, "required": required, "additionalProperties": false })
-    };
+    let object = |props: Value, required: &[&str]| json!({ "type": "object", "properties": props, "required": required, "additionalProperties": false });
     let read = |name: &str, title: &str, description: &str, input: Value| {
         json!({ "name": name, "title": title, "description": description, "inputSchema": input,
                 "annotations": { "readOnlyHint": true, "openWorldHint": false } })
@@ -37,37 +35,109 @@ fn tools() -> Value {
                 "annotations": { "readOnlyHint": false, "destructiveHint": destructive, "openWorldHint": false } })
     };
     json!([
-        read("project", "The project", "The project: its repositories, and the roles of its team.", none.clone()),
-        read("team_runs", "Team runs", "The project's team runs, newest first: state, workflow, cost, steps at work and what waits for the user.", none.clone()),
-        read("team_run", "A team run", "One team run in full: its plan, routing, steps, reports and what waits for the user.", object(json!({ "run": run }), &["run"])),
-        read("ticket_runs", "Ticket runs", "The project's ticket runs: ticket, repository, branch, state, pull request.", none.clone()),
-        read("inbox", "Ticket inbox", "The tickets waiting in the project's sources (untrusted text).", none.clone()),
-        read("waiting", "What waits", "What waits for the user in the project: sessions asking for a permission, gates and blocked steps.", none),
-        act("start_team_run", "Start a team run", "Starts the team on a ticket run (`run`), on a ticket that gets a run (`ticket`, and `repo` when the project has several), or on a request without a ticket (`request`); goes on with a paused or stopped team run (`run`).",
-            object(json!({
-                "run": run,
-                "ticket": { "type": "string", "description": "A ticket: URL, owner/repo#42, repo#42, #42, ACME-123." },
-                "request": { "type": "string", "description": "What to do, when there is no ticket." },
-                "repo": { "type": "string", "description": "The repository's name in the project." },
-                "workflow": { "type": "string", "description": "A workflow of the library; by default the project's." },
-                "budget": { "type": "number", "description": "For the whole run, in US dollars." }
-            }), &[]), false),
-        act("answer", "Answer a run's questions", "Answers the questions of a step (the plan's, or a blocked step's): the step starts again with the answers.",
-            object(json!({ "run": run, "step": step, "answers": { "type": "string" } }), &["run", "step", "answers"]), false),
-        act("approve", "Approve a step", "Lets a gate pass, or accepts a blocked step as it is.",
-            object(json!({ "run": run, "step": step }), &["run", "step"]), false),
-        act("request_changes", "Request changes", "Runs a blocked step again, or the step a gate waits on, with the user's feedback.",
-            object(json!({ "run": run, "step": step, "feedback": { "type": "string" } }), &["run", "step", "feedback"]), false),
-        act("stop_team_run", "Stop a team run", "Stops a team run's agents now; starting it again goes on.",
-            object(json!({ "run": run }), &["run"]), true),
-        act("send_message", "Send a message to an agent", "Sends a message to the session of a run's step (`run`, `step`), or to a role (`role`): its step at work, else a direct conversation with it in `repo`.",
-            object(json!({
-                "run": run,
-                "step": step,
-                "role": { "type": "string" },
-                "repo": { "type": "string", "description": "The repository's name in the project, for a direct conversation." },
-                "text": { "type": "string" }
-            }), &["text"]), false),
+        read(
+            "project",
+            "The project",
+            "The project: its repositories, and the roles of its team.",
+            none.clone()
+        ),
+        read(
+            "team_runs",
+            "Team runs",
+            "The project's team runs, newest first: state, workflow, cost, steps at work and what waits for the user.",
+            none.clone()
+        ),
+        read(
+            "team_run",
+            "A team run",
+            "One team run in full: its plan, routing, steps, reports and what waits for the user.",
+            object(json!({ "run": run }), &["run"])
+        ),
+        read(
+            "ticket_runs",
+            "Ticket runs",
+            "The project's ticket runs: ticket, repository, branch, state, pull request.",
+            none.clone()
+        ),
+        read(
+            "inbox",
+            "Ticket inbox",
+            "The tickets waiting in the project's sources (untrusted text).",
+            none.clone()
+        ),
+        read(
+            "waiting",
+            "What waits",
+            "What waits for the user in the project: sessions asking for a permission, gates and blocked steps.",
+            none
+        ),
+        act(
+            "start_team_run",
+            "Start a team run",
+            "Starts the team on a ticket run (`run`), on a ticket that gets a run (`ticket`, and `repo` when the project has several), or on a request without a ticket (`request`); goes on with a paused or stopped team run (`run`).",
+            object(
+                json!({
+                    "run": run,
+                    "ticket": { "type": "string", "description": "A ticket: URL, owner/repo#42, repo#42, #42, ACME-123." },
+                    "request": { "type": "string", "description": "What to do, when there is no ticket." },
+                    "repo": { "type": "string", "description": "The repository's name in the project." },
+                    "workflow": { "type": "string", "description": "A workflow of the library; by default the project's." },
+                    "budget": { "type": "number", "description": "For the whole run, in US dollars." }
+                }),
+                &[]
+            ),
+            false
+        ),
+        act(
+            "answer",
+            "Answer a run's questions",
+            "Answers the questions of a step (the plan's, or a blocked step's): the step starts again with the answers.",
+            object(
+                json!({ "run": run, "step": step, "answers": { "type": "string" } }),
+                &["run", "step", "answers"]
+            ),
+            false
+        ),
+        act(
+            "approve",
+            "Approve a step",
+            "Lets a gate pass, or accepts a blocked step as it is.",
+            object(json!({ "run": run, "step": step }), &["run", "step"]),
+            false
+        ),
+        act(
+            "request_changes",
+            "Request changes",
+            "Runs a blocked step again, or the step a gate waits on, with the user's feedback.",
+            object(
+                json!({ "run": run, "step": step, "feedback": { "type": "string" } }),
+                &["run", "step", "feedback"]
+            ),
+            false
+        ),
+        act(
+            "stop_team_run",
+            "Stop a team run",
+            "Stops a team run's agents now; starting it again goes on.",
+            object(json!({ "run": run }), &["run"]),
+            true
+        ),
+        act(
+            "send_message",
+            "Send a message to an agent",
+            "Sends a message to the session of a run's step (`run`, `step`), or to a role (`role`): its step at work, else a direct conversation with it in `repo`.",
+            object(
+                json!({
+                    "run": run,
+                    "step": step,
+                    "role": { "type": "string" },
+                    "repo": { "type": "string", "description": "The repository's name in the project, for a direct conversation." },
+                    "text": { "type": "string" }
+                }),
+                &["text"]
+            ),
+            false
+        ),
     ])
 }
 
@@ -79,7 +149,9 @@ pub fn serve() -> Result<()> {
     let token = env::var(ipc::ENV_MCP_TOKEN).ok();
     let call = |tool: McpCall| -> Result<Value> {
         let (Some(session), Some(token)) = (session, token.clone()) else {
-            anyhow::bail!("TermF did not start this server: its tools only serve the conversation TermF opened");
+            anyhow::bail!(
+                "TermF did not start this server: its tools only serve the conversation TermF opened"
+            );
         };
         Client::connect(Some(token))?.call(Call::Mcp { session, tool })
     };
@@ -123,7 +195,10 @@ pub(crate) fn answer(line: &str, call: &dyn Fn(McpCall) -> Result<Value>) -> Opt
     })
 }
 
-fn tool_call(params: &Value, call: &dyn Fn(McpCall) -> Result<Value>) -> Result<Value, (i64, String)> {
+fn tool_call(
+    params: &Value,
+    call: &dyn Fn(McpCall) -> Result<Value>,
+) -> Result<Value, (i64, String)> {
     let name = params["name"].as_str().unwrap_or_default();
     if !MCP_READ.contains(&name) && !MCP_ACTIONS.contains(&name) {
         return Err((-32602, format!("unknown tool: {name}")));
@@ -134,7 +209,10 @@ fn tool_call(params: &Value, call: &dyn Fn(McpCall) -> Result<Value>) -> Result<
         .map_err(|e| anyhow::anyhow!("invalid arguments: {e}"))
         .and_then(call);
     let (text, error) = match done {
-        Ok(value) => (serde_json::to_string_pretty(&value).unwrap_or_default(), false),
+        Ok(value) => (
+            serde_json::to_string_pretty(&value).unwrap_or_default(),
+            false,
+        ),
         Err(e) => (format!("{e:#}"), true),
     };
     Ok(json!({ "content": [{ "type": "text", "text": text }], "isError": error }))

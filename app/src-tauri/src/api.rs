@@ -54,12 +54,16 @@ struct Endpoint {
     token: String,
     /// Session id → the token its hooks report with.
     session_tokens: Arc<Mutex<HashMap<u32, String>>>,
+    /// Agent session id → the token of its `termf mcp`, which only calls TermF's tools for it.
+    mcp_tokens: Mutex<HashMap<i64, String>>,
 }
 
 impl Endpoint {
     fn allows(&self, request: &Request) -> bool {
         let sessions = self.session_tokens.lock().unwrap();
-        ipc::access(&request.token, &self.token, &sessions).is_some_and(|a| a.allows(&request.call))
+        let mcp = self.mcp_tokens.lock().unwrap();
+        ipc::access(&request.token, &self.token, &sessions, &mcp)
+            .is_some_and(|a| a.allows(&request.call))
     }
 }
 
@@ -406,6 +410,38 @@ impl Api {
             let _ = fs::remove_dir_all(dir);
         }
     }
+
+    /// The `termf mcp` server of agent session `session`: the CLI, given the socket and a fresh token of its own
+    /// (never the user's), which only calls TermF's tools for that session.
+    pub fn mcp_server(&self, session: i64) -> Result<Value> {
+        let endpoint = self
+            .endpoint
+            .as_ref()
+            .context("TermF's tools need its local API, which is off")?;
+        let termf = termf_binary().context(
+            "TermF's tools need the termf CLI next to TermF (`pnpm bundle`, or `cargo build -p termf-cli` in development)",
+        )?;
+        let token = random_token()?;
+        endpoint
+            .mcp_tokens
+            .lock()
+            .unwrap()
+            .insert(session, token.clone());
+        let env = serde_json::Map::from_iter([
+            (
+                ipc::ENV_SOCKET.to_owned(),
+                Value::from(endpoint.socket.clone()),
+            ),
+            (ipc::ENV_MCP_TOKEN.to_owned(), token.into()),
+            (ipc::ENV_MCP_SESSION.to_owned(), session.to_string().into()),
+        ]);
+        Ok(serde_json::json!({
+            "type": "stdio",
+            "command": termf,
+            "args": ["mcp"],
+            "env": env,
+        }))
+    }
 }
 
 /// Writes a fresh user token to a file only the user can read and listens on the socket.
@@ -452,6 +488,7 @@ fn open() -> Result<(Endpoint, Listener)> {
         socket,
         token,
         session_tokens: Arc::default(),
+        mcp_tokens: Mutex::default(),
     };
     Ok((endpoint, listener))
 }
@@ -857,6 +894,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         Call::Team(call) => team::call(app, call)?,
         Call::Vault(call) => crate::vault::call(app, call)?,
         Call::Review(call) => visual::call(app, call)?,
+        Call::Mcp { session, tool } => crate::cto::call(app, session, tool)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }

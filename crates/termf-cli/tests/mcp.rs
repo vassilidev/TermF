@@ -61,7 +61,8 @@ impl Server {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped());
         if capability {
-            cmd.env("TERMF_MCP_TOKEN", TOKEN).env("TERMF_MCP_SESSION", "7");
+            cmd.env("TERMF_MCP_TOKEN", TOKEN)
+                .env("TERMF_MCP_SESSION", "7");
         }
         let mut child = cmd.spawn().unwrap();
         let stdin = child.stdin.take().unwrap();
@@ -90,7 +91,11 @@ impl Server {
     }
 
     fn call(&mut self, id: i64, name: &str, arguments: Value) -> Value {
-        self.ask(id, "tools/call", json!({"name": name, "arguments": arguments}))
+        self.ask(
+            id,
+            "tools/call",
+            json!({"name": name, "arguments": arguments}),
+        )
     }
 }
 
@@ -169,8 +174,15 @@ fn speaks_mcp_and_calls_termf_with_its_own_token_only() {
     let bad = server.call(9, "approve", json!({"run": 12, "step": "x", "force": true}));
     assert_eq!(bad["result"]["isError"], true);
     assert!(text(&bad).contains("invalid arguments"), "{bad}");
-    assert_eq!(server.ask(10, "resources/list", json!({}))["error"]["code"], -32601);
-    assert_eq!(requests.lock().unwrap().len(), 2, "refused calls never reach TermF");
+    assert_eq!(
+        server.ask(10, "resources/list", json!({}))["error"]["code"],
+        -32601
+    );
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        2,
+        "refused calls never reach TermF"
+    );
     assert!(
         server.said.iter().all(|l| !l.contains(TOKEN)),
         "the token is never in a reply"
@@ -183,6 +195,9 @@ fn serves_nothing_without_termf_s_capability() {
     let mut server = Server::start(&socket, false);
     let reply = server.call(1, "team_runs", json!({}));
     assert_eq!(reply["result"]["isError"], true);
-    assert!(text(&reply).contains("TermF did not start this server"), "{reply}");
+    assert!(
+        text(&reply).contains("TermF did not start this server"),
+        "{reply}"
+    );
     assert!(requests.lock().unwrap().is_empty());
 }

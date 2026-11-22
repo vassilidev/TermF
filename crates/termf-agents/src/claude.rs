@@ -21,8 +21,9 @@ const MCP_BUILT_IN: &str = "Read,Grep,Glob";
 /// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user
 /// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web.
 pub fn mcp_settings() -> Value {
-    let tools =
-        |names: &[&str]| -> Vec<String> { names.iter().map(|n| format!("mcp__termf__{n}")).collect() };
+    let tools = |names: &[&str]| -> Vec<String> {
+        names.iter().map(|n| format!("mcp__termf__{n}")).collect()
+    };
     json!({ "permissions": {
         "allow": tools(&MCP_READ),
         "ask": tools(&MCP_ACTIONS),
@@ -103,7 +104,15 @@ impl AgentRuntime for ClaudeCode {
         if spec.mcp {
             // Trifecta (ARCHITECTURE §12.4): no command, no web, no MCP server but TermF's, none of the
             // user's or the repository's settings files, the file tools kept to the repositories.
-            args.extend(["--restricted", "--tools", MCP_BUILT_IN, "--strict-mcp-config"].map(Into::into));
+            args.extend(
+                [
+                    "--restricted",
+                    "--tools",
+                    MCP_BUILT_IN,
+                    "--strict-mcp-config",
+                ]
+                .map(Into::into),
+            );
             args.extend(["--settings".into(), mcp_settings().to_string()]);
             if let Some(config) = launch.mcp {
                 args.extend(["--mcp-config".into(), config.to_string_lossy().into_owned()]);

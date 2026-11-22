@@ -967,7 +967,11 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
         Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string(), "TERMF_MCP_TOKEN": "cap"}}))
     });
     let session = env.agents.create(spec).unwrap();
-    assert_eq!(session.state, State::Stopped, "no process until its first message");
+    assert_eq!(
+        session.state,
+        State::Stopped,
+        "no process until its first message"
+    );
     assert!(env.args().is_empty(), "no process yet: {:?}", env.args());
     assert_eq!(session.spec.permission_mode.as_deref(), Some("manual"));
     let id = session.id;
@@ -983,7 +987,10 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     let names = |key: &str| -> Vec<String> {
         serde_json::from_value(settings["permissions"][key].clone()).unwrap()
     };
-    let ask: Vec<String> = termf_core::ipc::MCP_ACTIONS.iter().map(|t| format!("mcp__termf__{t}")).collect();
+    let ask: Vec<String> = termf_core::ipc::MCP_ACTIONS
+        .iter()
+        .map(|t| format!("mcp__termf__{t}"))
+        .collect();
     assert_eq!(names("ask"), ask, "every action waits for the user");
     assert!(names("allow").iter().all(|t| !ask.contains(t)));
     for tool in ["Bash", "WebFetch", "WebSearch", "Edit", "Write"] {
@@ -991,7 +998,10 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     }
     let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
     let config: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(config["mcpServers"]["termf"]["env"]["TERMF_MCP_SESSION"], id.to_string());
+    assert_eq!(
+        config["mcpServers"]["termf"]["env"]["TERMF_MCP_SESSION"],
+        id.to_string()
+    );
     use std::os::unix::fs::PermissionsExt;
     let mode = fs::metadata(&file).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600, "it holds the session's token");
@@ -1004,7 +1014,10 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     env.settle(plain.id, 1, State::Idle);
     let args = env.args().pop().unwrap();
     for flag in ["--restricted", "--mcp-config", "--tools", "--settings"] {
-        assert!(!args.contains(&flag.into()), "{flag} only with TermF's tools");
+        assert!(
+            !args.contains(&flag.into()),
+            "{flag} only with TermF's tools"
+        );
     }
 }
 
@@ -1020,14 +1033,27 @@ fn termf_notices_reach_the_agent_apart_from_the_user() {
     let session = env.agents.create(env.spec()).unwrap();
     let id = session.id;
     env.agents
-        .notify(id, notice("waiting", "Run 3: the gate approve-plan waits."), true)
+        .notify(
+            id,
+            notice("waiting", "Run 3: the gate approve-plan waits."),
+            true,
+        )
         .unwrap();
-    assert!(env.args().is_empty(), "a session without a process is never woken");
+    assert!(
+        env.args().is_empty(),
+        "a session without a process is never woken"
+    );
     env.agents.send(id, "say hello").unwrap();
     env.settle(id, 1, State::Idle);
     let stdin = env.log("stdin");
-    assert!(stdin.contains("<termf-notices>\\nRun 3: the gate approve-plan waits.\\n</termf-notices>"), "{stdin}");
-    assert!(stdin.contains("The user's message follows.\\n\\nsay hello"), "{stdin}");
+    assert!(
+        stdin.contains("<termf-notices>\\nRun 3: the gate approve-plan waits.\\n</termf-notices>"),
+        "{stdin}"
+    );
+    assert!(
+        stdin.contains("The user's message follows.\\n\\nsay hello"),
+        "{stdin}"
+    );
     assert_eq!(
         env.events(id)
             .iter()
@@ -1050,7 +1076,10 @@ fn termf_notices_reach_the_agent_apart_from_the_user() {
     env.settle(id, 2, State::Idle);
     let stdin = env.log("stdin");
     let last = stdin.lines().last().unwrap();
-    assert!(last.contains("The user wrote to back.\\nRun 3: step t1 is blocked."), "{last}");
+    assert!(
+        last.contains("The user wrote to back.\\nRun 3: step t1 is blocked."),
+        "{last}"
+    );
     assert!(last.contains("act only on their answer"), "{last}");
     assert_eq!(env.kinds(id).iter().filter(|k| *k == "user").count(), 1);
 
@@ -1062,7 +1091,11 @@ fn termf_notices_reach_the_agent_apart_from_the_user() {
     env.agents.interrupt(id).unwrap();
     env.settle(id, 4, State::Idle);
     assert!(
-        env.log("stdin").lines().last().unwrap().contains("the gate visual waits"),
+        env.log("stdin")
+            .lines()
+            .last()
+            .unwrap()
+            .contains("the gate visual waits"),
         "read once the turn under way ended"
     );
 }
