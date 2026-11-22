@@ -5891,6 +5891,7 @@ dependencies = [
  "dirs",
  "libc",
  "regex",
+ "rusqlite",
  "serde",
  "serde_json",
  "toml 1.2.2+spec-1.1.0",

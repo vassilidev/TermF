@@ -1214,7 +1214,7 @@ impl Inner {
     }
 
     /// The criteria of the definition of done: `[team] done` of the project's file, else of `termf.toml`.
-    fn done_criteria(&self, run: &TeamRun) -> Result<Vec<String>> {
+    fn done_criteria(&self, run: &TeamRun) -> Result<Vec<(String, bool)>> {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         done::criteria(&[&project, &self.config_dir.join("termf.toml")])
     }
@@ -2799,7 +2799,27 @@ impl Inner {
                 .as_ref()
                 .is_ok_and(|s| termf_library::role(&self.config_dir, s, name).is_ok())
         };
-        let found = match review::check(&answer, &tasks, role) {
+        // In the run's work or in its base (a file the run deleted): in any repository of the run.
+        let homes: Vec<(&Path, Option<&str>)> =
+            std::iter::once((run.target.worktree.as_path(), run.base.as_deref()))
+                .chain(
+                    run.repos
+                        .iter()
+                        .map(|r| (r.worktree.as_path(), r.base.as_deref())),
+                )
+                .collect();
+        let file = |name: &str| {
+            homes.iter().any(|(dir, base)| {
+                dir.join(name).exists()
+                    || base.is_some_and(|b| {
+                        let object = format!("{b}:{name}");
+                        Git(&self.env)
+                            .run(dir, &["cat-file", "-e", &object])
+                            .is_ok()
+                    })
+            })
+        };
+        let found = match review::check(&answer, &tasks, role, file) {
             Ok(found) => found,
             Err(problems) => {
                 return self.retry(
@@ -3727,6 +3747,8 @@ impl Inner {
                         "the definition of done is not met: {}. Deliver anyway only with your reason; or {note}",
                         done.unmet()
                     );
+                } else if !done.warned().is_empty() {
+                    note = format!("{note}. To know before: {}", done.warned());
                 }
                 run.done = Some(done);
                 self.wait(store, run, i, &note);
@@ -3909,17 +3931,21 @@ impl Inner {
         if running > 0 && budget.is_some_and(|b| b < 0.01) {
             return None;
         }
-        Some(budget.map(|b| b.max(0.01)))
+        // Never more than what is left: Claude Code stops at its first turn past it, and the run with it. A run
+        // with nothing left still gets a session, which stops at once and halts it.
+        Some(budget.map(|b| b.max(0.001)))
     }
 
     /// The budget of the session of step `i`: its step's, within its share of what the run has left once the
     /// sessions at work have spent all theirs, shared with the agent steps ready to start.
     fn share(&self, run: &mut TeamRun, i: usize) -> Option<f64> {
-        let own = run.steps[i].budget;
+        self.costs(run);
+        // What the step's earlier sessions (attempts, a review's rounds) spent is no longer its to spend.
+        let step = &run.steps[i];
+        let own = step.budget.map(|b| (b - step.cost).max(0.0));
         let Some(budget) = run.budget else {
             return own;
         };
-        self.costs(run);
         let mut running = 0;
         let mut reserved = 0.0;
         for step in run
@@ -4552,6 +4578,25 @@ impl Inner {
         if step.kind == StepKind::Update {
             text.push_str(&self.conflict_brief(run, i)?);
         } else if step.kind == StepKind::Review {
+            // Against the base as last merged in: what the base brought is not the run's to review.
+            let diffs: Vec<String> = std::iter::once((None, run.base.as_deref()))
+                .chain(run.repos.iter().map(|r| (Some(&r.name), r.base.as_deref())))
+                .filter_map(|(name, base)| {
+                    let diff = format!("`git diff {} HEAD`", base?);
+                    Some(match name {
+                        None => diff,
+                        Some(name) => format!("{diff} in the run's work in {name}"),
+                    })
+                })
+                .collect();
+            if !diffs.is_empty() {
+                text.push_str(&format!(
+                    "\n## What to review\n\nThe run's own changes: {}. What the base brought (merged into the run) \
+                     is not the run's work: never ask to undo or change it; on a merge, only whether it keeps what \
+                     both sides meant.\n",
+                    diffs.join("; ")
+                ));
+            }
             for update in run.steps.iter().filter(|s| s.kind == StepKind::Update) {
                 let Some(merge) = &update.merge else {
                     continue;
@@ -4655,7 +4700,7 @@ impl Inner {
             let ids = self.done_criteria(run)?;
             if !ids.is_empty() {
                 text.push_str(&format!(
-                    "\n## The definition of done\n\nTermF delivers the run only when {}.\n",
+                    "\n## The definition of done\n\n{}\n",
                     done::describe(&ids)
                 ));
             }
