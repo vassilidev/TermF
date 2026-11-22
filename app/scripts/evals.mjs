@@ -1,7 +1,7 @@
 // Runs the `claude plugin eval` suites of the skills and roles TermF ships, with the Claude Code on the PATH and the
 // account it is signed in with (or ANTHROPIC_API_KEY). Each suite is a throwaway plugin built outside the
-// repository: the skills every session gets, the skill under test, and for a role its prompt appended to the system
-// prompt, as TermF gives it to a session.
+// repository: the skills every session gets and the skill under test, with the role's prompt (for a role) and the
+// skills' cards appended to the system prompt, as TermF gives them to a session.
 //
 //   pnpm evals                     the key suites (KEY), Haiku, one run per case, $3 at most in all
 //   pnpm evals git cto             only these suites
@@ -70,12 +70,25 @@ export function withSystemPrompt(prompt, system) {
   return prompt.replace(/^---\r?\n/, `---\nappend_system_prompt: ${JSON.stringify(system)}\n`);
 }
 
-/** Writes the plugin of `suite` in `dir`, and returns the grants and the flags its cases need. */
+/** The `## Stack` section of a session with these skills: each one's card under its name, as TermF writes it. */
+export function stackCard(skills, library = LIBRARY) {
+  const cards = skills
+    .map((name) => [name, read(join(library, "skills", name, "card.md")).trim()])
+    .filter(([, card]) => card)
+    .map(([name, card]) => `#### ${name}\n\n${card.split("\n").slice(0, 25).join("\n")}`);
+  return cards.length ? `## Stack\n\n${cards.join("\n\n")}` : "";
+}
+
+/** Writes the plugin of `suite` in `dir`, and returns the grants and the flags its cases need. The session gets what
+ * TermF gives it: the skills of every stack (for a role, those its `termf-roles` names) and the skill under test,
+ * their cards in the system prompt, after the role's prompt. */
 export function build(suite, dir, library = LIBRARY) {
-  const skills = readdirSync(join(library, "skills")).filter(
-    (n) =>
-      (suite.kind === "skill" && n === suite.name) ||
-      /termf-stacks:\s*"\*"/.test(read(join(library, "skills", n, "SKILL.md"))),
+  const meta = (name) => read(join(library, "skills", name, "SKILL.md"));
+  const roles = (name) => (/termf-roles:\s*"([^"]*)"/.exec(meta(name))?.[1] ?? "all").split(/[\s,]+/);
+  const skills = readdirSync(join(library, "skills")).filter((n) =>
+    suite.kind === "skill"
+      ? n === suite.name || /termf-stacks:\s*"\*"/.test(meta(n))
+      : /termf-stacks:\s*"\*"/.test(meta(n)) && roles(n).some((r) => r === "all" || r === suite.name),
   );
   mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
   writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "termf" }));
@@ -84,7 +97,8 @@ export function build(suite, dir, library = LIBRARY) {
     cpSync(from, join(dir, "skills", skill), { recursive: true, filter: (src) => src !== join(from, "evals") });
   }
   cpSync(suite.evals, join(dir, "evals"), { recursive: true });
-  const role = suite.kind === "role" && rolePrompt(read(join(library, "roles", `${suite.name}.md`)), suite.name);
+  const role = suite.kind === "role" ? rolePrompt(read(join(library, "roles", `${suite.name}.md`)), suite.name) : "";
+  const system = [role, stackCard(skills, library)].filter(Boolean).join("\n\n");
   const grants = new Set();
   let scaffold = false;
   for (const name of readdirSync(join(dir, "evals"))) {
@@ -92,7 +106,7 @@ export function build(suite, dir, library = LIBRARY) {
     const prompt = read(file);
     const tools = /allowed_tools:\s*\[([^\]]*)\]/.exec(frontmatter(prompt)?.[1] ?? "")?.[1] ?? "";
     for (const tool of tools.split(",").map((t) => t.trim())) if (GRANTABLE.includes(tool)) grants.add(tool);
-    if (role && prompt) writeFileSync(file, withSystemPrompt(prompt, role));
+    if (system && prompt) writeFileSync(file, withSystemPrompt(prompt, system));
     scaffold ||= /scaffold_script:/.test(read(join(dir, "evals", name, "case.yaml")));
   }
   return { grants: [...grants], scaffold };

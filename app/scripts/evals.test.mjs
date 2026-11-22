@@ -26,7 +26,10 @@ test("a role's suite plays the role as TermF gives it, with the grants its cases
   const line = prompt.split("\n")[1];
   assert.ok(line.startsWith("append_system_prompt: "), line);
   const role = readFileSync(new URL("../../library/roles/front.md", import.meta.url), "utf8");
-  assert.equal(JSON.parse(line.slice("append_system_prompt: ".length)), rolePrompt(role, "front"));
+  const system = JSON.parse(line.slice("append_system_prompt: ".length));
+  assert.ok(system.startsWith(`${rolePrompt(role, "front")}\n\n## Stack\n\n`), system.slice(0, 200));
+  assert.ok(system.includes("\n#### git\n"), "the cards of the skills it gets");
+  assert.ok(!existsSync(join(dir, "skills", "legal-sources")), "not a skill of the front role");
   assert.ok(rolePrompt(role, "front").startsWith("## Role: front\n\nYou are the front-end developer"));
 
   const args = command(dir, "out", needs, 2.5, ["--runs", "3"]);
@@ -35,11 +38,14 @@ test("a role's suite plays the role as TermF gives it, with the grants its cases
   assert.ok(args.join(" ").endsWith("--allow-tools Write Edit --scaffold --runs 3"));
 });
 
-test("a skill's suite holds that skill and leaves its prompts as they are", () => {
+test("a skill's suite holds that skill, and its card in the stack section, without a role", () => {
   const rust = suites().find((s) => s.name === "rust");
   const dir = mkdtempSync(join(tmpdir(), "termf-evals-test-"));
   assert.deepEqual(build(rust, dir), { grants: [], scaffold: false });
   assert.ok(existsSync(join(dir, "skills", "rust", "SKILL.md")));
   const prompt = readFileSync(join(dir, "evals", "does-the-task", "prompt.md"), "utf8");
-  assert.ok(!prompt.includes("append_system_prompt"));
+  const system = JSON.parse(prompt.split("\n")[1].slice("append_system_prompt: ".length));
+  assert.ok(system.startsWith("## Stack\n\n"));
+  assert.ok(system.includes("\n#### rust\n\n- Version:"));
+  assert.ok(!system.includes("## Role"));
 });
