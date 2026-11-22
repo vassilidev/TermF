@@ -127,7 +127,7 @@ path = "~/Projects/acme-front"
 ## Getting started
 
 1. **Open TermF.** It finds the git repositories on your machine and sorts them by activity.
-2. **Create a project** from a few repositories (`⌘O`, then New project). The setup assistant opens once: it reads the repositories without changing anything, asks the questions only you can answer, then proposes the team, skills, ticket sources, worktree recipe and CI, item by item. Trusting the repositories in Claude Code is opt-in.
+2. **Create a project** from a few repositories, with the + next to Projects in the navigation. The setup assistant opens once: it reads the repositories without changing anything, asks the questions only you can answer, then proposes the team, skills, ticket sources, worktree recipe and CI, item by item. Trusting the repositories in Claude Code is opt-in.
 3. **Talk to the CTO** on the project's Home (`⌘⇧H` from anywhere): "Where is the team at?", "Start the team on #482". Or open Claude Code in a terminal with `⌘T`.
 4. **Put the team on a ticket**: ask the CTO, or click With the team next to a ticket in Tickets. Answer the plan's questions, approve the plan, follow the run on its page, then Deliver…: TermF shows the files and commits, and opens the pull request once you confirm.
 
