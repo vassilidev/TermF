@@ -168,6 +168,7 @@ export const scenarios = [
       await t.ready();
       await t.project();
       await t.view("git");
+      await s.click(`${pane} button.tree.dirty`);
       await s.click(`${pane} [data-testid="git-stage"]`);
       await s.click(`${pane} .commit input.field`);
       await s.keys("Update the README");
@@ -205,8 +206,6 @@ export const scenarios = [
       check(count === 2, `the creation form has ${count} password fields`);
       for (const i of [0, 1]) await s.type(field, password, i);
       await s.click(`${pane} form.unlock button[type=submit]:not([disabled])`);
-      await s.click(`${pane} .recovery input[type=checkbox]`);
-      await s.click(`${pane} .recovery .btn.primary:not([disabled])`);
       await s.click('[data-testid="vault-new"]');
       await s.type(`${pane} form.form input.field`, "Acme admin");
       await s.type(`${pane} #vault-password`, "s3cret-e2e");

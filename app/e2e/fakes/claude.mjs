@@ -154,6 +154,8 @@ function interactive() {
 if (process.argv[1]?.endsWith("claude.mjs")) {
   if (args[0] === "--version" || args[0] === "-v") console.log(`${VERSION} (Claude Code)`);
   else if (args[0] === "mcp" && args[1] === "list") console.log("No MCP servers configured. Use `claude mcp add` to add a server.");
+  else if (args[0] === "auth" && args[1] === "status") console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "alex@example.com" }));
+  else if (args[0] === "plugin" && args.includes("--available")) console.log(JSON.stringify({ installed: [], available: [] }));
   else if (args[0] === "plugin" || args[0] === "plugins") console.log("[]");
   else if (["auth", "doctor", "update", "config", "install"].includes(args[0])) console.log("ok");
   else if (args.includes("-p") || args.includes("--print")) await headless();
