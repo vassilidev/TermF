@@ -490,8 +490,15 @@ impl Ci {
     }
 
     fn raw_log(&self, slug: &str, job: u64) -> Result<String> {
-        let args = ["api", &format!("repos/{slug}/actions/jobs/{job}/logs")];
-        let answer = self.gh(&args, None)?;
+        let path = format!("repos/{slug}/actions/jobs/{job}/logs");
+        // Recent gh refuses a body with terminal escapes (colored logs) without this flag, which older ones do not
+        // know; the escapes are removed by `parse_log`.
+        let mut args = vec!["api", &path, "--allow-escape-sequences"];
+        let mut answer = self.gh(&args, None)?;
+        if !answer.ok && answer.err.contains("unknown flag") {
+            args.pop();
+            answer = self.gh(&args, None)?;
+        }
         if answer.ok {
             return Ok(answer.out);
         }
