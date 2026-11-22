@@ -197,6 +197,7 @@ config/
 - Activations : on bascule avec `+nom` / `-nom`.
 - Éléments de bibliothèque de même nom : le plus spécifique gagne.
 - `termf config explain <clé>` indique quelle couche fournit la valeur (comme `git config --show-origin`).
+- Réglages d'un rôle sans toucher son prompt : `[roles.<nom>]` dans `termf.toml`, le projet, la squad (`[squads.roles.<nom>]`) puis le dépôt, par-dessus le frontmatter du rôle. `model`, `effort`, `effort_range`, `permission_mode` sont remplacés ; dans `skills`, `preferences`, `writes`, `deny`, `allowedTools`, `disallowedTools`, `+x` ajoute, `-x` retire, une liste sans préfixe remplace. Jamais de texte de prompt : les consignes d'un rôle ou d'une squad sont des préférences (`applies_to: [front]`, `[squad:web]`).
 
 ```toml
 # config/projects/acme.toml
@@ -245,8 +246,9 @@ tests-required = "warn"
 preferences = ["+front-conventions"]
 skills = ["+tailwind-conventions"]
 
-[models]
-front = { model = "sonnet", effort = "high" }
+[roles.front]
+model = "sonnet"
+effort = "high"
 ```
 
 ### 5.3 Export / import
