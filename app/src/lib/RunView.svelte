@@ -148,7 +148,10 @@
         if (request === eventsRequest) events = [...list].reverse();
       },
       (e) => {
-        if (request === eventsRequest) error = String(e);
+        if (request === eventsRequest) {
+          error = String(e);
+          events ??= [];
+        }
       },
     );
   });

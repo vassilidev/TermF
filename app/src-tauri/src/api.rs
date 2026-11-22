@@ -1783,14 +1783,19 @@ fn tool_seen(id: u32, payload: &Value) -> Value {
             .iter()
             .filter_map(|&key| {
                 let text = input.get(key)?.as_str()?.lines().next()?;
-                Some((
-                    key.to_owned(),
-                    text.chars().take(200).collect::<String>().into(),
-                ))
+                Some((key.to_owned(), text.into()))
             })
             .collect(),
     );
+    // Masked whole, then cut: a secret cut in two no longer looks like one.
     termf_claude::mask::mask(&mut kept);
+    if let Value::Object(map) = &mut kept {
+        for value in map.values_mut() {
+            if let Some(text) = value.as_str() {
+                *value = text.chars().take(200).collect::<String>().into();
+            }
+        }
+    }
     serde_json::json!({ "id": id, "name": payload["tool_name"], "input": kept })
 }
 
@@ -1811,6 +1816,19 @@ mod tests {
         assert!(!command.contains("sk-ant-api03"), "{command}");
         assert!(!command.contains("second line"));
         assert!(seen["input"].get("content").is_none());
+
+        // A key that starts near the cut: whole, it is masked; cut to its first characters, it would not be.
+        let late = format!(
+            "echo {} sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+            "a".repeat(180)
+        );
+        let payload = serde_json::json!({"tool_name": "Bash", "tool_input": {"command": late}});
+        let command = tool_seen(7, &payload)["input"]["command"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(!command.contains("sk-ant"), "{command}");
+        assert!(command.chars().count() <= 200);
     }
 
     #[test]

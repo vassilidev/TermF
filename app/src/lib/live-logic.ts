@@ -27,6 +27,8 @@ export function follow(activity: Activity | undefined, e: StoredEvent): Activity
       if (e.kind === "text" && e.parent) return was;
       return was.now?.kind === "writing" ? was : { ...was, now: { kind: "writing", at: e.at } };
     case "tool_use": {
+      // Heard live, then read again with the session's past: once is enough.
+      if (was.recent.some((a) => a.call === e.call)) return was;
       const act: ToolAct = { kind: "tool", at: e.at, call: e.call, name: e.name, input: e.input, state: "running" };
       return { now: act, recent: [...was.recent, act].slice(-KEEP) };
     }
@@ -108,6 +110,17 @@ export function phrase(name: string, input: unknown): Phrase {
 
 const EDITS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 const edited = (act: ToolAct) => first((act.input ?? {}) as Record<string, unknown>, ["file_path", "notebook_path", "path"]);
+/** Only a change that went through, to a known file, joins « Modifie N fichiers »: a failure keeps its own line. */
+const groupable = (act: ToolAct) => EDITS.has(act.name) && act.state === "done" && edited(act) !== "";
+
+/**
+ * A session's activity from its stored past, then what was heard while it was read and came after it. From nothing:
+ * what was heard before is in the past too.
+ */
+export function replay(stored: StoredEvent[], heard: StoredEvent[]): Activity | undefined {
+  const last = stored.at(-1)?.id ?? 0;
+  return [...stored, ...heard.filter((e) => e.id === 0 || e.id > last)].reduce<Activity | undefined>(follow, undefined);
+}
 
 /** A duration as `{key, vars}`: 42 s, 7 min, 1 h 05. */
 export function elapsed(seconds: number): Phrase {
@@ -144,10 +157,10 @@ export function feed(steps: FeedStep[], heard: (session: number) => ToolAct[]): 
   const merged: Moment[] = [];
   for (const [m] of sorted) {
     const last = merged.at(-1);
-    const edit = m.kind === "act" && EDITS.has(m.act.name) ? edited(m.act) : null;
+    const edit = m.kind === "act" && groupable(m.act) ? edited(m.act) : null;
     if (edit === null || !last || last.step !== m.step) merged.push(m);
     else if (last.kind === "edits") last.files = [...new Set([...last.files, edit])];
-    else if (last.kind === "act" && EDITS.has(last.act.name)) {
+    else if (last.kind === "act" && groupable(last.act)) {
       merged[merged.length - 1] = { kind: "edits", at: last.at, step: m.step, role: last.role, files: [...new Set([edited(last.act), edit])] };
     } else merged.push(m);
   }

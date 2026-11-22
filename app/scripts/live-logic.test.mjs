@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { elapsed, feed, follow, phrase } from "../src/lib/live-logic.ts";
+import { elapsed, feed, follow, phrase, replay } from "../src/lib/live-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}, at = 0) => ({ id: ++n, session: 1, at, kind, ...fields });
@@ -70,4 +70,25 @@ test("a run's feed: starts and ends in time order, files changed in a row as one
   );
   assert.equal(moments[2].how, "failed");
   assert.deepEqual(moments[6].files, ["a.ts", "b.ts", "c.ts"]);
+});
+
+test("a session's past read after it was heard live counts each call once", () => {
+  const use = ev("tool_use", { call: "r1", name: "Read", input: { file_path: "a.ts" } });
+  const done = ev("tool_result", { call: "r1", output: "", isError: false, truncated: false });
+  // Heard live, then the same events again with the stored past.
+  const live = [use, done].reduce(follow, undefined);
+  assert.equal(follow(live, use), live);
+  const later = ev("tool_use", { call: "r2", name: "Bash", input: { command: "npm test" } });
+  const writing = { ...ev("delta", { text: "ok" }), id: 0 };
+  const a = replay([use, done], [done, later, writing]);
+  assert.deepEqual(a.recent.map((c) => c.call), ["r1", "r2"]);
+  assert.equal(a.now.kind, "writing");
+});
+
+test("a failed change, or one with no file, keeps its own line in a run's feed", () => {
+  const step = { key: "front", role: "front", state: "running", session: 3, started: 1, finished: null, report: null };
+  const edit = (at, path, state = "done") => ({ kind: "tool", at, call: `e${at}`, name: "Edit", input: path ? { file_path: path } : {}, state });
+  const kinds = (calls) => feed([step], () => calls).map((m) => (m.kind === "edits" ? `edits:${m.files.length}` : m.kind));
+  assert.deepEqual(kinds([edit(2, "a.ts"), edit(3, "b.ts", "failed"), edit(4, "c.ts")]), ["start", "act", "act", "act"]);
+  assert.deepEqual(kinds([edit(2, "a.ts"), edit(3, ""), edit(4, "c.ts"), edit(5, "d.ts")]), ["start", "act", "act", "edits:2"]);
 });
