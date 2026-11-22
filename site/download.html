@@ -116,7 +116,8 @@ h3{font-size:19px;letter-spacing:-.01em;margin:36px 0 4px}
 .hash .copy{border-color:var(--line);background:var(--sunk);color:var(--soft)}
 .copy.icon span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .card{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:26px 28px;margin:24px 0 0}
-.card h3{margin-top:0}
+.card h3,.card .h3{margin-top:0}
+.h3{font-size:19px;letter-spacing:-.01em;margin:36px 0 4px;line-height:1.6}
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
 .grid2 .card{margin:0}
 .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
@@ -178,7 +179,7 @@ footer{margin-top:120px;border-top:1px solid var(--line)}
       <a class="plat" href="#linux" data-os="linux"><b>Linux</b><span>x86_64: AppImage, .deb, .rpm</span></a>
     </div>
     <div class="card">
-      <h3>What TermF needs</h3>
+      <h2 class="h3">What TermF needs</h2>
       <ul class="check">
         <li><b>Claude Code</b>, installed and signed in: TermF starts the <code>claude</code> command you already use.</li>
         <li><b>git</b>, for your repositories and the worktrees of each run.</li>
@@ -195,7 +196,7 @@ footer{margin-top:120px;border-top:1px solid var(--line)}
       <li><b>Drag TermF into Applications</b> from the disk image.</li>
       <li><b>The first time</b>, right-click TermF in Applications, choose Open, then Open again. Or run this once:</li>
     </ul>
-    <div class="cmd"><code>xattr -dr com.apple.quarantine /Applications/TermF.app</code><button class="copy" type="button" data-copy="xattr -dr com.apple.quarantine /Applications/TermF.app" aria-label="Copy the command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+    <div class="cmd"><code>xattr -dr com.apple.quarantine /Applications/TermF.app</code></div>
   </section>
 
   <section id="windows">
@@ -302,7 +303,7 @@ const os = /android|iphone|ipad|ipod/i.test(ua) || (plat.includes('mac') && navi
   : plat.includes('win') ? 'windows' : plat.includes('linux') || /linux|x11|cros/i.test(ua) ? 'linux' : 'mac';
 // null while loading, then the newest published release (pre-releases included: TermF only has those so far), or false
 let release = null;
-const find = f => release?.assets.find(a => f.re.test(a.name));
+const find = f => release ? release.assets.find(a => f.re.test(a.name)) : undefined;
 const mb = n => (n / 1e6).toLocaleString('en-US', {maximumFractionDigits: 1}) + ' MB';
 function fileRow(f, mine) {
   const a = find(f), sha = a?.digest?.replace(/^sha256:/, '');
@@ -314,12 +315,11 @@ function fileRow(f, mine) {
     <div class="name">${a ? `<a href="${esc(url)}">${esc(a.name)}</a>` : `<code>${esc(f.name)}</code>`}<span>${esc(f.what)}</span></div>
     <div class="size">${a ? mb(a.size) : ''}</div>
     <div class="hash">${hash}</div>
-    <a class="get" href="${esc(url)}" aria-label="${a ? 'Download ' + esc(a.name) : 'Open the latest release'}">${a ? 'Download' : 'Releases'}</a>
+    <a class="get" href="${esc(url)}" aria-label="${a ? 'Download ' + esc(a.name) : 'Releases, for ' + esc(f.what)}">${a ? 'Download' : 'Releases'}</a>
   </div>`;
 }
-function cmdBox(c) {
-  return `<div class="cmd"><code>${esc(c)}</code><button class="copy" type="button" data-copy="${esc(c)}" aria-label="Copy the command">${COPY}<span>Copy</span></button></div>`;
-}
+const copyBtn = text => `<button class="copy" type="button" data-copy="${esc(text)}" aria-label="Copy the command">${COPY}<span>Copy</span></button>`;
+const cmdBox = c => `<div class="cmd"><code>${esc(c)}</code>${copyBtn(c)}</div>`;
 function render() {
   for (const p of document.querySelectorAll('.plat')) {
     const mine = p.dataset.os === os;
@@ -333,6 +333,8 @@ function render() {
   }
   document.querySelector('[data-linux]').innerHTML = FILES.linux.map(f => `<h3>${esc(f.what)}</h3>${cmdBox(f.run(find(f)?.name ?? f.name))}`).join('');
 }
+// Every command box gets a copy button, since long ones scroll out of sight
+for (const c of document.querySelectorAll('.cmd')) if (!c.querySelector('.copy')) c.insertAdjacentHTML('beforeend', copyBtn(c.textContent));
 render();
 fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=10')
   .then(r => r.ok ? r.json() : Promise.reject())
