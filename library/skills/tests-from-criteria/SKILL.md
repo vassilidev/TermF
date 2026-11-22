@@ -18,19 +18,8 @@ metadata:
 ---
 # Tests from criteria
 
-How to decide what a test must prove. The framework skill of the stack (`testing-js`, `playwright`, `pytest`, `pest`…) says how to write and run it there.
-
-## Gotchas
-- The usual agent test calls the function and expects what the function was written to return. It passes by construction and protects nothing: a test earns its place only if it fails without the change (step 5).
-- Expected values come from the criterion, a worked example or a known-good literal. Recomputing them the way the code does (`expect(total(xs)).toBe(xs.reduce(…))`) makes the test agree with any bug.
-- Mocking the project's own modules tests the mock. Replace only what the project does not control (third-party APIs, payment, email, clock, randomness) and keep the real database, HTTP layer and filesystem the run provides.
-- Coverage is not the goal. A criterion with no test is the gap to close; a line covered by a test that cannot fail is not covered.
-- Existing tests record decisions. Leave their assertions, skips and snapshots as they are; when one looks wrong, report it with your evidence instead of loosening, skipping, deleting or re-recording it to get green.
-- A flaky test is a broken test: find the race or the missing wait-for-state. Retries, sleeps and longer timeouts hide it.
-
-## Procedure
 1. **List what must hold.** Write the acceptance criteria of the ticket or plan, and the user flows the change touches, as a short list of observable outcomes (given this input or action, the user or caller sees this). For a bug, the reproduction steps and the expected result. Done when every item can be checked from outside the code.
-2. **Find how the project tests.** Read its test scripts (`package.json`, `Makefile`, `composer.json`, `pyproject.toml`, the CI workflow) and two neighbouring tests; reuse their runner, folders, naming, fixtures and helpers. Done when you know the command that runs one test and the one that runs the suite.
+2. **Use the test tools the project already has**, because a second runner splits the suite. Read its test scripts (`package.json`, `Makefile`, `composer.json`, `pyproject.toml`, the CI workflow) and two neighbouring tests; reuse their runner, folders, naming, fixtures and helpers. The framework skill of the stack (`testing-js`, `playwright`, `pytest`, `pest`…) says how to write and run tests there. Done when you know the command that runs one test and the one that runs the suite.
 3. **Choose the level, item by item: the highest the project can run.**
    - End to end through the real interface or API, when the project has such tests and the item is a user flow.
    - Integration with the real collaborators (database, HTTP handler, queue, filesystem in a temp dir) for most behaviour.
@@ -39,8 +28,15 @@ How to decide what a test must prove. The framework skill of the stack (`testing
    Done when each item has a level and you can say why a higher one would not work.
 4. **Write the test.** Name it after the expected behaviour (`rejects an expired coupon at checkout`, not `test applyCoupon`). Arrange through public entry points, act like the user or caller, assert the observable outcome against an independent expected value. One behaviour per test; add the edge cases the criterion implies (empty, limit, invalid, not allowed). Done when it passes with the change.
 5. **Prove it can fail.** Break what the test protects (revert the fix, invert the condition, remove the branch), run the test, and check it fails for the expected reason: an assertion about the behaviour, not a setup or import error. Restore the code and run it green again. For a bug, write the test before the fix and see it fail first. Done when you have seen red, then green, and the working tree holds no broken code.
-6. **Run the suite** with the project's own command: the narrowest set first, then everything CI runs for this part. Done when it is green and no existing test was weakened.
-7. **Report each test**: the criterion it protects, when it fails, and what its passing does not prove (for example "unit test of the discount rule; does not prove the cart page shows the discount"). List the criteria left without an automated test, why, and the manual check you did instead.
+6. **Run the commands of `## Verify` and put each one with its result in your report**, the narrowest set first, then everything CI runs for this part. For each test, say the criterion it protects, when it fails, and what its passing does not prove (for example "unit test of the discount rule; does not prove the cart page shows the discount"). List the criteria left without an automated test, why, and the manual check you did instead. Done when they pass, or when the failure is reported with its output.
+
+## Gotchas
+- The usual agent test calls the function and expects what the function was written to return. It passes by construction and protects nothing: a test earns its place only if it fails without the change (step 5).
+- Expected values come from the criterion, a worked example or a known-good literal. Recomputing them the way the code does (`expect(total(xs)).toBe(xs.reduce(…))`) makes the test agree with any bug.
+- Mocking the project's own modules tests the mock. Replace only what the project does not control (third-party APIs, payment, email, clock, randomness) and keep the real database, HTTP layer and filesystem the run provides.
+- Coverage is not the goal. A criterion with no test is the gap to close; a line covered by a test that cannot fail is not covered.
+- Existing tests record decisions. Leave their assertions, skips and snapshots as they are; when one looks wrong, report it with your evidence instead of loosening, skipping, deleting or re-recording it to get green.
+- A flaky test is a broken test: find the race or the missing wait-for-state. Retries, sleeps and longer timeouts hide it.
 
 ## Examples
 

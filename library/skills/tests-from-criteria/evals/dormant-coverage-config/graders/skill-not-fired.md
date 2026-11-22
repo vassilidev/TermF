@@ -4,5 +4,4 @@ tool: Skill
 input_match: '"skill"\s*:\s*"(?:[\w-]+:)?tests-from-criteria"'
 min: 0
 max: 0
-arm: both
 ---
