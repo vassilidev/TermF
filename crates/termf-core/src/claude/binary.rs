@@ -4,7 +4,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashSet};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
@@ -110,15 +110,26 @@ impl Found {
 
 /// What `program`, the first word of an `[agents]` command, runs on this machine.
 pub fn find(program: &str) -> Found {
+    let (home, path) = places();
+    find_in(program, home.as_deref(), &path)
+}
+
+/// The home folder and the login shell's PATH.
+fn places() -> (Option<PathBuf>, OsString) {
     let path = crate::shell::login_path()
         .map(OsStr::to_os_string)
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default();
-    find_in(program, dirs::home_dir().as_deref(), &path)
+    (dirs::home_dir(), path)
 }
 
 /// [`find`] in the home folder `home` and the folders of `path`. A program other than `claude` is taken as is.
 pub fn find_in(program: &str, home: Option<&Path>, path: &OsStr) -> Found {
+    search(program, home, path, true)
+}
+
+/// `others`: also look for the installs a path set in `[agents]` leaves aside.
+fn search(program: &str, home: Option<&Path>, path: &OsStr, others: bool) -> Found {
     if !super::is_claude(program) {
         let install = Install {
             path: program.into(),
@@ -146,11 +157,12 @@ pub fn find_in(program: &str, home: Option<&Path>, path: &OsStr) -> Found {
     };
     let on_path = std::env::split_paths(path)
         .flat_map(|dir| names.iter().map(move |n| (dir.join(n), Origin::Path)));
+    let look = others || set.is_none();
     let mut seen = HashSet::new();
     let mut all: Vec<Install> = set
         .map(|p| (p, Origin::Setting))
         .into_iter()
-        .chain(native.chain(on_path).filter(|(p, _)| p.is_file()))
+        .chain(native.chain(on_path).filter(|(p, _)| look && p.is_file()))
         .filter(|(p, _)| seen.insert(p.canonicalize().unwrap_or_else(|_| p.clone())))
         .map(|(p, origin)| Install {
             version: version(&p, path),
@@ -170,24 +182,36 @@ pub fn find_in(program: &str, home: Option<&Path>, path: &OsStr) -> Found {
 
 /// What `program` runs, refused before it runs when it is too old (see [`Found::usable`]).
 pub fn binary(program: &str) -> Result<Install> {
-    find(program).usable(program)
+    let (home, path) = places();
+    resolve(program, home.as_deref(), &path)
+}
+
+/// A path set is run without asking the other installs their version, unless it is too old: then a newer one is
+/// named.
+fn resolve(program: &str, home: Option<&Path>, path: &OsStr) -> Result<Install> {
+    let found = search(program, home, path, false);
+    let found = match found.too_old {
+        true => search(program, home, path, true),
+        false => found,
+    };
+    found.usable(program)
 }
 
 /// `command`, an `[agents]` command run by a shell, with a bare `claude` replaced by [`binary`]'s path, quoted by
 /// `quote` for that shell. A path written there stays as is, for the shell to expand, and is checked the same.
 pub fn in_command(command: &str, quote: impl Fn(&str) -> String) -> Result<(String, Install)> {
-    replace(command, quote, find)
+    replace(command, quote, binary)
 }
 
 fn replace(
     command: &str,
     quote: impl Fn(&str) -> String,
-    find: impl Fn(&str) -> Found,
+    binary: impl Fn(&str) -> Result<Install>,
 ) -> Result<(String, Install)> {
     let trimmed = command.trim_start();
     let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
     let program = &trimmed[..end];
-    let install = find(program).usable(program)?;
+    let install = binary(program)?;
     if install.origin == Origin::Setting || install.path == Path::new(program) {
         return Ok((command.to_owned(), install));
     }
@@ -311,8 +335,15 @@ mod tests {
         }
 
         fn find(&self, program: &str, path: &[&str]) -> Found {
-            let path = std::env::join_paths(path.iter().map(|p| self.root.join(p))).unwrap();
-            find_in(program, Some(&self.home()), &path)
+            find_in(program, Some(&self.home()), &self.path(path))
+        }
+
+        fn resolve(&self, program: &str, path: &[&str]) -> Result<Install> {
+            resolve(program, Some(&self.home()), &self.path(path))
+        }
+
+        fn path(&self, dirs: &[&str]) -> OsString {
+            std::env::join_paths(dirs.iter().map(|p| self.root.join(p))).unwrap()
         }
     }
 
@@ -419,6 +450,21 @@ mod tests {
             set,
             "the minimum itself is enough"
         );
+        let unseen = b.claude("brew2/bin/claude", "2.1.500");
+        let run = b.resolve(&set.to_string_lossy(), &["brew2/bin"]).unwrap();
+        assert_eq!(run.path, set);
+        assert!(
+            !unseen.with_extension("count").exists(),
+            "a recent path set: the other installs are never run"
+        );
+        let error = b
+            .resolve(&old.to_string_lossy(), &["brew2/bin"])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.ends_with(&format!("such as 2.1.500 at {}", unseen.display())),
+            "{error}"
+        );
 
         let other = b.find("/bin/sh", &["brew/bin"]);
         assert_eq!(
@@ -454,7 +500,7 @@ mod tests {
         let b = Sandbox::new("command");
         let native = b.claude("home/.local/bin/claude", "2.1.330");
         let quote = |s: &str| format!("'{s}'");
-        let find = |p: &str| b.find(p, &[]);
+        let find = |p: &str| b.resolve(p, &[]);
         let (command, install) = replace("  claude --model opus | tee log", quote, find).unwrap();
         assert_eq!(
             command,
@@ -462,7 +508,8 @@ mod tests {
         );
         assert_eq!(install.origin, Origin::Native);
         let spaced = b.claude("my tools/claude", "2.1.400");
-        let (command, _) = replace("claude -c", quote, |p: &str| b.find(p, &["my tools"])).unwrap();
+        let (command, _) =
+            replace("claude -c", quote, |p: &str| b.resolve(p, &["my tools"])).unwrap();
         assert_eq!(
             command,
             format!("'{}' -c", spaced.display()),
