@@ -3,3 +3,7 @@
 /app/src-tauri/gen/schemas
 /.claude/worktrees/
 /app/src-tauri/binaries/
+# Built from site/features.toml by .github/scripts/features.py
+/site/features.html
+/site/features/
+/site/sitemap.xml
