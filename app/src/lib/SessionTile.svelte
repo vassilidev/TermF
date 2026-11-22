@@ -1,30 +1,48 @@
 <script lang="ts">
+  import Columns2 from "@lucide/svelte/icons/columns-2";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Rows2 from "@lucide/svelte/icons/rows-2";
   import Smartphone from "@lucide/svelte/icons/smartphone";
   import UserRound from "@lucide/svelte/icons/user-round";
   import X from "@lucide/svelte/icons/x";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Terminal from "$lib/Terminal.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
-  import { focusSession, keys, toggleMaximize } from "$lib/commands";
+  import { closeSplit, focusSession, keys, openLauncher, toggleMaximize } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { shown } from "$lib/project.svelte";
-  import { neighbour, tileName } from "$lib/tile-logic";
-  import { app, closeSession, grid, resetContext, ticked, type Session } from "$lib/state.svelte";
+  import { display } from "$lib/keymap.svelte";
+  import type { Rect, Side } from "$lib/split-logic";
+  import { activate, terminals } from "$lib/tabs.svelte";
+  import { tileName } from "$lib/tile-logic";
+  import { grid, resetContext, ticked, type Session } from "$lib/state.svelte";
 
-  /** `index`: among the tiles shown, -1 for a session of another project. */
-  let { session, index }: { session: Session; index: number } = $props();
+  /**
+   * `rect`: where the split sits in its tab, as fractions of the tab; none while the tab is not shown. `alone`: the
+   * only split of its tab, which has nothing to zoom over.
+   */
+  let { session, rect, zoomed, alone }: { session: Session; rect?: Rect; zoomed: boolean; alone: boolean } = $props();
 
-  const isFocused = $derived(app.focused === session.id);
   const failed = $derived(!!session.exitCode);
   const name = $derived(tileName(session.title, session.agent ?? "shell"));
+  const asking = $derived(terminals.asking === session.id);
+  const pct = (n: number) => `${n * 100}%`;
+  let confirm = $state<HTMLButtonElement>();
 
-  async function close() {
-    const next = neighbour(app.sessions.filter(shown).map((s) => s.id), session.id);
-    await closeSession(session.id);
-    if (next !== null) focusSession(next);
+  // ⌘W on a running session: Enter, or ⌘W again, closes it.
+  $effect(() => {
+    if (asking) confirm?.focus();
+  });
+
+  function split(side: Side) {
+    activate(session.id);
+    openLauncher(side);
+  }
+
+  function cancel() {
+    terminals.asking = null;
+    focusSession(session.id);
   }
 </script>
 
@@ -32,13 +50,18 @@
   class="tile"
   class:waiting={session.running && session.status === "waiting"}
   class:ticked={ticked.has(session.id)}
-  class:maximized={isFocused}
+  class:maximized={zoomed}
   data-session={session.id}
-  hidden={index < 0 || (app.focused !== null && !isFocused)}
+  hidden={!rect}
+  style:left="calc({pct(rect?.x ?? 0)} + 4px)"
+  style:top="calc({pct(rect?.y ?? 0)} + 4px)"
+  style:width="calc({pct(rect?.w ?? 1)} - 8px)"
+  style:height="calc({pct(rect?.h ?? 1)} - 8px)"
   aria-label={session.title}
+  onfocusin={() => activate(session.id)}
 >
-  <!-- svelte-ignore a11y_no_static_element_interactions (a shortcut for the maximize button) -->
-  <header ondblclick={(e) => !(e.target as Element).closest("button, input") && toggleMaximize(session.id)}>
+  <!-- svelte-ignore a11y_no_static_element_interactions (a shortcut for the zoom button) -->
+  <header ondblclick={(e) => !alone && !(e.target as Element).closest("button, input") && toggleMaximize(session.id)}>
     {#if grid.broadcast}
       <input
         type="checkbox"
@@ -70,7 +93,6 @@
     {/if}
     <!-- Over the end of the header, so a narrow tile keeps its name and gauge readable until hovered. -->
     <div class="actions">
-      {#if index >= 0 && index < 9}<kbd aria-hidden="true">{keys.tile(index + 1)}</kbd>{/if}
       {#if session.context && session.running}
         <button
           class="icon-btn sm"
@@ -84,22 +106,54 @@
       {/if}
       <button
         class="icon-btn sm"
-        onclick={() => toggleMaximize(session.id)}
-        aria-label={isFocused ? t("unfocus") : t("focus")}
-        title="{isFocused ? t('unfocus') : t('focus')} ({keys.maximize})"
+        onclick={() => split("right")}
+        aria-label={t("t6aSplitRight")}
+        title="{t('t6aSplitRight')} ({display('split_right')})"
       >
-        {#if isFocused}<Minimize2 size={14} aria-hidden="true" />{:else}<Maximize2 size={14} aria-hidden="true" />{/if}
+        <Columns2 size={14} aria-hidden="true" />
       </button>
-      <button class="icon-btn sm" onclick={close} aria-label={t("close")} title={t("close")}>
+      <button
+        class="icon-btn sm"
+        onclick={() => split("down")}
+        aria-label={t("t6aSplitDown")}
+        title="{t('t6aSplitDown')} ({display('split_down')})"
+      >
+        <Rows2 size={14} aria-hidden="true" />
+      </button>
+      {#if !alone}
+        <button
+          class="icon-btn sm"
+          onclick={() => toggleMaximize(session.id)}
+          aria-label={zoomed ? t("unfocus") : t("focus")}
+          title="{zoomed ? t('unfocus') : t('focus')} ({keys.maximize})"
+        >
+          {#if zoomed}<Minimize2 size={14} aria-hidden="true" />{:else}<Maximize2 size={14} aria-hidden="true" />{/if}
+        </button>
+      {/if}
+      <button
+        class="icon-btn sm"
+        onclick={() => closeSplit(session.id)}
+        aria-label={t("close")}
+        title="{t('close')} ({display('close_split')})"
+      >
         <X size={14} aria-hidden="true" />
       </button>
     </div>
   </header>
+  {#if asking}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape answers the question) -->
+    <div class="ask" role="alertdialog" aria-label={t("t6aCloseAsk")} tabindex="-1" onkeydown={(e) => e.key === "Escape" && cancel()}>
+      <span>{t("t6aCloseAsk")}</span>
+      <button class="btn sm" onclick={cancel}>{t("cancel")}</button>
+      <button bind:this={confirm} class="btn sm primary" onclick={() => closeSplit(session.id, true)}>{t("close")}</button>
+    </div>
+  {/if}
   <Terminal id={session.id} />
 </section>
 
 <style>
   .tile {
+    position: absolute;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -231,7 +285,20 @@
     margin: 0 2px 0 0;
   }
 
-  kbd {
-    margin-right: 2px;
+  .ask {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: var(--text-sm);
+  }
+
+  .ask span {
+    flex: 1;
+    min-width: 12em;
   }
 </style>
