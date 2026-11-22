@@ -34,6 +34,7 @@
   import { visual, watchVisual } from "$lib/visual.svelte";
   import { watchTray } from "$lib/remote.svelte";
   import { watchUpdates } from "$lib/release.svelte";
+  import { watchMenu } from "$lib/menu";
 
   let area = $state<HTMLElement>();
 
@@ -53,7 +54,8 @@
     const stopSync = watchSync();
     const stopTray = watchTray();
     const stopUpdates = watchUpdates();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopVisual(), stopSync(), stopTray(), stopUpdates());
+    const stopMenu = watchMenu();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu());
   });
 
   function drag(e: PointerEvent) {
