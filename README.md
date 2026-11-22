@@ -5,191 +5,248 @@
 <h1 align="center">TermF</h1>
 
 <p align="center">
-  <b>The cockpit for Claude Code across all your repositories.</b><br>
-  Talk to the CTO, and a team of agents takes your tickets to pull requests,<br>
-  each run in its own worktree, stopping for your approval at every gate.<br>
-  Every Claude Code stays in view, in terminal tabs and splits. Local-first, built with Rust and Tauri.
+  <b>Talk only to the CTO.</b><br>
+  TermF is a free desktop app for developers who use Claude Code. You describe the work to one agent, the CTO;<br>
+  a team of AI agents plans it, codes it, tests it and reviews it, then brings you a pull request to approve.
 </p>
 
 <p align="center">
   <a href="https://vassilidev.github.io/TermF/"><b>Website</b></a> ·
   <a href="https://vassilidev.github.io/TermF/download.html"><b>Download</b></a> ·
-  <a href="https://github.com/vassilidev/TermF/releases">Releases</a> ·
+  <a href="https://vassilidev.github.io/TermF/features.html">Every feature</a> ·
+  <a href="https://vassilidev.github.io/TermF/team.html">The team</a> ·
   <a href="README.fr.md">Version française</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/vassilidev/TermF/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vassilidev/TermF/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="macOS, Windows and Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-4a4ad9">
-  <img alt="Rust and Tauri 2" src="https://img.shields.io/badge/Rust%20%2B%20Tauri%202-no%20Electron-17181c?logo=tauri">
+  <img alt="macOS, Windows and Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-4040cc">
   <img alt="Early development" src="https://img.shields.io/badge/status-early%20development-f2a516">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/vassilidev/TermF?color=5a5f6a"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/vassilidev/TermF?color=555a67"></a>
 </p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-dark.webp">
-  <img alt="TermF's project home: the conversation with the CTO, a plan waiting for approval, and on the right what waits for you, the agents on duty and the runs" src="site/shots/home-light.webp">
+  <img alt="TermF's project Home: the conversation with the CTO, a plan waiting for approval and a card to start a team run, and on the right what waits for you, the agents at work and the runs" src="site/shots/home-light.webp">
 </picture>
 
-> [!NOTE]
-> **Early development.** The builds are unsigned pre-releases. Most of the interface has been checked with automated tests and a simulated backend rather than by hand, and parts of the flow have run with a real Claude Code (a ticket opened in its worktree, a team going from plan to task reports). Expect rough edges, and please [report them](https://github.com/vassilidev/TermF/issues).
+## What it is
 
-## What TermF does
+- **One conversation per project.** On each project's Home, you talk to the CTO in your own words. It reads your repositories, decides who works on a request, and asks you before anything starts.
+- **A team of 26 agents, one job each.** Product owner, tech lead, front-end, back-end, QA, code and security reviewers, and specialists. Each one is a Claude Code session with its own model and permissions, working in its own copy of the repository. You approve the plan and the delivery; the pull request opens on your click.
+- **All your Claude Code sessions in one window.** Claude Code, Codex, Gemini or a shell, in tabs and splits, with which one is working, waiting for you or done.
 
-- **Every Claude Code in view.** Sessions in terminal tabs and free splits, Ghostty style (`⌘T`, `⌘D`, `⌘⇧D`, `⌥⌘` + arrows, every shortcut remappable). Each one shows whether it is working, waiting for you or done, read from Claude Code's own hooks, with its context gauge and a notification when it needs you. `⌘J` jumps to the next thing waiting, in any project.
-- **One person to talk to: the CTO.** Each project opens on its Home, with a permanent conversation with the CTO agent. Ask for a feature, a fix or where things are: the CTO triages each run, picks its workflow, steps and squads, and acts through TermF's tools, every action behind an approval card. Write `@role` to talk to someone else.
-- **A team that takes a ticket to a pull request.** Triage, framing, plan, tasks in parallel, checks, rules, code review, security review, visual review, delivery. The plan comes with a questionnaire and proposed answers; the plan, the visual review and the delivery wait for you. Each step is a fresh agent session with a brief, each run has a budget, and you can take over any conversation in a terminal.
-- **Tickets from where they live.** GitHub Issues, GitHub Projects, Jira Cloud and any MCP server, several sources per project. Paste a URL or a key, follow one page per ticket, resume a run after a restart, clean up after the merge.
-- **Worktrees that are ready to run.** One per run, inside the repository so Claude Code's trust carries over. The project's recipe installs dependencies without copying them raw, points `.env` files to the worktree, clones the database per worktree (Postgres, MySQL, SQLite) and gives it its own ports.
-- **A library that fits your stack.** Roles, rules, skills, workflows and commands in layers (shipped, global, project, repository). 25 roles and 38 skills ship with TermF, and the detected stack turns on the matching ones. The setup assistant reads a new project and proposes its team, skills, ticket sources and worktree recipe, item by item.
-- **A project expert with a memory.** A local index of what the project remembers (Claude Code conversations, run logs, library, `CLAUDE.md`, docs, git history), with secrets masked. Ask how something works and get an answer with its sources, in the app or with `termf ask`. The team calls it instead of searching on its own.
-- **All of Claude Code in one view.** Settings, permissions, hooks and environment by scope, MCP servers, plugins, skills, agents, commands, output styles, memory files, past sessions, usage and limits, account and version, and a sortable table of your claude.ai artifacts.
-- **The chores around the agents.** SSH keys in every format with the agent and `~/.ssh/config`, end-to-end encrypted settings sync across machines, native GitHub Actions runs and logs, a scheduler for Claude tasks (headless ones even while TermF is closed), a vault for secrets (command line for now), and a file explorer with fuzzy search, an editor and diffs.
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/terminals-dark-800.webp"><img alt="Terminals: tabs, and two Claude Code sessions side by side above a shell" src="site/shots/terminals-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/run-dark-800.webp"><img alt="A ticket's run page: the steps, the plan's questions with proposed answers, the budget and the log" src="site/shots/run-light-800.webp"></picture></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Terminals in tabs and splits</sub></td>
-    <td align="center"><sub>A ticket's run, with the plan's questions</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/config-dark-800.webp"><img alt="A project's configuration: squads and the table of roles" src="site/shots/config-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/claude-dark-800.webp"><img alt="The Claude view: version, account, model, permission mode and what is installed" src="site/shots/claude-light-800.webp"></picture></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>A project's team and roles</sub></td>
-    <td align="center"><sub>All of Claude Code on this machine</sub></td>
-  </tr>
-</table>
-<p align="center"><sub>Screenshots taken with fictional data: the user alex and the acme repositories.</sub></p>
+Around that: Git, CI/CD, a password vault, servers and logs, a design system view, visual review, encrypted sync, and the `termf` command line. Everything runs on your machine: no TermF server, no account, no telemetry.
 
 ## Install
 
-The install script takes the latest release for your system, checks it against the release's `SHA256SUMS` and installs it, with no extra step for the unsigned builds (add `-s -- --beta` for the pre-releases):
+One command installs the latest release for your system and processor, checked against the release's checksums, with no extra step for the unsigned builds:
 
 ```sh
 curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh                # macOS, Linux
 irm https://vassilidev.github.io/TermF/install.ps1 | iex                     # Windows (PowerShell)
 ```
 
-Download TermF from [the website](https://vassilidev.github.io/TermF/download.html) or the [releases](https://github.com/vassilidev/TermF/releases):
+If it fails (a release without checksums), download the file for your system from the [releases page](https://github.com/vassilidev/TermF/releases), as below. Add `-s -- --beta` (or `TERMF_BETA=1` on Windows) to take the pre-releases too. Then TermF keeps itself up to date: it checks for updates, verifies their signature and installs them when you click.
 
-| System | Files |
+Or download the file for your system from the [download page](https://vassilidev.github.io/TermF/download.html) or the [releases](https://github.com/vassilidev/TermF/releases):
+
+| System | File |
 |---|---|
-| macOS | `TermF_<version>_aarch64.dmg` (Apple Silicon), `TermF_<version>_x64.dmg` (Intel) |
-| Windows | `TermF_<version>_x64-setup.exe`, or `TermF_<version>_x64_en-US.msi` |
-| Linux (x86_64) | `TermF_<version>_amd64.AppImage`, `.deb` or `.rpm` (needs WebKitGTK 4.1) |
+| macOS, Apple Silicon | `TermF_<version>_aarch64.dmg` |
+| macOS, Intel | `TermF_<version>_x64.dmg` |
+| Windows | `TermF_<version>_x64-setup.exe`, or the `.msi` |
+| Linux x86_64 | `.AppImage`, `.deb` or `.rpm` (needs WebKitGTK 4.1) |
 
-The builds are not signed yet, so the first launch needs one extra step:
+Downloaded with a browser, the builds are **not signed by Apple or Microsoft yet**, so the first launch takes one extra step:
 
-- **macOS**: after moving TermF to Applications, run `xattr -dr com.apple.quarantine /Applications/TermF.app` once (or right-click the app, Open, then Open again).
-- **Windows**: on the SmartScreen warning, click "More info", then "Run anyway".
-- **Linux**: `chmod +x` the AppImage, or install the `.deb` / `.rpm`.
+- **macOS**: drag TermF to Applications, then clear the quarantine once: `xattr -dr com.apple.quarantine /Applications/TermF.app`. Or open it once, then click Open Anyway in System Settings, Privacy & Security.
+- **Windows**: on the SmartScreen warning, click More info, then Run anyway.
+- **Linux**: `chmod +x` the AppImage and run it, or `sudo apt install ./TermF_<version>_amd64.deb`, or `sudo dnf install ./TermF-<version>-1.x86_64.rpm`.
 
-TermF needs [Claude Code](https://code.claude.com) installed and signed in, `git`, and the [GitHub CLI](https://cli.github.com) signed in for GitHub tickets, pull requests and CI/CD.
+**You need** [Claude Code](https://code.claude.com) 2.1.288 or later, signed in, and `git`. The [GitHub CLI](https://cli.github.com), signed in, is needed for GitHub tickets, pull requests and CI. TermF finds Claude Code's native install by itself and tells you how to update an older one.
 
-### Run from source
+## Start in two minutes
 
-Prerequisites: Rust (stable), Node 22+, pnpm, and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS.
+On first launch, the Home lists the tools TermF needs that are missing, with the official command to install each one. In Settings, one click puts `termf` on your `PATH`.
 
-```sh
-git clone https://github.com/vassilidev/TermF.git
-cd TermF/app
-pnpm install
-pnpm tauri dev
-```
+1. **Create a project.** Press <kbd>+</kbd> next to Projects. Pick your repositories in the list (sorted by activity, with their remote, branch and stack). TermF shows what it detects in each one, then proposes the team, the ticket sources, the worktree setup, CI and the skills for your stack. Accept them in one click, or set one aside to adjust later. Nothing is written before you click Create.
+2. **Open your first agent.** <kbd>⌘T</kbd> opens Claude Code, or a shell, in any repository, in a tab. <kbd>⌘D</kbd> splits the view. A badge and a notification tell you when a session waits for you.
+3. **Give your first task to the team.** On the project's Home, write to the CTO: "Start the team on #57", or describe the change. Approve the route it picks, answer its questions (each comes with a proposed answer), approve the plan, follow the run on its page, then Deliver: TermF shows the files and commits, and opens the pull request once you confirm.
 
-`pnpm bundle` builds the installers for your system with the `termf` CLI inside (`pnpm tauri build` alone leaves it out).
+<table>
+  <tr>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/setup-dark-800.webp"><img alt="New project: what TermF proposes after reading the repositories, the agents' team, ticket sources, worktree setup, CI/CD and skills" src="site/shots/setup-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/run-dark-800.webp"><img alt="A run page: the steps from framing to delivery, the plan's questions with proposed answers, the budget and the log" src="site/shots/run-light-800.webp"></picture></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Creating a project: the proposal</sub></td>
+    <td align="center"><sub>A ticket's run page, with the plan's questions</sub></td>
+  </tr>
+</table>
 
-### Configuration
+## Features
 
-On first launch TermF creates `termf.toml` in your config folder (`~/Library/Application Support/termf` on macOS, `~/.config/termf` on Linux, `%APPDATA%\termf` on Windows). By default it scans your home folder for repositories and offers one agent, `claude`; add your own:
+Every feature has its own page on the website, with what works out of the box, what you can tune and its limits: [the feature catalogue](https://vassilidev.github.io/TermF/features.html).
 
-```toml
-roots = ["~", "D:/dev"]
-scan_depth = 5
+### The CTO and the team
 
-[agents]
-claude = "claude"
-codex = "codex"
-```
+- **The CTO's conversation.** One permanent conversation per project. Each action the CTO takes (start a run, approve a step, stop) is a card you approve. `@front` writes to an agent at work, `@expert` to the project expert.
+- **Triage.** The CTO picks how the team takes a ticket: the steps, the agents, the budget. That route is the first thing you approve.
+- **Questions with proposed answers.** Open questions arrive in one form, each with a reason and a proposed answer: you only change what is wrong.
+- **26 roles.** Each role is a Markdown file you can override per project, squad or repository (model, effort, permissions, skills, paths it may not touch).
+- **Squads.** A bigger project can split into squads, each with its lead, members, repositories and paths, edited in the project's Configuration; each lead splits its share of the work into tasks.
+- **Code review and security review.** After the tasks and your checks, a reviewer reads the whole diff, then a security reviewer in two passes; each finding goes back to the task that made it.
+- **The base kept up to date.** Before the delivery, TermF merges the latest main into the run; on a conflict, the merge integrator resolves it and the checks run again.
+- **The project expert.** Answers questions about the project from a local memory of its conversations and runs, with sources.
+- **Budgets, stop, take over.** Each run has a budget (15 dollars by default); the emergency stop interrupts every agent; Take over opens any agent's conversation in a terminal.
+- **The agents' browser.** Front, QA, UX and SEO agents can drive a clean Chrome profile limited to the origins you allow.
 
-Projects live next to it, in `projects/<id>.toml`. The app writes them for you, and you can edit them by hand:
+### Projects, tickets and runs
 
-```toml
-name = "Acme"
+- **Projects and the setup.** Pick repositories; TermF detects stacks, commands, CI and tickets, and proposes the rest.
+- **The project's Home.** The CTO's conversation, what waits for you, the agents at work and the runs, on one screen.
+- **Ticket sources.** GitHub Issues, GitHub Projects, Jira Cloud, or any MCP server; several per project.
+- **The run page.** One page per ticket, from launch to merge: steps, plan, questions, budget, log.
+- **Runs across repositories.** A ticket that touches the API and the front end gets one pull request in each repository, linked together.
+- **Workflows and rules.** Workflows are files; rules like "do only what the ticket asks" or "no unrequested text changes" go from advice to blocking.
+- **Delivery in two steps.** A preview of exactly what will be sent, then your confirmation; agents can never push.
+- **Git in the project.** Branch graph, branches and worktrees, stage by file, hunk or line, commit, stash, merge, rebase with conflicts, tags, history and blame.
 
-[[repos]]
-path = "~/Projects/acme-api"
+<table>
+  <tr>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/git-dark-800.webp"><img alt="The Git view: local and remote branches, worktrees and stashes, and the commit graph of every branch" src="site/shots/git-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/team-dark-800.webp"><img alt="The project's team settings: two squads with their lead, members, repositories and paths, and the table of roles with their model" src="site/shots/team-light-800.webp"></picture></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The Git view</sub></td>
+    <td align="center"><sub>A project's squads and roles</sub></td>
+  </tr>
+</table>
 
-[[repos]]
-path = "~/Projects/acme-front"
-```
+### Terminals
 
-## Getting started
+- **Tabs and splits**, as in Ghostty, for Claude Code, Codex, Gemini or a shell, with each session's state and how full its context is.
+- **Context reset with handoff.** When a session's context fills up, TermF has it write a handoff, clears it and resumes.
+- **Two panels, help and a guided tour**; every shortcut can be remapped.
+- **Files, a quick terminal and keep awake**: an explorer with fuzzy search and an editor, a terminal on <kbd>Ctrl+`</kbd>, and a switch that keeps the machine awake while agents work.
 
-1. **Open TermF.** It finds the git repositories on your machine and sorts them by activity.
-2. **Create a project** from a few repositories, with the + next to Projects in the navigation. The setup assistant opens once: it reads the repositories without changing anything, asks the questions only you can answer, then proposes the team, skills, ticket sources, worktree recipe and CI, item by item. Trusting the repositories in Claude Code is opt-in.
-3. **Talk to the CTO** on the project's Home (`⌘⇧H` from anywhere): "Where is the team at?", "Start the team on #482". Or open Claude Code in a terminal with `⌘T`.
-4. **Put the team on a ticket**: ask the CTO, or click With the team next to a ticket in Tickets. Answer the plan's questions, approve the plan, follow the run on its page, then Deliver…: TermF shows the files and commits, and opens the pull request once you confirm.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/shots/terminals-dark-800.webp">
+  <img alt="Terminals: tabs, and two Claude Code sessions side by side above a shell" src="site/shots/terminals-light-800.webp" width="800">
+</picture>
 
-## The `termf` command line
+### Worktrees, library and skills
 
-The CLI ships with the app: inside `TermF.app/Contents/MacOS/termf` on macOS (link it somewhere on your `PATH`), as `/usr/bin/termf` with the `.deb` and `.rpm`, next to the app on Windows. `termf help` lists every command.
+- **Worktrees ready to run.** Each run works in its own git worktree, with dependencies, `.env` files, a cloned database and its own ports.
+- **The library.** Roles, rules, skills, workflows and commands in layers (shipped, global, project, repository).
+- **38 skills by stack**, turned on by what TermF finds in your repositories, plus skills for `git`, `gh`, `curl`, `jq`, `make` and more for every agent.
+- **Language servers**: when your stack's language server is installed (rust-analyzer, TypeScript, pyright, gopls…), agents get its diagnostics as they edit; the shipped skills and key roles have evals.
+- **Conventions in plain words**, proposed from your code and reviewed one by one, and a **library scout** that checks the web for better practices.
 
-| | |
+### Claude Code, other agents and the scheduler
+
+- **The Claude Code view**: settings by scope, MCP servers, plugins, skills, agents, hooks, memory, sessions, usage and account on this machine.
+- **claude.ai artifacts**, listed and managed from the app.
+- **Codex and Gemini**: found when installed, in terminals and conversations; a team role can run on one of them. New, and not tried with the real tools yet.
+- **The scheduler**: Claude tasks on a schedule, even when the app is closed.
+
+### CI/CD, design and visual review
+
+- **CI/CD**: GitHub Actions runs and logs in the app, with the first error found, rerun and cancel, and a failure sent back to the agent that caused it.
+- **The Design system view**: your tokens and components read from the code, with every inconsistency (hard-coded values, near-identical colors, contrasts under WCAG AA, an incomplete dark theme), and brand guidelines exported to PDF.
+- **Visual review**: before and after captures of each changed screen, side by side, with a slider, an overlay or a heatmap, pins, and a swipe mode to go through them.
+
+<table>
+  <tr>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/review-dark-800.webp"><img alt="The visual review page: the before and after slider on a changed screen, a pin, the comment for the agent and the decision buttons" src="site/shots/review-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/design-dark-800.webp"><img alt="The Design system view: tokens by family and the inconsistencies found" src="site/shots/design-light-800.webp"></picture></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Visual review</sub></td>
+    <td align="center"><sub>The Design system view</sub></td>
+  </tr>
+</table>
+
+### Keys, vault, sync, servers
+
+- **SSH and keys** in every common format, with the agent and `~/.ssh/config`.
+- **The vault**: logins with two-factor codes, secure notes and secrets per project, encrypted; a security key (FIDO2) as a second factor, Touch ID or Windows Hello; import from Bitwarden, 1Password, browsers and KeePassXC. Agents never see a value unless you allow it.
+- **Encrypted sync** of settings, projects, the vault and, if you choose, SSH keys, through git, a folder, S3 or WebDAV.
+- **Servers, databases and logs (Ops)**: SSH, Postgres, MySQL, Kubernetes and log services, with recipes you run, or that an agent asks to run on an approval card, output masked.
+
+<table>
+  <tr>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/vault-dark-800.webp"><img alt="The vault: the project's logins, notes and secrets, with a GitHub login open on its two-factor code" src="site/shots/vault-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/ops-dark-800.webp"><img alt="Ops: the project's connections, a production SSH server with its checks, and the recipes that run on it" src="site/shots/ops-light-800.webp"></picture></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The vault</sub></td>
+    <td align="center"><sub>Ops: connections and recipes</sub></td>
+  </tr>
+</table>
+
+## The team
+
+You only talk to the CTO. It brings in the agents a ticket needs:
+
+| Group | Agents |
 |---|---|
-| Sessions | `termf ls`, `termf open <path> [--agent claude]`, `termf say <session> <text>`, `termf watch` |
-| Tickets and runs | `termf inbox`, `termf run <ticket>`, `termf runs`, `termf deliver <run>`, `termf close <run>` |
-| The team | `termf team run <run>`, `termf team status <run>`, `termf team answer …`, `termf team approve <run> <step>`, `termf team stop` |
-| Agents | `termf agent start`, `termf agent send <id> <text>`, `termf agent takeover <id>`, `termf agent handback <id>` |
-| The expert | `termf ask <question>`, `termf memory search <query>` |
-| Library and config | `termf library ls\|explain\|enable\|disable`, `termf library scout`, `termf config export\|import` |
-| Machine | `termf ssh …`, `termf sync …`, `termf vault …`, `termf ci …`, `termf schedule …`, `termf claude …` |
+| Your contacts | CTO, project expert |
+| Product and design | Product manager, product owner, UX designer, architect |
+| Plan and build | Tech lead, front-end, back-end, DevOps, SEO |
+| Quality and security | QA, code reviewer, security reviewer, merge integrator |
+| Brand, words and video | Brand designer, UX writer, motion designer |
+| Specialists | Database, technical writer, integrations, site reliability, accessibility, AI, product analytics, compliance |
 
-Commands that start a run or a team, approve a gate or answer for you wait for your confirmation in the app.
+What each one does, when it is called and what it never does: [the team page](https://vassilidev.github.io/TermF/team.html).
 
 ## Security and privacy
 
-- **Local-first.** No TermF server, no telemetry. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up: GitHub or Jira for tickets, the remote you pick for the sync.
-- **A guard on every run.** The `termf guard` hook refuses pushes and tracker writes in a run's sessions and team steps, and a run doesn't start without it. Delivery happens in two steps: a preview, then your confirmation.
-- **An isolated local API.** Each agent session gets its own narrow capability on TermF's local API; your token stays out of the agents' reach, and the actions that matter wait for your confirmation in the app.
-- **Untrusted input stays data.** A ticket reaches the agent as a framed file marked untrusted. The CTO's conversation reads the repositories but has no shell and no network.
-- **Secrets.** `.env` files and private keys are denied to the file tools of the sessions TermF starts. The vault (Argon2id, master password, auto-lock, hash-chained audit) and the settings sync (Argon2id, XChaCha20-Poly1305, recovery key) are encrypted.
-- **Honest limits.** These guards are defense in depth on one machine, not an operating system boundary: a process set on getting around them, like a script an agent writes and then runs, still can. The interface has mostly been verified with a simulated backend, and Windows and Linux builds are tested in CI but have not been run by hand. The known gaps are listed in [docs/STATUS.md §4](docs/STATUS.md#4-dettes-et-points-non-vérifiés-connus) (in French).
+- **Local.** No TermF server, no telemetry, no account. Your code goes where Claude Code sends it, to the model, as it would without TermF. The other connections are the ones you set up: GitHub or Jira for tickets, a sync remote, your servers.
+- **You approve the key steps.** The route, the plan and the delivery wait for you; every action the CTO takes is a card. Agents cannot push or open a pull request: the `termf guard` hook refuses it in every run, and a run does not start without it.
+- **An isolated local API.** Each agent session gets its own narrow access to TermF; your token stays out of reach, and actions that matter wait for your confirmation in the app.
+- **Secrets.** `.env` files and private keys are denied to the agents' file tools. The vault and the sync are encrypted (Argon2id, XChaCha20-Poly1305) with a recovery key. Ops output is masked before an agent reads it.
+- **Honest limits.** These guard rails are defense in depth on one machine, not a sandbox: a script an agent writes and then runs can still get around them. The interface has mostly been checked with automated tests and a simulated backend; Windows and Linux are built and tested in CI but not yet run by hand. Details: [Security, and its limits](https://vassilidev.github.io/TermF/security.html).
 
-## Architecture
+## Configuration
 
-A Rust core, a Tauri 2 window on the system's webview, and a Svelte 5 interface with xterm.js and CodeMirror. TermF orchestrates the agents itself: a model only plans, and agents talk through TermF (the run's log and its MCP tools), so everything is visible, interruptible and costed.
+TermF writes its settings in plain files, in your config folder (`~/Library/Application Support/termf` on macOS, `~/.config/termf` on Linux, `%APPDATA%\termf` on Windows):
+
+- `termf.toml`: where to look for repositories, your agents, shortcuts, and the rest of the settings (the app edits it for you).
+- `projects/<id>.toml`: a project, its repositories, ticket sources, team and squads, and `[roles.<role>]` overrides.
+- `local.toml`: settings that stay on this machine and are never synced.
+
+```toml
+# projects/acme.toml
+name = "Acme"
+
+[[repos]]
+path = "~/code/acme/api"
+
+[roles.front]
+model = "opus"
+skills = ["+accessibility"]
+```
+
+## The `termf` command line
+
+It ships inside the app: `TermF.app/Contents/MacOS/termf` on macOS (link it on your `PATH`), `/usr/bin/termf` with the `.deb` and `.rpm`, next to the app on Windows. `termf help` lists every command.
 
 | | |
 |---|---|
-| `crates/termf-core` | Config (`termf.toml`, `projects/*.toml`), repository discovery |
-| `crates/termf-term` | PTY sessions (portable-pty), ring buffer, attach and replay |
-| `crates/termf-agents` | Headless Claude Code sessions over stream-json, taking over and handing back |
-| `crates/termf-team` | A run's team: sessions per role, the plan, the workflow engine, gates, budgets, rules |
-| `crates/termf-tickets` | Trackers, runs (SQLite, worktrees) and their pull requests |
-| `crates/termf-worktree` | Stack-aware worktree setup |
-| `crates/termf-library` | The layered library and config export / import |
-| `crates/termf-onboarding` | The project setup assistant |
-| `crates/termf-memory` | The project memory the expert searches |
-| `crates/termf-visual` | Visual review before / after |
-| `crates/termf-claude` | Claude Code's config on this machine, claude.ai artifacts |
-| `crates/termf-ci`, `termf-schedule` | GitHub Actions, scheduled Claude tasks |
-| `crates/termf-ssh`, `termf-sync`, `termf-vault` | SSH keys, encrypted sync, the vault |
-| `crates/termf-files` | File explorer, fuzzy finder, search |
-| `crates/termf-cli` | The `termf` CLI, Claude Code hooks, the `termf mcp` server |
-| `app/src-tauri`, `app/src` | The Tauri host and its IPC commands; the SvelteKit interface |
-| `library/` | What ships: roles, rules, skills, workflows, commands |
+| Sessions | `termf ls`, `termf open <path>`, `termf say <session> <text>`, `termf watch` |
+| Tickets and runs | `termf inbox`, `termf run <ticket>`, `termf runs`, `termf deliver <run>`, `termf close <run>` |
+| The team | `termf team run`, `termf team status <run>`, `termf team approve <run> <step>`, `termf team stop` |
+| Agents and the expert | `termf agent ls\|send\|takeover\|handback`, `termf ask <question>` |
+| Library | `termf library ls\|explain\|enable\|disable`, `termf library scout`, `termf config export\|import` |
+| Machine | `termf ssh …`, `termf sync …`, `termf vault …`, `termf ops …`, `termf ci …`, `termf schedule …`, `termf review …` |
 
-The reference design is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and what is done is in [docs/STATUS.md](docs/STATUS.md) (both in French).
+Commands that start a run, deliver, approve a step or type into a session wait for your confirmation in the app.
 
 ## Development
+
+A Rust core, a Tauri 2 window on the system's webview, and a Svelte 5 interface with xterm.js. The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and what is done in [docs/STATUS.md](docs/STATUS.md) (both in French).
 
 ```sh
 cd app && pnpm tauri dev                      # run the app
@@ -198,19 +255,8 @@ cd app && pnpm bundle                         # package the app with the termf C
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
-The app's clippy and tests need `app/build`: run `pnpm build` first. Interface strings live in `app/src/lib/i18n.ts`, in English and French. The website is in `site/`, published by the Pages workflow.
-
-TermF is meant to be forked and bent to your own way of working. Most customization lives in plain files (settings, roles, rules, workflows, conventions) rather than in code, so a fork can stay small and keep pulling upstream. Contributions are welcome too.
-
-## Roadmap
-
-- Signed and notarized builds, automatic updates, performance budgets and `cargo audit` in CI.
-- The vault's interface and secure production access: connections, read-only recipes, approvals.
-- Codex and Gemini adapters next to Claude Code.
-- More sync remotes (S3, WebDAV), and a global scheduler for every team at work.
-
-The full roadmap is in [ARCHITECTURE.md §17](docs/ARCHITECTURE.md#17-feuille-de-route).
+The app's clippy and tests need `app/build`: run `pnpm build` first. Interface strings live in `app/src/lib/i18n.ts`, in English and French. The website is in `site/`: `python3 .github/scripts/features.py` builds the feature pages and the team from `site/features.toml`, `site/roles.toml` and `library/roles/`.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Screenshots use fictional data: the user alex and the acme repositories.
