@@ -437,6 +437,40 @@ fn plays_a_role_and_answers_with_its_schema() {
 }
 
 #[test]
+fn the_expert_reads_only_and_never_reaches_the_network() {
+    let env = Env::new("expert");
+    let spec = SessionSpec {
+        role: Some("expert".into()),
+        ..env.spec()
+    };
+    let session = env.agents.start(spec, None).unwrap();
+    let denied = &session.spec.disallowed_tools;
+    for tool in [
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "Bash",
+        "PowerShell",
+        "WebFetch",
+        "WebSearch",
+    ] {
+        assert!(denied.iter().any(|t| t == tool), "{tool}: {denied:?}");
+    }
+    assert!(
+        !denied.iter().any(|t| t == "Read" || t == "Agent"),
+        "it reads and searches wide"
+    );
+    assert_eq!(
+        (
+            session.spec.model.as_deref(),
+            session.spec.effort.as_deref()
+        ),
+        (Some("haiku"), Some("low")),
+        "the spec's own model and effort win over the role's"
+    );
+}
+
+#[test]
 fn asks_permission_and_interrupts() {
     let env = Env::new("permission");
     let id = env
