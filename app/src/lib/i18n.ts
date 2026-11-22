@@ -3177,6 +3177,35 @@ const fr = {
   review5bComposerHint: "Clique sur l'image pour épingler un endroit précis.",
   review5bSendChanges: "Demander ces modifications",
   review5bRecap: "Récapitulatif",
+  // Team S2: the squad editor.
+  teams2SqIntro:
+    "Une squad est une petite équipe d'agents qui possède une partie du code : le CTO lui confie le travail qui tombe dans ses dépôts et ses chemins.",
+  teams2SqNew: "Nouvelle squad",
+  teams2SqEdit: "Modifier la squad {id}",
+  teams2SqId: "Nom",
+  teams2SqLeadDefault: "lead (par défaut)",
+  teams2SqCount: "Effectif de {role}",
+  teams2SqRemoveRole: "Retirer {role}",
+  teams2SqAddRole: "Ajouter un rôle…",
+  teams2SqAllRoles: "Aucun rôle choisi : tous les rôles affectables.",
+  teams2SqAllRepos: "Aucun coché : tous les dépôts du projet.",
+  teams2SqPathsHint: "Un motif par ligne, relatif au dépôt. Vide : tout le dépôt.",
+  teams2SqDomainsHint: "Séparés par des virgules : ils aident le CTO à choisir la squad.",
+  teams2SqEveryRepo: "tous les dépôts",
+  teams2SqWholeRepo: "tout le dépôt",
+  teams2SqIssueId: "Le nom ne prend que des lettres, des chiffres, - et _.",
+  teams2SqIssueTaken: "Une autre squad s'appelle déjà {subject}.",
+  teams2SqIssueRole: "Rôle inconnu de la bibliothèque : {subject}.",
+  teams2SqIssueCount: "{subject} : l'effectif est un nombre entier d'au moins 1.",
+  teams2SqIssuePath: "{subject} sort du dépôt : écris un chemin relatif, sans « .. ».",
+  teams2SqIssueRepo: "{subject} n'est pas un dépôt du projet.",
+  teams2SqIssueOverlap: "Son périmètre recoupe celui de la squad {subject} : les deux pourraient modifier les mêmes fichiers.",
+  teams2SqDeleteTitle: "Supprimer la squad {id} ?",
+  teams2SqDeleteBody:
+    "Ses membres, son périmètre et les réglages de ses rôles quittent le fichier du projet. Le reste du fichier ne change pas.",
+  teams2SqProposed: "L'assistant de mise en route propose ces squads :",
+  teams2SqAdd: "Ajouter",
+  teams2SqAddAll: "Ajouter les {n}",
 };
 
 type Key = keyof typeof fr;
@@ -6336,6 +6365,35 @@ const en: Record<Key, string> = {
   review5bComposerHint: "Click the image to pin a precise spot.",
   review5bSendChanges: "Ask for these changes",
   review5bRecap: "Summary",
+  // Team S2: the squad editor.
+  teams2SqIntro:
+    "A squad is a small team of agents that owns a part of the code: the CTO gives it the work that falls in its repositories and paths.",
+  teams2SqNew: "New squad",
+  teams2SqEdit: "Edit squad {id}",
+  teams2SqId: "Name",
+  teams2SqLeadDefault: "lead (default)",
+  teams2SqCount: "Headcount of {role}",
+  teams2SqRemoveRole: "Remove {role}",
+  teams2SqAddRole: "Add a role…",
+  teams2SqAllRoles: "No role chosen: every assignable role.",
+  teams2SqAllRepos: "None ticked: every repository of the project.",
+  teams2SqPathsHint: "One pattern per line, relative to the repository. Empty: the whole repository.",
+  teams2SqDomainsHint: "Comma-separated: they help the CTO pick the squad.",
+  teams2SqEveryRepo: "every repository",
+  teams2SqWholeRepo: "the whole repository",
+  teams2SqIssueId: "The name takes only letters, digits, - and _.",
+  teams2SqIssueTaken: "Another squad is already named {subject}.",
+  teams2SqIssueRole: "Role unknown to the library: {subject}.",
+  teams2SqIssueCount: "{subject}: the headcount is a whole number, at least 1.",
+  teams2SqIssuePath: "{subject} leaves the repository: write a relative path, without “..”.",
+  teams2SqIssueRepo: "{subject} is not a repository of the project.",
+  teams2SqIssueOverlap: "Its perimeter overlaps squad {subject}'s: both could change the same files.",
+  teams2SqDeleteTitle: "Delete squad {id}?",
+  teams2SqDeleteBody:
+    "Its members, its perimeter and its roles' settings leave the project's file. The rest of the file stays as it is.",
+  teams2SqProposed: "The setup assistant proposes these squads:",
+  teams2SqAdd: "Add",
+  teams2SqAddAll: "Add all {n}",
 };
 
 const messages = { fr, en };
