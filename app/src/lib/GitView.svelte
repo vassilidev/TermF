@@ -916,7 +916,7 @@
             {/if}
           </dl>
           {#if d && splitMessage(d.message).body}
-            <pre class="message">{splitMessage(d.message).body}</pre>
+            <pre class="body-text">{splitMessage(d.message).body}</pre>
           {/if}
           <div class="actions">
             <button class="btn sm" aria-expanded={form?.kind === "create"} onclick={() => (form = { kind: "create", from: c.oid, name: "", checkout: true })} disabled={!!busy}>
@@ -1981,7 +1981,7 @@
     font-weight: 500;
   }
 
-  .message {
+  .body-text {
     margin: 12px 0 0;
     padding: 10px 12px;
     border-left: 3px solid var(--border-strong);
@@ -2004,7 +2004,28 @@
     padding: 5px 4px;
     border-bottom: 1px solid var(--border);
     font-size: var(--text-sm);
+    list-style: none;
     cursor: pointer;
+  }
+
+  .file summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .file summary::before {
+    content: "";
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    margin: 0 2px;
+    border-right: 1.5px solid var(--muted);
+    border-bottom: 1.5px solid var(--muted);
+    transform: rotate(-45deg);
+    transition: transform var(--dur-fast) ease-out;
+  }
+
+  .file[open] summary::before {
+    transform: rotate(45deg);
   }
 
   .file summary:hover {

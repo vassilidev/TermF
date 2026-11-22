@@ -52,69 +52,78 @@
   const groups = $derived(blame ? runs(blame.lines) : []);
 </script>
 
-<Tabs
-  id="git-file"
-  label={path}
-  tabs={[
-    { id: "history", label: t("git2History") },
-    { id: "blame", label: t("git2Blame") },
-  ]}
-  selected={tab}
-  onselect={(id) => (tab = id as "history" | "blame")}
->
-  {#if error}
-    <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{error}</span></p>
-  {:else if tab === "history"}
-    {#if !history}
+<div class="file-view">
+  <Tabs
+    id="git-file"
+    label={path}
+    tabs={[
+      { id: "history", label: t("git2History") },
+      { id: "blame", label: t("git2Blame") },
+    ]}
+    selected={tab}
+    onselect={(id) => (tab = id as "history" | "blame")}
+  >
+    {#if error}
+      <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{error}</span></p>
+    {:else if tab === "history"}
+      {#if !history}
+        <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
+      {:else if !history.commits.length}
+        <p class="muted small">{t("git2NoHistory")}</p>
+      {:else}
+        <ol class="history">
+          {#each history.commits as c (c.oid)}
+            <li>
+              <button class="entry" onclick={() => onpick(c.oid)}>
+                <span class="subject">{c.subject}</span>
+                {#if c.path !== path}<span class="was mono" title={t("git2WasHint")}>{c.path}</span>{/if}
+                <span class="muted who">{c.author} · {ago(c.date)}</span>
+                <span class="mono muted">{short(c.oid)}</span>
+              </button>
+            </li>
+          {/each}
+        </ol>
+        {#if history.more}<button class="btn sm more" onclick={() => (limit += STEP)}>{t("gitMore")}</button>{/if}
+      {/if}
+    {:else if !blame}
       <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
-    {:else if !history.commits.length}
-      <p class="muted small">{t("git2NoHistory")}</p>
     {:else}
-      <ol class="history">
-        {#each history.commits as c (c.oid)}
-          <li>
-            <button class="entry" onclick={() => onpick(c.oid)}>
-              <span class="subject">{c.subject}</span>
-              {#if c.path !== path}<span class="was mono" title={t("git2WasHint")}>{c.path}</span>{/if}
-              <span class="muted who">{c.author} · {ago(c.date)}</span>
-              <span class="mono muted">{short(c.oid)}</span>
-            </button>
-          </li>
+      <div class="blame">
+        {#each groups as g (g.start)}
+          {@const info = blame.commits[g.oid]}
+          {@const local = uncommitted(g.oid)}
+          <div class="run">
+            <div class="who">
+              {#if local}
+                <span class="muted">{t("git2NotCommitted")}</span>
+              {:else}
+                <button class="sha mono" onclick={() => onpick(g.oid)} title={info?.subject}>{short(g.oid)}</button>
+                <span class="author">{info?.author}</span>
+                <span class="muted when">{info ? ago(info.date) : ""}</span>
+                <span class="muted subject">{info?.subject}</span>
+              {/if}
+            </div>
+            <div class="code">
+              {#each blame.lines.slice(g.start, g.start + g.count) as line, i (i)}
+                <div class="bl"><span class="no">{g.start + i + 1}</span><span class="text">{line.text}</span></div>
+              {/each}
+            </div>
+          </div>
         {/each}
-      </ol>
-      {#if history.more}<button class="btn sm more" onclick={() => (limit += STEP)}>{t("gitMore")}</button>{/if}
+      </div>
+      {#if blame.cut}<p class="muted small">{t("git2BlameCut", { count: blame.lines.length })}</p>{/if}
     {/if}
-  {:else if !blame}
-    <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
-  {:else}
-    <div class="blame">
-      {#each groups as g (g.start)}
-        {@const info = blame.commits[g.oid]}
-        {@const local = uncommitted(g.oid)}
-        <div class="run">
-          <div class="who">
-            {#if local}
-              <span class="muted">{t("git2NotCommitted")}</span>
-            {:else}
-              <button class="sha mono" onclick={() => onpick(g.oid)} title={info?.subject}>{short(g.oid)}</button>
-              <span class="author">{info?.author}</span>
-              <span class="muted when">{info ? ago(info.date) : ""}</span>
-              <span class="muted subject">{info?.subject}</span>
-            {/if}
-          </div>
-          <div class="code">
-            {#each blame.lines.slice(g.start, g.start + g.count) as line, i (i)}
-              <div class="bl"><span class="no">{g.start + i + 1}</span><span class="text">{line.text}</span></div>
-            {/each}
-          </div>
-        </div>
-      {/each}
-    </div>
-    {#if blame.cut}<p class="muted small">{t("git2BlameCut", { count: blame.lines.length })}</p>{/if}
-  {/if}
-</Tabs>
+  </Tabs>
+</div>
 
 <style>
+  /* Sized by its content: the detail column scrolls. */
+  .file-view {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
   .small {
     margin: 10px 0 0;
     font-size: var(--text-sm);

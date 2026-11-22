@@ -252,7 +252,7 @@
             <button class="btn sm primary" onclick={() => stageParts(toPicks(picked))} disabled={!!busy}>
               {#if staged}<Minus size={14} aria-hidden="true" />{t("git2UnstageLines")}{:else}<Plus size={14} aria-hidden="true" />{t("git2StageLines")}{/if}
             </button>
-            <button class="btn sm quiet" onclick={() => (picked = [])}>{t("cancel")}</button>
+            <button class="btn sm quiet" onclick={() => (picked = [])}>{t("git2Unpick")}</button>
           </div>
         {/if}
         {#if d.partial}
@@ -309,7 +309,8 @@
     </ul>
   {/if}
 
-  {#if !wt.prunable && !wt.error && (wt.head || groups.staged.length)}
+  <!-- During an operation, Continue makes its commit. -->
+  {#if !wt.prunable && !wt.error && !wt.operation && (wt.head || groups.staged.length)}
     <form class="commit" onsubmit={(e) => (e.preventDefault(), canCommit && commit())}>
       <input class="field" bind:value={subject} placeholder={t("git2Subject")} aria-label={t("git2Subject")} spellcheck="true" />
       <textarea class="field body" bind:value={body} placeholder={t("git2Body")} aria-label={t("git2Body")} rows="3"></textarea>
@@ -457,12 +458,14 @@
     background: none;
   }
 
-  .conflict {
+  .list > li.conflict {
     flex-wrap: wrap;
+    gap: 6px 10px;
     padding: 6px 4px;
   }
 
-  .conflict .path {
+  li.conflict .path {
+    flex: 1 1 240px;
     color: var(--danger);
     font-weight: 600;
   }
