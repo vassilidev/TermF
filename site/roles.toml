@@ -154,6 +154,15 @@ does = "Reviews the run's diff for vulnerabilities, abuse cases and vulnerable d
 when = "On every run, after the code review."
 never = "Edits a file: the developers fix what it finds."
 
+[roles.integrator]
+label = "Merge integrator"
+mark = "IN"
+group = "quality"
+short = "Brings in the latest base"
+does = "When the main branch moved on during the run and merging it conflicts, resolves each conflict so the result does what both sides meant; the checks and the code review then read the merge."
+when = "Just before the delivery, only when the base branch changed and the merge conflicts; again on demand if the pull request falls behind."
+never = "Takes a task from the plan, or resolves a conflict between the run's own tasks (their agents do)."
+
 [roles.brand]
 label = "Brand designer"
 group = "creative"

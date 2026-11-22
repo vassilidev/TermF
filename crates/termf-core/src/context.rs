@@ -233,6 +233,11 @@ impl Reset {
         }
     }
 
+    /// You typed since your last prompt: a draft may sit in it.
+    pub fn draft(&self) -> bool {
+        self.typed
+    }
+
     /// You typed in the session, other than to answer a question. Once `/clear` is typed the handoff
     /// still goes to the new conversation, but TermF types nothing more over what you write.
     pub fn typed(&mut self) {

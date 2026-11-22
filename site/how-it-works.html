@@ -21,14 +21,13 @@
 <meta name="twitter:description" content="You ask the CTO. It picks the path, a team of Claude Code agents does the ticket in parallel worktrees, and the run stops for you at the path, the plan and the delivery.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
-<meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f15" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
-<link rel="preload" href="fonts/archivo-condensed.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
 <script type="application/ld+json">
@@ -148,6 +147,7 @@
       <li><a href="#checks">Checks and rules</a></li>
       <li><a href="#review">Review and security</a></li>
       <li><a href="#visual">The visual review</a></li>
+      <li><a href="#base">The latest base</a></li>
       <li><a href="#deliver">You deliver</a></li>
       <li><a href="#after">After the merge</a></li>
       <li><a href="#tried">What has been tried</a></li>
@@ -238,12 +238,13 @@
     <h2 id="tasks">The team works in parallel</h2>
     <p>Each task gets an agent of its role: a fresh Claude Code session, started by TermF with a brief that holds the criteria, your answers, the plan and the reports so far. The ticket itself reaches it as a framed file marked as untrusted data, never as instructions. A fresh session per step keeps each context small; the agent does not drag the whole history of the run along.</p>
     <figure>
-      <div class="board">
-        <div class="bay"><p class="plate">On duty</p><ol class="strips" style="--cs-w:6.75rem;--st-w:8rem">
-          <li class="strip" data-state="working"><span class="cs">Back<small>sonnet · high</small></span><span class="what">CSV writer, accountant format<small>its own worktree</small></span><span class="st">Working</span></li>
-          <li class="strip" data-state="working"><span class="cs">Front<small>sonnet · high</small></span><span class="what">Export button, Invoices page<small>its own worktree</small></span><span class="st">Working</span></li>
-          <li class="strip"><span class="cs">QA<small>sonnet · high</small></span><span class="what">Checks AC1 to AC3<small>after back and front</small></span><span class="st">Waiting its turn</span></li>
-        </ol></div>
+      <div class="screen" style="--h:var(--working)">
+        <p class="screen-cap">The run's tasks · sample data</p>
+        <div class="app"><div class="list steps-list">
+          <div class="row"><span class="pill-s working"><svg aria-hidden="true"><use href="#i-spin"/></svg>working</span><b>back</b><span class="muted">CSV export endpoint and its tests</span></div>
+          <div class="row"><span class="pill-s working"><svg aria-hidden="true"><use href="#i-spin"/></svg>working</span><b>front</b><span class="muted">Export button on the Invoices page</span></div>
+          <div class="row"><span class="pill-s muted">next</span><b>qa</b><span class="muted">Proves each criterion, after back and front</span></div>
+        </div></div>
       </div>
       <figcaption>Two tasks at the same level run together; QA waits for them. Sample data.</figcaption>
     </figure>
@@ -264,7 +265,11 @@
     <p>Then the security reviewer goes over the same diff for vulnerabilities, abuse cases and vulnerable dependencies, in two passes, finding then confirming, so false positives are dropped before they reach you.</p>
 
     <h2 id="visual">The visual review, when it is on</h2>
-    <p>When the visual-review rule is on and the interface changed, the run stops once more. TermF's capture engine starts the project's dev server for the run and for its base, captures each changed screen with the system's Chrome, and compares the pixels and the texts. The page that shows those captures side by side is not built yet: today the gate asks you to look at the result in the run's worktree, then approve, ask for changes, or refuse.</p>
+    <p>When the visual-review rule is on and the interface changed, the run stops once more. TermF's capture engine starts the project's dev server for the run and for its base, captures each changed screen with the system's Chrome, and compares the pixels and the texts. The review page then shows you each changed screen, side by side, with a slider, as an overlay or as a heatmap, opened on what changed; you pin comments on the image, and approve, ask for changes or refuse each screen. With several screens, a swipe mode takes them one card at a time.</p>
+
+    <h2 id="base">The latest base, merged in</h2>
+    <p>Main rarely waits for a run. Just before the delivery, TermF fetches the base branch and merges it into the run's work, never with a rebase and never with a push. If nothing changed, the step is done; if the merge is clean, the checks run again. If it conflicts, the merge waits in a worktree of its own and the merge integrator, an agent of its own, resolves each conflict so the result does what both sides meant. TermF refuses a leftover conflict marker, then the checks and the code review read the merge. If the integrator is stuck, it asks the CTO first, then you.</p>
+    <p>If the pull request falls behind after the delivery, Update with the base on the run page runs the same step again, and you deliver again, without a force-push.</p>
 
     <h2 id="deliver">You deliver</h2>
     <p>The last gate is the delivery, and it always happens in two steps. When the team is done, the run is ready to deliver. Deliver… shows you exactly what will be sent: the files to commit, the commits not pushed yet, and a fingerprint of that preview. Deliver commits that, pushes the branch and opens the pull request, with <code>Closes #57</code> for a GitHub issue. If the worktree changed since the preview, the delivery is refused and you look again.</p>

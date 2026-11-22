@@ -21,14 +21,13 @@
 <meta name="twitter:description" content="Local-first, a guard on every run, delivery in two steps, an isolated local API, and plain words about what it does not cover.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
-<meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f15" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
-<link rel="preload" href="fonts/archivo-condensed.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
 <script type="application/ld+json">
@@ -140,6 +139,7 @@
       <li><a href="#cto">The CTO's session</a></li>
       <li><a href="#input">Untrusted input, secrets</a></li>
       <li><a href="#rest">Secrets at rest</a></li>
+      <li><a href="#ops">Servers, databases and logs</a></li>
       <li><a href="#limits">What it does not cover</a></li>
     </ol>
   </nav>
@@ -195,6 +195,9 @@
 
     <h2 id="rest">Secrets at rest</h2>
     <p>The vault keeps secrets encrypted with Argon2id and XChaCha20-Poly1305, by scope, with prod asking the password again, an automatic lock after ten minutes and on sleep, and a hash-chained audit log; agents can never reveal a value. The settings sync is encrypted end to end the same way, with masked file names and a recovery key. SSH keys are read only from <code>~/.ssh</code>, the files TermF wrote and the ones you pick.</p>
+
+    <h2 id="ops">Servers, databases and logs</h2>
+    <p>The Ops connections are invisible to agents until you allow them, masked or in full. When an agent asks to run a recipe, an approval card shows you the exact command, the target and the environment, with a countdown; prod asks your master password. Your own clients run it (<code>ssh</code>, <code>psql</code>, <code>kubectl</code>…), keys are never read and secrets never go on the command line, a database opens read-only for a reading recipe, and the output is masked before the agent sees it. After a prod recipe, the session needs your OK to reach the web or other tools, so data from production cannot quietly leave by another way.</p>
 
     <h2 id="limits">What it does not cover</h2>
     <p>These guard rails are defense in depth on one machine, not an operating system boundary. A process set on getting around them still can. In plain words:</p>

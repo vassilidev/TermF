@@ -124,7 +124,7 @@
     border-radius: var(--radius-lg);
     box-shadow:
       0 0 0 2px var(--accent),
-      0 0 0 100vmax rgb(10 12 20 / 0.32);
+      0 0 0 100vmax var(--scrim);
     pointer-events: none;
     transition:
       left var(--dur-slow) var(--ease-out),
