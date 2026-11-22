@@ -9,7 +9,7 @@ use serde_json::Value;
 use termf_core::ipc::{self, Call, VaultCall};
 use termf_sync::OsKeyStore;
 use termf_vault::{
-    Access, Actor, ActorKind, KEYCHAIN, Scope, Secret, SecretId, SystemClock, Vault,
+    Access, Actor, ActorKind, Field, KEYCHAIN, Scope, Secret, SecretId, SystemClock, Vault,
 };
 
 use crate::{Client, take_flag, take_opt};
@@ -102,6 +102,35 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
             vault.delete(&actor, &id)?;
             println!("Deleted {id}.");
         }
+        ["items"] => {
+            open(&vault, &actor)?;
+            for i in vault.items(project.as_deref())? {
+                let kind = serde_json::to_value(i.kind)?;
+                println!(
+                    "{}  {:<5}  {:<12}  {:<32}  {}",
+                    i.id,
+                    kind.as_str().unwrap_or_default(),
+                    i.project.as_deref().unwrap_or("global"),
+                    i.title,
+                    i.username
+                );
+            }
+        }
+        ["item", id, field @ ..] => {
+            let field = match field {
+                [] => Field::Password,
+                [name] => serde_json::from_value(Value::from(*name))
+                    .map_err(|_| anyhow::anyhow!("password, totp, seed or notes"))?,
+                _ => bail!(crate::USAGE),
+            };
+            open(&vault, &actor)?;
+            println!(
+                "{}",
+                vault
+                    .item_value(&actor, id, field, Access::Reveal)?
+                    .expose()
+            );
+        }
         ["audit", rest @ ..] => audit(&vault, rest.to_vec())?,
         _ => bail!(crate::USAGE),
     }
@@ -185,11 +214,14 @@ fn audit(vault: &Vault, mut args: Vec<&str>) -> Result<()> {
             (ActorKind::Agent, Some(run)) => format!("agent, run {run}"),
             (kind, _) => format!("{kind:?}").to_lowercase(),
         };
-        let target = e.target.map(|name| {
-            let project = e.project.as_deref().unwrap_or("global");
-            let scope = e.scope.map_or("", Scope::as_str);
-            format!("{name} ({scope}, {project})")
-        });
+        let target = e
+            .target
+            .map(|name| {
+                let project = e.project.as_deref().unwrap_or("global");
+                let scope = e.scope.map_or("", Scope::as_str);
+                format!("{name} ({scope}, {project})")
+            })
+            .or(e.item.map(|id| format!("item {id}")));
         let action = serde_json::to_value(e.action)?;
         println!(
             "{:>5}  {}  {who:<14}  {:<13}  {}  {}",

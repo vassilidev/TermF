@@ -102,6 +102,8 @@ pub struct Event {
     pub actor: Actor,
     pub action: Action,
     pub target: Option<SecretId>,
+    /// A password manager item's id.
+    pub item: Option<String>,
     /// Bytes of the value read or written.
     pub size: Option<u64>,
     /// How many values were masked in an output.
@@ -115,6 +117,7 @@ impl Event {
             actor: actor.clone(),
             action,
             target: None,
+            item: None,
             size: None,
             masks: None,
             detail: None,
@@ -134,6 +137,9 @@ pub struct Entry {
     pub target: Option<String>,
     pub scope: Option<Scope>,
     pub project: Option<String>,
+    /// A password manager item's id. Left out when empty, so the entries written before it hash the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<String>,
     pub size: Option<u64>,
     pub masks: Option<u64>,
     pub detail: Option<String>,
@@ -210,6 +216,7 @@ impl Log {
             target: target.as_ref().map(|t| t.name.clone()),
             scope: target.as_ref().map(|t| t.scope),
             project: target.and_then(|t| t.project),
+            item: event.item,
             size: event.size,
             masks: event.masks,
             detail: event.detail,

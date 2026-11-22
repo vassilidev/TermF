@@ -1,0 +1,6 @@
+- Logo sources in `brand/logo/*.svg` (viewBox, text outlined, no image, script or external link); exports in `brand/exports/`.
+- Tools in this order: rsvg-convert, resvg, inkscape, magick, then headless Chrome; sips and iconutil on macOS; ask before installing one.
+- Favicon set: favicon.ico (16, 32, 48), icon.svg, apple-touch-icon 180 opaque, 192 and 512 manifest icons, a maskable 512; OG image 1200 × 630.
+- Tauri project: `tauri icon` from a 1024 px square source writes every app icon.
+- Check every file (`file`, dimensions) and look at it, the 16 px render first.
+- Read the skill `logo-export` before producing or converting logo files and icons.

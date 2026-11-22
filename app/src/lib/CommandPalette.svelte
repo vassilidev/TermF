@@ -30,6 +30,7 @@
     others: t("repos"),
     views: project ? t("ux3t4ProjectViews", { project: project.name }) : t("navViews"),
     machine: t("settingsContext"),
+    vault: t("vaultTitle"),
     actions: t("navActions"),
   };
   const previous = document.activeElement as HTMLElement | null;

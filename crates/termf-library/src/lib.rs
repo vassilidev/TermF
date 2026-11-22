@@ -918,6 +918,9 @@ mod tests {
                     "secops",
                     "expert",
                     "reviewer",
+                    "brand",
+                    "copy",
+                    "motion",
                 ][..],
             ),
             (Kind::Workflow, &["default", "hotfix", "squads"]),
@@ -940,9 +943,14 @@ mod tests {
             }
         }
         let rule = find(&items, Kind::Rule, "no-text-changes");
-        assert_eq!(rule.applies_to, ["front", "back", "devops", "seo"]);
+        assert_eq!(rule.applies_to, ["front", "back", "devops", "seo", "copy"]);
         assert_eq!(rule.meta["level"], "block");
         assert_eq!(find(&items, Kind::Role, "secops").meta["effort"], "xhigh");
+        let copy = list_of(find(&items, Kind::Role, "copy").meta.get("disallowedTools"));
+        assert!(
+            copy.iter().any(|t| t == "Bash"),
+            "copy writes words, never runs commands"
+        );
         for role in ["po", "pm", "architect", "cto"] {
             let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
             assert_eq!(tools, "mcp__termf__ask_expert", "{role} asks the expert");
@@ -955,7 +963,7 @@ mod tests {
             );
         }
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 14, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 17, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);

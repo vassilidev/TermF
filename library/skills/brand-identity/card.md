@@ -1,0 +1,5 @@
+- Brand and design system follow one convention: `brand/` (guidelines.html and .pdf, logo/, exports/), `BRAND.md`, `DESIGN.md` at the root; tokens where the project keeps them, else `design/tokens.json` (Design Tokens 2025.10) with `design/tokens.css` generated.
+- Read `DESIGN.md` and the tokens before changing the interface: use a token, never a raw colour or size.
+- Every text colour pair meets WCAG 2.2 AA (4.5:1, 3:1 for large text and UI parts), measured, never eyeballed.
+- "Same style as X" means only the elements named; the rest is the product's own.
+- Read the skill `brand-identity` before writing guidelines, tokens, BRAND.md or DESIGN.md.

@@ -1,0 +1,6 @@
+- Outside media only through official APIs: Openverse and Wikimedia Commons without a key, by default.
+- A key (`PEXELS_API_KEY`…) only when it is already in the session's environment: use it by name, never print or write it; never ask for one; nothing keyless fits: `blocked` with the reason.
+- Commercial use (a product video is one): accept CC0, public domain, CC BY and the Pexels, Pixabay, Unsplash licences; refuse NC, ND and anything unclear.
+- Check the licence on the file's own page; never put stock media in a logo.
+- One line per file in `CREDITS.md` beside the project: file, author, source URL, licence and its URL, attribution, changes.
+- Read the skill `stock-media` before searching for or downloading any outside photo, video, music or sound.

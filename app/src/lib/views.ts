@@ -6,6 +6,7 @@ import GitBranch from "@lucide/svelte/icons/git-branch";
 import House from "@lucide/svelte/icons/house";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import SettingsIcon from "@lucide/svelte/icons/settings";
@@ -26,6 +27,7 @@ import { settings, showSettings } from "$lib/settings.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
 import { app, ui, type ViewId } from "$lib/state.svelte";
 import { showTickets, tickets } from "$lib/tickets.svelte";
+import { showVault, showVaultAll, vault } from "$lib/vault.svelte";
 
 type Key = Parameters<typeof t>[0];
 
@@ -119,6 +121,16 @@ export const views: View[] = [
     load: () => import("$lib/CiView.svelte"),
   },
   {
+    id: "vault",
+    label: "vaultTitle",
+    command: "vaultShow",
+    icon: LockKeyhole,
+    group: "project",
+    show: showVault,
+    loaded: () => vault.loaded,
+    load: () => import("$lib/VaultView.svelte"),
+  },
+  {
     id: "project",
     label: "ux3t3Config",
     command: "ticketsEditProject",
@@ -188,6 +200,16 @@ export const views: View[] = [
     show: showScheduler,
     loaded: () => schedule.loaded,
     load: () => import("$lib/SchedulerView.svelte"),
+  },
+  {
+    id: "vaultAll",
+    label: "vaultTitle",
+    command: "vaultShowAll",
+    icon: LockKeyhole,
+    group: "machine",
+    show: showVaultAll,
+    loaded: () => vault.loadedAll,
+    load: () => import("$lib/VaultView.svelte"),
   },
 ];
 
