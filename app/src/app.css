@@ -64,6 +64,9 @@
 
   --nav-width: 232px;
 
+  /* Behind modal dialogs and the tour's spotlight; a ::backdrop repeats the value as fallback, older WebKit not inheriting it there. */
+  --scrim: rgb(10 12 20 / 0.3);
+
   --shadow-1: 0 1px 2px rgb(15 18 30 / 0.06);
   --shadow-2: 0 4px 12px rgb(15 18 30 / 0.08), 0 1px 3px rgb(15 18 30 / 0.06);
   --shadow-3: 0 16px 48px rgb(15 18 30 / 0.18), 0 2px 8px rgb(15 18 30 / 0.08);
@@ -111,9 +114,18 @@
     --danger-text: #2a0a07;
     --warning: #e3b341;
 
+    --scrim: rgb(0 0 0 / 0.5);
+
     --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
     --shadow-2: 0 6px 16px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.3);
     --shadow-3: 0 20px 56px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.3);
+  }
+}
+
+/* A narrow window folds the navigation to its icons (AppNav). */
+@media (max-width: 1100px) {
+  :root {
+    --nav-width: 52px;
   }
 }
 
@@ -273,6 +285,34 @@ kbd {
   font-size: var(--text-sm);
 }
 
+/* A destructive action that is not the main one: red text, no fill. */
+.btn.quiet.danger {
+  border-color: transparent;
+  background: none;
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.btn.quiet.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+/* A button that reads as a link, inline in text or at a section's edge. */
+.btn.link {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font-weight: 500;
+  text-underline-offset: 2px;
+}
+
+.btn.link:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
 .icon-btn {
   display: inline-grid;
   place-items: center;
@@ -297,8 +337,8 @@ kbd {
 }
 
 .icon-btn.sm {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 
 .field {
@@ -420,7 +460,7 @@ kbd {
 .split {
   display: grid;
   flex: 1;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: clamp(240px, 32%, 360px) minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -561,4 +601,32 @@ input.switch:disabled {
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
+}
+
+/* A label's tone; a state with its icon is ui/StatusPill. */
+.badge.accent,
+.badge.ok,
+.badge.warn,
+.badge.danger {
+  border-color: transparent;
+}
+
+.badge.accent {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.badge.ok {
+  background: var(--done-soft);
+  color: var(--done);
+}
+
+.badge.warn {
+  background: var(--waiting-soft);
+  color: var(--warning);
+}
+
+.badge.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
 }

@@ -45,13 +45,14 @@
 </script>
 
 <script lang="ts">
-  let { status, label }: { status: Status; label?: string } = $props();
+  /** `hint` explains a state whose name says too little, as a tooltip. */
+  let { status, label, hint }: { status: Status; label?: string; hint?: string } = $props();
 
   const [key, Icon, tone] = $derived(statuses[status]);
 </script>
 
-<span class="pill {tone}" class:spinning={status === "working"}>
-  <Icon size={13} aria-hidden="true" />{label ?? t(key)}
+<span class="pill {tone}" class:spinning={status === "working"} title={hint}>
+  <Icon size={13} aria-hidden="true" /><span class="text">{label ?? t(key)}</span>
 </span>
 
 <style>
@@ -68,6 +69,15 @@
     font-size: var(--text-xs);
     font-weight: 600;
     white-space: nowrap;
+  }
+
+  /* One case for every state, whatever its text ("travaille", "En cours"); ::first-letter needs a block. */
+  .text {
+    display: inline-block;
+  }
+
+  .text::first-letter {
+    text-transform: uppercase;
   }
 
   .working {
