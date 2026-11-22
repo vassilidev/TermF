@@ -369,6 +369,20 @@ fn chosen_repo(resolution: &crate::Resolution, repo: Option<&str>) -> Result<cra
     }
 }
 
+/// Whether delivering `run`, of a change made of `family`, moves its ticket: once for the whole change (`moved`: a
+/// run of it did), by the run of the change's own repository, or by the first pull request of another repository
+/// while the change's own has none (its work may all be elsewhere).
+fn moves_ticket(run: &Run, family: &[Run], moved: bool) -> bool {
+    if moved {
+        return false;
+    }
+    run.parent.is_none()
+        || family
+            .iter()
+            .find(|r| r.parent.is_none())
+            .is_none_or(|own| own.pr_url.is_none())
+}
+
 /// A conversation id as Claude Code makes them, a UUID: nothing a path could be built from.
 fn conversation_id(text: &str) -> bool {
     text.len() == 36 && text.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
@@ -439,7 +453,85 @@ impl Tickets {
         let ticket = self
             .provider(&resolution.project, &resolution.ticket.provider)?
             .fetch(&resolution.ticket)?;
-        self.open_run(&resolution.project, &chosen, &ticket, session)
+        self.open_run(&resolution.project, &chosen, &ticket, session, None)
+    }
+
+    /// The `owner/name` on GitHub of repository `name` of `project`, where its pull request opens: refused, saying
+    /// why, when it has no `origin` or its `origin` is not on GitHub.
+    pub fn github_repo(&self, project: &str, name: &str) -> Result<String> {
+        let info = self.projects(Some(project))?.remove(0);
+        let repo = info
+            .repos
+            .iter()
+            .find(|r| r.name.eq_ignore_ascii_case(name))
+            .with_context(|| format!("no repository {name} in project {project}"))?;
+        let origin = Git(&self.env)
+            .run(Path::new(&repo.path), &["config", "--get", "remote.origin.url"])
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "repository {name} has no remote origin: a run that spans several repositories pushes the branch of \
+                     each to its origin and opens its pull request there"
+                )
+            })?;
+        github::remote_slug(&origin, &Ssh::new(self.home.clone())).map_err(|_| {
+            anyhow::anyhow!(
+                "repository {name} is not on GitHub (its origin is {origin}): a run that spans several repositories \
+                 opens a pull request in each, linked together"
+            )
+        })
+    }
+
+    /// Opens the run of repository `name` of the project for run `parent`, whose team's plan spans several: a
+    /// worktree on a branch of its own from its base, prepared as any run's, without a session; delivered and
+    /// cleaned up on its own, its pull request linked to the others. Refused when it is not on GitHub; the one already
+    /// open comes back.
+    pub fn open_repo(&self, parent: i64, name: &str) -> Result<Run> {
+        let store = Store::open(&self.data_dir)?;
+        let main = store.run(parent)?;
+        ensure!(
+            main.parent.is_none(),
+            "run {parent} works for run {}: open the repository from that one",
+            main.parent.unwrap_or_default()
+        );
+        let info = self.projects(Some(&main.project))?.remove(0);
+        let repo = info
+            .repos
+            .iter()
+            .find(|r| r.name.eq_ignore_ascii_case(name))
+            .with_context(|| format!("no repository {name} in project {}", main.project))?;
+        // One whose worktree never came (TermF quit while preparing it) is not open.
+        let open = store.children(parent)?.into_iter().find(|c| {
+            Path::new(&c.repo) == Path::new(&repo.path)
+                && matches!(c.status, RunStatus::Running | RunStatus::Delivered)
+                && c.worktree.as_deref().is_some_and(|w| Path::new(w).is_dir())
+        });
+        if let Some(open) = open {
+            return Ok(open);
+        }
+        self.github_repo(&main.project, name)?;
+        let ticket = Ticket {
+            reference: main.ticket.clone(),
+            title: main.title.clone(),
+            body: String::new(),
+            state: "open".into(),
+            author: None,
+            labels: Vec::new(),
+            assignees: Vec::new(),
+            comments: Vec::new(),
+            links: Vec::new(),
+        };
+        let chosen = crate::RepoChoice {
+            name: repo.name.clone(),
+            path: repo.path.clone(),
+        };
+        Ok(self
+            .open_run(&main.project, &chosen, &ticket, false, Some(parent))?
+            .run)
+    }
+
+    /// The runs of the other repositories of run `id`, oldest first.
+    pub fn children(&self, id: i64) -> Result<Vec<Run>> {
+        Store::open(&self.data_dir)?.children(id)
     }
 
     /// Prepares a run, as `start` does, for a request the user wrote in TermF instead of a tracker's ticket: its
@@ -466,19 +558,25 @@ impl Tickets {
             comments: Vec::new(),
             links: crate::links([text], ""),
         };
-        Ok(self.open_run(project, &chosen, &ticket, false)?.run)
+        Ok(self.open_run(project, &chosen, &ticket, false, None)?.run)
     }
 
-    /// The run of `ticket` in `project`'s repository `chosen`: its worktree, its brief, its preparation.
+    /// The run of `ticket` in `project`'s repository `chosen`: its worktree, its brief, its preparation; `parent`:
+    /// the run it works for, in another repository.
     fn open_run(
         &self,
         project: &str,
         chosen: &crate::RepoChoice,
         ticket: &Ticket,
         session: bool,
+        parent: Option<i64>,
     ) -> Result<Launch> {
         let store = Store::open(&self.data_dir)?;
         let mut run = store.create(project, ticket, &chosen.path)?;
+        if let Some(parent) = parent {
+            store.set_parent(run.id, parent)?;
+            run.parent = Some(parent);
+        }
         let conversation = uuid::Uuid::new_v4().to_string();
         let (path, branch, base) = match self.worktree(&run, &chosen.name, ticket) {
             Ok(created) => created,
@@ -840,10 +938,25 @@ impl Tickets {
             let commit = git.run(dir, &["rev-parse", "HEAD"])?;
             store.record(id, &Event::Committed { commit, message })?;
         }
-        ensure!(
-            git.count(dir, &format!("{base}..HEAD"))? > 0,
-            "nothing to deliver: no change since {base}"
-        );
+        // Commits that change nothing (a merge of the base alone) make no pull request either.
+        let changed = git.count(dir, &format!("{base}..HEAD"))? > 0
+            && !git.ok(dir, &["diff", "--quiet", &base, "HEAD", "--"]);
+        if !changed {
+            let others: Vec<String> = self
+                .family(store, run)?
+                .iter()
+                .filter(|r| r.id != id && r.status != RunStatus::Closed)
+                .map(|r| format!("run {} ({})", r.id, r.repo))
+                .collect();
+            match others.is_empty() {
+                true => bail!("nothing to deliver: no change since {base}"),
+                false => bail!(
+                    "nothing to deliver: no change since {base} in this repository; the change is in {}: deliver \
+                     those",
+                    others.join(", ")
+                ),
+            }
+        }
         // The commit itself is pushed, so the one recorded is the one sent.
         let commit = git.run(dir, &["rev-parse", &format!("refs/heads/{branch}")])?;
         let refspec = format!("{commit}:refs/heads/{branch}");
@@ -859,52 +972,58 @@ impl Tickets {
         // Sent again to a merged or closed pull request: its state is asked again.
         store.forget_pr_state(id)?;
         run.pr_state = None;
+        let mut warnings = Vec::new();
         if run.pr_url.is_none() {
             let origin = git.run(dir, &["config", "--get", "remote.origin.url"])?;
             let target = base.strip_prefix("origin/").unwrap_or(&base);
-            let ticket = &run.ticket;
             let url = match self.forge(&run.project, &origin)? {
                 Forge::GitHub(repo) => {
-                    let body = match github::split(&ticket.key) {
-                        Ok((slug, number))
-                            if ticket.provider == "github" && slug.eq_ignore_ascii_case(&repo) =>
-                        {
-                            format!("Closes #{number}")
-                        }
-                        _ if ticket.url.is_empty() => String::new(),
-                        _ => format!("Ticket: {}", ticket.url),
-                    };
+                    let body = self.pr_body(store, run, &repo, false)?;
                     self.github()
                         .create_pr(dir, &repo, target, &branch, &run.title, &body)?
                 }
                 Forge::GitLab(host, repo) => {
-                    let body = match gitlab::split(&ticket.key) {
-                        Ok((slug, number)) if ticket.provider == "gitlab" => {
-                            if slug.eq_ignore_ascii_case(&repo) {
-                                format!("Closes #{number}")
-                            } else {
-                                format!("Closes {}", ticket.key)
-                            }
-                        }
-                        _ if ticket.url.is_empty() => String::new(),
-                        _ => format!("Ticket: {}", ticket.url),
-                    };
+                    let body = self.pr_body(store, run, &repo, true)?;
                     self.gitlab(&host)?
                         .create_mr(&repo, target, &branch, &run.title, &body)?
                 }
             };
             run.pr_url = Some(url.clone());
             store.update(run)?;
-            store.record(id, &Event::PrOpened { url })?;
+            store.record(id, &Event::PrOpened { url: url.clone() })?;
+            // The pull requests of a change that spans several repositories link to each other.
+            // shortcut: GitHub's only; a merge request lists the others when it opens, but is not edited later.
+            let family = self.family(store, run)?;
+            for other in family.iter().filter(|r| r.id != id && r.pr_state.is_none()) {
+                let Some(other_url) = &other.pr_url else {
+                    continue;
+                };
+                if gitlab::merge_request(other_url).is_some() {
+                    continue;
+                }
+                let linked = self
+                    .slug(&other.repo)
+                    .and_then(|slug| self.pr_body(store, other, &slug, false))
+                    .and_then(|body| self.github().edit_pr_body(other_url, &body));
+                if let Err(e) = linked {
+                    warnings.push(format!(
+                        "the pull request is open, but linking it from {other_url} failed: {e:#}"
+                    ));
+                }
+            }
         }
-        let mut warnings = Vec::new();
         let events = store.events(id)?;
         let commented = events
             .iter()
             .any(|e| matches!(e.event, Event::TicketCommented { .. }));
-        let moved = events
-            .iter()
-            .any(|e| matches!(e.event, Event::TicketMoved { .. }));
+        let family = self.family(store, run)?;
+        let mut moved = false;
+        for other in &family {
+            let events = store.events(other.id)?;
+            moved |= events
+                .iter()
+                .any(|e| matches!(e.event, Event::TicketMoved { .. }));
+        }
         let (comment, transition) = self.writes(&run.project, &run.ticket.provider);
         if let Some(url) = run.pr_url.clone()
             && comment
@@ -922,7 +1041,8 @@ impl Tickets {
                 )),
             }
         }
-        if let Some(to) = transition.filter(|_| run.pr_url.is_some() && !moved) {
+        let moves = moves_ticket(run, &family, moved);
+        if let Some(to) = transition.filter(|_| run.pr_url.is_some() && moves) {
             let done = self
                 .provider(&run.project, &run.ticket.provider)
                 .and_then(|p| p.transition(&run.ticket, &to));
@@ -941,6 +1061,61 @@ impl Tickets {
             run: run.clone(),
             warning,
         })
+    }
+
+    /// The `owner/name` of the GitHub repository `repo`'s origin is.
+    fn slug(&self, repo: &str) -> Result<String> {
+        let origin =
+            Git(&self.env).run(Path::new(repo), &["config", "--get", "remote.origin.url"])?;
+        github::remote_slug(&origin, &Ssh::new(self.home.clone()))
+    }
+
+    /// The body of the pull request of `run` in GitHub repository `slug`, or of its merge request in GitLab project
+    /// `slug` (`on_gitlab`): what closes or names its ticket, then the pull requests of the same change in the
+    /// project's other repositories.
+    fn pr_body(&self, store: &Store, run: &Run, slug: &str, on_gitlab: bool) -> Result<String> {
+        let ticket = &run.ticket;
+        let mut body = match (on_gitlab, ticket.provider.as_str()) {
+            (false, "github") => match github::split(&ticket.key) {
+                Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => {
+                    format!("Closes #{number}")
+                }
+                _ => format!("Ticket: {}", ticket.url),
+            },
+            (true, "gitlab") => match gitlab::split(&ticket.key) {
+                Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => {
+                    format!("Closes #{number}")
+                }
+                _ => format!("Closes {}", ticket.key),
+            },
+            _ if ticket.url.is_empty() => String::new(),
+            _ => format!("Ticket: {}", ticket.url),
+        };
+        let others: Vec<String> = self
+            .family(store, run)?
+            .into_iter()
+            .filter(|r| r.id != run.id)
+            .filter_map(|r| r.pr_url.map(|url| format!("- {url}")))
+            .collect();
+        if !others.is_empty() {
+            if !body.is_empty() {
+                body.push_str("\n\n");
+            }
+            body.push_str("Pull requests of this change in the other repositories:\n");
+            body.push_str(&others.join("\n"));
+        }
+        Ok(body)
+    }
+
+    /// `run` and the runs of the other repositories of the same change, the change's own first.
+    fn family(&self, store: &Store, run: &Run) -> Result<Vec<Run>> {
+        let head = run.parent.unwrap_or(run.id);
+        let mut family = vec![store.run(head)?];
+        family.extend(store.children(head)?);
+        Ok(family
+            .into_iter()
+            .filter(|r| r.status != RunStatus::Failed)
+            .collect())
     }
 
     /// What GitHub says of the open pull request of delivered run `id` against its base; `None` when it has none
@@ -997,7 +1172,7 @@ impl Tickets {
             };
             let merged = run.pr_state.as_deref() == Some("merged");
             let (run, cleaned, error) = if auto && merged && !busy(run.id) {
-                match self.close(run.id, false, || stop_session(run.id)) {
+                match self.close_one(run.id, false, || stop_session(run.id)) {
                     Ok(closed) => (closed, true, None),
                     Err(e) => (run, false, Some(format!("{e:#}"))),
                 }
@@ -1050,32 +1225,63 @@ impl Tickets {
                 }
             }
         }
-        self.close(id, false, stop_session)
+        self.close_one(id, false, stop_session)
     }
 
-    /// Removes the run's worktree. Refused while it holds work that is not pushed, unless `force`: then the
-    /// branch stays, so the commits it drops from the worktree can still be found. `stop_session` runs once
-    /// the checks pass, before anything is removed, so no agent is left working in a deleted folder.
+    /// Removes the run's worktree, and first those of the runs of its other repositories. Refused while one holds
+    /// work that is not pushed, unless `force`: then the branch stays, so the commits it drops from the worktree can
+    /// still be found. `stop_session` runs once the checks pass, before anything is removed, so no agent is left
+    /// working in a deleted folder.
     pub fn close(&self, id: i64, force: bool, stop_session: impl FnOnce()) -> Result<Run> {
         let store = Store::open(&self.data_dir)?;
-        let mut run = store.run(id)?;
+        let children: Vec<Run> = store
+            .children(id)?
+            .into_iter()
+            .filter(|c| c.status != RunStatus::Closed)
+            .collect();
+        // All of the change closes, or none of it.
+        self.closable(&store, &store.run(id)?, force)?;
+        for child in &children {
+            self.closable(&store, child, force)?;
+        }
+        for child in &children {
+            self.close_one(child.id, force, || {})?;
+        }
+        self.close_one(id, force, stop_session)
+    }
+
+    /// What closing `run` drops: refused when it is closed already, or, without `force`, when it holds work that is
+    /// not pushed.
+    fn closable(&self, store: &Store, run: &Run, force: bool) -> Result<Vec<String>> {
+        let id = run.id;
         ensure!(
             run.status != RunStatus::Closed,
             "run {id} is already closed"
         );
+        let (Some(worktree), Some(branch), Some(base)) = (&run.worktree, &run.branch, &run.base)
+        else {
+            return Ok(Vec::new());
+        };
+        let pushed = last_push(store, id)?;
+        let since = pushed.as_deref().unwrap_or(base);
+        let git = Git(&self.env);
+        let repo = Path::new(&run.repo);
+        let left = unpushed(&git, id, repo, Path::new(worktree), branch, since)?;
+        let dropped = left.lost();
+        if !force && !dropped.is_empty() {
+            return Err(left.into());
+        }
+        Ok(dropped)
+    }
+
+    /// Closes the one run `id`, as `close` says: the merge of its own pull request cleans up its repository only.
+    fn close_one(&self, id: i64, force: bool, stop_session: impl FnOnce()) -> Result<Run> {
+        let store = Store::open(&self.data_dir)?;
+        let mut run = store.run(id)?;
+        let dropped = self.closable(&store, &run, force)?;
         let git = Git(&self.env);
         let repo = Path::new(&run.repo);
         let parts = (run.worktree.clone(), run.branch.clone(), run.base.clone());
-        let mut dropped = Vec::new();
-        if let (Some(worktree), Some(branch), Some(base)) = &parts {
-            let pushed = last_push(&store, id)?;
-            let since = pushed.as_deref().unwrap_or(base);
-            let left = unpushed(&git, id, repo, Path::new(worktree), branch, since)?;
-            dropped = left.lost();
-            if !force && !dropped.is_empty() {
-                return Err(left.into());
-            }
-        }
         stop_session();
         if let (Some(worktree), Some(branch), Some(_)) = &parts {
             let worktree = Path::new(worktree);
@@ -1133,6 +1339,47 @@ mod tests {
                 change("y.md", Change::Renamed, Some("x.md")),
                 change("q", Change::Added, None),
             ]
+        );
+    }
+
+    #[test]
+    fn a_change_moves_its_ticket_once_even_when_its_work_is_all_elsewhere() {
+        let run = |id: i64, parent: Option<i64>, pr: bool| Run {
+            id,
+            project: "acme".into(),
+            ticket: crate::TicketRef {
+                provider: "github".into(),
+                key: "acme/web#1".into(),
+                url: String::new(),
+            },
+            title: "Export".into(),
+            repo: format!("/repos/{id}"),
+            worktree: None,
+            branch: None,
+            base: None,
+            status: RunStatus::Running,
+            pr_url: pr.then(|| format!("https://github.com/acme/r/pull/{id}")),
+            created: 0,
+            updated: 0,
+            claude_session: None,
+            pr_state: None,
+            parent,
+            session_id: None,
+        };
+        let (own, other) = (run(1, None, true), run(2, Some(1), true));
+        assert!(moves_ticket(&own, &[own.clone(), other.clone()], false));
+        assert!(
+            !moves_ticket(&other, &[own.clone(), other.clone()], false),
+            "the change's own pull request moves it"
+        );
+        let bare = run(1, None, false);
+        assert!(
+            moves_ticket(&other, &[bare.clone(), other.clone()], false),
+            "nothing to deliver in the change's own repository: the first other pull request moves it"
+        );
+        assert!(
+            !moves_ticket(&bare, &[bare.clone(), other.clone()], true),
+            "once for the change"
         );
     }
 }

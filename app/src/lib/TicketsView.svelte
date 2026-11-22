@@ -73,7 +73,8 @@
   };
   const sourceName = (id: string) =>
     id in sourceNames ? t(sourceNames[id]) : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
-  const runs = $derived(tickets.scope ? tickets.runs.filter((r) => r.project === tickets.scope) : tickets.runs);
+  // The run of another repository of a change shows on its change's page.
+  const runs = $derived(tickets.runs.filter((r) => !r.parent && (!tickets.scope || r.project === tickets.scope)));
 
   /** A ticket has one run at a time: its latest one not closed. */
   const runOf = (ticket: TicketSummary) => runs.find((r) => r.ticket.url === ticket.url && r.status !== "closed");

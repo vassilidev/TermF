@@ -135,6 +135,9 @@ pub struct SessionSpec {
     /// `--max-turns`: the most model calls one message may take before its turn ends on an error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<u32>,
+    /// `--add-dir`: other folders its tools may reach, such as the other repositories of a team's run.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub add_dirs: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]

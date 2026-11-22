@@ -406,6 +406,14 @@ impl GitHub {
         })
     }
 
+    /// Replaces the description of the pull request at `url`.
+    pub(crate) fn edit_pr_body(&self, url: &str, body: &str) -> Result<()> {
+        pull_request(url)?;
+        let body = format!("--body={body}");
+        self.run(None, &["pr", "edit", url, &body], None)?;
+        Ok(())
+    }
+
     /// GitHub's `mergeable` and `mergeStateStatus` of the pull request at `url`.
     pub(crate) fn pr_merge(&self, url: &str) -> Result<(String, String)> {
         pull_request(url)?;

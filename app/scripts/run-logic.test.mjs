@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askTitle, awaitsDelivery, baseUpdate, expected, mergeRequest, named, prName, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
+import { askTitle, awaitsDelivery, baseUpdate, expected, mergeRequest, named, prName, repoRuns, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
 
 const ticket = (o = {}) => ({ status: "running", prUrl: null, prState: null, ...o });
 const step = (key, state, kind = "agent") => ({ key, kind, state });
@@ -132,6 +132,8 @@ test("a wait's title, naming its step only where the title says it", () => {
   assert.deepEqual(askTitle(ask("questions", "review", { kind: "review" })), { key: "reviewLoopAsk", step: false });
   assert.deepEqual(askTitle(ask("questions", "migrations", { kind: "review" })), { key: "roles2ReviewAsk", step: true });
   assert.deepEqual(askTitle(ask("questions", "frame")), { key: "teamRunsAskQuestions", step: true });
+  assert.deepEqual(askTitle(ask("subplan", "implement:T2", { kind: "task", batch: true })), { key: "teams2AskSubplan", step: true });
+  assert.deepEqual(askTitle(ask("questions", "implement:T2", { kind: "task", batch: true })), { key: "teams2AskSubplanQuestions", step: true });
 });
 
 test("a GitHub pull request is named owner/repo#n", () => {
@@ -180,4 +182,25 @@ test("a pull request in conflict or behind its base is said, with the team's upd
   assert.equal(baseUpdate(delivered, conflict, team(done.steps, "running")), null, "the team at work shows its own state");
   assert.equal(baseUpdate({ ...delivered, prState: "merged" }, conflict, done), null, "merged");
   assert.equal(baseUpdate(ticket({ prUrl: delivered.prUrl }), conflict, done), null, "not delivered");
+});
+
+test("a change over several repositories: its own run first, each with where its pull request is", () => {
+  const r = (id, more = {}) => ({ id, status: "running", prUrl: null, prState: null, parent: null, ...more });
+  const pr = "https://github.com/acme/api/pull/8";
+  const runs = [r(1), r(3, { parent: 1, status: "delivered", prUrl: pr }), r(2, { parent: 1 }), r(4), r(5, { parent: 4, status: "closed" })];
+  assert.deepEqual(
+    repoRuns(runs, 1).map((x) => [x.run.id, x.state]),
+    [
+      [1, "working"],
+      [2, "working"],
+      [3, "open"],
+    ],
+  );
+  assert.deepEqual(repoRuns(runs, 2), [], "a run of one repository, or one that works for another");
+  assert.deepEqual(
+    repoRuns(runs, 4).map((x) => x.state),
+    ["working", "gone"],
+  );
+  const merged = repoRuns([r(1), r(2, { parent: 1, status: "closed", prUrl: pr, prState: "merged" })], 1);
+  assert.equal(merged[1].state, "merged");
 });

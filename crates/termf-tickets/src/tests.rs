@@ -1359,6 +1359,136 @@ fn runs_a_request_written_in_termf() {
     );
 }
 
+/// A change over two repositories: one run each, two pull requests that name each other, delivered and closed
+/// repository by repository.
+#[cfg(unix)]
+#[test]
+fn a_change_over_two_repositories_opens_a_pull_request_in_each() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new("two-repos");
+    let gh = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}/gh.log'\ncase \"$*\" in\n\
+         \"pr create --repo=acme/front \"*) echo 'https://github.com/acme/front/pull/7' ;;\n\
+         \"pr create --repo=acme/api \"*) echo 'https://github.com/acme/api/pull/8' ;;\n\
+         \"pr edit \"*) ;;\n*) echo \"unexpected gh call: $*\" >&2; exit 1 ;;\nesac\n",
+        sb.root.display()
+    );
+    fs::write(sb.root.join("gh"), gh).unwrap();
+    fs::set_permissions(sb.root.join("gh"), fs::Permissions::from_mode(0o755)).unwrap();
+    let (front, _) = github_clone(&sb);
+    let bare = sb.root.join("remotes/acme/api.git");
+    fs::create_dir_all(&bare).unwrap();
+    sb.git(&bare, &["init", "-q", "--bare", "-b", "main"]);
+    let seed = sb.repo("api-seed", &path(&bare));
+    sb.git(&seed, &["push", "-q", "origin", "main"]);
+    let api = sb.root.join("repos/api");
+    sb.git(
+        &sb.root,
+        &[
+            "clone",
+            "-q",
+            "https://github.com/acme/api.git",
+            &path(&api),
+        ],
+    );
+    let local = sb.repo("local", "/srv/git/local.git");
+    let bare_repo = sb.root.join("repos/bare");
+    fs::create_dir_all(&bare_repo).unwrap();
+    sb.git(&bare_repo, &["init", "-q", "-b", "main"]);
+    sb.project(
+        "acme",
+        &format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"front\"\npath = {front:?}\n[[repos]]\nname = \"api\"\npath = {api:?}\n\
+             [[repos]]\nname = \"local\"\npath = {local:?}\n[[repos]]\nname = \"bare\"\npath = {bare_repo:?}\n"
+        ),
+    );
+    let t = sb.tickets();
+    let log = || fs::read_to_string(sb.root.join("gh.log")).unwrap_or_default();
+    let run = t
+        .start_request("Export invoices", "acme", Some("front"))
+        .unwrap();
+    assert_eq!(t.github_repo("acme", "API").unwrap(), "acme/api");
+    let refused = t.github_repo("acme", "local").unwrap_err().to_string();
+    assert!(
+        refused.contains("repository local is not on GitHub (its origin is /srv/git/local.git)"),
+        "{refused}"
+    );
+    let refused = t.open_repo(run.id, "bare").unwrap_err().to_string();
+    assert!(
+        refused.contains("repository bare has no remote origin"),
+        "{refused}"
+    );
+
+    let child = t.open_repo(run.id, "api").unwrap();
+    assert_eq!(child.parent, Some(run.id));
+    assert_eq!(child.repo, path(&api));
+    assert_eq!(
+        child.branch, run.branch,
+        "the same branch, in its repository"
+    );
+    assert_eq!(t.open_repo(run.id, "api").unwrap().id, child.id, "once");
+    assert!(
+        t.open_repo(child.id, "front").is_err(),
+        "from the change's own run"
+    );
+    assert_eq!(t.children(run.id).unwrap(), std::slice::from_ref(&child));
+
+    // Delivered on its own first: no other pull request to name yet.
+    let child_tree = PathBuf::from(child.worktree.clone().unwrap());
+    fs::write(child_tree.join("export.rs"), "csv\n").unwrap();
+    let preview = t.deliver_preview(child.id).unwrap();
+    let delivered = t.deliver(child.id, &preview.fingerprint).unwrap();
+    assert_eq!(
+        delivered.run.pr_url.as_deref(),
+        Some("https://github.com/acme/api/pull/8")
+    );
+    assert!(
+        log()
+            .lines()
+            .any(|l| l.starts_with("pr create --repo=acme/api") && l.ends_with("--body=")),
+        "{}",
+        log()
+    );
+    assert_eq!(t.run(run.id).unwrap().status, RunStatus::Running);
+    let empty = t.deliver_preview(run.id).unwrap();
+    let nothing = format!("{:#}", t.deliver(run.id, &empty.fingerprint).unwrap_err());
+    assert!(
+        nothing.contains("in this repository; the change is in run 2"),
+        "{nothing}"
+    );
+
+    // Work left in the change's own repository: nothing of the change closes, its other repositories neither.
+    let tree = PathBuf::from(run.worktree.clone().unwrap());
+    fs::write(tree.join("button.txt"), "Export\n").unwrap();
+    assert!(t.close(run.id, false, || {}).is_err());
+    assert_eq!(t.run(child.id).unwrap().status, RunStatus::Delivered);
+    assert!(child_tree.exists());
+    let preview = t.deliver_preview(run.id).unwrap();
+    let delivered = t.deliver(run.id, &preview.fingerprint).unwrap();
+    assert_eq!(delivered.warning, None);
+    let related = "Pull requests of this change in the other repositories:\n- ";
+    assert!(
+        log().contains(&format!(
+            "--body={related}https://github.com/acme/api/pull/8\n"
+        )),
+        "{}",
+        log()
+    );
+    assert!(
+        log().contains(&format!(
+            "pr edit https://github.com/acme/api/pull/8 --body={related}https://github.com/acme/front/pull/7\n"
+        )),
+        "{}",
+        log()
+    );
+
+    // Closing the change closes the run of each of its repositories.
+    let closed = t.close(run.id, false, || {}).unwrap();
+    assert_eq!(closed.status, RunStatus::Closed);
+    assert_eq!(t.run(child.id).unwrap().status, RunStatus::Closed);
+    assert!(!child_tree.exists() && !tree.exists());
+}
+
 #[test]
 fn writers_keep_each_others_columns() {
     let sb = Sandbox::new("writers");
