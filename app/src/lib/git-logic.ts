@@ -1,5 +1,5 @@
 // No imports but types, so `pnpm test` runs it in plain Node.
-import type { Branch, Change, Pr } from "./git.svelte";
+import type { Branch, Change, Pick as Parts, Pr } from "./git.svelte";
 
 /**
  * One stroke of a graph row. `through`: straight down lane `from`; `in`: from the top of lane `from` to the commit,
@@ -119,4 +119,67 @@ export function tally(changes: Change[], more = 0): { changed: number; conflicts
 export function samePath(a: string, b: string): boolean {
   const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
   return norm(a) === norm(b);
+}
+
+/** A worktree's changes by where they stand: conflicts, then staged (index), then the work tree's and untracked. */
+export function sides(changes: Change[]): { conflicts: Change[]; staged: Change[]; unstaged: Change[] } {
+  const rest = changes.filter((c) => !c.conflict);
+  return {
+    conflicts: changes.filter((c) => c.conflict),
+    staged: rest.filter((c) => c.index !== "." && c.index !== "?"),
+    unstaged: rest.filter((c) => c.tree !== "."),
+  };
+}
+
+/** Picked lines (`hunk:line` keys) as git picks, one per hunk, in order. */
+export function picks(keys: Iterable<string>): Parts[] {
+  const by = new Map<number, number[]>();
+  for (const key of keys) {
+    const [hunk, line] = key.split(":").map(Number);
+    by.set(hunk, [...(by.get(hunk) ?? []), line]);
+  }
+  return [...by].sort(([a], [b]) => a - b).map(([hunk, lines]) => ({ hunk, lines: lines.sort((a, b) => a - b) }));
+}
+
+/** The changed lines from `from` to `to` in a hunk, both included, as `hunk:line` keys (a shift-click range). */
+export function span(hunk: number, lines: { kind: string }[], from: number, to: number): string[] {
+  const [a, b] = from < to ? [from, to] : [to, from];
+  const keys: string[] = [];
+  for (let i = a; i <= b; i++) if (lines[i]?.kind !== " ") keys.push(`${hunk}:${i}`);
+  return keys;
+}
+
+/** Consecutive lines of the same commit, for a blame: where each run starts and how long it is. */
+export function runs(lines: { oid: string }[]): { oid: string; start: number; count: number }[] {
+  const out: { oid: string; start: number; count: number }[] = [];
+  lines.forEach((line, i) => {
+    const last = out[out.length - 1];
+    if (last?.oid === line.oid) last.count++;
+    else out.push({ oid: line.oid, start: i, count: 1 });
+  });
+  return out;
+}
+
+/** A commit's message as a subject and a body. */
+export function splitMessage(message: string): { subject: string; body: string } {
+  const [subject, ...rest] = message.split("\n");
+  return { subject: subject.trim(), body: rest.join("\n").replace(/^\s*\n/, "").trimEnd() };
+}
+
+/** The message git gets: the subject, a blank line, the body. */
+export function joinMessage(subject: string, body: string): string {
+  return body.trim() ? `${subject.trim()}\n\n${body.trimEnd()}` : subject.trim();
+}
+
+/** Not committed yet, in a blame. */
+export function uncommitted(oid: string): boolean {
+  return /^0+$/.test(oid);
+}
+
+/** A worktree's folder relative to the repository's, `/`-separated, when it is inside it; null otherwise. */
+export function within(repo: string, dir: string): string | null {
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+  const [r, d] = [norm(repo), norm(dir)];
+  if (r === d) return "";
+  return d.startsWith(`${r}/`) ? d.slice(r.length + 1) : null;
 }

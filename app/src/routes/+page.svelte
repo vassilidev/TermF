@@ -7,6 +7,7 @@
   import OnboardingView from "$lib/OnboardingView.svelte";
   import ProjectView from "$lib/ProjectView.svelte";
   import RunView from "$lib/RunView.svelte";
+  import ReviewView from "$lib/ReviewView.svelte";
   import HelpSheet from "$lib/HelpSheet.svelte";
   import GuidedTour from "$lib/GuidedTour.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -26,6 +27,7 @@
   import { tickets, watchTickets } from "$lib/tickets.svelte";
   import { setup, watchSetup } from "$lib/onboarding.svelte";
   import { views } from "$lib/views";
+  import { visual, watchVisual } from "$lib/visual.svelte";
 
   let area = $state<HTMLElement>();
 
@@ -40,8 +42,9 @@
     const stopPanes = watchPanes();
     const stopTour = watchTour();
     const stopTeam = watchTeam();
+    const stopVisual = watchVisual();
     const stopSync = watchSync();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopSync());
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopVisual(), stopSync());
   });
 
   function drag(e: PointerEvent) {
@@ -127,6 +130,11 @@
       {#if tickets.selected !== null}
         {#key tickets.selected}
           <Panel view="run"><RunView id={tickets.selected} /></Panel>
+        {/key}
+      {/if}
+      {#if visual.selected !== null}
+        {#key visual.selected}
+          <Panel view="review"><ReviewView id={visual.selected} /></Panel>
         {/key}
       {/if}
       {#if onScreen("onboarding") && setup.project !== null}
