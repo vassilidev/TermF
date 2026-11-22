@@ -544,6 +544,7 @@
   };
   const isDefault = (b: Branch) => onRemote(b) === defaultName;
   const prState = (pr: Pr) => (pr.draft && pr.state === "OPEN" ? "draft" : pr.state.toLowerCase());
+  const prTone = { open: "ok", draft: "", merged: "accent", closed: "danger" } as Record<string, string>;
   const prLabel = (pr: Pr) =>
     t(({ open: "gitPrOpen", draft: "gitPrDraft", merged: "gitPrMerged", closed: "gitPrClosed" } as const)[prState(pr)] ?? "gitPrOpen", { number: pr.number });
 
@@ -583,7 +584,7 @@
       {#if !(shown?.kind === "worktree" && shown.worktree.path === wt.path)}
         <button class="btn sm" onclick={() => ([selected, form] = [{ kind: "worktree", path: wt.path }, null])}>{t("git2SeeFiles")}</button>
       {/if}
-      <button class="btn sm quiet-danger" onclick={() => (aborting = { dir: wt.path, op, open: true })} disabled={!!busy}>
+      <button class="btn sm quiet danger" onclick={() => (aborting = { dir: wt.path, op, open: true })} disabled={!!busy}>
         <Ban size={14} aria-hidden="true" />{t("git2Abort")}
       </button>
       {#if op.kind !== "merge"}
@@ -661,7 +662,7 @@
     <div class="strip">
       <span class="on">
         <GitBranch size={14} aria-hidden="true" />
-        {#if snap.current}<strong class="bname">{snap.current}</strong>{:else}<strong>{t("gitDetached")}</strong>{#if snap.head}<span class="mono muted">{short(snap.head)}</span>{/if}{/if}
+        {#if snap.current}<strong class="bname">{snap.current}</strong>{:else}<strong title={t("uxfT3DetachedHint")}>{t("gitDetached")}</strong>{#if snap.head}<span class="mono muted">{short(snap.head)}</span>{/if}{/if}
       </span>
       {#if current?.upstream}
         <span class="muted">{t("gitTracks", { upstream: current.upstream })}</span>
@@ -749,7 +750,7 @@
           {/each}
         </ul>
         {#if snap.stashes.length}
-          <h2 class="section">{t("git2Stashes")}<span class="n">{snap.stashes.length}</span></h2>
+          <h2 class="section" title={t("uxfT3StashHint")}>{t("git2Stashes")}<span class="n">{snap.stashes.length}</span></h2>
           <ul>
             {#each snap.stashes as st (st.oid)}
               {@const picked = shown?.kind === "stash" && shown.stash.oid === st.oid}
@@ -785,12 +786,12 @@
           <header class="card-head">
             {#if b.remote}<Cloud size={18} aria-hidden="true" />{:else}<GitBranch size={18} aria-hidden="true" />{/if}
             <h2 class="bname">{b.name}</h2>
-            {#if b.current}<span class="tag accent">{t("gitCurrent")}</span>{/if}
+            {#if b.current}<span class="badge accent">{t("gitCurrent")}</span>{/if}
             {#if b.merged !== null && !isDefault(b)}
-              <span class="tag" class:done={b.merged}>{b.merged ? t("gitMerged", { branch: snap.defaultBranch ?? "" }) : t("gitNotMerged", { branch: snap.defaultBranch ?? "" })}</span>
+              <span class="badge" class:ok={b.merged}>{b.merged ? t("gitMerged", { branch: snap.defaultBranch ?? "" }) : t("gitNotMerged", { branch: snap.defaultBranch ?? "" })}</span>
             {/if}
             {#if pr}
-              <button class="tag pr {prState(pr)}" onclick={() => openPr(pr)} title={pr.title}>
+              <button class="badge {prTone[prState(pr)]}" onclick={() => openPr(pr)} title={pr.title}>
                 <GitPullRequest size={12} aria-hidden="true" />{prLabel(pr)}
               </button>
             {/if}
@@ -846,17 +847,17 @@
                 <Pencil size={14} aria-hidden="true" />{t("gitRename")}
               </button>
               {#if b.upstream && b.ahead && b.behind && !isDefault(b)}
-                <button class="btn sm quiet-danger" onclick={() => askForce(b)} disabled={!!busy} title={t("git2ForceHint")}>
+                <button class="btn sm quiet danger" onclick={() => askForce(b)} disabled={!!busy} title={t("git2ForceHint")}>
                   <ArrowBigUpDash size={14} aria-hidden="true" />{t("git2ForcePush")}
                 </button>
               {/if}
               {#if !b.current && !b.worktree}
-                <button class="btn sm quiet-danger" onclick={() => askRemoval(b)} disabled={!!busy}>
+                <button class="btn sm quiet danger" onclick={() => askRemoval(b)} disabled={!!busy}>
                   <Trash size={14} aria-hidden="true" />{t("gitDelete")}
                 </button>
               {/if}
             {:else if !isDefault(b)}
-              <button class="btn sm quiet-danger" onclick={() => (remoteRemoval = { branch: b, open: true })} disabled={!!busy}>
+              <button class="btn sm quiet danger" onclick={() => (remoteRemoval = { branch: b, open: true })} disabled={!!busy}>
                 <Trash size={14} aria-hidden="true" />{t("gitDeleteRemote", { remote: b.remote })}
               </button>
             {/if}
@@ -867,8 +868,8 @@
           <header class="card-head">
             <FolderGit2 size={18} aria-hidden="true" />
             <h2 class:bname={!wt.main}>{wt.main ? t("gitRepoFolder") : where(wt)}</h2>
-            {#if wt.locked}<span class="tag">{t("gitLocked")}</span>{/if}
-            {#if wt.prunable}<span class="tag warn">{t("gitWorktreeGone")}</span>{/if}
+            {#if wt.locked}<span class="badge">{t("gitLocked")}</span>{/if}
+            {#if wt.prunable}<span class="badge warn">{t("gitWorktreeGone")}</span>{/if}
           </header>
           <dl class="meta">
             <dt>{t("gitFolder")}</dt>
@@ -877,7 +878,7 @@
             <dd>{#if wt.branch}<span class="bname">{wt.branch}</span>{:else}{t("gitDetached")} <span class="mono muted">{short(wt.head ?? "")}</span>{/if}</dd>
             {#if run}
               <dt>{t("gitRun")}</dt>
-              <dd><button class="link" onclick={() => showRun(run.id)}>{t("gitRunShort", { id: run.id, key: run.ticket.key })} · {run.title}</button></dd>
+              <dd><button class="btn link" onclick={() => showRun(run.id)}>{t("gitRunShort", { id: run.id, key: run.ticket.key })} · {run.title}</button></dd>
             {/if}
           </dl>
           {#if wt.operation && wt.path !== here?.path}{@render opBox(wt, wt.operation)}{/if}
@@ -938,7 +939,7 @@
               </button>
             {/if}
             {#if snap.current && c.oid !== snap.head}
-              <button class="btn sm quiet-danger" onclick={() => askReset(c)} disabled={!!busy || !!here?.operation}>
+              <button class="btn sm quiet danger" onclick={() => askReset(c)} disabled={!!busy || !!here?.operation}>
                 <Rewind size={14} aria-hidden="true" />{t("git2ResetHere", { branch: snap.current })}
               </button>
             {/if}
@@ -963,11 +964,11 @@
           <header class="card-head">
             <Tag size={18} aria-hidden="true" />
             <h2 class="bname">{tg.name}</h2>
-            <span class="tag">{t(tg.annotated ? "git2Annotated" : "git2Lightweight")}</span>
+            <span class="badge">{t(tg.annotated ? "git2Annotated" : "git2Lightweight")}</span>
           </header>
           <dl class="meta">
             <dt>{t("gitCommit")}</dt>
-            <dd><button class="link mono" onclick={() => pickCommit(tg.target)}>{short(tg.target)}</button>{#if target}<span>{target.subject}</span>{/if}</dd>
+            <dd><button class="btn link mono" onclick={() => pickCommit(tg.target)}>{short(tg.target)}</button>{#if target}<span>{target.subject}</span>{/if}</dd>
             {#if tg.annotated}
               <dt>{t("git2Message")}</dt>
               <dd>{tg.message}</dd>
@@ -979,7 +980,7 @@
             <button class="btn sm" onclick={() => pushTag(tg)} disabled={!!busy || !snap.remotes.length} title={t("git2TagPushHint")}>
               {#if busy === "tag-push"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<ArrowUpFromLine size={14} aria-hidden="true" />{/if}{t("gitPush")}
             </button>
-            <button class="btn sm quiet-danger" onclick={() => askTagRemoval(tg)} disabled={!!busy}>
+            <button class="btn sm quiet danger" onclick={() => askTagRemoval(tg)} disabled={!!busy}>
               <Trash size={14} aria-hidden="true" />{t("gitDelete")}
             </button>
           </div>
@@ -1001,7 +1002,7 @@
               <ArchiveRestore size={14} aria-hidden="true" />{t("git2Pop")}
             </button>
             <button class="btn sm" onclick={() => applyStash(st, false)} disabled={!!busy || !!here?.operation} title={t("git2ApplyHint")}>{t("git2Apply")}</button>
-            <button class="btn sm quiet-danger" onclick={() => (stashRemoval = { stash: st, open: true })} disabled={!!busy}>
+            <button class="btn sm quiet danger" onclick={() => (stashRemoval = { stash: st, open: true })} disabled={!!busy}>
               <Trash size={14} aria-hidden="true" />{t("gitDelete")}
             </button>
           </div>
@@ -1519,20 +1520,17 @@
     color: var(--danger);
   }
 
-  .count.pr.open,
-  .tag.pr.open {
+  .count.pr.open {
     background: var(--done-soft);
     color: var(--done);
   }
 
-  .count.pr.merged,
-  .tag.pr.merged {
+  .count.pr.merged {
     background: var(--accent-soft);
     color: var(--accent-ink);
   }
 
-  .count.pr.closed,
-  .tag.pr.closed {
+  .count.pr.closed {
     background: var(--danger-soft);
     color: var(--danger);
   }
@@ -1565,36 +1563,12 @@
     font-size: var(--text-lg);
   }
 
-  .tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 1px 8px;
-    border: 0;
-    border-radius: var(--radius-pill);
-    background: var(--hover);
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    line-height: 18px;
+  /* No specificity, so a badge's tone keeps its background. */
+  :where(button.badge) {
+    background: none;
   }
 
-  .tag.accent {
-    background: var(--accent);
-    color: var(--accent-text);
-  }
-
-  .tag.done {
-    background: var(--done-soft);
-    color: var(--done);
-  }
-
-  .tag.warn {
-    background: var(--waiting-soft);
-    color: var(--warning);
-  }
-
-  button.tag:hover {
+  button.badge:hover {
     text-decoration: underline;
   }
 
@@ -1629,16 +1603,9 @@
     color: var(--warning);
   }
 
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent-ink);
+  dd .link {
+    white-space: normal;
     text-align: left;
-  }
-
-  .link:hover {
-    text-decoration: underline;
   }
 
   .actions {
@@ -1646,11 +1613,6 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 14px;
-  }
-
-  .quiet-danger:not(:disabled):hover {
-    border-color: var(--danger);
-    color: var(--danger);
   }
 
   .inline-form {

@@ -254,7 +254,7 @@
           <div class="picked-bar">
             <span>{t("git2Picked", { count: picked.length })}</span>
             {#if !staged}
-              <button class="btn sm quiet-danger" onclick={() => askDiscard(c, toPicks(picked))} disabled={!!busy}><Undo2 size={14} aria-hidden="true" />{t("git2DiscardLines")}</button>
+              <button class="btn sm quiet danger" onclick={() => askDiscard(c, toPicks(picked))} disabled={!!busy}><Undo2 size={14} aria-hidden="true" />{t("git2DiscardLines")}</button>
             {/if}
             <button class="btn sm primary" onclick={() => stageParts(toPicks(picked))} disabled={!!busy}>
               {#if staged}<Minus size={14} aria-hidden="true" />{t("git2UnstageLines")}{:else}<Plus size={14} aria-hidden="true" />{t("git2StageLines")}{/if}
@@ -266,7 +266,7 @@
           <GitDiff diff={d} bind:picked>
             {#snippet hunk(hi)}
               {#if !staged}
-                <button class="btn sm quiet-danger" onclick={() => askDiscard(c, [{ hunk: hi, lines: null }])} disabled={!!busy}><Undo2 size={13} aria-hidden="true" />{t("git2DiscardHunk")}</button>
+                <button class="btn sm quiet danger" onclick={() => askDiscard(c, [{ hunk: hi, lines: null }])} disabled={!!busy}><Undo2 size={13} aria-hidden="true" />{t("git2DiscardHunk")}</button>
               {/if}
               <button class="btn sm" onclick={() => stageParts([{ hunk: hi, lines: null }])} disabled={!!busy}>
                 {#if staged}<Minus size={13} aria-hidden="true" />{t("git2UnstageHunk")}{:else}<Plus size={13} aria-hidden="true" />{t("git2StageHunk")}{/if}
@@ -329,7 +329,7 @@
           <label class="check"><input type="checkbox" bind:checked={amend} onchange={toggleAmend} disabled={!!busy} />{t("git2Amend")}</label>
         {/if}
         <span class="muted small">{groups.conflicts.length ? t("git2CommitConflicts") : amend ? t("git2AmendHint") : !groups.staged.length ? t("git2NothingStaged") : ""}</span>
-        <button class="btn sm primary" disabled={!canCommit || !!busy}>
+        <button class="btn primary" disabled={!canCommit || !!busy}>
           {#if busy === "commit"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{t(amend ? "git2AmendButton" : "git2CommitButton")}
         </button>
       </div>
@@ -340,7 +340,7 @@
     <h3 class="group">
       {t("git2Unstaged")}<span class="n">{groups.unstaged.length}</span>
       {#if !stashing}
-        <button class="btn sm quiet stash" onclick={() => (stashing = { message: "", untracked: false })} disabled={!!busy}><Archive size={14} aria-hidden="true" />{t("git2Stash")}</button>
+        <button class="btn sm quiet stash" onclick={() => (stashing = { message: "", untracked: false })} disabled={!!busy} title={t("uxfT3StashHint")}><Archive size={14} aria-hidden="true" />{t("git2Stash")}</button>
       {/if}
     </h3>
     {#if stashing}
@@ -528,8 +528,7 @@
     font-size: var(--text-xs);
   }
 
-  .danger-hover:not(:disabled):hover,
-  .quiet-danger:not(:disabled):hover {
+  .danger-hover:not(:disabled):hover {
     border-color: var(--danger);
     color: var(--danger);
   }
