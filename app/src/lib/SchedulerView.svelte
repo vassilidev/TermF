@@ -246,7 +246,6 @@
             {#if !sessionLoops.length}
               <p class="notice">{t("loopsSchedulerEmpty")}</p>
             {:else}
-              <p class="muted">{t("loopsReminder")}</p>
               <ul class="desktop">
                 {#each sessionLoops as { session, loop } (`${session.id}:${loop.id}`)}
                   {@const make = toTask(session, loop)}
