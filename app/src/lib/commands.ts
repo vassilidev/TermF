@@ -80,6 +80,8 @@ import { team, waitingRuns } from "$lib/team.svelte";
 import { startTour } from "$lib/tour.svelte";
 import { dispatchWorkflow } from "$lib/ci.svelte";
 import { views } from "$lib/views";
+import { visual } from "$lib/visual.svelte";
+import { waiting as reviewsWaiting } from "$lib/visual-logic";
 
 export { rank, type Command } from "$lib/nav-logic";
 export { keys } from "$lib/keymap.svelte";
@@ -157,6 +159,25 @@ export function closeRun() {
   const back = usable(runBack);
   const how = leave({ ...panes, view: ui.view }, "run", back);
   if (how === "close") closePanel("run");
+  else if (how === "back") ui.view = back;
+}
+
+let reviewBack: ViewId = "run";
+
+/** Opens a visual review's page, in its project; going back returns where it was opened from. */
+export function showReview(id: number) {
+  const project = visual.reviews.find((r) => r.id === id)?.project;
+  if (project && app.project !== null && project !== app.project) setProject(project);
+  if (ui.view !== "review") reviewBack = ui.view;
+  ui.switcher = false;
+  visual.selected = id;
+  ui.view = "review";
+}
+
+export function closeReview() {
+  const back = usable(reviewBack === "run" && tickets.selected === null ? "home" : reviewBack);
+  const how = leave({ ...panes, view: ui.view }, "review", back);
+  if (how === "close") closePanel("review");
   else if (how === "back") ui.view = back;
 }
 
@@ -328,6 +349,9 @@ export function commands(): Command[] {
     list.push({ id: "project-setup", label: t("obPalette", { project: name }), icon: WandSparkles, group: "projects", run: () => openSetup(id) });
     list.push({ id: "cto", label: t("ctoTalkTo", { project: name }), keys: keys.cto, icon: MessageSquareText, group: "projects", run: talkCto });
     list.push({ id: "expert", label: t("expertTalkTo", { project: name }), icon: BrainCircuit, group: "projects", run: showExpert });
+  }
+  for (const r of reviewsWaiting(visual.reviews, app.project)) {
+    list.push({ id: `review-${r.id}`, label: t("review5bCommand", { title: r.title }), icon: Images, group: "projects", run: () => showReview(r.id) });
   }
 
   if (waitingSessions().length || waitingAgents().length || waitingRuns().length) {

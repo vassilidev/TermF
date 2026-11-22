@@ -8,6 +8,7 @@
   import BellRing from "@lucide/svelte/icons/bell-ring";
   import Check from "@lucide/svelte/icons/check";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import Images from "@lucide/svelte/icons/images";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
@@ -24,7 +25,8 @@
   import TeamRouting from "$lib/TeamRouting.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import { showConversation } from "$lib/agents.svelte";
-  import { showRun } from "$lib/commands";
+  import { showReview, showRun } from "$lib/commands";
+  import { outcomeText, reviewOf } from "$lib/visual.svelte";
   import { t } from "$lib/i18n";
   import { awaitsDelivery } from "$lib/run-logic";
   import { TRIAGE, asks, isForm, passes, rounds, LEAVE, type Ask, type Question, type Step, type TeamRun } from "$lib/team-run-logic";
@@ -67,6 +69,17 @@
   const connector = $derived(run.steps.find((s) => s.kind === "connector"));
   const late = $derived(!!ticket && awaitsDelivery(ticket, run) && (step === undefined || step === connector?.key));
   const showing = $derived(waits.length > 0 || late || delivering || !!error);
+  const review = $derived(reviewOf(run.run));
+  const lastReview = $derived(review?.versions.at(-1));
+  const reviewDecides = $derived(!!lastReview && lastReview.state !== "failed");
+  const reviewLine = $derived.by(() => {
+    if (!review || !lastReview) return "";
+    const left = lastReview.screens.filter((s) => s.decision === "pending").length;
+    if (lastReview.state === "capturing") return t("review5bCapturing", { n: lastReview.n });
+    if (lastReview.state === "failed") return t("review5bFailed", { n: lastReview.n });
+    if (lastReview.state === "done") return outcomeText(review, lastReview);
+    return left ? t("review5bLeft", { count: left }) : t("review5bUnsent");
+  });
   let shown = false;
   $effect(() => {
     // Once this update is drawn: the caller may drop this very card.
@@ -320,6 +333,9 @@
               {:else if run.plan}
                 <div class="box"><RunPlan {run} /></div>
               {/if}
+            {:else if ask.kind === "visual" && review}
+              <p class="help">{t("review5bAskHelp")}</p>
+              {#if reviewLine}<p class="muted">{reviewLine}</p>{/if}
             {:else if ask.kind === "visual"}
               <p class="help">{t("teamRunsAskVisualHelp")}</p>
             {/if}
@@ -330,18 +346,26 @@
                 {#if ask.kind === "plan" && compact && run.plan}
                   <button class="btn sm quiet left" onclick={() => showRun(run.run)}>{t("ux3t2SeePlan")}</button>
                 {/if}
-                {#if ask.kind === "visual"}
-                  <button class="btn sm" disabled={!!busy} onclick={() => (refusing = true)}>
-                    <X size={14} aria-hidden="true" />{t("teamRunsRefuse")}
+                {#if ask.kind === "visual" && review}
+                  <button class="btn sm" class:primary={primary && reviewDecides} onclick={() => review && showReview(review.id)}>
+                    <Images size={14} aria-hidden="true" />{t("review5bOpen")}
                   </button>
                 {/if}
-                <button class="btn sm" disabled={!!busy} onclick={() => (changing = key)}>
-                  <MessageSquareText size={14} aria-hidden="true" />{t("teamRunsAskChanges")}
-                </button>
-                {@render approveButton(
-                  key,
-                  t(ask.kind === "plan" ? "teamRunsApprovePlan" : ask.kind === "visual" ? "teamRunsValidate" : "teamRunsApprove"),
-                )}
+                <!-- The review decides the gate, on its page; past a failed capture, the gate's own buttons are back. -->
+                {#if !(ask.kind === "visual" && reviewDecides)}
+                  {#if ask.kind === "visual"}
+                    <button class="btn sm" disabled={!!busy} onclick={() => (refusing = true)}>
+                      <X size={14} aria-hidden="true" />{t("teamRunsRefuse")}
+                    </button>
+                  {/if}
+                  <button class="btn sm" disabled={!!busy} onclick={() => (changing = key)}>
+                    <MessageSquareText size={14} aria-hidden="true" />{t("teamRunsAskChanges")}
+                  </button>
+                  {@render approveButton(
+                    key,
+                    t(ask.kind === "plan" ? "teamRunsApprovePlan" : ask.kind === "visual" ? "teamRunsValidate" : "teamRunsApprove"),
+                  )}
+                {/if}
               </div>
             {/if}
           {/if}
