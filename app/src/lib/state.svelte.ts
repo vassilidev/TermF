@@ -278,17 +278,24 @@ export async function setKeepAwake(mode: KeepAwakeMode, displayOn: boolean): Pro
 }
 
 /** Opens `agent` (or a login shell when null) in each repository. Returns the ids of the sessions opened. */
-export async function openRepos(paths: string[], agent: string | null): Promise<number[]> {
+export async function openRepos(paths: string[], agent: string | null, hold?: (id: number) => void): Promise<number[]> {
   const ids = [];
   for (const path of paths) {
-    const id = await openSession(path, agent);
+    const id = await openSession(path, agent, hold);
     if (id !== null) ids.push(id);
   }
   return ids;
 }
 
-/** Returns the session's id, null when it could not open. */
-export async function openSession(path: string, agent: string | null): Promise<number | null> {
+/**
+ * Returns the session's id, null when it could not open. It goes in a new tab, unless `hold` takes it for its caller to
+ * place.
+ */
+export async function openSession(
+  path: string,
+  agent: string | null,
+  hold?: (id: number) => void,
+): Promise<number | null> {
   try {
     const session = await invoke<Session>("pty_spawn", {
       agent,
@@ -299,7 +306,8 @@ export async function openSession(path: string, agent: string | null): Promise<n
       remoteControl: launch.remoteControl,
     });
     app.sessions.push(session);
-    place(session.id);
+    if (hold) hold(session.id);
+    else place(session.id);
     reveal(path);
     return session.id;
   } catch (e) {

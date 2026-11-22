@@ -71,17 +71,23 @@
     [keys.quick, t("quickTerminal")],
   ]);
 
-  /** Drags a border between splits; it follows the pointer from where it started, within the splits' minimum. */
+  /**
+   * Drags a border between splits; it follows the pointer from where it started, within the splits' minimum. Anything
+   * else that changes the tab meanwhile (a split opening, a shortcut) ends the drag rather than being undone.
+   */
   function drag(e: PointerEvent, d: Divider) {
     const target = tab;
     if (!target || !panes || e.button !== 0) return;
     const handle = e.currentTarget as HTMLElement;
     handle.setPointerCapture(e.pointerId);
     const start = target.root;
+    let last = target.root;
     const from = d.dir === "row" ? e.clientX : e.clientY;
     const size = d.dir === "row" ? panes.clientWidth * d.box.w : panes.clientHeight * d.box.h;
     const move = (m: PointerEvent) => {
+      if (target.root !== last) return end();
       target.root = resizeAt(start, d.path, d.i, ((d.dir === "row" ? m.clientX : m.clientY) - from) / size);
+      last = target.root;
     };
     const end = () => {
       handle.removeEventListener("pointermove", move);
@@ -125,7 +131,7 @@
           aria-haspopup="dialog"
           aria-expanded={ui.launcher}
           aria-keyshortcuts={aria("new_session")}
-          onclick={() => openLauncher()}
+          onclick={() => (ui.launcher ? (ui.launcher = false) : openLauncher())}
         >
           <Plus size={14} aria-hidden="true" />{t("navNewSession")}{#if keys.launcher}<kbd>{keys.launcher}</kbd>{/if}
         </button>

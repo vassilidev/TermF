@@ -234,6 +234,11 @@ export function relabel(p: Pane, map: (id: number) => number | null): Pane | nul
   return children.length ? flat(p.dir, sizes, children) : null;
 }
 
+/** The split to go to in a tab: `active` when `shown`, else the first shown one (else `active` all the same). */
+export function entry(p: Pane, active: number, shown: (id: number) => boolean): number {
+  return shown(active) ? active : (leaves(p).find(shown) ?? active);
+}
+
 /** `list` with the item at `from` moved to `to`. */
 export function move<T>(list: T[], from: number, to: number): T[] {
   const next = [...list];

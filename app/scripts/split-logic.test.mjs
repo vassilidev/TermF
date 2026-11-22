@@ -4,6 +4,7 @@ import {
   decode,
   dividers,
   encode,
+  entry,
   equalize,
   focus,
   grid,
@@ -130,6 +131,15 @@ test("a saved tree reads back over the same sessions, and anything else is refus
   ]) {
     assert.equal(decode(bad, 2), null, bad);
   }
+});
+
+test("going to a tab picks a split the current project shows", () => {
+  const all = () => true;
+  assert.equal(entry(three(), 2, all), 2);
+  // 2 belongs to another project: the first split shown instead, so the project stays.
+  assert.equal(entry(three(), 2, (id) => id !== 2), 1);
+  assert.equal(entry(three(), 1, (id) => id === 3), 3);
+  assert.equal(entry(three(), 2, () => false), 2);
 });
 
 test("tabs move by dragging", () => {

@@ -8,7 +8,7 @@
   import { aria } from "$lib/keymap.svelte";
   import { sessionProjects } from "$lib/project.svelte";
   import { leaves } from "$lib/split-logic";
-  import { closeTab, currentTab, moveTab, tabName, terminals, visibleTabs, type Tab } from "$lib/tabs.svelte";
+  import { closeTab, currentTab, entryOf, moveTab, tabName, terminals, visibleTabs, type Tab } from "$lib/tabs.svelte";
   import { app, grid, type Session } from "$lib/state.svelte";
 
   const list = $derived(visibleTabs());
@@ -36,7 +36,7 @@
   }
 
   const select = async (tab: Tab) => {
-    await focusSession(tab.active);
+    await focusSession(entryOf(tab));
   };
 
   async function close(tab: Tab) {
@@ -242,17 +242,17 @@
     min-width: 0;
     height: 100%;
     padding: 0 26px 0 12px;
-  }
-
-  /* The shortcut keeps the room of the close button, which takes its place on hover and on the current tab. */
-  [role="tab"]:has(kbd) {
-    padding-right: 6px;
     border: 0;
     background: none;
     color: var(--muted);
     font-size: var(--text-sm);
     font-weight: 500;
     white-space: nowrap;
+  }
+
+  /* The shortcut keeps the room of the close button, which takes its place on hover and on the current tab. */
+  [role="tab"]:has(kbd) {
+    padding-right: 6px;
   }
 
   [role="tab"]:hover,

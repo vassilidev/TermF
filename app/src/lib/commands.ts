@@ -121,7 +121,7 @@ export async function openLauncher(side: Side | null = null) {
   else if (app.sessions.some(shown)) ui.launcher = !same;
 }
 
-const goTo = (tab: tabs.Tab | undefined) => tab && focusSession(tab.active);
+const goTo = (tab: tabs.Tab | undefined) => tab && focusSession(tabs.entryOf(tab));
 
 function moveFocus(side: Side) {
   const id = activeSession();
@@ -256,7 +256,8 @@ export function commands(): Command[] {
       id: `session-${s.id}`,
       label: s.title,
       hint: !s.running ? t("exitedLabel") : s.status ? t(statusLabel[s.status]) : undefined,
-      keys: i >= 0 && i < 9 ? keys.tile(i + 1) : undefined,
+      // ⌘n goes to the tab's entry split: only that session shows it.
+      keys: tab && i >= 0 && i < 9 && tabs.entryOf(tab) === s.id ? keys.tile(i + 1) : undefined,
       icon: ArrowRight,
       group: "sessions",
       run: () => focusSession(s.id),

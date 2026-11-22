@@ -26,10 +26,14 @@ export const terminals = $state({
 });
 
 let nextId = 1;
-/** The sessions opening together, placed once they have all opened. */
-let batch: number[] | null = null;
+/** Sessions opened for a caller that places them itself: `reconcile` leaves them alone meanwhile. */
+const held = new Set<number>();
 
 const sessionOf = (id: number): Session | undefined => app.sessions.find((s) => s.id === id);
+const isShown = (id: number) => {
+  const s = sessionOf(id);
+  return !!s && shown(s);
+};
 
 export function tabOf(id: number): Tab | undefined {
   return terminals.tabs.find((tab) => split.leaves(tab.root).includes(id));
@@ -37,13 +41,11 @@ export function tabOf(id: number): Tab | undefined {
 
 /** The tabs under the current project: those with a session it shows. */
 export function visibleTabs(): Tab[] {
-  return terminals.tabs.filter((tab) =>
-    split.leaves(tab.root).some((id) => {
-      const s = sessionOf(id);
-      return !!s && shown(s);
-    }),
-  );
+  return terminals.tabs.filter((tab) => split.leaves(tab.root).some(isShown));
 }
+
+/** The split a tab opens on, so that going to it never changes the current project. */
+export const entryOf = (tab: Tab) => split.entry(tab.root, tab.active, isShown);
 
 export function currentTab(): Tab | undefined {
   const list = visibleTabs();
@@ -72,17 +74,16 @@ function adopt(id: number): Tab {
   return tabOf(id) ?? newTab(id, id);
 }
 
-/** Where `openSession` puts a session: with those opening together, else in a new tab brought to the front. */
+/** Where `openSession` puts a session nobody holds: in a new tab brought to the front. */
 export function place(id: number) {
-  if (batch) batch.push(id);
-  else terminals.current = adopt(id).id;
+  terminals.current = adopt(id).id;
 }
 
 /** Keeps the tabs in step with the sessions: a closed one leaves its split, one opened elsewhere gets a tab. */
 export function reconcile() {
   const ids = new Set(app.sessions.map((s) => s.id));
   terminals.tabs.flatMap((tab) => split.leaves(tab.root)).filter((id) => !ids.has(id)).forEach(drop);
-  for (const id of ids) if (!batch?.includes(id)) adopt(id);
+  for (const id of ids) if (!held.has(id)) adopt(id);
 }
 
 /** Takes `id` out of its tab; the next split (else the previous) becomes active, and an empty tab goes. */
@@ -101,15 +102,22 @@ function drop(id: number) {
   if (typeof root === "number") tab.zoom = false;
 }
 
-/** Runs `open` with the sessions it opens kept out of the tabs, then hands them to `put` before anything else runs. */
-async function together(open: () => Promise<unknown>, put: (ids: number[]) => void) {
+/**
+ * Runs `open`, which passes `hold` to `openSession` so that what it opens stays out of the tabs, then hands those still
+ * open to `put` before anything else runs. Each call holds only its own sessions, and one `put` leaves out gets a tab.
+ */
+async function together(open: (hold: (id: number) => void) => Promise<unknown>, put: (ids: number[]) => void) {
   const ids: number[] = [];
-  batch = ids;
   try {
-    await open();
+    await open((id) => {
+      held.add(id);
+      ids.push(id);
+    });
   } finally {
-    batch = null;
-    if (ids.length) put(ids);
+    ids.forEach((id) => held.delete(id));
+    const alive = ids.filter((id) => sessionOf(id));
+    if (alive.length) put(alive);
+    alive.forEach(adopt);
   }
 }
 
@@ -118,7 +126,7 @@ export async function openFrom(paths: string[], agent: string | null, side: Side
   const target = side ? currentTab() : undefined;
   let last: number | null = null;
   await together(
-    () => openRepos(paths, agent),
+    (hold) => openRepos(paths, agent, hold),
     (ids) => {
       last = ids[ids.length - 1];
       const tab = target && tabOf(target.active);
@@ -152,14 +160,18 @@ export async function openLayout(layout: Layout) {
     if (root === null) continue;
     const opened = new Map<number, number>();
     await together(
-      async () => {
+      async (hold) => {
         for (const i of split.leaves(root)) {
-          const id = await openSession(layout.sessions[i].path, layout.sessions[i].agent);
+          const id = await openSession(layout.sessions[i].path, layout.sessions[i].agent, hold);
           if (id !== null) opened.set(i, id);
         }
       },
       (ids) => {
-        const tab = newTab(split.relabel(root, (i) => opened.get(i) ?? null) ?? ids[0], ids[0]);
+        const tree = split.relabel(root, (i) => {
+          const id = opened.get(i);
+          return id !== undefined && ids.includes(id) ? id : null;
+        });
+        const tab = newTab(tree ?? ids[0], ids[0]);
         tab.name = name;
         if (first) terminals.current = tab.id;
         first = false;
@@ -211,7 +223,8 @@ export async function close(id: number, sure = false): Promise<number | null> {
   const tab = tabOf(id);
   const tabs = visibleTabs();
   const after = tab ? (tabs[tabs.indexOf(tab) + 1] ?? tabs[tabs.indexOf(tab) - 1]) : undefined;
-  const next = tab ? (neighbour(split.leaves(tab.root), id) ?? after?.active ?? null) : null;
+  const order = tab ? split.leaves(tab.root).filter((l) => l === id || isShown(l)) : [];
+  const next = neighbour(order, id) ?? (after ? entryOf(after) : null);
   drop(id);
   await closeSession(id);
   return next;
@@ -224,7 +237,7 @@ export async function closeTab(tab: Tab): Promise<number | null> {
   const ids = split.leaves(tab.root);
   terminals.tabs.splice(terminals.tabs.indexOf(tab), 1);
   await Promise.all(ids.map(closeSession));
-  return after?.active ?? null;
+  return after ? entryOf(after) : null;
 }
 
 /** The tab `step` away from the current one, among those shown, round the ends. */
