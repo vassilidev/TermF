@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 termf-agents = { path = "../../crates/termf-agents" }
 termf-ci = { path = "../../crates/termf-ci" }
@@ -55,6 +55,11 @@ semver = "1.0.28"
 block2 = "0.6.2"
 objc2 = "0.6.5"
 objc2-foundation = "0.3.2"
+
+# Checks that the tray icon's library is there before Tauri loads it, which aborts without it; already in the lockfile
+# through tray-icon.
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.7.4"
 
 # Windows Hello, through UserConsentVerifier; the same `windows` crate as Tauri's.
 [target.'cfg(windows)'.dependencies]
