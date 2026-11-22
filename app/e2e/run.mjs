@@ -1,5 +1,6 @@
-// `pnpm e2e [part of a scenario's name | perf]`: drives the real app (debug build) through tauri-driver, on Linux
-// and Windows. Each scenario gets its own sandbox and app; a failed one runs once more, with the reason logged.
+// `pnpm e2e [part of a scenario's name | perf]`: drives the real app (debug build) through tauri-driver on Linux,
+// through the app's own bridge on macOS. Each scenario gets its own sandbox and app; a failed one runs once more,
+// with the reason logged.
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

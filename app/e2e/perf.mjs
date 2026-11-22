@@ -1,4 +1,5 @@
-// The performance budgets of ARCHITECTURE §2.4, measured on the real app. Linux reads /proc; Windows asks CIM.
+// The performance budgets of ARCHITECTURE §2.4, measured on the real app. Linux reads /proc; Windows asks CIM;
+// macOS asks ps.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
