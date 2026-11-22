@@ -11,9 +11,10 @@
 //                                  what follows `--` goes to `claude plugin eval` and wins over the defaults
 //   pnpm evals --dry-run           build the plugins and print the commands, run nothing
 //
-// Exit code: 0 every case passed, 1 a case failed or a suite could not run, 2 the budget stopped the runs.
+// Exit code: 0 every case passed; 1 a case failed or a suite could not run, even if the budget stopped others; else
+// 2 the budget stopped the runs.
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -68,7 +69,19 @@ export function rolePrompt(text, name) {
 
 /** `prompt.md` with `system` appended to the session's system prompt; a JSON string is a YAML scalar. */
 export function withSystemPrompt(prompt, system) {
-  return prompt.replace(/^---\r?\n/, `---\nappend_system_prompt: ${JSON.stringify(system)}\n`);
+  const line = `append_system_prompt: ${JSON.stringify(system)}\n`;
+  const head = frontmatter(prompt);
+  if (!head) return `---\n${line}---\n\n${prompt}`;
+  if (/^append_system_prompt\s*:/m.test(head[1])) {
+    throw new Error("a case sets append_system_prompt itself: TermF's role and cards would be lost");
+  }
+  return prompt.replace(/^---\r?\n/, `---\n${line}`);
+}
+
+/** 1 when a suite that ran failed, else 2 when the budget stopped one, else 0. */
+export function exitCode(results) {
+  if (results.some((r) => !r.skipped && r.exit !== 0 && r.exit !== 2)) return 1;
+  return results.some((r) => r.skipped || r.exit === 2) ? 2 : 0;
 }
 
 /** The `## Stack` section of a session with these skills: each one's card under its name, as TermF writes it. */
@@ -124,7 +137,7 @@ export function command(dir, out, { grants, scaffold }, budget, extra) {
   return [...args, ...extra];
 }
 
-function main(argv) {
+export function main(argv) {
   const dash = argv.indexOf("--");
   const own = dash < 0 ? argv : argv.slice(0, dash);
   const extra = dash < 0 ? [] : argv.slice(dash + 1);
@@ -156,6 +169,8 @@ function main(argv) {
       results.push({ suite: suite.name, skipped: "budget" });
       continue;
     }
+    // An earlier run's report there would be read as this one's.
+    rmSync(join(out, suite.name), { recursive: true, force: true });
     const plugin = join(out, suite.name, "plugin");
     const report = join(out, suite.name, "results");
     const args = command(plugin, report, build(suite, plugin), left, extra);
@@ -163,7 +178,8 @@ function main(argv) {
     if (dry) continue;
     const run = spawnSync("claude", args, { stdio: "inherit", cwd: plugin });
     const result = JSON.parse(read(join(report, "aggregate-result.json")) || "null");
-    spent += result?.costUsd ?? 0;
+    // Without a report, what it spent is unknown: count all it was allowed.
+    spent += result ? (result.costUsd ?? 0) : left;
     results.push({
       suite: suite.name,
       exit: run.status ?? run.error?.message,
@@ -187,8 +203,7 @@ function main(argv) {
     console.log(`${r.suite.padEnd(22)}${cases.padEnd(8)}${cost}`);
   }
   console.log(`\n$${spent.toFixed(2)} in all · reports in ${out}${sep}<suite>${sep}results`);
-  if (results.some((r) => r.skipped || r.exit === 2)) return 2;
-  return results.every((r) => r.exit === 0) ? 0 : 1;
+  return exitCode(results);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) process.exit(main(process.argv.slice(2)));

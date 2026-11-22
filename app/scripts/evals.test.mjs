@@ -1,9 +1,51 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { KEY, build, command, rolePrompt, suites } from "./evals.mjs";
+import { delimiter, join } from "node:path";
+import { KEY, build, command, exitCode, main, rolePrompt, suites, withSystemPrompt } from "./evals.mjs";
+
+test("the system prompt goes into a frontmatter, made when missing, never over a case's own", () => {
+  const line = 'append_system_prompt: "## Stack"';
+  assert.equal(withSystemPrompt("Do it.\n", "## Stack"), `---\n${line}\n---\n\nDo it.\n`);
+  assert.equal(withSystemPrompt("---\nmax_turns: 5\n---\nDo it.\n", "## Stack"), `---\n${line}\nmax_turns: 5\n---\nDo it.\n`);
+  assert.throws(() => withSystemPrompt("---\nappend_system_prompt: mine\n---\nDo it.\n", "## Stack"), /sets append_system_prompt/);
+});
+
+test("a failed suite fails the run even when the budget stopped others", () => {
+  assert.equal(exitCode([{ exit: 0 }, { skipped: "budget" }]), 2);
+  assert.equal(exitCode([{ exit: 1 }, { skipped: "budget" }]), 1);
+  assert.equal(exitCode([{ exit: 2 }]), 2);
+  assert.equal(exitCode([{ exit: null }, { exit: 0 }]), 1);
+  assert.equal(exitCode([{ exit: 0 }]), 0);
+});
+
+test(
+  "a suite that dies without a report reads no older one and counts all it was allowed",
+  { skip: process.platform === "win32" && "a fake claude needs a POSIX shell" },
+  () => {
+    const bin = mkdtempSync(join(tmpdir(), "termf-evals-bin-"));
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(bin, "claude"), 0o755);
+    const out = mkdtempSync(join(tmpdir(), "termf-evals-out-"));
+    mkdirSync(join(out, "rust", "results"), { recursive: true });
+    const old = { costUsd: 0.01, aggregates: { casesPassed: 3, casesTotal: 3 }, cases: [] };
+    writeFileSync(join(out, "rust", "results", "aggregate-result.json"), JSON.stringify(old));
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    try {
+      assert.equal(main(["rust", "python", "--budget", "1", "--out", out]), 1);
+    } finally {
+      process.env.PATH = path;
+    }
+    const summary = JSON.parse(readFileSync(join(out, "summary.json"), "utf8"));
+    assert.equal(summary.spent, 1);
+    assert.deepEqual(
+      summary.results.map((r) => r.skipped ?? `${r.passed}/${r.total}`),
+      ["0/0", "budget"],
+    );
+  },
+);
 
 test("every key suite has evals", () => {
   const names = suites().map((s) => s.name);
