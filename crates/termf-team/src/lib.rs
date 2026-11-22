@@ -47,6 +47,7 @@ const ATTEMPTS: u32 = 2;
 const SHELL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Never allowed to a team's agent: TermF pushes once the user delivers.
 const DENIED: [&str; 3] = ["Bash(git push:*)", "Bash(gh pr:*)", "Bash(termf:*)"];
+const READ_ONLY: [&str; 3] = ["Edit", "Write", "NotebookEdit"];
 const CONTINUE: &str = "TermF stopped while you were working on this step. Go on with it from where the worktree is, then end with your report.";
 /// The CTO's first step of every run, and the gate where the user approves its routing.
 pub const TRIAGE: &str = "triage";
@@ -194,6 +195,9 @@ pub struct Step {
     /// A `review` step's rounds before the user last sent the work back: its rounds count from there.
     #[serde(default)]
     pub review_base: u32,
+    /// Runs only when a task changed a file these globs match.
+    #[serde(default)]
+    pub paths: Vec<String>,
     /// The agent session of the current attempt, and of every attempt.
     pub session: Option<i64>,
     pub sessions: Vec<i64>,
@@ -235,6 +239,7 @@ impl Step {
             effort: None,
             rounds: None,
             review_base: 0,
+            paths: Vec::new(),
             session: None,
             sessions: Vec::new(),
             after: 0,
@@ -2405,6 +2410,20 @@ impl Inner {
                 self.shell(run.run, key, command, run.target.worktree.clone());
             }
             StepKind::Agent | StepKind::Task | StepKind::Review => {
+                let paths = &run.steps[i].paths;
+                if !paths.is_empty() {
+                    let touched = run
+                        .steps
+                        .iter()
+                        .filter(|s| s.kind == StepKind::Task)
+                        .flat_map(|s| &s.files)
+                        .any(|f| paths.iter().any(|p| rules::glob(p, f)));
+                    if !touched {
+                        let note = format!("no task changed {}", paths.join(", "));
+                        self.skip(store, run, i, &note);
+                        return Ok(true);
+                    }
+                }
                 if run.steps[i].kind == StepKind::Review && !self.review_on(store, run, i) {
                     return Ok(true);
                 }
@@ -2797,7 +2816,16 @@ impl Inner {
             // Nobody watches a step to approve each edit; the role says otherwise when it must.
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
-            disallowed_tools: DENIED.iter().map(|d| d.to_string()).collect(),
+            // A review changes nothing, whatever its role may do in a task.
+            disallowed_tools: DENIED
+                .iter()
+                .chain(if step.kind == StepKind::Review {
+                    &READ_ONLY[..]
+                } else {
+                    &[]
+                })
+                .map(|d| d.to_string())
+                .collect(),
             // The ticket is untrusted, as in a ticket run's tile: the same hook refuses what `DENIED` misses.
             guard: true,
             rules: levels,
@@ -3186,6 +3214,7 @@ fn build_steps(defs: Vec<(String, workflow::StepDef)>) -> Vec<Step> {
             step.run = def.run;
             step.prompt = def.prompt;
             step.rounds = def.rounds;
+            step.paths = def.paths;
             step.budget = def.budget_usd.or_else(|| {
                 let budget = def.step.as_ref()?.get("budget_usd")?;
                 budget.as_float().or(budget.as_integer().map(|b| b as f64))

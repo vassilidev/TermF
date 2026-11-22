@@ -16,7 +16,7 @@ use crate::plan::{Question, Size, object, questions_schema, strings};
 use crate::workflow::{StepKind, Workflow};
 
 /// What a request may be.
-pub const KINDS: [&str; 12] = [
+pub const KINDS: [&str; 19] = [
     "urgent-bug",
     "bug",
     "feature",
@@ -28,6 +28,13 @@ pub const KINDS: [&str; 12] = [
     "brand",
     "copy",
     "motion",
+    "database",
+    "integration",
+    "reliability",
+    "accessibility",
+    "ai",
+    "analytics",
+    "legal",
     "other",
 ];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];

@@ -101,6 +101,10 @@ fn kept(team: &Team) -> Vec<(&str, bool, &str)> {
         .collect()
 }
 
+fn detail<'a>(team: &'a Team, role: &str) -> &'a [String] {
+    &team.roles.iter().find(|r| r.role == role).unwrap().detail
+}
+
 fn composition(team: &Team) -> &Composition {
     team.proposal.team.as_ref().unwrap()
 }
@@ -201,21 +205,35 @@ fn proposes_a_team_for_each_kind_of_project() {
     assert_eq!(
         kept(&simple),
         [
+            ("a11y", true, "ui"),
+            ("ai", false, "no-llm"),
+            ("analytics", false, "no-analytics"),
             ("architect", true, "design"),
             ("back", false, "no-back"),
             ("brand", true, "ui"),
             ("copy", true, "ui"),
+            ("dba", false, "no-data"),
             ("devops", true, "infra"),
+            ("docs", false, "no-docs"),
             ("front", true, "front"),
+            ("integrations", false, "no-integrations"),
+            ("legal", true, "web"),
             ("motion", true, "web"),
             ("qa", true, "tests"),
             ("seo", true, "web"),
+            ("sre", false, "no-service"),
             ("ux", true, "ui"),
         ]
     );
-    assert_eq!(simple.roles[5].detail, ["shop"]);
-    assert_eq!(simple.roles[2].detail, ["shop"], "brand: the interface");
-    assert_eq!(simple.roles[6].detail, ["shop"], "motion: the public site");
+    for (role, why) in [
+        ("front", ""),
+        ("brand", "the interface"),
+        ("a11y", "the interface"),
+        ("motion", "the public site"),
+        ("legal", "the public site"),
+    ] {
+        assert_eq!(detail(&simple, role), ["shop"], "{role}: {why}");
+    }
     assert_eq!(
         simple.steps,
         ["cto", "lead", "pm", "po", "reviewer", "secops"]
@@ -232,7 +250,16 @@ fn proposes_a_team_for_each_kind_of_project() {
     );
     assert_eq!(
         composition(&simple).staff,
-        ["architect", "brand", "copy", "motion", "seo", "ux"]
+        [
+            "a11y",
+            "architect",
+            "brand",
+            "copy",
+            "legal",
+            "motion",
+            "seo",
+            "ux"
+        ]
     );
     assert_eq!(simple.proposal.workflow.as_deref(), Some("default"));
     assert_eq!(writes(&simple, "qa"), Some(strings(&["**/*.test.*"])));
@@ -278,10 +305,17 @@ fn proposes_a_team_for_each_kind_of_project() {
     );
     assert_eq!(
         composition(&mono).staff,
-        ["architect", "brand", "copy", "ux"],
+        ["a11y", "architect", "brand", "copy", "docs", "sre", "ux"],
         "an interface but no public site: no motion"
     );
     assert!(kept(&mono).contains(&("motion", false, "no-web")));
+    assert!(kept(&mono).contains(&("legal", false, "no-public")));
+    assert_eq!(detail(&mono, "docs"), ["docs/"]);
+    assert_eq!(
+        detail(&mono, "sre"),
+        [".github/workflows/", "infra/"],
+        "a server and where it is deployed"
+    );
     assert_eq!(mono.proposal.workflow.as_deref(), Some("squads"));
     assert_eq!(
         writes(&mono, "front"),
@@ -306,6 +340,8 @@ fn proposes_a_team_for_each_kind_of_project() {
             && kept(&cargo).contains(&("brand", false, "no-ui"))
             && kept(&cargo).contains(&("copy", false, "no-ui"))
             && kept(&cargo).contains(&("motion", false, "no-web"))
+            && kept(&cargo).contains(&("a11y", false, "no-ui"))
+            && kept(&cargo).contains(&("sre", false, "no-service"))
     );
 
     let (_, config, data) = setup("api", &[("billing", API)]);
@@ -317,6 +353,99 @@ fn proposes_a_team_for_each_kind_of_project() {
     assert_eq!(composition(&api).staff, ["architect"]);
     assert_eq!(writes(&api, "qa"), Some(strings(&["**/*_test.*"])));
     assert_eq!(api.proposal.roles.len(), 1);
+}
+
+/// A service with a database, a language model, analytics, payments, docs and a container, but no interface.
+const SAAS: Files = &[
+    (
+        "package.json",
+        r#"{ "name": "billing", "description": "an openai wrapper", "dependencies": { "express": "5", "@prisma/client": "6", "stripe": "17", "posthog-node": "4", "stripe-mock": "1" } }"#,
+    ),
+    ("prisma/schema.prisma", ""),
+    ("prisma/migrations/20261101_init/migration.sql", ""),
+    (
+        "worker/requirements.txt",
+        "Django==5.2\nanthropic[vertex]>=0.40\n",
+    ),
+    ("legacy/db/migrate/001_init.rb", ""),
+    (
+        "tools/go.mod",
+        "module tools\n\nrequire github.com/stripe/stripe-go/v82 v82.0.0\n",
+    ),
+    ("docs/guide.md", ""),
+    ("api/openapi.yaml", ""),
+    ("CHANGELOG.md", ""),
+    ("Dockerfile", "FROM node\n"),
+];
+
+#[test]
+fn finds_what_calls_for_each_specialist() {
+    let (_, config, data) = setup("saas", &[("billing", SAAS)]);
+    let items = library(&config, "acme").unwrap();
+    let repos = crate::repos(&config, "acme", &test_globs(&items)).unwrap();
+    let signals = &repos[0].signals;
+    assert_eq!(
+        signals["data"],
+        [
+            "@prisma/client",
+            "django",
+            "legacy/db/migrate/",
+            "prisma/migrations/",
+            "prisma/schema.prisma"
+        ],
+        "an ORM, migrations of three tools and a schema; Django's name ignores case"
+    );
+    assert_eq!(
+        signals["llm"],
+        ["anthropic"],
+        "a package.json's description is no dependency"
+    );
+    assert_eq!(signals["analytics"], ["posthog-node"]);
+    assert_eq!(
+        signals["integrations"],
+        ["github.com/stripe/stripe-go", "stripe"],
+        "a Go module before its major version; stripe-mock is not stripe"
+    );
+    assert_eq!(
+        signals["docs"],
+        ["CHANGELOG.md", "api/openapi.yaml", "docs/"]
+    );
+
+    let saas = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    for (role, why) in [
+        ("dba", "data"),
+        ("ai", "llm"),
+        ("analytics", "analytics"),
+        ("integrations", "integrations"),
+        ("docs", "docs"),
+        ("sre", "service"),
+        ("legal", "personal"),
+    ] {
+        assert!(kept(&saas).contains(&(role, true, why)), "{role}");
+    }
+    assert!(kept(&saas).contains(&("a11y", false, "no-ui")));
+    assert_eq!(detail(&saas, "sre"), ["Dockerfile"]);
+    assert_eq!(
+        detail(&saas, "legal"),
+        ["github.com/stripe/stripe-go", "stripe", "posthog-node"],
+        "payments and analytics handle personal data"
+    );
+    assert_eq!(
+        composition(&saas).staff,
+        [
+            "ai",
+            "analytics",
+            "architect",
+            "dba",
+            "docs",
+            "integrations",
+            "legal",
+            "sre"
+        ],
+        "on the staff, never in a squad"
+    );
+    assert!(names("gem \"rails\", \"~> 8.0\"\n", "rails"));
+    assert!(!names("gem \"rails-html-sanitizer\"\n", "rails"));
 }
 
 #[test]
@@ -363,12 +492,14 @@ fn the_answers_and_the_card_shape_the_proposal() {
     assert_eq!(
         models,
         [
+            "a11y",
             "architect",
             "back",
             "brand",
             "copy",
             "cto",
             "devops",
+            "docs",
             "expert",
             "front",
             "lead",
@@ -377,6 +508,7 @@ fn the_answers_and_the_card_shape_the_proposal() {
             "qa",
             "reviewer",
             "secops",
+            "sre",
             "ux"
         ],
         "every kept role and every step, even those already on opus: a global setting could say otherwise"
@@ -555,7 +687,10 @@ fn writes_the_team_into_the_project_file_and_keeps_the_rest() {
     );
     let read = termf_core::squads::load_team(&config, "acme").unwrap();
     assert!(read.declared);
-    assert_eq!(read.staff, ["architect", "brand", "copy", "ux"]);
+    assert_eq!(
+        read.staff,
+        ["a11y", "architect", "brand", "copy", "docs", "sre", "ux"]
+    );
     assert_eq!(read.squads[1].paths, composition(&proposed).squads[1].paths);
     assert_eq!(read.squads[0].count("front"), Some(2));
     let scope = Scope {
@@ -697,8 +832,8 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
     // A role that appeared since, a public site and a new package: proposed again, over the assistant's own
     // writing only.
     put(
-        &config.join("library/roles/docs.md"),
-        "---\nname: docs\ndescription: Technical writer. Use for the docs\n---\nYou write the docs.\n",
+        &config.join("library/roles/translator.md"),
+        "---\nname: translator\ndescription: Translator. Use for the translations\n---\nYou translate.\n",
     );
     let acme = dir.join("acme");
     put(
@@ -714,11 +849,23 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
         "a choice in the card reuses the last survey"
     );
     let later = team(&config, &data, "acme", Choices::default(), true).unwrap();
-    assert!(kept(&later).contains(&("docs", true, "own")));
+    assert!(kept(&later).contains(&("translator", true, "own")));
     assert!(kept(&later).contains(&("seo", true, "web")));
     assert_eq!(
         composition(&later).staff,
-        ["architect", "brand", "copy", "docs", "motion", "seo", "ux"]
+        [
+            "a11y",
+            "architect",
+            "brand",
+            "copy",
+            "docs",
+            "legal",
+            "motion",
+            "seo",
+            "sre",
+            "translator",
+            "ux"
+        ]
     );
     assert_eq!(
         composition(&later).squads[0].paths,

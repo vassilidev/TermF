@@ -88,6 +88,9 @@ pub struct StepDef {
     pub actions: Vec<String>,
     /// A `review` step's most rounds, below `[team] review_rounds`.
     pub rounds: Option<u32>,
+    /// Globs of the repository: the agent or review step runs only when a task of the run changed a file they
+    /// match, and is skipped otherwise.
+    pub paths: Vec<String>,
 }
 
 impl Default for StepDef {
@@ -105,6 +108,7 @@ impl Default for StepDef {
             step: None,
             actions: Vec::new(),
             rounds: None,
+            paths: Vec::new(),
         }
     }
 }
@@ -389,7 +393,18 @@ mod tests {
         assert!(!steps.contains_key("frame") && !steps.contains_key("prd"));
         assert_eq!(steps["ux"].needs, Vec::<String>::new(), "frame skipped");
         assert_eq!(steps["plan"].needs, ["ux"]);
-        assert_eq!(steps["deliver"].needs, ["security", "seo", "visual"]);
+        assert_eq!(
+            steps["deliver"].needs,
+            ["migrations", "security", "seo", "visual"]
+        );
+        assert_eq!(steps["migrations"].kind, StepKind::Review);
+        assert_eq!(steps["migrations"].role.as_deref(), Some("dba"));
+        assert!(!steps["migrations"].optional, "the CTO cannot skip it");
+        assert!(
+            steps["migrations"]
+                .paths
+                .contains(&"**/migrations/**".to_owned())
+        );
         for (skip, add) in [
             (vec!["plan".to_owned()], vec![]),
             (vec![], vec!["nope".to_owned()]),
@@ -426,7 +441,7 @@ mod tests {
         let steps: BTreeMap<String, StepDef> = custom.steps().unwrap().into_iter().collect();
         assert_eq!(
             steps["deliver"].needs,
-            ["review", "visual"],
+            ["migrations", "review", "visual"],
             "security disabled by the repository"
         );
 

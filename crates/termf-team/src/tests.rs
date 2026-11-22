@@ -1716,8 +1716,16 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         "- brand: Brand designer. Use for",
         "- copy: UX writer. Use for",
         "- motion: Motion designer and video maker. Use for",
+        "- dba: Database engineer. Use for",
+        "- docs: Technical writer. Use for",
+        "- integrations: Integration engineer. Use for",
+        "- sre: Site reliability engineer. Use for",
+        "- a11y: Accessibility and front-end QA auditor. Use after",
+        "- ai: AI engineer. Use when",
+        "- analytics: Data analyst for product analytics. Use for",
+        "- legal: Compliance analyst. Use for",
         "The routing, as JSON: kind (urgent-bug, bug,",
-        "docs, brand, copy, motion, other)",
+        "docs, brand, copy, motion, database, integration, reliability, accessibility, ai, analytics, legal, other)",
         "what the whole run should cost in US dollars, at most $15.00",
         "rulings (each decision you took, one a line: `Ruling: what — why — cost if wrong`)",
         "Each question you ask is an item of a questionnaire",
@@ -2496,6 +2504,78 @@ fn no_review_when_it_is_off() {
     assert!(review.session.is_none() && run.reviews.is_empty());
 }
 
+/// A run whose one task, given to the dba, writes `file`; the dba then reviews the migrations it changed.
+fn migrated(env: &Env, file: &str) {
+    fs::write(
+        env.config.join("library/workflows/migrated.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
+         [steps.migrations]\ntype = \"review\"\nrole = \"dba\"\nneeds = [\"implement\"]\npaths = [\"**/migrations/**\"]\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"migrations\"]\n",
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "dba", &["db"], &[])])),
+    );
+    env.script(
+        "implement:T1",
+        &format!("mkdir -p \"$(dirname {file})\"; echo 'up and down' > {file}\n"),
+    );
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("migrated".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn the_dba_reviews_a_run_only_when_a_task_changed_a_migration() {
+    let env = Env::new("migrations");
+    env.answer(
+        "migrations.json",
+        findings("001.sql takes no long lock and rolls back.", json!([])),
+    );
+    migrated(&env, "db/migrations/001.sql");
+    let run = env.until("the delivery", delivery);
+    let review = env.step(&run, "migrations");
+    assert_eq!(review.state, StepState::Done);
+    assert!(
+        env.message("migrations", 1)
+            .contains("- T1 (dba): do T1; changed: db/migrations/001.sql")
+    );
+    let spec = env.agents.session(review.session.unwrap()).unwrap().spec;
+    assert_eq!(spec.role.as_deref(), Some("dba"));
+    for tool in ["Edit", "Write", "NotebookEdit"] {
+        assert!(
+            spec.disallowed_tools.iter().any(|t| t == tool),
+            "a review changes nothing: {:?}",
+            spec.disallowed_tools
+        );
+    }
+    let task = env.step(&run, "implement:T1");
+    let spec = env.agents.session(task.session.unwrap()).unwrap().spec;
+    assert!(
+        !spec.disallowed_tools.iter().any(|t| t == "Edit"),
+        "the same role writes in a task"
+    );
+
+    let other = Env::new("no-migrations");
+    migrated(&other, "src/api/a.txt");
+    let run = other.until("the delivery", delivery);
+    let review = other.step(&run, "migrations");
+    assert_eq!(review.state, StepState::Skipped);
+    assert_eq!(
+        review.note.as_deref(),
+        Some("no task changed **/migrations/**")
+    );
+    assert!(review.session.is_none());
+}
+
 #[test]
 fn a_team_step_never_starts_without_the_guard() {
     let env = Env::new("no-guard");
@@ -2592,6 +2672,14 @@ fn real_team() {
         "brand",
         "copy",
         "motion",
+        "dba",
+        "docs",
+        "integrations",
+        "sre",
+        "a11y",
+        "ai",
+        "analytics",
+        "legal",
     ] {
         settings.push_str(&format!(
             "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"

@@ -178,15 +178,23 @@ mod tests {
             names,
             [
                 "lead",
+                "a11y",
+                "ai",
+                "analytics",
                 "architect",
                 "back",
                 "brand",
                 "copy",
+                "dba",
                 "devops",
+                "docs",
                 "front",
+                "integrations",
+                "legal",
                 "motion",
                 "qa",
                 "seo",
+                "sre",
                 "ux"
             ]
         );

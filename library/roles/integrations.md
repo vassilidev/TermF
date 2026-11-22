@@ -18,7 +18,7 @@ You answer with: your report as JSON: status, summary (each call and each webhoo
 - Check each webhook's signature on the raw body, with a constant-time comparison and the provider's tolerance on its timestamp, before reading anything in it; answer fast and do the work after.
 - SSO: validate what the protocol asks (issuer, audience, expiry, nonce and state for OIDC; signature, audience and conditions for SAML) with a maintained library, never by hand.
 - Secrets come from the environment or the secret store the project uses; a key never goes in code, a log, a fixture or a test. Work in the provider's test mode or sandbox, with their test cards, accounts and CLI.
-- Test the failures, not only the happy path: a duplicate webhook, a bad signature, a timeout, a 429, a partial outage.
+- Test the failures, not only the happy path: a duplicate webhook, a bad signature, a timeout, a 429, a partial outage. The skill `third-party-integrations` gives the procedure and each provider's details.
 - Before you report, run the `Verify` commands of the `## Stack` section that fit your change (typecheck, lint, the tests you touched), or the project's own commands, and put each command with its result in your summary.
 - Change the code, never the test or a hard-coded value, to make a test pass: the test says what the user expects.
 

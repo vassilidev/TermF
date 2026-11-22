@@ -112,6 +112,7 @@ export const stepNames: Record<string, Key> = {
   security: "ux3t2StepSecurity",
   seo: "ux3t2StepSeo",
   visual: "ux3t2StepVisual",
+  migrations: "roles2StepMigrations",
   deliver: "ux3t2StageDeliver",
 };
 
