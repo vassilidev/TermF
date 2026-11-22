@@ -11,6 +11,7 @@
   import {
     change,
     claudeView,
+    discard,
     effective,
     fileValue,
     propose,
@@ -93,6 +94,13 @@
     const m = fileValue(o, scope, "model");
     model = typeof m === "string" ? m : "";
   });
+
+  // A cancelled change puts the selects back on what the file says.
+  let resets = $state(0);
+  function cancel() {
+    discard();
+    resets++;
+  }
 
   async function edit(origin: string, e: Edit, clear?: () => void) {
     await propose(origin, scope, e);
@@ -226,19 +234,21 @@
     <div class="pair">
       <label class="labelled">
         <span>{t("claudeMgmtEffort")}</span>
-        <select
-          class="field mono"
-          value={value("effortLevel")}
-          onchange={(e) => edit("model", { op: "set", key: "effortLevel", value: e.currentTarget.value || null })}
-        >
-          <option value="">{t("claudeMgmtNotSet")}</option>
-          {#each efforts as v (v)}<option value={v}>{v}</option>{/each}
-        </select>
+        {#key resets}
+          <select
+            class="field mono"
+            value={value("effortLevel")}
+            onchange={(e) => edit("model", { op: "set", key: "effortLevel", value: e.currentTarget.value || null })}
+          >
+            <option value="">{t("claudeMgmtNotSet")}</option>
+            {#each efforts as v (v)}<option value={v}>{v}</option>{/each}
+          </select>
+        {/key}
       </label>
       <span class="muted small">{decided("effortLevel")}</span>
     </div>
   </div>
-  {#if change.origin === "model"}<ClaudeChange />{/if}
+  {#if change.origin === "model"}<ClaudeChange oncancel={cancel} />{/if}
 </section>
 
 <section class="block" aria-labelledby="claude-permissions">
@@ -246,20 +256,22 @@
     <h3 id="claude-permissions">{t("claudeMgmtPermissions")}</h3>
     <label class="mode">
       <span>{t("claudeMgmtDefaultMode")}</span>
-      <select
-        class="field mono"
-        value={value("permissions.defaultMode")}
-        onchange={(e) =>
-          edit("permissions", { op: "set", key: "permissions.defaultMode", value: e.currentTarget.value || null })}
-      >
-        <option value="">{t("claudeMgmtNotSet")}</option>
-        {#each modes as v (v)}<option value={v}>{v}</option>{/each}
-      </select>
+      {#key resets}
+        <select
+          class="field mono"
+          value={value("permissions.defaultMode")}
+          onchange={(e) =>
+            edit("permissions", { op: "set", key: "permissions.defaultMode", value: e.currentTarget.value || null })}
+        >
+          <option value="">{t("claudeMgmtNotSet")}</option>
+          {#each modes as v (v)}<option value={v}>{v}</option>{/each}
+        </select>
+      {/key}
       <span class="muted small">{decided("permissions.defaultMode")}</span>
     </label>
   </div>
   <p class="help">{t("claudeMgmtPermissionsHelp")}</p>
-  {#if change.origin === "permissions"}<ClaudeChange />{/if}
+  {#if change.origin === "permissions"}<ClaudeChange oncancel={cancel} />{/if}
   {#each lists as l (l.id)}
     {@render list(`permissions.${l.id}`, t(l.label), "Bash(npm run *), Read(./.env), mcp__github__*", true)}
   {/each}
