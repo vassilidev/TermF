@@ -87,12 +87,18 @@
     "linux": {
       "deb": {
         "section": "devel",
+        "recommends": [
+          "git"
+        ],
         "desktopTemplate": "installer/termf.desktop",
         "files": {
           "/usr/share/metainfo/dev.termf.app.metainfo.xml": "installer/dev.termf.app.metainfo.xml"
         }
       },
       "rpm": {
+        "recommends": [
+          "git"
+        ],
         "desktopTemplate": "installer/termf.desktop",
         "files": {
           "/usr/share/metainfo/dev.termf.app.metainfo.xml": "installer/dev.termf.app.metainfo.xml"
