@@ -1,0 +1,11 @@
+### Tests — skill `tests-from-criteria`
+- Applies to every stack; the framework skill says how to write and run tests there.
+- Verify: the project's own test command; each new test seen failing without the change, then passing.
+- Pitfalls:
+  - Tests come from the acceptance criteria and the user flows, never from the code being tested.
+  - Highest level the project can run: end to end, then integration with real collaborators; unit only for real logic.
+  - Fake only what the project does not control (third-party services, clock, randomness).
+  - A test that would pass without the change, or recomputes its expected value like the code, is not written.
+  - Existing tests stay as they are: no skip, delete, loosened assertion or re-recorded snapshot to get green.
+  - Name each test after the behaviour it expects; report what its passing does not prove.
+- Read skill `tests-from-criteria` before writing, changing or judging tests.
