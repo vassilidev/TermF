@@ -982,6 +982,7 @@ mod tests {
                     "ai",
                     "analytics",
                     "legal",
+                    "integrator",
                 ][..],
             ),
             (Kind::Workflow, &["default", "hotfix", "squads"]),
@@ -1048,7 +1049,7 @@ mod tests {
             );
         }
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 25, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 26, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);
@@ -1058,8 +1059,17 @@ mod tests {
                 .lines()
                 .count();
             assert!((20..=60).contains(&lines), "{name}: {lines} lines");
-            let planner_only =
-                ["cto", "lead", "po", "pm", "secops", "expert", "reviewer"].contains(&name);
+            let planner_only = [
+                "cto",
+                "lead",
+                "po",
+                "pm",
+                "secops",
+                "expert",
+                "reviewer",
+                "integrator",
+            ]
+            .contains(&name);
             assert_eq!(plannable(role), !planner_only, "{name}");
             if let Some(credits) = role.meta.get("credits") {
                 assert!(credits.as_array().is_some_and(|c| !c.is_empty()), "{name}");

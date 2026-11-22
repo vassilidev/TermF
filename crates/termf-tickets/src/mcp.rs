@@ -132,17 +132,18 @@ pub(crate) fn tool_names(server: &str, tools: &[String]) -> Result<Vec<String>> 
 /// which can take a while.
 pub(crate) fn servers(claude: &[String], dir: &Path) -> Result<Vec<McpServer>> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
-    let mut cmd = crate::command(program);
+    let claude = termf_core::claude::binary(program)?;
+    let mut cmd = crate::command(&claude.path);
     cmd.args(lead).args(["mcp", "list"]).current_dir(dir);
     if let Some(path) = termf_core::shell::login_path() {
         cmd.env("PATH", path);
     }
-    let (status, stdout, stderr) =
-        termf_core::process::run(cmd, b"", TIMEOUT).context("cannot run Claude Code")?;
+    let (status, stdout, stderr) = termf_core::process::run(cmd, b"", TIMEOUT)
+        .with_context(|| format!("cannot run Claude Code {claude}"))?;
     ensure!(
         status.success(),
         "claude mcp list failed: {}",
-        termf_core::process::tail(&String::from_utf8_lossy(&stderr))
+        termf_core::claude::failure(&claude, status, &stderr)
     );
     let text = String::from_utf8_lossy(&stdout);
     Ok(text
@@ -292,7 +293,8 @@ impl Mcp {
             .claude
             .split_first()
             .context("no Claude Code command")?;
-        let mut cmd = crate::command(program);
+        let claude = termf_core::claude::binary(program)?;
+        let mut cmd = crate::command(&claude.path);
         cmd.args(lead)
             .args(["-p", "--output-format", "json", "--json-schema"])
             .arg(schema.to_string())
@@ -314,8 +316,8 @@ impl Mcp {
             cmd.env("PATH", path);
         }
         let (status, stdout, stderr) = termf_core::process::run(cmd, prompt.as_bytes(), TIMEOUT)
-            .context("cannot run Claude Code")?;
-        let (answer, _) = termf_core::claude::structured_output(status, &stdout, &stderr)?;
+            .with_context(|| format!("cannot run Claude Code {claude}"))?;
+        let (answer, _) = termf_core::claude::structured_output(&claude, status, &stdout, &stderr)?;
         Ok(answer)
     }
 

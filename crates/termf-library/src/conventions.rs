@@ -1269,7 +1269,8 @@ pub fn ask(
     schema: &Value,
 ) -> Result<(Value, Option<f64>)> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
-    let mut cmd = Command::new(program);
+    let claude = termf_core::claude::binary(program)?;
+    let mut cmd = Command::new(&claude.path);
     cmd.args(lead)
         .args(["-p", "--output-format", "json", "--json-schema"])
         .arg(schema.to_string())
@@ -1285,9 +1286,9 @@ pub fn ask(
     for (_, path) in &repos[1..] {
         cmd.arg("--add-dir").arg(path);
     }
-    let (status, stdout, stderr) =
-        run(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT).context("cannot run Claude Code")?;
-    termf_core::claude::structured_output(status, &stdout, &stderr)
+    let (status, stdout, stderr) = run(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT)
+        .with_context(|| format!("cannot run Claude Code {claude}"))?;
+    termf_core::claude::structured_output(&claude, status, &stdout, &stderr)
 }
 
 /// Everything is denied but what a check needs: reading files, running programs, writing to a private temporary

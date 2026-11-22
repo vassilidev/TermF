@@ -44,6 +44,7 @@
   import { showRun } from "$lib/commands";
   import { ago, t } from "$lib/i18n";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
+  import { newProject } from "$lib/newproject.svelte";
   import { editProject } from "$lib/project.svelte";
   import { onScreen, shortPath } from "$lib/state.svelte";
   import { tickets } from "$lib/tickets.svelte";
@@ -697,7 +698,7 @@
   {#if !repos.length}
     {@const project = currentProject()}
     <EmptyState icon={GitBranch} title={t("gitNoRepo")} text={t("gitNoRepoHelp")}>
-      <button class="btn" onclick={() => editProject(project?.id ?? "")}>
+      <button class="btn" onclick={() => (project ? editProject(project.id) : newProject())}>
         <Pencil size={14} aria-hidden="true" />{t(project ? "ticketsEditProject" : "newProject")}
       </button>
     </EmptyState>

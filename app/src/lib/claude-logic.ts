@@ -81,18 +81,25 @@ type Overview = {
   settings: { files: { path: string; state: string; error: string | null }[] };
   mcp: { servers: { name: string; health: string }[]; error: string | null };
   plugins: { error: string | null };
-  account: { auth: Record<string, unknown> | null; authError: string | null };
+  account: {
+    auth: Record<string, unknown> | null;
+    authError: string | null;
+    binary?: { install: { version: string | null } | null; others: unknown[]; tooOld: boolean };
+  };
 };
 
 export type Alert =
   | { section: "mcp"; tone: "error" | "warn"; server: string; health: string }
   | { section: "mcp" | "account"; tone: "error"; text: string }
   | { section: "settings"; tone: "error"; file: string; error: string | null }
-  | { section: "account"; tone: "warn"; loggedOut: true };
+  | { section: "account"; tone: "warn"; loggedOut: true }
+  | { section: "account"; tone: "error" | "warn"; binary: "old" | "several" };
 
 /** What needs a look in the machine's config, worst first. */
 export function alerts(o: Overview): Alert[] {
   const out: Alert[] = [];
+  const binary = o.account.binary;
+  if (binary?.tooOld) out.push({ section: "account", tone: "error", binary: "old" });
   for (const f of o.settings.files.filter((f) => f.state === "invalid")) {
     out.push({ section: "settings", tone: "error", file: f.path, error: f.error });
   }
@@ -100,6 +107,7 @@ export function alerts(o: Overview): Alert[] {
   if (o.plugins.error) out.push({ section: "mcp", tone: "error", text: o.plugins.error });
   if (o.account.authError) out.push({ section: "account", tone: "error", text: o.account.authError });
   else if (o.account.auth && o.account.auth.loggedIn === false) out.push({ section: "account", tone: "warn", loggedOut: true });
+  if (binary?.install && binary.others.length) out.push({ section: "account", tone: "warn", binary: "several" });
   for (const s of o.mcp.servers) {
     if (s.health === "failed") out.push({ section: "mcp", tone: "error", server: s.name, health: s.health });
   }

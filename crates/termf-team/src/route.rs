@@ -301,7 +301,11 @@ fn check_steps(
             ));
         }
         if !steps.iter().any(|(id, s)| {
-            *id == effort.step && matches!(s.kind, StepKind::Agent | StepKind::Review)
+            *id == effort.step
+                && matches!(
+                    s.kind,
+                    StepKind::Agent | StepKind::Review | StepKind::Update
+                )
         }) {
             problems.push(format!(
                 "efforts: {} is not an agent step that runs in workflow {name}",
@@ -469,13 +473,17 @@ mod tests {
                     step: "review".into(),
                     effort: "xhigh".into(),
                 },
+                Effort {
+                    step: "update-base".into(),
+                    effort: "xhigh".into(),
+                },
             ],
             ..routing()
         };
         let all = check(&efforts, &workflows, &team, any).join("\n");
         assert!(
-            !all.contains("review"),
-            "the CTO sets the review's effort too: {all}"
+            !all.contains("review") && !all.contains("update-base"),
+            "the CTO sets the review's and the integrator's efforts too: {all}"
         );
         for expected in [
             "efforts: frame is not an agent step that runs in workflow default",

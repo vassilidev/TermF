@@ -299,6 +299,58 @@ fn table<'a>(parent: &'a mut Table, key: &str) -> Result<&'a mut Table> {
         .with_context(|| format!("[{key}] must be a table"))
 }
 
+/// Writes `trackers` as the file's `[trackers]`: values left at their default are not written, comments and keys
+/// TermF does not know are kept.
+pub fn write_trackers(doc: &mut DocumentMut, trackers: &Trackers) -> Result<()> {
+    let root = table(doc.as_table_mut(), "trackers")?;
+    root.set_implicit(true);
+    match &trackers.github {
+        None => {
+            root.remove("github");
+        }
+        Some(g) => {
+            let t = table(root, "github")?;
+            text(t, "repo", g.repo());
+            flag(t, "comment", g.comment, false);
+            flag(t, "issues", g.issues, g.project.is_none());
+            text(t, "project", g.project.as_deref());
+            list(t, "columns", &g.columns);
+            flag(t, "mine", g.mine, true);
+            text(t, "transition", g.transition.as_deref());
+        }
+    }
+    match &trackers.jira {
+        None => {
+            root.remove("jira");
+        }
+        Some(j) => {
+            let t = table(root, "jira")?;
+            text(t, "site", Some(&j.site));
+            text(t, "email", Some(&j.email));
+            let jql = j.jql.as_deref().filter(|q| q.trim() != jira::DEFAULT_JQL);
+            text(t, "jql", jql);
+            text(t, "project", j.project.as_deref());
+            flag(t, "comment", j.comment, false);
+            text(t, "transition", j.transition.as_deref());
+        }
+    }
+    if trackers.mcp.is_empty() {
+        root.remove("mcp");
+    } else {
+        let all = table(root, "mcp")?;
+        all.set_implicit(true);
+        all.retain(|name, _| trackers.mcp.contains_key(name));
+        for (name, m) in &trackers.mcp {
+            let t = table(all, name)?;
+            text(t, "server", Some(&m.server));
+            list(t, "tools", &m.tools);
+            text(t, "prompt", m.prompt.as_deref());
+        }
+    }
+    root.set_implicit(!root.is_empty());
+    Ok(())
+}
+
 impl Tickets {
     pub(crate) fn trackers(&self, project: &str) -> Result<Trackers> {
         #[derive(Deserialize)]
@@ -345,52 +397,7 @@ impl Tickets {
         let mut doc: DocumentMut = fs::read_to_string(&file)?
             .parse()
             .with_context(|| format!("invalid {}", file.display()))?;
-        let root = table(doc.as_table_mut(), "trackers")?;
-        root.set_implicit(true);
-        match &trackers.github {
-            None => {
-                root.remove("github");
-            }
-            Some(g) => {
-                let t = table(root, "github")?;
-                text(t, "repo", g.repo());
-                flag(t, "comment", g.comment, false);
-                flag(t, "issues", g.issues, g.project.is_none());
-                text(t, "project", g.project.as_deref());
-                list(t, "columns", &g.columns);
-                flag(t, "mine", g.mine, true);
-                text(t, "transition", g.transition.as_deref());
-            }
-        }
-        match &trackers.jira {
-            None => {
-                root.remove("jira");
-            }
-            Some(j) => {
-                let t = table(root, "jira")?;
-                text(t, "site", Some(&j.site));
-                text(t, "email", Some(&j.email));
-                let jql = j.jql.as_deref().filter(|q| q.trim() != jira::DEFAULT_JQL);
-                text(t, "jql", jql);
-                text(t, "project", j.project.as_deref());
-                flag(t, "comment", j.comment, false);
-                text(t, "transition", j.transition.as_deref());
-            }
-        }
-        if trackers.mcp.is_empty() {
-            root.remove("mcp");
-        } else {
-            let all = table(root, "mcp")?;
-            all.set_implicit(true);
-            all.retain(|name, _| trackers.mcp.contains_key(name));
-            for (name, m) in &trackers.mcp {
-                let t = table(all, name)?;
-                text(t, "server", Some(&m.server));
-                list(t, "tools", &m.tools);
-                text(t, "prompt", m.prompt.as_deref());
-            }
-        }
-        root.set_implicit(!root.is_empty());
+        write_trackers(&mut doc, trackers)?;
         termf_core::write_atomic(&file, &doc.to_string())?;
         let store = crate::store::Store::open(&self.data_dir)?;
         for (name, old) in &before.mcp {

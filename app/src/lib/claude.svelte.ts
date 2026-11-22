@@ -10,6 +10,16 @@ export type ScopeFile = { scope: Scope; path: string; state: FileState; error: s
 export type Effective = { key: string; value: unknown; scope: Scope; others: Scope[]; merged: boolean };
 export type Settings = { files: ScopeFile[]; effective: Effective[] };
 export type Health = "connected" | "failed" | "pending" | "needsauth" | "unknown";
+/** A Claude Code install: where TermF found it and what `--version` said. */
+export type ClaudeInstall = { path: string; version: string | null; origin: "setting" | "native" | "path" };
+/** The one TermF runs, and the others found. */
+export type ClaudeBinary = { install: ClaudeInstall | null; others: ClaudeInstall[]; minimum: string; tooOld: boolean };
+
+const origins = { setting: "claudebinSetting", native: "claudebinNative", path: "claudebinPath" } as const;
+
+export function binaryOrigin(i: ClaudeInstall | null): string {
+  return i ? t(origins[i.origin]) : t("claudeViewUnknown");
+}
 export type McpServer = {
   name: string;
   target: string;
@@ -51,6 +61,7 @@ export type Overview = {
     version: string | null;
     install: string | null;
     path: string | null;
+    binary: ClaudeBinary;
   };
   tools: { name: string; version: string | null; path: string | null }[];
 };

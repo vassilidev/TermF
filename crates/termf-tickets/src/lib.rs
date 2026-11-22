@@ -31,10 +31,12 @@ pub use jira::{DEFAULT_JQL, Jira};
 pub use mcp::{Mcp, McpServer};
 pub use run::{
     Change, CheckError, Cleanup, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch,
-    PrCheck, Unpushed,
+    PrCheck, PrMerge, Unpushed,
 };
 pub use secrets::{Keychain, Secrets};
-pub use sources::{Configured, GithubTracker, JiraTracker, McpTracker, Sources, Trackers};
+pub use sources::{
+    Configured, GithubTracker, JiraTracker, McpTracker, Sources, Trackers, write_trackers,
+};
 pub use store::{Event, Run, RunEvent, RunStatus, utc};
 
 use sources::Source;

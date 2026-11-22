@@ -283,12 +283,14 @@ test("editRouting: skip and add against the new workflow's defaults, efforts of 
       { id: "plan", kind: "agent", role: "lead", optional: false, on: true },
       { id: "checks", kind: "shell", role: null, optional: false, on: true },
       { id: "security", kind: "agent", role: "secops", optional: false, on: true },
+      { id: "update-base", kind: "update", role: "integrator", optional: false, on: true },
     ],
   };
   const cto = routing({
     skip: ["frame"],
     efforts: [
       { step: "security", effort: "low" },
+      { step: "update-base", effort: "xhigh" },
       { step: "frame", effort: "high" },
       { step: "ux", effort: "high" },
     ],
@@ -299,7 +301,7 @@ test("editRouting: skip and add against the new workflow's defaults, efforts of 
   const next = editRouting(cto, workflow, ["ux"], ["web", "api"]);
   assert.deepEqual(
     [next.workflow, next.skip, next.add, next.efforts, next.squads, next.questions, next.budget_usd],
-    ["default", ["frame"], ["ux"], [{ step: "security", effort: "low" }, { step: "ux", effort: "high" }], ["web", "api"], [], 4],
+    ["default", ["frame"], ["ux"], [{ step: "security", effort: "low" }, { step: "update-base", effort: "xhigh" }, { step: "ux", effort: "high" }], ["web", "api"], [], 4],
   );
   assert.equal(next.reason, "a new export", "the rest is the CTO's");
 });

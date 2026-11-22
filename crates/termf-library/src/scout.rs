@@ -1067,8 +1067,9 @@ fn ask(
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(Value, Option<f64>)> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
+    let claude = termf_core::claude::binary(program)?;
     let cwd = termf_core::process::scratch_dir()?;
-    let mut cmd = Command::new(program);
+    let mut cmd = Command::new(&claude.path);
     cmd.args(lead)
         .args(["-p", "--output-format", "stream-json", "--verbose"])
         .arg("--json-schema")
@@ -1095,8 +1096,9 @@ fn ask(
         }
     });
     let _ = fs::remove_dir_all(&cwd);
-    let (status, stdout, stderr) = ran.context("cannot run Claude Code")?;
-    termf_core::claude::structured_output(status, &stdout, &stderr)
+    let (status, stdout, stderr) =
+        ran.with_context(|| format!("cannot run Claude Code {claude}"))?;
+    termf_core::claude::structured_output(&claude, status, &stdout, &stderr)
 }
 
 /// The searches and pages of a `stream-json` line.

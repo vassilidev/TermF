@@ -7,7 +7,9 @@
   import OnboardingView from "$lib/OnboardingView.svelte";
   import ProjectView from "$lib/ProjectView.svelte";
   import RunView from "$lib/RunView.svelte";
+  import ReviewView from "$lib/ReviewView.svelte";
   import HelpSheet from "$lib/HelpSheet.svelte";
+  import NewProjectView from "$lib/NewProjectView.svelte";
   import GuidedTour from "$lib/GuidedTour.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Panel from "$lib/ui/Panel.svelte";
@@ -21,10 +23,13 @@
   import { watchAgents } from "$lib/agents.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
+  import { sync, watchSync } from "$lib/sync.svelte";
   import { watchTeam } from "$lib/team.svelte";
   import { tickets, watchTickets } from "$lib/tickets.svelte";
   import { setup, watchSetup } from "$lib/onboarding.svelte";
+  import { creating } from "$lib/newproject.svelte";
   import { views } from "$lib/views";
+  import { visual, watchVisual } from "$lib/visual.svelte";
 
   let area = $state<HTMLElement>();
 
@@ -39,7 +44,9 @@
     const stopPanes = watchPanes();
     const stopTour = watchTour();
     const stopTeam = watchTeam();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam());
+    const stopVisual = watchVisual();
+    const stopSync = watchSync();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopVisual(), stopSync());
   });
 
   function drag(e: PointerEvent) {
@@ -74,8 +81,15 @@
   <AppNav />
   <div class="main">
     <ApiConfirm />
-    {#if app.error || app.workspace?.apiError || app.workspace?.quickTerminalError || app.workspace?.scanTruncated}
+    {#if app.error || app.workspace?.apiError || app.workspace?.quickTerminalError || app.workspace?.scanTruncated || sync.pulled}
       <div class="banners">
+        {#if sync.pulled}
+          <Banner ondismiss={() => (sync.pulled = null)}>
+            {t("sync2PulledTitle")}
+            {#if sync.pulled.restart.includes("confirmCli")}{t("sync2PulledRestart")}{/if}
+            {#if sync.pulled.sessions}{t("sync2PulledSessions")}{/if}
+          </Banner>
+        {/if}
         {#if app.error}
           <Banner kind="error" ondismiss={() => (app.error = "")}>{app.error}</Banner>
         {/if}
@@ -120,9 +134,20 @@
           <Panel view="run"><RunView id={tickets.selected} /></Panel>
         {/key}
       {/if}
+      {#if visual.selected !== null}
+        {#key visual.selected}
+          <Panel view="review"><ReviewView id={visual.selected} /></Panel>
+        {/key}
+      {/if}
       {#if onScreen("onboarding") && setup.project !== null}
         {#key setup.project}
           <Panel view="onboarding"><OnboardingView /></Panel>
+        {/key}
+      {/if}
+      <!-- Kept while open: leaving the setup for another view and coming back loses nothing. -->
+      {#if creating.open}
+        {#key creating.round}
+          <Panel view="newProject"><NewProjectView /></Panel>
         {/key}
       {/if}
       {#if panes.other !== null}

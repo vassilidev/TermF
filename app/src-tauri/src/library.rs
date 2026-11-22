@@ -178,7 +178,6 @@ pub async fn config_import_apply(
 /// shell's PATH (see `conventions::propose`).
 pub(crate) fn claude(config_dir: &Path) -> Vec<String> {
     let settings = termf_core::load_settings(config_dir).unwrap_or_default();
-    // shortcut: on Windows an npm `claude.cmd` is not found this way; go through `cmd /c` when that matters.
     vec![settings.claude_program()]
 }
 

@@ -17,6 +17,7 @@ use super::*;
 /// `cost`, cents (1 by default).
 /// It logs each step's begin and end, and the messages.
 const FAKE: &str = r#"
+[ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
 prev=
 for a in "$@"; do
   if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi
@@ -3910,4 +3911,559 @@ fn a_routing_never_replaces_a_decision_replaced_meanwhile() {
         "{refused}"
     );
     assert_eq!(decisions(&env.data, "acme").unwrap().len(), 2);
+}
+
+/// A run whose base moves on while it works: the workflow `integrated` (plan, one task writing `run` in `file`, the
+/// checks, the code review, the update with the base, the delivery), and a commit of the base that writes `base` in
+/// `theirs`, pushed to `origin` from another clone when `remote`. The checks log each run in `checks.log`.
+fn integrated(env: &Env, file: &str, theirs: &str, remote: bool) {
+    integrated_with(env, file, theirs, remote, "", "");
+}
+
+/// `integrated`, its workflow's file opening with `head` and ending with `tail`.
+fn integrated_with(env: &Env, file: &str, theirs: &str, remote: bool, head: &str, tail: &str) {
+    fs::write(
+        env.config.join("library/workflows/integrated.toml"),
+        format!(
+            "{head}[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
+         [steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{{{ repo.checks }}}}\"\n\
+         [steps.review]\ntype = \"review\"\nrole = \"reviewer\"\nneeds = [\"checks\"]\n\
+         [steps.update-base]\ntype = \"update\"\nrole = \"integrator\"\nneeds = [\"review\"]\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"update-base\"]\n{tail}"
+        ),
+    )
+    .unwrap();
+    let repo = &env.target.repo_path;
+    fs::write(
+        env.config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"api\"\npath = \"{}\"\nchecks = \"echo checked >> '{}'\"\n\
+             [team]\ndone = [\"checks\", \"review\"]\n",
+            repo.display(),
+            env.root.join("checks.log").display()
+        ),
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &[file], &[])])),
+    );
+    env.script("implement:T1", &format!("echo run > {file}\n"));
+    let path = |p: &Path| p.to_string_lossy().into_owned();
+    let clone = match remote {
+        true => {
+            let origin = env.root.join("origin.git");
+            let other = env.root.join("other");
+            git(
+                &env.root,
+                &env.env,
+                &["init", "-q", "--bare", "-b", "main", &path(&origin)],
+            );
+            git(repo, &env.env, &["remote", "add", "origin", &path(&origin)]);
+            git(repo, &env.env, &["push", "-q", "origin", "main"]);
+            git(repo, &env.env, &["fetch", "-q", "origin"]);
+            git(
+                &env.root,
+                &env.env,
+                &["clone", "-q", &path(&origin), &path(&other)],
+            );
+            other
+        }
+        false => repo.clone(),
+    };
+    fs::write(clone.join(theirs), "base\n").unwrap();
+    git(&clone, &env.env, &["add", "-A"]);
+    git(
+        &clone,
+        &env.env,
+        &["commit", "-q", "-m", &format!("Base: write {theirs}")],
+    );
+    if remote {
+        git(&clone, &env.env, &["push", "-q", "origin", "main"]);
+    }
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("integrated".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+}
+
+fn checked(env: &Env) -> usize {
+    fs::read_to_string(env.root.join("checks.log"))
+        .unwrap_or_default()
+        .lines()
+        .count()
+}
+
+fn update_blocked(r: &TeamRun) -> bool {
+    r.steps
+        .iter()
+        .any(|s| s.key == "update-base" && s.state == StepState::Blocked)
+}
+
+#[test]
+fn a_base_that_moved_is_fetched_merged_and_checked_again() {
+    let env = Env::new("update-clean");
+    integrated(&env, "a.txt", "NEWS.md", true);
+    let run = env.until("the delivery", delivery);
+    let wt = &env.target.worktree;
+    assert_eq!(
+        fs::read_to_string(wt.join("NEWS.md")).unwrap(),
+        "base\n",
+        "fetched"
+    );
+    let merges = git(wt, &env.env, &["log", "--merges", "--format=%s"]);
+    assert!(
+        merges.contains("Merge origin/main into acme/api#1"),
+        "{merges}"
+    );
+    let origin = git(wt, &env.env, &["rev-parse", "origin/main"]);
+    assert_eq!(
+        run.base.as_deref(),
+        Some(origin.as_str()),
+        "the run's changes count from the base it merged"
+    );
+    assert_eq!(checked(&env), 2, "the checks ran again on the merge");
+    let update = env.step(&run, "update-base");
+    assert_eq!(update.state, StepState::Done);
+    assert!(update.sessions.is_empty(), "no conflict, no agent");
+    let log = env.steps_log();
+    assert!(!log.iter().any(|l| l.starts_with("update-base")));
+    assert!(
+        !log.contains(&"review 2 begin".to_owned()),
+        "a clean merge is not reviewed again: {log:?}"
+    );
+    assert!(env.kinds().contains(&"base".to_owned()));
+    assert!(run.done.unwrap().passes());
+
+    // Nothing new since: the step finds the run up to date.
+    env.team.approve(1, "deliver").unwrap();
+    let run = env.team.update_base(1).unwrap();
+    assert_eq!(run.state, RunState::Waiting, "{:?}", run.steps);
+    assert!(delivery(&run));
+    assert_eq!(checked(&env), 2);
+}
+
+#[test]
+fn the_integrator_resolves_a_conflict_with_the_base_then_the_review_reads_it() {
+    let env = Env::new("update-conflict");
+    env.script("update-base", "printf 'base\\nrun\\n' > shared.txt\n");
+    integrated(&env, "shared.txt", "shared.txt", false);
+    let run = env.until("the delivery", delivery);
+    let wt = &env.target.worktree;
+    assert_eq!(
+        fs::read_to_string(wt.join("shared.txt")).unwrap(),
+        "base\nrun\n"
+    );
+    let update = env.step(&run, "update-base");
+    assert_eq!(update.files, ["shared.txt"]);
+    assert!(update.integrated);
+    let merge = update.merge.clone().expect("the merge it resolved");
+    let parents = git(wt, &env.env, &["rev-list", "--parents", "-n", "1", &merge]);
+    assert_eq!(parents.split(' ').count(), 3, "a merge, never a rebase");
+    assert!(
+        !env.data.join("team/1/update-base").exists(),
+        "its worktree is removed"
+    );
+    let spec = env.agents.session(update.sessions[0]).unwrap().spec;
+    assert_eq!(spec.role.as_deref(), Some("integrator"));
+    assert!(
+        spec.disallowed_tools
+            .iter()
+            .any(|t| t == "Bash(git push:*)")
+    );
+
+    let brief = env.message("update-base", 1);
+    for expected in [
+        "## The base update",
+        "The run's base `main` moved on",
+        "conflicts in: shared.txt",
+        "Base: write shared.txt",
+        "- implement:T1 (back): implement:T1 done",
+        "Leave the merge for TermF to conclude",
+    ] {
+        assert!(brief.contains(expected), "{expected} in {brief}");
+    }
+    let log = env.steps_log();
+    assert!(
+        log.contains(&"review 2 begin".to_owned()),
+        "the review reads the resolution: {log:?}"
+    );
+    let review = env.message("review", 2);
+    assert!(
+        review.contains("## The base update")
+            && review.contains(&format!("--remerge-diff {merge}")),
+        "{review}"
+    );
+    assert_eq!(checked(&env), 2, "the checks ran again on the resolution");
+    assert!(run.done.unwrap().passes());
+    assert_eq!(
+        env.team.approve(1, "deliver").unwrap().state,
+        RunState::Done
+    );
+}
+
+#[test]
+fn a_conflict_marker_left_brings_the_conflict_back_for_the_next_attempt() {
+    let env = Env::new("update-marker");
+    let unmerged = env.root.join("unmerged");
+    env.script(
+        "update-base",
+        &format!(
+            "if [ \"$1\" = 1 ]; then git add -A; else git diff --name-only --diff-filter=U > '{0}'; \
+             git show :1:shared.txt >> '{0}'; printf 'base\\nrun\\n' > shared.txt; fi\n",
+            unmerged.display()
+        ),
+    );
+    integrated(&env, "shared.txt", "shared.txt", false);
+    let run = env.until("the delivery", delivery);
+    let events = env.team.events(1, 0).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.message.contains("conflict markers are left"))
+    );
+    assert_eq!(
+        fs::read_to_string(&unmerged).unwrap(),
+        "shared.txt\n",
+        "the second attempt finds the conflict, its base side included"
+    );
+    assert_eq!(env.step(&run, "update-base").sessions.len(), 2);
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("shared.txt")).unwrap(),
+        "base\nrun\n"
+    );
+}
+
+#[test]
+fn changes_left_in_the_runs_worktree_block_the_update_before_any_agent() {
+    let env = Env::new("update-dirty");
+    integrated(&env, "a.txt", "NEWS.md", false);
+    env.until("the delivery", delivery);
+    env.team.approve(1, "deliver").unwrap();
+    let repo = &env.target.repo_path;
+    fs::write(repo.join("a.txt"), "base\n").unwrap();
+    git(repo, &env.env, &["add", "-A"]);
+    git(repo, &env.env, &["commit", "-q", "-m", "Base: a.txt"]);
+    fs::write(env.target.worktree.join("a.txt"), "mine\n").unwrap();
+    env.team.update_base(1).unwrap();
+    let run = env.until("the update blocked", update_blocked);
+    let update = env.step(&run, "update-base");
+    let note = update.note.clone().unwrap();
+    assert!(
+        note.contains("changes not committed") && note.contains("a.txt"),
+        "{note}"
+    );
+    assert!(update.sessions.is_empty(), "no agent paid for it");
+    assert!(!env.data.join("team/1/update-base").exists());
+}
+
+#[test]
+fn the_integrator_waits_for_room_among_the_agents_at_work() {
+    let env = Env::new("update-room");
+    env.script("notes", "sleep 1\n");
+    env.script("update-base", "printf 'base\\nrun\\n' > shared.txt\n");
+    integrated_with(
+        &env,
+        "shared.txt",
+        "shared.txt",
+        false,
+        "max_parallel_agents = 1\n",
+        "[steps.notes]\ntype = \"agent\"\nrole = \"back\"\nneeds = [\"review\"]\n",
+    );
+    env.until("the delivery", delivery);
+    let log = env.steps_log();
+    let at = |line: &str| {
+        log.iter()
+            .position(|l| l == line)
+            .unwrap_or_else(|| panic!("{line} in {log:?}"))
+    };
+    assert!(at("notes 1 begin") < at("update-base 1 begin"), "{log:?}");
+    assert!(at("update-base 1 begin") > at("notes 1 end"), "{log:?}");
+}
+
+#[test]
+fn a_conflict_the_integrator_cannot_settle_goes_to_the_cto_then_to_you() {
+    let env = Env::new("update-blocked");
+    env.answer(
+        "update-base.1.json",
+        json!({"status": "blocked", "summary": "the base and the run give two labels to the same button",
+            "covers": [], "text_changes": [], "affected_views": [], "out_of_scope_findings": [],
+            "questions": [question("label", "choice", &["base", "run"], &["base"])]}),
+    );
+    env.script(
+        "update-base",
+        "if [ \"$1\" = 2 ]; then printf 'base\\n' > label.txt; fi\n",
+    );
+    integrated(&env, "label.txt", "label.txt", false);
+    let run = env.until("the user decides", update_blocked);
+    let i = run.index("update-base").unwrap();
+    let update = &run.steps[i];
+    assert!(update.escalated);
+    let note = update.note.clone().unwrap();
+    assert!(note.contains("the CTO leaves it to you"), "{note}");
+    assert_eq!(run.questions(i).len(), 1, "its questionnaire waits for you");
+    let asked = env.message("escalate-update-base", 1);
+    for expected in [
+        "Merging the run's base `main` into its work conflicts in label.txt",
+        "What its agent reported: the base and the run give two labels",
+        "accept lets the run go on without its base",
+    ] {
+        assert!(asked.contains(expected), "{expected} in {asked}");
+    }
+    assert!(
+        env.data.join("team/1/update-base").exists(),
+        "the merge waits in its own worktree"
+    );
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("label.txt")).unwrap(),
+        "run\n",
+        "never in the run's"
+    );
+
+    let answers = BTreeMap::from([("label".to_owned(), vec!["base".to_owned()])]);
+    env.team.answer(1, "update-base", answers, "").unwrap();
+    env.until("the delivery", delivery);
+    let again = env.message("update-base", 2);
+    assert!(again.contains("label? → base"), "{again}");
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("label.txt")).unwrap(),
+        "base\n"
+    );
+}
+
+#[test]
+fn accepted_as_it_is_the_run_goes_on_without_its_base() {
+    let env = Env::new("update-accept");
+    for n in [1, 2] {
+        fs::write(env.answers.join(format!("update-base.{n}.json")), "NONE").unwrap();
+    }
+    env.answer(
+        "escalate-update-base.json",
+        json!({"decision": "accept", "role": "", "instructions": "",
+            "ruling": "Ruling: ship without the base — the label waits for the product owner — a conflicted pull request", "findings": []}),
+    );
+    integrated(&env, "label.txt", "label.txt", false);
+    let run = env.until("the delivery", delivery);
+    let update = env.step(&run, "update-base");
+    assert!(update.accepted && update.escalated);
+    assert!(
+        !env.data.join("team/1/update-base").exists(),
+        "the merge is dropped"
+    );
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("label.txt")).unwrap(),
+        "run\n"
+    );
+    let done = run.done.unwrap();
+    assert!(!done.passes());
+    assert!(
+        done.unmet().contains("update-base: accepted as it is"),
+        "{}",
+        done.unmet()
+    );
+    assert!(
+        decisions(&env.data, "acme").unwrap()[0]
+            .text
+            .contains("ship without the base")
+    );
+}
+
+#[test]
+fn a_team_done_is_updated_with_its_base_on_request() {
+    let env = Env::new("update-later");
+    integrated(&env, "a.txt", "NEWS.md", false);
+    env.until("the delivery", delivery);
+    env.team.approve(1, "deliver").unwrap();
+    // The pull request is open when the base moves on again.
+    let repo = &env.target.repo_path;
+    fs::write(repo.join("b.txt"), "later\n").unwrap();
+    git(repo, &env.env, &["add", "-A"]);
+    git(repo, &env.env, &["commit", "-q", "-m", "Base: later"]);
+    env.team.update_base(1).unwrap();
+    let run = env.until("the delivery", delivery);
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("b.txt")).unwrap(),
+        "later\n"
+    );
+    assert_eq!(checked(&env), 3, "the checks ran again after each merge");
+    let events = env.team.events(1, 0).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.message.contains("again, as you asked"))
+    );
+    assert_eq!(env.step(&run, "update-base").state, StepState::Done);
+
+    let mut busy = env.run();
+    busy.state = RunState::Running;
+    Store::open(&env.data).unwrap().save(&mut busy).unwrap();
+    let refused = env.team.update_base(1).unwrap_err().to_string();
+    assert!(
+        refused.contains("once it is done or waits for you"),
+        "{refused}"
+    );
+}
+
+/// The real Claude Code on Haiku: the base fixed the greeting's punctuation while the run trimmed the name, on the
+/// same line; the integrator keeps both, and TermF concludes the merge.
+#[test]
+#[ignore]
+fn real_integrator() {
+    let root = std::env::temp_dir().join(format!("termf-team-integrator-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let (repo, config, data) = (root.join("repo"), root.join("config"), root.join("data"));
+    fs::create_dir_all(&repo).unwrap();
+    let env: Vec<(String, String)> = [
+        ("GIT_AUTHOR_NAME", "alex"),
+        ("GIT_AUTHOR_EMAIL", "alex@example.invalid"),
+        ("GIT_COMMITTER_NAME", "alex"),
+        ("GIT_COMMITTER_EMAIL", "alex@example.invalid"),
+    ]
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .to_vec();
+    let greet = |line: &str| format!("export function greet(name) {{\n  {line}\n}}\n");
+    let commit = |dir: &Path, text: String, message: &str| {
+        fs::write(dir.join("greet.js"), text).unwrap();
+        git(dir, &env, &["add", "-A"]);
+        git(dir, &env, &["commit", "-q", "-m", message]);
+    };
+    git(&repo, &env, &["init", "-q", "-b", "main"]);
+    commit(&repo, greet("return \"Hello \" + name;"), "init");
+    let worktree = data.join("worktrees/run1");
+    let path = worktree.to_string_lossy().into_owned();
+    git(
+        &repo,
+        &env,
+        &["worktree", "add", "-q", "-b", "termf/1-trim", &path],
+    );
+    commit(
+        &worktree,
+        greet("return \"Hello \" + name.trim();"),
+        "acme/web#1 T1: trim the name before greeting",
+    );
+    commit(
+        &repo,
+        greet("return \"Hello, \" + name + \"!\";"),
+        "Greeting: a comma after Hello and an exclamation mark",
+    );
+    let put = |path: PathBuf, text: String| {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    // Nobody is there to answer a permission: every command of this throwaway repository is allowed.
+    put(
+        config.join("termf.toml"),
+        "[agents]\nclaude = \"claude\"\n[team]\ntriage = false\n[roles.integrator]\nmodel = \"haiku\"\n\
+         effort = \"low\"\neffort_range = [\"low\", \"low\"]\nallowedTools = [\"+Bash\"]\n"
+            .into(),
+    );
+    put(
+        config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"web\"\npath = \"{}\"\n[team]\ndone = []\n",
+            repo.display()
+        ),
+    );
+    put(
+        config.join("library/workflows/real.toml"),
+        "budget_usd = 0.5\n[steps.update-base]\ntype = \"update\"\nrole = \"integrator\"\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"update-base\"]\n"
+            .into(),
+    );
+    let target = Target {
+        run: 1,
+        project: "acme".into(),
+        repo: "web".into(),
+        repo_path: repo.clone(),
+        worktree: worktree.clone(),
+        ticket: "acme/web#1".into(),
+        title: "Trim the name".into(),
+        brief: "<ticket source=\"https://example.invalid/1\">\n# Trim the name\n\ngreet() must ignore the spaces \
+                around the name.\n</ticket>"
+            .into(),
+    };
+    let (notifier, inbox) = channel();
+    let agents = Agents::build(config.clone(), data.clone(), Vec::new(), move |u| {
+        if let termf_agents::Update::Session(s) = u {
+            notifier.session(s.id);
+        }
+    });
+    let termf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/termf");
+    assert!(
+        termf.is_file(),
+        "build the CLI first: cargo build -p termf-cli"
+    );
+    agents.serve_guard(termf);
+    let team = Team::build(
+        config.clone(),
+        data.clone(),
+        agents.clone(),
+        inbox,
+        env.clone(),
+        |_| {},
+    );
+    team.start(
+        target,
+        Options {
+            workflow: Some("real".into()),
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(600);
+    let run = loop {
+        let run = team.run(1).unwrap();
+        if !matches!(run.state, RunState::Running) || Instant::now() > deadline {
+            break run;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let merged = fs::read_to_string(worktree.join("greet.js")).unwrap_or_default();
+    let parents = git(&worktree, &env, &["log", "-1", "--format=%P"]);
+    let folders: Vec<PathBuf> = agents
+        .sessions()
+        .unwrap()
+        .into_iter()
+        .map(|s| s.spec.cwd)
+        .collect();
+    let events: Vec<String> = team
+        .events(1, 0)
+        .unwrap()
+        .iter()
+        .map(|e| format!("{} {:?} {}", e.kind, e.step, e.message))
+        .collect();
+    team.shutdown();
+    agents.shutdown();
+    for folder in folders {
+        let _ = Command::new("claude")
+            .args(["purge", &folder.to_string_lossy(), "-y"])
+            .output();
+    }
+    let _ = fs::remove_dir_all(&root);
+
+    let update = run.steps.iter().find(|s| s.key == "update-base").unwrap();
+    eprintln!(
+        "real_integrator: run ${:.4}; {:?} {:?}\n{merged}\n{:?}\n{events:#?}",
+        run.cost,
+        update.state,
+        update.note,
+        update.report.as_ref().map(|r| &r.summary)
+    );
+    assert_eq!(update.state, StepState::Done, "{events:#?}");
+    assert_eq!(update.files, ["greet.js"]);
+    assert_eq!(parents.split(' ').count(), 2, "a merge commit: {parents}");
+    assert!(
+        !merged.contains("<<<<<<<") && !merged.contains(">>>>>>>"),
+        "{merged}"
+    );
+    assert!(
+        merged.contains("trim()") && merged.contains("Hello, ") && merged.contains('!'),
+        "both intents kept: {merged}"
+    );
 }

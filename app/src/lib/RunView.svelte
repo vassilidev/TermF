@@ -36,6 +36,7 @@
   import FolderInput from "@lucide/svelte/icons/folder-input";
   import GitMerge from "@lucide/svelte/icons/git-merge";
   import GitPullRequestClosed from "@lucide/svelte/icons/git-pull-request-closed";
+  import Images from "@lucide/svelte/icons/images";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Send from "@lucide/svelte/icons/send";
@@ -43,6 +44,7 @@
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Users from "@lucide/svelte/icons/users";
+  import BaseUpdate from "$lib/BaseUpdate.svelte";
   import CiChecks from "$lib/CiChecks.svelte";
   import Delivery from "$lib/Delivery.svelte";
   import TeamOptions from "$lib/TeamOptions.svelte";
@@ -54,7 +56,8 @@
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { usd } from "$lib/agents.svelte";
-  import { closeRun } from "$lib/commands";
+  import { closeRun, showReview } from "$lib/commands";
+  import { reviewOf } from "$lib/visual.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { expected, named, prName, shown, soloNames, stageNames, stages, type StageState } from "$lib/run-logic";
   import { repoName, shortPath } from "$lib/state.svelte";
@@ -68,6 +71,7 @@
 
   const run = $derived(tickets.runs.find((r) => r.id === id));
   const teamRun = $derived(team.runs.find((r) => r.run === id));
+  const review = $derived(reviewOf(id));
 
   type Step =
     | null
@@ -289,6 +293,12 @@
           <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
         </button>
       {/if}
+      {#if review}
+        {@const id = review.id}
+        <button class="btn sm" onclick={() => showReview(id)}>
+          <Images size={14} aria-hidden="true" />{t("review5bTitle")}
+        </button>
+      {/if}
       {#if canDeliver}
         <button class="btn sm" onclick={() => ((delivering = true), (step = null))}>
           <Send size={14} aria-hidden="true" />{t("runDeliver")}
@@ -455,6 +465,8 @@
               </div>
             </section>
           {/if}
+
+          <BaseUpdate {run} team={teamRun} />
 
           {#if teamRun}
             {#if triaging}

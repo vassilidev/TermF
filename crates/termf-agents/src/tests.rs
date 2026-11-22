@@ -10,6 +10,7 @@ use super::*;
 /// A stand-in for Claude Code that reads stream-json and answers like 2.1.330, by the words in each message.
 /// It logs its arguments, folder, stdin, and when it starts and ends, next to itself.
 const FAKE: &str = r#"
+[ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
 echo "start $$" >> "$log.events"
 trap 'echo "exit $$" >> "$log.events"' EXIT
 { echo "--- $$"; printf '%s\n' "$@"; } >> "$log.args"

@@ -357,7 +357,7 @@ pub struct Repo {
 }
 
 impl Repo {
-    fn at(path: PathBuf, name: Option<String>) -> Self {
+    pub fn at(path: PathBuf, name: Option<String>) -> Self {
         Self {
             name: name.unwrap_or_else(|| file_name(&path)),
             modified: last_activity(&path),
@@ -606,12 +606,27 @@ pub fn save_project(
             )
         }
     };
+    fill(&mut doc, name, repos).with_context(|| format!("cannot write {}", file.display()))?;
+    write_atomic(&file, &doc.to_string())?;
+    Ok(id)
+}
+
+/// The file a new project starts with, as `save_project` would write it.
+pub fn project_text(name: &str, repos: &[String]) -> Result<String> {
+    let name = name.trim();
+    ensure!(!name.is_empty(), "a project needs a name");
+    let mut doc = DocumentMut::new();
+    fill(&mut doc, name, repos)?;
+    Ok(doc.to_string())
+}
+
+fn fill(doc: &mut DocumentMut, name: &str, repos: &[String]) -> Result<()> {
     doc["name"] = value(name);
     let list = doc
         .entry("repos")
         .or_insert(Item::ArrayOfTables(ArrayOfTables::new()))
         .as_array_of_tables_mut()
-        .with_context(|| format!("`repos` in {} must be [[repos]] tables", file.display()))?;
+        .context("`repos` must be [[repos]] tables")?;
     let path_of = |t: &Table| t.get("path").and_then(Item::as_str).map(expand_tilde);
     list.retain(|t| path_of(t).is_some_and(|p| repos.iter().any(|r| p == Path::new(r))));
     let mut listed: Vec<PathBuf> = list.iter().filter_map(path_of).collect();
@@ -628,8 +643,7 @@ pub fn save_project(
             listed.push(repo.into());
         }
     }
-    write_atomic(&file, &doc.to_string())?;
-    Ok(id)
+    Ok(())
 }
 
 /// Also removes `projects/<id>/` (its library), which a new project with the same id would otherwise inherit.

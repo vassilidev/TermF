@@ -12,6 +12,7 @@
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Search from "@lucide/svelte/icons/search";
   import Workflow from "@lucide/svelte/icons/workflow";
+  import ClaudeBinary from "$lib/ClaudeBinary.svelte";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import ContextReset from "$lib/ContextReset.svelte";
   import KeepAwake from "$lib/KeepAwake.svelte";
@@ -21,7 +22,8 @@
   import SectionNav from "$lib/ui/SectionNav.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ci, type CiNotify } from "$lib/ci.svelte";
-  import { claudeView, loadArtifacts, type Artifacts } from "$lib/claude.svelte";
+  import { claudeView, loadArtifacts, type Artifacts, type ClaudeBinary as Binary } from "$lib/claude.svelte";
+  import { latest } from "$lib/claude-logic";
   import { t } from "$lib/i18n";
   import { actions } from "$lib/keymap-logic";
   import { hasWords } from "$lib/nav-logic";
@@ -53,7 +55,12 @@
       words: ["settingsKeysHelp", ...actions.flatMap((a) => (a.help ? [a.label, a.help] : [a.label]))],
     },
     { id: "ci", label: "viewCi", icon: Workflow, words: ["ciNotify", "ciNotifyHelp", "ciNotifyMine", "ciNotifyAll"] },
-    { id: "claude", label: "claudeViewTitle", icon: Bot, words: ["claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"] },
+    {
+      id: "claude",
+      label: "claudeViewTitle",
+      icon: Bot,
+      words: ["claudebinTitle", "claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"],
+    },
     {
       id: "config",
       label: "settingsConfig",
@@ -82,8 +89,22 @@
     error = "";
   });
 
+  let binary = $state<Binary | null>(null);
+  const binaryAsked = latest();
+
   $effect(() => {
     if (settings.section === "claude" && !claudeView.artifacts) loadArtifacts();
+  });
+
+  // Read again at each visit (`claude update` changes it); an answer that comes after leaving is ignored.
+  $effect(() => {
+    if (settings.section !== "claude") return;
+    const id = binaryAsked.next();
+    invoke<Binary>("claude_binary").then(
+      (b) => binaryAsked.isLast(id) && (binary = b),
+      (e) => binaryAsked.isLast(id) && (error = String(e)),
+    );
+    return () => binaryAsked.next();
   });
 
   const tone = $derived(summary(app.sync).tone);
@@ -179,6 +200,11 @@
             <p class="help">{t("ciNotifyHelp")}</p>
           {:else if settings.section === "claude"}
             <h2>{t("claudeViewTitle")}</h2>
+            <section class="group" aria-label={t("claudebinTitle")}>
+              <h3>{t("claudebinTitle")}</h3>
+              {#if binary}<ClaudeBinary b={binary} summary />{/if}
+              <p class="help">{t("claudebinHelp")}</p>
+            </section>
             <h3>{t("claudeViewTabArtifacts")}</h3>
             <label class="check">
               <input
@@ -319,6 +345,10 @@
 
   .labelled {
     max-width: 320px;
+  }
+
+  .group {
+    margin-bottom: 24px;
   }
 
   .help {

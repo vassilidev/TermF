@@ -180,6 +180,7 @@ impl Agents {
     /// A new session, its process started, with `prompt` as its first message when there is one.
     pub fn start(&self, spec: SessionSpec, prompt: Option<&str>) -> Result<AgentSession> {
         let inner = &self.inner;
+        let _ = inner.command(&spec);
         let id = self.create(spec)?.id;
         let store = inner.store()?;
         let mut live = inner.live.lock().unwrap();
@@ -196,6 +197,7 @@ impl Agents {
         ensure!(!text.trim().is_empty(), "the message is empty");
         let inner = &self.inner;
         let store = inner.store()?;
+        let _ = inner.command(&store.session(id)?.spec);
         let mut live = inner.live.lock().unwrap();
         inner.deliver(&store, id, live.entry(id).or_default(), Some(text))
     }
@@ -206,6 +208,7 @@ impl Agents {
         ensure!(!text.trim().is_empty(), "the message is empty");
         let inner = &self.inner;
         let store = inner.store()?;
+        let _ = inner.command(&store.session(id)?.spec);
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         if matches!(store.session(id)?.state, State::Working | State::Waiting) {
@@ -443,6 +446,7 @@ impl Agents {
                 bail!("terminal {tile} did not close: close it, then hand the session back");
             }
         }
+        let _ = inner.command(&store.session(id)?.spec);
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         entry.busy = false;
@@ -658,6 +662,18 @@ impl Inner {
         self.set_state(store, id, entry, State::Working)
     }
 
+    /// The agent's command, a bare `claude` replaced by the Claude Code it runs. Asking an install its version can
+    /// take seconds: callers that may start a process ask once before taking `live`, then it is cached.
+    fn command(&self, spec: &SessionSpec) -> Result<(String, claude::Install)> {
+        let settings = termf_core::load_settings(&self.config_dir)?;
+        let agent = spec.agent.as_deref().unwrap_or_default();
+        let command = settings
+            .agents
+            .get(agent)
+            .with_context(|| format!("no agent {agent} in termf.toml [agents]"))?;
+        claude::in_command(command, shell_quote)
+    }
+
     /// Starts the session's process, which waits for a message. The library is written again, so that what
     /// changed since applies.
     fn launch(self: &Arc<Self>, store: &Store, id: i64, entry: &mut Live) -> Result<()> {
@@ -672,12 +688,7 @@ impl Inner {
         {
             bail!("a process of this session still runs (pid {pid}): it must end first");
         }
-        let settings = termf_core::load_settings(&self.config_dir)?;
-        let agent = session.spec.agent.as_deref().unwrap_or_default();
-        let command = settings
-            .agents
-            .get(agent)
-            .with_context(|| format!("no agent {agent} in termf.toml [agents]"))?;
+        let (command, claude) = self.command(&session.spec)?;
         let dir = store.dir(id).join("session");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir)?;
@@ -756,7 +767,10 @@ impl Inner {
         });
         entry.pending.clear();
         entry.interrupting = false;
-        let said = std::thread::spawn(move || tail(stderr));
+        let said = std::thread::spawn(move || match said(stderr) {
+            said if said.is_empty() => said,
+            said => format!("Claude Code {claude}: {said}"),
+        });
         let inner = self.clone();
         std::thread::spawn(move || inner.read(id, generation, child, stdout, said));
         store.set_pid(id, Some(pid))?;
@@ -1188,18 +1202,24 @@ fn other_repos(config_dir: &Path, spec: &SessionSpec) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
-/// The end of what the process wrote on stderr, for an error message.
-fn tail(mut stderr: impl Read) -> String {
-    let (mut kept, mut chunk) = (Vec::new(), [0u8; 4096]);
+/// What the process wrote on stderr, for an error message: its start, where the error is, and its end.
+fn said(mut stderr: impl Read) -> String {
+    let (mut head, mut kept, mut chunk) = (Vec::new(), Vec::new(), [0u8; 4096]);
     while let Ok(n) = stderr.read(&mut chunk) {
         if n == 0 {
             break;
+        }
+        if head.len() < 8192 {
+            head.extend_from_slice(&chunk[..n]);
+            continue;
         }
         kept.extend_from_slice(&chunk[..n]);
         let extra = kept.len().saturating_sub(8192);
         kept.drain(..extra);
     }
-    termf_core::process::tail(&String::from_utf8_lossy(&kept))
+    head.push(b'\n');
+    head.extend(kept);
+    termf_core::process::excerpt(&String::from_utf8_lossy(&head))
 }
 
 /// Whether `pid` still runs this conversation's agent: its command line names the conversation, so a pid the

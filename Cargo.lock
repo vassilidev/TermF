@@ -5748,6 +5748,7 @@ dependencies = [
  "sha2 0.10.9",
  "termf-core",
  "termf-library",
+ "termf-ssh",
  "toml 1.2.2+spec-1.1.0",
  "toml_edit 0.25.20+spec-1.1.0",
  "zeroize",

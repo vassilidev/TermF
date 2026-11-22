@@ -187,6 +187,11 @@ impl Api {
         (api, listener)
     }
 
+    /// `[api] confirm_cli` as read at startup, which is what applies until TermF starts again.
+    pub fn confirm_cli(&self) -> bool {
+        self.confirm_cli
+    }
+
     fn confirm(&self, app: &AppHandle, call: &Call, caller: &Stream) -> Result<()> {
         let Some(mut reserved) = ipc::reserved(call).filter(|_| self.confirm_cli) else {
             return Ok(());
@@ -947,6 +952,11 @@ fn launch(
             }
             c
         });
+        // Last: a path with a space would be cut by `after_program`.
+        let command = match command {
+            Some(c) if is_claude => Some(claude::in_command(&c, shell_quote)?.0),
+            other => other,
+        };
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
             title: title.clone(),
