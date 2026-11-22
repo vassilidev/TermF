@@ -1,0 +1,311 @@
+{
+  "ticket": "s2-due-date",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:45:21.625Z",
+  "state": "done",
+  "wall_s": 90.26433,
+  "cost_usd": 0.366335,
+  "sessions": 3,
+  "turns": 3,
+  "tokens": {
+    "cache_creation": 64517,
+    "cache_read": 268870,
+    "input": 20,
+    "output": 8134
+  },
+  "routing": {
+    "kind": "feature",
+    "size": "S",
+    "reason": "A small, fully specified feature (one column, two endpoints, one form field) with testable criteria and no security stake.",
+    "workflow": "direct",
+    "skip": [],
+    "add": [],
+    "efforts": [],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 0.8,
+    "rulings": [
+      "Ruling: workflow `direct` — criteria are already testable and one developer can do the API, the migration and the small page change in one go — cost if wrong: a missed edge case is caught by the single review, and the run can be re-routed to `default`.",
+      "Ruling: no PO, UX, architect or security step — the acceptance criteria are complete, the form field is one input in the existing page, and the date is validated input with no auth, payment or personal-data stake — cost if wrong: a validation gap would reach the review unflagged by a security pass.",
+      "Ruling: one task for `back` that covers the whole ticket — the front change is about 10 lines in public/app.js and public/index.html, and splitting it would cost more than it saves — cost if wrong: the front part gets less specialised attention.",
+      "Ruling: budget $0.80 — one developer task, the checks, the migration review and one short review round — cost if wrong: the run stops before the review and the user must raise it."
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": {
+      "id": "T1",
+      "role": "back",
+      "squad": "",
+      "repo": "app",
+      "size": "S",
+      "covers": [
+        "AC1",
+        "AC2",
+        "AC3",
+        "AC4",
+        "AC5",
+        "AC6"
+      ],
+      "goal": "Add an optional `due_date` to tasks. (1) src/db.ts: append a NEW migration to the `migrations` array (never edit the existing one): `ALTER TABLE tasks ADD COLUMN due_date TEXT` (nullable, no default), so existing rows get NULL. (2) src/tasks.ts: add `due_date: string | null` to `Task` and `Row`; `createTask` takes an optional due_date; `updateTask` must tell an absent `due_date` (leave unchanged) apart from an explicit `null` (clear), so do not use `??` for it; use `'due_date' in changes` or `!== undefined`. (3) src/app.ts: POST /api/tasks and PATCH /api/tasks/:id accept `due_date`; validate it as a string matching `YYYY-MM-DD` that is a real calendar date (reject `2026-1-5`, `tomorrow`, `2026-02-30`, non-strings such as numbers; round-trip the parsed UTC date to catch impossible days); on failure answer 400 `{\"error\": \"due_date must be a date in YYYY-MM-DD format\"}` and save nothing (validate before any write, in PATCH too, so a bad due_date does not apply a title or done change). `null` is valid on PATCH, and on POST it means no date. (4) public/index.html and public/app.js: add an optional `<input type=\"date\">` with an accessible label to the add form and send it as `due_date` only when filled; show the due date next to the title when it is not null (build it with textContent, like the existing code, no innerHTML with data). (5) test/tasks.test.ts: cover the default null, create with a date, PATCH set, PATCH clear with null, PATCH without due_date leaves it, each invalid format and 2026-02-30 answering 400 with that exact body and nothing saved, and a database at the first migration upgrading with due_date null (use migrate() on a db at user_version 1 with a pre-existing row). (6) README.md: document the field, the validation and the 400 error. Run the project's checks (typecheck and tests from package.json) before finishing.",
+      "files_hint": [
+        "src/db.ts",
+        "src/tasks.ts",
+        "src/app.ts",
+        "public/index.html",
+        "public/app.js",
+        "test/tasks.test.ts",
+        "README.md"
+      ],
+      "depends_on": [],
+      "ui_impact": true
+    }
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0939302,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.16615100000000002,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.10625379999999998,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 8,
+    "fail": 0,
+    "tests": 8,
+    "failed": [],
+    "total": 8
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 18,
+    "fail": 0,
+    "tests": 18,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 7,
+      "removed": 3
+    },
+    {
+      "path": "public/app.js",
+      "added": 16,
+      "removed": 2
+    },
+    {
+      "path": "public/index.html",
+      "added": 2,
+      "removed": 0
+    },
+    {
+      "path": "src/app.ts",
+      "added": 14,
+      "removed": 2
+    },
+    {
+      "path": "src/db.ts",
+      "added": 1,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 7,
+      "removed": 4
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 66,
+      "removed": 0
+    }
+  ],
+  "lines_added": 113,
+  "lines_removed": 11,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "Migration adds nullable due_date column, Task interface and rows include it, defaulting to null."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST passes due_date ?? null; PATCH keeps existing when undefined, sets null to clear."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "validDueDate checks regex plus round-trip through Date, returns 400 with exact message before any write; tests cover bad formats, 2026-02-30, non-strings."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "New ALTER TABLE migration appended; test upgrades a v1 DB and old row gets null."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "Page renders 'Due <date>' span when present and the form has an optional date input sent only when set."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "Tests cover default, create, patch set/keep/clear, invalid values, migration; README updated."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 8,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 7,
+      "edge_cases": 8,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/app.js",
+        "what": "Submit handler now wraps POST in try/catch and shows errors; a reasonable need for the 400 but is a small behaviour change beyond the ticket."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "validDueDate accepts years like 0000 (Date parses it); unlikely to matter. Also a non-object JSON body (e.g. null) would throw on body.due_date, but that is pre-existing handling."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "public/app.js",
+        "what": "Inline style (due.style.flex) in JS instead of CSS."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "No test for the UI changes; the loop of bad values makes many tests that each do multiple requests, a bit heavy but fine."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets all six criteria with a clean validation helper, a proper migration, and thorough tests including an upgrade test and no-write checks on rejected input. Only minor nits remain: the unrelated-but-sensible error handling in the form submit, inline styling, and no UI tests.",
+    "cost_usd": 0.0445544
+  }
+}

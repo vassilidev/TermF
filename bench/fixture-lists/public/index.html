@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lists</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Lists</h1>
+      <div id="account" hidden>
+        <span id="whoami"></span>
+        <button id="sign-out" type="button">Sign out</button>
+      </div>
+    </header>
+    <p id="error" role="alert"></p>
+
+    <section id="signin" hidden>
+      <form id="signin-form">
+        <h2>Sign in</h2>
+        <label>Username <input name="username" autocomplete="username" required /></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required /></label>
+        <label>Email, for reminders (only when creating an account) <input name="email" type="email" autocomplete="email" /></label>
+        <div class="row">
+          <button type="submit" value="in">Sign in</button>
+          <button type="submit" value="up">Create an account</button>
+        </div>
+      </form>
+    </section>
+
+    <main id="app" hidden>
+      <nav aria-label="Your lists">
+        <ul id="lists"></ul>
+        <form id="new-list" class="row">
+          <label for="list-name" hidden>New list</label>
+          <input id="list-name" placeholder="New list" maxlength="100" />
+          <button type="submit">Add</button>
+        </form>
+      </nav>
+
+      <section id="list-view" hidden>
+        <div class="row list-head">
+          <h2 id="list-title"></h2>
+          <button id="rename-list" type="button">Rename</button>
+          <button id="delete-list" type="button">Delete</button>
+        </div>
+
+        <form id="new-task" class="row">
+          <label for="task-title" hidden>Title</label>
+          <input id="task-title" placeholder="What needs doing?" maxlength="200" />
+          <label for="task-due" hidden>Due date</label>
+          <input id="task-due" type="date" />
+          <label for="task-priority" hidden>Priority</label>
+          <select id="task-priority">
+            <option value="0">Low</option>
+            <option value="1">Normal</option>
+            <option value="2">High</option>
+            <option value="3">Urgent</option>
+          </select>
+          <button type="submit">Add</button>
+        </form>
+
+        <div class="row toolbar">
+          <label>Show
+            <select id="filter-done">
+              <option value="">All</option>
+              <option value="false">Open</option>
+              <option value="true">Done</option>
+            </select>
+          </label>
+          <label>Tag <select id="filter-tag"><option value="">Any</option></select></label>
+          <label>Sort by
+            <select id="sort">
+              <option value="position">Position</option>
+              <option value="due_date">Due date</option>
+              <option value="priority">Priority</option>
+              <option value="created">Newest</option>
+            </select>
+          </label>
+        </div>
+
+        <ul id="tasks"></ul>
+
+        <details id="activity">
+          <summary>Activity</summary>
+          <ol id="activity-items"></ol>
+        </details>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

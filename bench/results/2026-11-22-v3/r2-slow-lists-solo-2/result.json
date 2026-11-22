@@ -1,0 +1,155 @@
+{
+  "ticket": "r2-slow-lists",
+  "arm": "solo",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "realistic",
+  "at": "2026-11-22T18:47:48.365Z",
+  "state": "done",
+  "wall_s": 81.828,
+  "cost_usd": 0.31459990000000004,
+  "sessions": 1,
+  "turns": 12,
+  "tokens": {
+    "input": 24,
+    "output": 11524,
+    "cache_read": 327159,
+    "cache_creation": 41649
+  },
+  "said": "`GET /api/lists/:id/tasks` now returns pages, and the page loads them on demand. The test suite passes (39 passed, 1 skipped, which was already skipped).\n\nI benchmarked a 10,000-task list through every sort and several filter combinations, using the 200-task page limit. Walking the whole list took about 110–130 ms in total. The slowest single page took about 5 ms. I didn't open the page in a browser, so the \"Load more\" button is untested there.\n\n- **API:** `src/tasks.ts` takes `limit` (1–200, default 50) and `cursor` and answers `{items, next_cursor}`. The sort orders and filters are unchanged.\n  - **Paging method:** the cursor marks a place in the sort order rather than an offset. Deep pages therefore cost the same as the first, and tasks added or deleted between two pages don't shift or repeat the rest.\n  - **Bad input:** a bad `limit` answers 400. A cursor made for another list or another sort, or a malformed one, also answers 400.\n  - **Filters:** the cursor doesn't record the filters, so passing the same ones back is up to the client, as the ticket says.\n- **Indexes:** a new migration in `src/db.ts` adds the indexes that were missing. There is one per sort, plus indexes for the tag filter, the comment count and the list task counts. I added the list-count index because `GET /api/lists` counts tasks, and that was also slow on big lists.\n- **Page:** `public/tasks.js` shows the first page and has a \"Load more\" button. Changing the sort or a filter reloads from the first page. A slow answer from a previous selection is dropped.\n- **Tests and docs:** I changed the existing task tests to read the new response shape. I added tests for paging in every sort (including ties on date, priority and creation time), the default and maximum `limit`, bad `limit` and `cursor` values, and edits between pages. The README documents the new response and parameters, and notes in the Layout section that the indexes should stay in step with `SORTS`.\n\nAny edit, tag change or delete in t",
+  "hidden": {
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": [],
+    "total": 14
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 39,
+    "fail": 0,
+    "tests": 40,
+    "failed": []
+  },
+  "original_tests": null,
+  "typecheck": {
+    "ok": false,
+    "errors": 1,
+    "first": [
+      "src/tasks.ts(267,15): error TS2345: Argument of type 'string | number | null' is not assignable to parameter of type 'string | number'."
+    ]
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 15,
+      "removed": 2
+    },
+    {
+      "path": "public/index.html",
+      "added": 1,
+      "removed": 0
+    },
+    {
+      "path": "public/tasks.js",
+      "added": 35,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 82,
+      "removed": 8
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 90,
+      "removed": 3
+    }
+  ],
+  "lines_added": 233,
+  "lines_removed": 16,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "partial",
+        "why": "Keyset paging with LIMIT and one index per sort makes the unfiltered case fast. The done and assignee filters have no index that fits the sort. The due_date `OR` cursor condition may not seek the index. No test or EXPLAIN check shows it is fast at 10k rows."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "The `{items, next_cursor}` shape, limit 1 to 200 with a default of 50, and a 400 for a bad limit or cursor are done. The cursor is bound to the list and the sort, and ordering and tie-breaks by id are kept."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The front shows the first page and has a 'Load more' button. A generation counter drops stale answers, and the button is disabled while a page loads."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The new tests cover every sort, filters, the default limit, limit validation, cursor validation and changes between pages. The README documents the paging and the indexes."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 7,
+      "tests": 7,
+      "error_handling": 8,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/db.ts",
+        "what": "Performance for filtered views is not assured. `tasks_done(list_id, done)` is a poor index. The planner may pick it, or a tag index, and then sort every match. Nothing indexes assignee. The ticket says changing filters must stay fast at any size."
+      },
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "The due_date cursor condition uses `IS NULL OR due_date > ? OR (...)`. SQLite often cannot seek an index with an OR, so deep pages may scan from the start despite the comment. The `IS NULL` branch also matches the whole null block."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "Cursor validation demands an integer position. A non-integer or NULL position would produce a cursor that its own list then rejects with 400. Each row still goes through `toView`, which is one query set per row (N+1), and that is bounded only by the page size."
+      },
+      {
+        "severity": "medium",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "No test covers paging combined with the tag or assignee filter. No test covers a large list or checks the query plan. No test covers shared positions across a page boundary. Performance, the ticket's main point, is untested."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "public/tasks.js",
+        "what": "If the first-page request fails, the 'Load more' button stays hidden and the old list stays on screen. Any action that calls `renderTasks` again, such as a toggle or a delete, resets the view to page one and drops the pages already loaded."
+      },
+      {
+        "severity": "low",
+        "category": "over-engineering",
+        "file": "src/tasks.ts",
+        "what": "The `Sort` interface with `key` and `after` closures is a little heavy for four sorts. The `comments_task` and `tasks_done` indexes go beyond what the paging needs."
+      }
+    ],
+    "over_engineering": "some",
+    "overall": 7,
+    "summary": "This is a solid keyset-pagination implementation. The cursor is bound to the list and sort, injection-safe and well validated. The API, front end, README and paging tests all follow the ticket. Speed on filtered views is not shown. The done, assignee and tag filters lack matching indexes, the due_date `OR` condition may not seek, and no test or query-plan check covers performance or filter plus paging.",
+    "cost_usd": 0.07773240000000001
+  }
+}

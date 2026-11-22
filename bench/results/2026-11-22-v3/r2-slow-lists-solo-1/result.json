@@ -1,0 +1,165 @@
+{
+  "ticket": "r2-slow-lists",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "realistic",
+  "at": "2026-11-22T18:45:06.643Z",
+  "state": "done",
+  "wall_s": 124.206,
+  "cost_usd": 0.380036,
+  "sessions": 1,
+  "turns": 14,
+  "tokens": {
+    "input": 28,
+    "output": 16355,
+    "cache_read": 553140,
+    "cache_creation": 40279
+  },
+  "said": "The tasks of a list now come in pages, and the page loads them on demand. On a generated list of 20,000 tasks, the first page and deep pages (200 tasks each) take about 0.5 to 5 ms. The rare-tag filter takes about 3 ms. I didn't time the old code, but the ticket reports 2 to 9 seconds for 10,000 tasks.\n\nThe 38 tests pass (1 skipped, as before). The browser page is untested; I only wrote the code.\n\n**API (`src/tasks.ts`)**\n- `GET /api/lists/:id/tasks` now takes `limit` (1 to 200, default 50) and `cursor`.\n- It answers `{ items, next_cursor }`, and `next_cursor` is `null` on the last page.\n- Anything outside 1 to 200 for `limit` answers 400. A `cursor` that is garbled, or that came from another list or another sort, answers 400.\n- Order, filters and task fields are unchanged.\n- A cursor holds the sort key of the last task, so a task added or removed between two requests doesn't cause one to repeat or be skipped.\n- A cursor isn't tied to the filters, only to the list and the sort, as the ticket describes. Passing different filters with an old cursor still works.\n\n**Database (`src/db.ts`)**\n- A new migration adds an index per sort, indexes on `task_tags`, and an index on `comments(task_id)`. The missing comments index was likely a big part of the slowness, because the comment count did a full table scan for every task.\n- The due-date and priority sorts use two generated columns, `due_key` and `priority_key`, so their indexes can be searched from the cursor position. The sort order is the same as before.\n- Existing databases get the migration when they next open.\n\n**Page (`public/tasks.js`)**\n- It shows the first 50 tasks. It loads the next page when you scroll near the end, or with a \"Load more\" button.\n- Changing the sort or a filter resets to the first page, and a slow answer from an older request is dropped.\n- After you edit a task, the list reloads from the first page, so you lose your scroll position if you were deep in a long list.\n\n**Tests and README**\n- `test/ta",
+  "hidden": {
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": [],
+    "total": 14
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 38,
+    "fail": 0,
+    "tests": 39,
+    "failed": []
+  },
+  "original_tests": null,
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 18,
+      "removed": 3
+    },
+    {
+      "path": "public/style.css",
+      "added": 2,
+      "removed": 0
+    },
+    {
+      "path": "public/tasks.js",
+      "added": 48,
+      "removed": 4
+    },
+    {
+      "path": "src/db.ts",
+      "added": 13,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 83,
+      "removed": 8
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 84,
+      "removed": 2
+    }
+  ],
+  "lines_added": 248,
+  "lines_removed": 17,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "partial",
+        "why": "Keyset paging on new (list, sort key, id) indexes plus a limit makes the first page cheap, but there is no test or EXPLAIN check that the indexes are used. With tag or done filters the planner may pick another plan. The front still resets to page 1 on every refresh."
+      },
+      {
+        "id": 2,
+        "verdict": "partial",
+        "why": "Pages, limit (1–200, default 50, 400 otherwise), the cursor and the `{items, next_cursor}` shape are done. The cursor is bound to list and sort, and the sort orders match the old ones. `SELECT t.*` now carries the generated `due_key` and `priority_key` columns. The diff doesn't show whether `toView` strips them, so the task fields may have changed. No test checks the field set."
+      },
+      {
+        "id": 3,
+        "verdict": "partial",
+        "why": "The page shows the first page and loads more through an IntersectionObserver or a Load more button, and stale answers are dropped by generation. But `loadingMore` can block the next load after a filter change. The observer won't fire again if the button stays in view. Any refresh drops the pages already loaded."
+      },
+      {
+        "id": 4,
+        "verdict": "partial",
+        "why": "The README is updated. Tests cover all sorts, many limits, filters, the default size, the last page and bad limits or cursors. Missing: a mutation between pages (which the README claims is safe), a large list or index use, the front, and a check that the task fields are unchanged. Other callers and tests of the old array shape are not shown as updated."
+      }
+    ],
+    "scores": {
+      "correctness": 7,
+      "security": 8,
+      "readability": 7,
+      "tests": 6,
+      "error_handling": 8,
+      "edge_cases": 6,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "`SELECT t.*` now includes the virtual generated columns `due_key` and `priority_key`. If `toView` spreads the row, these internal fields leak into every task in the API. That breaks the ticket's rule that the task fields stay as documented. No test asserts the exact set of task keys."
+      },
+      {
+        "severity": "medium",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The README promises that adding or removing a task between two requests causes no duplicate or skipped task, and no test covers it. There is also no test with a large list or a query-plan check, so the performance goal is unverified."
+      },
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "The return type of `listTasks` changed from an array to `TaskPage`. The diff updates only some tests. Other callers (for example jobs/digests or other test files) may still expect an array, and none are shown as updated."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "public/tasks.js",
+        "what": "After a filter or sort change, a stale `loadMore` keeps `loadingMore` true until its request ends and its result is discarded. The IntersectionObserver does not re-fire while the button stays visible, so auto-loading stalls until the user clicks. Because the observer only fires on a change of visibility, a first page that leaves the button in view will not auto-load further either."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "public/tasks.js",
+        "what": "Any `refresh()` after a task edit or creation re-renders only the first page. The loaded pages and the scroll position are lost, which is annoying on a 10,000-task list."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "Cursor validation is loose for `created`: any string is accepted, and position accepts any integer. The values are only bound as parameters, so this is harmless. The cursor is unsigned, which is fine because list access is checked first."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/db.ts",
+        "what": "The task_tags and comments indexes help `toView` and the tag filter, but they go beyond the paging indexes. `task_tags_by_task` may duplicate an existing primary key."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "`decodeCursor` uses a switch with per-sort special cases and `any` casts. The cursor field list and the validation are duplicated, so they can drift apart."
+      }
+    ],
+    "over_engineering": "some",
+    "overall": 7,
+    "summary": "This is a sound keyset-pagination implementation. It has proper indexes, a strict cursor and limit validation, a front that follows, and good paging tests. Gaps remain: possible leakage of the new generated columns into task output, no test of stability under writes or of index use, and rough edges in the front's load-more logic.",
+    "cost_usd": 0.0884344
+  }
+}
