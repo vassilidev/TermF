@@ -1,0 +1,13 @@
+### Playwright — skill `playwright`
+- Version: `@playwright/test` in package.json and the lockfile; skill verified for @playwright/test@1.65.1 on 2026-11-22.
+- Docs for this version: the agent skills inside the package, `node_modules/playwright-core/lib/tools/skills/{playwright-cli,playwright-trace,playwright-component-testing}/SKILL.md` (1.62+); https://playwright.dev/docs/release-notes.
+- Verify: the project's e2e script, else `PLAYWRIGHT_HTML_OPEN=never npx playwright test`; `--trace on` when debugging.
+- Pitfalls:
+  - 1.65 runs on Node 22+ only, although `engines` still says `>=20`.
+  - 1.65 applies `useDefineForClassFields`: page object fields that read constructor parameter properties throw.
+  - 1.65: actions wait for non-inert targets, so a click behind an open modal times out.
+  - The base URL comes from `PORT` (the run's dev server), never a hard-coded port or a remote URL.
+  - Web-first assertions (`await expect(l).toBeVisible()`), role locators, no `waitForTimeout` or `force`.
+  - `playwright/.auth/` storage state holds live cookies: git-ignored, test accounts only.
+  - `npx playwright init-agents --loop=claude` overwrites `.mcp.json`; run it only when the task asks.
+- Read skill `playwright` when writing, running or fixing browser end-to-end tests or `playwright.config`.
