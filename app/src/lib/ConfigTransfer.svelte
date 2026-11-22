@@ -5,10 +5,13 @@
   import Info from "@lucide/svelte/icons/info";
   import Link from "@lucide/svelte/icons/link";
   import X from "@lucide/svelte/icons/x";
+  import VaultMergeRows from "$lib/VaultMergeRows.svelte";
   import { t } from "$lib/i18n";
   import { app, shortPath } from "$lib/state.svelte";
   import { action, busy, library, type Change, type Imported } from "$lib/library.svelte";
   import { applyImport, settings, type Transfer } from "$lib/settings.svelte";
+  import { failed, showVaultAll } from "$lib/vault.svelte";
+  import type { Merged } from "$lib/vault-logic";
 
   /** Claude Code's import in the Library, or a configuration's export or import in Settings. */
   let { panel }: { panel: { kind: "claude" } | Transfer } = $props();
@@ -18,6 +21,11 @@
   let overwrite = $state(false);
   let report = $state<Imported[] | null>(null);
   let showUnchanged = $state(false);
+  let vaultPassword = $state("");
+  let vaultRows = $state<Merged[] | null>(null);
+  let vaultError = $state("");
+  let vaultLocked = $state(false);
+  const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
 
   const kindLabel = {
     skill: "kindSkill",
@@ -68,6 +76,19 @@
     return change.addedKeys.length
       ? t("mergeAdds", { keys: change.addedKeys.join(", ") })
       : t("mergeKeeps");
+  }
+
+  async function showVault(e: SubmitEvent) {
+    e.preventDefault();
+    if (panel.kind !== "import") return;
+    vaultError = "";
+    vaultLocked = false;
+    try {
+      vaultRows = await invoke<Merged[]>("vault_import_preview", { path: panel.path, password: vaultPassword });
+    } catch (e) {
+      if (/the vault is locked/.test(String(e))) vaultLocked = true;
+      else vaultError = failed(e);
+    }
   }
 
   function close() {
@@ -230,10 +251,43 @@
       </div>
     {/if}
 
+    {#if panel.preview.vault && !panel.done}
+      <div class="vault-part">
+        <h3>{t("vault3ConfigVault")}</h3>
+        <p class="muted help">{t("vault3ConfigVaultText")}</p>
+        {#if vaultRows}
+          <VaultMergeRows rows={vaultRows} {projectName} />
+        {:else}
+          <form class="vault-form" onsubmit={showVault}>
+            <input
+              class="field"
+              type="password"
+              autocomplete="off"
+              aria-label={t("vault3ExportPassword")}
+              placeholder={t("vault3ExportPassword")}
+              bind:value={vaultPassword}
+            />
+            <button type="submit" class="btn" disabled={!vaultPassword}>{t("vault3ImportShow")}</button>
+          </form>
+        {/if}
+        {#if vaultLocked}
+          <p class="notice">
+            <Info size={14} aria-hidden="true" />{t("vault3NotOpen")}
+            <button class="btn sm" onclick={showVaultAll}>{t("vault3OpenVault")}</button>
+          </p>
+        {/if}
+        {#if vaultError}<p class="notice error" role="alert">{vaultError}</p>{/if}
+      </div>
+    {/if}
+
     {#if !panel.done}
       <footer>
         <button class="btn" onclick={close}>{t("cancel")}</button>
-        <button class="btn primary" onclick={applyImport} disabled={settings.busy || !pending.length}>
+        <button
+          class="btn primary"
+          onclick={() => applyImport(vaultRows ? vaultPassword : null)}
+          disabled={settings.busy || (!pending.length && !vaultRows?.some((r) => r.change !== "unchanged"))}
+        >
           {t("importRun")}
         </button>
       </footer>
@@ -390,5 +444,34 @@
     justify-content: flex-end;
     gap: 8px;
     margin-top: 20px;
+  }
+
+  .vault-part {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .vault-part h3 {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+
+  .vault-part .help {
+    margin: 0;
+  }
+
+  .vault-form {
+    display: flex;
+    gap: 8px;
+    max-width: 420px;
+  }
+
+  .vault-part .notice {
+    align-items: center;
   }
 </style>

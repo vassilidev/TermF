@@ -4,7 +4,7 @@ import { loadKeys } from "$lib/keymap.svelte";
 import { showSettings } from "$lib/settings.svelte";
 import { app } from "$lib/state.svelte";
 
-export type Scope = "config" | "projects" | "conventions";
+export type Scope = "config" | "projects" | "conventions" | "vault";
 export type Remote = { kind: "git"; url: string } | { kind: "folder"; path: string };
 /** `local` / `remote` null: deleted on that side. */
 export type Conflict = { path: string; keys: string[]; local: string | null; remote: string | null };
@@ -35,6 +35,7 @@ export const scopes: [Scope, Parameters<typeof t>[0], Parameters<typeof t>[0]][]
   ["config", "syncScopeConfig", "syncScopeConfigHelp"],
   ["projects", "syncScopeProjects", "syncScopeProjectsHelp"],
   ["conventions", "syncScopeConventions", "syncScopeConventionsHelp"],
+  ["vault", "vault3SyncScope", "vault3SyncScopeHelp"],
 ];
 
 export const sync = $state({

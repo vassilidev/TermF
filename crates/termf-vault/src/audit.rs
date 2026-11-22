@@ -97,6 +97,12 @@ pub enum Action {
     /// How the vault opens changed; `detail`: `security key added <id>`, `security key removed <id>`,
     /// `password changed`, `recovery key renewed`, `biometry on, <n> days` or `biometry off`.
     Security,
+    /// Another machine's version merged in, item by item; `detail`: `synced: <what changed>`.
+    Merge,
+    /// The vault, or a project's part, written to a file; `detail`: `encrypted` or `plain CSV`, and what.
+    Export,
+    /// Elements brought in from a file; `detail`: from what, and what changed.
+    Import,
 }
 
 /// What [`Log::append`] records.

@@ -315,6 +315,7 @@ pub fn run() {
             );
             // After the state its runs use, before the local API that can ask it to run a task.
             let config = app.state::<AppState>().config_dir.clone();
+            let vault_dir = data_dir.join("vault");
             schedule::start(app.handle(), config, data_dir);
             if let Some(listener) = listener
                 && let Err(e) = api::serve(app.handle().clone(), listener)
@@ -324,7 +325,8 @@ pub fn run() {
             quick_terminal::register(app.handle());
             claude::watch(app.handle());
             tickets::watch(app.handle());
-            let sync = sync::start(app.handle(), app.state::<AppState>().config_dir.clone());
+            let config = app.state::<AppState>().config_dir.clone();
+            let sync = sync::start(app.handle(), config, vault_dir);
             app.manage(sync);
             Ok(())
         })
@@ -599,6 +601,16 @@ pub fn run() {
             vault::vault_recovery_new,
             vault::vault_recover,
             vault::vault_biometry_set,
+            vault::vault_join,
+            vault::vault_conflicts,
+            vault::vault_resolve,
+            vault::vault_export,
+            vault::vault_export_csv,
+            vault::vault_import_read,
+            vault::vault_import_preview,
+            vault::vault_import_apply,
+            vault::vault_import_foreign,
+            vault::vault_import_delete,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1,0 +1,5 @@
+folder,favorite,type,name,notes,fields,reprompt,archivedDate,login_uri,login_username,login_password,login_totp
+Acme,,login,Stripe,,"API: sk_test_bwcsv
+Region: eu",0,,"https://dashboard.stripe.com,https://stripe.com",alex@acme.test,bwcsv-stripe-Hunter2!,JBSWY3DPEHPK3PXP
+,,note,Door code,"Front door 0000
+Back door 1111",,0,,,,,

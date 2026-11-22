@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeePassFile>
+	<Meta>
+		<Generator>KeePassXC</Generator>
+		<RecycleBinEnabled>True</RecycleBinEnabled>
+		<RecycleBinUUID>YmluYmluYmluYmluYmluYg==</RecycleBinUUID>
+	</Meta>
+	<Root>
+		<Group>
+			<UUID>cm9vdHJvb3Ryb290cm9vdA==</UUID>
+			<Name>Passwords</Name>
+			<Group>
+				<UUID>YWNtZWFjbWVhY21lYWNtZQ==</UUID>
+				<Name>Acme &amp; Co</Name>
+				<Entry>
+					<UUID>ZW50cnllbnRyeWVudHJ5ZQ==</UUID>
+					<String><Key>Title</Key><Value>Grafana</Value></String>
+					<String><Key>UserName</Key><Value>alex</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">kp-grafana-Hunter2!&lt;</Value></String>
+					<String><Key>URL</Key><Value>https://grafana.acme.test</Value></String>
+					<String><Key>KP2A_URL_1</Key><Value>https://grafana2.acme.test</Value></String>
+					<String><Key>Notes</Key><Value>Line one
+Line two</Value></String>
+					<String><Key>otp</Key><Value ProtectInMemory="True">otpauth://totp/Grafana:alex?secret=JBSWY3DPEHPK3PXP</Value></String>
+					<String><Key>Database</Key><Value ProtectInMemory="True">kp-db-Hunter2!</Value></String>
+					<String><Key>Empty</Key><Value/></String>
+					<History>
+						<Entry>
+							<String><Key>Title</Key><Value>Grafana (old)</Value></String>
+							<String><Key>Password</Key><Value>kp-grafana-old</Value></String>
+						</Entry>
+					</History>
+				</Entry>
+			</Group>
+			<Group>
+				<UUID>YmluYmluYmluYmluYmluYg==</UUID>
+				<Name>Recycle Bin</Name>
+				<Entry>
+					<String><Key>Title</Key><Value>Deleted</Value></String>
+					<String><Key>Password</Key><Value>kp-deleted-Hunter2!</Value></String>
+				</Entry>
+			</Group>
+		</Group>
+		<DeletedObjects/>
+	</Root>
+</KeePassFile>

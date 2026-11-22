@@ -3,13 +3,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
-use termf_sync::{Engine, Locked, OsKeyStore, RemoteSpec, Report, Resolution, Scope};
+use termf_sync::{Engine, Locked, OsKeyStore, RemoteSpec, Report, Resolution, Scope, VAULT_PATH};
 
 pub fn run(args: &[&str]) -> Result<()> {
     let engine = Engine::new(
         termf_core::default_config_dir()?,
         Box::new(OsKeyStore::SYNC),
-    );
+    )
+    .with_vault(termf_core::default_data_dir()?.join("vault"));
     match args {
         ["setup", options @ ..] => setup(&engine, options)?,
         ["status"] => status(&engine)?,
@@ -54,7 +55,7 @@ pub fn run(args: &[&str]) -> Result<()> {
 }
 
 fn setup(engine: &Engine, options: &[&str]) -> Result<()> {
-    let (mut remote, mut name, mut chosen) = (None, None, Scope::AVAILABLE.to_vec());
+    let (mut remote, mut name, mut chosen) = (None, None, Scope::DEFAULT.to_vec());
     let mut options = options.iter();
     while let Some(option) = options.next() {
         match (*option, options.next()) {
@@ -124,7 +125,8 @@ fn scopes(list: &str) -> Result<Vec<Scope>> {
             "config" => Ok(Scope::Config),
             "projects" => Ok(Scope::Projects),
             "conventions" => Ok(Scope::Conventions),
-            other => bail!("unknown scope {other} (config, projects, conventions)"),
+            "vault" => Ok(Scope::Vault),
+            other => bail!("unknown scope {other} (config, projects, conventions, vault)"),
         })
         .collect()
 }
@@ -170,6 +172,11 @@ fn status(engine: &Engine) -> Result<()> {
 fn print(report: &Report) {
     for path in &report.pulled {
         println!("pulled      {path}");
+        if path == VAULT_PATH {
+            println!(
+                "            another machine's vault: merged item by item the next time the vault opens"
+            );
+        }
     }
     for path in &report.pushed {
         println!("pushed      {path}");
