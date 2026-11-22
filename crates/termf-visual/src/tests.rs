@@ -344,6 +344,109 @@ fn reviews_two_commits_version_after_version() {
 }
 
 #[test]
+fn keeps_pins_takes_a_decision_back_and_lists_the_files() {
+    let _serial = serial();
+    let env = Env::new("pending", "[visual]\nroutes = [\"/\", \"/about\"]\n");
+    let base = git(&env.repo, &env.env, &["rev-parse", "HEAD"]);
+    env.commit(PAGE_AFTER);
+    let visual = env.visual();
+    let review = visual
+        .start(Request {
+            repo: Some(env.repo.clone()),
+            base: Some(base),
+            head: Some("main".into()),
+            ..Request::default()
+        })
+        .unwrap();
+    let v1 = captured(&visual, review.id);
+    let (first, second) = (&v1.screens[0].id, &v1.screens[1].id);
+
+    // Pins saved before any decision: the screen still waits.
+    let pins = vec![Pin {
+        x: 30,
+        y: 90,
+        comment: "8px more".into(),
+    }];
+    let saved = visual
+        .decide(review.id, first, Decision::Pending, None, Some(pins))
+        .unwrap();
+    let s = &saved.versions[0].screens[0];
+    assert_eq!(
+        (s.decision, s.decided, s.pins.len()),
+        (Decision::Pending, None, 1)
+    );
+
+    // A decision taken back, then the version settled by the last screen.
+    let approved = visual
+        .decide(review.id, first, Decision::Approved, None, None)
+        .unwrap();
+    let back = visual
+        .decide(
+            review.id,
+            first,
+            Decision::parse("pending").unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+    let v = &back.versions[0];
+    assert_eq!(
+        (v.state, v.screens[0].decision),
+        (VersionState::Ready, Decision::Pending)
+    );
+    assert_eq!(v.screens[0].pins[0].comment, "8px more");
+    assert!(
+        saved.updated < approved.updated && approved.updated < back.updated,
+        "each save is newer than the one before, even within a millisecond"
+    );
+    visual
+        .decide(review.id, second, Decision::Approved, None, None)
+        .unwrap();
+    assert_eq!(
+        visual.review(review.id).unwrap().versions[0].state,
+        VersionState::Ready
+    );
+
+    let files = visual.files(review.id, 1).unwrap();
+    assert_eq!(files.len(), 1, "{files:#?}");
+    assert_eq!(files[0].path, "index.html");
+    assert!(
+        files[0].diff.contains("+<button>Exporter en CSV</button>"),
+        "{}",
+        files[0].diff
+    );
+    let _ = fs::remove_dir_all(&env.root);
+}
+
+#[test]
+fn lists_a_submodule_and_the_files_after_it_whatever_the_diff_config() {
+    let env = Env::new("submodule", "");
+    let before = git(&env.repo, &env.env, &["rev-parse", "HEAD"]);
+    git(
+        &env.repo,
+        &env.env,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{before},lib"),
+        ],
+    );
+    fs::write(env.repo.join("z.txt"), "new\n").unwrap();
+    git(&env.repo, &env.env, &["add", "z.txt"]);
+    git(&env.repo, &env.env, &["commit", "-q", "-m", "submodule"]);
+    git(&env.repo, &env.env, &["config", "diff.submodule", "log"]);
+    let after = git(&env.repo, &env.env, &["rev-parse", "HEAD"]);
+
+    let files = crate::file_diffs(&env.env, &env.repo, &before, &after).unwrap();
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["lib", "z.txt"]);
+    assert!(files[0].diff.contains("Subproject commit"), "{files:#?}");
+    assert!(files[1].diff.contains("+new"), "{files:#?}");
+    let _ = fs::remove_dir_all(&env.root);
+}
+
+#[test]
 fn a_dev_server_that_does_not_answer_fails_the_version() {
     let _serial = serial();
     let env = Env::new("dead", "[visual]\nroutes = [\"/\"]\ntimeout = 2\n");
