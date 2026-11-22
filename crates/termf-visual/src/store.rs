@@ -62,7 +62,11 @@ impl Store {
     }
 
     pub(crate) fn save(&self, review: &mut Review) -> Result<()> {
-        review.updated = now();
+        // In milliseconds and never twice the same: the app keeps the copy saved last.
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        review.updated = ms.max(review.updated + 1);
         self.conn.execute(
             "UPDATE visual_reviews SET data = ?2, updated = ?3 WHERE id = ?1",
             params![review.id, serde_json::to_string(review)?, review.updated],

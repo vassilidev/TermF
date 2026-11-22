@@ -8,7 +8,7 @@ use anyhow::Result;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::ipc::ReviewCall;
-use termf_visual::{Decision, Pin, PrPreview, Request, Review, Update, Visual};
+use termf_visual::{Decision, FileDiff, Pin, PrPreview, Request, Review, Update, Visual};
 
 use crate::CmdResult;
 use crate::tickets::blocking;
@@ -129,6 +129,12 @@ pub async fn visual_image(
         Ok(tauri::ipc::Response::new(png))
     })
     .await
+}
+
+/// The files a version's capture changed since its base, with their diff.
+#[tauri::command]
+pub async fn visual_files(app: AppHandle, id: i64, version: u32) -> CmdResult<Vec<FileDiff>> {
+    blocking(app, move |app| visual(app).files(id, version)).await
 }
 
 /// Without `confirm`, what posting the images on the pull request would send; with the preview's fingerprint,
