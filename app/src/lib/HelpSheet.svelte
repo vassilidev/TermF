@@ -20,6 +20,7 @@
     conversations: ["chatView", "t6bHelpConversations"],
     tickets: ["viewTickets", "t6bHelpTickets"],
     files: ["viewFiles", "t6bHelpFiles"],
+    git: ["gitView", "gitHelp"],
     library: ["viewLibrary", "t6bHelpLibrary"],
     ci: ["viewCi", "t6bHelpCi"],
     scheduler: ["schedulerView", "t6bHelpScheduler"],

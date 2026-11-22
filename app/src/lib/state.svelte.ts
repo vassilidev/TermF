@@ -81,6 +81,7 @@ export type ViewId =
   | "terminals"
   | "conversations"
   | "files"
+  | "git"
   | "library"
   | "ssh"
   | "tickets"

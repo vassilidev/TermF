@@ -8,6 +8,7 @@ mod config;
 mod context;
 mod cto;
 mod files;
+mod git;
 mod keep_awake;
 mod library;
 mod memory;
@@ -465,6 +466,18 @@ pub fn run() {
             ci::ci_poll,
             ci::ci_notify,
             ci::ci_notify_set,
+            git::git_state,
+            git::git_graph,
+            git::git_prs,
+            git::git_unique,
+            git::git_switch,
+            git::git_fetch,
+            git::git_pull,
+            git::git_push,
+            git::git_branch_create,
+            git::git_branch_rename,
+            git::git_branch_delete,
+            git::git_remote_branch_delete,
             claude::claude_overview,
             claude::claude_setting_preview,
             claude::claude_setting_save,
