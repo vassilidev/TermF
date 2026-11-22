@@ -880,6 +880,14 @@ fn fake_bin(dir: &Path, name: &str, works: bool) {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
     }
+    first_run(&file);
+}
+
+/// Runs `program` once, as an installed tool has been: macOS checks a new program on its first run, one at a
+/// time across the machine, which takes seconds under load and would count in the time a probe gives it.
+#[cfg(test)]
+fn first_run(program: &Path) {
+    let _ = std::process::Command::new(program).output();
 }
 
 #[cfg(test)]
