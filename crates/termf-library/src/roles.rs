@@ -352,8 +352,11 @@ writes = ["-packages/ui/**"]
             json!(["Read(.env)", "WebFetch"]),
             "and deny more, never less"
         );
+        assert!(!item.meta.contains_key("permission_mode"));
         assert!(
-            !item.meta.contains_key("permission_mode") && !item.meta.contains_key("allowedTools")
+            !item.meta["allowedTools"].to_string().contains("Bash"),
+            "the repository allows no tool: {}",
+            item.meta["allowedTools"]
         );
 
         let lead = role(&dir, &project, "orchestrator").unwrap();
