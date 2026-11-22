@@ -1,0 +1,12 @@
+### TypeScript — skill `typescript`
+- Version: `typescript` in package.json and the lockfile (an `npm:@typescript/typescript6` alias means 6.x, run as `tsc6`); skill verified for typescript@7.0.2 and 6.0.3 on 2026-11-22.
+- Docs for this version: no agent docs ship with TypeScript; release posts devblogs.microsoft.com/typescript (6.0, 7.0) and typescriptlang.org/tsconfig.
+- Verify: the project's typecheck/lint/build scripts; else `npx tsc --noEmit` (`tsc -b` with project references); framework wrappers (`vue-tsc`, `svelte-check`, `ng build`) for templates.
+- Pitfalls:
+  - TypeScript 7 has no API: typescript-eslint, svelte-check, Angular, ts-jest and Vue/Astro tooling need 6.x; keep `typescript` on 6 when they are installed.
+  - Since 6.0, `types` defaults to `[]`: list `["node"]`, `["vitest/globals"]`… when globals go missing.
+  - Since 6.0, `strict`, `module: esnext` and `rootDir` = tsconfig folder are defaults; set them explicitly when the project relied on the old ones.
+  - Errors in 7.0: `baseUrl` (use `./`-relative `paths`), `moduleResolution: node`/`node10` (use `nodenext` or `bundler`), `target: es5`, `outFile`, `assert` on imports (use `with`).
+  - `tsc file.ts` with a tsconfig present is an error (TS5112): check the project, not a file.
+  - External data is `unknown` until parsed with the project's validator; no `any`, `as` or `@ts-ignore` to silence an error.
+- Read skill `typescript` when writing types for external data, fixing type errors, or changing tsconfig or the TypeScript version.
