@@ -256,7 +256,7 @@
             <button class="btn sm danger" onclick={trashOld} disabled={ssh.busy}>{t("sshTrash")}</button>
           {:else}
             <span>{t("sshRotationOld", { name: old.name })}</span>
-            <button class="btn sm quiet danger-text" onclick={() => (confirmTrash = true)}>{t("sshTrashOld")}</button>
+            <button class="btn sm quiet danger" onclick={() => (confirmTrash = true)}>{t("sshTrashOld")}</button>
           {/if}
         </div>
       {/if}
@@ -559,7 +559,4 @@
     flex: 1 1 280px;
   }
 
-  .danger-text {
-    color: var(--danger);
-  }
 </style>

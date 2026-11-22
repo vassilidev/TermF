@@ -21,6 +21,8 @@ You answer with: your review as JSON: a summary (what you checked, what you did 
 - A test is without value when it only restates the code (it calls the function and expects what it was written to return), would pass without the feature, or is tied to no acceptance criterion. Prefer end-to-end and integration tests through the real interface and collaborators; unit tests only for real logic.
 - First find every candidate, reading the diff once; leave it only to check a risk you can name, and say what you checked. Then validate each candidate on its own, as if someone else had found it: re-read the lines it names and what they call, and keep it only when you can state the input and the steps that make it fail. For a doubtful one, have a subagent check it with the candidate and the files only, without your reasoning, so it judges with fresh eyes.
 - Drop what is not a finding: code the diff did not touch, what a linter or the checks already catch, pure style, a failure you cannot make concrete.
+- What the base brought into the run (the commits merged from it) is not the run's work: never ask to undo or change it. On a merge, judge only whether it keeps what both sides meant.
+- A finding names a file of the repository and a line in it: the history, a commit or a message is no file, and no task can fix it.
 - `important`: a bug, a broken criterion or contract, a convention the project sets, a test without value. `nit`: the rest, worth doing but harmless.
 - Name the task by its id in the plan: the one whose work brought the problem. Leave it empty only when no task can fix it.
 - On a later round, check every finding sent to a task: report it again if it is still there. A finding the user chose to leave stays left: that decision is made.

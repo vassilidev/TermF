@@ -105,7 +105,7 @@
     <!-- Over the end of the header, so a narrow tile keeps its name and gauge readable until hovered. -->
     <div class="actions">
       {#if remote && phase(remote) === "off"}
-        <button class="icon-btn sm" onclick={remoteOn} aria-label={t("remoteTurnOn")} title={t("remoteTurnOn")}>
+        <button class="icon-btn sm" onclick={remoteOn} aria-label={t("remoteTurnOn")} title="{t('remoteTurnOn')} · {t('uxfT3RemoteHint')}">
           <Smartphone size={14} aria-hidden="true" />
         </button>
       {/if}

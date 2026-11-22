@@ -1,0 +1,27 @@
+# One query that only reads, on a Postgres or MySQL database: TermF checks it (one SELECT, WITH … SELECT, EXPLAIN,
+# SHOW or DESCRIBE), adds a LIMIT, and runs it in a read-only transaction with a timeout.
+name = "sql-readonly"
+description = "A read-only SQL query on a Postgres or MySQL database: one SELECT, EXPLAIN or SHOW, in a read-only transaction"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.query]
+type = "sql"
+description = "One SELECT, WITH … SELECT, EXPLAIN or SHOW"
+required = true
+
+[limits]
+rows = 500
+lines = 10000
+bytes = 1048576
+timeout_s = 15
+
+[[run]]
+kind = "postgres"
+args = ["{query}"]
+
+[[run]]
+kind = "mysql"
+args = ["{query}"]

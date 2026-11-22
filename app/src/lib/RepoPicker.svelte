@@ -3,8 +3,10 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import Folder from "@lucide/svelte/icons/folder";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  import FolderSearch from "@lucide/svelte/icons/folder-search";
   import Search from "@lucide/svelte/icons/search";
   import RepoCard from "$lib/RepoCard.svelte";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
   import ForgeIcon from "$lib/ui/ForgeIcon.svelte";
   import { t } from "$lib/i18n";
   import { cards, forgetCards, readCards } from "$lib/newproject.svelte";
@@ -197,10 +199,9 @@
   {:else if all.length}
     <p class="none">{t("setupNoMatch", { query: query || t(filters.find(([id]) => id === filter)![1]) })}</p>
   {:else}
-    <div class="none empty">
-      <p>{t("setupNoRepos")}</p>
-      <button type="button" class="btn" onclick={addFolder}><FolderPlus size={14} aria-hidden="true" />{t("setupAddFolder")}</button>
-    </div>
+    <EmptyState icon={FolderSearch} text={t("setupNoRepos")}>
+      <button type="button" class="btn primary" onclick={addFolder}><FolderPlus size={14} aria-hidden="true" />{t("setupAddFolder")}</button>
+    </EmptyState>
   {/if}
 </div>
 
@@ -323,16 +324,5 @@
     border-radius: var(--radius-lg);
     color: var(--muted);
     text-align: center;
-  }
-
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .empty p {
-    margin: 0;
   }
 </style>

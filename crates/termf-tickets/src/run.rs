@@ -12,9 +12,8 @@ use serde::{Deserialize, Serialize};
 use termf_core::TicketWorktrees;
 use termf_ssh::Ssh;
 
-use crate::github;
 use crate::store::{Event, Run, RunEvent, RunStatus, Store};
-use crate::{Ticket, Tickets};
+use crate::{Ticket, Tickets, github, gitlab};
 
 /// A run ready for its session.
 pub struct Launch {
@@ -80,6 +79,16 @@ pub struct DeliveryPreview {
     pub commits: Vec<CommitSummary>,
     /// Given back to `deliver`, which refuses if the worktree changed since.
     pub fingerprint: String,
+    /// The repository's origin is on a GitLab: the delivery opens a merge request.
+    #[serde(default)]
+    pub merge_request: bool,
+}
+
+/// Where a delivery's request goes: a pull request on GitHub (`owner/name`), or a merge request on a GitLab
+/// (its host and `group/project`).
+enum Forge {
+    GitHub(String),
+    GitLab(String, String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -166,18 +175,30 @@ impl Git<'_> {
     }
 }
 
-/// The `owner/name` of each GitHub remote of a repository, lowercased.
-pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)], ssh: &Ssh) -> Vec<String> {
+/// The URL of each remote of a repository.
+pub(crate) fn remote_urls(repo: &str, env: &[(String, String)]) -> Vec<String> {
+    remotes(repo, env).into_iter().map(|(_, url)| url).collect()
+}
+
+/// Each remote of a repository: its name and its URL.
+pub(crate) fn remotes(repo: &str, env: &[(String, String)]) -> Vec<(String, String)> {
     let urls = Git(env).run(
         Path::new(repo),
         &["config", "--get-regexp", r"^remote\..*\.url$"],
     );
     let urls = urls.unwrap_or_default();
+    let urls = urls.lines().filter_map(|l| l.split_once(' '));
+    let named = urls.filter_map(|(key, url)| {
+        let name = key.strip_prefix("remote.")?.strip_suffix(".url")?;
+        Some((name.to_owned(), url.to_owned()))
+    });
+    named.collect()
+}
+
+/// The `owner/name` of each remote on GitHub, lowercased.
+pub(crate) fn github_slugs_of(urls: &[String], ssh: &Ssh) -> Vec<String> {
     let mut slugs: Vec<String> = Vec::new();
-    for line in urls.lines() {
-        let Some((_, url)) = line.split_once(' ') else {
-            continue;
-        };
+    for url in urls {
         if let Ok(slug) = github::remote_slug(url, ssh)
             && !slugs.contains(&slug)
         {
@@ -185,6 +206,11 @@ pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)], ssh: &Ssh) -> V
         }
     }
     slugs
+}
+
+/// The `owner/name` of each GitHub remote of a repository, lowercased.
+pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)], ssh: &Ssh) -> Vec<String> {
+    github_slugs_of(&remote_urls(repo, env), ssh)
 }
 
 /// `fix-the-login-button`: ASCII only, at most 40 characters, so it suits any branch name.
@@ -380,6 +406,32 @@ fn last_push(store: &Store, id: i64) -> Result<Option<String>> {
     }))
 }
 
+/// What the request of `ticket` in repository `slug` says of it: `Closes …` when merging it closes the ticket (a
+/// GitHub issue of the same repository; a GitLab issue on the same host as the merge request, `gitlab` being that
+/// host), else its address.
+fn closing(ticket: &crate::TicketRef, slug: &str, gitlab: Option<&str>) -> String {
+    match (gitlab, ticket.provider.as_str()) {
+        (None, "github") => match github::split(&ticket.key) {
+            Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => format!("Closes #{number}"),
+            _ => format!("Ticket: {}", ticket.url),
+        },
+        (Some(host), "gitlab")
+            if gitlab::parse_url(&ticket.url)
+                .and_then(|(site, _, _)| gitlab::name(&site).ok())
+                .is_some_and(|on| on.eq_ignore_ascii_case(host)) =>
+        {
+            match gitlab::split(&ticket.key) {
+                Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => {
+                    format!("Closes #{number}")
+                }
+                _ => format!("Closes {}", ticket.key),
+            }
+        }
+        _ if ticket.url.is_empty() => String::new(),
+        _ => format!("Ticket: {}", ticket.url),
+    }
+}
+
 /// `git diff --name-status -z` lines.
 fn file_changes(listing: &str) -> Vec<FileChange> {
     let mut fields = listing.split('\0').filter(|f| !f.is_empty());
@@ -561,7 +613,20 @@ impl Tickets {
             run.parent = Some(parent);
         }
         let conversation = uuid::Uuid::new_v4().to_string();
-        let (path, branch, base) = match self.worktree(&run, &chosen.name, ticket) {
+        // A repository of the change cloned from the same GitHub repository as another must not reuse its branch,
+        // which it sees only once pushed: both would push to it.
+        let mut taken = Vec::new();
+        if let Some(parent) = parent {
+            let mine = self.slug(&chosen.path).ok();
+            let mut family = vec![store.run(parent)?];
+            family.extend(store.children(parent)?);
+            taken = family
+                .into_iter()
+                .filter(|r| r.id != run.id && mine.is_some() && self.slug(&r.repo).ok() == mine)
+                .filter_map(|r| r.branch)
+                .collect();
+        }
+        let (path, branch, base) = match self.worktree(&run, &chosen.name, ticket, &taken) {
             Ok(created) => created,
             Err(e) => {
                 store.fail(run.id, &format!("{e:#}"))?;
@@ -681,7 +746,13 @@ impl Tickets {
 
     /// Creates `<repo>/.claude/worktrees/termf-<run>-<branch>`, or `<data>/worktrees/<project>/<run>/<repo>` as
     /// `[tickets] worktrees` says, and returns its path, its branch and its base.
-    fn worktree(&self, run: &Run, name: &str, ticket: &Ticket) -> Result<(String, String, String)> {
+    fn worktree(
+        &self,
+        run: &Run,
+        name: &str,
+        ticket: &Ticket,
+        others: &[String],
+    ) -> Result<(String, String, String)> {
         let settings = termf_core::load_settings(&self.config_dir).unwrap_or_default();
         let place = settings.tickets.worktrees;
         let git = Git(&self.env);
@@ -690,45 +761,59 @@ impl Tickets {
         let _ = git.output(repo, &["fetch", "-q", "origin"]);
         let base = base_ref(&git, repo)?;
         let stem = branch_stem(&ticket.reference.key, &ticket.title, run.id);
-        let branch = (1..)
-            .map(|n| match n {
+        // A branch pushed by an earlier run of the ticket counts too, even once its run is closed.
+        let taken = |b: &str| {
+            git.has(repo, &format!("refs/heads/{b}"))
+                || git.has(repo, &format!("refs/remotes/origin/{b}"))
+        };
+        if place == TicketWorktrees::Repo {
+            exclude_worktrees(&git, repo)?;
+        }
+        for n in 1..=100 {
+            let branch = match n {
                 1 => stem.clone(),
                 n => format!("{stem}-{n}"),
-            })
-            // A branch pushed by an earlier run of the ticket counts too, even once its run is closed.
-            .find(|b| {
-                !git.has(repo, &format!("refs/heads/{b}"))
-                    && !git.has(repo, &format!("refs/remotes/origin/{b}"))
-            })
-            .unwrap();
-        let path = match place {
-            TicketWorktrees::Repo => {
-                exclude_worktrees(&git, repo)?;
-                let name = branch.strip_prefix("termf/").unwrap_or(&branch);
-                let folder = repo.join(".claude").join("worktrees");
-                folder.join(format!("termf-{}-{name}", run.id))
+            };
+            if taken(&branch) || others.contains(&branch) {
+                continue;
             }
-            TicketWorktrees::Data => self.data_worktrees(run).join(match slug(name) {
-                s if s.is_empty() => "repo".to_owned(),
-                s => s,
-            }),
-        };
-        fs::create_dir_all(path.parent().context("no parent folder")?)?;
-        let path = path.to_string_lossy().into_owned();
-        git.run(
-            repo,
-            &[
-                "worktree",
-                "add",
-                "-q",
-                "--no-track",
-                "-b",
-                &branch,
-                &path,
-                &base,
-            ],
-        )?;
-        Ok((path, branch, base))
+            // The branch first, on its own: only a name another run took meanwhile (a double click, the app and
+            // the CLI at once) is tried again.
+            match git.run(repo, &["branch", "--no-track", &branch, &base]) {
+                Ok(_) => {}
+                Err(_) if taken(&branch) => continue,
+                Err(e) => return Err(e),
+            }
+            let path = match place {
+                TicketWorktrees::Repo => {
+                    let name = branch.strip_prefix("termf/").unwrap_or(&branch);
+                    let folder = repo.join(".claude").join("worktrees");
+                    folder.join(format!("termf-{}-{name}", run.id))
+                }
+                TicketWorktrees::Data => self.data_worktrees(run).join(match slug(name) {
+                    s if s.is_empty() => "repo".to_owned(),
+                    s => s,
+                }),
+            };
+            let added = fs::create_dir_all(path.parent().context("no parent folder")?)
+                .map_err(anyhow::Error::from)
+                .and_then(|_| {
+                    let path = path.to_string_lossy();
+                    git.run(repo, &["worktree", "add", "-q", &path, &branch])
+                });
+            if let Err(e) = added {
+                // A hook that failed, a folder in the way: nothing of the run is left behind.
+                if path.exists() {
+                    let path = path.to_string_lossy();
+                    let _ = git.run(repo, &["worktree", "remove", "--force", &path]);
+                }
+                let _ = git.run(repo, &["worktree", "prune"]);
+                let _ = git.run(repo, &["branch", "-D", &branch]);
+                return Err(e);
+            }
+            return Ok((path.to_string_lossy().into_owned(), branch, base));
+        }
+        bail!("no free branch name for {stem} in {}", repo.display())
     }
 
     fn data_worktrees(&self, run: &Run) -> PathBuf {
@@ -837,14 +922,55 @@ impl Tickets {
             })
             .collect();
         let head = git.run(dir, &["rev-parse", "HEAD"])?;
+        let origin = git.run(dir, &["config", "--get", "remote.origin.url"]);
+        let merge_request =
+            origin.is_ok_and(|o| matches!(self.forge(&run.project, &o), Ok(Forge::GitLab(..))));
         Ok(Snapshot {
             preview: DeliveryPreview {
                 files,
                 commits,
                 fingerprint: format!("{head}:{tree}"),
+                merge_request,
             },
             index,
         })
+    }
+
+    /// Where the request of a repository whose origin is `origin` goes.
+    fn forge(&self, project: &str, origin: &str) -> Result<Forge> {
+        let ssh = termf_ssh::Ssh::new(self.home.clone());
+        let github = match github::remote_slug(origin, &ssh) {
+            Ok(repo) => return Ok(Forge::GitHub(repo)),
+            Err(e) => e,
+        };
+        let trackers = self.trackers(project).ok();
+        let tracker = trackers.and_then(|t| t.gitlab);
+        let hosts: Vec<String> = tracker
+            .and_then(|g| gitlab::name(&g.host).ok())
+            .into_iter()
+            .collect();
+        match gitlab::remote_slug(origin, &ssh, &hosts) {
+            Some((host, slug)) => Ok(Forge::GitLab(host, slug)),
+            None => Err(github.context("the pull request goes to origin")),
+        }
+    }
+
+    /// GitLab on `site` for a run of `project`: as its `[trackers.gitlab]` reaches it when that names the same host
+    /// (its scheme and port, the glab sign-in and token kept for it), else as `site` says.
+    fn gitlab_of(&self, project: &str, site: &str) -> Result<gitlab::GitLab> {
+        let tracker = self.trackers(project).ok().and_then(|t| t.gitlab);
+        match tracker {
+            Some(t) if gitlab::name(&t.host)? == gitlab::name(site)? => self.gitlab(&t.host),
+            _ => self.gitlab(site),
+        }
+    }
+
+    /// `merged` or `closed` once the pull request (or merge request) at `url` is, `None` while it is open.
+    fn request_state(&self, project: &str, url: &str) -> Result<Option<&'static str>> {
+        match gitlab::merge_request(url) {
+            Some((site, _, _)) => self.gitlab_of(project, &site)?.mr_state(url),
+            None => self.github().pr_state(url),
+        }
     }
 
     /// The gate of a run, which only the user opens, with the fingerprint of the preview they saw: commits
@@ -926,26 +1052,36 @@ impl Tickets {
         run.pr_state = None;
         let mut warnings = Vec::new();
         if run.pr_url.is_none() {
-            let repo = self
-                .slug(&run.repo)
-                .context("the pull request goes to origin")?;
-            let body = self.pr_body(store, run, &repo)?;
+            let origin = git.run(dir, &["config", "--get", "remote.origin.url"])?;
             let target = base.strip_prefix("origin/").unwrap_or(&base);
-            let url = self
-                .github()
-                .create_pr(dir, &repo, target, &branch, &run.title, &body)?;
+            let url = match self.forge(&run.project, &origin)? {
+                Forge::GitHub(repo) => {
+                    let body = self.pr_body(store, run, &repo, None)?;
+                    self.github()
+                        .create_pr(dir, &repo, target, &branch, &run.title, &body)?
+                }
+                Forge::GitLab(host, repo) => {
+                    let body = self.pr_body(store, run, &repo, Some(&host))?;
+                    self.gitlab_of(&run.project, &host)?
+                        .create_mr(&repo, target, &branch, &run.title, &body)?
+                }
+            };
             run.pr_url = Some(url.clone());
             store.update(run)?;
             store.record(id, &Event::PrOpened { url: url.clone() })?;
             // The pull requests of a change that spans several repositories link to each other.
+            // shortcut: GitHub's only; a merge request lists the others when it opens, but is not edited later.
             let family = self.family(store, run)?;
             for other in family.iter().filter(|r| r.id != id && r.pr_state.is_none()) {
                 let Some(other_url) = &other.pr_url else {
                     continue;
                 };
+                if gitlab::merge_request(other_url).is_some() {
+                    continue;
+                }
                 let linked = self
                     .slug(&other.repo)
-                    .and_then(|slug| self.pr_body(store, other, &slug))
+                    .and_then(|slug| self.pr_body(store, other, &slug, None))
                     .and_then(|body| self.github().edit_pr_body(other_url, &body));
                 if let Err(e) = linked {
                     warnings.push(format!(
@@ -1012,18 +1148,17 @@ impl Tickets {
         github::remote_slug(&origin, &Ssh::new(self.home.clone()))
     }
 
-    /// The body of the pull request of `run` in GitHub repository `slug`: what closes or names its ticket, then the
-    /// pull requests of the same change in the project's other repositories.
-    fn pr_body(&self, store: &Store, run: &Run, slug: &str) -> Result<String> {
-        let mut body = match github::split(&run.ticket.key) {
-            Ok((repo, number))
-                if run.ticket.provider == "github" && repo.eq_ignore_ascii_case(slug) =>
-            {
-                format!("Closes #{number}")
-            }
-            _ if run.ticket.url.is_empty() => String::new(),
-            _ => format!("Ticket: {}", run.ticket.url),
-        };
+    /// The body of the pull request of `run` in GitHub repository `slug`, or of its merge request in GitLab project
+    /// `slug` (`on_gitlab`): what closes or names its ticket, then the pull requests of the same change in the
+    /// project's other repositories.
+    fn pr_body(
+        &self,
+        store: &Store,
+        run: &Run,
+        slug: &str,
+        gitlab: Option<&str>,
+    ) -> Result<String> {
+        let mut body = closing(&run.ticket, slug, gitlab);
         let others: Vec<String> = self
             .family(store, run)?
             .into_iter()
@@ -1059,6 +1194,17 @@ impl Tickets {
         else {
             return Ok(None);
         };
+        if let Some((site, _, _)) = gitlab::merge_request(url) {
+            let (conflict, status, diverged) =
+                self.gitlab_of(&run.project, &site)?.mr_merge(url)?;
+            let mergeable = if conflict { "CONFLICTING" } else { "MERGEABLE" };
+            return Ok(Some(PrMerge {
+                mergeable: mergeable.into(),
+                behind: status == "need_rebase" || diverged > 0,
+                state: status.to_ascii_uppercase(),
+                conflict,
+            }));
+        }
         let (mergeable, state) = self.github().pr_merge(url)?;
         Ok(Some(PrMerge {
             conflict: mergeable == "CONFLICTING" || state == "DIRTY",
@@ -1118,7 +1264,7 @@ impl Tickets {
         else {
             return Ok(None);
         };
-        match self.github().pr_state(url)? {
+        match self.request_state(&run.project, url)? {
             Some(state) => store.pr_done(run.id, state, url),
             None => Ok(None),
         }
@@ -1138,7 +1284,7 @@ impl Tickets {
         let url = run.pr_url.clone();
         let url = url.with_context(|| format!("run {id} has no pull request to wait for"))?;
         if run.pr_state.as_deref() != Some("merged") {
-            match self.github().pr_state(&url)? {
+            match self.request_state(&run.project, &url)? {
                 Some(state) => {
                     store.pr_done(id, state, &url)?;
                 }
@@ -1263,6 +1409,38 @@ mod tests {
                 change("q", Change::Added, None),
             ]
         );
+    }
+
+    #[test]
+    fn closes_a_ticket_only_on_its_own_forge() {
+        let gitlab = crate::gitlab::reference("gitlab.com", "acme/api", 42).unwrap();
+        let ticket = format!("Ticket: {}", gitlab.url);
+        assert_eq!(
+            closing(&gitlab, "acme/api", Some("gitlab.com")),
+            "Closes #42"
+        );
+        assert_eq!(
+            closing(&gitlab, "acme/web", Some("gitlab.com")),
+            "Closes acme/api#42"
+        );
+        assert_eq!(
+            closing(&gitlab, "acme/api", Some("gitlab.acme.dev")),
+            ticket,
+            "another GitLab: its #42 is another issue"
+        );
+        assert_eq!(closing(&gitlab, "acme/api", None), ticket);
+        let github = github::reference("acme/api", 42);
+        assert_eq!(closing(&github, "acme/api", None), "Closes #42");
+        assert_eq!(
+            closing(&github, "acme/api", Some("gitlab.com")),
+            format!("Ticket: {}", github.url)
+        );
+        let request = crate::TicketRef {
+            provider: crate::REQUEST.into(),
+            key: crate::REQUEST.into(),
+            url: String::new(),
+        };
+        assert_eq!(closing(&request, "acme/api", Some("gitlab.com")), "");
     }
 
     #[test]

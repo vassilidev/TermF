@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
@@ -14,7 +15,11 @@ use termf_ssh::Ssh;
 use crate::{Comment, Ticket, TicketProvider, TicketRef, TicketSummary};
 
 /// A GET of the REST API → its last ETag and answer.
-pub(crate) type Etags = Arc<Mutex<HashMap<String, (String, Value)>>>;
+/// A search's answer, which comes without ETag, is kept [`FRESH`] instead, with an empty ETag.
+pub(crate) type Etags = Arc<Mutex<HashMap<String, (String, Value, Instant)>>>;
+
+/// How long an answer without ETag is read again without asking.
+const FRESH: Duration = Duration::from_secs(60);
 
 pub struct GitHub {
     pub program: PathBuf,
@@ -153,7 +158,26 @@ const GITHUB_HOSTS: &[&str] = &["github.com", "www.github.com", "ssh.github.com"
 /// is GitHub. Other hosts and local paths are refused.
 pub(crate) fn remote_slug(url: &str, ssh: &Ssh) -> Result<String> {
     let url = url.trim();
-    let local = || anyhow!("{url} is a local path, not a GitHub repository");
+    let (host, path) = remote_parts(url)
+        .ok_or_else(|| anyhow!("{url} is a local path, not a GitHub repository"))?;
+    let server = if GITHUB_HOSTS.contains(&host.as_str()) {
+        host.clone()
+    } else {
+        ssh.host_name(&host).to_ascii_lowercase()
+    };
+    ensure!(
+        GITHUB_HOSTS.contains(&server.as_str()),
+        "{url} is on {host}, not github.com: other hosts (GitHub Enterprise, GitLab…) are not supported yet"
+    );
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    ensure!(valid_slug(path), "{url} names no GitHub repository");
+    Ok(path.to_ascii_lowercase())
+}
+
+/// The host (lowercased, without user or port) and path of a remote's URL; `None` for a local path.
+pub(crate) fn remote_parts(url: &str) -> Option<(String, &str)> {
+    let url = url.trim();
     let unhost = |authority: &'_ str| -> String {
         let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
         host.split(':').next().unwrap_or(host).to_ascii_lowercase()
@@ -168,25 +192,10 @@ pub(crate) fn remote_slug(url: &str, ssh: &Ssh) -> Result<String> {
             Some((authority, path)) if !authority.contains(['/', '\\']) => {
                 (unhost(authority), path)
             }
-            _ => return Err(local()),
+            _ => return None,
         },
     };
-    if host.len() < 2 {
-        return Err(local());
-    }
-    let server = if GITHUB_HOSTS.contains(&host.as_str()) {
-        host.clone()
-    } else {
-        ssh.host_name(&host).to_ascii_lowercase()
-    };
-    ensure!(
-        GITHUB_HOSTS.contains(&server.as_str()),
-        "{url} is on {host}, not github.com: other hosts (GitHub Enterprise, GitLab…) are not supported yet"
-    );
-    let path = path.trim_matches('/');
-    let path = path.strip_suffix(".git").unwrap_or(path);
-    ensure!(valid_slug(path), "{url} names no GitHub repository");
-    Ok(path.to_ascii_lowercase())
+    (host.len() >= 2).then_some((host, path))
 }
 
 /// The `login` of each user in a list.
@@ -251,6 +260,17 @@ fn pull_request(url: &str) -> Result<(String, u64)> {
     }
 }
 
+/// Why gh cannot act as the user, from what it printed: signed out, or signed in without a token it can read (a
+/// keychain it cannot open), when GitHub takes `@me` for nobody.
+fn signed_out(stderr: &str, stdout: &str) -> Option<&'static str> {
+    if stderr.contains("gh auth login") {
+        return Some("gh is not signed in: run `gh auth login`");
+    }
+    stdout
+        .contains("listed users cannot be searched")
+        .then_some("gh is not signed in, or cannot read its token: run `gh auth status`")
+}
+
 impl GitHub {
     fn output(&self, dir: Option<&Path>, args: &[&str], input: Option<&str>) -> Result<Output> {
         let mut cmd = crate::command(&self.program);
@@ -293,8 +313,8 @@ impl GitHub {
             return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
         }
         let error = String::from_utf8_lossy(&out.stderr).trim().to_owned();
-        if error.contains("gh auth login") {
-            bail!("gh is not signed in: run `gh auth login`");
+        if let Some(why) = signed_out(&error, &String::from_utf8_lossy(&out.stdout)) {
+            bail!(why);
         }
         bail!("gh {} failed: {error}", args[..2.min(args.len())].join(" "))
     }
@@ -311,6 +331,15 @@ impl GitHub {
         let key = args.join(" ");
         let cached = self.etags.lock().unwrap().get(&key).cloned();
         let cached = cached.filter(|_| !fresh);
+        let cached = match cached {
+            Some((etag, value, at)) if etag.is_empty() => {
+                if at.elapsed() < FRESH {
+                    return Ok(value);
+                }
+                None
+            }
+            cached => cached.map(|(etag, value, _)| (etag, value)),
+        };
         if let Some((etag, _)) = &cached {
             args.extend(["-H".into(), format!("If-None-Match: {etag}")]);
         }
@@ -327,8 +356,8 @@ impl GitHub {
         }
         if !answer.status.success() {
             let error = String::from_utf8_lossy(&answer.stderr).trim().to_owned();
-            if error.contains("gh auth login") {
-                bail!("gh is not signed in: run `gh auth login`");
+            if let Some(why) = signed_out(&error, body) {
+                bail!(why);
             }
             bail!("gh api {path} failed: {error}");
         }
@@ -340,13 +369,17 @@ impl GitHub {
                 .eq_ignore_ascii_case("etag")
                 .then(|| etag.trim().to_owned())
         });
-        if let Some(etag) = etag {
+        // Only the search goes without ETag on purpose: another answer without one is asked again each time.
+        if etag.is_some() || path == "search/issues" {
             let mut etags = self.etags.lock().unwrap();
             // shortcut: forgets every answer past 256 queries; keep the most used ones if that ever shows.
             if etags.len() >= 256 {
                 etags.clear();
             }
-            etags.insert(key, (etag, value.clone()));
+            etags.insert(
+                key,
+                (etag.unwrap_or_default(), value.clone(), Instant::now()),
+            );
         }
         Ok(value)
     }

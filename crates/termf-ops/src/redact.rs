@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use termf_claude::mask::{MASK, mask_text};
 use termf_vault::{Masker, Secret};
 
-use crate::{Limits, Raw};
+use crate::sql::Table;
+use crate::{Kind, Limits, Raw};
 
 /// Personal data a recipe masks; the vault's values and what looks like a secret are always masked.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,7 +53,13 @@ pub struct Output {
     pub bytes: u64,
     pub masks: usize,
     pub millis: u64,
-    /// The values behind `Part::Hidden`.
+    /// A query's result, each cell masked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table: Option<Table>,
+    /// A `.env`'s keys, in its order: their values are `hidden`, at the same place.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<String>,
+    /// The values behind `Part::Hidden`, or behind `keys`.
     #[serde(skip)]
     pub hidden: Vec<Secret>,
 }
@@ -266,13 +273,9 @@ fn cut(parts: &mut Vec<Part>, lines: usize, bytes: usize) -> bool {
     false
 }
 
-/// Masks a client's output for whoever reads it. `personal`: the personal data to mask too.
-pub fn mask(raw: Raw, masker: Option<&Masker>, personal: &[Redact], limits: &Limits) -> Output {
-    let values = values(masker, &raw.used);
-    let (mut parts, hidden, masks) = split(&raw.stdout, &values, personal);
-    let truncated = cut(&mut parts, limits.lines, limits.bytes);
-    let text = render(&parts);
-    let (errors, _, _) = split(&raw.stderr, &values, personal);
+/// The client's error output, masked, 8 KiB at most.
+fn errors(stderr: &str, values: &[&str], personal: &[Redact]) -> String {
+    let (errors, _, _) = split(stderr, values, personal);
     let mut errors = render(&errors);
     if errors.len() > ERRORS {
         let end = (0..=ERRORS)
@@ -281,18 +284,128 @@ pub fn mask(raw: Raw, masker: Option<&Masker>, personal: &[Redact], limits: &Lim
             .unwrap_or(0);
         errors.truncate(end);
     }
+    errors
+}
+
+/// Masks a client's output for whoever reads it. `personal`: the personal data to mask too.
+pub fn mask(raw: Raw, masker: Option<&Masker>, personal: &[Redact], limits: &Limits) -> Output {
+    let values = values(masker, &raw.used);
+    let (mut parts, hidden, masks) = split(&raw.stdout, &values, personal);
+    let truncated = cut(&mut parts, limits.lines, limits.bytes);
+    let text = render(&parts);
     let any_hidden = parts.iter().any(|p| matches!(p, Part::Hidden { .. }));
     Output {
         text,
         parts: if any_hidden { parts } else { Vec::new() },
-        errors,
+        errors: errors(&raw.stderr, &values, personal),
         exit: raw.exit,
         stopped: raw.stopped,
         truncated,
         bytes: raw.bytes,
         masks,
         millis: raw.millis,
+        table: None,
+        keys: Vec::new(),
         hidden,
+    }
+}
+
+/// A query's output as a table, each cell masked as a text is (a value of the vault hidden, not revealable
+/// there), its rows cut to `limits.rows`. A query that failed has no table: its errors say why.
+pub fn table(
+    raw: Raw,
+    kind: Kind,
+    masker: Option<&Masker>,
+    personal: &[Redact],
+    limits: &Limits,
+) -> Output {
+    let values = values(masker, &raw.used);
+    let (mut table, cut) = crate::sql::table(kind, &raw.stdout);
+    // A client stopped past the limit may have printed its last long line in pieces, each looking whole.
+    if raw.stopped.is_some() {
+        table.rows.pop();
+    }
+    let rows = limits.rows.unwrap_or(crate::sql::ROWS);
+    let truncated = cut || raw.stopped.is_some() || table.rows.len() > rows;
+    table.rows.truncate(rows);
+    let mut masks = 0;
+    for cell in table
+        .columns
+        .iter_mut()
+        .chain(table.rows.iter_mut().flatten())
+    {
+        let (parts, _, n) = split(cell, &values, personal);
+        masks += n;
+        *cell = render(&parts);
+    }
+    Output {
+        text: crate::sql::render(&table),
+        errors: errors(&raw.stderr, &values, personal),
+        exit: raw.exit,
+        stopped: raw.stopped,
+        truncated,
+        bytes: raw.bytes,
+        masks,
+        millis: raw.millis,
+        // mysql prints nothing for a query without rows, not even its columns: an empty table, not a failure.
+        table: (raw.exit == Some(0) || !table.columns.is_empty()).then_some(table),
+        ..Output::default()
+    }
+}
+
+/// A `.env`'s output: its keys, each value kept apart for the user to reveal one by one, never in the text.
+pub fn dotenv(mut raw: Raw, masker: Option<&Masker>, limits: &Limits) -> Output {
+    let stdout = termf_vault::Zeroizing::new(std::mem::take(&mut raw.stdout));
+    let parsed = crate::env::parse(&stdout);
+    let truncated = parsed.len() > limits.lines;
+    let (keys, hidden): (Vec<String>, Vec<Secret>) = parsed
+        .into_iter()
+        .take(limits.lines)
+        .map(|(k, v)| (k, Secret::new(v)))
+        .unzip();
+    let mut values = values(masker, &raw.used);
+    values.extend(hidden.iter().map(Secret::expose).filter(|v| v.len() >= MIN));
+    // The longest first, as `values` gives them: a shorter value must not leave the end of a longer one shown.
+    values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+    values.dedup();
+    Output {
+        text: keys.iter().map(|k| format!("{k}={MASK}\n")).collect(),
+        errors: errors(&raw.stderr, &values, &[]),
+        exit: raw.exit,
+        stopped: raw.stopped,
+        truncated,
+        bytes: raw.bytes,
+        masks: keys.len(),
+        millis: raw.millis,
+        keys,
+        hidden,
+        ..Output::default()
+    }
+}
+
+/// Masks a stream line by line: the vault's values (never revealable there), what looks like a secret, and the
+/// personal data its recipe names.
+pub struct Lines {
+    values: Vec<Secret>,
+    personal: Vec<Redact>,
+}
+
+impl Lines {
+    pub fn new(masker: Option<&Masker>, used: &[Secret], personal: &[Redact]) -> Self {
+        Self {
+            values: values(masker, used)
+                .into_iter()
+                .map(|v| Secret::new(v.to_owned()))
+                .collect(),
+            personal: personal.to_vec(),
+        }
+    }
+
+    /// The line masked, and how many masks went in.
+    pub fn mask(&self, line: &str) -> (String, usize) {
+        let values: Vec<&str> = self.values.iter().map(Secret::expose).collect();
+        let (parts, _, n) = split(line, &values, &self.personal);
+        (render(&parts), n)
     }
 }
 

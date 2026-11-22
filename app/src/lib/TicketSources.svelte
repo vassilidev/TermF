@@ -23,19 +23,43 @@
     comment: boolean;
     transition: string | null;
   };
+  type LinearTracker = {
+    workspace: string;
+    team: string | null;
+    mine: boolean;
+    states: string[];
+    comment: boolean;
+    transition: string | null;
+  };
+  type GitlabTracker = { host: string; repo: string | null; mine: boolean; comment: boolean };
+  type AzureTracker = {
+    organization: string;
+    project: string;
+    wiql: string | null;
+    comment: boolean;
+    transition: string | null;
+  };
   type McpTracker = { server: string; tools: string[]; prompt: string | null };
   type Trackers = {
     github: GithubTracker | null;
     jira: JiraTracker | null;
+    linear?: LinearTracker | null;
+    gitlab?: GitlabTracker | null;
+    azure?: AzureTracker | null;
     mcp: Record<string, McpTracker>;
     /** No `[trackers]` in the project: GitHub Issues on its repositories, as before sources existed. */
     implicit: boolean;
   };
+  /** The sources whose token TermF keeps in the keychain, by workspace, host or organization. */
+  type Kind = "linear" | "gitlab" | "azure";
+  type Key = Parameters<typeof t>[0];
   type Sources = {
     trackers: Trackers;
     jiraToken: boolean;
     githubRepos: string[];
     mcpTools: Record<string, string[]>;
+    tokens: Record<Kind, boolean>;
+    gitlabRepos: string[];
   };
   type Account = { site: string; email: string };
   type McpServer = { name: string; status: string; tools: string[] };
@@ -43,6 +67,8 @@
   type Test = { busy: boolean; error?: string; tickets?: TicketSummary[] };
 
   const DEFAULT_JQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
+  const DEFAULT_WIQL =
+    "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.AssignedTo] = @me AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved') ORDER BY [System.ChangedDate] DESC";
 
   let { project }: { project: string } = $props();
 
@@ -61,6 +87,23 @@
   let servers = $state<McpServer[] | null>(null);
   let serversBusy = $state(false);
   let adding = $state("");
+  let gitlabRepos = $state<string[]>([]);
+  /** Whether the keychain holds a token, and for which workspace, host or organization. */
+  let tokens = $state<Record<Kind, { target: string | null; saved: boolean }>>({
+    linear: { target: null, saved: false },
+    gitlab: { target: null, saved: false },
+    azure: { target: null, saved: false },
+  });
+  let secrets = $state<Record<Kind, string>>({ linear: "", gitlab: "", azure: "" });
+  let secretBusy = $state<Kind | null>(null);
+
+  /** The workspace, host or organization a token belongs to, as the form holds it. */
+  const target = (kind: Kind) =>
+    (kind === "linear"
+      ? trackers?.linear?.workspace
+      : kind === "gitlab"
+        ? trackers?.gitlab?.host
+        : trackers?.azure?.organization) ?? "";
 
   function load(sources: Sources) {
     trackers = sources.trackers;
@@ -70,6 +113,63 @@
     jiraToken = sources.jiraToken;
     githubRepos = sources.githubRepos;
     mcpTools = sources.mcpTools;
+    gitlabRepos = sources.gitlabRepos ?? [];
+    for (const kind of ["linear", "gitlab", "azure"] as const) {
+      tokens[kind] = { target: target(kind) || null, saved: !!sources.tokens?.[kind] };
+    }
+  }
+
+  const hasToken = (kind: Kind) => tokens[kind].saved && tokens[kind].target === target(kind);
+
+  /** Once the workspace, host or organization changed: is there a token for it? */
+  async function checkSecret(kind: Kind) {
+    const to = target(kind).trim();
+    if (!to) return;
+    try {
+      tokens[kind] = { target: target(kind), saved: await invoke<boolean>("tickets_token", { kind, target: to }) };
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function saveSecret(kind: Kind) {
+    const to = target(kind);
+    secretBusy = kind;
+    try {
+      await invoke("tickets_token_save", { kind, target: to.trim(), token: secrets[kind] });
+      secrets[kind] = "";
+      tokens[kind] = { target: to, saved: true };
+      error = "";
+    } catch (e) {
+      error = String(e);
+    }
+    secretBusy = null;
+  }
+
+  async function forgetSecret(kind: Kind) {
+    const to = tokens[kind].target;
+    if (!to) return;
+    try {
+      await invoke("tickets_token_forget", { kind, target: to.trim() });
+      tokens[kind] = { target: to, saved: false };
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  function setGitlab(on: boolean) {
+    trackers!.gitlab = on ? { host: "gitlab.com", repo: null, mine: true, comment: false } : null;
+    if (on) checkSecret("gitlab");
+  }
+
+  function setLinear(on: boolean) {
+    trackers!.linear = on
+      ? { workspace: "", team: null, mine: true, states: [], comment: false, transition: null }
+      : null;
+  }
+
+  function setAzure(on: boolean) {
+    trackers!.azure = on ? { organization: "", project: "", wiql: null, comment: false, transition: null } : null;
   }
 
   // Mounted per project editor, like the form around it.
@@ -238,6 +338,40 @@
   {/if}
 {/snippet}
 
+{#snippet secret(kind: Kind, label: Key, help: Key)}
+  <div class="token">
+    <span class="label">{t(label)}</span>
+    {#if hasToken(kind)}
+      <p class="saved">
+        <CircleCheck size={13} aria-hidden="true" />{t("ticketsTokenSaved")}
+        <button type="button" class="btn sm quiet forget" onclick={() => forgetSecret(kind)}>
+          {t("ticketsTokenForget")}
+        </button>
+      </p>
+    {:else}
+      <p class="help">{t(help)}</p>
+      <div class="inline">
+        <input
+          class="field"
+          type="password"
+          bind:value={secrets[kind]}
+          placeholder={t("ticketsTokenPlaceholder")}
+          aria-label={t(label)}
+          autocomplete="off"
+        />
+        <button
+          type="button"
+          class="btn sm"
+          onclick={() => saveSecret(kind)}
+          disabled={!secrets[kind].trim() || !target(kind).trim() || secretBusy === kind}
+        >
+          {t("ticketsTokenSave")}
+        </button>
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
 <section class="sources" aria-labelledby="tickets-{project}">
   <h2 id="tickets-{project}">{t("ticketsTitle")}</h2>
   <p class="help">{t("ticketsHelp")}</p>
@@ -342,6 +476,59 @@
           type="checkbox"
           role="switch"
           class="switch"
+          checked={!!trackers.gitlab}
+          onchange={(e) => setGitlab(e.currentTarget.checked)}
+        />
+        <span class="name">{t("tickets2Gitlab")}</span>
+      </label>
+      {#if trackers.gitlab}
+        {@const gl = trackers.gitlab}
+        <div class="fields">
+          <p class="help">{t("tickets2GitlabHelp")}</p>
+          <p class="help">
+            {gitlabRepos.length
+              ? t("ticketsGithubRepos", { repos: gitlabRepos.join(", ") })
+              : t("tickets2GitlabNoRepo")}
+          </p>
+          <label>
+            <span>{t("tickets2GitlabHost")}</span>
+            <input
+              class="field"
+              bind:value={gl.host}
+              onchange={() => checkSecret("gitlab")}
+              placeholder={t("tickets2GitlabHostPlaceholder")}
+              spellcheck="false"
+            />
+          </label>
+          <label>
+            <span>{t("tickets2GitlabRepo")}</span>
+            <input
+              class="field"
+              bind:value={gl.repo}
+              placeholder={t("tickets2GitlabRepoPlaceholder")}
+              spellcheck="false"
+            />
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={gl.mine} />
+            {t("ticketsMine")}
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={gl.comment} />
+            {t("tickets2GitlabComment")}
+          </label>
+          {@render secret("gitlab", "tickets2GitlabToken", "tickets2GitlabTokenHelp")}
+          {@render result("gitlab")}
+        </div>
+      {/if}
+    </div>
+
+    <div class="source">
+      <label class="switch-row">
+        <input
+          type="checkbox"
+          role="switch"
+          class="switch"
           checked={!!trackers.jira}
           onchange={(e) => setJira(e.currentTarget.checked)}
         />
@@ -418,6 +605,110 @@
             <input class="field" bind:value={jira.transition} placeholder={t("ticketsLeaveAsIs")} />
           </label>
           {@render result("jira")}
+        </div>
+      {/if}
+    </div>
+
+    <div class="source">
+      <label class="switch-row">
+        <input
+          type="checkbox"
+          role="switch"
+          class="switch"
+          checked={!!trackers.linear}
+          onchange={(e) => setLinear(e.currentTarget.checked)}
+        />
+        <span class="name">{t("tickets2Linear")}</span>
+      </label>
+      {#if trackers.linear}
+        {@const lin = trackers.linear}
+        <div class="fields">
+          <label>
+            <span>{t("tickets2LinearWorkspace")}</span>
+            <input
+              class="field"
+              bind:value={lin.workspace}
+              onchange={() => checkSecret("linear")}
+              placeholder={t("tickets2LinearWorkspacePlaceholder")}
+              spellcheck="false"
+            />
+          </label>
+          {@render secret("linear", "tickets2LinearToken", "tickets2LinearTokenHelp")}
+          <label>
+            <span>{t("tickets2LinearTeam")}</span>
+            <input class="field" bind:value={lin.team} placeholder={t("tickets2LinearTeamPlaceholder")} spellcheck="false" />
+          </label>
+          <label>
+            <span>{t("tickets2LinearStates")}</span>
+            <input
+              class="field"
+              value={lin.states.join(", ")}
+              onchange={(e) => {
+                lin.states = list(e.currentTarget.value);
+              }}
+              placeholder={t("tickets2LinearStatesAll")}
+            />
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={lin.mine} />
+            {t("ticketsMine")}
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={lin.comment} />
+            {t("ticketsJiraLink")}
+          </label>
+          <label>
+            <span>{t("ticketsJiraMoveTo")}</span>
+            <input class="field" bind:value={lin.transition} placeholder={t("ticketsLeaveAsIs")} />
+          </label>
+          {@render result("linear")}
+        </div>
+      {/if}
+    </div>
+
+    <div class="source">
+      <label class="switch-row">
+        <input
+          type="checkbox"
+          role="switch"
+          class="switch"
+          checked={!!trackers.azure}
+          onchange={(e) => setAzure(e.currentTarget.checked)}
+        />
+        <span class="name">{t("tickets2Azure")}</span>
+      </label>
+      {#if trackers.azure}
+        {@const az = trackers.azure}
+        <div class="fields">
+          <label>
+            <span>{t("tickets2AzureOrg")}</span>
+            <input
+              class="field"
+              bind:value={az.organization}
+              onchange={() => checkSecret("azure")}
+              placeholder={t("tickets2AzureOrgPlaceholder")}
+              spellcheck="false"
+            />
+          </label>
+          <label>
+            <span>{t("tickets2AzureProject")}</span>
+            <input class="field" bind:value={az.project} spellcheck="false" />
+          </label>
+          {@render secret("azure", "tickets2AzureToken", "tickets2AzureTokenHelp")}
+          <label>
+            <span>{t("tickets2AzureWiql")}</span>
+            <textarea class="field area" bind:value={az.wiql} placeholder={DEFAULT_WIQL} rows="4" spellcheck="false"
+            ></textarea>
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={az.comment} />
+            {t("ticketsJiraLink")}
+          </label>
+          <label>
+            <span>{t("ticketsJiraMoveTo")}</span>
+            <input class="field" bind:value={az.transition} placeholder={t("ticketsLeaveAsIs")} />
+          </label>
+          {@render result("azure")}
         </div>
       {/if}
     </div>

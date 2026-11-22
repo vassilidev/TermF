@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Copy from "@lucide/svelte/icons/copy";
+  import History from "@lucide/svelte/icons/history";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Play from "@lucide/svelte/icons/play";
@@ -9,16 +10,20 @@
   import Server from "@lucide/svelte/icons/server";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import OpsChecks from "$lib/OpsChecks.svelte";
+  import OpsEnv from "$lib/OpsEnv.svelte";
+  import OpsFollow from "$lib/OpsFollow.svelte";
   import OpsForm from "$lib/OpsForm.svelte";
+  import OpsParams from "$lib/OpsParams.svelte";
   import OpsRequest from "$lib/OpsRequest.svelte";
+  import OpsSql from "$lib/OpsSql.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
-  import { runsOn, target, type Check, type Connection, type Kind, type Plan, type Ran } from "$lib/ops-logic";
-  import { loadHistory, loadOps, ops, type OpsTab } from "$lib/ops.svelte";
+  import { bounded, isSql, runsOn, target, type Check, type Connection, type Kind, type Plan, type Ran } from "$lib/ops-logic";
+  import { loadHistory, loadOps, ops, said, stopFollow, type OpsTab } from "$lib/ops.svelte";
   import { app, onScreen } from "$lib/state.svelte";
   import type { VaultStatus } from "$lib/vault.svelte";
 
@@ -37,6 +42,10 @@
         ops.recipe = null;
         ops.result = null;
         ops.proposal = null;
+        ops.sql.result = null;
+        stopFollow();
+        ops.live.lines = [];
+        ops.live.ended = null;
       }
       loadOps(id);
       loadHistory(id);
@@ -89,6 +98,18 @@
   }
 
   function openRecipe(name: string, connection?: string) {
+    const r = ops.recipes.find((x) => x.name === name);
+    if (r && isSql(r)) {
+      ops.tab = "sql";
+      if (connection) ops.sql.connection = connection;
+      return;
+    }
+    if (r?.follow) {
+      ops.tab = "live";
+      ops.live.recipe = name;
+      if (connection && ops.live.id === null) ops.live.connection = connection;
+      return;
+    }
     ops.tab = "recipes";
     ops.recipe = name;
     ops.proposal = null;
@@ -96,8 +117,9 @@
     ops.form = { connection: connection ?? "", params: {} };
   }
 
-  // Recipes.
-  const recipe = $derived(ops.recipes.find((r) => r.name === ops.recipe) ?? ops.recipes[0]);
+  // Recipes: a query goes to the SQL console, a stream to the live logs.
+  const listed = $derived(ops.recipes.filter(bounded));
+  const recipe = $derived(listed.find((r) => r.name === ops.recipe) ?? listed[0]);
   const fitting = $derived(recipe ? ops.connections.filter((c) => runsOn(recipe, c)) : []);
   $effect(() => {
     if (fitting.length && !fitting.some((c) => c.name === ops.form.connection)) {
@@ -222,6 +244,12 @@
     proposed: "opsApprovalProposed",
     "not asked": "opsApprovalNotAsked",
   };
+  const eventLabels: Record<string, Key> = {
+    follow: "opssqlEventFollow",
+    reveal: "opssqlEventReveal",
+    copy: "opssqlEventCopy",
+    write: "opssqlEventWrite",
+  };
 </script>
 
 {#snippet passwordForm()}
@@ -266,7 +294,9 @@
       label={t("opsView")}
       tabs={[
         { id: "connections", label: t("opsTabConnections"), count: ops.connections.length },
-        { id: "recipes", label: t("opsTabRecipes"), count: ops.recipes.length },
+        { id: "recipes", label: t("opsTabRecipes"), count: listed.length },
+        { id: "sql", label: t("opssqlTab") },
+        { id: "live", label: t("opssqlLive") },
         { id: "history", label: t("opsTabHistory") },
       ]}
       selected={ops.tab}
@@ -345,7 +375,7 @@
                       <button class="btn sm" onclick={() => openRecipe(r.name, current.name)}>
                         <Play size={13} aria-hidden="true" /><span class="mono">{r.name}</span>
                       </button>
-                      <span class="muted">{r.description}</span>
+                      <span class="muted">{said(r.description)}</span>
                     </li>
                   {/each}
                 </ul>
@@ -365,13 +395,13 @@
       {:else if ops.tab === "recipes"}
         <div class="split">
           <ul class="list" aria-label={t("opsTabRecipes")}>
-            {#each ops.recipes as r (r.name)}
+            {#each listed as r (r.name)}
               <li class="row" class:current={r === recipe}>
                 <button class="pick" aria-current={r === recipe} onclick={() => openRecipe(r.name)}>
                   <span class="name mono">{r.name}</span>
-                  <span class="desc">{r.description}</span>
+                  <span class="desc">{said(r.description)}</span>
                 </button>
-                {#if r.mode === "write"}<span class="badge write">{t("opsWrite")}</span>{/if}
+                {#if r.mode === "write"}<span class="badge danger">{t("opsWrite")}</span>{/if}
               </li>
             {/each}
           </ul>
@@ -379,7 +409,7 @@
             {#if recipe}
               <header>
                 <h2 class="mono">{recipe.name}</h2>
-                <p class="muted">{recipe.description}</p>
+                <p class="muted">{said(recipe.description)}</p>
               </header>
               {#if recipe.mode === "write"}<p class="notice warn">{t("opsWriteHelp")}</p>{/if}
               {#if proposer}<p class="notice">{t("opsProposedBy", { who: proposer.agent.role === "cto" ? t("ux3t1Cto") : (proposer.agent.role ?? proposer.agent.title) })}</p>{/if}
@@ -399,29 +429,8 @@
                       {#each fitting as c (c.name)}<option value={c.name}>{c.name} · {c.env}</option>{/each}
                     </select>
                   </label>
-                  {#if recipe.params.length}
-                    <fieldset>
-                      <legend>{t("opsParams")}</legend>
-                      {#each recipe.params as p (p.name)}
-                        <label class="labelled">
-                          <span><span class="mono">{p.name}</span>{#if p.required} *{/if} <span class="muted">{p.description}</span></span>
-                          {#if p.type === "choice" || p.type === "command"}
-                            <select class="field mono" bind:value={ops.form.params[p.name]}>
-                              {#if !p.required}<option value="">—</option>{/if}
-                              {#each p.values ?? [] as v (v)}<option value={v}>{v}</option>{/each}
-                            </select>
-                          {:else}
-                            <input
-                              class="field mono"
-                              inputmode={p.type === "int" ? "numeric" : undefined}
-                              placeholder={p.default ? t("opsDefault", { value: p.default }) : ""}
-                              bind:value={ops.form.params[p.name]}
-                            />
-                          {/if}
-                        </label>
-                      {/each}
-                    </fieldset>
-                  {/if}
+                  <OpsParams params={recipe.params} bind:values={ops.form.params} />
+
                   <div class="command">
                     <span class="label">{plan?.remote ? t("opsRemote", { target: plan.target }) : t("opsCommand")}</span>
                     {#if plan}
@@ -444,7 +453,7 @@
                 {@const out = ops.result.output}
                 <section class="result" aria-label={t("opsCommand")}>
                   <div class="result-head">
-                    <span class="badge" class:ok={out.exit === 0} class:bad={out.exit !== 0}>
+                    <span class="badge" class:ok={out.exit === 0} class:danger={out.exit !== 0}>
                       {out.exit === null ? (out.stopped ?? "—") : t("opsExit", { code: out.exit })}
                     </span>
                     <span class="muted">{t("opsDuration", { seconds: (out.millis / 1000).toFixed(1) })}</span>
@@ -456,12 +465,16 @@
                     </button>
                     {#if copied}<span class="muted" role="status">{t("opsCopied")}</span>{/if}
                   </div>
-                  <pre class="output">{#if out.parts.length}{#each out.parts as part, i (i)}{#if "text" in part}{part.text}{:else if revealed[part.hidden] !== undefined}<mark class="shown">{revealed[part.hidden]}</mark>{:else}<button
-                            class="hidden"
-                            title={t("opsReveal")}
-                            aria-label={t("opsReveal")}
-                            onclick={() => reveal(part.hidden)}>••••••</button
-                          >{/if}{/each}{:else}{out.text || t("opsNoOutput")}{/if}</pre>
+                  {#if out.keys?.length}
+                    {#key ops.result.id}<OpsEnv result={ops.result} project={project.id} ask={askPassword} />{/key}
+                  {:else}
+                    <pre class="output">{#if out.parts.length}{#each out.parts as part, i (i)}{#if "text" in part}{part.text}{:else if revealed[part.hidden] !== undefined}<mark class="shown">{revealed[part.hidden]}</mark>{:else}<button
+                              class="hidden"
+                              title={t("opsReveal")}
+                              aria-label={t("opsReveal")}
+                              onclick={() => reveal(part.hidden)}>••••••</button
+                            >{/if}{/each}{:else}{out.text || t("opsNoOutput")}{/if}</pre>
+                  {/if}
                   {#if out.errors.trim()}
                     <span class="label">{t("opsErrors")}</span>
                     <pre class="errors">{out.errors}</pre>
@@ -486,10 +499,17 @@
             <input class="field mono" bind:value={typed} placeholder={plan?.env ?? ""} />
           </label>
         </ConfirmDialog>
+      {:else if ops.tab === "sql" || ops.tab === "live"}
+        {#if needs}<div class="asking">{@render passwordForm()}</div>{/if}
+        {#if ops.tab === "sql"}
+          <OpsSql project={project.id} ask={askPassword} />
+        {:else}
+          <OpsFollow project={project.id} ask={askPassword} />
+        {/if}
       {:else}
         <div class="pane">
           {#if !ops.history.length}
-            <p class="muted empty">{t("opsHistoryEmpty")}</p>
+            <EmptyState icon={History} text={t("opsHistoryEmpty")} />
           {:else}
             <ul class="history">
               {#each ops.history as h (h.id)}
@@ -502,9 +522,12 @@
                       {#if h.env}<span class="badge env" class:prod={h.env === "prod"}>{h.env}</span>{/if}
                       <span class="muted">{h.by === "agent" ? t("opsByAgent", { session: h.session ?? "" }) : t("opsByYou")}</span>
                       {#if h.approval !== "user"}
-                        <span class="badge" class:bad={h.approval === "refused" || h.approval === "expired"}>
+                        <span class="badge" class:danger={h.approval === "refused" || h.approval === "expired"}>
                           {approvalLabels[h.approval] ? t(approvalLabels[h.approval]) : h.approval}
                         </span>
+                      {/if}
+                      {#if h.event && eventLabels[h.event]}
+                        <span class="badge event">{t(eventLabels[h.event], { key: h.key ?? "", run: h.run ?? "" })}</span>
                       {/if}
                       <span class="facts muted">
                         {#if h.exit !== null}{t("opsExit", { code: h.exit })}{/if}
@@ -561,17 +584,6 @@
     border-color: var(--danger);
     background: var(--danger);
     color: var(--danger-text);
-  }
-
-  .badge.write,
-  .badge.bad {
-    border-color: var(--danger);
-    color: var(--danger);
-  }
-
-  .badge.ok {
-    border-color: var(--done);
-    color: var(--done);
   }
 
   header h2 {
@@ -651,21 +663,6 @@
     margin-top: 16px;
   }
 
-  fieldset {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 10px 16px;
-    margin: 0;
-    padding: 0;
-    border: 0;
-  }
-
-  legend {
-    margin-bottom: 8px;
-    font-size: var(--text-sm);
-    font-weight: 600;
-  }
-
   .command {
     display: flex;
     flex-direction: column;
@@ -708,6 +705,15 @@
 
   .password input {
     width: 220px;
+  }
+
+  .asking {
+    padding: 0 24px 12px;
+  }
+
+  .badge.event {
+    border-color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .result {
@@ -759,10 +765,6 @@
 
   .confirm-command {
     margin: 8px 0 12px;
-  }
-
-  .empty {
-    padding: 28px;
   }
 
   .history {

@@ -230,7 +230,7 @@
               {t("sshProblems")}
               <ul class="paths">
                 {#each inventory.problems as problem, i (i)}
-                  <li><span class="mono">{shortPath(problem.path)}</span> · {problem.error}</li>
+                  <li><span class="mono">{shortPath(problem.path)}</span> · {problem.code === "outside" ? t("uxfT4SshOutside") : problem.error}</li>
                 {/each}
               </ul>
             </div>
@@ -293,7 +293,7 @@
                   </div>
                   <p class="description">{key.comment || t("sshNoComment")}</p>
                 </div>
-                <button class="btn sm quiet danger-text" aria-expanded={asking === "trash"} onclick={() => (asking = "trash")}>
+                <button class="btn sm quiet danger" aria-expanded={asking === "trash"} onclick={() => (asking = "trash")}>
                   <Trash2 size={14} aria-hidden="true" />{t("sshTrash")}
                 </button>
               </header>
@@ -481,7 +481,7 @@
                   <td>{agentKey.comment}</td>
                   <td>
                     {#if file}
-                      <button class="link" onclick={() => (select(file.path), (ssh.tab = "keys"))}>{file.name}</button>
+                      <button class="btn link" onclick={() => (select(file.path), (ssh.tab = "keys"))}>{file.name}</button>
                     {:else}
                       <span class="badge" title={t("sshAgentOnlyTitle")}>{t("sshAgentOnly")}</span>
                     {/if}
@@ -627,6 +627,13 @@
 </div>
 
 <style>
+  /* A key's long file name wraps instead of running out of its column. */
+  .btn.link {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
   .ssh {
     display: flex;
     flex-direction: column;
@@ -707,10 +714,6 @@
     flex-wrap: wrap;
     gap: 6px;
     margin: 16px 0 0;
-  }
-
-  .danger-text {
-    color: var(--danger);
   }
 
   .ask {
@@ -861,18 +864,6 @@
   .row-actions {
     display: inline-flex;
     gap: 6px;
-  }
-
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent-ink);
-    font-weight: 500;
-  }
-
-  .link:hover {
-    text-decoration: underline;
   }
 
   .remote {
