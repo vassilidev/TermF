@@ -204,7 +204,7 @@ pub fn run() {
     let data_dir = termf_core::default_data_dir().expect("cannot locate the data directory");
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(|app| window::menu(app, None));
+    let builder = builder.menu(window::menu);
     builder
         // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -220,8 +220,8 @@ pub fn run() {
         .manage(Arc::new(Files::default()))
         .manage(ssh::KeyFiles::default())
         .plugin(quick_terminal::plugin())
-        // One setup: a second call to `setup` would replace this one.
         .on_menu_event(window::on_menu)
+        // One setup: a second call to `setup` would replace this one.
         .setup(move |app| {
             window::open(app.handle(), &data_dir);
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
@@ -583,7 +583,6 @@ pub fn run() {
             ops::ops_history,
             ops::ops_requests,
             ops::ops_answer,
-            window::app_menu,
             onboarding::setup_repos,
             onboarding::setup_detect,
             onboarding::setup_draft,

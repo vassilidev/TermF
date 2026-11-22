@@ -32,7 +32,6 @@ const svg = (w, h, body) => {
 };
 const brandFill = (id) =>
   `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5d5fea"/><stop offset="1" stop-color="#3f3fc6"/></linearGradient></defs>`;
-// A brand panel: the icon's gradient with its three chevrons, as on the installers' welcome pages.
 const panel = (w, h) =>
   `${brandFill("panel")}<rect width="${w}" height="${h}" fill="url(#panel)"/>` +
   `<g transform="translate(${w / 2} ${h * 0.34}) scale(${(w * 0.46) / 362}) translate(-510 -512)">${chevrons}</g>`;
@@ -210,14 +209,13 @@ try {
   for (const s of [64, 128, 256]) writeFileSync(join(icons, `${s}x${s}.png`), flat[s]);
   writeFileSync(join(icons, "icon.png"), flat[512]);
 
-  // NSIS: header (150 × 57, right of the white title area) and welcome / finish panel (164 × 314).
   const white = (w, h) => `<rect width="${w}" height="${h}" fill="#ffffff"/>`;
   const image = (body, w, h, scale = 1) =>
     crop(decode(render(svg(w * scale, h * scale, body), [Math.max(w, h) * scale])[Math.max(w, h) * scale]), w * scale, h * scale);
   const header = (w, h) => white(w, h) + at(w - 12 - 40, (h - 40) / 2, 40);
   writeFileSync(join(here, "nsis-header.bmp"), bmp(image(header(150, 57), 150, 57)));
   writeFileSync(join(here, "nsis-sidebar.bmp"), bmp(image(panel(164, 314), 164, 314)));
-  // WiX: banner (493 × 58, text on its left) and dialog (493 × 312, text right of 164 px).
+  // WiX writes its titles left of the banner and right of the dialog's first 164 pixels.
   writeFileSync(join(here, "wix-banner.bmp"), bmp(image(header(493, 58), 493, 58)));
   writeFileSync(join(here, "wix-dialog.bmp"), bmp(image(white(493, 312) + panel(164, 312), 493, 312)));
 

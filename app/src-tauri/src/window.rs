@@ -5,18 +5,26 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::mpsc::{self, Sender};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::window::Color;
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, Theme, Window, WindowEvent,
+    AppHandle, LogicalSize, Manager, PhysicalPosition, Runtime, Theme, WebviewWindow, Window,
+    WindowEvent,
 };
 
-/// `--bg` of app.css, light and dark: no white flash before the page paints in a dark system.
-const LIGHT: Color = Color(0xee, 0xf0, 0xf3, 0xff);
-const DARK: Color = Color(0x0c, 0x0d, 0x10, 0xff);
+include!(concat!(env!("OUT_DIR"), "/brand.rs"));
 
-/// Where the window was, in logical pixels: its size before it was maximized, and whether it was.
+// macOS places windows in points across screens of any scale, Windows and X11 in pixels: a position kept in the
+// other unit reopens the window elsewhere when the screens' scales differ.
+const POINTS: bool = cfg!(target_os = "macos");
+
+/// Moves and resizes come in bursts (a drag, the maximize animation): the place is read once they stop.
+const SETTLE: Duration = Duration::from_millis(500);
+
+/// The position in the system's own unit (see `POINTS`), the size in logical pixels (the one before maximizing).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Place {
     pub x: f64,
@@ -30,10 +38,19 @@ pub struct Place {
 pub struct Placement {
     file: PathBuf,
     place: Mutex<Option<Place>>,
+    moved: Sender<()>,
 }
 
-/// Whether the middle of the title bar is on one of the screens (x, y, width, height): a window last seen on a
-/// screen since unplugged opens centred instead.
+fn native(position: PhysicalPosition<i32>, scale: f64, points: bool) -> (f64, f64) {
+    if points {
+        let p = position.to_logical::<f64>(scale);
+        (p.x, p.y)
+    } else {
+        (position.x.into(), position.y.into())
+    }
+}
+
+/// A window last seen on a screen since unplugged opens centred instead.
 fn on_screen(place: &Place, screens: &[(f64, f64, f64, f64)]) -> bool {
     let (x, y) = (place.x + place.width / 2.0, place.y + 16.0);
     place.width > 0.0
@@ -43,40 +60,70 @@ fn on_screen(place: &Place, screens: &[(f64, f64, f64, f64)]) -> bool {
             .any(|&(sx, sy, w, h)| x >= sx && x < sx + w && y >= sy && y < sy + h)
 }
 
-/// Shows the main window, created hidden, in the theme's colour and where it was.
+/// What a settled window leaves of its place: nothing while minimized or full screen, and the size from before when
+/// maximized (on Windows, a maximized window's position is off the screen's edge).
+fn settle(before: Option<Place>, now: Place, minimized: bool, fullscreen: bool) -> Option<Place> {
+    match before {
+        _ if minimized || fullscreen => before,
+        Some(before) if now.maximized => Some(Place {
+            maximized: true,
+            ..before
+        }),
+        _ => Some(now),
+    }
+}
+
 pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
     let file = data_dir.join("window.json");
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
     let dark = window.theme().is_ok_and(|t| t == Theme::Dark);
-    let _ = window.set_background_color(Some(if dark { DARK } else { LIGHT }));
+    let _ = window.set_background_color(Some(BACKGROUNDS[usize::from(dark)]));
     let screens: Vec<_> = window
         .available_monitors()
         .unwrap_or_default()
         .iter()
         .map(|m| {
-            let (p, s) = (m.position(), m.size());
             let scale = m.scale_factor();
-            let (p, s) = (p.to_logical::<f64>(scale), s.to_logical::<f64>(scale));
-            (p.x, p.y, s.width, s.height)
+            let (x, y) = native(*m.position(), scale, POINTS);
+            let (w, h) = if POINTS {
+                let s = m.size().to_logical::<f64>(scale);
+                (s.width, s.height)
+            } else {
+                (m.size().width.into(), m.size().height.into())
+            };
+            (x, y, w, h)
         })
         .collect();
     let place = fs::read(&file)
         .ok()
         .and_then(|b| serde_json::from_slice::<Place>(&b).ok())
         .filter(|p| on_screen(p, &screens));
-    app.manage(Placement {
-        file,
-        place: Mutex::new(place),
-    });
     if let Some(place) = place {
+        if POINTS {
+            let _ = window.set_position(tauri::LogicalPosition::new(place.x, place.y));
+        } else {
+            let _ = window.set_position(PhysicalPosition::new(place.x as i32, place.y as i32));
+        }
         let _ = window.set_size(LogicalSize::new(place.width, place.height));
-        let _ = window.set_position(LogicalPosition::new(place.x, place.y));
         if place.maximized {
             let _ = window.maximize();
         }
     }
+    let (moved, rx) = mpsc::channel();
+    app.manage(Placement {
+        file,
+        place: Mutex::new(place),
+        moved,
+    });
+    let watched = window.clone();
+    std::thread::spawn(move || {
+        while rx.recv().is_ok() {
+            while rx.recv_timeout(SETTLE).is_ok() {}
+            keep(&watched);
+        }
+    });
     let _ = window.show();
     let _ = window.set_focus();
 }
@@ -86,8 +133,11 @@ pub fn on_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
         return;
     }
     match event {
-        WindowEvent::Moved(_) | WindowEvent::Resized(_) => keep(window),
-        // macOS keeps the app running without a window: the Dock icon or the quick terminal bring it back.
+        WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+            if let Some(state) = window.try_state::<Placement>() {
+                let _ = state.moved.send(());
+            }
+        }
         #[cfg(target_os = "macos")]
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
@@ -97,7 +147,8 @@ pub fn on_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
     }
 }
 
-fn keep<R: Runtime>(window: &Window<R>) {
+/// Written once the window settles, so that a crash or a forced quit keeps it.
+fn keep<R: Runtime>(window: &WebviewWindow<R>) {
     let Some(state) = window.try_state::<Placement>() else {
         return;
     };
@@ -108,104 +159,76 @@ fn keep<R: Runtime>(window: &Window<R>) {
     ) else {
         return;
     };
-    if window.is_minimized().unwrap_or(true) || window.is_fullscreen().unwrap_or(true) {
-        return;
-    }
-    let (position, size) = (
-        position.to_logical::<f64>(scale),
-        size.to_logical::<f64>(scale),
-    );
+    let (x, y) = native(position, scale, POINTS);
+    let size = size.to_logical::<f64>(scale);
     let now = Place {
-        x: position.x,
-        y: position.y,
+        x,
+        y,
         width: size.width,
         height: size.height,
         maximized: window.is_maximized().unwrap_or(false),
     };
     let mut place = state.place.lock().unwrap();
-    *place = match *place {
-        Some(before) if now.maximized => Some(Place {
-            maximized: true,
-            ..before
-        }),
-        _ => Some(now),
-    };
-}
-
-/// Called once the app exits.
-pub fn save<R: Runtime>(app: &AppHandle<R>) {
-    let Some(state) = app.try_state::<Placement>() else {
-        return;
-    };
-    if let Some(place) = *state.place.lock().unwrap()
-        && let Ok(json) = serde_json::to_vec(&place)
-    {
-        if let Some(dir) = state.file.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        let _ = fs::write(&state.file, json);
+    let next = settle(
+        *place,
+        now,
+        window.is_minimized().unwrap_or(true),
+        window.is_fullscreen().unwrap_or(true),
+    );
+    if next != *place {
+        *place = next;
+        write(&state.file, next);
     }
 }
 
-/// A click on the Dock icon while the window is hidden.
+fn write(file: &Path, place: Option<Place>) {
+    if let Some(place) = place
+        && let Ok(json) = serde_json::to_vec(&place)
+    {
+        if let Some(dir) = file.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        let _ = fs::write(file, json);
+    }
+}
+
+/// At exit: a move less than `SETTLE` before quitting.
+pub fn save<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        keep(&window);
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn reopen<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
 }
 
-/// The menu's words, from i18n.ts (`packagingMenu*`).
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub struct Words {
-    about: String,
-    settings: String,
-    services: String,
-    hide: String,
-    hide_others: String,
-    show_all: String,
-    quit: String,
-    edit: String,
-    undo: String,
-    redo: String,
-    cut: String,
-    copy: String,
-    paste: String,
-    select_all: String,
-    view: String,
-    fullscreen: String,
-    window: String,
-    minimize: String,
-    zoom: String,
-    front: String,
-    help: String,
-    website: String,
-}
-
 const SETTINGS: &str = "settings";
 const WEBSITE: &str = "website";
-const SITE: &str = "https://vassilidev.github.io/TermF/";
 
-/// The macOS menu bar, without Close Window, whose ⌘W would never reach the webview: there it closes a split. Until the
-/// UI sends its words, Tauri's English defaults, without Settings… nor Help.
+/// The macOS menu bar, without Close Window, whose ⌘W would never reach the webview: there it closes a split. In the
+/// system's language, as the UI (`lang` of i18n.ts); its words are the `packagingMenu*` keys of i18n.ts (build.rs).
 #[cfg(target_os = "macos")]
-pub fn menu<R: Runtime>(
-    app: &AppHandle<R>,
-    words: Option<&Words>,
-) -> tauri::Result<tauri::menu::Menu<R>> {
+pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
     use tauri::menu::{
         AboutMetadata, HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem as Item, Submenu,
         WINDOW_SUBMENU_ID,
     };
-    let none = Words::default();
-    let w = words.unwrap_or(&none);
-    fn text(s: &str) -> Option<&str> {
-        (!s.is_empty()).then_some(s)
-    }
-    let title = |s: &str, english: &'static str| text(s).unwrap_or(english).to_owned();
+    let french = objc2_foundation::NSLocale::preferredLanguages()
+        .firstObject()
+        .is_some_and(|l| l.to_string().to_lowercase().starts_with("fr"));
+    let words = MENU[if french { 0 } else { 1 }];
+    let w = |key: &'static str| -> &'static str {
+        words
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map_or(key, |(_, text)| *text)
+    };
     let info = app.package_info();
     let config = app.config();
     let about = AboutMetadata {
@@ -216,88 +239,74 @@ pub fn menu<R: Runtime>(
         ..Default::default()
     };
     let separator = || Item::separator(app);
-    let app_menu = Submenu::with_items(
-        app,
-        &info.name,
-        true,
-        &[
-            &Item::about(app, text(&w.about), Some(about))?,
-            &separator()?,
-        ],
-    )?;
-    if words.is_some() {
-        app_menu.append(&MenuItem::with_id(
-            app,
-            SETTINGS,
-            &w.settings,
-            true,
-            Some("CmdOrCtrl+,"),
-        )?)?;
-        app_menu.append(&separator()?)?;
-    }
-    app_menu.append_items(&[
-        &Item::services(app, text(&w.services))?,
-        &separator()?,
-        &Item::hide(app, text(&w.hide))?,
-        &Item::hide_others(app, text(&w.hide_others))?,
-        &Item::show_all(app, text(&w.show_all))?,
-        &separator()?,
-        &Item::quit(app, text(&w.quit))?,
-    ])?;
-    let menu = Menu::with_items(
+    Menu::with_items(
         app,
         &[
-            &app_menu,
             &Submenu::with_items(
                 app,
-                title(&w.edit, "Edit"),
+                &info.name,
                 true,
                 &[
-                    &Item::undo(app, text(&w.undo))?,
-                    &Item::redo(app, text(&w.redo))?,
+                    &Item::about(app, Some(w("About")), Some(about))?,
                     &separator()?,
-                    &Item::cut(app, text(&w.cut))?,
-                    &Item::copy(app, text(&w.copy))?,
-                    &Item::paste(app, text(&w.paste))?,
-                    &Item::select_all(app, text(&w.select_all))?,
+                    &MenuItem::with_id(app, SETTINGS, w("Settings"), true, Some("CmdOrCtrl+,"))?,
+                    &separator()?,
+                    &Item::services(app, Some(w("Services")))?,
+                    &separator()?,
+                    &Item::hide(app, Some(w("Hide")))?,
+                    &Item::hide_others(app, Some(w("HideOthers")))?,
+                    &Item::show_all(app, Some(w("ShowAll")))?,
+                    &separator()?,
+                    &Item::quit(app, Some(w("Quit")))?,
                 ],
             )?,
             &Submenu::with_items(
                 app,
-                title(&w.view, "View"),
+                w("Edit"),
                 true,
-                &[&Item::fullscreen(app, text(&w.fullscreen))?],
+                &[
+                    &Item::undo(app, Some(w("Undo")))?,
+                    &Item::redo(app, Some(w("Redo")))?,
+                    &separator()?,
+                    &Item::cut(app, Some(w("Cut")))?,
+                    &Item::copy(app, Some(w("Copy")))?,
+                    &Item::paste(app, Some(w("Paste")))?,
+                    &Item::select_all(app, Some(w("SelectAll")))?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                w("View"),
+                true,
+                &[&Item::fullscreen(app, Some(w("Fullscreen")))?],
             )?,
             &Submenu::with_id_and_items(
                 app,
                 WINDOW_SUBMENU_ID,
-                title(&w.window, "Window"),
+                w("Window"),
                 true,
                 &[
-                    &Item::minimize(app, text(&w.minimize))?,
-                    &Item::maximize(app, text(&w.zoom))?,
+                    &Item::minimize(app, Some(w("Minimize")))?,
+                    &Item::maximize(app, Some(w("Zoom")))?,
                     &separator()?,
-                    &Item::bring_all_to_front(app, text(&w.front))?,
+                    &Item::bring_all_to_front(app, Some(w("Front")))?,
                 ],
             )?,
-        ],
-    )?;
-    if words.is_some() {
-        menu.append(&Submenu::with_id_and_items(
-            app,
-            HELP_SUBMENU_ID,
-            &w.help,
-            true,
-            &[&MenuItem::with_id(
+            &Submenu::with_id_and_items(
                 app,
-                WEBSITE,
-                &w.website,
+                HELP_SUBMENU_ID,
+                w("Help"),
                 true,
-                None::<&str>,
-            )?],
-        )?)?;
-    }
-    Ok(menu)
+                &[&MenuItem::with_id(
+                    app,
+                    WEBSITE,
+                    w("Website"),
+                    true,
+                    None::<&str>,
+                )?],
+            )?,
+        ],
+    )
 }
 
 pub fn on_menu<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
@@ -309,38 +318,33 @@ pub fn on_menu<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
             let _ = app.emit("menu-settings", ());
         }
         WEBSITE => {
-            let _ = crate::browser::open_url(SITE.into());
+            if let Some(site) = app.config().bundle.homepage.clone() {
+                let _ = crate::browser::open_url(site);
+            }
         }
         _ => {}
     }
 }
 
-/// The menu bar in the UI's language (macOS; elsewhere TermF has no menu bar).
-#[tauri::command]
-pub fn app_menu(app: AppHandle, words: Words) -> crate::CmdResult<()> {
-    #[cfg(target_os = "macos")]
-    menu(&app, Some(&words))
-        .and_then(|menu| app.set_menu(menu))
-        .map_err(|e| e.to_string())?;
-    #[cfg(not(target_os = "macos"))]
-    let _ = (app, words);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Place, on_screen};
+    use super::{BACKGROUNDS, MENU, Place, native, on_screen, settle};
+    use tauri::PhysicalPosition;
+    use tauri::window::Color;
 
-    #[test]
-    fn opens_where_it_was_only_on_a_screen_still_there() {
-        let screens = [(0.0, 0.0, 1512.0, 982.0), (1512.0, -200.0, 2560.0, 1440.0)];
-        let at = |x, y| Place {
+    fn at(x: f64, y: f64) -> Place {
+        Place {
             x,
             y,
             width: 1400.0,
             height: 900.0,
             maximized: false,
-        };
+        }
+    }
+
+    #[test]
+    fn opens_where_it_was_only_on_a_screen_still_there() {
+        let screens = [(0.0, 0.0, 1512.0, 982.0), (1512.0, -200.0, 2560.0, 1440.0)];
         assert!(on_screen(&at(40.0, 30.0), &screens));
         assert!(on_screen(&at(2000.0, -150.0), &screens), "second screen");
         assert!(
@@ -353,5 +357,68 @@ mod tests {
             "below every screen"
         );
         assert!(!on_screen(&Place::default(), &screens), "no size");
+    }
+
+    #[test]
+    fn keeps_pixels_on_windows_with_screens_of_different_scales() {
+        // A 4K screen at 200 %, then a 1080p one at 100 % on its right, as Windows lays them out in pixels.
+        let screens = [(0.0, 0.0, 3840.0, 2160.0), (3840.0, 0.0, 1920.0, 1080.0)];
+        let window = PhysicalPosition::new(4000, 100);
+        let (x, y) = native(window, 1.0, false);
+        assert_eq!((x, y), (4000.0, 100.0));
+        let place = Place {
+            x,
+            y,
+            width: 1000.0,
+            height: 700.0,
+            maximized: false,
+        };
+        assert!(on_screen(&place, &screens));
+        // In points, the same window would be taken back to the first screen at its scale.
+        assert_eq!(native(window, 2.0, true), (2000.0, 50.0));
+    }
+
+    #[test]
+    fn keeps_only_settled_normal_places() {
+        let before = Some(at(100.0, 80.0));
+        let maximized = Place {
+            x: -8.0,
+            y: -8.0,
+            width: 2560.0,
+            height: 1400.0,
+            maximized: true,
+        };
+        assert_eq!(
+            settle(before, maximized, false, false),
+            Some(Place {
+                maximized: true,
+                ..at(100.0, 80.0)
+            }),
+            "maximized keeps the size from before"
+        );
+        assert_eq!(
+            settle(before, at(0.0, 0.0), false, true),
+            before,
+            "full screen"
+        );
+        assert_eq!(
+            settle(before, at(-32000.0, -32000.0), true, false),
+            before,
+            "minimized"
+        );
+        assert_eq!(
+            settle(before, at(300.0, 200.0), false, false),
+            Some(at(300.0, 200.0))
+        );
+        assert_eq!(settle(None, maximized, false, false), Some(maximized));
+    }
+
+    #[test]
+    fn reads_the_brand_from_the_ui_sources() {
+        assert_eq!(BACKGROUNDS[0], Color(0xee, 0xf0, 0xf3, 255));
+        assert_eq!(BACKGROUNDS[1], Color(0x0c, 0x0d, 0x10, 255));
+        assert!(MENU[0].contains(&("Settings", "Réglages…")));
+        assert!(MENU[1].contains(&("Settings", "Settings…")));
+        assert_eq!(MENU[0].len(), MENU[1].len());
     }
 }

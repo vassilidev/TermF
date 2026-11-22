@@ -3629,6 +3629,7 @@ const fr = {
   releaseCliNone: "Cette version de TermF n'embarque pas la commande termf.",
   releaseCmdCheck: "Rechercher une mise à jour de TermF",
   releaseCmdNeeds: "Ce qu'il te faut : les outils de la machine",
+  // The native macOS menu: read by app/src-tauri/build.rs (one key per line), not by the UI.
   packagingMenuAbout: "À propos de TermF",
   packagingMenuSettings: "Réglages…",
   packagingMenuServices: "Services",
