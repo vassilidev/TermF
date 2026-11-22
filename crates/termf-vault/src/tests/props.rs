@@ -184,10 +184,13 @@ fn a_csv_export_reads_back_as_written() {
 }
 
 #[test]
-fn a_damaged_zip_is_refused_never_read_past_its_end() {
+fn a_damaged_zip_is_refused_or_gives_the_file_as_it_was() {
     let mut rng = Rng::new(0x21f);
-    let archive = crate::zip::tests::zip(&[("a", b"first"), ("export.data", &[7u8; 3000])]);
+    let data: Vec<u8> = (0..3000u32).map(|i| (i * 7 % 251) as u8).collect();
+    let archive = crate::zip::tests::zip(&[("a", b"first"), ("export.data", &data)]);
     for _ in 0..5000 {
-        let _ = crate::zip::read(&mutate(&mut rng, &archive), "export.data", 1 << 20);
+        if let Ok(read) = crate::zip::read(&mutate(&mut rng, &archive), "export.data", 1 << 20) {
+            assert_eq!(*read, data);
+        }
     }
 }

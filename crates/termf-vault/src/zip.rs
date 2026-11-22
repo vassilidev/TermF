@@ -4,6 +4,7 @@
 use std::io::Read;
 
 use anyhow::{Context, Result, bail, ensure};
+use flate2::Crc;
 use flate2::read::DeflateDecoder;
 use zeroize::Zeroizing;
 
@@ -38,6 +39,7 @@ pub fn read(archive: &[u8], name: &str, max: usize) -> Result<Zeroizing<Vec<u8>>
         ensure!(u32_at(archive, at) == Some(CENTRAL as usize), damaged);
         let field = |offset| u16_at(archive, at + offset).context(damaged);
         let (flags, method) = (field(8)?, field(10)?);
+        let crc = u32_at(archive, at + 16).context(damaged)?;
         let size = u32_at(archive, at + 20).context(damaged)?;
         let (name_len, extra, comment) = (field(28)?, field(30)?, field(32)?);
         let local = u32_at(archive, at + 42).context(damaged)?;
@@ -65,6 +67,9 @@ pub fn read(archive: &[u8], name: &str, max: usize) -> Result<Zeroizing<Vec<u8>>
             _ => bail!("this ZIP archive uses a compression TermF does not read"),
         }
         ensure!(out.len() <= max, "{name} is too large");
+        let mut check = Crc::new();
+        check.update(&out);
+        ensure!(check.sum() as usize == crc, damaged);
         return Ok(out);
     }
     bail!("{name} is not in this archive")
@@ -85,6 +90,8 @@ pub(crate) mod tests {
             let mut deflate = DeflateEncoder::new(Vec::new(), Compression::default());
             deflate.write_all(data).unwrap();
             let packed = deflate.finish().unwrap();
+            let mut crc = Crc::new();
+            crc.update(data);
             let offset = out.len() as u32;
             let header = |sig: u32, central: bool| {
                 let mut h = sig.to_le_bytes().to_vec();
@@ -94,7 +101,8 @@ pub(crate) mod tests {
                 h.extend(20u16.to_le_bytes());
                 h.extend(0u16.to_le_bytes());
                 h.extend(8u16.to_le_bytes());
-                h.extend([0u8; 8]);
+                h.extend([0u8; 4]);
+                h.extend(crc.sum().to_le_bytes());
                 h.extend((packed.len() as u32).to_le_bytes());
                 h.extend((data.len() as u32).to_le_bytes());
                 h.extend((name.len() as u16).to_le_bytes());

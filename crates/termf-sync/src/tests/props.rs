@@ -35,6 +35,7 @@ fn records_decode_as_encoded() {
     for _ in 0..300 {
         let mut out = Vec::new();
         let mut records = BTreeMap::new();
+        let (mut ends, mut order) = (Vec::new(), Vec::new());
         for _ in 0..rng.below(6) {
             let path = format!("{}{}", rng.text(AWKWARD, 12), records.len());
             let entry = (!rng.chance(4)).then(|| Entry {
@@ -53,12 +54,24 @@ fn records_decode_as_encoded() {
                 clock,
             };
             encode(&record, &mut out);
+            ends.push(out.len());
+            order.push(path.clone());
             records.insert(path, record);
         }
         assert_eq!(decode_all(&out).unwrap(), records);
-        if !out.is_empty() {
-            let cut = rng.below(out.len());
-            let _ = decode_all(&out[..cut]);
+        // Cut: refused, unless the cut falls between two records, which then come back as they were.
+        let cut = rng.below(out.len() + 1);
+        match decode_all(&out[..cut]) {
+            Ok(read) => {
+                let at = ends.iter().position(|&e| e == cut).map_or(0, |i| i + 1);
+                assert!(cut == 0 || ends.contains(&cut), "a cut record was read");
+                let kept: BTreeMap<_, _> = order[..at]
+                    .iter()
+                    .map(|p| (p.clone(), records[p].clone()))
+                    .collect();
+                assert_eq!(read, kept);
+            }
+            Err(_) => assert!(cut != 0 && !ends.contains(&cut)),
         }
     }
 }
