@@ -121,12 +121,20 @@ async function together(open: (hold: (id: number) => void) => Promise<unknown>, 
   }
 }
 
-/** From the launcher: in a new tab (a grid when several), or beside the current tab's active split. */
-export async function openFrom(paths: string[], agent: string | null, side: Side | null): Promise<number | null> {
+/**
+ * From the launcher: in a new tab (a grid when several), or beside the current tab's active split. `remote`: the
+ * launcher's Remote Control switch; others leave it to each project's policy.
+ */
+export async function openFrom(
+  paths: string[],
+  agent: string | null,
+  side: Side | null,
+  remote?: boolean,
+): Promise<number | null> {
   const target = side ? currentTab() : undefined;
   let last: number | null = null;
   await together(
-    (hold) => openRepos(paths, agent, hold),
+    (hold) => openRepos(paths, agent, hold, remote),
     (ids) => {
       last = ids[ids.length - 1];
       const tab = target && tabOf(target.active);

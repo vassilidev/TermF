@@ -26,6 +26,10 @@
   let filter = $state("");
   const agent = $derived(launchAgent());
   const project = $derived(currentProject());
+  // The project's Remote Control default, on each opening; the switch is the user's from there.
+  $effect(() => {
+    launch.remoteControl = project?.remoteControl?.default === "on";
+  });
   const recent = (repos: Repo[]) =>
     repos
       .filter((r) => r.path.toLowerCase().includes(filter.toLowerCase()))
@@ -51,7 +55,7 @@
     const paths = launchable();
     onopen?.();
     // The keyboard goes to the last split opened, ready to type.
-    const last = await openFrom(paths, agent, beside ? launch.side : null);
+    const last = await openFrom(paths, agent, beside ? launch.side : null, agent ? launch.remoteControl : undefined);
     if (last !== null) focusSession(last);
   }
 </script>
