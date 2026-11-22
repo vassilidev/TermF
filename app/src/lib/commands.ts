@@ -31,6 +31,7 @@ import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 import Rows2 from "@lucide/svelte/icons/rows-2";
 import Sparkles from "@lucide/svelte/icons/sparkles";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+import StickyNote from "@lucide/svelte/icons/sticky-note";
 import Telescope from "@lucide/svelte/icons/telescope";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
@@ -53,6 +54,7 @@ import { closePanel, openBeside, otherPanel, toggleSplit } from "$lib/panes.svel
 import type { Side } from "$lib/split-logic";
 import * as tabs from "$lib/tabs.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
+import { openEntry, vault } from "$lib/vault.svelte";
 import {
   app,
   grid,
@@ -460,6 +462,18 @@ export function commands(): Command[] {
         run: () => openBeside(view.id),
       });
     }
+  }
+  // Titles only, found by typing: never a value, the store has none.
+  for (const item of vault.status?.unlocked ? vault.items : []) {
+    list.push({
+      id: `vault-${item.id}`,
+      label: item.title,
+      hint: item.username || undefined,
+      icon: item.kind === "login" ? KeyRound : StickyNote,
+      group: "vault",
+      searchOnly: true,
+      run: () => openEntry(item.id, item.project),
+    });
   }
   list.push(
     { id: "claude-artifacts", label: t("claudeViewShowArtifacts"), icon: Images, group: "machine", run: () => showClaude("artifacts") },

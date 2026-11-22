@@ -115,10 +115,10 @@ export function newKey() {
   ssh.panel = { kind: "generate" };
 }
 
-const CLEAR_AFTER = 30;
+export const CLEAR_AFTER = 30;
 
 /** SHA-256 of the text as the backend compares it: without CR, trailing blanks trimmed. */
-async function digest(text: string): Promise<string> {
+export async function digest(text: string): Promise<string> {
   const bytes = new TextEncoder().encode(text.replace(/\r/g, "").trimEnd());
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
