@@ -1,12 +1,12 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import Check from "@lucide/svelte/icons/check";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Pencil from "@lucide/svelte/icons/pencil";
   import X from "@lucide/svelte/icons/x";
+  import ClaudeChange from "$lib/ClaudeChange.svelte";
   import { t } from "$lib/i18n";
-  import { claudeView } from "$lib/claude.svelte";
-  import { diffLines, fileName, refreshFiles, repoArg, type Diff, type FileText } from "$lib/claude-native.svelte";
+  import { claudeView, type Preview } from "$lib/claude.svelte";
+  import { fileName, refreshFiles, repoArg, type FileText } from "$lib/claude-native.svelte";
 
   /** One of Claude Code's Markdown files: shown masked, edited once you ask (the real text), saved after its diff. */
   let {
@@ -25,11 +25,13 @@
   let text = $state("");
   /** The file as the editor read it; null: a file to create. */
   let hash = $state<string | null>(null);
-  let preview = $state<Diff | null>(null);
+  let preview = $state<Preview | null>(null);
   let error = $state("");
   let busy = $state(false);
   /** Still to be created. */
   let fresh = $state(false);
+  /** A skill is known by its folder. */
+  const title = $derived(/[/\\]SKILL\.md$/.test(path) ? fileName(path.replace(/[/\\]SKILL\.md$/, "")) : fileName(path));
 
   $effect(() => {
     void path;
@@ -65,7 +67,7 @@
   async function showPreview() {
     error = "";
     try {
-      preview = await invoke<Diff>("claude_file_preview", { path, text, hash, repo: repoArg() });
+      preview = await invoke<Preview>("claude_file_preview", { path, text, hash, repo: repoArg() });
     } catch (e) {
       preview = null;
       error = String(e);
@@ -75,7 +77,7 @@
   async function save() {
     busy = true;
     try {
-      await invoke<Diff>("claude_file_save", { path, text, hash, repo: repoArg() });
+      await invoke<Preview>("claude_file_save", { path, text, hash, repo: repoArg() });
       claudeView.done = t("claudeDgSaved", { path });
       fresh = false;
       await refreshFiles();
@@ -88,10 +90,10 @@
   }
 </script>
 
-<section class="viewer" aria-label={fileName(path)}>
+<section class="viewer" aria-label={title}>
   <header>
     <div class="what">
-      <h3>{fileName(path)}</h3>
+      <h3>{title}</h3>
       <span class="mono muted path" title={path}>{path}</span>
     </div>
     {#if file?.readOnly}<span class="badge">{t("claudeViewReadOnly")}</span>{/if}
@@ -104,8 +106,6 @@
     </button>
   </header>
 
-  {#if error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
-
   {#if editing}
     <form
       onsubmit={(e) => {
@@ -114,30 +114,32 @@
       }}
     >
       <label class="sr-only" for="claude-file-text">{fileName(path)}</label>
-      <textarea id="claude-file-text" class="field mono" bind:value={text} oninput={() => (preview = null)} rows="16" spellcheck="false"></textarea>
-      {#if preview}
-        {#if preview.diff}
-          <pre class="code diff">{#each diffLines(preview.diff) as line, i (i)}<span
-                class="l{line[0] === '+' ? ' add' : line[0] === '-' ? ' del' : ''}">{line}
-</span>{/each}</pre>
-        {:else}
-          <p class="notice"><Check size={14} aria-hidden="true" />{t("claudeViewNoChange")}</p>
-        {/if}
+      <textarea
+        id="claude-file-text"
+        class="field mono"
+        bind:value={text}
+        oninput={() => ((preview = null), (error = ""))}
+        rows="16"
+        spellcheck="false"
+      ></textarea>
+      {#if preview || error}
+        <ClaudeChange {preview} {error} saving={busy} onsave={save} oncancel={() => ((preview = null), (error = ""))} />
+      {:else}
+        <div class="buttons">
+          <span class="muted hint">{t("claudeDgEditHint")}</span>
+          <button type="button" class="btn sm" onclick={() => (fresh ? onclose() : load())}>{t("cancel")}</button>
+          <button type="submit" class="btn sm primary">{t("claudeViewPreview")}</button>
+        </div>
       {/if}
-      <div class="buttons">
-        <span class="muted hint">{t("claudeDgEditHint")}</span>
-        <button type="button" class="btn sm" onclick={() => (fresh ? onclose() : load())}>{t("cancel")}</button>
-        <button type="submit" class="btn sm">{t("claudeViewPreview")}</button>
-        <button type="button" class="btn sm primary" disabled={!preview?.diff || busy} onclick={save}>
-          {fresh ? t("claudeDgCreate") : t("save")}
-        </button>
-      </div>
     </form>
-  {:else if file}
-    {#if file.text.trim()}
-      <pre class="code">{file.text}</pre>
-    {:else}
-      <p class="muted empty">{t("claudeDgEmptyFile")}</p>
+  {:else}
+    {#if error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
+    {#if file}
+      {#if file.text.trim()}
+        <pre class="code">{file.text}</pre>
+      {:else}
+        <p class="muted empty">{t("claudeDgEmptyFile")}</p>
+      {/if}
     {/if}
   {/if}
 </section>
@@ -214,24 +216,6 @@
     font: var(--text-xs) / 1.6 var(--font-mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-  }
-
-  .diff {
-    white-space: pre;
-  }
-
-  .diff .l {
-    display: block;
-  }
-
-  .diff .add {
-    background: var(--done-soft);
-    color: var(--done);
-  }
-
-  .diff .del {
-    background: var(--danger-soft);
-    color: var(--danger);
   }
 
   .buttons {

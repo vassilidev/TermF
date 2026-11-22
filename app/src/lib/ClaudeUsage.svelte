@@ -135,7 +135,7 @@
             <td class="title">{a.title}{#if a.role}<span class="badge role">{a.role}</span>{/if}</td>
             <td><StatusPill status={a.state} /></td>
             <td class="muted">{ago(a.updated)}</td>
-            <td class="num">{usd(a.cost)}{#if a.budget}<span class="muted"> / {usd(a.budget)}</span>{/if}</td>
+            <td class="num">{usd(a.cost)}{#if a.budget}<span class="muted">{` / ${usd(a.budget)}`}</span>{/if}</td>
           </tr>
         {/each}
       </tbody>

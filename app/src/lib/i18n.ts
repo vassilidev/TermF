@@ -1800,6 +1800,10 @@ const fr = {
   claudeDgDoctorRun: "Lancer",
   claudeDgNoOutput: "La commande n'a rien affiché.",
   claudeDgEdit: "Modifier",
+  claudeDgSkillOff: "désactivé",
+  claudeDgDisable: "Désactiver",
+  claudeDgEnable: "Activer",
+  claudeDgSkillToggleHelp: "Claude Code cache ou montre ce skill (skillOverrides), sans rien supprimer",
 };
 
 type Key = keyof typeof fr;
@@ -3588,6 +3592,10 @@ const en: Record<Key, string> = {
   claudeDgDoctorRun: "Run",
   claudeDgNoOutput: "The command printed nothing.",
   claudeDgEdit: "Edit",
+  claudeDgSkillOff: "off",
+  claudeDgDisable: "Turn off",
+  claudeDgEnable: "Turn on",
+  claudeDgSkillToggleHelp: "Claude Code hides or shows this skill (skillOverrides), nothing is deleted",
 };
 
 const messages = { fr, en };

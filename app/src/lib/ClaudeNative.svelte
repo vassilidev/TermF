@@ -6,13 +6,14 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import ClaudeChange from "$lib/ClaudeChange.svelte";
   import ClaudeFileEditor from "$lib/ClaudeFileEditor.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
   import type { Item, Kind } from "$lib/library.svelte";
-  import { claudeView, kindLabel, scopeLabel, type Folder, type Overview } from "$lib/claude.svelte";
+  import { change, claudeView, effective, kindLabel, propose, scopeLabel, type Folder, type Overview } from "$lib/claude.svelte";
   import { attempt, diffLines, refreshFiles, repoArg, type ExportPreview } from "$lib/claude-native.svelte";
 
   let { o }: { o: Overview } = $props();
@@ -45,6 +46,20 @@
   let exportPreview = $state<ExportPreview | null>(null);
   let replace = $state(false);
   const picked = $derived(library?.find((i) => `${i.kind}:${i.name}` === pick));
+
+  /** `skillOverrides` (code.claude.com/docs/en/skills): "off" hides a skill from Claude and from the / menu. */
+  const override = (name: string) => effective(o, `skillOverrides.${name}`);
+
+  /** Switching off goes where Claude Code's /skills menu writes (the local scope), or the user's without a
+   * repository; switching on removes the entry from the scope that decides. */
+  function toggleSkill(name: string) {
+    const current = override(name);
+    if (current?.value === "off" && current.scope !== "managed") {
+      propose("skills", current.scope, { op: "set", key: `skillOverrides.${name}`, value: null });
+    } else {
+      propose("skills", claudeView.repo ? "local" : "user", { op: "set", key: `skillOverrides.${name}`, value: "off" });
+    }
+  }
 
   function show(path: string, create = false) {
     panel = "";
@@ -230,6 +245,10 @@
   </form>
 {/if}
 
+{#if change.origin === "skills"}
+  <ClaudeChange />
+{/if}
+
 {#if open}
   <ClaudeFileEditor path={open.path} create={open.create} onclose={() => (open = null)} />
 {/if}
@@ -249,6 +268,13 @@
               <span class="name mono">{f.kind === "commands" ? `/${item.name}` : item.name}</span>
               <span class="desc">{item.description ?? ""}</span>
             </button>
+            {#if f.kind === "skills"}
+              {@const state = override(item.name)}
+              {#if state && state.value !== "on"}<span class="badge off" title="skillOverrides · {scopeLabel(state.scope)}">{state.value === "off" ? t("claudeDgSkillOff") : String(state.value)}</span>{/if}
+              <button class="btn sm quiet" onclick={() => toggleSkill(item.name)} disabled={state?.scope === "managed"} title={t("claudeDgSkillToggleHelp")}>
+                {state?.value === "off" ? t("claudeDgEnable") : t("claudeDgDisable")}
+              </button>
+            {/if}
             <button class="icon-btn sm" onclick={() => show(item.path)} aria-label={t("claudeDgOpen", { name: item.name })} title={t("claudeDgOpen", { name: item.name })}>
               <FileText size={14} aria-hidden="true" />
             </button>
@@ -489,6 +515,12 @@
     font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .badge.off {
+    border-color: transparent;
+    background: var(--hover);
+    color: var(--muted);
   }
 
   .icon-btn.danger:hover:not(:disabled) {

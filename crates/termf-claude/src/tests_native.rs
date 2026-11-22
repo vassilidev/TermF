@@ -10,6 +10,30 @@ use crate::{Env, account, native, sessions, usage};
 
 const TOKEN: &str = "ghp_0123456789abcdefghij0123456789abcd";
 
+#[test]
+fn turns_a_skill_off_through_skill_overrides() {
+    let (_, env) = tree("skill-off");
+    write(
+        &env.claude_dir.join("settings.json"),
+        &format!("{{\n  \"env\": {{\n    \"GITHUB_TOKEN\": \"{TOKEN}\"\n  }}\n}}\n"),
+    );
+    let edit = |value: &str| crate::settings::Edit::Set {
+        key: "skillOverrides.review-pr".into(),
+        value: Some(json!(value)),
+    };
+    let preview = crate::settings::preview(&env, Scope::User, &edit("off")).unwrap();
+    assert!(
+        preview.diff.contains(r#""review-pr": "off""#),
+        "{}",
+        preview.diff
+    );
+    assert!(
+        !preview.diff.contains(TOKEN),
+        "the lines around a change are masked"
+    );
+    assert!(crate::settings::preview(&env, Scope::User, &edit("hidden")).is_err());
+}
+
 fn tree(name: &str) -> (PathBuf, Env) {
     let root =
         std::env::temp_dir().join(format!("termf-claude-native-{name}-{}", std::process::id()));
