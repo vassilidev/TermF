@@ -153,7 +153,26 @@ const GITHUB_HOSTS: &[&str] = &["github.com", "www.github.com", "ssh.github.com"
 /// is GitHub. Other hosts and local paths are refused.
 pub(crate) fn remote_slug(url: &str, ssh: &Ssh) -> Result<String> {
     let url = url.trim();
-    let local = || anyhow!("{url} is a local path, not a GitHub repository");
+    let (host, path) =
+        remote_parts(url).ok_or_else(|| anyhow!("{url} is a local path, not a GitHub repository"))?;
+    let server = if GITHUB_HOSTS.contains(&host.as_str()) {
+        host.clone()
+    } else {
+        ssh.host_name(&host).to_ascii_lowercase()
+    };
+    ensure!(
+        GITHUB_HOSTS.contains(&server.as_str()),
+        "{url} is on {host}, not github.com: other hosts (GitHub Enterprise, GitLab…) are not supported yet"
+    );
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    ensure!(valid_slug(path), "{url} names no GitHub repository");
+    Ok(path.to_ascii_lowercase())
+}
+
+/// The host (lowercased, without user or port) and path of a remote's URL; `None` for a local path.
+pub(crate) fn remote_parts(url: &str) -> Option<(String, &str)> {
+    let url = url.trim();
     let unhost = |authority: &'_ str| -> String {
         let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
         host.split(':').next().unwrap_or(host).to_ascii_lowercase()
@@ -168,25 +187,10 @@ pub(crate) fn remote_slug(url: &str, ssh: &Ssh) -> Result<String> {
             Some((authority, path)) if !authority.contains(['/', '\\']) => {
                 (unhost(authority), path)
             }
-            _ => return Err(local()),
+            _ => return None,
         },
     };
-    if host.len() < 2 {
-        return Err(local());
-    }
-    let server = if GITHUB_HOSTS.contains(&host.as_str()) {
-        host.clone()
-    } else {
-        ssh.host_name(&host).to_ascii_lowercase()
-    };
-    ensure!(
-        GITHUB_HOSTS.contains(&server.as_str()),
-        "{url} is on {host}, not github.com: other hosts (GitHub Enterprise, GitLab…) are not supported yet"
-    );
-    let path = path.trim_matches('/');
-    let path = path.strip_suffix(".git").unwrap_or(path);
-    ensure!(valid_slug(path), "{url} names no GitHub repository");
-    Ok(path.to_ascii_lowercase())
+    (host.len() >= 2).then_some((host, path))
 }
 
 /// The `login` of each user in a list.

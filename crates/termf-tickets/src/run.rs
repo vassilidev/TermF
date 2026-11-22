@@ -12,9 +12,8 @@ use serde::{Deserialize, Serialize};
 use termf_core::TicketWorktrees;
 use termf_ssh::Ssh;
 
-use crate::github;
 use crate::store::{Event, Run, RunEvent, RunStatus, Store};
-use crate::{Ticket, Tickets};
+use crate::{Ticket, Tickets, github, gitlab};
 
 /// A run ready for its session.
 pub struct Launch {
@@ -80,6 +79,16 @@ pub struct DeliveryPreview {
     pub commits: Vec<CommitSummary>,
     /// Given back to `deliver`, which refuses if the worktree changed since.
     pub fingerprint: String,
+    /// The repository's origin is on a GitLab: the delivery opens a merge request.
+    #[serde(default)]
+    pub merge_request: bool,
+}
+
+/// Where a delivery's request goes: a pull request on GitHub (`owner/name`), or a merge request on a GitLab
+/// (its host and `group/project`).
+enum Forge {
+    GitHub(String),
+    GitLab(String, String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -166,18 +175,21 @@ impl Git<'_> {
     }
 }
 
-/// The `owner/name` of each GitHub remote of a repository, lowercased.
-pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)], ssh: &Ssh) -> Vec<String> {
+/// The URL of each remote of a repository.
+pub(crate) fn remote_urls(repo: &str, env: &[(String, String)]) -> Vec<String> {
     let urls = Git(env).run(
         Path::new(repo),
         &["config", "--get-regexp", r"^remote\..*\.url$"],
     );
     let urls = urls.unwrap_or_default();
+    let urls = urls.lines().filter_map(|l| l.split_once(' '));
+    urls.map(|(_, url)| url.to_owned()).collect()
+}
+
+/// The `owner/name` of each remote on GitHub, lowercased.
+pub(crate) fn github_slugs_of(urls: &[String], ssh: &Ssh) -> Vec<String> {
     let mut slugs: Vec<String> = Vec::new();
-    for line in urls.lines() {
-        let Some((_, url)) = line.split_once(' ') else {
-            continue;
-        };
+    for url in urls {
         if let Ok(slug) = github::remote_slug(url, ssh)
             && !slugs.contains(&slug)
         {
@@ -185,6 +197,11 @@ pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)], ssh: &Ssh) -> V
         }
     }
     slugs
+}
+
+/// The `owner/name` of each GitHub remote of a repository, lowercased.
+pub(crate) fn remote_slugs(repo: &str, env: &[(String, String)], ssh: &Ssh) -> Vec<String> {
+    github_slugs_of(&remote_urls(repo, env), ssh)
 }
 
 /// `fix-the-login-button`: ASCII only, at most 40 characters, so it suits any branch name.
@@ -739,14 +756,46 @@ impl Tickets {
             })
             .collect();
         let head = git.run(dir, &["rev-parse", "HEAD"])?;
+        let origin = git.run(dir, &["config", "--get", "remote.origin.url"]);
+        let merge_request = origin.is_ok_and(|o| {
+            matches!(self.forge(&run.project, &o), Ok(Forge::GitLab(..)))
+        });
         Ok(Snapshot {
             preview: DeliveryPreview {
                 files,
                 commits,
                 fingerprint: format!("{head}:{tree}"),
+                merge_request,
             },
             index,
         })
+    }
+
+    /// Where the request of a repository whose origin is `origin` goes.
+    fn forge(&self, project: &str, origin: &str) -> Result<Forge> {
+        let ssh = termf_ssh::Ssh::new(self.home.clone());
+        let github = match github::remote_slug(origin, &ssh) {
+            Ok(repo) => return Ok(Forge::GitHub(repo)),
+            Err(e) => e,
+        };
+        let trackers = self.trackers(project).ok();
+        let tracker = trackers.and_then(|t| t.gitlab);
+        let hosts: Vec<String> = tracker
+            .and_then(|g| gitlab::host(&g.host).ok())
+            .into_iter()
+            .collect();
+        match gitlab::remote_slug(origin, &ssh, &hosts) {
+            Some((host, slug)) => Ok(Forge::GitLab(host, slug)),
+            None => Err(github.context("the pull request goes to origin")),
+        }
+    }
+
+    /// `merged` or `closed` once the pull request (or merge request) at `url` is, `None` while it is open.
+    fn request_state(&self, url: &str) -> Result<Option<&'static str>> {
+        match gitlab::merge_request(url) {
+            Some((site, _, _)) => self.gitlab(&site)?.mr_state(url),
+            None => self.github().pr_state(url),
+        }
     }
 
     /// The gate of a run, which only the user opens, with the fingerprint of the preview they saw: commits
@@ -813,21 +862,38 @@ impl Tickets {
         run.pr_state = None;
         if run.pr_url.is_none() {
             let origin = git.run(dir, &["config", "--get", "remote.origin.url"])?;
-            let repo = github::remote_slug(&origin, &termf_ssh::Ssh::new(self.home.clone()))
-                .context("the pull request goes to origin")?;
-            let body = match github::split(&run.ticket.key) {
-                Ok((slug, number))
-                    if run.ticket.provider == "github" && slug.eq_ignore_ascii_case(&repo) =>
-                {
-                    format!("Closes #{number}")
-                }
-                _ if run.ticket.url.is_empty() => String::new(),
-                _ => format!("Ticket: {}", run.ticket.url),
-            };
             let target = base.strip_prefix("origin/").unwrap_or(&base);
-            let url = self
-                .github()
-                .create_pr(dir, &repo, target, &branch, &run.title, &body)?;
+            let ticket = &run.ticket;
+            let url = match self.forge(&run.project, &origin)? {
+                Forge::GitHub(repo) => {
+                    let body = match github::split(&ticket.key) {
+                        Ok((slug, number))
+                            if ticket.provider == "github" && slug.eq_ignore_ascii_case(&repo) =>
+                        {
+                            format!("Closes #{number}")
+                        }
+                        _ if ticket.url.is_empty() => String::new(),
+                        _ => format!("Ticket: {}", ticket.url),
+                    };
+                    self.github()
+                        .create_pr(dir, &repo, target, &branch, &run.title, &body)?
+                }
+                Forge::GitLab(host, repo) => {
+                    let body = match gitlab::split(&ticket.key) {
+                        Ok((slug, number)) if ticket.provider == "gitlab" => {
+                            if slug.eq_ignore_ascii_case(&repo) {
+                                format!("Closes #{number}")
+                            } else {
+                                format!("Closes {}", ticket.key)
+                            }
+                        }
+                        _ if ticket.url.is_empty() => String::new(),
+                        _ => format!("Ticket: {}", ticket.url),
+                    };
+                    self.gitlab(&host)?
+                        .create_mr(&repo, target, &branch, &run.title, &body)?
+                }
+            };
             run.pr_url = Some(url.clone());
             store.update(run)?;
             store.record(id, &Event::PrOpened { url })?;
@@ -886,6 +952,16 @@ impl Tickets {
         else {
             return Ok(None);
         };
+        if let Some((site, _, _)) = gitlab::merge_request(url) {
+            let (conflict, status) = self.gitlab(&site)?.mr_merge(url)?;
+            let mergeable = if conflict { "CONFLICTING" } else { "MERGEABLE" };
+            return Ok(Some(PrMerge {
+                mergeable: mergeable.into(),
+                behind: status == "need_rebase",
+                state: status.to_ascii_uppercase(),
+                conflict,
+            }));
+        }
         let (mergeable, state) = self.github().pr_merge(url)?;
         Ok(Some(PrMerge {
             conflict: mergeable == "CONFLICTING" || state == "DIRTY",
@@ -945,7 +1021,7 @@ impl Tickets {
         else {
             return Ok(None);
         };
-        match self.github().pr_state(url)? {
+        match self.request_state(url)? {
             Some(state) => store.pr_done(run.id, state, url),
             None => Ok(None),
         }
@@ -965,7 +1041,7 @@ impl Tickets {
         let url = run.pr_url.clone();
         let url = url.with_context(|| format!("run {id} has no pull request to wait for"))?;
         if run.pr_state.as_deref() != Some("merged") {
-            match self.github().pr_state(&url)? {
+            match self.request_state(&url)? {
                 Some(state) => {
                     store.pr_done(id, state, &url)?;
                 }

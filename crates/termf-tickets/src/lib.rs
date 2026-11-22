@@ -12,9 +12,13 @@ use std::process::Command;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+mod azure;
 mod github;
+mod gitlab;
 mod guard;
+mod http;
 mod jira;
+mod linear;
 mod mcp;
 mod run;
 mod secrets;
@@ -24,10 +28,13 @@ mod store;
 #[cfg(test)]
 mod tests;
 
+pub use azure::{Azure, DEFAULT_WIQL};
 use github::Etags;
 pub use github::GitHub;
+pub use gitlab::GitLab;
 pub use guard::{egress, guard};
 pub use jira::{DEFAULT_JQL, Jira};
+pub use linear::Linear;
 pub use mcp::{Mcp, McpServer};
 pub use run::{
     Change, CheckError, Cleanup, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch,
@@ -35,7 +42,8 @@ pub use run::{
 };
 pub use secrets::{Keychain, Secrets};
 pub use sources::{
-    Configured, GithubTracker, JiraTracker, McpTracker, Sources, Trackers, write_trackers,
+    AzureTracker, Configured, GithubTracker, GitlabTracker, JiraTracker, LinearTracker,
+    McpTracker, Sources, Tokens, Trackers, write_trackers,
 };
 pub use store::{Event, Run, RunEvent, RunStatus, utc};
 
@@ -62,9 +70,9 @@ pub(crate) enum Fetch {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TicketRef {
-    /// `github`, `jira` or `mcp:<source>`.
+    /// `github`, `jira`, `gitlab`, `linear`, `azure` or `mcp:<source>`.
     pub provider: String,
-    /// `acme/front#42`, `ACME-123`.
+    /// `acme/front#42`, `ACME-123`, `AB#123`.
     pub key: String,
     pub url: String,
 }
@@ -110,7 +118,7 @@ pub struct TicketSummary {
     pub updated: String,
     /// The project that declares the ticket's tracker or holds its repository.
     pub project: Option<String>,
-    /// The source that listed it: `github`, `githubProject`, `jira` or `mcp:<name>`.
+    /// The source that listed it: `github`, `githubProject`, `gitlab`, `jira`, `linear`, `azure` or `mcp:<name>`.
     #[serde(default)]
     pub source: String,
 }
@@ -244,6 +252,12 @@ pub struct Tickets {
     pub claude_dir: PathBuf,
     /// The last answers of GitHub's REST API, asked again with their ETag.
     pub(crate) etags: Etags,
+    /// The GitLab CLI, used when it is signed in; tests point it at a fake.
+    pub glab: PathBuf,
+    /// Linear's API; tests point it at a server of their own.
+    pub linear_api: String,
+    /// The last answers of Linear, GitLab (without glab) and Azure DevOps.
+    pub(crate) answers: http::Answers,
 }
 
 /// The inbox: the tickets the sources gave, and the sources that failed.
@@ -255,7 +269,7 @@ pub struct Inbox {
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct SourceError {
-    /// `github`, `githubProject`, `jira` or `mcp:<name>`.
+    /// `github`, `githubProject`, `gitlab`, `jira`, `linear`, `azure` or `mcp:<name>`.
     pub source: String,
     pub message: String,
 }
@@ -289,9 +303,60 @@ struct RepoInfo {
     path: String,
     /// `owner/name` of each remote, lowercased.
     slugs: Vec<String>,
+    /// The host and `group/project` (lowercased) of each remote on a GitLab.
+    gitlab: Vec<(String, String)>,
 }
 
 impl ProjectInfo {
+    /// The host of `[trackers.gitlab]`, `gitlab.com` by default.
+    fn gitlab_host(&self) -> Option<String> {
+        let tracker = self.trackers.gitlab.as_ref()?;
+        gitlab::host(&tracker.host).ok()
+    }
+
+    /// The projects GitLab reads: `[trackers.gitlab] repo`, then the repositories' remotes on its host.
+    fn gitlab_slugs(&self) -> Vec<String> {
+        let Some(host) = self.gitlab_host() else {
+            return Vec::new();
+        };
+        let tracker = self.trackers.gitlab.as_ref().and_then(|g| g.repo());
+        let mut slugs: Vec<String> = tracker.map(str::to_ascii_lowercase).into_iter().collect();
+        for (on, slug) in self.repos.iter().flat_map(|r| &r.gitlab) {
+            if *on == host && !slugs.contains(slug) {
+                slugs.push(slug.clone());
+            }
+        }
+        slugs
+    }
+
+    /// What `#42` (`name` empty) or `name#42` refers to on GitLab: the declared project, the project's one
+    /// GitLab repository, or the repository with that name.
+    fn gitlab_named(&self, name: &str) -> Vec<String> {
+        let slugs = self.gitlab_slugs();
+        let tracker = self.trackers.gitlab.as_ref().and_then(|g| g.repo());
+        if name.is_empty() {
+            return match (tracker, slugs.as_slice()) {
+                (Some(repo), _) => vec![repo.to_ascii_lowercase()],
+                (None, [one]) => vec![one.clone()],
+                _ => Vec::new(),
+            };
+        }
+        let host = self.gitlab_host().unwrap_or_default();
+        let mut found: Vec<String> = Vec::new();
+        for repo in self.repos.iter().filter(|r| r.name.eq_ignore_ascii_case(name)) {
+            if let Some((_, slug)) = repo.gitlab.iter().find(|(h, _)| *h == host) {
+                found.push(slug.clone());
+            }
+        }
+        for slug in slugs {
+            let last = slug.rsplit('/').next().unwrap_or_default();
+            if last.eq_ignore_ascii_case(name) && !found.contains(&slug) {
+                found.push(slug);
+            }
+        }
+        found
+    }
+
     /// `[trackers.github] repo`.
     fn issues_repo(&self) -> Option<&str> {
         self.trackers.github.as_ref()?.repo()
@@ -302,6 +367,9 @@ impl ProjectInfo {
         let mut sources = self.trackers.sources();
         if self.slugs().next().is_none() {
             sources.retain(|s| *s != Source::GithubIssues);
+        }
+        if self.gitlab_slugs().is_empty() {
+            sources.retain(|s| *s != Source::Gitlab);
         }
         sources
     }
@@ -364,7 +432,10 @@ impl ProjectInfo {
             .repos
             .iter()
             .filter(|r| {
-                slug.is_some_and(|slug| r.slugs.iter().any(|s| s.eq_ignore_ascii_case(slug)))
+                slug.is_some_and(|slug| {
+                    let gitlab = r.gitlab.iter().map(|(_, s)| s);
+                    r.slugs.iter().chain(gitlab).any(|s| s.eq_ignore_ascii_case(slug))
+                })
             })
             .collect();
         let repo = match (own.as_slice(), self.repos.as_slice()) {
@@ -404,6 +475,29 @@ fn one<'a>(input: &str, found: Vec<&'a ProjectInfo>, none: String) -> Result<&'a
     }
 }
 
+/// Why a pasted Linear, GitLab or Azure DevOps ticket fits no project: the source to add.
+fn unplaced(input: &str) -> Option<String> {
+    if let Some((site, _)) = azure::parse(input) {
+        return Some(match site {
+            Some(site) => format!(
+                "{input} is in no project: add an Azure DevOps source for {site} to a project"
+            ),
+            None => format!(
+                "{input} needs a project with an Azure DevOps source (or a repository named AB)"
+            ),
+        });
+    }
+    if let Some((_, Some(space))) = linear::parse(input) {
+        return Some(format!(
+            "{input} is in no project: add a Linear source for the workspace {space} to a project"
+        ));
+    }
+    let (site, _, _) = gitlab::parse_url(input)?;
+    site.contains("gitlab").then(|| {
+        format!("{input} is in no project: add a GitLab source for {site} to a project")
+    })
+}
+
 /// A ticket's address as the inbox compares them: no scheme, no `www.`, no fragment, no trailing slash, any
 /// case.
 fn same_ticket(url: &str) -> String {
@@ -428,6 +522,9 @@ impl Tickets {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| termf_core::expand_tilde("~/.claude")),
             etags: Etags::default(),
+            glab: "glab".into(),
+            linear_api: linear::API.into(),
+            answers: http::Answers::default(),
         }
     }
 
@@ -462,6 +559,24 @@ impl Tickets {
                     .jira
                     .with_context(|| format!("project {project} has no Jira source"))?;
                 Box::new(self.jira(&jira)?)
+            }
+            "linear" => {
+                let linear = trackers
+                    .linear
+                    .with_context(|| format!("project {project} has no Linear source"))?;
+                Box::new(self.linear(&linear)?)
+            }
+            "gitlab" => {
+                let gitlab = trackers
+                    .gitlab
+                    .with_context(|| format!("project {project} has no GitLab source"))?;
+                Box::new(self.gitlab(&gitlab.host)?)
+            }
+            "azure" => {
+                let azure = trackers
+                    .azure
+                    .with_context(|| format!("project {project} has no Azure DevOps source"))?;
+                Box::new(self.azure(&azure)?)
             }
             _ => match name.strip_prefix("mcp:") {
                 Some(source) => {
@@ -502,6 +617,13 @@ impl Tickets {
             "jira" => trackers
                 .jira
                 .map_or((false, None), |j| (j.comment, j.transition)),
+            "linear" => trackers
+                .linear
+                .map_or((false, None), |l| (l.comment, l.transition)),
+            "gitlab" => trackers.gitlab.map_or((false, None), |g| (g.comment, None)),
+            "azure" => trackers
+                .azure
+                .map_or((false, None), |a| (a.comment, a.transition)),
             _ => (false, None),
         }
     }
@@ -513,17 +635,36 @@ impl Tickets {
             if only.is_some_and(|id| id != project.id) {
                 continue;
             }
+            let trackers = self.trackers(&project.id)?;
+            let hosts: Vec<String> = trackers
+                .gitlab
+                .as_ref()
+                .and_then(|g| gitlab::host(&g.host).ok())
+                .into_iter()
+                .collect();
             let repos = project
                 .repos
                 .into_iter()
-                .map(|r| RepoInfo {
-                    slugs: run::remote_slugs(&r.path, &self.env, &ssh),
-                    name: r.name,
-                    path: r.path,
+                .map(|r| {
+                    let urls = run::remote_urls(&r.path, &self.env);
+                    let mut gitlab: Vec<(String, String)> = Vec::new();
+                    for url in &urls {
+                        if let Some(found) = gitlab::remote_slug(url, &ssh, &hosts)
+                            && !gitlab.contains(&found)
+                        {
+                            gitlab.push(found);
+                        }
+                    }
+                    RepoInfo {
+                        slugs: run::github_slugs_of(&urls, &ssh),
+                        gitlab,
+                        name: r.name,
+                        path: r.path,
+                    }
                 })
                 .collect();
             found.push(ProjectInfo {
-                trackers: self.trackers(&project.id)?,
+                trackers,
                 id: project.id,
                 repos,
             });
@@ -543,6 +684,9 @@ impl Tickets {
     pub fn resolve(&self, input: &str, project: Option<&str>) -> Result<Resolution> {
         let input = input.trim();
         let projects = self.projects(project)?;
+        if let Some(found) = self.resolve_more(input, &projects)? {
+            return Ok(found);
+        }
         // GitHub's own forms: an issue URL, or `…#42` that is no address (a `#` in a URL is its fragment).
         let github = self.github().resolve(input).is_some()
             || !input.contains("://")
@@ -561,10 +705,16 @@ impl Tickets {
                 if let Ok(Some(native)) = self.resolve_jira(url, &projects) {
                     return Ok(native);
                 }
+                if let Ok(Some(native)) = self.resolve_more(url, &projects) {
+                    return Ok(native);
+                }
                 return Ok(listed);
             }
             if let Some(found) = self.resolve_jira(input, &projects)? {
                 return Ok(found);
+            }
+            if let Some(hint) = unplaced(input) {
+                bail!(hint);
             }
             if let Some((key, _)) = jira::parse(input) {
                 bail!("{key} looks like a Jira key, but no project has a Jira source for it");
@@ -572,12 +722,13 @@ impl Tickets {
         }
         // `None` for a URL or a full key, else the repository named before `#`, empty for `#42`.
         let mut name = None;
-        let (number, found): (u64, Vec<(String, &ProjectInfo)>) = match self.github().resolve(input)
-        {
+        // Each candidate: its `owner/name`, its project, and whether it is on GitLab.
+        type Found<'a> = Vec<(String, &'a ProjectInfo, bool)>;
+        let (number, found): (u64, Found) = match self.github().resolve(input) {
             Some(ticket) => {
                 let (slug, number) = github::split(&ticket.key)?;
                 let holding = projects.iter().filter(|p| p.holds(slug));
-                (number, holding.map(|p| (slug.to_owned(), p)).collect())
+                (number, holding.map(|p| (slug.to_owned(), p, false)).collect())
             }
             None => {
                 let (repo, number) = input
@@ -588,19 +739,21 @@ impl Tickets {
                             format!("{input:?} is not a ticket: paste its URL, or owner/repo#42, repo#42, #42 or a Jira key such as ACME-123")
                         })?;
                 name = Some(repo);
-                let mut found: Vec<(String, &ProjectInfo)> = Vec::new();
+                let mut found: Found = Vec::new();
                 for p in &projects {
                     let slugs = match repo {
                         "" => p.default_slug().into_iter().collect(),
                         repo => p.named(repo),
                     };
-                    found.extend(slugs.into_iter().map(|s| (s, p)));
+                    found.extend(slugs.into_iter().map(|s| (s, p, false)));
+                    found.extend(p.gitlab_named(repo).into_iter().map(|s| (s, p, true)));
                 }
                 (number, found)
             }
         };
-        let (slug, p) = match found.as_slice() {
-            [(slug, p)] => (slug.clone(), *p),
+        let (slug, p, on_gitlab) = match found.as_slice() {
+            [(slug, p, on_gitlab)] => (slug.clone(), *p, *on_gitlab),
+            [] if unplaced(input).is_some() => bail!(unplaced(input).unwrap_or_default()),
             [] => match name {
                 None => bail!(
                     "{input} is in no project: add its repository to a project, or name it in the project's [trackers.github]"
@@ -611,7 +764,7 @@ impl Tickets {
                 Some(repo) => bail!("no repository is named {repo}"),
             },
             many => {
-                let mut ids: Vec<&str> = many.iter().map(|(_, p)| p.id.as_str()).collect();
+                let mut ids: Vec<&str> = many.iter().map(|(_, p, _)| p.id.as_str()).collect();
                 ids.dedup();
                 bail!(
                     "{input} could be in several places ({}): choose the project",
@@ -619,7 +772,105 @@ impl Tickets {
                 )
             }
         };
-        Ok(p.resolution(github::reference(&slug, number), Some(&slug)))
+        let ticket = match (on_gitlab, &p.trackers.gitlab) {
+            (true, Some(tracker)) => gitlab::reference(&tracker.host, &slug, number)?,
+            _ => github::reference(&slug, number),
+        };
+        Ok(p.resolution(ticket, Some(&slug)))
+    }
+
+    /// A Linear, GitLab or Azure DevOps ticket: its address, `ENG-123` (the project whose Linear source takes
+    /// that team), `group/project#42` (the project that holds that GitLab repository) or `AB#123`.
+    fn resolve_more(&self, input: &str, projects: &[ProjectInfo]) -> Result<Option<Resolution>> {
+        if let Some((site, id)) = azure::parse(input) {
+            let fitting: Vec<&ProjectInfo> = projects
+                .iter()
+                .filter(|p| {
+                    let azure = p.trackers.azure.as_ref();
+                    azure.is_some_and(|a| site.is_none() || azure::base(&a.organization).ok() == site)
+                })
+                .collect();
+            // `AB#123` may still be the issue 123 of a repository named AB.
+            if fitting.is_empty() {
+                return Ok(None);
+            }
+            let p = one(input, fitting, String::new())?;
+            let a = p.trackers.azure.as_ref().context("no Azure DevOps source")?;
+            let ticket = azure::reference(&a.organization, &a.project, id)?;
+            return Ok(Some(p.resolution(ticket, None)));
+        }
+        if let Some((key, space)) = linear::parse(input) {
+            let team = key.rsplit_once('-').map_or("", |(t, _)| t);
+            let fitting: Vec<&ProjectInfo> = projects
+                .iter()
+                .filter(|p| {
+                    let Some(l) = &p.trackers.linear else {
+                        return false;
+                    };
+                    match &space {
+                        Some(space) => linear::workspace(&l.workspace).is_ok_and(|w| &w == space),
+                        None => l.team().is_none_or(|t| t.eq_ignore_ascii_case(team)),
+                    }
+                })
+                .collect();
+            if fitting.is_empty() {
+                return Ok(None);
+            }
+            let jira = projects.iter().any(|p| {
+                let jira = p.trackers.jira.as_ref();
+                jira.is_some_and(|j| {
+                    j.project
+                        .as_ref()
+                        .is_none_or(|k| k.eq_ignore_ascii_case(team))
+                })
+            });
+            ensure!(
+                space.is_some() || !jira,
+                "{key} could be a Jira or a Linear ticket: paste its address"
+            );
+            let p = one(input, fitting, String::new())?;
+            let l = p.trackers.linear.as_ref().context("no Linear source")?;
+            let ticket = linear::reference(&linear::workspace(&l.workspace)?, &key);
+            return Ok(Some(p.resolution(ticket, None)));
+        }
+        if let Some((site, slug, iid)) = gitlab::parse_url(input) {
+            let slug = slug.to_ascii_lowercase();
+            let on_site: Vec<&ProjectInfo> = projects
+                .iter()
+                .filter(|p| {
+                    let gitlab = p.trackers.gitlab.as_ref();
+                    gitlab.is_some_and(|g| gitlab::base(&g.host).is_ok_and(|b| b == site))
+                })
+                .collect();
+            let holding: Vec<&ProjectInfo> = on_site
+                .iter()
+                .copied()
+                .filter(|p| p.gitlab_slugs().contains(&slug))
+                .collect();
+            let fitting = if holding.is_empty() { on_site } else { holding };
+            if fitting.is_empty() {
+                return Ok(None);
+            }
+            let p = one(input, fitting, String::new())?;
+            let ticket = gitlab::reference(&site, &slug, iid)?;
+            return Ok(Some(p.resolution(ticket, Some(&slug))));
+        }
+        if !input.contains("://")
+            && let Ok((slug, iid)) = gitlab::split(input)
+        {
+            let slug = slug.to_ascii_lowercase();
+            let fitting: Vec<&ProjectInfo> = projects
+                .iter()
+                .filter(|p| p.gitlab_slugs().contains(&slug))
+                .collect();
+            if !fitting.is_empty() {
+                let p = one(input, fitting, String::new())?;
+                let host = &p.trackers.gitlab.as_ref().context("no GitLab source")?.host;
+                let ticket = gitlab::reference(host, &slug, iid)?;
+                return Ok(Some(p.resolution(ticket, Some(&slug))));
+            }
+        }
+        Ok(None)
     }
 
     /// A Jira URL goes to the project with that site; a key to the project whose Jira source takes its prefix.
@@ -789,6 +1040,31 @@ impl Tickets {
                 let jql = jql.filter(|q| !q.is_empty()).unwrap_or(DEFAULT_JQL);
                 self.jira(tracker)?.issues(jql, limit)
             }
+            Source::Gitlab => {
+                let tracker = project.trackers.gitlab.as_ref().ok_or_else(missing)?;
+                let slugs = project.gitlab_slugs();
+                // The inbox skips the source then (`ProjectInfo::sources`); a test says why it finds nothing.
+                ensure!(
+                    !slugs.is_empty(),
+                    "no GitLab repository on {}: add one to the project, or name the project of its issues",
+                    tracker.host
+                );
+                let fresh = fetch != Fetch::Cached;
+                self.gitlab(&tracker.host)?
+                    .issues(&slugs, tracker.mine, limit, fresh)
+            }
+            Source::Linear => {
+                let tracker = project.trackers.linear.as_ref().ok_or_else(missing)?;
+                self.linear(tracker)?
+                    .issues(tracker, limit, fetch != Fetch::Cached)
+            }
+            Source::Azure => {
+                let tracker = project.trackers.azure.as_ref().ok_or_else(missing)?;
+                let wiql = tracker.wiql.as_deref().map(str::trim);
+                let wiql = wiql.filter(|q| !q.is_empty()).unwrap_or(DEFAULT_WIQL);
+                self.azure(tracker)?
+                    .issues(wiql, limit, fetch != Fetch::Cached)
+            }
             Source::Mcp(name) => {
                 let tracker = project.trackers.mcp.get(name).ok_or_else(missing)?;
                 let store = store::Store::open(&self.data_dir)?;
@@ -835,6 +1111,98 @@ impl Tickets {
 
     pub fn forget_jira_token(&self, site: &str, email: &str) -> Result<()> {
         self.secrets.delete(&jira::account(site, email)?)
+    }
+
+    fn linear(&self, tracker: &LinearTracker) -> Result<Linear> {
+        let space = tracker.workspace.trim();
+        let key = self.secrets.get(&linear::account(space)?)?.with_context(|| {
+            format!(
+                "no Linear API key for the workspace {space}: create one in Linear (Settings, Security & access, \
+                 Personal API keys) and save it in the project's Tickets section"
+            )
+        })?;
+        Linear::new(
+            &self.linear_api,
+            space,
+            key,
+            self.curl.clone(),
+            self.answers.clone(),
+        )
+    }
+
+    /// GitLab on `site`: through glab when it is installed and signed in there, else with the access token of
+    /// the keychain.
+    pub(crate) fn gitlab(&self, site: &str) -> Result<GitLab> {
+        let base = gitlab::base(site)?;
+        let host = gitlab::host(site)?;
+        if gitlab::glab_ready(&self.glab, &self.env, &host) {
+            let via = gitlab::Via::Glab {
+                program: self.glab.clone(),
+                env: self.env.clone(),
+            };
+            return Ok(GitLab { base, via });
+        }
+        let token = self.secrets.get(&gitlab::account(site)?)?.with_context(|| {
+            format!(
+                "TermF cannot reach GitLab on {host}: install glab and run `glab auth login --hostname {host}`, \
+                 or save an access token (scope api) in the project's Tickets section"
+            )
+        })?;
+        let via = gitlab::Via::Token(http::Http {
+            base: format!("{base}/api/v4"),
+            name: "GitLab",
+            auth: vec![("header", format!("Authorization: Bearer {token}"))],
+            refused: format!(
+                "GitLab on {host} refused the access token: check it (scope api), or save a new one in the project's Tickets section"
+            ),
+            curl: self.curl.clone(),
+            answers: self.answers.clone(),
+        });
+        Ok(GitLab { base, via })
+    }
+
+    fn azure(&self, tracker: &AzureTracker) -> Result<Azure> {
+        let org = tracker.organization.trim();
+        let token = self.secrets.get(&azure::account(org)?)?.with_context(|| {
+            format!(
+                "no personal access token for the Azure DevOps organization {org}: create one (Work Items, read and \
+                 write) and save it in the project's Tickets section"
+            )
+        })?;
+        Azure::new(
+            org,
+            &tracker.project,
+            token,
+            self.curl.clone(),
+            self.answers.clone(),
+        )
+    }
+
+    /// The keychain account of a token: `kind` is `linear` (its workspace), `gitlab` (its host) or `azure` (its
+    /// organization).
+    fn token_account(kind: &str, target: &str) -> Result<String> {
+        match kind {
+            "linear" => linear::account(target),
+            "gitlab" => gitlab::account(target),
+            "azure" => azure::account(target),
+            _ => bail!("unknown kind of token {kind}"),
+        }
+    }
+
+    pub fn has_token(&self, kind: &str, target: &str) -> Result<bool> {
+        Ok(self.secrets.get(&Self::token_account(kind, target)?)?.is_some())
+    }
+
+    /// Keeps a Linear, GitLab or Azure DevOps token in the keychain, for every project that names the same
+    /// workspace, host or organization.
+    pub fn save_token(&self, kind: &str, target: &str, token: &str) -> Result<()> {
+        let token = token.trim();
+        ensure!(!token.is_empty(), "the token is empty");
+        self.secrets.set(&Self::token_account(kind, target)?, token)
+    }
+
+    pub fn forget_token(&self, kind: &str, target: &str) -> Result<()> {
+        self.secrets.delete(&Self::token_account(kind, target)?)
     }
 
     /// The MCP servers of the user's Claude Code, as seen from the project's first repository.

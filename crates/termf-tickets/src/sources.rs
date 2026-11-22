@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, Item, Table, value};
 
-use crate::{TicketSummary, Tickets, github, jira, mcp};
+use crate::{TicketSummary, Tickets, azure, github, gitlab, jira, linear, mcp};
 
 /// `[trackers]` of a project.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -17,6 +17,12 @@ pub struct Trackers {
     pub github: Option<GithubTracker>,
     #[serde(default)]
     pub jira: Option<JiraTracker>,
+    #[serde(default)]
+    pub linear: Option<LinearTracker>,
+    #[serde(default)]
+    pub gitlab: Option<GitlabTracker>,
+    #[serde(default)]
+    pub azure: Option<AzureTracker>,
     /// By the source's name.
     #[serde(default)]
     pub mcp: BTreeMap<String, McpTracker>,
@@ -111,6 +117,88 @@ pub struct JiraTracker {
     pub transition: Option<String>,
 }
 
+/// `[trackers.linear]`: Linear. The personal API key is in the system's keychain, never in the file.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LinearTracker {
+    /// The workspace's URL key: `acme` for `linear.app/acme`.
+    pub workspace: String,
+    /// The team key (`ENG`): the inbox lists its tickets only, and a pasted key must have it. None: every team.
+    #[serde(default)]
+    pub team: Option<String>,
+    /// Only the tickets assigned to the user.
+    #[serde(default = "yes")]
+    pub mine: bool,
+    /// The states (their names) to list; none: every state that is not done or canceled.
+    #[serde(default)]
+    pub states: Vec<String>,
+    /// Link the pull request to the ticket once a run is delivered.
+    #[serde(default)]
+    pub comment: bool,
+    /// The state a delivered run moves its ticket to; none: left alone.
+    #[serde(default)]
+    pub transition: Option<String>,
+}
+
+impl LinearTracker {
+    /// `team`, unless left blank.
+    pub(crate) fn team(&self) -> Option<&str> {
+        self.team
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+    }
+}
+
+/// `[trackers.gitlab]`: GitLab issues, on gitlab.com or a GitLab of its own. `glab` signs in, else an access
+/// token in the system's keychain.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct GitlabTracker {
+    /// `gitlab.com`, or the host of a GitLab of its own.
+    #[serde(default = "gitlab_host")]
+    pub host: String,
+    /// `group/project`, where the project's issues are: `#42` is read as `group/project#42`.
+    #[serde(default)]
+    pub repo: Option<String>,
+    /// Only the issues assigned to the user.
+    #[serde(default = "yes")]
+    pub mine: bool,
+    /// Comment on the issue with the merge request's link once a run is delivered.
+    #[serde(default)]
+    pub comment: bool,
+}
+
+impl GitlabTracker {
+    /// `repo`, unless left blank.
+    pub(crate) fn repo(&self) -> Option<&str> {
+        self.repo
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+    }
+}
+
+fn gitlab_host() -> String {
+    gitlab::DEFAULT_HOST.into()
+}
+
+/// `[trackers.azure]`: Azure DevOps Boards. The personal access token is in the system's keychain.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AzureTracker {
+    /// `acme` for `dev.azure.com/acme`.
+    pub organization: String,
+    /// The Azure DevOps project whose work items the inbox lists.
+    pub project: String,
+    /// The inbox's WIQL; none: [`azure::DEFAULT_WIQL`].
+    #[serde(default)]
+    pub wiql: Option<String>,
+    /// Link the pull request to the work item once a run is delivered.
+    #[serde(default)]
+    pub comment: bool,
+    /// The state a delivered run moves its work item to; none: left alone.
+    #[serde(default)]
+    pub transition: Option<String>,
+}
+
 /// `[trackers.mcp.<name>]`: a server of the user's Claude Code, read through Claude Code.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct McpTracker {
@@ -139,6 +227,18 @@ pub struct Sources {
     pub github_repos: Vec<String>,
     /// The read-only tools TermF knows for each MCP source's server, used when the source lists none.
     pub mcp_tools: BTreeMap<String, Vec<String>>,
+    /// Whether the keychain holds a token for the Linear workspace, the GitLab host and the Azure DevOps
+    /// organization the sources name.
+    pub tokens: Tokens,
+    /// The `group/project` of the project's repositories on the GitLab host, which GitLab reads.
+    pub gitlab_repos: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Tokens {
+    pub linear: bool,
+    pub gitlab: bool,
+    pub azure: bool,
 }
 
 /// Which sources a project's inbox reads.
@@ -151,12 +251,15 @@ pub struct Configured {
     pub sources: Vec<String>,
 }
 
-/// A source of the inbox: `github`, `githubProject`, `jira` or `mcp:<name>`.
+/// A source of the inbox: `github`, `githubProject`, `gitlab`, `jira`, `linear`, `azure` or `mcp:<name>`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Source {
     GithubIssues,
     GithubProject,
+    Gitlab,
     Jira,
+    Linear,
+    Azure,
     Mcp(String),
 }
 
@@ -166,6 +269,9 @@ impl Source {
             "github" => Source::GithubIssues,
             "githubProject" => Source::GithubProject,
             "jira" => Source::Jira,
+            "gitlab" => Source::Gitlab,
+            "linear" => Source::Linear,
+            "azure" => Source::Azure,
             _ => match id.strip_prefix("mcp:") {
                 Some(name) if !name.is_empty() => Source::Mcp(name.to_owned()),
                 _ => bail!("unknown ticket source {id}"),
@@ -178,6 +284,9 @@ impl Source {
             Source::GithubIssues => "github".into(),
             Source::GithubProject => "githubProject".into(),
             Source::Jira => "jira".into(),
+            Source::Gitlab => "gitlab".into(),
+            Source::Linear => "linear".into(),
+            Source::Azure => "azure".into(),
             Source::Mcp(name) => format!("mcp:{name}"),
         }
     }
@@ -187,6 +296,9 @@ impl Source {
             Source::GithubIssues => "GitHub Issues".into(),
             Source::GithubProject => "GitHub Projects".into(),
             Source::Jira => "Jira".into(),
+            Source::Gitlab => "GitLab".into(),
+            Source::Linear => "Linear".into(),
+            Source::Azure => "Azure DevOps".into(),
             Source::Mcp(name) => format!("MCP {name}"),
         }
     }
@@ -222,8 +334,17 @@ impl Trackers {
                 sources.push(Source::GithubIssues);
             }
         }
+        if self.gitlab.is_some() {
+            sources.push(Source::Gitlab);
+        }
         if self.jira.is_some() {
             sources.push(Source::Jira);
+        }
+        if self.linear.is_some() {
+            sources.push(Source::Linear);
+        }
+        if self.azure.is_some() {
+            sources.push(Source::Azure);
         }
         sources.extend(self.mcp.keys().map(|name| Source::Mcp(name.clone())));
         sources
@@ -246,6 +367,29 @@ impl Trackers {
                 jira.email.contains('@'),
                 "Jira: {:?} is not an e-mail address",
                 jira.email
+            );
+        }
+        if let Some(linear) = &self.linear {
+            linear::workspace(&linear.workspace)?;
+            if let Some(team) = linear.team() {
+                ensure!(
+                    team.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+                    "Linear: {team:?} is not a team key, such as ENG"
+                );
+            }
+        }
+        if let Some(gitlab) = &self.gitlab {
+            gitlab::base(&gitlab.host)?;
+            if let Some(repo) = gitlab.repo() {
+                gitlab::split(&format!("{repo}#1"))
+                    .context("GitLab: the project is group/project")?;
+            }
+        }
+        if let Some(azure) = &self.azure {
+            azure::base(&azure.organization)?;
+            ensure!(
+                !azure.project.trim().is_empty(),
+                "Azure DevOps: name the project"
             );
         }
         for (name, source) in &self.mcp {
@@ -334,6 +478,47 @@ pub fn write_trackers(doc: &mut DocumentMut, trackers: &Trackers) -> Result<()> 
             text(t, "transition", j.transition.as_deref());
         }
     }
+    match &trackers.linear {
+        None => {
+            root.remove("linear");
+        }
+        Some(l) => {
+            let t = table(root, "linear")?;
+            text(t, "workspace", Some(&l.workspace));
+            text(t, "team", l.team());
+            flag(t, "mine", l.mine, true);
+            list(t, "states", &l.states);
+            flag(t, "comment", l.comment, false);
+            text(t, "transition", l.transition.as_deref());
+        }
+    }
+    match &trackers.gitlab {
+        None => {
+            root.remove("gitlab");
+        }
+        Some(g) => {
+            let t = table(root, "gitlab")?;
+            let host = Some(g.host.trim()).filter(|h| *h != gitlab::DEFAULT_HOST);
+            text(t, "host", host);
+            text(t, "repo", g.repo());
+            flag(t, "mine", g.mine, true);
+            flag(t, "comment", g.comment, false);
+        }
+    }
+    match &trackers.azure {
+        None => {
+            root.remove("azure");
+        }
+        Some(a) => {
+            let t = table(root, "azure")?;
+            text(t, "organization", Some(&a.organization));
+            text(t, "project", Some(&a.project));
+            let wiql = a.wiql.as_deref().filter(|q| q.trim() != azure::DEFAULT_WIQL);
+            text(t, "wiql", wiql);
+            flag(t, "comment", a.comment, false);
+            text(t, "transition", a.transition.as_deref());
+        }
+    }
     if trackers.mcp.is_empty() {
         root.remove("mcp");
     } else {
@@ -379,11 +564,21 @@ impl Tickets {
             info.repos.iter().flat_map(|r| r.slugs.clone()).collect();
         github_repos.sort();
         github_repos.dedup();
+        let has = |kind: &str, target: Option<&str>| {
+            target.is_some_and(|t| self.has_token(kind, t).unwrap_or(false))
+        };
+        let tokens = Tokens {
+            linear: has("linear", trackers.linear.as_ref().map(|l| l.workspace.as_str())),
+            gitlab: has("gitlab", trackers.gitlab.as_ref().map(|g| g.host.as_str())),
+            azure: has("azure", trackers.azure.as_ref().map(|a| a.organization.as_str())),
+        };
         Ok(Sources {
+            gitlab_repos: info.gitlab_slugs(),
             trackers,
             jira_token,
             github_repos,
             mcp_tools,
+            tokens,
         })
     }
 

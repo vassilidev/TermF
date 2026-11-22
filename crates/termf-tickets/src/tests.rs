@@ -78,6 +78,9 @@ impl Sandbox {
             secrets: Box::new(self.secrets.clone()),
             claude_dir: self.root.join("claude-dir"),
             etags: Default::default(),
+            glab: self.root.join("glab"),
+            linear_api: "http://127.0.0.1:9".into(),
+            answers: Default::default(),
         }
     }
 
@@ -2470,6 +2473,9 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
             comment: true,
             transition: Some("In Review".into()),
         }),
+        linear: None,
+        gitlab: None,
+        azure: None,
         mcp: [(
             "linear".to_owned(),
             McpTracker {
