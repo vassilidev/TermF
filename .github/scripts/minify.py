@@ -39,7 +39,7 @@ def inline(m):
     css = open(os.path.join(os.path.dirname(src), href)).read()
     folder = base or (os.path.dirname(href) + '/' if os.path.dirname(href) else '')
     if folder:
-        css = re.sub(r'url\((?![a-z]+:|/)', 'url(' + folder, css)
+        css = re.sub(r'url\((?!["\']?(?:[a-z]+:|/))', 'url(' + folder, css)
     return '<style>' + css + '</style>'
 
 

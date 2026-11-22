@@ -3,7 +3,12 @@
 /app/src-tauri/gen/schemas
 /.claude/worktrees/
 /app/src-tauri/binaries/
-# Built from site/features.toml by .github/scripts/features.py
+# Built by .github/scripts/docs.py: the docs, the sitemap, and the redirects of site/redirects.txt
+/site/docs/
+/site/sitemap.xml
 /site/features.html
 /site/features/
-/site/sitemap.xml
+/site/how-it-works.html
+/site/security.html
+/site/team.html
+/site/team-vs-solo.html
