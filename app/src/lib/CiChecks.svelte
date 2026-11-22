@@ -52,9 +52,9 @@
     untrack(load);
   });
 
-  // While a check runs and the tickets are on screen.
+  // While a check runs and the tickets or the run page are on screen.
   $effect(() => {
-    if (!onScreen("tickets") || !checks?.some((c) => c.status !== "completed")) return;
+    if (!(onScreen("tickets") || onScreen("run")) || !checks?.some((c) => c.status !== "completed")) return;
     const timer = setInterval(() => document.visibilityState === "visible" && load(), 30_000);
     return () => clearInterval(timer);
   });
