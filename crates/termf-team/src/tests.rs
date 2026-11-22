@@ -2618,7 +2618,14 @@ fn real_team() {
         "[roles.*] put every role on Haiku"
     );
     assert!(specs.iter().all(|s| s.guard), "every step behind the guard");
-    assert!(!run.reviews.is_empty(), "the reviewer looked at the work");
+    assert!(
+        specs.iter().all(|s| s.max_turns.is_some()),
+        "every step has a turn cap"
+    );
+    assert!(
+        !run.reviews.is_empty(),
+        "the reviewer looked at the work: {events:#?}"
+    );
     let routing = run.routing.clone().expect("the CTO routed the run");
     assert_eq!(run.steps[0].key, TRIAGE);
     assert_eq!(routing.workflow, "real", "the workflow you chose");
