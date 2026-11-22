@@ -42,7 +42,16 @@ export const TICKETS = {
   "r2-slow-lists": { kind: "realistic", docs: true, fixture: "fixture-lists", implicit: true, original: false },
   "r3-lost-update": { kind: "realistic", docs: false, fixture: "fixture-lists", implicit: true },
 };
-const fixtureOf = (ticket) => TICKETS[ticket].fixture ?? "fixture";
+const fixtureOf = (ticket) => (TICKETS[ticket].suite ? SUITE.source : (TICKETS[ticket].fixture ?? "fixture"));
+
+/** A private suite (`--suite <folder>`): a project of yours, cloned for each trial; its tickets, hidden tests and
+ * results never enter this repository. See bench/README.md. */
+let SUITE = null;
+function loadSuite(dir) {
+  SUITE = { dir, ...JSON.parse(readFileSync(join(dir, "suite.json"), "utf8")) };
+  for (const [id, t] of Object.entries(SUITE.tickets)) TICKETS[id] = { docs: false, ...t, suite: true };
+}
+const ticketFile = (ticket) => join(TICKETS[ticket].suite ? SUITE.dir : BENCH, "tickets", `${ticket}.md`);
 
 /** What a ticket of this project may touch; anything else is out of scope. */
 export const IN_SCOPE = /^(src|test|public)\/|^README\.md$/;
@@ -69,6 +78,8 @@ function options(argv) {
   for (const k of ["trials", "parallel", "budget", "cap", "minutes"]) o[k] = Number(o[k]);
   o.tickets = o.tickets ? o.tickets.split(",") : Object.keys(TICKETS);
   o.arms = o.arms ? o.arms.split(",") : ["solo", "team"];
+  if (o.suite) loadSuite(resolve(o.suite));
+  if (o.suite && !argv.includes("--tickets")) o.tickets = Object.keys(SUITE.tickets);
   for (const t of o.tickets) if (!TICKETS[t]) throw new Error(`no ticket ${t}`);
   return o;
 }
@@ -76,15 +87,38 @@ function options(argv) {
 /** A fresh copy of the project, committed, with a local bare `origin`: what both arms start from. */
 function prepare(dir, fixture = "fixture") {
   const repo = join(dir, "repo");
-  cpSync(join(BENCH, fixture), repo, { recursive: true });
-  git(repo, "init", "-q", "-b", "main");
-  git(repo, "add", "-A");
-  git(repo, "commit", "-q", "-m", "Tasks: first release");
+  if (fixture === SUITE?.source) {
+    git(dir, "clone", "-q", "--no-hardlinks", SUITE.source, repo);
+    git(repo, "remote", "remove", "origin");
+    setUp(repo);
+  } else {
+    cpSync(join(BENCH, fixture), repo, { recursive: true });
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "Tasks: first release");
+  }
   git(dir, "clone", "-q", "--bare", repo, join(dir, "remote.git"));
   git(repo, "remote", "add", "origin", join(dir, "remote.git"));
   git(repo, "fetch", "-q", "origin");
-  git(repo, "branch", "-q", "--set-upstream-to", "origin/main");
+  const branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD");
+  git(repo, "branch", "-q", "--set-upstream-to", `origin/${branch}`);
   return { repo, base: git(repo, "rev-parse", "HEAD") };
+}
+
+/** A clone of the suite's project ready for its tests: what it does not commit (dependencies) copied from the
+ * project, its test `.env`, its setup commands. Nothing is written to the project itself. */
+function setUp(dir) {
+  for (const sub of SUITE.copy ?? []) {
+    if (existsSync(join(dir, sub)) || !existsSync(join(SUITE.source, sub))) continue;
+    // A copy-on-write clone where the file system has them.
+    const r = sh("cp", process.platform === "darwin" ? ["-Rc", join(SUITE.source, sub), join(dir, sub)] : ["-R", join(SUITE.source, sub), join(dir, sub)]);
+    if (r.status !== 0) throw new Error(`copying ${sub}: ${r.stderr}`);
+  }
+  writeFileSync(join(dir, ".env"), SUITE.env);
+  for (const command of SUITE.setup ?? []) {
+    const r = sh("sh", ["-c", command], { cwd: dir, env: gitEnv, timeout: 600_000 });
+    if (r.status !== 0) throw new Error(`${command}: ${r.stdout}${r.stderr}`);
+  }
 }
 
 /** Runs `cmd` until it exits or `minutes` pass (its process group is then killed); its output goes to `log`. */
@@ -113,7 +147,7 @@ function run(cmd, args, { cwd, env, log, minutes }) {
 }
 
 async function solo(ticket, repo, o, dir) {
-  const prompt = `Implement this ticket in this repository.\n\n${readFileSync(join(BENCH, "tickets", `${ticket}.md`), "utf8")}`;
+  const prompt = `Implement this ticket in this repository.\n\n${readFileSync(ticketFile(ticket), "utf8")}`;
   const args = ["-p", prompt, "--model", o.model, "--effort", "high", "--output-format", "json", ...BARE];
   args.push("--disable-slash-commands", "--disallowedTools", "Agent", "--permission-mode", "bypassPermissions");
   args.push("--max-budget-usd", String(o.cap));
@@ -160,7 +194,8 @@ async function team(ticket, repo, o, dir, work) {
   const env = {
     ...gitEnv,
     TERMF_BENCH_REPO: repo,
-    TERMF_BENCH_TICKET: join(BENCH, "tickets", `${ticket}.md`),
+    TERMF_BENCH_TICKET: ticketFile(ticket),
+    TERMF_BENCH_CHECKS: TICKETS[ticket].suite ? SUITE.checks : "npm test",
     TERMF_BENCH_ROOT: join(work, "termf"),
     TERMF_BENCH_OUT: out,
     TERMF_BENCH_MODEL: o.model,
@@ -211,6 +246,7 @@ function measure(ticket, final, base, dir, work) {
         return { path, added: Number(added) || 0, removed: Number(removed) || 0 };
       })
     : [];
+  if (TICKETS[ticket].suite) return { ...measureSuite(ticket, final, files), patch };
   const eval_ = join(work, "eval");
   cpSync(final, eval_, {
     recursive: true,
@@ -241,6 +277,48 @@ function measure(ticket, final, base, dir, work) {
     docs_updated: files.some((f) => f.path === "README.md"),
     docs_needed: TICKETS[ticket].docs,
     patch,
+  };
+}
+
+/** A suite's measures, in the final tree itself (its dependencies are too big to copy): the project's own tests,
+ * then the ticket's hidden tests, copied in for the time of their run. */
+function measureSuite(ticket, final, files) {
+  if (!existsSync(join(final, "vendor")) || !existsSync(join(final, ".env"))) setUp(final);
+  const junit = (cwd, args) => {
+    const xml = join(cwd, ".bench-junit.xml");
+    rmSync(xml, { force: true });
+    const r = sh("php", ["vendor/bin/phpunit", "--log-junit", xml, ...args], { cwd, timeout: 900_000 });
+    const text = existsSync(xml) ? readFileSync(xml, "utf8") : "";
+    rmSync(xml, { force: true });
+    const top = /<testsuite[^>]*>/.exec(text)?.[0] ?? "";
+    const n = (k) => Number(new RegExp(`${k}="(\\d+)"`).exec(top)?.[1] ?? 0);
+    const failed = [...text.matchAll(/<testcase name="([^"]*)"[^>]*>\s*<(failure|error)/g)].map((m) => m[1]);
+    const tests = n("tests");
+    return { ok: r.status === 0, tests, pass: tests - n("failures") - n("errors") - n("skipped"), fail: n("failures") + n("errors"), failed };
+  };
+  const own = junit(final, []);
+  const target = join(final, SUITE.hidden_dir);
+  const file = TICKETS[ticket].hidden;
+  mkdirSync(target, { recursive: true });
+  cpSync(join(SUITE.dir, "hidden", file), join(target, file));
+  const hidden = junit(final, [join(SUITE.hidden_dir, file)]);
+  hidden.total = hidden.tests;
+  rmSync(join(target, file), { force: true });
+  const artisan = sh("php", ["artisan", "list"], { cwd: final, timeout: 120_000 });
+  const scope = new RegExp(SUITE.in_scope);
+  return {
+    hidden,
+    own_tests: own,
+    original_tests: null,
+    typecheck: null,
+    artisan_ok: artisan.status === 0,
+    files,
+    lines_added: files.reduce((n, f) => n + f.added, 0),
+    lines_removed: files.reduce((n, f) => n + f.removed, 0),
+    tests_changed: files.filter((f) => f.path.startsWith("tests/")).length,
+    out_of_scope: files.map((f) => f.path).filter((p) => !scope.test(p)),
+    docs_updated: false,
+    docs_needed: false,
   };
 }
 
@@ -308,12 +386,13 @@ const VERDICT = {
 
 /** A blind review: the judge sees the ticket and the diff, never which arm wrote it. */
 async function judge(ticket, patch, o, dir) {
-  const text = readFileSync(join(BENCH, "tickets", `${ticket}.md`), "utf8");
+  const text = readFileSync(ticketFile(ticket), "utf8");
   const clipped = patch.length > 150_000 ? patch.slice(0, 150_000) + "\n[diff cut at 150 kB]" : patch;
   const implicit = TICKETS[ticket].implicit
     ? "\nJudge it as a careful senior engineer would, beyond the written criteria: weigh security (access rights, leaks between accounts, secrets at rest), robustness (concurrency, failures, large data) and edge cases most; a criterion met in the happy path only is partial.\n"
     : "";
-  const prompt = `You are a strict senior reviewer. A developer implemented the ticket below in ${FIXTURES[fixtureOf(ticket)]}. Judge only the diff.
+  const project = TICKETS[ticket].suite ? SUITE.describe : FIXTURES[fixtureOf(ticket)];
+  const prompt = `You are a strict senior reviewer. A developer implemented the ticket below in ${project}. Judge only the diff.
 ${implicit}
 1. For each numbered acceptance criterion, say met, partial or unmet, with a one-line reason drawn from the diff.
 2. Score from 0 to 10: correctness, security, readability, tests (are the new behaviours covered by meaningful tests), error_handling, edge_cases, scope (10 = only what the ticket needs, no unrelated change).

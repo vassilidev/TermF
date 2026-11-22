@@ -5,7 +5,7 @@
 //! `TERMF_BENCH_REPO` (a git repository whose `origin` is a local bare copy), `TERMF_BENCH_TICKET` (the request,
 //! a file), `TERMF_BENCH_ROOT` (an empty folder for config and data), `TERMF_BENCH_OUT` (the JSON written at the
 //! end), `TERMF_BENCH_MODEL` (every role's model, `sonnet` by default), `TERMF_BENCH_BUDGET` (US dollars, 3 by
-//! default) and `TERMF_BENCH_MINUTES` (40 by default).
+//! default), `TERMF_BENCH_MINUTES` (40 by default) and `TERMF_BENCH_CHECKS` (the project's checks, `npm test` by default).
 #![cfg(unix)]
 
 use std::collections::BTreeMap;
@@ -107,10 +107,11 @@ fn team_arm() {
         termf.push_str(&format!("[roles.{role}]\nmodel = {model:?}\n"));
     }
     std::fs::write(config.join("termf.toml"), termf).unwrap();
+    let checks = var("TERMF_BENCH_CHECKS").unwrap_or_else(|| "npm test".into());
     std::fs::write(
         config.join("projects/bench.toml"),
         format!(
-            "name = \"Bench\"\n[[repos]]\nname = \"app\"\npath = {repo:?}\nchecks = \"npm test\"\n"
+            "name = \"Bench\"\n[[repos]]\nname = \"app\"\npath = {repo:?}\nchecks = {checks:?}\n"
         ),
     )
     .unwrap();

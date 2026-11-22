@@ -65,3 +65,15 @@ comments, activity, jobs, a front), with existing tests and a little debt.
 
 The hidden tests talk to the API through `createServer(dbPath)` of `src/app.ts`, as the project's own tests do, and
 read the database file for the data criteria.
+
+## Your own project (a private suite)
+
+`node bench/run.mjs --suite <folder> --out <folder>` runs the bench on a project of yours, with tickets, hidden tests
+and results that never enter this repository: keep the suite and its results in a folder git ignores. `<folder>/suite.json`:
+`source` (the project, only ever cloned: `git clone --no-hardlinks`, its remote removed, a local bare `origin`),
+`copy` (what it does not commit, copied from it: `vendor`…), `env` (the clone's test `.env`: no real service, no real
+database), `setup` (commands run in the clone), `checks` (the project's tests, for the team's checks step),
+`hidden_dir` (where a hidden test is copied for its run), `describe` (one generic sentence for the judge), `in_scope`
+(a regex of the paths a ticket may touch) and `tickets` (`{ "<id>": { "kind": "real", "hidden": "<File>Test.php",
+"implicit": true } }`), with `tickets/<id>.md` and `hidden/<File>Test.php` next to it. The hidden tests and the
+project's own tests run with PHPUnit (`vendor/bin/phpunit --log-junit`), in the final tree.
