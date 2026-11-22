@@ -177,13 +177,22 @@ impl Git<'_> {
 
 /// The URL of each remote of a repository.
 pub(crate) fn remote_urls(repo: &str, env: &[(String, String)]) -> Vec<String> {
+    remotes(repo, env).into_iter().map(|(_, url)| url).collect()
+}
+
+/// Each remote of a repository: its name and its URL.
+pub(crate) fn remotes(repo: &str, env: &[(String, String)]) -> Vec<(String, String)> {
     let urls = Git(env).run(
         Path::new(repo),
         &["config", "--get-regexp", r"^remote\..*\.url$"],
     );
     let urls = urls.unwrap_or_default();
     let urls = urls.lines().filter_map(|l| l.split_once(' '));
-    urls.map(|(_, url)| url.to_owned()).collect()
+    let named = urls.filter_map(|(key, url)| {
+        let name = key.strip_prefix("remote.")?.strip_suffix(".url")?;
+        Some((name.to_owned(), url.to_owned()))
+    });
+    named.collect()
 }
 
 /// The `owner/name` of each remote on GitHub, lowercased.
@@ -395,6 +404,32 @@ fn last_push(store: &Store, id: i64) -> Result<Option<String>> {
         Event::Pushed { commit, .. } => Some(commit),
         _ => None,
     }))
+}
+
+/// What the request of `ticket` in repository `slug` says of it: `Closes …` when merging it closes the ticket (a
+/// GitHub issue of the same repository; a GitLab issue on the same host as the merge request, `gitlab` being that
+/// host), else its address.
+fn closing(ticket: &crate::TicketRef, slug: &str, gitlab: Option<&str>) -> String {
+    match (gitlab, ticket.provider.as_str()) {
+        (None, "github") => match github::split(&ticket.key) {
+            Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => format!("Closes #{number}"),
+            _ => format!("Ticket: {}", ticket.url),
+        },
+        (Some(host), "gitlab")
+            if gitlab::parse_url(&ticket.url)
+                .and_then(|(site, _, _)| gitlab::name(&site).ok())
+                .is_some_and(|on| on.eq_ignore_ascii_case(host)) =>
+        {
+            match gitlab::split(&ticket.key) {
+                Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => {
+                    format!("Closes #{number}")
+                }
+                _ => format!("Closes {}", ticket.key),
+            }
+        }
+        _ if ticket.url.is_empty() => String::new(),
+        _ => format!("Ticket: {}", ticket.url),
+    }
 }
 
 /// `git diff --name-status -z` lines.
@@ -878,7 +913,7 @@ impl Tickets {
         let trackers = self.trackers(project).ok();
         let tracker = trackers.and_then(|t| t.gitlab);
         let hosts: Vec<String> = tracker
-            .and_then(|g| gitlab::host(&g.host).ok())
+            .and_then(|g| gitlab::name(&g.host).ok())
             .into_iter()
             .collect();
         match gitlab::remote_slug(origin, &ssh, &hosts) {
@@ -887,10 +922,20 @@ impl Tickets {
         }
     }
 
+    /// GitLab on `site` for a run of `project`: as its `[trackers.gitlab]` reaches it when that names the same host
+    /// (its scheme and port, the glab sign-in and token kept for it), else as `site` says.
+    fn gitlab_of(&self, project: &str, site: &str) -> Result<gitlab::GitLab> {
+        let tracker = self.trackers(project).ok().and_then(|t| t.gitlab);
+        match tracker {
+            Some(t) if gitlab::name(&t.host)? == gitlab::name(site)? => self.gitlab(&t.host),
+            _ => self.gitlab(site),
+        }
+    }
+
     /// `merged` or `closed` once the pull request (or merge request) at `url` is, `None` while it is open.
-    fn request_state(&self, url: &str) -> Result<Option<&'static str>> {
+    fn request_state(&self, project: &str, url: &str) -> Result<Option<&'static str>> {
         match gitlab::merge_request(url) {
-            Some((site, _, _)) => self.gitlab(&site)?.mr_state(url),
+            Some((site, _, _)) => self.gitlab_of(project, &site)?.mr_state(url),
             None => self.github().pr_state(url),
         }
     }
@@ -978,13 +1023,13 @@ impl Tickets {
             let target = base.strip_prefix("origin/").unwrap_or(&base);
             let url = match self.forge(&run.project, &origin)? {
                 Forge::GitHub(repo) => {
-                    let body = self.pr_body(store, run, &repo, false)?;
+                    let body = self.pr_body(store, run, &repo, None)?;
                     self.github()
                         .create_pr(dir, &repo, target, &branch, &run.title, &body)?
                 }
                 Forge::GitLab(host, repo) => {
-                    let body = self.pr_body(store, run, &repo, true)?;
-                    self.gitlab(&host)?
+                    let body = self.pr_body(store, run, &repo, Some(&host))?;
+                    self.gitlab_of(&run.project, &host)?
                         .create_mr(&repo, target, &branch, &run.title, &body)?
                 }
             };
@@ -1003,7 +1048,7 @@ impl Tickets {
                 }
                 let linked = self
                     .slug(&other.repo)
-                    .and_then(|slug| self.pr_body(store, other, &slug, false))
+                    .and_then(|slug| self.pr_body(store, other, &slug, None))
                     .and_then(|body| self.github().edit_pr_body(other_url, &body));
                 if let Err(e) = linked {
                     warnings.push(format!(
@@ -1073,24 +1118,14 @@ impl Tickets {
     /// The body of the pull request of `run` in GitHub repository `slug`, or of its merge request in GitLab project
     /// `slug` (`on_gitlab`): what closes or names its ticket, then the pull requests of the same change in the
     /// project's other repositories.
-    fn pr_body(&self, store: &Store, run: &Run, slug: &str, on_gitlab: bool) -> Result<String> {
-        let ticket = &run.ticket;
-        let mut body = match (on_gitlab, ticket.provider.as_str()) {
-            (false, "github") => match github::split(&ticket.key) {
-                Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => {
-                    format!("Closes #{number}")
-                }
-                _ => format!("Ticket: {}", ticket.url),
-            },
-            (true, "gitlab") => match gitlab::split(&ticket.key) {
-                Ok((repo, number)) if repo.eq_ignore_ascii_case(slug) => {
-                    format!("Closes #{number}")
-                }
-                _ => format!("Closes {}", ticket.key),
-            },
-            _ if ticket.url.is_empty() => String::new(),
-            _ => format!("Ticket: {}", ticket.url),
-        };
+    fn pr_body(
+        &self,
+        store: &Store,
+        run: &Run,
+        slug: &str,
+        gitlab: Option<&str>,
+    ) -> Result<String> {
+        let mut body = closing(&run.ticket, slug, gitlab);
         let others: Vec<String> = self
             .family(store, run)?
             .into_iter()
@@ -1127,11 +1162,12 @@ impl Tickets {
             return Ok(None);
         };
         if let Some((site, _, _)) = gitlab::merge_request(url) {
-            let (conflict, status) = self.gitlab(&site)?.mr_merge(url)?;
+            let (conflict, status, diverged) =
+                self.gitlab_of(&run.project, &site)?.mr_merge(url)?;
             let mergeable = if conflict { "CONFLICTING" } else { "MERGEABLE" };
             return Ok(Some(PrMerge {
                 mergeable: mergeable.into(),
-                behind: status == "need_rebase",
+                behind: status == "need_rebase" || diverged > 0,
                 state: status.to_ascii_uppercase(),
                 conflict,
             }));
@@ -1195,7 +1231,7 @@ impl Tickets {
         else {
             return Ok(None);
         };
-        match self.request_state(url)? {
+        match self.request_state(&run.project, url)? {
             Some(state) => store.pr_done(run.id, state, url),
             None => Ok(None),
         }
@@ -1215,7 +1251,7 @@ impl Tickets {
         let url = run.pr_url.clone();
         let url = url.with_context(|| format!("run {id} has no pull request to wait for"))?;
         if run.pr_state.as_deref() != Some("merged") {
-            match self.request_state(&url)? {
+            match self.request_state(&run.project, &url)? {
                 Some(state) => {
                     store.pr_done(id, state, &url)?;
                 }
@@ -1340,6 +1376,38 @@ mod tests {
                 change("q", Change::Added, None),
             ]
         );
+    }
+
+    #[test]
+    fn closes_a_ticket_only_on_its_own_forge() {
+        let gitlab = crate::gitlab::reference("gitlab.com", "acme/api", 42).unwrap();
+        let ticket = format!("Ticket: {}", gitlab.url);
+        assert_eq!(
+            closing(&gitlab, "acme/api", Some("gitlab.com")),
+            "Closes #42"
+        );
+        assert_eq!(
+            closing(&gitlab, "acme/web", Some("gitlab.com")),
+            "Closes acme/api#42"
+        );
+        assert_eq!(
+            closing(&gitlab, "acme/api", Some("gitlab.acme.dev")),
+            ticket,
+            "another GitLab: its #42 is another issue"
+        );
+        assert_eq!(closing(&gitlab, "acme/api", None), ticket);
+        let github = github::reference("acme/api", 42);
+        assert_eq!(closing(&github, "acme/api", None), "Closes #42");
+        assert_eq!(
+            closing(&github, "acme/api", Some("gitlab.com")),
+            format!("Ticket: {}", github.url)
+        );
+        let request = crate::TicketRef {
+            provider: crate::REQUEST.into(),
+            key: crate::REQUEST.into(),
+            url: String::new(),
+        };
+        assert_eq!(closing(&request, "acme/api", Some("gitlab.com")), "");
     }
 
     #[test]

@@ -397,7 +397,10 @@
                       {#if github.length}<p>{t("setupTicketsGithub", { repos: github.join(", ") })}</p>{/if}
                       {#if gitlab}<p>{t("tickets2SetupGitlab", { repos: gitlab.slugs.join(", ") })}</p>{/if}
                       {#if !github.length && !gitlab}<p>{t("obTicketsNone")}</p>{/if}
-                      {#if keys.length}<p class="note">{t("tickets2SetupKeys", { keys: keys.map((k) => `${k}-…`).join(", ") })}</p>{/if}
+                      {#if keys.length}<p class="note">
+                          {t("setupTicketsKeys", { keys: keys.map((k) => `${k}-…`).join(", ") })}
+                          {t("tickets2SetupKeysLinear")}
+                        </p>{/if}
                     {:else if block === "worktree"}
                       <ul class="recipe">
                         {#each recipe as line (line.repo)}

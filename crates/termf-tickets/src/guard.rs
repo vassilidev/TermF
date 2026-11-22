@@ -206,7 +206,8 @@ fn drives_ci(program: &str, args: &[String]) -> bool {
             !matches!(arg(1), None | Some("list" | "view" | "watch" | "download"))
         }
         ("gh", Some("workflow")) => !matches!(arg(1), None | Some("list" | "view")),
-        ("glab", Some("ci")) => !matches!(
+        // `pipe` and `pipeline` are glab's aliases of `ci`.
+        ("glab", Some("ci" | "pipe" | "pipeline")) => !matches!(
             arg(1),
             None | Some("list" | "view" | "status" | "get" | "trace" | "lint")
         ),
@@ -437,6 +438,9 @@ mod tests {
             "glab api projects/1/merge_requests -f title=x",
             "glab ci retry 5",
             "glab ci run",
+            "glab pipeline retry 5",
+            "glab pipe cancel 5",
+            "glab pipeline run --branch main",
         ] {
             let reason = guard(refused).unwrap_or_else(|| panic!("{refused} let through"));
             assert!(reason.contains("is refused"), "{reason}");
@@ -485,6 +489,7 @@ mod tests {
             "glab issue view 42",
             "glab api projects/1/issues/42",
             "glab ci view",
+            "glab pipeline list",
             "termf ci runs --pr 7",
             "termf ci logs 9 --errors",
             "cargo test --workspace",

@@ -3577,8 +3577,7 @@ const fr = {
   tickets2EventMr: "MR ouverte : {url}",
   tickets2EventCommentedMr: "Lien de la MR commenté sur le ticket",
   tickets2SetupGitlab: "Les issues GitLab de {repos} qui te sont assignées arrivent dans la boîte du projet.",
-  tickets2SetupKeys:
-    "Des clés {keys} apparaissent dans les commits : si elles viennent de Linear ou de Jira, ajoute la source dans l'assistant.",
+  tickets2SetupKeysLinear: "Si elles viennent de Linear, ajoute plutôt la source Linear.",
   // Release: TermF's own updates (stable and beta channels), what the machine needs, the termf CLI on the PATH.
   releaseUpdates: "Mises à jour",
   releaseVersion: "Version installée",
@@ -7203,7 +7202,7 @@ const en: Record<Key, string> = {
   tickets2EventMr: "Merge request opened: {url}",
   tickets2EventCommentedMr: "Merge request link commented on the ticket",
   tickets2SetupGitlab: "The GitLab issues of {repos} assigned to you come into the project's inbox.",
-  tickets2SetupKeys: "{keys} keys show in the commits: if they come from Linear or Jira, add the source in the assistant.",
+  tickets2SetupKeysLinear: "If they come from Linear, add the Linear source instead.",
   // Release: TermF's own updates (stable and beta channels), what the machine needs, the termf CLI on the PATH.
   releaseUpdates: "Updates",
   releaseVersion: "Installed version",

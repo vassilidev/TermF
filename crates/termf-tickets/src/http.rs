@@ -72,6 +72,8 @@ pub(crate) struct Http {
     pub refused: String,
     pub curl: PathBuf,
     pub answers: Answers,
+    /// Whose answers these are, such as the Linear workspace: two clients on one API never share them.
+    pub scope: String,
 }
 
 /// A request's body and its type.
@@ -120,8 +122,13 @@ impl Http {
     /// A read. Unless `fresh`, the last answer comes back when the tracker says it did not change (its ETag), or
     /// when it is less than a minute old and the tracker gives no ETag.
     pub fn read(&self, method: &str, path: &str, body: Option<Body>, fresh: bool) -> Result<Value> {
+        // The token as a fingerprint only: another token may see other tickets, and the secret stays out of the key.
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&self.auth, &mut hasher);
         let key = format!(
-            "{method} {}{path} {}",
+            "{} {:x} {method} {}{path} {}",
+            self.scope,
+            std::hash::Hasher::finish(&hasher),
             self.base,
             body.as_ref()
                 .map(|b| b.value.to_string())

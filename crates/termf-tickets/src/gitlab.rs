@@ -20,23 +20,43 @@ pub const DEFAULT_HOST: &str = "gitlab.com";
 /// Pages of 100 a listing reads at most.
 const MAX_PAGES: u32 = 10;
 
-/// `https://gitlab.com`, or a local `http://127.0.0.1:<port>` kept as it is, for tests.
+/// `https://gitlab.com`. A GitLab of its own may name a port, and `http://` when written so: the user chose to
+/// send the token unencrypted (a local `http://127.0.0.1:<port>` is how tests reach theirs).
 pub(crate) fn base(site: &str) -> Result<String> {
     let site = site.trim().trim_end_matches('/');
     if crate::http::local(site) {
         return Ok(site.to_owned());
     }
     let site = if site.is_empty() { DEFAULT_HOST } else { site };
-    let host = crate::http::host(site, "GitLab host", "gitlab.com or gitlab.acme.com")?;
-    Ok(format!("https://{host}"))
+    let (scheme, rest) = match site.strip_prefix("http://") {
+        Some(rest) => ("http", rest),
+        None => ("https", site.strip_prefix("https://").unwrap_or(site)),
+    };
+    let (name, port) = rest.split_once(':').unwrap_or((rest, ""));
+    let example = "gitlab.com or gitlab.acme.com";
+    let name = crate::http::host(name, "GitLab host", example)?;
+    ensure!(
+        port.bytes().all(|b| b.is_ascii_digit()) && (port.is_empty() || port.len() <= 5),
+        "{site:?} is not a GitLab host: write it as {example}"
+    );
+    Ok(match port {
+        "" => format!("{scheme}://{name}"),
+        port => format!("{scheme}://{name}:{port}"),
+    })
 }
 
-/// `gitlab.com`, as `glab` and the keychain name it.
+/// `gitlab.com`, or `gitlab.acme.com:8443`, as `glab` and the keychain name it.
 pub(crate) fn host(site: &str) -> Result<String> {
     let base = base(site)?;
     Ok(base
         .split_once("://")
         .map_or(base.clone(), |(_, h)| h.to_owned()))
+}
+
+/// The host's name alone, as a remote names it: no scheme, no port.
+pub(crate) fn name(site: &str) -> Result<String> {
+    let host = host(site)?;
+    Ok(host.split(':').next().unwrap_or(&host).to_owned())
 }
 
 /// The keychain account of an access token: one per host.
@@ -338,7 +358,10 @@ impl GitLab {
     fn request(&self, url: &str) -> Result<Value> {
         let (_, slug, iid) =
             merge_request(url).with_context(|| format!("{url} is not a GitLab merge request"))?;
-        let path = format!("projects/{}/merge_requests/{iid}", encode(&slug));
+        let path = format!(
+            "projects/{}/merge_requests/{iid}?include_diverged_commits_count=true",
+            encode(&slug)
+        );
         self.api("GET", &path, None, Some(false))
     }
 
@@ -352,14 +375,16 @@ impl GitLab {
         })
     }
 
-    /// GitLab's conflict flag and `detailed_merge_status` of the merge request at `url`.
-    pub(crate) fn mr_merge(&self, url: &str) -> Result<(bool, String)> {
+    /// GitLab's conflict flag, `detailed_merge_status` and the commits its base gained since the merge request's
+    /// branch left it (`need_rebase` only tells them under fast-forward merges).
+    pub(crate) fn mr_merge(&self, url: &str) -> Result<(bool, String, u64)> {
         let request = self.request(url)?;
         let status = request["detailed_merge_status"]
             .as_str()
             .unwrap_or("unchecked")
             .to_owned();
-        Ok((request["has_conflicts"] == true, status))
+        let diverged = request["diverged_commits_count"].as_u64().unwrap_or(0);
+        Ok((request["has_conflicts"] == true, status, diverged))
     }
 }
 

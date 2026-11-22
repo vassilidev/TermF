@@ -2779,7 +2779,21 @@ const GITLAB_TOKEN: &str = "glpat-s3cret";
 /// `:pat-s3cret`, as HTTP basic authentication sends it.
 const AZURE_BASIC: &str = "Basic OnBhdC1zM2NyZXQ=";
 
+/// The key of a second workspace, `beta`, whose only ticket is OPS-9.
+const LINEAR_BETA: &str = "lin_api_beta";
+
 fn linear_answers(r: &Request) -> (u16, String) {
+    if r.auth == LINEAR_BETA {
+        let data = json!({ "issues": {
+            "nodes": [{
+                "identifier": "OPS-9", "title": "Rotate keys", "url": "https://linear.app/beta/issue/OPS-9/rotate",
+                "updatedAt": "2026-11-21T10:00:00.000Z", "state": { "name": "Todo" }, "labels": { "nodes": [] },
+                "assignee": null,
+            }],
+            "pageInfo": { "hasNextPage": false, "endCursor": null },
+        }});
+        return (200, json!({ "data": data }).to_string());
+    }
     if r.auth != LINEAR_KEY {
         let refused =
             json!({ "errors": [{ "message": "Authentication required, not authenticated" }] });
@@ -3124,28 +3138,29 @@ fn reads_and_writes_gitlab_with_a_token() {
 }
 
 #[cfg(unix)]
-fn fake_glab(sb: &Sandbox) {
+/// A glab signed in to `host` (`gitlab.test`, `gitlab.test:8080`), whose GitLab's pages are at `web`.
+fn fake_glab(sb: &Sandbox, host: &str, web: &str) {
     use std::os::unix::fs::PermissionsExt;
     let script = format!(
         r#"#!/bin/sh
 root='{root}'
 log="$root/glab.log"
 printf '%s\n' "$*" >> "$log"
-api='api --hostname gitlab.test'
+api='api --hostname {host}'
 case "$*" in
-"auth status --hostname gitlab.test") ;;
+"auth status --hostname {host}") ;;
 "$api -X GET projects/acme%2Fapi/issues/42")
   echo '{{"iid":42,"title":"Fix the login","description":"Nothing happens.","state":"opened","labels":[],"assignees":[],"author":{{"username":"sam"}}}}' ;;
 "$api -X GET projects/acme%2Fapi/issues/42/notes?sort=asc&order_by=created_at&per_page=100&page=1")
   echo '[]' ;;
 "$api -X POST projects/acme%2Fapi/merge_requests -H Content-Type: application/json --input -")
-  cat >> "$log"; echo >> "$log"; echo '{{"web_url":"https://gitlab.test/acme/api/-/merge_requests/7"}}' ;;
+  cat >> "$log"; echo >> "$log"; echo '{{"web_url":"{web}/acme/api/-/merge_requests/7"}}' ;;
 "$api -X POST projects/acme%2Fapi/issues/42/notes -H Content-Type: application/json --input -")
   cat >> "$log"; echo >> "$log"; echo '{{}}' ;;
-"$api -X GET projects/acme%2Fapi/merge_requests/7")
+"$api -X GET projects/acme%2Fapi/merge_requests/7?include_diverged_commits_count=true")
   case "$(cat "$root/mr-state" 2>/dev/null)" in
-  merged) echo '{{"state":"merged","has_conflicts":false,"detailed_merge_status":"mergeable"}}' ;;
-  *) echo '{{"state":"opened","has_conflicts":true,"detailed_merge_status":"conflict"}}' ;;
+  merged) echo '{{"state":"merged","has_conflicts":false,"detailed_merge_status":"mergeable","diverged_commits_count":0}}' ;;
+  *) echo '{{"state":"opened","has_conflicts":true,"detailed_merge_status":"conflict","diverged_commits_count":3}}' ;;
   esac ;;
 *)
   echo "unexpected glab call: $*" >&2; exit 1 ;;
@@ -3161,8 +3176,33 @@ esac
 #[cfg(unix)]
 #[test]
 fn delivers_a_gitlab_issue_as_a_merge_request() {
-    let sb = Sandbox::new("gitlab-mr");
-    fake_glab(&sb);
+    delivers_a_merge_request(
+        "gitlab-mr",
+        "gitlab.test",
+        "gitlab.test",
+        "https://gitlab.test",
+    );
+}
+
+/// A GitLab of its own over plain HTTP on a port of its own: the merge request's address names both, and its
+/// state is still asked where the project's tracker says.
+#[cfg(unix)]
+#[test]
+fn follows_a_merge_request_on_a_gitlab_with_its_own_port() {
+    delivers_a_merge_request(
+        "gitlab-port",
+        "http://gitlab.test:8080",
+        "gitlab.test:8080",
+        "http://gitlab.test:8080",
+    );
+}
+
+/// Runs `#42` of a project whose `[trackers.gitlab] host` is `tracker` and whose origin is on `gitlab.test`, from
+/// the worktree to the merge request on `web` (glab signed in to `glab_host`) and its cleanup once merged.
+#[cfg(unix)]
+fn delivers_a_merge_request(name: &str, tracker: &str, glab_host: &str, web: &str) {
+    let sb = Sandbox::new(name);
+    fake_glab(&sb, glab_host, web);
     let remotes = sb.root.join("remotes");
     let rewrite = format!(
         "[url \"{}/\"]\n\tinsteadOf = https://gitlab.test/\n",
@@ -3187,7 +3227,7 @@ fn delivers_a_gitlab_issue_as_a_merge_request() {
     sb.project(
         "acme",
         &format!(
-            "name = \"Acme\"\n[[repos]]\npath = {api:?}\n[trackers.gitlab]\nhost = \"gitlab.test\"\ncomment = true\n"
+            "name = \"Acme\"\n[[repos]]\npath = {api:?}\n[trackers.gitlab]\nhost = \"{tracker}\"\ncomment = true\n"
         ),
     );
     let t = sb.tickets();
@@ -3196,17 +3236,14 @@ fn delivers_a_gitlab_issue_as_a_merge_request() {
 
     let launch = t.start("#42", Some("acme"), None).unwrap();
     let run = launch.run;
+    let issue = format!("{web}/acme/api/-/issues/42");
     assert_eq!(
         (
             run.ticket.provider.as_str(),
             run.ticket.key.as_str(),
             run.ticket.url.as_str()
         ),
-        (
-            "gitlab",
-            "acme/api#42",
-            "https://gitlab.test/acme/api/-/issues/42"
-        )
+        ("gitlab", "acme/api#42", issue.as_str())
     );
     let brief = fs::read_to_string(&launch.brief).unwrap();
     assert!(brief.contains("Nothing happens."), "{brief}");
@@ -3217,14 +3254,15 @@ fn delivers_a_gitlab_issue_as_a_merge_request() {
     assert!(preview.merge_request, "origin is on a GitLab");
     let delivered = t.deliver(run.id, &preview.fingerprint).unwrap();
     assert_eq!(delivered.warning, None);
-    let mr = "https://gitlab.test/acme/api/-/merge_requests/7";
-    assert_eq!(delivered.run.pr_url.as_deref(), Some(mr));
+    let mr = format!("{web}/acme/api/-/merge_requests/7");
+    assert_eq!(delivered.run.pr_url.as_deref(), Some(mr.as_str()));
     let sent = log();
+    let comment = format!("Merge request acme/api!7: {mr}");
     for part in [
         "\"description\":\"Closes #42\"",
         "\"source_branch\":\"termf/42-fix-the-login\"",
         "\"target_branch\":\"main\"",
-        "Merge request acme/api!7: https://gitlab.test/acme/api/-/merge_requests/7",
+        &comment,
     ] {
         assert!(sent.contains(part), "{part} in {sent}");
     }
@@ -3233,7 +3271,11 @@ fn delivers_a_gitlab_issue_as_a_merge_request() {
         &["rev-parse", "--verify", "refs/heads/termf/42-fix-the-login"],
     );
     let merge = t.pr_merge(run.id).unwrap().unwrap();
-    assert!(merge.conflict && !merge.behind && merge.state == "CONFLICT");
+    assert!(merge.conflict && merge.state == "CONFLICT");
+    assert!(
+        merge.behind,
+        "its base gained commits, whatever the merge method"
+    );
 
     let check = t.after_merge(true, |_| false, |_| {}).unwrap();
     assert_eq!(
@@ -3405,6 +3447,98 @@ fn reads_and_writes_azure_devops() {
 }
 
 #[test]
+fn keeps_the_answers_of_each_workspace_apart() {
+    let sb = Sandbox::new("linear-two");
+    let (url, requests) = fake_jira(linear_answers);
+    sb.project(
+        "acme",
+        "name = \"Acme\"\n[trackers.linear]\nworkspace = \"acme\"\n",
+    );
+    sb.project(
+        "beta",
+        "name = \"Beta\"\n[trackers.linear]\nworkspace = \"beta\"\n",
+    );
+    let mut t = sb.tickets();
+    t.linear_api = url;
+    t.save_token("linear", "acme", LINEAR_KEY).unwrap();
+    t.save_token("linear", "beta", LINEAR_BETA).unwrap();
+    let acme = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(keys(&acme.tickets), ["ENG-2", "ENG-1"]);
+    let beta = t.inbox(Some("beta"), false).unwrap();
+    assert_eq!(
+        keys(&beta.tickets),
+        ["OPS-9"],
+        "the same query in another workspace is asked there"
+    );
+    let count = requests.lock().unwrap().len();
+    assert_eq!(t.inbox(Some("acme"), false).unwrap(), acme);
+    assert_eq!(t.inbox(Some("beta"), false).unwrap(), beta);
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        count,
+        "each kept its own answer"
+    );
+}
+
+/// `#42` and `api#42` in a project that has both GitHub and GitLab: its repositories' origin, else its trackers.
+#[test]
+fn tells_github_from_gitlab_inside_a_project() {
+    let sb = Sandbox::new("forges");
+    let github = sb.repo("api", "https://github.com/acme/api.git");
+    let resolve = |input: &str| {
+        let r = sb.tickets().resolve(input, Some("acme"))?;
+        anyhow::Ok((r.ticket.provider, r.ticket.key))
+    };
+    let both = format!(
+        "name = \"Acme\"\n[[repos]]\npath = {github:?}\n[trackers.gitlab]\nrepo = \"acme/api-issues\"\n"
+    );
+    sb.project("acme", &both);
+    for input in ["#42", "api#42"] {
+        assert_eq!(
+            resolve(input).unwrap(),
+            ("github".into(), "acme/api#42".into()),
+            "{input}: origin is on GitHub"
+        );
+    }
+    assert_eq!(
+        resolve("acme/api-issues#42").unwrap(),
+        ("gitlab".into(), "acme/api-issues#42".into())
+    );
+
+    let mirrored = sb.repo("web", "https://gitlab.com/acme/web.git");
+    sb.git(
+        &mirrored,
+        &["remote", "add", "mirror", "https://github.com/acme/web.git"],
+    );
+    let gitlab = format!("name = \"Acme\"\n[[repos]]\npath = {mirrored:?}\n[trackers.gitlab]\n");
+    sb.project("acme", &gitlab);
+    for input in ["#42", "web#42"] {
+        assert_eq!(
+            resolve(input).unwrap(),
+            ("gitlab".into(), "acme/web#42".into()),
+            "{input}: origin is on GitLab, GitHub is a mirror"
+        );
+    }
+
+    let ops = sb.repo("ops", "git@gitlab.com:acme/ops.git");
+    let two = format!(
+        "name = \"Acme\"\n[[repos]]\npath = {github:?}\n[[repos]]\npath = {ops:?}\n[trackers.gitlab]\n"
+    );
+    sb.project("acme", &two);
+    let unclear = format!("{:#}", resolve("#42").unwrap_err());
+    assert!(
+        unclear.contains("write owner/repo#42 or group/project#42"),
+        "{unclear}"
+    );
+    sb.project("acme", &format!("{two}repo = \"acme/ops\"\n"));
+    assert_eq!(
+        resolve("#42").unwrap(),
+        ("gitlab".into(), "acme/ops#42".into()),
+        "only GitLab names the repository of its issues"
+    );
+}
+
+#[test]
 fn a_source_that_fails_leaves_the_others_in_the_inbox() {
     let sb = Sandbox::new("partial");
     let (url, _) = fake_jira(linear_answers);
@@ -3511,6 +3645,36 @@ fn reads_the_addresses_of_linear_gitlab_and_azure_devops() {
     assert_eq!(
         azure::text("<h2>Steps</h2><p>Click &#39;Pay&#x27; &lt;now&gt;<br>then wait</p>&nbsp;"),
         "## Steps\n\nClick 'Pay' <now>\nthen wait"
+    );
+    assert_eq!(
+        azure::text(
+            "<a class=\"x\" data-href=\"no\" HREF='https://y.test/1?a=1&amp;b=2'>y</a> <a href=https://z.test>z</a>"
+        ),
+        "[y](https://y.test/1?a=1&b=2) [z](https://z.test)"
+    );
+
+    for (site, base) in [
+        ("gitlab.acme.dev:8443", "https://gitlab.acme.dev:8443"),
+        (
+            "http://gitlab.acme.dev:8080/",
+            "http://gitlab.acme.dev:8080",
+        ),
+        ("https://GitLab.com", "https://gitlab.com"),
+        ("", "https://gitlab.com"),
+    ] {
+        assert_eq!(gitlab::base(site).unwrap(), base, "{site}");
+    }
+    for bad in [
+        "gitlab.acme.dev:84a3",
+        "gitlab",
+        "ftp://gitlab.com",
+        "gitlab.com/x",
+    ] {
+        assert!(gitlab::base(bad).is_err(), "{bad}");
+    }
+    assert_eq!(
+        gitlab::name("http://gitlab.acme.dev:8080").unwrap(),
+        "gitlab.acme.dev"
     );
 }
 

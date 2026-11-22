@@ -147,7 +147,7 @@ pub(crate) fn text(html: &str) -> String {
             ("li", false) => out.push_str("\n- "),
             ("td" | "th", true) => out.push_str(" | "),
             ("a", false) => {
-                link = tag.split(['"', '\'']).nth(1).map(str::to_owned);
+                link = href(tag);
                 out.push('[');
             }
             ("a", true) => match link.take() {
@@ -166,6 +166,21 @@ pub(crate) fn text(html: &str) -> String {
         text = text.replace("\n\n\n", "\n\n");
     }
     text.trim().to_owned()
+}
+
+/// The `href` of an `<a …>` tag's inside, quoted or not, whatever attributes come before it.
+fn href(tag: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let at = lower
+        .match_indices("href")
+        .map(|(at, _)| at)
+        .find(|at| *at > 0 && tag.as_bytes()[at - 1].is_ascii_whitespace())?;
+    let rest = tag[at + 4..].trim_start().strip_prefix('=')?.trim_start();
+    let value = match rest.chars().next()? {
+        quote @ ('"' | '\'') => rest[1..].split(quote).next()?,
+        _ => rest.split(|c: char| c.is_whitespace() || c == '>').next()?,
+    };
+    (!value.is_empty()).then(|| entities(value))
 }
 
 fn entities(text: &str) -> String {
@@ -260,6 +275,7 @@ impl Azure {
                 ),
                 curl,
                 answers,
+                scope: format!("azure:{}:{project}", organization.trim()),
             },
             organization: organization.trim().to_owned(),
             project: project.to_owned(),

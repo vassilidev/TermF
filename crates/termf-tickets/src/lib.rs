@@ -305,13 +305,21 @@ struct RepoInfo {
     slugs: Vec<String>,
     /// The host and `group/project` (lowercased) of each remote on a GitLab.
     gitlab: Vec<(String, String)>,
+    /// The forge `origin` is on, when it is GitHub or a GitLab.
+    origin: Option<Forge>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Forge {
+    GitHub,
+    GitLab,
 }
 
 impl ProjectInfo {
     /// The host of `[trackers.gitlab]`, `gitlab.com` by default.
     fn gitlab_host(&self) -> Option<String> {
         let tracker = self.trackers.gitlab.as_ref()?;
-        gitlab::host(&tracker.host).ok()
+        gitlab::name(&tracker.host).ok()
     }
 
     /// The projects GitLab reads: `[trackers.gitlab] repo`, then the repositories' remotes on its host.
@@ -327,6 +335,28 @@ impl ProjectInfo {
             }
         }
         slugs
+    }
+
+    /// The forge `#42` (`name` empty) or `name#42` is on when the project could mean an issue on GitHub or on
+    /// GitLab: the origin of the repository with that name, else the origin all the project's repositories share,
+    /// else the one tracker that names the repository of its issues. `None`: it could be either.
+    fn forge_for(&self, name: &str) -> Option<Forge> {
+        let unanimous = |forges: Vec<Option<Forge>>| -> Option<Forge> {
+            let first = (*forges.first()?)?;
+            forges.iter().all(|f| *f == Some(first)).then_some(first)
+        };
+        let named = self
+            .repos
+            .iter()
+            .filter(|r| !name.is_empty() && r.name.eq_ignore_ascii_case(name));
+        let origin = unanimous(named.map(|r| r.origin).collect())
+            .or_else(|| unanimous(self.repos.iter().map(|r| r.origin).collect()));
+        let gitlab = self.trackers.gitlab.as_ref().and_then(|g| g.repo());
+        origin.or(match (self.issues_repo(), gitlab) {
+            (Some(_), None) => Some(Forge::GitHub),
+            (None, Some(_)) => Some(Forge::GitLab),
+            _ => None,
+        })
     }
 
     /// What `#42` (`name` empty) or `name#42` refers to on GitLab: the declared project, the project's one
@@ -645,14 +675,15 @@ impl Tickets {
             let hosts: Vec<String> = trackers
                 .gitlab
                 .as_ref()
-                .and_then(|g| gitlab::host(&g.host).ok())
+                .and_then(|g| gitlab::name(&g.host).ok())
                 .into_iter()
                 .collect();
             let repos = project
                 .repos
                 .into_iter()
                 .map(|r| {
-                    let urls = run::remote_urls(&r.path, &self.env);
+                    let remotes = run::remotes(&r.path, &self.env);
+                    let urls: Vec<String> = remotes.iter().map(|(_, u)| u.clone()).collect();
                     let mut gitlab: Vec<(String, String)> = Vec::new();
                     for url in &urls {
                         if let Some(found) = gitlab::remote_slug(url, &ssh, &hosts)
@@ -661,9 +692,18 @@ impl Tickets {
                             gitlab.push(found);
                         }
                     }
+                    let origin = remotes.iter().find(|(name, _)| name == "origin");
+                    let origin = origin.and_then(|(_, url)| {
+                        if github::remote_slug(url, &ssh).is_ok() {
+                            Some(Forge::GitHub)
+                        } else {
+                            gitlab::remote_slug(url, &ssh, &hosts).map(|_| Forge::GitLab)
+                        }
+                    });
                     RepoInfo {
                         slugs: run::github_slugs_of(&urls, &ssh),
                         gitlab,
+                        origin,
                         name: r.name,
                         path: r.path,
                     }
@@ -760,6 +800,32 @@ impl Tickets {
                 (number, found)
             }
         };
+        // A project that could mean GitHub or GitLab keeps the forge its repositories or trackers point to.
+        let both = |p: &ProjectInfo| {
+            let on = |gitlab: bool| {
+                found
+                    .iter()
+                    .any(|(_, q, g)| std::ptr::eq(*q, p) && *g == gitlab)
+            };
+            on(true) && on(false)
+        };
+        let mut kept: Found = Vec::new();
+        for (slug, p, on_gitlab) in &found {
+            if both(p) {
+                let Some(forge) = p.forge_for(name.unwrap_or_default()) else {
+                    bail!(
+                        "{input} could be a GitHub or a GitLab issue in project {}: write owner/repo#{number} or \
+                         group/project#{number}",
+                        p.id
+                    );
+                };
+                if (forge == Forge::GitLab) != *on_gitlab {
+                    continue;
+                }
+            }
+            kept.push((slug.clone(), *p, *on_gitlab));
+        }
+        let found = kept;
         let (slug, p, on_gitlab) = match found.as_slice() {
             [(slug, p, on_gitlab)] => (slug.clone(), *p, *on_gitlab),
             [] if unplaced(input).is_some() => bail!(unplaced(input).unwrap_or_default()),
@@ -1172,6 +1238,7 @@ impl Tickets {
             ),
             curl: self.curl.clone(),
             answers: self.answers.clone(),
+            scope: format!("gitlab:{host}"),
         });
         Ok(GitLab { base, via })
     }

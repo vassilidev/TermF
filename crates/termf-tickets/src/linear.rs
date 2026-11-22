@@ -138,6 +138,7 @@ impl Linear {
                 ),
                 curl,
                 answers,
+                scope: format!("linear:{workspace}"),
             },
             workspace,
         })
