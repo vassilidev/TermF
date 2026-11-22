@@ -416,6 +416,8 @@ pub fn run() {
             sync::sync_change_password,
             sync::sync_scopes,
             sync::sync_disable,
+            sync::sync_forget,
+            sync::sync_clone,
             tickets::tickets_inbox,
             tickets::tickets_resolve,
             tickets::tickets_run,
