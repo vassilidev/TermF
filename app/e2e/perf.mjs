@@ -3,24 +3,29 @@ import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createSandbox, windows } from "./sandbox.mjs";
-import { helpers } from "./harness.mjs";
+import { APP, helpers } from "./harness.mjs";
 import { Key } from "./webdriver.mjs";
 
+/** The build measured: `TERMF_E2E_APP` pointing into `target/release` is the product, anything else the debug build. */
+export const build = /[\\/]release[\\/]/.test(APP) ? "release" : "debug";
+
 /**
- * `budget`: ARCHITECTURE §2.4. `limit`: what fails the Linux job: the budget with a margin for a shared runner and a
- * debug build, or, where the app is already past its budget (docs/STATUS.md §4), the level measured on the CI runner
- * plus a margin, so that a regression still fails. Windows: reported only.
+ * `budget`: ARCHITECTURE §2.4. `limit`: what fails the Linux job, per build: the budget with a margin for a shared
+ * runner, or, where the app is still past its budget (docs/STATUS.md §4), the level measured on the CI runner plus a
+ * margin, so that a regression still fails. Windows: reported only.
  */
 export const measures = {
-  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: 1500 },
-  idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: 650 },
-  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: 70 },
-  idleCpu: { label: "CPU at rest, over 10 s", unit: "%", budget: 1, limit: 2 },
-  keyEcho: { label: "Keystroke to echo (median of 30)", unit: "ms", budget: 16, limit: 24 },
+  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: { debug: 1500, release: 1500 } },
+  idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: { debug: 650, release: 650 } },
+  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: { debug: 70, release: 70 } },
+  idleCpu: { label: "CPU at rest, over 10 s", unit: "%", budget: 1, limit: { debug: 2, release: 2 } },
+  keyEcho: { label: "Keystroke to echo (median of 30)", unit: "ms", budget: 16, limit: { debug: 24, release: 24 } },
 };
 
 const SESSIONS = 5;
 const IDLE_SECONDS = 10;
+// The web process gives back what hidden terminals let go of on its own schedule, not at once.
+const SETTLE_SECONDS = 5;
 
 function processesLinux() {
   const tick = Number(execFileSync("getconf", ["CLK_TCK"], { encoding: "utf8" })) || 100;
@@ -133,6 +138,7 @@ export async function measure(port, log) {
       await t.s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === "10000"), { what: "10,000 lines", timeout: 60_000 });
     }
     await t.view("home");
+    await sleep(SETTLE_SECONDS * 1000);
     out.hiddenTerminalRam = mb(sum(appTree(driver, ours), "mem") - base) / SESSIONS;
 
     await t.command(`repo-shell-${box.acme}`);
@@ -159,13 +165,13 @@ export async function measure(port, log) {
 export function report(values, platform) {
   const rows = Object.entries(measures).map(([key, m]) => {
     const v = values[key];
-    const over = m.limit !== null && platform === "linux" && v > m.limit;
+    const over = platform === "linux" && v > m.limit[build];
     const shown = v === undefined ? "not measured" : `${v.toFixed(m.unit === "%" ? 2 : 1)} ${m.unit}`;
-    const limit = m.limit === null ? "reported" : `${m.limit} ${m.unit}`;
+    const limit = platform === "linux" ? `${m.limit[build]} ${m.unit}` : "reported";
     return { over, line: `| ${m.label} | ${shown} | ${m.budget} ${m.unit} | ${limit} | ${over ? "over" : "ok"} |` };
   });
   const table = [
-    `### Performance (${platform}, debug build)`,
+    `### Performance (${platform}, ${build} build)`,
     "",
     "| Measure | Value | Budget (§2.4) | CI limit | |",
     "|---|---|---|---|---|",
