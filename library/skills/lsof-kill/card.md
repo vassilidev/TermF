@@ -1,0 +1,5 @@
+- Servers listen on the worktree's `$PORT` / `$TERMF_PORT_<SERVICE>`, started with the Bash tool's background option.
+- Whose is a port: `lsof -nP -iTCP:<port> -sTCP:LISTEN` (Windows: `netstat -ano`).
+- Stop only what you started, by task or PID; never `pkill`, `killall` or `taskkill /im` by name.
+- Stop your background processes before answering: in a headless run they keep it open.
+- Read the skill `lsof-kill` before starting a server or stopping a process.

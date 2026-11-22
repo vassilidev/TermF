@@ -1,0 +1,6 @@
+- Version: `make --version`; macOS ships GNU Make 3.81, so no `.ONESHELL`, `.SHELLFLAGS`, `--output-sync`, `!=` or `$(file)` there.
+- Run the project's targets for its checks (`make lint`, `make test`): they carry the CI's flags.
+- Read a target before running it; `make -n` still runs `+` lines and `$(MAKE)` calls.
+- Each recipe line is its own shell, starts with a tab, writes `$$` for the shell's `$`; non-file targets go in `.PHONY`.
+- Deploy, publish, release and `clean` targets only when the user asked.
+- Read the skill `make` before writing or changing a target.

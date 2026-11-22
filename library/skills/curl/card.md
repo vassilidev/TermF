@@ -1,0 +1,5 @@
+- `curl -sS --fail-with-body --max-time 30 <url>`: without `--fail`, a 404 or a 500 still exits 0.
+- A local server: the worktree's `$PORT`, waited for with `--retry 30 --retry-connrefused --retry-delay 1`.
+- JSON bodies come from a file or `jq -n --arg`, sent with `--json @body.json`; never hand-quoted variables.
+- Never `-k`, never pipe a download into a shell; tokens come from the environment, never typed into the command.
+- Read the skill `curl` before calling a server or an API from the shell.
