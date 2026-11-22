@@ -316,6 +316,26 @@ fn unpushed(
     })
 }
 
+/// The repository a run of `resolution` works in: `repo` (a name or a path), else the one that is clear.
+fn chosen_repo(resolution: &crate::Resolution, repo: Option<&str>) -> Result<crate::RepoChoice> {
+    match repo.or(resolution.repo.as_deref()) {
+        Some(wanted) => resolution
+            .repos
+            .iter()
+            .find(|r| r.name.eq_ignore_ascii_case(wanted) || Path::new(&r.path) == Path::new(wanted))
+            .cloned()
+            .with_context(|| format!("no repository {wanted} in project {}", resolution.project)),
+        None => {
+            let names: Vec<&str> = resolution.repos.iter().map(|r| r.name.as_str()).collect();
+            bail!(
+                "project {} has several repositories: choose one of {}",
+                resolution.project,
+                names.join(", ")
+            )
+        }
+    }
+}
+
 /// A conversation id as Claude Code makes them, a UUID: nothing a path could be built from.
 fn conversation_id(text: &str) -> bool {
     text.len() == 36 && text.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
@@ -361,32 +381,46 @@ impl Tickets {
     /// repository when the project has several.
     pub fn start(&self, input: &str, project: Option<&str>, repo: Option<&str>) -> Result<Launch> {
         let resolution = self.resolve(input, project)?;
-        let chosen = match repo.or(resolution.repo.as_deref()) {
-            Some(wanted) => resolution
-                .repos
-                .iter()
-                .find(|r| {
-                    r.name.eq_ignore_ascii_case(wanted) || Path::new(&r.path) == Path::new(wanted)
-                })
-                .with_context(|| {
-                    format!("no repository {wanted} in project {}", resolution.project)
-                })?,
-            None => {
-                let names: Vec<&str> = resolution.repos.iter().map(|r| r.name.as_str()).collect();
-                bail!(
-                    "project {} has several repositories: choose one of {}",
-                    resolution.project,
-                    names.join(", ")
-                )
-            }
-        };
+        let chosen = chosen_repo(&resolution, repo)?;
         let ticket = self
             .provider(&resolution.project, &resolution.ticket.provider)?
             .fetch(&resolution.ticket)?;
+        self.open(&resolution.project, &chosen, &ticket)
+    }
+
+    /// Prepares a run, as `start` does, for a request the user wrote in TermF instead of a tracker's ticket: its
+    /// ticket is the request, of the provider `request`, with no address; delivering it touches no tracker.
+    pub fn start_request(&self, text: &str, project: &str, repo: Option<&str>) -> Result<Launch> {
+        let text = text.trim();
+        ensure!(!text.is_empty(), "say what the request is");
+        let reference = crate::TicketRef {
+            provider: crate::REQUEST.into(),
+            key: crate::REQUEST.into(),
+            url: String::new(),
+        };
+        let info = self.projects(Some(project))?.remove(0);
+        let chosen = chosen_repo(&info.resolution(reference.clone(), None), repo)?;
+        let first = text.lines().next().unwrap_or_default().trim();
+        let ticket = Ticket {
+            reference,
+            title: crate::truncate(first, 80),
+            body: text.to_owned(),
+            state: "open".into(),
+            author: None,
+            labels: Vec::new(),
+            assignees: Vec::new(),
+            comments: Vec::new(),
+            links: crate::links([text], ""),
+        };
+        self.open(project, &chosen, &ticket)
+    }
+
+    /// The run of `ticket` in `project`'s repository `chosen`: its worktree, its brief, its preparation.
+    fn open(&self, project: &str, chosen: &crate::RepoChoice, ticket: &Ticket) -> Result<Launch> {
         let store = Store::open(&self.data_dir)?;
-        let mut run = store.create(&resolution.project, &ticket, &chosen.path)?;
+        let mut run = store.create(project, ticket, &chosen.path)?;
         let conversation = uuid::Uuid::new_v4().to_string();
-        let (path, branch, base) = match self.worktree(&run, &chosen.name, &ticket) {
+        let (path, branch, base) = match self.worktree(&run, &chosen.name, ticket) {
             Ok(created) => created,
             Err(e) => {
                 store.fail(run.id, &format!("{e:#}"))?;
@@ -402,7 +436,7 @@ impl Tickets {
         // Its own folder: the session may read it, nothing else of the run.
         let brief = store.run_dir(run.id).join("brief").join("prompt.md");
         fs::create_dir_all(brief.parent().context("no parent folder")?)?;
-        fs::write(&brief, crate::prompt(&ticket, &branch, &base))?;
+        fs::write(&brief, crate::prompt(ticket, &branch, &base))?;
         let worktree = PathBuf::from(&path);
         store.record(run.id, &Event::WorktreeCreated { path, branch, base })?;
         let report = self.setup().run(&termf_worktree::Worktree {
@@ -742,6 +776,7 @@ impl Tickets {
                 {
                     format!("Closes #{number}")
                 }
+                _ if run.ticket.url.is_empty() => String::new(),
                 _ => format!("Ticket: {}", run.ticket.url),
             };
             let target = base.strip_prefix("origin/").unwrap_or(&base);

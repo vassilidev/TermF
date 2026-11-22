@@ -42,6 +42,9 @@ use sources::Source;
 /// How many tickets a source's test shows.
 const TEST_SIZE: usize = 5;
 
+/// The provider, and the key, of a run's ticket when it is a request written in TermF.
+pub const REQUEST: &str = "request";
+
 /// How a source's inbox is read.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Fetch {
@@ -126,12 +129,10 @@ impl Ticket {
     /// One Markdown document, the same for every tracker: what the agent and the journal read.
     pub fn markdown(&self) -> String {
         let r = &self.reference;
-        let mut md = format!(
-            "# {}\n\n- Ticket: {} ({})\n",
-            self.title.trim(),
-            r.key,
-            r.url
-        );
+        let mut md = match r.url.as_str() {
+            "" => format!("# {}\n\n- Ticket: {}\n", self.title.trim(), r.key),
+            url => format!("# {}\n\n- Ticket: {} ({url})\n", self.title.trim(), r.key),
+        };
         let _ = writeln!(md, "- State: {}", self.state);
         if let Some(author) = &self.author {
             let _ = writeln!(md, "- Author: {author}");
