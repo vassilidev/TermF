@@ -5568,6 +5568,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-design"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64ct",
+ "ignore",
+ "serde",
+ "serde_json",
+ "termf-visual",
+]
+
+[[package]]
 name = "termf-files"
 version = "0.1.0"
 dependencies = [

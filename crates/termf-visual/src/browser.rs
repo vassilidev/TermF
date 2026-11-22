@@ -314,6 +314,28 @@ impl Browser {
         Ok(())
     }
 
+    /// The page as a PDF, its own `@page` size and its backgrounds kept. Nothing on the page runs and nothing
+    /// loads from the network: it is a document of a repository, not a program.
+    pub fn print(&mut self, url: &str) -> Result<Vec<u8>> {
+        self.call(
+            "Emulation.setScriptExecutionDisabled",
+            json!({"value": true}),
+        )?;
+        self.call("Network.enable", json!({}))?;
+        self.call(
+            "Network.setBlockedURLs",
+            json!({"urls": ["http://*", "https://*", "ws://*", "wss://*", "ftp://*"]}),
+        )?;
+        self.open(url)?;
+        self.eval("document.fonts.ready.then(() => true)")?;
+        let pdf = self.call(
+            "Page.printToPDF",
+            json!({"printBackground": true, "preferCSSPageSize": true}),
+        )?;
+        let data = pdf["data"].as_str().context("no PDF")?;
+        base64ct::Base64::decode_vec(data).context("unreadable PDF")
+    }
+
     pub fn capture(&mut self, target: &Target) -> Result<Shot> {
         self.call(
             "Emulation.setDeviceMetricsOverride",
