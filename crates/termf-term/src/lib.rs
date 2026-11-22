@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::ffi::OsString;
 use std::io::{ErrorKind, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -32,6 +33,9 @@ pub struct SpawnSpec {
     pub rows: u16,
     /// Added to the session's environment, after the registry's own.
     pub env: Vec<(String, String)>,
+    /// What it starts from instead of TermF's own environment, before the registry's and `env`: an agent's
+    /// (`termf_core::agent_env`).
+    pub base_env: Option<Vec<(OsString, OsString)>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -187,6 +191,12 @@ impl Sessions {
         let mut cmd = CommandBuilder::new(&spec.program);
         cmd.args(&spec.args);
         cmd.cwd(&spec.cwd);
+        if let Some(base) = &spec.base_env {
+            cmd.env_clear();
+            for (key, value) in base {
+                cmd.env(key, value);
+            }
+        }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         for (key, value) in self.env.as_ref().map(|env| env(id)).unwrap_or_default() {
@@ -403,7 +413,25 @@ mod tests {
             cols: 80,
             rows: 24,
             env: Vec::new(),
+            base_env: None,
         }
+    }
+
+    #[test]
+    fn a_shell_keeps_termf_s_environment_and_an_agent_only_its_own() {
+        let sessions = Sessions::with_env(|_| vec![("TERMF_TOKEN".into(), "t".into())]);
+        let home = std::env::var("HOME").unwrap();
+        let printed = |base_env: Option<Vec<(OsString, OsString)>>| {
+            let script = r#"printf '[%s|%s|%s]' "$HOME" "$TERMF_TOKEN" "$PEXELS_API_KEY""#;
+            let mut spec = spec("/bin/sh", &["-c", script]);
+            spec.base_env = base_env;
+            spec.env.push(("PEXELS_API_KEY".into(), "p".into()));
+            collect(&sessions, sessions.spawn(spec).unwrap()).0
+        };
+        assert!(printed(None).contains(&format!("[{home}|t|p]")));
+        assert!(printed(Some(Vec::new())).contains("[|t|p]"));
+        let other = vec![("HOME".into(), "/home/agent".into())];
+        assert!(printed(Some(other)).contains("[/home/agent|t|p]"));
     }
 
     #[test]

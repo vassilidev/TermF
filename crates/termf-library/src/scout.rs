@@ -1092,6 +1092,7 @@ fn ask(
     if let Some(path) = termf_core::shell::login_path() {
         cmd.env("PATH", path);
     }
+    termf_core::agent_env::current(None).apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
     let ran = termf_core::process::stream(cmd, prompt.as_bytes(), TIMEOUT, &mut |line| {
         for p in progress_of(line) {
             progress(p);

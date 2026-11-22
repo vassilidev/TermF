@@ -586,6 +586,8 @@ impl Setup {
             .current_dir(&wt.path)
             .envs(env);
         prepare(&mut cmd, &self.env);
+        termf_core::agent_env::current(Some(&wt.project))
+            .apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
         let result = termf_core::process::run(cmd, prompt.as_bytes(), AGENT_TIMEOUT);
         let _ = fs::remove_dir_all(&scratch);
         let (status, out, stderr) =

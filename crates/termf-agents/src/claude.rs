@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 use termf_core::context::Gauge;
-use termf_core::ipc::{MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_OPS, MCP_READ};
+use termf_core::ipc::{MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_OPS, MCP_READ, MCP_SECRETS};
 
 use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
 
@@ -22,6 +22,8 @@ pub const ASK_EXPERT: &str = "mcp__termf__ask_expert";
 pub const BROWSER: &str = "mcp__termf__browser_*";
 /// What a role allows to get Ops: `ops_recipes` and `ops_run`, each run approved in TermF's own card.
 pub const OPS: &str = "mcp__termf__ops_*";
+/// What a role allows to ask the user for a key (`request_secret`), which its next sessions get from the vault.
+pub const SECRETS: &str = "mcp__termf__request_secret";
 
 fn expert(spec: &SessionSpec) -> bool {
     spec.mcp && spec.role.as_deref() == Some(EXPERT)
@@ -52,6 +54,7 @@ pub fn mcp_tools(spec: &SessionSpec) -> Vec<&'static str> {
         tools.push("ask_expert");
     }
     tools.extend(MCP_BROWSER.iter().filter(|t| allowed(BROWSER, t)));
+    tools.extend(MCP_SECRETS.iter().filter(|t| allowed(SECRETS, t)));
     // Only where `termf guard` sees each command: once it read prod, the session's ways out need the user.
     if spec.guard {
         tools.extend(MCP_OPS.iter().filter(|t| allowed(OPS, t)));

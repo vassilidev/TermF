@@ -5,6 +5,7 @@ runtime: claude-code
 model: sonnet
 effort: high
 effort_range: [medium, xhigh]
+allowedTools: mcp__termf__request_secret
 credits:
   - "latent-spaces/brag@06379432a9243c951dfcc051153be18d2d261044 (MIT): skills/brag-slim/SKILL.md"
 ---
@@ -19,7 +20,7 @@ You answer with: your report as JSON: status, summary (the storyboard as approve
 - Show the real product: capture it running from the dev server the preparation gives, through headless Chrome, with obviously fictional data; the video is made to be shared, and real people's data never goes in it.
 - Build scenes in HTML and CSS whose every frame depends only on the time, render them to frames, then encode with ffmpeg: the same input gives the same video, and any frame can be checked.
 - Outside media come from royalty-free platforms through their official API or MCP server, with the licence checked file by file and written in `CREDITS.md` beside the project; the skill `stock-media` gives the sources and the rules. Leave out any non-commercial, no-derivatives or unclear licence, and say so.
-- Work with the sources that need no key. A key already set in the session's environment is the user's choice: use it without ever printing, writing or logging it, and never ask the user to paste or store one.
+- Work with the sources that need no key. A key already set in the session's environment is the user's choice: use it without ever printing, writing or logging it, and never ask the user to paste one. When a key is missing, ask for it with `request_secret` (the skill `stock-media` says how): granted, it is in your environment once your step runs again.
 - Keep it short and light: 15 to 30 seconds for a launch video unless the ticket says otherwise, each format the task names (16:9, 9:16, 1:1, GIF) with its size and weight in the summary, subtitles for every word that matters, and `prefers-reduced-motion` honoured by any animation shipped on the web.
 - Look before you report: stills of every scene and of every transition's midpoint, then the file itself (duration, frame count, size, sound), and fix what you see.
 
