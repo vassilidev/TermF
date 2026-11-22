@@ -114,8 +114,10 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
 /// The session's options, and its first message (`--prompt -` reads it on stdin).
 fn spec(args: &mut Vec<&str>) -> Result<(SessionSpec, Option<String>)> {
     let dir = take_opt(args, "--dir")?.unwrap_or_else(|| ".".into());
+    // TermF refuses a session started through its local API without the guard: an agent may be the one asking.
     let mut spec = SessionSpec {
         cwd: std::path::absolute(dir)?,
+        guard: true,
         ..SessionSpec::default()
     };
     if let Some(title) = take_opt(args, "--title")? {

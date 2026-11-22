@@ -168,6 +168,16 @@ impl Size {
             Size::L => 3000,
         }
     }
+
+    /// The most turns (model calls) a step of this size takes by default, `[team] max_turns` aside: room for
+    /// the work, a stop for a session going round in circles that the budget would only catch later.
+    pub fn turns(self) -> u32 {
+        match self {
+            Size::S => 60,
+            Size::M => 120,
+            Size::L => 240,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

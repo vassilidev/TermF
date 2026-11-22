@@ -8,6 +8,34 @@ use anyhow::{Context, Result, ensure};
 
 pub struct Git<'a>(pub &'a [(String, String)]);
 
+/// How a block that Next.js manages in an agent instructions file begins; its end names it the same way.
+const MANAGED: &str = "<!-- BEGIN:nextjs-";
+
+/// The lines of `text` outside its managed blocks, blank ones left out.
+fn unmanaged(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(MANAGED) {
+        let name = &rest[start + MANAGED.len()..];
+        let Some(name) = name.find("-->").map(|n| &name[..n]) else {
+            break;
+        };
+        let end = format!("<!-- END:nextjs-{name}-->");
+        let Some(stop) = rest[start..].find(&end) else {
+            break;
+        };
+        parts.push(&rest[..start]);
+        rest = &rest[start + stop + end.len()..];
+    }
+    parts.push(rest);
+    parts
+        .into_iter()
+        .flat_map(str::lines)
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
 impl Git<'_> {
     fn output(&self, dir: &Path, args: &[&str]) -> Result<std::process::Output> {
         #[allow(unused_mut)]
@@ -81,6 +109,50 @@ impl Git<'_> {
             self.run(dir, &["commit", "-q", "-m", message])?;
         }
         Ok(())
+    }
+
+    /// Puts back each `AGENTS.md` and `CLAUDE.md` of `dir` whose only change is a block a tool manages on its own
+    /// (`next dev` writes `<!-- BEGIN:nextjs-agent-rules -->`…), unless `asked` says the ticket asks for that
+    /// path: what it put back. During a merge, what the merged work brings stays.
+    pub fn set_aside_managed(
+        &self,
+        dir: &Path,
+        asked: impl Fn(&str) -> bool,
+    ) -> Result<Vec<String>> {
+        let changed = self.run(dir, &["diff", "--name-only", "-z", "HEAD"])?;
+        let new = self.run(dir, &["ls-files", "-o", "--exclude-standard", "-z"])?;
+        let merged = match self.run(dir, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]) {
+            Ok(_) => self.run(dir, &["diff", "--name-only", "-z", "HEAD", "MERGE_HEAD"])?,
+            Err(_) => String::new(),
+        };
+        let merged: Vec<&str> = merged.split('\0').collect();
+        let mut kept = Vec::new();
+        for path in changed.split('\0').chain(new.split('\0')) {
+            let name = Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            if !matches!(name, "AGENTS.md" | "CLAUDE.md") || asked(path) || merged.contains(&path) {
+                continue;
+            }
+            let Ok(now) = std::fs::read_to_string(dir.join(path)) else {
+                continue;
+            };
+            let before = self.run(dir, &["show", &format!("HEAD:{path}")]).ok();
+            if !now.contains(MANAGED)
+                || unmanaged(&now) != unmanaged(before.as_deref().unwrap_or(""))
+            {
+                continue;
+            }
+            match before {
+                Some(_) => {
+                    self.run(dir, &["checkout", "-q", "HEAD", "--", path])?;
+                }
+                None => std::fs::remove_file(dir.join(path))?,
+            }
+            kept.push(path.to_owned());
+        }
+        Ok(kept)
     }
 
     /// The files changed between `base` and what `dir` is on, its diff without context, and how many lines it
