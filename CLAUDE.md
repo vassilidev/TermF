@@ -17,6 +17,7 @@ Poste de pilotage d'agents CLI (Claude Code…) sur plusieurs dépôts. La conce
 - Paquet de l'app avec la CLI `termf` embarquée : `cd app && pnpm bundle` (`pnpm tauri build` seul ne l'embarque pas)
 - Rust : `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
 - Le clippy et les tests de l'app ont besoin de `app/build` : lancer `pnpm build` avant.
+- Évals des skills et des rôles, avec le vrai Claude Code (payant, Haiku, 3 $ au plus par défaut) : `cd app && pnpm evals` (`--help`).
 
 ## Conventions
 

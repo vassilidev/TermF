@@ -21,7 +21,18 @@
     project?: string;
   } = $props();
 
-  const languageServers = $derived(stacks.flatMap((repo) => repo.servers.map((server) => ({ repo, server }))));
+  /** Each server once, with the repositories it serves: whether it is installed depends on the machine only. */
+  const languageServers = $derived.by(() => {
+    const byName = new Map<string, { server: RepoStack["servers"][number]; repos: string[] }>();
+    for (const repo of stacks) {
+      for (const server of repo.servers) {
+        const seen = byName.get(server.name);
+        if (seen) seen.repos.push(repo.name);
+        else byName.set(server.name, { server, repos: [repo.name] });
+      }
+    }
+    return [...byName.values()];
+  });
   let lspOn = $state(true);
   $effect(() => {
     if (project) invoke<boolean>("library_lsp", { project }).then((on) => (lspOn = on), () => {});
@@ -164,18 +175,17 @@
       {t("evalsLspSwitch")}
     </label>
     <ul class="offers">
-      {#each languageServers as { repo, server } (`${repo.path}:${server.name}`)}
+      {#each languageServers as { server, repos } (server.name)}
         <li>
           <div class="what">
-            <b>{server.name}</b>
+            <b>{server.command}</b>
             <span class="badge">{server.for}</span>
-            {#if many}<span class="muted">{repo.name}</span>{/if}
+            {#if many}<span class="muted">{repos.join(", ")}</span>{/if}
             {#if server.installed}
               <span class={lspOn ? "done" : "muted"}>{lspOn ? t("evalsLspOn") : t("evalsLspOff")}</span>
             {:else}
               <span class="badge warn">{t("evalsLspMissing")}</span>
             {/if}
-            <code>{server.command}</code>
           </div>
           {#if !server.installed}
             <button class="btn sm quiet" onclick={() => open(server.docs)} title={server.docs}>
