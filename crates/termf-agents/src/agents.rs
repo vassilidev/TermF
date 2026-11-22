@@ -616,14 +616,15 @@ impl Inner {
     fn reap(&self, store: &Store) -> Result<()> {
         store.stop_all()?;
         for (id, pid, session_id) in store.pids()? {
-            if ours(pid, &session_id) {
+            let dir = store.dir(id).join("session");
+            if ours(pid, &session_id, &dir) {
                 kill_group(pid);
                 let deadline = std::time::Instant::now() + KILL_WAIT;
-                while ours(pid, &session_id) && std::time::Instant::now() < deadline {
+                while ours(pid, &session_id, &dir) && std::time::Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(100));
                 }
             }
-            if ours(pid, &session_id) {
+            if ours(pid, &session_id, &dir) {
                 let message = format!("its process {pid} from the last launch still runs");
                 self.record(store, id, AgentEvent::Error { message });
                 self.set_state(store, id, &Live::default(), State::Error)?;
@@ -734,7 +735,7 @@ impl Inner {
             bail!("the session's budget is spent");
         }
         if let Some(pid) = store.pid(id)?
-            && ours(pid, &session.session_id)
+            && ours(pid, &session.session_id, &store.dir(id).join("session"))
         {
             bail!("a process of this session still runs (pid {pid}): it must end first");
         }
@@ -781,6 +782,7 @@ impl Inner {
                 dirs: &dirs,
                 guard,
                 policy: policy.as_deref(),
+                dir: &dir,
             },
         );
         let args: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();
@@ -1370,9 +1372,10 @@ fn interrupt_group(pid: u32) {
     kill_group(pid);
 }
 
-/// Whether `pid` still runs this conversation's agent: its command line names the conversation, so a pid the
-/// system has given to another program since is never taken for it.
-pub(crate) fn ours(pid: u32, session_id: &str) -> bool {
+/// Whether `pid` still runs this conversation's agent: its command line names the conversation, or the session's
+/// folder (the first `codex exec` of a conversation knows no id yet), so a pid the system has given to another
+/// program since is never taken for it.
+pub(crate) fn ours(pid: u32, session_id: &str, dir: &Path) -> bool {
     #[cfg(unix)]
     let out = Command::new("ps")
         .args(["-ww", "-o", "args=", "-p", &pid.to_string()])
@@ -1386,7 +1389,11 @@ pub(crate) fn ours(pid: u32, session_id: &str) -> bool {
             &format!("(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"),
         ])
         .output();
-    out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(session_id))
+    let dir = dir.to_string_lossy();
+    out.is_ok_and(|o| {
+        let line = String::from_utf8_lossy(&o.stdout);
+        line.contains(session_id) || line.contains(dir.as_ref())
+    })
 }
 
 pub(crate) fn kill_group(pid: u32) {

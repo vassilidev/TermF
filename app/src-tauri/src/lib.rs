@@ -78,7 +78,15 @@ async fn workspace(
     files: State<'_, Arc<Files>>,
 ) -> CmdResult<Workspace> {
     let settings = termf_core::load_settings(&state.config_dir).map_err(err)?;
-    let discovery = termf_core::discover_repos(&settings.roots, settings.scan_depth);
+    // Finding Codex CLI and Gemini CLI may take seconds the first time: alongside the scan.
+    let (discovery, agents) = std::thread::scope(|scope| {
+        let agents = scope.spawn(|| settings.agents_found());
+        let discovery = termf_core::discover_repos(&settings.roots, settings.scan_depth);
+        (
+            discovery,
+            agents.join().unwrap_or_else(|_| settings.agents.clone()),
+        )
+    });
     let projects = termf_core::load_projects(&state.config_dir).map_err(err)?;
     let repos = discovery
         .repos
@@ -88,7 +96,7 @@ async fn workspace(
     Ok(Workspace {
         config_dir: state.config_dir.to_string_lossy().into_owned(),
         home: termf_core::expand_tilde("~").to_string_lossy().into_owned(),
-        agents: settings.agents_found().into_keys().collect(),
+        agents: agents.into_keys().collect(),
         projects,
         repos: discovery.repos,
         scan_truncated: discovery.truncated,

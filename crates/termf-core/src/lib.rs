@@ -265,25 +265,34 @@ impl Settings {
     pub fn agents_found(&self) -> BTreeMap<String, String> {
         let mut agents = self.agents.clone();
         for tool in [claude::Tool::Codex, claude::Tool::Gemini] {
-            let name = tool.program();
-            let listed = agents.contains_key(name)
-                || agents.values().any(|c| claude::Tool::of(c) == Some(tool));
-            if !listed && claude::find(name).install.is_some() {
-                agents.insert(name.into(), name.into());
-            }
+            agents.extend(self.found(tool));
         }
         agents
     }
 
-    /// The command of the agent `name`, from [`Settings::agents_found`]; only `codex` and `gemini` are looked for.
+    /// The command of the agent `name`: its `[agents]` entry, else `codex` or `gemini` when installed (only that one
+    /// is looked for).
     pub fn agent(&self, name: &str) -> Option<String> {
         match self.agents.get(name) {
             Some(command) => Some(command.clone()),
             None => {
-                claude::Tool::of(name)?;
-                self.agents_found().remove(name)
+                let tool = [claude::Tool::Codex, claude::Tool::Gemini]
+                    .into_iter()
+                    .find(|t| t.program() == name)?;
+                self.found(tool).map(|(_, command)| command)
             }
         }
+    }
+
+    /// `tool` as an agent of its own name, when it is installed and no `[agents]` entry runs it.
+    fn found(&self, tool: claude::Tool) -> Option<(String, String)> {
+        let name = tool.program();
+        let listed = self.agents.contains_key(name)
+            || self
+                .agents
+                .values()
+                .any(|c| claude::Tool::of(c) == Some(tool));
+        (!listed && installed(tool)).then(|| (name.into(), name.into()))
     }
 
     /// The program of the first Claude Code agent, else `claude`, for headless runs (`claude -p`).
@@ -945,6 +954,28 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
+/// Whether `tool` is installed. Finding it may ask an interactive shell and each install its version: the answer,
+/// a failed or slow probe's included, is kept five minutes; one caller probes while the others wait for its answer.
+pub fn installed(tool: claude::Tool) -> bool {
+    remembered(tool.program(), || {
+        claude::find(tool.program()).install.is_some()
+    })
+}
+
+fn remembered(key: &'static str, probe: impl FnOnce() -> bool) -> bool {
+    static SEEN: std::sync::Mutex<BTreeMap<&'static str, (std::time::Instant, bool)>> =
+        std::sync::Mutex::new(BTreeMap::new());
+    let mut seen = SEEN.lock().unwrap();
+    if let Some((at, found)) = seen.get(key)
+        && at.elapsed() < std::time::Duration::from_secs(300)
+    {
+        return *found;
+    }
+    let found = probe();
+    seen.insert(key, (std::time::Instant::now(), found));
+    found
+}
+
 pub fn expand_tilde(path: &str) -> PathBuf {
     match (path.strip_prefix("~"), dirs::home_dir()) {
         (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with(['/', '\\']) => {
@@ -974,6 +1005,31 @@ pub fn portable(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn asks_once_whether_a_tool_is_installed_even_when_it_is_not() {
+        let asked = std::cell::Cell::new(0);
+        let probe = |found| {
+            asked.set(asked.get() + 1);
+            found
+        };
+        assert!(!remembered("test-missing", || probe(false)));
+        assert!(!remembered("test-missing", || probe(true)), "kept");
+        assert!(remembered("test-there", || probe(true)));
+        assert_eq!(asked.get(), 2, "one probe per tool");
+
+        let settings = Settings {
+            agents: BTreeMap::from([("cx".to_owned(), "/opt/codex --yolo".to_owned())]),
+            ..Settings::default()
+        };
+        assert_eq!(settings.agent("cx").as_deref(), Some("/opt/codex --yolo"));
+        assert_eq!(
+            settings.agent("codex"),
+            None,
+            "an entry runs Codex already: no other is looked for"
+        );
+        assert_eq!(settings.agent("aider"), None);
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("termf-core-{name}-{}", std::process::id()));

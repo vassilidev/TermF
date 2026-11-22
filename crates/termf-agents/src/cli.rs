@@ -85,12 +85,6 @@ const GEMINI_MODES: &[(&str, &str)] = &[
     ("bypassPermissions", "yolo"),
 ];
 
-/// The library's instructions, read again for each process.
-fn instructions(launch: &Launch) -> Option<String> {
-    let text = std::fs::read_to_string(launch.system_prompt?).ok()?;
-    Some(text).filter(|t| !t.trim().is_empty())
-}
-
 impl AgentRuntime for Codex {
     fn id(&self) -> &'static str {
         "codex"
@@ -101,6 +95,11 @@ impl AgentRuntime for Codex {
     }
 
     fn per_turn(&self) -> bool {
+        true
+    }
+
+    // On stdin, as Gemini's: `developer_instructions` on the command line would not fit cmd.exe's 8191 characters.
+    fn instructions_in_message(&self) -> bool {
         true
     }
 
@@ -118,9 +117,9 @@ impl AgentRuntime for Codex {
             args.extend(["--sandbox".into(), sandbox.into()]);
         }
         args.extend(codex_options(spec));
-        if let Some(text) = instructions(launch) {
-            args.extend(["-c".into(), cli_agents::codex_instructions(&text)]);
-        }
+        // Its path also marks the process: the first one's command line has no conversation id.
+        let last = launch.dir.join("last-message.txt");
+        args.extend(["-o".into(), last.to_string_lossy().into_owned()]);
         if let Some(server) = launch.mcp_server {
             for arg in cli_agents::codex_mcp(server, termf_core::ipc::ENV_MCP_TOKEN) {
                 args.extend(["-c".into(), arg]);
@@ -753,6 +752,7 @@ mod tests {
             permission_mode: Some("acceptEdits".into()),
             ..SessionSpec::default()
         };
+        let tmp = std::env::temp_dir();
         let launch = |resume| Launch {
             session_id: "t-1",
             resume,
@@ -764,6 +764,7 @@ mod tests {
             dirs: &[],
             guard: None,
             policy: None,
+            dir: &tmp,
         };
         let first = Codex.headless_args(&spec, &launch(false));
         assert_eq!(
@@ -777,7 +778,19 @@ mod tests {
             ]
         );
         assert!(first.contains(&"model_reasoning_effort=high".to_owned()));
-        assert!(first.contains(&"developer_instructions=\"## Role: front\"".to_owned()));
+        assert!(
+            !first.iter().any(|a| a.contains("Role")),
+            "Codex reads them in the message"
+        );
+        assert_eq!(
+            first.iter().position(|a| a == "-o").map(|i| &first[i + 1]),
+            Some(
+                &std::env::temp_dir()
+                    .join("last-message.txt")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
         assert_eq!(first.last().unwrap(), "-");
         assert!(!first.contains(&"resume".to_owned()));
         let next = Codex.headless_args(&spec, &launch(true));

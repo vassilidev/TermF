@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde_json::{Value, json};
 
+use crate::claude::Tool;
+
 /// The event `termf hook` gets from Codex's `notify`, the only one it sends: a turn ended.
 pub const CODEX_TURN_DONE: &str = "agent-turn-complete";
 
@@ -25,37 +27,100 @@ pub const GEMINI_HOOKS: &[&str] = &[
 /// Where Gemini CLI reads the system settings file TermF stands in for, with the ones already there merged in.
 pub const GEMINI_SETTINGS_ENV: &str = "GEMINI_CLI_SYSTEM_SETTINGS_PATH";
 
-/// `-c developer_instructions=…`: Codex parses the value as TOML, whose basic strings take JSON's escapes.
-pub fn codex_instructions(text: &str) -> String {
-    let value = serde_json::to_string(text).unwrap_or_default();
-    format!(
+/// The most characters of instructions a Codex terminal's command line carries: cmd.exe takes 8191 in all.
+const INSTRUCTIONS_MAX: usize = if cfg!(windows) { 5000 } else { 100_000 };
+
+/// `-c developer_instructions=…` for a Codex terminal (Codex has no option that reads them from a file, only one that
+/// replaces its own instructions): Codex parses the value as TOML, whose basic strings take JSON's escapes. Too
+/// long for a command line, the text is cut at a line and says so; the second value is how many characters went.
+pub fn codex_instructions(text: &str) -> (String, usize) {
+    let (text, cut) = match text.char_indices().nth(INSTRUCTIONS_MAX) {
+        Some((end, _)) => {
+            let end = text[..end].rfind('\n').unwrap_or(end);
+            let kept = format!(
+                "{}\n\n[TermF cut the rest of these instructions to fit the command line.]",
+                &text[..end]
+            );
+            (kept, text[end..].chars().count())
+        }
+        None => (text.to_owned(), 0),
+    };
+    let value = serde_json::to_string(&text).unwrap_or_default();
+    let arg = format!(
         "developer_instructions={}",
         value.replace('\u{7f}', "\\u007f")
-    )
+    );
+    (arg, cut)
 }
 
-/// `-c notify=[…]`: Codex runs `<termf> hook agent-turn-complete`, then your own `notify`, read from
-/// `$CODEX_HOME/config.toml`, with the same JSON.
-pub fn codex_notify(termf: &Path, codex_home: &Path) -> String {
+/// `-c notify=[…]`: Codex runs `<termf> hook agent-turn-complete`, then your own `notify` with the same JSON, read
+/// from `$CODEX_HOME/config.toml` (the `profile` given, else the file's own, first; Codex ignores a project's
+/// `notify`). The second value says why yours cannot follow, when it cannot.
+pub fn codex_notify(
+    termf: &Path,
+    codex_home: &Path,
+    profile: Option<&str>,
+) -> (String, Option<String>) {
     let mut notify = vec![
         termf.to_string_lossy().into_owned(),
         "hook".into(),
         CODEX_TURN_DONE.into(),
     ];
-    let yours = fs::read_to_string(codex_home.join("config.toml"))
-        .ok()
-        .and_then(|text| toml::from_str::<toml::Table>(&text).ok())
-        .and_then(|t| t.get("notify")?.as_array().cloned())
-        .unwrap_or_default();
-    notify.extend(yours.iter().filter_map(|v| v.as_str().map(str::to_owned)));
-    format!("notify={}", json!(notify))
+    let file = codex_home.join("config.toml");
+    let mut warning = None;
+    match fs::read_to_string(&file).map(|text| toml::from_str::<toml::Table>(&text)) {
+        Err(_) => {}
+        Ok(Err(_)) => {
+            warning = Some(format!(
+                "{} cannot be read: your own Codex notify does not run in this terminal",
+                file.display()
+            ));
+        }
+        Ok(Ok(config)) => {
+            let profile = profile.or(config.get("profile").and_then(toml::Value::as_str));
+            let in_profile = profile
+                .and_then(|p| config.get("profiles")?.get(p)?.get("notify"))
+                .cloned();
+            let yours = in_profile.or_else(|| config.get("notify").cloned());
+            let words = yours.map(|v| {
+                let words = v.as_array()?.iter().map(|w| w.as_str().map(str::to_owned));
+                words.collect::<Option<Vec<String>>>()
+            });
+            match words {
+                None => {}
+                Some(Some(words)) => notify.extend(words),
+                Some(None) => {
+                    warning = Some(format!(
+                        "the notify of {} is not a list of words: it does not run in this terminal",
+                        file.display()
+                    ));
+                }
+            }
+        }
+    }
+    (format!("notify={}", json!(notify)), warning)
 }
 
-/// `$CODEX_HOME`, else `~/.codex`.
+/// `$CODEX_HOME` as the login shell sets it, as a terminal's Codex sees it, else `~/.codex`.
 pub fn codex_home() -> PathBuf {
-    std::env::var_os("CODEX_HOME")
+    crate::shell::login_var("CODEX_HOME")
+        .or_else(|| std::env::var_os("CODEX_HOME"))
         .map(PathBuf::from)
         .unwrap_or_else(|| crate::expand_tilde("~/.codex"))
+}
+
+/// The profile an `[agents]` command gives Codex (`-p`, `--profile`).
+fn codex_profile(command: &str) -> Option<&str> {
+    let mut words = command.split_whitespace();
+    while let Some(word) = words.next() {
+        if let Some(name) = word.strip_prefix("--profile=") {
+            return Some(name);
+        }
+        if word == "-p" || word == "--profile" {
+            return words.next();
+        }
+    }
+    None
 }
 
 /// `-c` overrides that give Codex a `termf mcp` server (`command`, `args`, `env` as `Agents::serve_mcp` makes it).
@@ -137,43 +202,132 @@ pub fn gemini_context(prompt: &Path) -> Option<Value> {
     } }))
 }
 
-/// [`crate::claude::SECRET_DENY`] for Gemini CLI, as rules of its policy engine (`--policy`): secret files are
-/// not read, the environment is not dumped, TermF's tokens are not named. Defense in depth, as for Claude Code.
+/// The commands [`crate::claude::SECRET_DENY`] refuses, as Gemini CLI's `commandRegex`: a bare dump of the
+/// environment (`env`, `printenv`, `export`, `set`, `declare -p|-x`), `cat` of a file whose name starts with `.env`,
+/// and any command that names TermF's tokens. `export NODE_ENV=…` or `set -e` stay allowed.
+pub const GEMINI_DENIED_COMMANDS: &str = r"^(env|printenv|export|set)$|^(env|printenv)\s|(^|\s)\S*/printenv(\s|$)|^export -p|^declare -[px]|^cat\s(.*\s)?(\S*/)?\.env\S*|dev\.termf\.cli|DEV\.TERMF\.CLI|TERMF_MCP_TOKEN";
+/// The files it refuses to read, as `argsPattern` over a tool's JSON arguments: a name that starts with `.env` or
+/// `id_`, ends with `.pem`, a process's `environ`, TermF's token folder.
+pub const GEMINI_DENIED_FILES: &str =
+    r#"[/"]\.env[^/"]*"|\.pem"|[/"]id_[^/"]*"|/proc/[^"]*/environ|dev\.termf\.cli|DEV\.TERMF\.CLI"#;
+
+/// [`crate::claude::SECRET_DENY`] for Gemini CLI, as rules of its policy engine (`--policy`), in `dir`: secret files
+/// are not read, the environment is not dumped, TermF's tokens are not named. Defense in depth, as for Claude Code.
+/// The same for every session, so one file, replaced whole.
 pub fn write_gemini_policy(dir: &Path) -> Result<PathBuf> {
     let mut rules = String::from("# TermF: what no Gemini CLI session it starts may do.\n");
-    let rule = |rules: &mut String, body: &str| {
+    for body in [
+        format!("toolName = \"run_shell_command\"\ncommandRegex = '{GEMINI_DENIED_COMMANDS}'"),
+        format!(
+            "toolName = [\"read_file\", \"read_many_files\"]\nargsPattern = '{GEMINI_DENIED_FILES}'"
+        ),
+    ] {
         rules.push_str(&format!(
             "\n[[rule]]\n{body}\ndecision = \"deny\"\npriority = 999\ndenyMessage = \"TermF keeps secrets out of reach\"\n"
         ));
-    };
-    for prefix in [
-        "printenv",
-        "env",
-        "export",
-        "set",
-        "declare -p",
-        "declare -x",
-    ] {
-        rule(
-            &mut rules,
-            &format!("toolName = \"run_shell_command\"\ncommandPrefix = \"{prefix}\""),
-        );
     }
-    let named = r"dev\.termf\.cli|DEV\.TERMF\.CLI|TERMF_MCP_TOKEN";
-    rule(
-        &mut rules,
-        &format!("toolName = \"run_shell_command\"\ncommandRegex = '{named}|cat .*\\.env'"),
-    );
-    rule(
-        &mut rules,
-        &format!(
-            "toolName = [\"read_file\", \"read_many_files\"]\nargsPattern = '\\.env|\\.pem|[/\"]id_|/proc/[^\"]*/environ|{named}'"
-        ),
-    );
     fs::create_dir_all(dir)?;
     let file = dir.join("gemini-policy.toml");
-    fs::write(&file, rules)?;
+    let tmp = dir.join(format!(".gemini-policy.{}.tmp", std::process::id()));
+    fs::write(&tmp, rules)?;
+    fs::rename(&tmp, &file)?;
     Ok(file)
+}
+
+/// What a Codex CLI or Gemini CLI terminal starts with, besides its program.
+#[derive(Debug, Default, PartialEq)]
+pub struct Tile {
+    /// Options right after the program, unquoted.
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    /// Said in the terminal before the agent starts.
+    pub warnings: Vec<String>,
+    /// Older than TermF needs: run as it is, without TermF's status, instructions or rules.
+    pub old: bool,
+}
+
+/// [`Tile`] of `command` for `tool`. `dir`: the session's folder, none without the local API; `termf`: the CLI its
+/// status hooks run; `prompt`: the library's instructions; `data_dir`: where the secret rules go without a folder.
+pub fn tile(
+    tool: Tool,
+    command: &str,
+    dir: Option<&Path>,
+    termf: Option<&Path>,
+    prompt: Option<&Path>,
+    data_dir: &Path,
+) -> Result<Tile> {
+    let mut tile = Tile::default();
+    let program = command.split_whitespace().next().unwrap_or(tool.program());
+    if let Err(e) = crate::claude::binary(program) {
+        tile.old = true;
+        tile.warnings.push(format!(
+            "TermF: {e:#}. This terminal runs it without TermF's status, instructions or secret rules."
+        ));
+        return Ok(tile);
+    }
+    let text = prompt
+        .and_then(|p| fs::read_to_string(p).ok())
+        .filter(|t| !t.trim().is_empty());
+    match tool {
+        Tool::Codex => {
+            if let Some(termf) = termf {
+                let (notify, warning) = codex_notify(termf, &codex_home(), codex_profile(command));
+                tile.args.extend(["-c".into(), notify]);
+                tile.warnings
+                    .extend(warning.map(|w| format!("TermF: {w}.")));
+            }
+            if let Some(text) = text {
+                let (instructions, cut) = codex_instructions(&text);
+                tile.args.extend(["-c".into(), instructions]);
+                if cut > 0 {
+                    tile.warnings.push(format!(
+                        "TermF: the library's instructions lost their last {cut} characters to fit the command line."
+                    ));
+                }
+            }
+        }
+        Tool::Gemini => {
+            if let Some(dir) = dir {
+                let settings = gemini_settings(dir, termf, prompt, None)?;
+                tile.env.push((
+                    GEMINI_SETTINGS_ENV.into(),
+                    settings.to_string_lossy().into_owned(),
+                ));
+            }
+            let policy = write_gemini_policy(dir.unwrap_or(data_dir))?;
+            tile.args
+                .extend(["--policy".into(), policy.to_string_lossy().into_owned()]);
+        }
+        Tool::Claude => {}
+    }
+    Ok(tile)
+}
+
+/// `command` once `lines` are printed, by the shell `termf_term::shell_command` runs it with.
+pub fn after_lines(command: &str, lines: &[String], quote: impl Fn(&str) -> String) -> String {
+    if lines.is_empty() {
+        return command.to_owned();
+    }
+    if cfg!(windows) {
+        // cmd.exe: `^` escapes what `echo` would read as its own.
+        let escape = |l: &str| {
+            l.chars().fold(String::new(), |mut out, c| {
+                if "&|<>^%\"".contains(c) {
+                    out.push('^');
+                }
+                out.push(c);
+                out
+            })
+        };
+        let echoes: Vec<String> = lines
+            .iter()
+            .map(|l| format!("echo {}", escape(l)))
+            .collect();
+        format!("{}& {command}", echoes.join("& "))
+    } else {
+        let quoted: Vec<String> = lines.iter().map(|l| quote(l)).collect();
+        format!("printf '%s\\n\\n' {}; {command}", quoted.join(" "))
+    }
 }
 
 /// One word for the shell Gemini CLI runs a hook command in.
@@ -198,40 +352,72 @@ mod tests {
         dir
     }
 
+    fn notify_words(arg: &str) -> Vec<String> {
+        let parsed: toml::Table = toml::from_str(arg).unwrap();
+        let words = parsed["notify"].as_array().unwrap().iter();
+        words.map(|v| v.as_str().unwrap().to_owned()).collect()
+    }
+
     #[test]
     fn codex_overrides_are_toml() {
         let text = "Be \"brief\".\nUse\ttabs \\ and é\u{7f}";
-        let arg = codex_instructions(text);
+        let (arg, cut) = codex_instructions(text);
         let parsed: toml::Table = toml::from_str(&arg).unwrap();
         assert_eq!(parsed["developer_instructions"].as_str(), Some(text));
+        assert_eq!(cut, 0);
+
+        let long = format!("{}\nlast line", "x".repeat(INSTRUCTIONS_MAX));
+        let (arg, cut) = codex_instructions(&format!("first line\n{long}"));
+        let parsed: toml::Table = toml::from_str(&arg).unwrap();
+        let kept = parsed["developer_instructions"].as_str().unwrap();
+        assert!(
+            kept.starts_with("first line\n\n[TermF cut"),
+            "cut at a line"
+        );
+        assert_eq!(cut, long.chars().count() + 1);
 
         let home = temp("codex");
         let termf = Path::new("/opt/Term F/termf");
-        let mine: toml::Table = toml::from_str(&codex_notify(termf, &home)).unwrap();
+        let (mine, warning) = codex_notify(termf, &home, None);
         assert_eq!(
-            mine["notify"],
-            toml::Value::Array(vec![
-                "/opt/Term F/termf".into(),
-                "hook".into(),
-                CODEX_TURN_DONE.into()
-            ])
+            notify_words(&mine),
+            ["/opt/Term F/termf", "hook", CODEX_TURN_DONE]
         );
+        assert_eq!(warning, None);
         fs::write(
             home.join("config.toml"),
-            "model = \"o9\"\nnotify = [\"python3\", \"/home/alex/notify.py\"]\n",
+            "model = \"o9\"\nnotify = [\"python3\", \"/home/alex/notify.py\"]\n\
+             [profiles.work]\nnotify = [\"say\", \"done\"]\n",
         )
         .unwrap();
-        let chained: toml::Table = toml::from_str(&codex_notify(termf, &home)).unwrap();
-        let chained: Vec<&str> = chained["notify"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|v| v.as_str())
-            .collect();
+        let (chained, _) = codex_notify(termf, &home, None);
         assert_eq!(
-            &chained[3..],
+            notify_words(&chained)[3..],
             ["python3", "/home/alex/notify.py"],
             "yours still runs"
+        );
+        let (work, _) = codex_notify(termf, &home, codex_profile("codex -p work --yolo"));
+        assert_eq!(notify_words(&work)[3..], ["say", "done"], "the profile's");
+        fs::write(
+            home.join("config.toml"),
+            "profile = \"work\"\n[profiles.work]\nnotify = [\"say\"]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            notify_words(&codex_notify(termf, &home, None).0)[3..],
+            ["say"]
+        );
+        assert_eq!(codex_profile("codex --profile=ci"), Some("ci"));
+        fs::write(home.join("config.toml"), "notify = \"say done\"\n").unwrap();
+        let (alone, warning) = codex_notify(termf, &home, None);
+        assert_eq!(notify_words(&alone).len(), 3);
+        assert!(warning.unwrap().contains("not a list of words"));
+        fs::write(home.join("config.toml"), "notify = [").unwrap();
+        assert!(
+            codex_notify(termf, &home, None)
+                .1
+                .unwrap()
+                .contains("cannot be read")
         );
 
         let server = json!({"command": "/opt/termf", "args": ["mcp"], "env": {"TERMF_SOCKET": "/s", "TERMF_MCP_TOKEN": "${TERMF_MCP_TOKEN}"}});
@@ -293,17 +479,149 @@ mod tests {
             context["hookSpecificOutput"]["additionalContext"],
             "## Role: front"
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
+    /// Gemini CLI reads the rules as JavaScript regular expressions; these use nothing the two read differently.
+    #[test]
+    fn gemini_policy_refuses_what_secret_deny_does_and_no_more() {
+        let dir = temp("policy");
         let policy = fs::read_to_string(write_gemini_policy(&dir).unwrap()).unwrap();
         let parsed: toml::Table = toml::from_str(&policy).unwrap();
         let rules = parsed["rule"].as_array().unwrap();
         assert!(rules.iter().all(|r| r["decision"].as_str() == Some("deny")));
-        assert!(
-            rules
-                .iter()
-                .any(|r| r.get("commandPrefix").and_then(|p| p.as_str()) == Some("printenv"))
+        let commands = regex::Regex::new(rules[0]["commandRegex"].as_str().unwrap()).unwrap();
+        for denied in [
+            "env",
+            "env FOO=1 make",
+            "printenv",
+            "printenv HOME",
+            "/usr/bin/printenv",
+            "export",
+            "export -p",
+            "set",
+            "declare -p",
+            "declare -x",
+            "cat .env",
+            "cat -n src/.env.local",
+            "echo $TERMF_MCP_TOKEN",
+            "cat ~/Library/Application\\ Support/dev.termf.cli/token",
+        ] {
+            assert!(commands.is_match(denied), "{denied}");
+        }
+        for allowed in [
+            "export NODE_ENV=production",
+            "set -e",
+            "cat config.environment.ts",
+            "grep -r printenv src/",
+            "environment-check",
+            "cargo test",
+        ] {
+            assert!(!commands.is_match(allowed), "{allowed}");
+        }
+        let files = regex::Regex::new(rules[1]["argsPattern"].as_str().unwrap()).unwrap();
+        let args = |path: &str| json!({ "file_path": path }).to_string();
+        for denied in [
+            "/repo/.env",
+            ".env.local",
+            "/home/alex/.ssh/id_ed25519",
+            "certs/server.pem",
+            "/proc/1/environ",
+        ] {
+            assert!(files.is_match(&args(denied)), "{denied}");
+        }
+        for allowed in [
+            "src/config.environment.ts",
+            "src/identity.rs",
+            "docs/env.md",
+            "a.env.md",
+        ] {
+            assert!(!files.is_match(&args(allowed)), "{allowed}");
+        }
+        assert_eq!(
+            fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no temporary file left"
         );
-        assert!(policy.contains("TERMF_MCP_TOKEN") && policy.contains("\\.env"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_terminal_without_termf_or_too_old_still_starts() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp("tile");
+        let fake = |name: &str, version: &str| {
+            let path = dir.join(name);
+            fs::write(&path, format!("#!/bin/sh\necho '{version}'\n")).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let data = dir.join("data");
+        let gemini = fake("gemini", "0.70.0");
+        let plain = tile(
+            Tool::Gemini,
+            &gemini.to_string_lossy(),
+            None,
+            None,
+            None,
+            &data,
+        )
+        .unwrap();
+        let policy = data.join("gemini-policy.toml");
+        assert_eq!(
+            plain.args,
+            ["--policy".to_owned(), policy.to_string_lossy().into_owned()]
+        );
+        assert!(
+            policy.is_file(),
+            "the secret rules even without the local API"
+        );
+        assert!(!plain.old && plain.warnings.is_empty() && plain.env.is_empty());
+
+        let codex = fake("codex", "codex-cli 0.90.0");
+        let prompt = dir.join("prompt.md");
+        fs::write(&prompt, "## Role: docs").unwrap();
+        let old = tile(
+            Tool::Codex,
+            &codex.to_string_lossy(),
+            None,
+            None,
+            Some(&prompt),
+            &data,
+        )
+        .unwrap();
+        assert!(old.old && old.args.is_empty(), "run as it is");
+        assert!(
+            old.warnings[0].contains("Codex CLI 0.90.0 at")
+                && old.warnings[0].contains("without TermF's status"),
+            "{:?}",
+            old.warnings
+        );
+        let codex = fake("codex", "codex-cli 0.171.0");
+        let recent = tile(
+            Tool::Codex,
+            &codex.to_string_lossy(),
+            None,
+            None,
+            Some(&prompt),
+            &data,
+        )
+        .unwrap();
+        assert_eq!(
+            recent.args,
+            [
+                "-c".to_owned(),
+                "developer_instructions=\"## Role: docs\"".into()
+            ]
+        );
+
+        let quote = |s: &str| format!("'{s}'");
+        assert_eq!(after_lines("codex", &[], quote), "codex");
+        assert_eq!(
+            after_lines("codex -c x", &["TermF: too old.".into()], quote),
+            "printf '%s\\n\\n' 'TermF: too old.'; codex -c x"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 }

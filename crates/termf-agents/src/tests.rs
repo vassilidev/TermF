@@ -1470,11 +1470,10 @@ fn real_claude() {
         )
         .unwrap();
     let second = wait(2);
-    let pid = crate::store::Store::open(&root.join("data"))
-        .unwrap()
-        .pid(id)
-        .unwrap();
-    let recognized = pid.is_some_and(|pid| crate::agents::ours(pid, &session.session_id));
+    let store = crate::store::Store::open(&root.join("data")).unwrap();
+    let pid = store.pid(id).unwrap();
+    let dir = store.dir(id).join("session");
+    let recognized = pid.is_some_and(|pid| crate::agents::ours(pid, &session.session_id, &dir));
     let events: Vec<AgentEvent> = agents
         .events(id, 0)
         .unwrap()
@@ -1541,7 +1540,8 @@ for a in "$@"; do [ "$prev" = resume ] && tid=$a; prev=$a; done
 say() { printf '%s\n' "$1"; }
 say "{\"type\":\"thread.started\",\"thread_id\":\"$tid\"}"
 say '{"type":"turn.started"}'
-case "$prompt" in
+# The user's words come last, after the instructions TermF puts first.
+case "$(printf '%s\n' "$prompt" | tail -n 1)" in
   *slow*)
     trap 'exit 130' INT
     say '{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"bash -lc sleep","status":"in_progress"}}'
@@ -1691,17 +1691,22 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
         ]
     );
     assert!(!runs[0].contains(&"resume".to_owned()));
-    let instructions = runs[0]
-        .iter()
-        .find(|a| a.starts_with("developer_instructions="))
-        .unwrap();
-    assert!(instructions.contains("## Role: docs"), "{instructions}");
+    assert!(
+        !runs[0].iter().any(|a| a.contains("Role")),
+        "no instructions on a command line cmd.exe would cut"
+    );
     assert_eq!(
         runs[1][runs[1].len() - 3..],
         ["resume", "019a6b2e-0000-7000-8000-00000000c0de", "-"]
     );
     let stdin = fs::read_to_string(format!("{}.stdin", codex.display())).unwrap();
-    assert_eq!(stdin, "list the repo\n--- end\nand again\n--- end\n");
+    let turns: Vec<&str> = stdin.split("--- end\n").collect();
+    assert!(
+        turns[0].starts_with("<termf-instructions>\n## Role: docs"),
+        "{stdin}"
+    );
+    assert!(turns[0].ends_with("list the repo\n"));
+    assert_eq!(turns[1], "and again\n", "once per conversation");
     assert_eq!(
         fs::read_to_string(env.dir.join("AGENTS.md")).unwrap(),
         "mine",
@@ -1912,4 +1917,45 @@ fn codex_and_gemini_refuse_what_only_claude_code_does() {
             && old.contains("is too old: TermF needs 0.171.0 or later"),
         "{old}"
     );
+}
+
+#[test]
+fn the_first_codex_process_left_by_the_last_launch_is_stopped() {
+    let env = Env::new("codex-orphan");
+    env.with_cli("");
+    let spec = SessionSpec {
+        cwd: env.dir.clone(),
+        agent: Some("codex".into()),
+        ..SessionSpec::default()
+    };
+    let id = env.agents.start(spec, Some("go slow")).unwrap().id;
+    env.until("the command under way", || {
+        env.events(id)
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolUse { id, .. } if id == "item_0"))
+    });
+    let store = crate::store::Store::open(&env.root.join("data")).unwrap();
+    let session = store.session(id).unwrap();
+    let pid = store.pid(id).unwrap().unwrap();
+    assert_eq!(
+        session.session_id, "019a6b2e-0000-7000-8000-00000000c0de",
+        "the id Codex gave, on no command line yet"
+    );
+    assert!(crate::agents::ours(
+        pid,
+        &session.session_id,
+        &store.dir(id).join("session")
+    ));
+    assert!(
+        !crate::agents::ours(pid, "another", &store.dir(id + 1).join("session")),
+        "another session's"
+    );
+    // The app quit without stopping it: the next launch does.
+    let _again = Agents::build(
+        env.root.join("config"),
+        env.root.join("data"),
+        Vec::new(),
+        |_| {},
+    );
+    env.until("the orphan killed", || !running(pid));
 }

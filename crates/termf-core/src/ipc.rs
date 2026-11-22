@@ -709,6 +709,51 @@ pub fn keeps_awake(session: &SessionSummary) -> bool {
     }
 }
 
+/// The line someone types at Codex CLI's prompt, as far as TermF can tell from the keys: Codex says when a turn ends,
+/// not when one starts.
+#[derive(Default, Debug)]
+pub struct Typed {
+    line: String,
+}
+
+impl Typed {
+    /// Takes terminal input; `true` when Enter sends a message: neither an empty line nor a `/command`.
+    pub fn send(&mut self, input: &[u8]) -> bool {
+        // Pasted text comes between bracketed-paste marks; any other escape sequence (arrows, reports) leaves the
+        // line as it is, and Esc alone drops it.
+        let pasted = input
+            .strip_prefix(b"\x1b[200~")
+            .map(|rest| rest.strip_suffix(b"\x1b[201~").unwrap_or(rest));
+        let input = match pasted {
+            Some(text) => text,
+            None if input == b"\x1b" => {
+                self.line.clear();
+                return false;
+            }
+            None if input.first() == Some(&0x1b) => return false,
+            None => input,
+        };
+        let mut sent = false;
+        for c in String::from_utf8_lossy(input).chars() {
+            match c {
+                '\r' => {
+                    let line = std::mem::take(&mut self.line);
+                    let line = line.trim();
+                    sent |= !line.is_empty() && !line.starts_with('/');
+                }
+                '\x7f' | '\x08' => {
+                    self.line.pop();
+                }
+                // Ctrl+U, Ctrl+C.
+                '\x15' | '\x03' => self.line.clear(),
+                c if !c.is_control() || c == '\n' => self.line.push(c),
+                _ => {}
+            }
+        }
+        sent
+    }
+}
+
 /// Whether terminal input can answer a prompt: escape sequences (arrows, focus and mouse reports) cannot.
 pub fn answers_prompt(input: &[u8]) -> bool {
     input.first().is_some_and(|&b| b != 0x1b)
@@ -919,6 +964,31 @@ mod tests {
         assert!(!token_matches("abc124", "abc123"));
         assert!(!token_matches("abc", "abc123"));
         assert!(!token_matches("", "abc123"));
+    }
+
+    #[test]
+    fn a_codex_turn_starts_with_a_message_sent() {
+        let mut typed = Typed::default();
+        assert!(!typed.send(b"\r"), "an empty prompt");
+        assert!(!typed.send(b"/model"));
+        assert!(!typed.send(b"\r"), "a command");
+        assert!(!typed.send(b"\x1b[B"), "an arrow in its menu");
+        assert!(!typed.send(b"\r"));
+        for key in [&b"fix"[..], b" it", b"x", b"\x7f"] {
+            assert!(!typed.send(key));
+        }
+        assert!(typed.send(b"\r"), "a message");
+        typed.send(b"drop this");
+        assert!(!typed.send(b"\x1b"), "Esc");
+        assert!(!typed.send(b"\r"), "nothing left");
+        typed.send(b"no");
+        typed.send(b"\x15");
+        assert!(!typed.send(b"\r"), "Ctrl+U");
+        assert!(
+            typed.send(b"\x1b[200~pasted\nlines\x1b[201~\r"),
+            "pasted, then Enter"
+        );
+        assert!(typed.send("é\r".as_bytes()));
     }
 
     #[test]

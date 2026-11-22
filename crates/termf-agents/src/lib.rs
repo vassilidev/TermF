@@ -81,6 +81,8 @@ pub struct Launch<'a> {
     pub guard: Option<&'a Path>,
     /// Gemini CLI's rules that keep secrets out of reach (`--policy`).
     pub policy: Option<&'a Path>,
+    /// The session's own folder for this process, whose path marks it (`ours`).
+    pub dir: &'a Path,
 }
 
 /// What a session runs with. Empty values mean the agent's default.
