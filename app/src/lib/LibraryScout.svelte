@@ -53,6 +53,7 @@
   };
   const layerLabel: Record<Layer, Key> = {
     shipped: "layerShipped",
+    package: "stackLayer",
     global: "layerGlobal",
     project: "layerProject",
     repo: "layerRepo",

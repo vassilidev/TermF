@@ -1,0 +1,8 @@
+- Version: the `go` line of `go.mod` (minimum and language version; per-iteration loop variables from 1.22), `toolchain` line, `go version`.
+- Docs for this version: `https://go.dev/doc/go1.<minor>` release notes and `pkg.go.dev`; gopls MCP (`gopls mcp`, notes from `gopls mcp -instructions`).
+- Verify: the project's Makefile or CI steps, else `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race ./...`, `golangci-lint run`, `govulncheck ./...`.
+- Go 1.27: generic methods; `encoding/json` on the v2 implementation (error texts differ); `uuid` and `crypto/mldsa` in the standard library.
+- `go test` vets `stdversion`: no symbol newer than the `go` line.
+- Tools via the `tool` directive and `go tool` (1.24+), not `tools.go`.
+- golangci-lint v2 config needs `version: "2"`.
+- Read the skill `go` before writing Go code or tests.

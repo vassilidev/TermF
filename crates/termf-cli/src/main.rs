@@ -15,6 +15,8 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 mod agent;
 mod ci;
 mod claude;
+mod mcp;
+mod memory;
 mod review;
 mod schedule;
 mod scout;
@@ -34,6 +36,8 @@ usage:
   termf hook <event>                    forward a Claude Code hook (JSON on stdin)
   termf statusline [<file>]             Claude Code status line of TermF sessions: reports the context,
                                         then runs the status line command saved in <file>
+  termf mcp                             MCP server (stdio) of TermF's tools, for the CTO conversation
+                                        TermF starts; serves nothing otherwise
   termf library ls [--kind <kind>] [--repo <path>] [--project <id>]
                                         list the library: each item's layer, state and why
   termf library explain <name> [--kind <kind>] [--repo <path>] [--project <id>]
@@ -129,6 +133,13 @@ usage:
   termf team run <run> [--workflow <name>] [--rule <rule>=<level>]... [--budget <usd>]
                                         start the run's team, or go on with it (paused, stopped,
                                         out of budget); levels: off, advise, warn, block
+  termf team run --request <text> [--project <id>] [--repo <name>] [--workflow <name>] [--budget <usd>]
+                                        start the team on a request written here, in a new run of its
+                                        own (the project by default: the one of this folder)
+  termf team route <run>                the CTO's routing: workflow, steps, squads, budget, why
+  termf team answer <run> <step> <question>=<answer>... [--note <text>]
+                                        answer a step's questions at once (a multiple choice:
+                                        the question once per option; none: <question>=)
   termf team status <run>               its plan, its steps, what waits for you, what the rules found
   termf team events <run> [--after <n>] what happened, step by step
   termf team approve <run> <step>       let a gate pass, or accept a blocked step as it is
@@ -148,6 +159,14 @@ usage:
                                         decide a screen; once none is pending, the team's visual gate
                                         goes on, stops the run, or sends the changes to the agent
   termf review pr <id> [--yes]          show, then (with --yes) post the images on the run's pull request
+  termf ask <question>... [--project <id>] [--budget <usd>]
+                                        ask the project's expert (default: the project of this folder);
+                                        it searches the project memory and reads the code, read-only, and
+                                        answers with its sources (budget: $1 at most)
+  termf memory search <query>... [--project <id>] [--source <s>]... [--limit <n>]
+                                        search the project memory: conversations, runs, library, CLAUDE.md
+                                        and automatic memory, docs, git history, artifacts (masked, local)
+  termf memory reindex [--project <id>] bring the memory of a project (default: every project) up to date
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
   termf claude settings get <key> [--scope <s>] [--repo <path>]
@@ -277,7 +296,10 @@ fn run(args: &[&str]) -> Result<()> {
         ["team", rest @ ..] => team::run(rest.to_vec())?,
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["vault", rest @ ..] => vault::run(rest.to_vec())?,
+        ["mcp"] => mcp::serve()?,
         ["review", rest @ ..] => review::run(rest.to_vec())?,
+        ["memory", rest @ ..] => memory::run(rest.to_vec())?,
+        ["ask", rest @ ..] => memory::ask(rest.to_vec())?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,
@@ -405,6 +427,13 @@ fn why(item: &Item) -> String {
             };
             format!("{}{} in {place}", if *on { '+' } else { '-' }, item.name)
         }
+        None if !item.activated_by.is_empty() => {
+            format!("switched on by the stack: {}", item.activated_by.join(", "))
+        }
+        None if item.layer == Layer::Package => format!(
+            "shipped by the package {}, on where Claude Code trusts the repository",
+            item.package.as_ref().map_or("", |p| p.name.as_str())
+        ),
         None if item.layer == Layer::Shipped => "shipped with TermF, off until enabled".into(),
         None if item.layer == Layer::Repo => "from the repository, off until you enable it".into(),
         None => format!("in the {} library", item.layer),

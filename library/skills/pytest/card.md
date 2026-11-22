@@ -1,0 +1,8 @@
+- Version: `pytest` in the lockfile; config in the first of `pytest.toml`, `.pytest.toml`, `pytest.ini`, `.pytest.ini`, `pyproject.toml`, `tox.ini`, `setup.cfg` (never merged).
+- Docs for this version: `https://docs.pytest.org/en/stable/changelog.html` and the docs of the plugins installed (pytest-asyncio, pytest-django, pytest-xdist).
+- Verify: the project's test command, else `uv run pytest`; narrow with `pytest path::test -x`, then `pytest --lf`.
+- pytest 9: native `[tool.pytest]` (TOML lists) or legacy `[tool.pytest.ini_options]`, never both; `strict = true` needs every marker registered.
+- pytest 9.2: `indirect`, `ids`, `scope` of parametrize are keyword-only; built-in `subtests` fixture.
+- pytest-asyncio 1.x: no `event_loop` fixture; strict mode needs `@pytest.mark.asyncio` on each async test.
+- Each test comes from a criterion and fails without the change; mock only what leaves the project.
+- Read the skill `pytest` before writing or fixing Python tests.

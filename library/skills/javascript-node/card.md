@@ -1,0 +1,11 @@
+- Version: read it in `.nvmrc`, `.node-version` or `engines.node` of package.json, and compare with `node --version`; the package manager in the lockfile or `packageManager`.
+- Docs for this version: https://nodejs.org/llms.txt indexes the API pages in Markdown (`nodejs.org/docs/latest/api/<module>.md`, `latest-v22.x/…` for older lines).
+- Verify: the project's test/lint/typecheck/build scripts through its package manager; else `node --test`, `npx eslint .`.
+- Node 26 is LTS, 24 and 22 in maintenance, 20 is end of life (2026-04-30); 27 is alpha.
+- `node file.ts` strips types only: no `enum`, runtime namespaces, parameter properties or decorators; tsconfig `paths` ignored; imports keep `.ts`; `import type` for types; no type-check.
+- `"type"` in the nearest package.json decides ESM or CommonJS for `.js`; ESM imports need the file extension and use `import.meta.dirname`.
+- `require()` of ESM works (no top-level await): no need to convert a CommonJS project to use an ESM-only package.
+- `node --run` skips pre/post scripts; `--env-file` errors on a missing file; corepack is no longer bundled.
+- ESLint 10 ignores `.eslintrc*` and `.eslintignore`: only `eslint.config.*`, looked up from each file's folder.
+- Child processes with `execFile`/`spawn` and an argument array; never `exec` or `shell: true` with input.
+- Read the skill `javascript-node` before writing server or CLI code, scripts or ESLint config, or changing the Node version or module system.

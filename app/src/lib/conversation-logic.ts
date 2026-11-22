@@ -31,7 +31,19 @@ export type StoredEvent = { id: number; session: number; at: number } & (
   | { kind: "exited"; code: number | null }
   | { kind: "taken_over"; tile: number }
   | { kind: "handed_back" }
+  | ({ kind: "notice" } & NoticeFields)
 );
+
+/** A message from TermF, not from the user: `waiting` (a gate), `blocked`, `step` or `direct` (sent to another agent). */
+export type NoticeFields = {
+  about: string;
+  run?: number;
+  step?: string;
+  role?: string;
+  conversation?: number;
+  detail?: string;
+  text: string;
+};
 
 export type Tool = {
   type: "tool";
@@ -59,7 +71,8 @@ export type Item =
   | { type: "denied"; key: number; tool: string; message: string }
   | { type: "error"; key: number; message: string }
   | { type: "taken_over"; key: number; tile: number }
-  | { type: "handed_back"; key: number };
+  | { type: "handed_back"; key: number }
+  | ({ type: "notice"; key: number } & NoticeFields);
 export type End = Extract<StoredEvent, { kind: "turn_end" }>;
 /** A message and what followed; `user` is null for what happened outside a turn. */
 export type Turn = { key: number; user: string | null; items: Item[]; end: End | null };
@@ -154,6 +167,11 @@ export function thread(events: StoredEvent[]): Turn[] {
       case "handed_back":
         place({ type: "handed_back", key: e.id });
         break;
+      case "notice": {
+        const { id, session, at, kind, ...fields } = e;
+        place({ type: "notice", key: id, ...fields });
+        break;
+      }
       case "turn_end":
         open(e.id).end = e;
         break;
@@ -195,4 +213,31 @@ export function blocked(state: AgentState): "working" | "waiting" | "interactive
 export function nextAfter(order: string[], waiting: string[], current: string | null): string | null {
   const from = current === null ? -1 : order.indexOf(current);
   return waiting.find((k) => order.indexOf(k) > from) ?? waiting[0] ?? null;
+}
+
+/** `@role message` to one of `roles`: who it goes to and what; null for a message to the CTO itself. */
+export function addressed(draft: string, roles: string[]): { role: string; text: string } | null {
+  const m = /^@([\w-]+)\s+(\S[\s\S]*)$/.exec(draft.trim());
+  const role = m?.[1].toLowerCase() ?? "";
+  return m && roles.includes(role) ? { role, text: m[2].trim() } : null;
+}
+
+type Pinnable = { mcp?: boolean; budget?: number | null; role?: string | null };
+
+/** A project's standing conversation (the CTO's, the expert's): TermF's tools and no budget. The expert's answers to
+ * other agents each have a budget. */
+export function pinned(s: Pinnable): boolean {
+  return !!s.mcp && s.budget == null;
+}
+
+/** For display only: the standing conversations first, the CTO's on top, the rest in the order given. */
+export function pinnedFirst<T extends Pinnable>(list: T[]): T[] {
+  const rank = (s: T) => (!pinned(s) ? 0 : s.role === "cto" ? 2 : 1);
+  return [2, 1, 0].flatMap((r) => list.filter((s) => rank(s) === r));
+}
+
+/** While the draft is `@` and the start of a role's name: the roles it may be, in their order. */
+export function mentioned(draft: string, roles: string[]): string[] {
+  const m = /^@([\w-]*)$/.exec(draft);
+  return m ? roles.filter((r) => r.startsWith(m[1].toLowerCase())) : [];
 }

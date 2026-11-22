@@ -2,15 +2,40 @@ description = "Frame → plan → implement → checks → rules → security re
 max_parallel_agents = 4
 budget_usd = 15
 
+[steps.prd]
+type = "agent"
+role = "pm"
+optional = true
+enabled = false
+prompt = "The request is a vague epic: write its short PRD before it is framed. Read the code if it helps; change nothing. Put the PRD in your report's summary; with a doubt that blocks the work, report status \"blocked\" with your questions."
+
 [steps.frame]
 type = "agent"
 role = "po"
+needs = ["prd"]
+optional = true
 prompt = "Turn the ticket into explicit acceptance criteria and an out-of-scope list. Read the code if it helps; change nothing. Put the criteria, the out-of-scope list and any doubt in your report's summary; with a doubt that blocks the work, report status \"blocked\" with your questions."
+
+[steps.architecture]
+type = "agent"
+role = "architect"
+needs = ["frame"]
+optional = true
+enabled = false
+prompt = "Settle the design decision the request depends on, before it is planned: the options, the decision you propose and the contracts the tasks will build on. Change nothing: put them in your report's summary."
+
+[steps.ux]
+type = "agent"
+role = "ux"
+needs = ["frame"]
+optional = true
+enabled = false
+prompt = "Specify how the interface changes, before the work is planned: flows, every state, the components to reuse, accessibility. Change nothing: put the spec in your report's summary and the screens to review in affected_views."
 
 [steps.plan]
 type = "agent"
 role = "lead"
-needs = ["frame"]
+needs = ["frame", "architecture", "ux"]
 
 [steps.approve-plan]
 type = "gate"
@@ -36,11 +61,19 @@ role = "secops"
 needs = ["rules"]
 prompt = "Review the run's changes (git diff of this branch against its base) for vulnerabilities, abuse cases and vulnerable dependencies. Change nothing: put what you find in your report."
 
+[steps.seo]
+type = "agent"
+role = "seo"
+needs = ["rules"]
+optional = true
+enabled = false
+prompt = "Review the run's changes (git diff of this branch against its base) for search and web performance: metadata, structured data, social cards, Core Web Vitals. Change nothing, not even a file: put what you find, page by page, in your report."
+
 [steps.visual]
 type = "visual"
 needs = ["rules"]
 
 [steps.deliver]
 type = "connector"
-needs = ["security", "visual"]
+needs = ["security", "seo", "visual"]
 actions = ["commit", "pull_request"]

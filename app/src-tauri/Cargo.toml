@@ -22,6 +22,7 @@ termf-core = { path = "../../crates/termf-core" }
 termf-term = { path = "../../crates/termf-term" }
 termf-files = { path = "../../crates/termf-files" }
 termf-library = { path = "../../crates/termf-library" }
+termf-memory = { path = "../../crates/termf-memory" }
 termf-schedule = { path = "../../crates/termf-schedule" }
 termf-ssh = { path = "../../crates/termf-ssh" }
 termf-sync = { path = "../../crates/termf-sync" }

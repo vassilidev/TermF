@@ -1,0 +1,8 @@
+- Version: `rspec-rails`, `rspec-core`, `minitest`, `factory_bot`, `capybara` in `Gemfile.lock`; `spec/` + `rails_helper.rb` is RSpec, `test/` + `test_helper.rb` is Minitest.
+- Docs for this version: rspec-rails feature docs on GitHub, the Rails testing guide of the app's version, Minitest's `History.rdoc`.
+- Verify: `bin/ci` when present, else `bin/rails test` + `bin/rails test:system`, or `bundle exec rspec`; one test with `path:line`.
+- Request specs or integration tests for endpoints (no controller specs); system tests with Capybara for browser flows.
+- No `allow_any_instance_of`; mock only what leaves the app.
+- Minitest 6: `minitest-mock` is a separate gem, `assert_nil` for nil, no `MiniTest` constant.
+- `bin/rails test` skips system tests; RSpec `--only-failures` needs the persistence file configured.
+- Read the skill `rspec` before writing or fixing Ruby tests.

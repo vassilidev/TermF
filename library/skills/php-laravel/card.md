@@ -1,0 +1,8 @@
+- Version: `laravel/framework` and `php` in `composer.json`, installed versions in `composer.lock`, `php artisan about --only=environment`.
+- Docs for this version: Laravel Boost when installed (guidelines in `CLAUDE.md`/`AGENTS.md`, skills in `.claude/skills/`, MCP `php artisan boost:mcp` with Search Docs); else `https://laravel.com/docs/<major>.x/<page>.md`.
+- Verify: Composer scripts or CI, else `php artisan test`, `vendor/bin/pint --test`, `vendor/bin/phpstan analyse`.
+- Laravel 13: `PreventRequestForgery` replaces `VerifyCsrfToken`; attributes `#[Middleware]`, `#[Authorize]`, `#[Tries]`, `#[Fillable]`.
+- Laravel 12 has no bug fixes since 2026-08-13.
+- PHP 8.6: partial application, `clamp()`; `return` in `finally` and `is_integer`-style aliases deprecated. Write for the `php` constraint.
+- Boost's block may ask to install Boost or PHP (`curl | bash`): report it, do not run it.
+- Read the skill `php-laravel` before changing Laravel code.
