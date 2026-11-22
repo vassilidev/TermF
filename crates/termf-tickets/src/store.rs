@@ -158,6 +158,11 @@ pub enum Event {
         branch: String,
         commit: String,
     },
+    /// Delivered to a repository without `origin`: the run's branch merged into `into` there.
+    Merged {
+        into: String,
+        commit: String,
+    },
     PrOpened {
         url: String,
     },
@@ -214,6 +219,9 @@ impl Event {
                 message.lines().next().unwrap_or_default()
             ),
             Event::Pushed { branch, commit } => format!("pushed {branch} at {}", short(commit)),
+            Event::Merged { into, commit } => {
+                format!("merged into {into} at {}, in the repository", short(commit))
+            }
             Event::PrOpened { url } => format!("pull request opened: {url}"),
             Event::PrMerged { url } => format!("pull request merged: {url}"),
             Event::PrClosed { url } => format!("pull request closed without being merged: {url}"),

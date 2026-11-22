@@ -172,6 +172,8 @@
         return t("eventCommitted", { commit: short(e.commit), message: e.message.split("\n")[0] });
       case "pushed":
         return t("eventPushed", { branch: e.branch, commit: short(e.commit) });
+      case "merged":
+        return t("greenfieldEventMerged", { into: e.into, commit: short(e.commit) });
       case "pr_opened":
         return t("eventPr", { url: e.url });
       case "pr_merged":

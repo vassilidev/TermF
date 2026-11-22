@@ -123,7 +123,9 @@
         <p class="notice"><Info size={14} aria-hidden="true" />{t("deliverNothing")}</p>
       {/if}
       <p class="how">
-        {run.prUrl
+        {p.local
+          ? t("greenfieldDeliverLocal", { branch: run.branch ?? "", target: p.local })
+          : run.prUrl
           ? t("deliverHowAgain", { branch: run.branch ?? "" })
           : t("deliverHow", { branch: run.branch ?? "", target: (run.base ?? "").replace(/^origin\//, "") })}
       </p>

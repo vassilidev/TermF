@@ -445,6 +445,51 @@ fn kickoff_researches_then_waits_for_your_decision_before_the_architecture() {
     );
 }
 
+/// A project created from scratch without GitHub, from the kickoff to its delivery: merged into `main` here.
+#[test]
+fn kickoff_delivers_a_project_without_github_into_its_main() {
+    let mut env = Env::new("kickoff-local");
+    let mut tickets = termf_tickets::Tickets::new(env.config.clone(), env.data.clone());
+    tickets.env = env.env.clone();
+    let ticket = tickets
+        .start_request("Plant care: water reminders", "acme", Some("api"))
+        .unwrap();
+    env.target = Target::of(&ticket, &env.config, &env.data).unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[])])),
+    );
+    env.script("implement:T1", "mkdir -p src/api; echo a > src/api/a.txt\n");
+    env.team
+        .start(env.target.clone(), options("kickoff"))
+        .unwrap();
+    let gate = |key: &'static str| {
+        move |r: &TeamRun| {
+            r.steps
+                .iter()
+                .any(|s| s.key == key && s.state == StepState::Waiting)
+        }
+    };
+    env.until("the decision", gate("approve-decision"));
+    env.team.approve(ticket.id, "approve-decision").unwrap();
+    env.until("the plan", gate("approve-plan"));
+    env.team.approve(ticket.id, "approve-plan").unwrap();
+    env.until("the delivery gate", delivery);
+    env.team.approve(ticket.id, "deliver").unwrap();
+
+    let preview = tickets.deliver_preview(ticket.id).unwrap();
+    assert_eq!(preview.local.as_deref(), Some("main"), "no origin");
+    let delivered = tickets.deliver(ticket.id, &preview.fingerprint).unwrap();
+    assert_eq!(delivered.run.status, termf_tickets::RunStatus::Delivered);
+    assert_eq!(delivered.run.pr_url, None);
+    let repo = &env.target.repo_path;
+    assert_eq!(git(repo, &env.env, &["show", "main:src/api/a.txt"]), "a");
+    assert!(
+        repo.join("src/api/a.txt").is_file(),
+        "main is checked out: its files follow"
+    );
+}
+
 #[test]
 fn plans_waits_at_the_gate_then_runs_the_dag() {
     let env = Env::new("dag");
