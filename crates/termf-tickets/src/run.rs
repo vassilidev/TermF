@@ -690,34 +690,36 @@ impl Tickets {
         let _ = git.output(repo, &["fetch", "-q", "origin"]);
         let base = base_ref(&git, repo)?;
         let stem = branch_stem(&ticket.reference.key, &ticket.title, run.id);
-        let branch = (1..)
-            .map(|n| match n {
+        // A branch pushed by an earlier run of the ticket counts too, even once its run is closed.
+        let taken = |b: &str| {
+            git.has(repo, &format!("refs/heads/{b}"))
+                || git.has(repo, &format!("refs/remotes/origin/{b}"))
+        };
+        if place == TicketWorktrees::Repo {
+            exclude_worktrees(&git, repo)?;
+        }
+        for n in 1.. {
+            let branch = match n {
                 1 => stem.clone(),
                 n => format!("{stem}-{n}"),
-            })
-            // A branch pushed by an earlier run of the ticket counts too, even once its run is closed.
-            .find(|b| {
-                !git.has(repo, &format!("refs/heads/{b}"))
-                    && !git.has(repo, &format!("refs/remotes/origin/{b}"))
-            })
-            .unwrap();
-        let path = match place {
-            TicketWorktrees::Repo => {
-                exclude_worktrees(&git, repo)?;
-                let name = branch.strip_prefix("termf/").unwrap_or(&branch);
-                let folder = repo.join(".claude").join("worktrees");
-                folder.join(format!("termf-{}-{name}", run.id))
+            };
+            if taken(&branch) {
+                continue;
             }
-            TicketWorktrees::Data => self.data_worktrees(run).join(match slug(name) {
-                s if s.is_empty() => "repo".to_owned(),
-                s => s,
-            }),
-        };
-        fs::create_dir_all(path.parent().context("no parent folder")?)?;
-        let path = path.to_string_lossy().into_owned();
-        git.run(
-            repo,
-            &[
+            let path = match place {
+                TicketWorktrees::Repo => {
+                    let name = branch.strip_prefix("termf/").unwrap_or(&branch);
+                    let folder = repo.join(".claude").join("worktrees");
+                    folder.join(format!("termf-{}-{name}", run.id))
+                }
+                TicketWorktrees::Data => self.data_worktrees(run).join(match slug(name) {
+                    s if s.is_empty() => "repo".to_owned(),
+                    s => s,
+                }),
+            };
+            fs::create_dir_all(path.parent().context("no parent folder")?)?;
+            let path = path.to_string_lossy().into_owned();
+            let args = [
                 "worktree",
                 "add",
                 "-q",
@@ -726,9 +728,15 @@ impl Tickets {
                 &branch,
                 &path,
                 &base,
-            ],
-        )?;
-        Ok((path, branch, base))
+            ];
+            match git.run(repo, &args) {
+                Ok(_) => return Ok((path, branch, base)),
+                // Another run of the ticket took it meanwhile: a double click, the app and the CLI at once.
+                Err(_) if taken(&branch) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        unreachable!("an endless range")
     }
 
     fn data_worktrees(&self, run: &Run) -> PathBuf {

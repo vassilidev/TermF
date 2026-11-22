@@ -5,7 +5,6 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
@@ -191,10 +190,7 @@ impl Log {
         fs::create_dir_all(data_dir)
             .with_context(|| format!("cannot create {}", data_dir.display()))?;
         let file = data_dir.join("termf.db");
-        let conn =
-            Connection::open(&file).with_context(|| format!("cannot open {}", file.display()))?;
-        conn.busy_timeout(Duration::from_secs(5))?;
-        let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
+        let conn = termf_core::db::open(&file)?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self { conn })
     }

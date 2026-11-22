@@ -2941,11 +2941,18 @@ fn real_team() {
     let mut squads: Vec<&str> = plan.tasks.iter().map(|t| t.squad.as_str()).collect();
     squads.sort();
     assert_eq!(squads, ["client", "server"], "{plan:#?}");
-    assert!(
-        run.steps
-            .iter()
-            .filter(|s| s.agent() && !s.plan && s.key != TRIAGE)
-            .all(|s| s.report.is_some())
+    // A base that did not move is taken in with no agent, so with no report.
+    let unreported: Vec<&str> = run
+        .steps
+        .iter()
+        .filter(|s| s.agent() && !s.plan && s.key != TRIAGE && !s.sessions.is_empty())
+        .filter(|s| s.report.is_none())
+        .map(|s| s.key.as_str())
+        .collect();
+    assert_eq!(
+        unreported,
+        Vec::<&str>::new(),
+        "every agent that ran reported"
     );
     assert!(run.cost > 0.0 && run.cost < 1.5, "{}", run.cost);
 }

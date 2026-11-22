@@ -408,7 +408,7 @@ mod tests {
                 .map(|w| format!("'{}'", w.replace('\'', r"'\''")))
                 .collect();
             let line = quoted.join(" ");
-            assert_eq!(commands(&line), [words.clone()], "{line:?}");
+            assert_eq!(commands(&line), std::slice::from_ref(&words), "{line:?}");
             let raw = format!("{}{}", word(&mut rng), word(&mut rng));
             for line in [&line, &raw] {
                 let _ = (guard(line), egress("Bash", line));

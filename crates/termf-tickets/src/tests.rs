@@ -1209,6 +1209,38 @@ fn tells_a_pull_request_in_conflict_or_behind_its_base() {
 }
 
 #[cfg(unix)]
+/// A double click, or the app and the CLI at once: both runs start, each on a branch of its own.
+#[cfg(unix)]
+#[test]
+fn the_same_ticket_started_twice_at_once_gets_two_branches() {
+    let sb = Sandbox::new("twice");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let started: Vec<Result<Launch, String>> = std::thread::scope(|s| {
+        let start = || {
+            let t = sb.tickets();
+            t.start("front#42", None, None)
+                .map_err(|e| format!("{e:#}"))
+        };
+        let runs = [s.spawn(start), s.spawn(start), s.spawn(start)];
+        runs.into_iter().map(|r| r.join().unwrap()).collect()
+    });
+    let mut branches: Vec<String> = started
+        .iter()
+        .map(|r| r.as_ref().unwrap().run.branch.clone().unwrap())
+        .collect();
+    branches.sort();
+    let stem = "termf/42-fix-the-login-button";
+    assert_eq!(
+        branches,
+        [stem.to_owned(), format!("{stem}-2"), format!("{stem}-3")]
+    );
+}
+
 #[test]
 fn keeps_worktrees_in_the_data_folder_when_asked_and_closes_both_kinds() {
     let sb = Sandbox::new("places");
