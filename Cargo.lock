@@ -5595,6 +5595,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "termf-claude",
+ "termf-core",
+]
+
+[[package]]
 name = "termf-onboarding"
 version = "0.1.0"
 dependencies = [
