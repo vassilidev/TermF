@@ -204,7 +204,7 @@
       {#if vault.error}<Banner kind="error" ondismiss={() => (vault.error = "")}>{vault.error}</Banner>{/if}
       {#if status?.synced === "other"}
         <Banner kind="warn">
-          <strong>{t("vault3OtherTitle")}</strong>
+          <strong>{t("vault3OtherTitle")}</strong><br />
           {t("vault3OtherText")}
           {#snippet action()}
             <button class="btn sm" onclick={() => (joining = true)}>{t("vault3Join")}</button>

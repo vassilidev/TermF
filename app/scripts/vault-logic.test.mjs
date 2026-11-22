@@ -137,4 +137,7 @@ test("folderProject: a folder named as a project goes there", () => {
   assert.equal(folderProject("Work/docs", projects), "docs");
   assert.equal(folderProject("Personnel", projects), null);
   assert.equal(folderProject("", projects), null);
+  assert.equal(folderProject("Acme", projects), "acme-platform", "the only one it starts");
+  assert.equal(folderProject("Ac", projects), null, "too short to guess");
+  assert.equal(folderProject("Acme", [...projects, { id: "acme-mobile", name: "Acme Mobile" }]), null, "two: no guess");
 });

@@ -181,9 +181,13 @@ export function counts(rows: Merged[]): [Exclude<Change, "unchanged">, number][]
 export const leftOut = (rows: ForeignRow[]) =>
   rows.filter((r) => r.duplicate !== null || r.problem === "trash").map((r) => r.index);
 
-/** A folder goes into the project of the same id or name, else stays global. */
+/** A folder goes into the project of the same id or name, else the only one whose name starts like it, else stays
+ * global. */
 export function folderProject(folder: string, projects: { id: string; name: string }[]): string | null {
-  const name = fold(folder.split("/").pop() ?? "");
+  const name = fold(folder.split("/").pop() ?? "").trim();
   if (!name) return null;
-  return projects.find((p) => fold(p.id) === name || fold(p.name) === name)?.id ?? null;
+  const same = projects.find((p) => fold(p.id) === name || fold(p.name) === name);
+  if (same) return same.id;
+  const like = projects.filter((p) => fold(p.id).startsWith(name) || fold(p.name).startsWith(name));
+  return name.length >= 3 && like.length === 1 ? like[0].id : null;
 }

@@ -71,7 +71,7 @@
       <li>
         <div class="what">
           <span class="name">{t("vault3OtherVersion", { when: ago(other.at) })}</span>
-          <span class="muted">{title}{#if other.item?.username} · {other.item.username}{/if}</span>
+          <span class="muted">{[title, other.item?.username].filter(Boolean).join(" · ")}</span>
           {#if other.differs.length}<span class="differs">{t("vault3Differs", { fields: fields(other.differs) })}</span>{/if}
         </div>
         <button class="btn sm" disabled={!!busy} onclick={() => keep(other.id)}>
