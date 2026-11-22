@@ -88,6 +88,7 @@ export type ViewId =
   | "claude"
   | "team"
   | "project"
+  | "run"
   | "settings"
   | "onboarding";
 

@@ -8,19 +8,20 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Users from "@lucide/svelte/icons/users";
   import TeamOptions from "$lib/TeamOptions.svelte";
-  import TeamRunDetail, { runPill, stepName, ticketKey } from "$lib/TeamRunDetail.svelte";
-  import { runSession } from "$lib/TicketRun.svelte";
+  import { stepName, ticketKey } from "$lib/TeamRunDetail.svelte";
+  import { runSession } from "$lib/RunView.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
-  import StatusPill from "$lib/ui/StatusPill.svelte";
+  import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import { usd } from "$lib/agents.svelte";
+  import { showRun } from "$lib/commands";
   import { t } from "$lib/i18n";
+  import { shown } from "$lib/run-logic";
   import { app } from "$lib/state.svelte";
   import { budgetError, current, type TeamRun } from "$lib/team-run-logic";
-  import { scopedRuns, showTeamRun, shownRun, team, upsertRun } from "$lib/team.svelte";
+  import { scopedRuns, team, upsertRun } from "$lib/team.svelte";
   import { showTickets, tickets } from "$lib/tickets.svelte";
 
   const runs = $derived(scopedRuns());
-  const shown = $derived(shownRun());
 
   /** The ticket runs a team can start on: open, with a worktree, without a team yet. */
   const free = $derived(
@@ -64,7 +65,8 @@
           : { run: chosen?.id, options },
       );
       upsertRun(run);
-      showTeamRun(run.run);
+      team.launching = false;
+      showRun(run.run);
       workflow = "";
       budget = null;
       picked = null;
@@ -156,48 +158,34 @@
   </section>
 {/snippet}
 
-{#if !runs.length}
-  <div class="pane">
-    {#if team.launching}
-      <div class="alone">{@render form()}</div>
-    {:else}
-      <EmptyState icon={Users} title={t("teamRunsEmpty")} text={t("teamRunsEmptyHelp")}>
-        <button class="btn" onclick={() => (team.launching = true)}>
-          <Play size={14} aria-hidden="true" />{t("teamRunsLaunch")}
-        </button>
-      </EmptyState>
-    {/if}
-  </div>
-{:else}
-  <div class="split">
-    <ul class="list" aria-label={t("teamRunsTab")}>
+<div class="pane">
+  {#if team.launching}
+    <div class="alone">{@render form()}</div>
+  {:else if !runs.length}
+    <EmptyState icon={Users} title={t("teamRunsEmpty")} text={t("teamRunsEmptyHelp")}>
+      <button class="btn" onclick={() => (team.launching = true)}>
+        <Play size={14} aria-hidden="true" />{t("teamRunsLaunch")}
+      </button>
+    </EmptyState>
+  {:else}
+    <ul class="runs" aria-label={t("teamRunsTab")}>
       {#each runs as run (run.run)}
-        {@const [status, label] = runPill(run.state)}
+        {@const ticket = tickets.runs.find((r) => r.id === run.run)}
+        {@const pill = ticket ? shown(ticket, run) : null}
         {@const now = steps(run)}
-        <li class="row" class:current={run === shown && !team.launching}>
-          <button
-            class="pick"
-            aria-current={run === shown && !team.launching}
-            onclick={() => Object.assign(team, { selected: run.run, launching: false })}
-          >
+        <li>
+          <button class="pick" onclick={() => showRun(run.run)}>
             <span class="name"><span class="mono">{ticketKey(run.target.ticket)}</span> {run.target.title}</span>
             <span class="desc">
               {run.workflow} · {usd(run.cost)}{run.budget !== null ? ` / ${usd(run.budget)}` : ""}{now ? ` · ${now}` : ""}
             </span>
           </button>
-          <StatusPill {status} {label} />
+          {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />{/if}
         </li>
       {/each}
     </ul>
-    <section class="detail" aria-live="polite">
-      {#if team.launching}
-        {@render form()}
-      {:else if shown}
-        {#key shown.run}<TeamRunDetail run={shown} />{/key}
-      {/if}
-    </section>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
   .pane {
@@ -210,6 +198,38 @@
     max-width: 640px;
     margin: 32px auto;
     padding: 0 24px;
+  }
+
+  /* A run's row opens its page. */
+  .runs {
+    max-width: 1100px;
+    margin: 0;
+    padding: 8px 12px 32px;
+    list-style: none;
+  }
+
+  .runs li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .runs li:hover {
+    background: var(--hover);
+  }
+
+  .pick {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    padding: 8px 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    text-align: left;
   }
 
   .launch {
