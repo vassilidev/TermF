@@ -52,6 +52,9 @@ pub const ENV_DATA_DIR: &str = "TERMF_DATA_DIR";
 /// Ops (`termf-ops`): the recipes an agent may run and the run itself, which waits for the user's approval in
 /// TermF's own card (never a permission prompt of Claude Code), or only proposes a recipe that writes.
 pub const MCP_OPS: [&str; 2] = ["ops_recipes", "ops_run"];
+/// A key the project's agents then get from the vault, asked to the user in TermF's own card: the agent never gets
+/// its value.
+pub const MCP_SECRETS: [&str; 1] = ["request_secret"];
 pub const MCP_ACTIONS: [&str; 6] = [
     "start_team_run",
     "answer",
@@ -236,6 +239,13 @@ pub enum McpCall {
         connection: Option<String>,
         #[serde(default)]
         params: BTreeMap<String, Value>,
+    },
+    /// `variable` for the project's agents, asked to the user: what for (`purpose`), and where to get one.
+    RequestSecret {
+        variable: String,
+        purpose: String,
+        #[serde(default)]
+        signup_url: Option<String>,
     },
 }
 
@@ -1326,6 +1336,7 @@ mod tests {
             .chain(&MCP_ACTIONS)
             .chain(&MCP_EXPERT)
             .chain(&MCP_OPS)
+            .chain(&MCP_SECRETS)
             .copied()
             .collect();
         for name in &names {
@@ -1341,6 +1352,8 @@ mod tests {
                 ("id", json!(3)),
                 ("question", json!("why?")),
                 ("recipe", json!("logs-tail")),
+                ("variable", json!("PEXELS_API_KEY")),
+                ("purpose", json!("stock photos")),
             ] {
                 call.insert(key.into(), value);
             }
@@ -1357,6 +1370,7 @@ mod tests {
                 "memory_read" => &["id"],
                 "ask_expert" => &["question"],
                 "ops_run" => &["recipe"],
+                "request_secret" => &["variable", "purpose"],
                 _ => &[],
             };
             call.retain(|k, _| k == "tool" || fields.contains(&k.as_str()));

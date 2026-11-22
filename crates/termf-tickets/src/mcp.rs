@@ -315,6 +315,8 @@ impl Mcp {
         if let Some(path) = termf_core::shell::login_path() {
             cmd.env("PATH", path);
         }
+        termf_core::agent_env::current(None)
+            .apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
         let (status, stdout, stderr) = termf_core::process::run(cmd, prompt.as_bytes(), TIMEOUT)
             .with_context(|| format!("cannot run Claude Code {claude}"))?;
         let (answer, _) = termf_core::claude::structured_output(&claude, status, &stdout, &stderr)?;

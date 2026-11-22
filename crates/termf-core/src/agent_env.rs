@@ -425,7 +425,7 @@ impl AgentEnv {
         set: &[String],
         quote: impl Fn(&str) -> String,
     ) -> Option<(String, String)> {
-        let cli = cli.filter(|_| !self.inherit && cfg!(unix))?;
+        let cli = cli.filter(|cli| !self.inherit && cfg!(unix) && cli.is_file())?;
         let patterns: Vec<&str> = self
             .allow
             .iter()
@@ -646,7 +646,10 @@ mod tests {
             .collect();
         assert_eq!(set["TERMF_MCP_TOKEN"].as_deref(), Some("t"));
         assert_eq!(set["PEXELS_API_KEY"].as_deref(), Some("p"));
-        assert!(!set.contains_key("HOME"), "removed on the command, so not filled in again");
+        assert!(
+            !set.contains_key("HOME"),
+            "removed on the command, so not filled in again"
+        );
         assert!(set.contains_key("PATH"));
     }
 
@@ -657,10 +660,11 @@ mod tests {
             ..AgentEnv::default()
         };
         let quote = |s: &str| format!("'{s}'");
+        let cli = std::env::current_exe().unwrap();
         let wrapped = env.wrap(
             "claude --x",
             Some(Tool::Claude),
-            Some(Path::new("/opt/termf")),
+            Some(&cli),
             &["PEXELS_API_KEY".into()],
             quote,
         );
@@ -668,7 +672,7 @@ mod tests {
             assert_eq!(
                 wrapped,
                 Some((
-                    "'/opt/termf' agent-env 'claude --x'".into(),
+                    format!("'{}' agent-env 'claude --x'", cli.display()),
                     "claude;ACME_*,PEXELS_API_KEY,TERMF_*".into()
                 ))
             );
@@ -676,14 +680,13 @@ mod tests {
             assert_eq!(wrapped, None);
         }
         assert_eq!(env.wrap("claude", None, None, &[], quote), None);
+        let missing = Path::new("/nowhere/termf");
+        assert_eq!(env.wrap("claude", None, Some(missing), &[], quote), None);
         let inherit = AgentEnv {
             inherit: true,
             ..AgentEnv::default()
         };
-        assert_eq!(
-            inherit.wrap("claude", None, Some(Path::new("/opt/termf")), &[], quote),
-            None
-        );
+        assert_eq!(inherit.wrap("claude", None, Some(&cli), &[], quote), None);
     }
 
     #[test]

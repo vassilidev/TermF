@@ -16,11 +16,11 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::artifacts::Policy;
 use termf_core::claude::{self, Tool};
-use termf_core::cli_agents;
 use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{
     self, AgentCall, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent,
 };
+use termf_core::{agent_env, cli_agents};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
 use crate::{AppState, agents, schedule, team, tickets, visual};
@@ -841,6 +841,7 @@ pub fn spawn_command(
             cols: 120,
             rows: 32,
             env: Vec::new(),
+            base_env: None,
         })
     });
     if spawned.is_err()
@@ -937,6 +938,20 @@ fn launch(
             .map(|r| r.env.clone().into_iter().collect())
             .unwrap_or_default();
         let mut warnings: Vec<String> = old.iter().cloned().collect();
+        // An agent starts with the allowlist and what TermF gives it: a shell keeps all of TermF's environment.
+        let policy = command.as_ref().map(|_| {
+            let project = run.as_ref().map(|r| r.project.to_owned()).or_else(|| {
+                termf_core::project_of(&state.config_dir, &cwd)
+                    .ok()
+                    .flatten()
+            });
+            let actor = termf_vault::Actor::agent(None, Some(format!("terminal {id}")));
+            let project = project.as_deref();
+            let given = crate::agentenv::given(&state.vault, &state.config_dir, project, &actor);
+            env.extend(given.vars);
+            warnings.extend(given.note);
+            agent_env::load(&state.config_dir, project)
+        });
         if let (Some(tool), None) = (codex_or_gemini, &old) {
             let prompt = dir.as_ref().and_then(|dir| library(state, &cwd, dir, None));
             let tile = cli_agents::tile(
@@ -1049,7 +1064,20 @@ fn launch(
             }
             other => other,
         };
-        let command = command.map(|c| cli_agents::after_lines(&c, &warnings, shell_quote));
+        let mut command = command.map(|c| cli_agents::after_lines(&c, &warnings, shell_quote));
+        let base_env = policy
+            .as_ref()
+            .filter(|p| !p.inherit)
+            .map(|p| p.keep(tool, std::env::vars_os()));
+        if let (Some(policy), Some(c)) = (&policy, &command) {
+            let names: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
+            let cli = termf_binary();
+            if let Some((wrapped, spec)) = policy.wrap(c, tool, cli.as_deref(), &names, shell_quote)
+            {
+                command = Some(wrapped);
+                env.push((agent_env::SPEC.into(), spec));
+            }
+        }
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
             title: title.clone(),
@@ -1060,6 +1088,7 @@ fn launch(
             cols,
             rows,
             env,
+            base_env,
         })
     });
     if spawned.is_err()

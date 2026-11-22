@@ -19,7 +19,7 @@ mod store;
 #[cfg(all(test, unix))]
 mod tests;
 
-pub use agents::{Agents, Takeover};
+pub use agents::{Agents, Given, Takeover};
 pub use claude::{
     ASK_EXPERT, BROWSER, ClaudeCode, EXPERT, OPS, TOOL_OUTPUT, mcp_settings, mcp_tools,
 };

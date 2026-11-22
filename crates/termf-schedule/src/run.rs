@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use termf_core::agent_env;
+use termf_core::claude::Tool;
 use termf_term::{shell_command, shell_quote};
 
 use crate::Task;
@@ -53,9 +55,16 @@ pub fn tile_args(task: &Task) -> Vec<String> {
 /// shell's PATH work the same.
 pub fn headless_command(agent: &str, task: &Task) -> Command {
     let args: Vec<String> = headless_args(task).iter().map(|a| shell_quote(a)).collect();
-    let (program, args) = shell_command(Some(&format!("{agent} {}", args.join(" "))));
-    #[allow(unused_mut)]
+    let line = format!("{agent} {}", args.join(" "));
+    // An agent: the allowlist of the environment, after the login shell's profile too.
+    let (tool, policy) = (Tool::of(agent), agent_env::current(None));
+    let wrapped = policy.wrap(&line, tool, agent_env::cli(), &[], shell_quote);
+    let (program, args) = shell_command(Some(wrapped.as_ref().map_or(&line, |(w, _)| w)));
     let mut cmd = Command::new(program);
+    if let Some((_, spec)) = wrapped {
+        cmd.env(agent_env::SPEC, spec);
+    }
+    policy.apply(&mut cmd, tool);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
