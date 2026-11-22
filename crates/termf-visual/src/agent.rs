@@ -283,12 +283,13 @@ impl Pilot {
         self.open.clear();
         let opened = self.browser()?.open(&url);
         self.settle(Duration::from_secs(2))?;
+        let blocked = self.blocked(0);
         if let Err(e) = opened {
-            bail!("{url} did not open: {e:#}{}", self.blocked(0));
+            bail!("{url} did not open: {e:#}{blocked}");
         }
         let page = self.snapshot()?;
         Ok(format!(
-            "Opened {url} ({}, {theme}).\n{page}",
+            "Opened {url} ({}, {theme}).{blocked}\n{page}",
             viewport.name
         ))
     }

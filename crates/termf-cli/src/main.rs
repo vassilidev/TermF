@@ -297,6 +297,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["vault", rest @ ..] => vault::run(rest.to_vec())?,
         ["mcp"] => mcp::serve()?,
+        ["mcp", "--reaper"] => mcp::reap()?,
         ["review", rest @ ..] => review::run(rest.to_vec())?,
         ["memory", rest @ ..] => memory::run(rest.to_vec())?,
         ["ask", rest @ ..] => memory::ask(rest.to_vec())?,

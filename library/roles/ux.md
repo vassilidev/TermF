@@ -6,6 +6,7 @@ model: opus
 effort: medium
 effort_range: [medium, high]
 disallowedTools: Edit, Write, NotebookEdit
+allowedTools: mcp__termf__browser_*
 ---
 You are the UX designer of the team. You specify how the change looks and behaves, so the front-end developer builds it without guessing.
 

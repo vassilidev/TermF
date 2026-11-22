@@ -947,6 +947,13 @@ mod tests {
             let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
             assert_eq!(tools, "mcp__termf__ask_expert", "{role} asks the expert");
         }
+        for role in ["front", "qa", "ux", "seo"] {
+            let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
+            assert_eq!(
+                tools, "mcp__termf__browser_*",
+                "{role} checks pages in a browser"
+            );
+        }
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
         assert_eq!(roles.len(), 14, "no orchestrator: lead took its place");
         for role in roles {
