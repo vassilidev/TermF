@@ -632,21 +632,7 @@ impl Runner {
                 let writes = if conn.kind == Kind::Postgres {
                     raw.stdout.lines().any(|l| l.trim() == "termf-ok|t")
                 } else {
-                    raw.stdout.lines().filter(|l| l.contains("GRANT")).any(|l| {
-                        let grant = l.to_uppercase();
-                        [
-                            "ALL PRIVILEGES",
-                            "INSERT",
-                            "UPDATE",
-                            "DELETE",
-                            "DROP",
-                            "ALTER",
-                            "CREATE",
-                            "SUPER",
-                        ]
-                        .iter()
-                        .any(|w| grant.contains(w))
-                    })
+                    mysql_writes(&raw.stdout)
                 };
                 checks.push(Check {
                     warn: writes,
@@ -664,8 +650,59 @@ impl Runner {
     }
 }
 
+/// Whether `SHOW GRANTS` gives a privilege that writes: only the list between `GRANT` and ` ON ` is read, never
+/// the names of databases, tables or columns after it.
+fn mysql_writes(grants: &str) -> bool {
+    const WRITES: &[&str] = &[
+        "ALL", "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "SUPER", "INDEX",
+        "TRIGGER", "EVENT",
+    ];
+    grants.lines().any(|line| {
+        let upper = line.trim().to_uppercase();
+        let Some(rest) = upper.strip_prefix("GRANT ") else {
+            return false;
+        };
+        let Some((privileges, _)) = rest.split_once(" ON ") else {
+            return false;
+        };
+        privileges
+            .split(',')
+            .filter_map(|p| {
+                p.split(|c: char| c.is_whitespace() || c == '(')
+                    .find(|w| !w.is_empty())
+            })
+            .any(|p| WRITES.contains(&p))
+    })
+}
+
 /// The vault must be opened, or prod confirmed, before anything else: the app asks for it.
 pub fn vault_first(e: &anyhow::Error) -> bool {
     e.downcast_ref::<termf_vault::Locked>().is_some()
         || e.downcast_ref::<termf_vault::NeedsPassword>().is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mysql_writes;
+
+    #[test]
+    fn reads_only_the_privileges_of_mysql_grants() {
+        for read in [
+            "Grants for ro@%",
+            "GRANT USAGE ON *.* TO `ro`@`%`",
+            "GRANT SELECT ON `updates_db`.* TO `ro`@`%`",
+            "GRANT SELECT (id, created_at) ON `app`.`insert_log` TO `ro`@`%`",
+            "GRANT `reader`@`%` TO `ro`@`%`",
+        ] {
+            assert!(!mysql_writes(read), "{read}");
+        }
+        for write in [
+            "GRANT SELECT, INSERT ON `app`.* TO `app`@`%`",
+            "GRANT ALL PRIVILEGES ON *.* TO `root`@`localhost` WITH GRANT OPTION",
+            "GRANT UPDATE(status) ON `app`.`orders` TO `app`@`%`",
+            "grant create view on app.* to app",
+        ] {
+            assert!(mysql_writes(write), "{write}");
+        }
+    }
 }

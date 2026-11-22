@@ -348,7 +348,30 @@ pub fn save_connection(
             "via names one of the project's SSH connections"
         );
     }
+    // The databases that open their tunnel through it follow a new name; it stays an SSH connection for them.
+    let users: Vec<&str> = previous
+        .map(|p| {
+            all.iter()
+                .filter(|c| c.via.as_deref() == Some(p))
+                .map(|c| c.name.as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(user) = users.first().filter(|_| connection.kind != Kind::Ssh) {
+        bail!(
+            "{user} opens its tunnel through {}: it stays an SSH connection",
+            previous.unwrap_or_default()
+        );
+    }
+    let renamed = previous.filter(|p| *p != connection.name);
     edit(config_dir, project, |list| {
+        if let Some(old) = renamed {
+            for table in list.iter_mut() {
+                if table.get("via").and_then(Item::as_str) == Some(old) {
+                    table["via"] = toml_edit::value(connection.name.as_str());
+                }
+            }
+        }
         let mut table: Table = toml::to_string(connection)?
             .parse::<DocumentMut>()?
             .as_table()

@@ -218,6 +218,23 @@ secrets = { password = "ACME_DB_PASSWORD" }
     );
     let deleting = delete_connection(&env.config(), "acme", "acme-prod").unwrap_err();
     assert!(deleting.to_string().contains("tunnel"), "{deleting}");
+    // Renaming the server renames it where the database goes through; it cannot stop being SSH meanwhile.
+    let mut server = connections(&env.config(), "acme").unwrap()[0].clone();
+    server.name = "acme-api".into();
+    let all = save_connection(&env.config(), "acme", &server, Some("acme-prod")).unwrap();
+    assert_eq!(all[1].via.as_deref(), Some("acme-api"));
+    let k8s = Connection {
+        kind: Kind::Kubernetes,
+        context: Some("prod".into()),
+        ..server.clone()
+    };
+    let refused = save_connection(&env.config(), "acme", &k8s, Some("acme-api")).unwrap_err();
+    assert!(
+        refused.to_string().contains("stays an SSH connection"),
+        "{refused}"
+    );
+    server.name = "acme-prod".into();
+    save_connection(&env.config(), "acme", &server, Some("acme-api")).unwrap();
     let renamed = Connection {
         name: "acme-db-ro".into(),
         ..db.clone()

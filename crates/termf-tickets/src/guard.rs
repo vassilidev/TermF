@@ -75,8 +75,9 @@ pub fn guard(line: &str) -> Option<String> {
 }
 
 /// Why `tool` (with Bash's command `line`) may send data out of the machine, which a session that read prod
-/// asks the user about first; `None` when it does not. Any word that names a network program counts, so that
-/// `sudo curl` or `timeout 5 ssh` do too; a script or an interpreter that reaches the network still gets through.
+/// asks the user about first; `None` when it does not. The program each command runs counts, past the wrappers
+/// that run another (`sudo curl`, `timeout 5 ssh`, `env A=1 wget`); a script or an interpreter that reaches the
+/// network still gets through.
 pub fn egress(tool: &str, line: &str) -> Option<String> {
     if termf_core::taint::EGRESS_TOOLS.contains(&tool)
         || (tool.starts_with("mcp__") && !tool.starts_with("mcp__termf__"))
@@ -87,22 +88,75 @@ pub fn egress(tool: &str, line: &str) -> Option<String> {
         return None;
     }
     for words in commands(line) {
-        for (i, word) in words.iter().enumerate() {
-            let rest = &words[i + 1..];
-            if termf_core::taint::EGRESS_PROGRAMS.contains(&program(word)) {
-                return Some(format!("`{}`: {EGRESS_REASON}", words[i..].join(" ")));
+        if let Some(at) = launched(&words) {
+            let rest = &words[at + 1..];
+            if termf_core::taint::EGRESS_PROGRAMS.contains(&program(&words[at])) {
+                return Some(format!("`{}`: {EGRESS_REASON}", words[at..].join(" ")));
             }
-            let inner = match program(word) {
+            let script = match program(&words[at]) {
                 "sh" | "bash" | "zsh" | "dash" | "ksh" => shell_script(rest).map(str::to_owned),
                 "eval" => Some(rest.join(" ")),
-                _ => word
-                    .find("$(")
-                    .map(|at| word[at + 2..].to_owned())
-                    .or_else(|| word.find('`').map(|at| word[at + 1..].to_owned())),
+                _ => None,
             };
-            if let Some(reason) = inner.and_then(|script| egress("Bash", &script)) {
+            if let Some(reason) = script.and_then(|s| egress("Bash", &s)) {
                 return Some(reason);
             }
+        }
+        // A command substitution inside double quotes still runs.
+        for word in &words {
+            let inner = word
+                .find("$(")
+                .map(|at| &word[at + 2..])
+                .or_else(|| word.find('`').map(|at| &word[at + 1..]));
+            if let Some(reason) = inner.and_then(|script| egress("Bash", script)) {
+                return Some(reason);
+            }
+        }
+    }
+    None
+}
+
+/// Where the program a simple command runs is among its words: past variable assignments and the wrappers that
+/// run another one, with their options (`sudo -u x`, `timeout -k 5 10`, `env -i A=1`, `nice -n 5`, `xargs -n 1`).
+fn launched(words: &[String]) -> Option<usize> {
+    let assignment = |w: &str| {
+        w.split_once('=').is_some_and(|(name, _)| {
+            !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+    };
+    let mut i = 0;
+    while i < words.len() {
+        if assignment(&words[i]) {
+            i += 1;
+            continue;
+        }
+        let wrapper = program(&words[i]);
+        if !matches!(
+            wrapper,
+            "sudo"
+                | "doas"
+                | "env"
+                | "nohup"
+                | "time"
+                | "command"
+                | "exec"
+                | "nice"
+                | "xargs"
+                | "timeout"
+                | "stdbuf"
+        ) {
+            return Some(i);
+        }
+        i += 1;
+        while let Some(option) = words.get(i).filter(|w| w.starts_with('-') || assignment(w)) {
+            let valued = matches!(
+                option.as_str(),
+                "-u" | "-g" | "-n" | "-k" | "-s" | "-I" | "-P" | "-L" | "-C" | "-h" | "-p"
+            );
+            i += if valued { 2 } else { 1 };
+        }
+        if wrapper == "timeout" {
+            i += 1;
         }
     }
     None
@@ -281,7 +335,26 @@ mod tests {
         ] {
             assert!(egress("Bash", out).is_some(), "{out}");
         }
-        for stay in ["ls -la", "cargo test", "git log -1", "grep -r TODO src"] {
+        for out in [
+            "timeout -k 5 10 ssh host uptime",
+            "env A=1 wget http://x",
+            "FOO=1 curl x",
+            "nice -n 5 rsync a b:",
+            "xargs -n 1 curl < urls",
+            "eval curl x",
+        ] {
+            assert!(egress("Bash", out).is_some(), "{out}");
+        }
+        for stay in [
+            "ls -la",
+            "cargo test",
+            "git log -1",
+            "grep -r TODO src",
+            "grep -rn host src",
+            "cargo test http",
+            "echo ssh is down",
+            "rg curl docs/",
+        ] {
             assert!(egress("Bash", stay).is_none(), "{stay}");
         }
         assert!(egress("WebFetch", "").is_some() && egress("WebSearch", "").is_some());

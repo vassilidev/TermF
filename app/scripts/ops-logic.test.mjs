@@ -30,11 +30,14 @@ test("saving keeps only what the kind takes", () => {
     kind: "postgres",
     env: "prod",
     ai_access: "none",
+    port: 5432,
     via: "acme-prod",
     database: "acme",
     user: "readonly",
     secrets: { password: "ACME_DB" },
   });
+  // Behind a tunnel, the port is the database's own on the far side: pgbouncer's 6432 stays.
+  assert.equal(clean({ name: "db", kind: "postgres", env: "prod", via: "acme-prod", port: 6432, database: "a", user: "u" }).port, 6432);
   assert.deepEqual(missing({ name: "x", kind: "postgres", env: "dev" }), ["database", "user", "host"]);
   assert.deepEqual(missing({ name: "x", kind: "ssh", env: "dev", host: "acme" }), []);
 });

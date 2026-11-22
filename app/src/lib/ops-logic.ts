@@ -161,9 +161,6 @@ export function clean(c: Connection): Connection {
     if (f === "port") out.port = Number(v);
     else out[f] = String(v).trim();
   }
-  if (c.kind === "postgres" || c.kind === "mysql") {
-    if (out.via) delete out.port;
-  }
   const secrets = Object.entries(c.secrets ?? {}).filter(([role, name]) => form.secrets.includes(role) && name.trim());
   if (secrets.length) out.secrets = Object.fromEntries(secrets.map(([r, n]) => [r, n.trim()]));
   return out;
