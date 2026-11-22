@@ -38,7 +38,14 @@ serve() {
 
 "$python" -m http.server "$port" --bind 127.0.0.1 --directory "$tmp/api" > "$tmp/server.log" 2>&1 &
 server=$!
-trap 'status=$?; kill $server 2>/dev/null || :; wait $server 2>/dev/null || :; rm -rf "$tmp"; exit $status' EXIT
+cleanup() {
+  status=$?
+  kill "$server" 2>/dev/null || :
+  wait "$server" 2>/dev/null || :
+  rm -rf "$tmp"
+  exit "$status"
+}
+trap cleanup EXIT
 serve "$(assets 0.2.0 false yes)" "$(assets 0.3.0-beta.1 true yes)"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   curl -fs "$api/repos/vassilidev/TermF/releases/latest" > /dev/null 2>&1 && break
