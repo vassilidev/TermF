@@ -53,7 +53,7 @@
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { showConversation, usd } from "$lib/agents.svelte";
-  import { app, repoName } from "$lib/state.svelte";
+  import { app } from "$lib/state.svelte";
   import { asks, budgetError, levels, progress, type Ask, type TeamRun } from "$lib/team-run-logic";
   import { upsertRun } from "$lib/team.svelte";
   import { showTickets, tickets } from "$lib/tickets.svelte";

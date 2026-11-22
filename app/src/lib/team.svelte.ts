@@ -38,6 +38,12 @@ export function scopedRuns(): TeamRun[] {
   return team.runs.filter((r) => app.project === null || r.target.project === app.project);
 }
 
+/** The team run the Runs tab shows. */
+export function shownRun(): TeamRun | undefined {
+  const runs = scopedRuns();
+  return runs.find((r) => r.run === team.selected) ?? runs[0];
+}
+
 /** A gate or a blocked step waits for the user. */
 export function waitingRuns(): TeamRun[] {
   return team.runs.filter((r) => asks(r).length);
@@ -50,8 +56,8 @@ export function upsertRun(run: TeamRun) {
 }
 
 const notes: Record<Notice["kind"], Parameters<typeof t>[0]> = {
-  gate: "teamRunsNotifyGate",
-  blocked: "teamRunsNotifyBlocked",
+  gate: "teamRunsAskGate",
+  blocked: "teamRunsAskBlocked",
   done: "teamRunsNotifyDone",
   budget: "teamRunsNotifyBudget",
 };
