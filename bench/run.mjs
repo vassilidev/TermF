@@ -14,13 +14,20 @@
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BENCH = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(BENCH, "..");
 
-/** The tickets: `kind`, and whether the README must change. */
+/** The projects the tickets are on, and how the judge is told about each. */
+const FIXTURES = {
+  fixture: "a small Node.js / TypeScript project (a task tracker: JSON API over node:sqlite, a one-page interface in public/, node:test tests)",
+  "fixture-lists":
+    "a Node.js / TypeScript app of a few thousand lines (shared task lists: accounts and bearer tokens, lists, tasks, tags, comments, an activity log, background jobs, a JSON API over node:sqlite, a vanilla JS front in public/, node:test tests)",
+};
+
+/** The tickets: `kind`, whether the README must change, the project (`fixture` by default). */
 export const TICKETS = {
   "s1-done-filter": { kind: "simple", docs: false },
   "s2-due-date": { kind: "simple", docs: true },
@@ -29,7 +36,13 @@ export const TICKETS = {
   "c2-status": { kind: "complex", docs: true },
   // Accounts change every route on purpose: the first release's tests cannot pass any more.
   "c3-accounts": { kind: "complex", docs: true, original: false },
+  // Realistic tickets on a bigger project, with security, robustness and edge cases left for the engineer to infer.
+  "r1-sharing": { kind: "realistic", docs: true, fixture: "fixture-lists", implicit: true },
+  // The paging contract changes the list's response shape on purpose.
+  "r2-slow-lists": { kind: "realistic", docs: true, fixture: "fixture-lists", implicit: true, original: false },
+  "r3-lost-update": { kind: "realistic", docs: false, fixture: "fixture-lists", implicit: true },
 };
+const fixtureOf = (ticket) => TICKETS[ticket].fixture ?? "fixture";
 
 /** What a ticket of this project may touch; anything else is out of scope. */
 export const IN_SCOPE = /^(src|test|public)\/|^README\.md$/;
@@ -50,7 +63,7 @@ function options(argv) {
   const o = { model: "sonnet", trials: 2, parallel: 4, budget: 25, cap: 3, minutes: 40, "judge-model": "sonnet" };
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i].replace(/^--/, "");
-    if (key === "keep") o.keep = true;
+    if (key === "keep" || key === "no-tsc") o[key] = true;
     else o[key] = argv[++i];
   }
   for (const k of ["trials", "parallel", "budget", "cap", "minutes"]) o[k] = Number(o[k]);
@@ -61,9 +74,9 @@ function options(argv) {
 }
 
 /** A fresh copy of the project, committed, with a local bare `origin`: what both arms start from. */
-function prepare(dir) {
+function prepare(dir, fixture = "fixture") {
   const repo = join(dir, "repo");
-  cpSync(join(BENCH, "fixture"), repo, { recursive: true });
+  cpSync(join(BENCH, fixture), repo, { recursive: true });
   git(repo, "init", "-q", "-b", "main");
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "Tasks: first release");
@@ -204,13 +217,15 @@ function measure(ticket, final, base, dir, work) {
     filter: (src) => !/[/\\](\.git|\.claude|node_modules)([/\\]|$)/.test(src.slice(final.length)),
   });
   cpSync(join(BENCH, "hidden"), join(eval_, ".bench-hidden"), { recursive: true });
-  mkdirSync(join(eval_, ".bench-original"));
-  cpSync(join(BENCH, "fixture", "test", "tasks.test.ts"), join(eval_, ".bench-original", "tasks.test.ts"));
+  cpSync(join(BENCH, fixtureOf(ticket), "test"), join(eval_, ".bench-original"), { recursive: true });
+  const originals = readdirSync(join(eval_, ".bench-original"))
+    .filter((f) => f.endsWith(".test.ts"))
+    .map((f) => `.bench-original/${f}`);
   const hidden = nodeTest(eval_, [`.bench-hidden/${ticket}.test.ts`]);
   hidden.total = (readFileSync(join(BENCH, "hidden", `${ticket}.test.ts`), "utf8").match(/^test\(/gm) ?? []).length;
   const own = sh("npm", ["test"], { cwd: eval_, timeout: 180_000 });
   const ownCounts = tap(own.stdout + own.stderr);
-  const original = TICKETS[ticket].original === false ? null : nodeTest(eval_, [".bench-original/tasks.test.ts"]);
+  const original = TICKETS[ticket].original === false ? null : nodeTest(eval_, originals);
   const tsc = typecheck(eval_);
   const outOfScope = files.map((f) => f.path).filter((p) => !IN_SCOPE.test(p));
   return {
@@ -295,8 +310,11 @@ const VERDICT = {
 async function judge(ticket, patch, o, dir) {
   const text = readFileSync(join(BENCH, "tickets", `${ticket}.md`), "utf8");
   const clipped = patch.length > 150_000 ? patch.slice(0, 150_000) + "\n[diff cut at 150 kB]" : patch;
-  const prompt = `You are a strict senior reviewer. A developer implemented the ticket below in a small Node.js / TypeScript project (a task tracker: JSON API over node:sqlite, a one-page interface in public/, node:test tests). Judge only the diff.
-
+  const implicit = TICKETS[ticket].implicit
+    ? "\nJudge it as a careful senior engineer would, beyond the written criteria: weigh security (access rights, leaks between accounts, secrets at rest), robustness (concurrency, failures, large data) and edge cases most; a criterion met in the happy path only is partial.\n"
+    : "";
+  const prompt = `You are a strict senior reviewer. A developer implemented the ticket below in ${FIXTURES[fixtureOf(ticket)]}. Judge only the diff.
+${implicit}
 1. For each numbered acceptance criterion, say met, partial or unmet, with a one-line reason drawn from the diff.
 2. Score from 0 to 10: correctness, security, readability, tests (are the new behaviours covered by meaningful tests), error_handling, edge_cases, scope (10 = only what the ticket needs, no unrelated change).
 3. List your review findings as a code reviewer would: real bugs, security issues, missing tests, poor error handling, unhandled edge cases, changes outside the ticket, over-engineering. Only findings you can point to in the diff; none is fine.
@@ -338,7 +356,7 @@ async function trial(t, o, results) {
   const dir = join(results, `${t.ticket}-${t.arm}-${t.n}`);
   mkdirSync(dir, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), `termf-bench-${t.ticket}-${t.arm}-`));
-  const { repo, base } = prepare(work);
+  const { repo, base } = prepare(work, fixtureOf(t.ticket));
   console.log(`start  ${t.ticket} ${t.arm} #${t.n}  (${work})`);
   let arm;
   try {
@@ -425,7 +443,7 @@ function remeasure(results) {
   for (const r of load(results)) {
     const dir = join(results, `${r.ticket}-${r.arm}-${r.n}`);
     const work = mkdtempSync(join(tmpdir(), "termf-bench-remeasure-"));
-    const { repo, base } = prepare(work);
+    const { repo, base } = prepare(work, fixtureOf(r.ticket));
     const patch = readFileSync(join(dir, "diff.patch"), "utf8");
     if (patch.trim()) git(repo, "apply", "--recount", "--whitespace=nowarn", join(dir, "diff.patch"));
     const log = join(dir, "solo.log");
@@ -459,6 +477,13 @@ async function main() {
   const gitconfig = join(results, ".gitconfig");
   writeFileSync(gitconfig, "[user]\n\tname = Bench\n\temail = bench@termf.invalid\n");
   gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: "1" };
+  // The bench machine has TypeScript installed, for both arms alike: `tsc` on the PATH, from app/node_modules.
+  const tsc = join(ROOT, "app", "node_modules", "typescript", "bin", "tsc");
+  if (!o["no-tsc"] && existsSync(tsc) && process.platform !== "win32") {
+    const bin = mkdtempSync(join(tmpdir(), "termf-bench-bin-"));
+    writeFileSync(join(bin, "tsc"), `#!/bin/sh\nexec node ${JSON.stringify(tsc)} "$@"\n`, { mode: 0o755 });
+    gitEnv.PATH = `${bin}${delimiter}${process.env.PATH}`;
+  }
   if (o.arms.includes("team")) teamBinary();
 
   const done = load(results);

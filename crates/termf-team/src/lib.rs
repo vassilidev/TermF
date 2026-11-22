@@ -1224,7 +1224,12 @@ impl Inner {
     /// The criteria of the definition of done: `[team] done` of the project's file, else of `termf.toml`.
     fn done_criteria(&self, run: &TeamRun) -> Result<Vec<(String, bool)>> {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
-        done::criteria(&[&project, &self.config_dir.join("termf.toml")])
+        let mut ids = done::criteria(&[&project, &self.config_dir.join("termf.toml")])?;
+        // The CTO routes to the direct workflow only what has no security stake, and says so in its rulings.
+        if run.workflow == DIRECT {
+            ids.retain(|(id, _)| id != "security");
+        }
+        Ok(ids)
     }
 
     /// The delivery gate passes when the definition of done is met; else only with the user's reason: the decision
@@ -3984,8 +3989,14 @@ impl Inner {
                     && run.workflow == DIRECT
                     && run.steps[i].attempt == 0
                     && run.steps[i].feedback.is_none()
-                    && let Some(task) = run.routing.as_ref().and_then(|r| r.task.clone())
+                    && let Some(mut task) = run.routing.as_ref().and_then(|r| r.task.clone())
                 {
+                    // The ticket's numbered criteria, as the reports name them: AC1, AC2…
+                    for c in &mut task.covers {
+                        if !c.is_empty() && c.chars().all(|ch| ch.is_ascii_digit()) {
+                            *c = format!("AC{c}");
+                        }
+                    }
                     let summary = run.routing.as_ref().map(|r| r.reason.clone());
                     // The criteria are the ticket's own: the task names those it covers.
                     let acceptance: Vec<serde_json::Value> = task

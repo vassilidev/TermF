@@ -2215,6 +2215,8 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     env.answer("triage.1.json", direct.clone());
     let mut t1 = task("T1", "back", &["src/api/a.txt"], &[]);
     t1["squad"] = "".into();
+    // The ticket's own numbering: TermF names it as the reports do.
+    t1["covers"] = json!(["1"]);
     direct["task"] = t1;
     direct["rulings"] =
         json!(["Ruling: direct — an S ticket with its criteria — a review catches a miss"]);
@@ -2244,7 +2246,17 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     let plan = env.step(&run, "plan");
     assert_eq!(plan.state, StepState::Done);
     assert!(plan.sessions.is_empty(), "no lead: the CTO gave the task");
-    assert_eq!(run.plan.as_ref().unwrap().tasks.len(), 1);
+    let planned = run.plan.as_ref().unwrap();
+    assert_eq!(planned.tasks.len(), 1);
+    assert_eq!(planned.acceptance[0].id, "AC1");
+    assert!(
+        !env.step(&run, "deliver")
+            .note
+            .as_deref()
+            .unwrap_or_default()
+            .contains("security"),
+        "no security stake, no security review to wait for"
+    );
     for (key, state) in [
         ("frame", StepState::Skipped),
         ("approve-plan", StepState::Skipped),
