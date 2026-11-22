@@ -19,7 +19,7 @@ use termf_team::{Options, Request, RunState, StepState, TeamEvent, TeamRun};
 
 use crate::agents::AgentsState;
 use crate::tickets::{blocking, tickets};
-use crate::{AppState, CmdResult, team};
+use crate::{AppState, CmdResult, memory, team};
 
 /// Held while a project's conversation is looked for and created, so that it has only one.
 static OPENING: Mutex<()> = Mutex::new(());
@@ -36,20 +36,25 @@ fn project(app: &AppHandle, id: &str) -> Result<Project> {
         .with_context(|| format!("no project {id}"))
 }
 
-/// The project's conversation; the newest, should there be several.
-fn conversation(agents: &Agents, project: &str) -> Result<Option<AgentSession>> {
+/// The project's standing conversation with `role` (the CTO's, the expert's); the newest, should there be several.
+/// It has no budget: the user talks with it as long as they like, while each answer of the expert to another agent
+/// (`ask_expert`) gets its own session and budget.
+fn conversation(agents: &Agents, project: &str, role: &str) -> Result<Option<AgentSession>> {
     let sessions = agents.sessions()?.into_iter();
-    Ok(sessions
-        .into_iter()
-        .find(|s| s.spec.mcp && s.spec.project.as_deref() == Some(project)))
+    Ok(sessions.into_iter().find(|s| {
+        s.spec.mcp
+            && s.spec.budget.is_none()
+            && s.spec.role.as_deref() == Some(role)
+            && s.spec.project.as_deref() == Some(project)
+    }))
 }
 
-/// The project's CTO conversation, created the first time with no process: the first message starts one, and
-/// each later one resumes it.
-pub fn open(app: &AppHandle, id: &str) -> Result<AgentSession> {
+/// The project's standing conversation with `role`, created the first time with no process: the first message
+/// starts one, and each later one resumes it.
+pub fn standing(app: &AppHandle, id: &str, role: &str) -> Result<AgentSession> {
     let _one = OPENING.lock().unwrap();
     let agents = agents(app);
-    if let Some(session) = conversation(&agents, id)? {
+    if let Some(session) = conversation(&agents, id, role)? {
         return Ok(session);
     }
     let project = project(app, id)?;
@@ -57,11 +62,15 @@ pub fn open(app: &AppHandle, id: &str) -> Result<AgentSession> {
         .repos
         .first()
         .with_context(|| format!("the project {} has no repository", project.name))?;
+    let title = match role {
+        termf_agents::EXPERT => "Expert",
+        _ => "CTO",
+    };
     agents.create(SessionSpec {
         cwd: repo.path.clone().into(),
-        title: format!("CTO · {}", project.name),
+        title: format!("{title} · {}", project.name),
         project: Some(project.id),
-        role: Some("cto".into()),
+        role: Some(role.into()),
         mcp: true,
         ..SessionSpec::default()
     })
@@ -72,7 +81,8 @@ pub fn open(app: &AppHandle, id: &str) -> Result<AgentSession> {
 #[serde(rename_all = "camelCase")]
 pub struct Addressed {
     pub session: AgentSession,
-    /// `step`: the session of the role's step at work in a team run; `direct`: a conversation with the role.
+    /// `step`: the session of the role's step at work in a team run; `direct`: a conversation with the role;
+    /// `queued`: the expert's conversation, which takes it at the end of its turn under way.
     pub via: &'static str,
     /// The step: the one that got the message, or, with `direct`, the one in the middle of a turn that could not.
     pub run: Option<i64>,
@@ -133,6 +143,18 @@ pub fn address(
     ensure!(!text.trim().is_empty(), "the message is empty");
     let agents = agents(app);
     let project = project(app, id)?;
+    // The expert answers in its own conversation, with the project memory: it never works at a step. In the
+    // middle of a turn, it gets the message at its end.
+    if role == termf_agents::EXPERT {
+        let session = standing(app, id, role)?;
+        let queued = agents.send_or_queue(session.id, text)?;
+        return Ok(Addressed {
+            session: agents.session(session.id)?,
+            via: if queued { "queued" } else { "direct" },
+            run: None,
+            step: None,
+        });
+    }
     let at_work = step_at_work(&team::team(app).runs()?, id, role);
     let busy = match route(at_work, |session| agents.send(session, text).is_ok()) {
         Route::Step { run, step, session } => {
@@ -207,7 +229,7 @@ fn direct_conversation(
 /// Tells the project's CTO conversation, with the user's next message, what the user wrote to another agent.
 fn tell(app: &AppHandle, project: &str, role: &str, text: &str, to: &Addressed) -> Result<()> {
     let agents = agents(app);
-    let Some(cto) = conversation(&agents, project)? else {
+    let Some(cto) = conversation(&agents, project, "cto")? else {
         return Ok(());
     };
     let (id, cwd) = (to.session.id, to.session.spec.cwd.display());
@@ -218,6 +240,9 @@ fn tell(app: &AppHandle, project: &str, role: &str, text: &str, to: &Addressed) 
         (_, Some(run), Some(step)) => format!(
             "The user wrote to {role} directly, in conversation {id} ({cwd}), its step {step} of team run {run} \
              being in the middle of a turn: {text}"
+        ),
+        ("queued", ..) => format!(
+            "The user wrote to {role}, in conversation {id}, which reads it once its turn under way ends: {text}"
         ),
         _ => format!("The user wrote to {role} directly, in conversation {id} ({cwd}): {text}"),
     };
@@ -255,7 +280,7 @@ pub fn team_event(app: &AppHandle, event: &TeamEvent) {
 fn relay(app: &AppHandle, event: &TeamEvent, about: &str) -> Result<()> {
     let run = team::team(app).run(event.run)?;
     let agents = agents(app);
-    let Some(cto) = conversation(&agents, &run.target.project)? else {
+    let Some(cto) = conversation(&agents, &run.target.project, "cto")? else {
         return Ok(());
     };
     agents.notify(cto.id, notice_of(event, &run, about), true)
@@ -296,9 +321,12 @@ fn notice_of(event: &TeamEvent, run: &TeamRun, about: &str) -> Notice {
 pub fn call(app: &AppHandle, session: i64, tool: McpCall) -> Result<Value> {
     let agents = agents(app);
     let conversation = agents.session(session)?;
+    let name = serde_json::to_value(&tool)?["tool"].clone();
     ensure!(
-        conversation.spec.mcp,
-        "agent session {session} has no TermF tools"
+        termf_agents::mcp_tools(&conversation.spec)
+            .iter()
+            .any(|t| name == *t),
+        "agent session {session} has no TermF tool {name}"
     );
     let project = conversation
         .spec
@@ -450,6 +478,25 @@ fn run_tool(app: &AppHandle, agents: &Agents, id: &str, tool: McpCall) -> Result
             }
             _ => bail!("give run and step, or role"),
         },
+        McpCall::MemorySearch {
+            query,
+            sources,
+            limit,
+        } => {
+            let sources = sources
+                .iter()
+                .map(|s| termf_memory::Source::parse(s))
+                .collect::<Result<Vec<_>>>()?;
+            let hits = memory::search(app, id, &query, &sources, limit.unwrap_or(10))?;
+            serde_json::to_value(hits)?
+        }
+        McpCall::MemoryRead { id: doc, offset } => {
+            serde_json::to_value(memory::read(app, id, doc, offset.unwrap_or(0))?)?
+        }
+        McpCall::AskExpert { question } => {
+            let answer = memory::ask(app, id, &question, None)?;
+            json!({ "answer": answer.text, "conversation": answer.session, "cost": answer.cost })
+        }
     })
 }
 
@@ -577,7 +624,7 @@ fn waiting(app: &AppHandle, agents: &Agents, id: &str) -> Result<Value> {
 
 #[tauri::command]
 pub async fn cto_open(app: AppHandle, project: String) -> CmdResult<AgentSession> {
-    blocking(app, move |app| open(app, &project)).await
+    blocking(app, move |app| standing(app, &project, "cto")).await
 }
 
 /// `@role` in the CTO conversation: the message goes to the role, and the CTO hears of it.

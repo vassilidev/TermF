@@ -222,9 +222,18 @@ export function addressed(draft: string, roles: string[]): { role: string; text:
   return m && roles.includes(role) ? { role, text: m[2].trim() } : null;
 }
 
-/** For display only: the CTO conversations first, the rest in the order given. */
-export function pinnedFirst<T extends { mcp?: boolean }>(list: T[]): T[] {
-  return [...list.filter((s) => s.mcp), ...list.filter((s) => !s.mcp)];
+type Pinnable = { mcp?: boolean; budget?: number | null; role?: string | null };
+
+/** A project's standing conversation (the CTO's, the expert's): TermF's tools and no budget. The expert's answers to
+ * other agents each have a budget. */
+export function pinned(s: Pinnable): boolean {
+  return !!s.mcp && s.budget == null;
+}
+
+/** For display only: the standing conversations first, the CTO's on top, the rest in the order given. */
+export function pinnedFirst<T extends Pinnable>(list: T[]): T[] {
+  const rank = (s: T) => (!pinned(s) ? 0 : s.role === "cto" ? 2 : 1);
+  return [2, 1, 0].flatMap((r) => list.filter((s) => rank(s) === r));
 }
 
 /** While the draft is `@` and the start of a role's name: the roles it may be, in their order. */

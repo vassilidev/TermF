@@ -91,6 +91,25 @@ pub struct Settings {
     pub keys: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(deserialize_with = "vault_settings")]
     pub vault: VaultSettings,
+    pub memory: MemorySettings,
+}
+
+/// `[memory]` in `termf.toml`: the project memory the expert searches (crate `termf-memory`).
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(default)]
+pub struct MemorySettings {
+    pub enabled: bool,
+    /// Sources left out of the index, by id (`claude`, `git`…).
+    pub exclude: Vec<String>,
+}
+
+impl Default for MemorySettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            exclude: Vec::new(),
+        }
+    }
 }
 
 /// `[vault]` in `termf.toml`.
@@ -275,6 +294,7 @@ impl Default for Settings {
             artifacts: ArtifactSettings::default(),
             keys: BTreeMap::new(),
             vault: VaultSettings::default(),
+            memory: MemorySettings::default(),
         }
     }
 }
@@ -429,6 +449,17 @@ pub fn save_vault_auto_lock(config_dir: &Path, minutes: u32) -> Result<()> {
     edit_settings(config_dir, |doc| {
         table_in(doc.as_table_mut(), "vault")
             .insert("auto_lock_minutes", value(i64::from(minutes)));
+    })
+}
+
+pub fn save_memory(config_dir: &Path, settings: &MemorySettings) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        let table = table_in(doc.as_table_mut(), "memory");
+        table.insert("enabled", value(settings.enabled));
+        table.insert(
+            "exclude",
+            value(settings.exclude.iter().collect::<toml_edit::Array>()),
+        );
     })
 }
 
@@ -957,6 +988,24 @@ mod tests {
             let found = settings(text).ticket_agent().unwrap_err().to_string();
             assert!(found.contains(error), "{text}: {found}");
         }
+    }
+
+    #[test]
+    fn saves_memory_settings() {
+        let dir = temp_dir("memory");
+        fs::write(dir.join("termf.toml"), "# mine\nkeep_awake = \"off\"\n").unwrap();
+        assert_eq!(
+            load_settings(&dir).unwrap().memory,
+            MemorySettings::default()
+        );
+        let off = MemorySettings {
+            enabled: false,
+            exclude: vec!["claude".into(), "git".into()],
+        };
+        save_memory(&dir, &off).unwrap();
+        let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
+        assert!(text.starts_with("# mine\n"), "comments kept: {text}");
+        assert_eq!(load_settings(&dir).unwrap().memory, off);
     }
 
     #[test]

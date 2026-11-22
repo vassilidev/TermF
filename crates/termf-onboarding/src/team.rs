@@ -976,9 +976,10 @@ pub fn team(
         choices,
         splittable: splittable(&units(&repos)),
         roles: role_choices,
+        // The expert answers questions about the project: no workflow runs it.
         steps: roles
             .iter()
-            .filter(|r| !r.plannable)
+            .filter(|r| !r.plannable && r.name != "expert")
             .map(|r| r.name.clone())
             .collect(),
         proposal,

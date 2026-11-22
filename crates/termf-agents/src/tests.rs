@@ -68,6 +68,8 @@ while IFS= read -r line; do
     *structured*) answer '{"ok":true}'; result success ',"structured_output":{"ok":true}' ;;
     *budget*) result error_max_budget_usd ',"is_error":true,"terminal_reason":"budget_exhausted","errors":["Reached maximum budget ($0.05)"]' ;;
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
+    *patience*) sleep 1; answer 'Done.'; result success ;;
+    *webhooks*) answer 'Three retries: src/webhooks.rs:12, and conversation 1111 (2026-11-20).'; result success ;;
     *) answer 'OK.'; result success ;;
   esac
 done
@@ -440,6 +442,100 @@ fn plays_a_role_and_answers_with_its_schema() {
     };
     let error = env.agents.start(unknown, None).unwrap_err().to_string();
     assert!(error.contains("no role named nobody"), "{error}");
+}
+
+#[test]
+fn the_expert_reads_only_and_never_reaches_the_network() {
+    let env = Env::new("expert");
+    let spec = SessionSpec {
+        role: Some("expert".into()),
+        ..env.spec()
+    };
+    let session = env.agents.start(spec, None).unwrap();
+    let denied = &session.spec.disallowed_tools;
+    for tool in [
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "Bash",
+        "PowerShell",
+        "WebFetch",
+        "WebSearch",
+    ] {
+        assert!(denied.iter().any(|t| t == tool), "{tool}: {denied:?}");
+    }
+    assert!(
+        !denied.iter().any(|t| t == "Read" || t == "Agent"),
+        "it reads and searches wide"
+    );
+    assert_eq!(
+        (
+            session.spec.model.as_deref(),
+            session.spec.effort.as_deref()
+        ),
+        (Some("haiku"), Some("low")),
+        "the spec's own model and effort win over the role's"
+    );
+}
+
+#[test]
+fn a_message_written_during_a_turn_goes_once_it_ends() {
+    let env = Env::new("queue");
+    let id = env
+        .agents
+        .start(env.spec(), Some("patience please"))
+        .unwrap()
+        .id;
+    assert!(
+        env.agents.send_or_queue(id, "hello").unwrap(),
+        "kept for the end of the turn"
+    );
+    assert!(env.agents.send_or_queue(id, "and hello again").unwrap());
+    env.settle(id, 2, State::Idle);
+    let said: Vec<String> = env
+        .events(id)
+        .into_iter()
+        .filter_map(|e| match e {
+            AgentEvent::User { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["patience please", "hello\n\nand hello again"]);
+    assert!(
+        !env.agents.send_or_queue(id, "hello").unwrap(),
+        "between two turns: at once"
+    );
+    env.settle(id, 3, State::Idle);
+}
+
+#[test]
+fn consults_an_agent_for_another_and_waits_for_its_answer() {
+    let env = Env::new("consult");
+    let ask = |prompt: &str| {
+        let spec = SessionSpec {
+            role: Some("expert".into()),
+            budget: Some(0.5),
+            ..env.spec()
+        };
+        env.agents.consult(spec, prompt, Duration::from_secs(20))
+    };
+    let (session, text) = ask("Why do webhooks retry?").unwrap();
+    assert!(text.contains("src/webhooks.rs:12"), "{text}");
+    assert_eq!(
+        session.state,
+        State::Stopped,
+        "its process ends with the answer"
+    );
+    assert_eq!(session.spec.budget, Some(0.5));
+    let (session, text) = ask("permission to write a file").unwrap();
+    assert_eq!(text, "Not written.", "nobody can approve a tool");
+    let refused = env
+        .events(session.id)
+        .into_iter()
+        .any(|e| matches!(e, AgentEvent::PermissionAnswer { allow: false, .. }));
+    assert!(refused);
+    let error = ask("over budget").unwrap_err().to_string();
+    assert!(error.contains("budget ran out"), "{error}");
 }
 
 #[test]
@@ -1049,6 +1145,92 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
         assert!(
             !args.contains(&flag.into()),
             "{flag} only with TermF's tools"
+        );
+    }
+}
+
+#[test]
+fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
+    let env = Env::new("expert-tools");
+    let po = SessionSpec {
+        role: Some("po".into()),
+        allowed_tools: vec!["mcp__termf__ask_expert".into()],
+        ..env.spec()
+    };
+    let alone = env.agents.start(po.clone(), Some("say hello")).unwrap().id;
+    env.settle(alone, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    assert!(
+        !args.contains(&"--mcp-config".into()),
+        "no app, no expert: the step still runs"
+    );
+    env.agents.serve_mcp(
+        |id| Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string()}})),
+        |_| {},
+    );
+    let run = |spec: SessionSpec| {
+        let id = env.agents.start(spec, Some("say hello")).unwrap().id;
+        env.settle(id, 1, State::Idle);
+        let args = env.args().pop().unwrap();
+        let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
+        let config: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+        let tools = config["mcpServers"]["termf"]["env"]["TERMF_MCP_TOOLS"].clone();
+        (args, tools)
+    };
+
+    let expert = SessionSpec {
+        role: Some("expert".into()),
+        mcp: true,
+        ..env.spec()
+    };
+    let (args, tools) = run(expert);
+    assert_eq!(tools, "memory_search,memory_read");
+    assert_eq!(
+        arg_after(&args, "--tools"),
+        Some("Read,Grep,Glob,Agent"),
+        "sub-agents read"
+    );
+    assert!(args.contains(&"--strict-mcp-config".into()) && args.contains(&"--restricted".into()));
+    let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
+    let permissions = &settings["permissions"];
+    assert_eq!(
+        permissions["allow"],
+        json!(["mcp__termf__memory_search", "mcp__termf__memory_read"])
+    );
+    assert!(permissions["ask"].is_null(), "no action at all");
+    for tool in [
+        "Bash",
+        "PowerShell",
+        "WebFetch",
+        "WebSearch",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+    ] {
+        assert!(
+            permissions["deny"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(tool)),
+            "{tool}"
+        );
+    }
+
+    let (args, tools) = run(po);
+    assert_eq!(tools, "ask_expert");
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["--allowedTools", "mcp__termf__ask_expert"])
+    );
+    for flag in [
+        "--restricted",
+        "--strict-mcp-config",
+        "--tools",
+        "--settings",
+    ] {
+        assert!(
+            !args.contains(&flag.into()),
+            "{flag}: a team step keeps its own tools"
         );
     }
 }

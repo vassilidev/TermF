@@ -59,7 +59,8 @@
 
   const turns = $derived(thread(events));
   const init = $derived(events.findLast((e) => e.kind === "init"));
-  const cto = $derived(session.mcp === true);
+  const expert = $derived(session.mcp === true && session.role === "expert");
+  const cto = $derived(session.mcp === true && !expert);
   /** The project's active roles, the CTO aside: `@role` writes to one of them. */
   let roles = $state<string[]>([]);
   let repo = $state("");
@@ -148,6 +149,9 @@
     mcp__termf__request_changes: "ctoToolChanges",
     mcp__termf__stop_team_run: "ctoToolStop",
     mcp__termf__send_message: "ctoToolSend",
+    mcp__termf__ask_expert: "expertToolAsk",
+    mcp__termf__memory_search: "expertToolSearch",
+    mcp__termf__memory_read: "expertToolRead",
   };
   const toolName = (name: string) => (termfTools[name] ? t(termfTools[name]) : name);
   const asks = (tool: string) =>
@@ -157,6 +161,7 @@
     const vars = { run: n.run ?? "", step: n.step ?? "", role: n.role ?? "" };
     const keys = { waiting: "ctoNoticeWaiting", blocked: "ctoNoticeBlocked", step: "ctoNoticeStep", direct: "ctoNoticeDirect" } as const;
     if (n.about === "direct" && n.run) return t("ctoNoticeBusy", vars);
+    if (n.about === "queued") return t("expertNoticeQueued", vars);
     return n.about in keys ? t(keys[n.about as keyof typeof keys], vars) : n.text;
   }
 
@@ -291,7 +296,7 @@
   {:else if item.type === "handed_back"}
     <p class="sys"><Undo2 size={14} aria-hidden="true" />{t("chatHandedBack")}</p>
   {:else if item.type === "notice"}
-    {@const opens = item.about === "step" || item.about === "direct" ? item.conversation : undefined}
+    {@const opens = ["step", "direct", "queued"].includes(item.about) ? item.conversation : undefined}
     <div class="termf" class:asks={item.about === "waiting" || item.about === "blocked"} role="note">
       <Megaphone size={14} aria-hidden="true" />
       <p>
@@ -410,7 +415,7 @@
           <CirclePause size={14} aria-hidden="true" />{t("chatInterrupt")}
         </button>
       {/if}
-      {#if !cto && (session.state === "idle" || session.state === "stopped" || session.state === "error")}
+      {#if !session.mcp && (session.state === "idle" || session.state === "stopped" || session.state === "error")}
         <button class="btn sm" disabled={!!busy} onclick={takeover} title={t("chatTakeoverHelp")}>
           {#if busy === "takeover"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<SquareTerminal
               size={14}
@@ -465,8 +470,8 @@
         <button class="btn sm" onclick={load}>{t("chatRetry")}</button>
       </p>
     {/if}
-    {#if cto && !turns.length && !loadError}
-      <p class="intro">{t("ctoIntro")}</p>
+    {#if session.mcp && !turns.length && !loadError}
+      <p class="intro">{expert ? t("expertIntro") : t("ctoIntro")}</p>
     {/if}
     {#each turns as turn (turn.key)}
       {@const now = turning && turn === turns.at(-1) && !turn.end}
@@ -492,8 +497,8 @@
   <textarea
     class="field"
     rows="2"
-    placeholder={cto ? t("ctoMessage") : t("chatMessage")}
-    aria-label={cto ? t("ctoMessage") : t("chatMessage")}
+    placeholder={cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage")}
+    aria-label={cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage")}
     aria-describedby={why ? "chat-why" : undefined}
     aria-controls={offered.length ? "cto-roles" : undefined}
     aria-activedescendant={offered.length ? `cto-role-${offered[Math.min(picked, offered.length - 1)]}` : undefined}
@@ -502,7 +507,7 @@
     onkeydown={enter}
   ></textarea>
   <div class="send">
-    {#if to && repos.length > 1}
+    {#if to && to.role !== "expert" && repos.length > 1}
       <select class="field" aria-label={t("ctoRepo")} title={t("ctoRepo")} bind:value={repo}>
         {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
       </select>

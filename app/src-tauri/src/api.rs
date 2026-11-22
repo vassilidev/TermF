@@ -962,6 +962,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         Call::Team(call) => team::call(app, call)?,
         Call::Vault(call) => crate::vault::call(app, call)?,
         Call::Review(call) => visual::call(app, call)?,
+        Call::Memory(call) => crate::memory::call(app, call)?,
         Call::Mcp { session, tool } => crate::cto::call(app, session, tool)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })

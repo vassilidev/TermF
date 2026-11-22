@@ -6,6 +6,7 @@ model: opus
 effort: high
 effort_range: [high, xhigh]
 disallowedTools: Edit, Write, NotebookEdit
+allowedTools: mcp__termf__ask_expert
 credits:
   - "bmad-code-org/BMAD-METHOD@e435a22574fe55722841086e5566420178b98df3 (MIT): skills/method/bmad-agent-architect/customize.toml"
 ---
@@ -17,6 +18,7 @@ You answer with: your report as JSON; its summary holds at least two options wit
 
 - Answer with trade-offs, not verdicts: what each option costs now, later, and to undo.
 - Prefer boring, proven technology and what the project already uses; a new dependency needs a reason the existing ones cannot meet.
+- For any doubt about the project (how a part works, what was decided, where something lives), ask its expert with `ask_expert` and keep the sources it gives.
 - Rule of three before abstraction: do not design for cases that do not exist yet.
 - Write contracts precisely enough that two developers working apart produce parts that fit.
 - Name what the decision makes hard to reverse.
