@@ -1,6 +1,9 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import LibraryBig from "@lucide/svelte/icons/library-big";
+  import Play from "@lucide/svelte/icons/play";
+  import TeamRuns from "$lib/TeamRuns.svelte";
+  import Tabs from "$lib/ui/Tabs.svelte";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
@@ -14,7 +17,7 @@
   import { sessionProjects } from "$lib/project.svelte";
   import { app, onScreen, shortPath } from "$lib/state.svelte";
   import { access, initials } from "$lib/team-logic";
-  import { team } from "$lib/team.svelte";
+  import { scopedRuns, team } from "$lib/team.svelte";
 
   let busy = $state(false);
   let error = $state("");
@@ -95,9 +98,15 @@
 <div class="team">
   <ViewHeader title={t("t5Team")} context={project?.name ?? t("libraryGlobal")}>
     {#snippet actions()}
+      {#if team.tab === "runs"}
+        <button class="btn sm" onclick={() => (team.launching = true)}>
+          <Play size={14} aria-hidden="true" />{t("teamRunsLaunch")}
+        </button>
+      {:else}
       <button class="btn sm" onclick={editRoles}>
         <LibraryBig size={14} aria-hidden="true" />{t("t5EditRoles")}
       </button>
+      {/if}
     {/snippet}
   </ViewHeader>
 
@@ -107,6 +116,19 @@
     </div>
   {/if}
 
+  <Tabs
+    id="team"
+    label={t("t5Team")}
+    tabs={[
+      { id: "roles", label: t("teamRunsTabTeam") },
+      { id: "runs", label: t("teamRunsTab"), count: scopedRuns().length || null },
+    ]}
+    selected={team.tab}
+    onselect={(tab) => (team.tab = tab as typeof team.tab)}
+  >
+  {#if team.tab === "runs"}
+    <TeamRuns />
+  {:else}
   <div class="content">
     {#if sessions.length || headless.length}
       <section aria-labelledby="team-live">
@@ -215,6 +237,8 @@
       {/if}
     </section>
   </div>
+  {/if}
+  </Tabs>
 </div>
 
 <style>

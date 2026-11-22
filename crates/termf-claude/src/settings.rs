@@ -246,7 +246,8 @@ pub fn preview(env: &Env, scope: Scope, edit: &Edit) -> Result<Preview> {
     let text = pretty(&Value::Object(root), indent(&before))?;
     Ok(Preview {
         path: path.to_string_lossy().into_owned(),
-        diff: diff(&before, &text),
+        // Shown in the app and the CLI: the lines around a change may hold secrets.
+        diff: crate::native::mask_lines(&diff(&before, &text)),
         hash: fingerprint(&before),
         text,
     })

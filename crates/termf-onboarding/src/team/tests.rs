@@ -206,6 +206,7 @@ fn proposes_a_team_for_each_kind_of_project() {
             ("devops", true, "infra"),
             ("front", true, "front"),
             ("qa", true, "tests"),
+            ("seo", true, "web"),
             ("ux", true, "ui"),
         ]
     );
@@ -221,7 +222,7 @@ fn proposes_a_team_for_each_kind_of_project() {
         squads[0].roles,
         BTreeMap::from([("devops".into(), 1), ("front".into(), 1), ("qa".into(), 1)])
     );
-    assert_eq!(composition(&simple).staff, ["architect", "ux"]);
+    assert_eq!(composition(&simple).staff, ["architect", "seo", "ux"]);
     assert_eq!(simple.proposal.workflow.as_deref(), Some("default"));
     assert_eq!(writes(&simple, "qa"), Some(strings(&["**/*.test.*"])));
     assert_eq!(writes(&simple, "devops"), Some(strings(&["Dockerfile"])));
@@ -541,11 +542,11 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), text, "nothing written");
 
-    // A role delivered since, and a new package: proposed again, over the assistant's own writing only.
-    let roles = config.join("library/roles/seo.md");
+    // A role that appeared since, a public site and a new package: proposed again, over the assistant's own
+    // writing only.
     put(
-        &roles,
-        "---\nname: seo\ndescription: SEO. Use for public pages\n---\nYou are the SEO.\n",
+        &config.join("library/roles/docs.md"),
+        "---\nname: docs\ndescription: Technical writer. Use for the docs\n---\nYou write the docs.\n",
     );
     let acme = dir.join("acme");
     put(
@@ -554,8 +555,12 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
     );
     put(&acme.join("apps/web/public/robots.txt"), "");
     let later = team(&config, &data, "acme", Choices::default()).unwrap();
+    assert!(kept(&later).contains(&("docs", true, "own")));
     assert!(kept(&later).contains(&("seo", true, "web")));
-    assert_eq!(composition(&later).staff, ["architect", "seo", "ux"]);
+    assert_eq!(
+        composition(&later).staff,
+        ["architect", "docs", "seo", "ux"]
+    );
     assert_eq!(
         composition(&later).squads[0].paths,
         ["apps/admin/**", "apps/web/**", "packages/ui/**"]

@@ -905,6 +905,29 @@ fn runs_a_ticket_from_worktree_to_pull_request() {
 
 #[cfg(unix)]
 #[test]
+fn a_run_prepared_for_its_team_has_no_conversation_to_resume() {
+    let sb = Sandbox::new("prepare");
+    fake_gh(&sb);
+    let (front, _) = github_clone(&sb);
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[[repos]]\npath = {front:?}\n"),
+    );
+    let t = sb.tickets();
+    let run = t.start_without_session("front#42", None, None).unwrap();
+    assert!(Path::new(run.worktree.as_deref().unwrap()).is_dir());
+    assert!(sb.root.join("data/runs/1/brief/prompt.md").is_file());
+    assert_eq!(run.claude_session, None);
+    assert_eq!(t.run(1).unwrap().claude_session, None);
+    let Err(refused) = t.resume(1) else {
+        panic!("a run without a conversation is resumed")
+    };
+    let refused = refused.to_string();
+    assert!(refused.contains("cannot be resumed"), "{refused}");
+}
+
+#[cfg(unix)]
+#[test]
 fn resumes_runs_and_cleans_them_up_after_merge() {
     use std::cell::Cell;
 

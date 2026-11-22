@@ -19,7 +19,7 @@ use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
-use crate::{AppState, agents, schedule, team, tickets};
+use crate::{AppState, agents, schedule, team, tickets, visual};
 
 struct Meta {
     title: String,
@@ -213,6 +213,9 @@ impl Api {
             } else {
                 m.agent_session_id = Some(agent_session.into());
             }
+        }
+        if event == "StatusLine" && current {
+            crate::claude_native::status_line(app, id, payload);
         }
         if event == "SessionStart" && !agent_session.is_empty() {
             tickets::conversation(app, id, agent_session);
@@ -545,6 +548,59 @@ pub fn spawn_task(
     )
 }
 
+/// A command of Claude Code's own in a tile, as typed (`claude auth login`, `claude attach <id>`): no hooks, no
+/// library, nothing added to it. No `SECRET_DENY` either: neither takes `--settings`, login runs no tool, and
+/// attach opens a session whose settings were set when it started. Conversations resumed go through `spawn`.
+pub fn spawn_command(
+    state: &AppState,
+    cwd: PathBuf,
+    title: String,
+    command: &str,
+) -> Result<SessionSummary> {
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let (program, args) = shell_command(Some(command));
+    let mut new_id = None;
+    let spawned = state.sessions.spawn_with(|id| {
+        new_id = Some(id);
+        state.api.meta.lock().unwrap().insert(
+            id,
+            Meta {
+                title: title.clone(),
+                status: None,
+                remote_control: false,
+                agent_session_id: None,
+                dir: None,
+                reset: None,
+                hidden: false,
+                policy: None,
+            },
+        );
+        Ok(SpawnSpec {
+            title: title.clone(),
+            program,
+            args,
+            cwd,
+            agent: None,
+            cols: 120,
+            rows: 32,
+            env: Vec::new(),
+        })
+    });
+    if spawned.is_err()
+        && let Some(id) = new_id
+    {
+        state.api.forget(id);
+    }
+    Ok(state.api.summary(SessionInfo {
+        id: spawned?,
+        title,
+        cwd: cwd_text,
+        agent: None,
+        running: true,
+        exit_code: None,
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn launch(
     state: &AppState,
@@ -601,11 +657,9 @@ fn launch(
                 claude::write_plugin(&plugin, termf, run.is_some())?;
                 // The status line is what measures the context.
                 let settings = claude::write_settings(dir, termf, &cwd, &claude_dir())?;
-                if let Some(Value::Object(more)) = task.and_then(|t| t.settings.as_ref()) {
+                if let Some(more @ Value::Object(_)) = task.and_then(|t| t.settings.as_ref()) {
                     let mut all: Value = serde_json::from_str(&fs::read_to_string(&settings)?)?;
-                    if let Value::Object(map) = &mut all {
-                        map.extend(more.clone());
-                    }
+                    claude::merge_settings(&mut all, more);
                     fs::write(&settings, serde_json::to_string_pretty(&all)?)?;
                 }
                 extra.push(format!(
@@ -629,6 +683,14 @@ fn launch(
                     shell_quote(&prompt.to_string_lossy())
                 ));
             }
+        }
+        // Without TermF's hooks (no local API, no termf CLI), the secret files stay denied all the same.
+        if is_claude && hooks.is_none() {
+            let settings = claude::write_deny_settings(&termf_core::default_data_dir()?)?;
+            extra.push(format!(
+                "--settings {}",
+                shell_quote(&settings.to_string_lossy())
+            ));
         }
         if remote_control {
             extra.push(format!("--remote-control {}", shell_quote(&title)));
@@ -849,6 +911,8 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         }
         Call::Agent(call) => agents::call(app, call)?,
         Call::Team(call) => team::call(app, call)?,
+        Call::Vault(call) => crate::vault::call(app, call)?,
+        Call::Review(call) => visual::call(app, call)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }

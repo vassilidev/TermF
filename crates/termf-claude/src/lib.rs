@@ -17,6 +17,11 @@ pub mod schema;
 pub mod settings;
 pub mod trust;
 
+pub mod account;
+pub mod native;
+pub mod sessions;
+pub mod usage;
+
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum State {
@@ -176,12 +181,7 @@ pub fn overview(env: &Env) -> Overview {
     });
     let settings = settings::read(env);
     let hooks = hooks(&settings);
-    let auto_dir = settings
-        .effective
-        .iter()
-        .find(|e| e.key == "autoMemoryDirectory")
-        .and_then(|e| e.value.as_str())
-        .map(termf_core::expand_tilde);
+    let auto_dir = native::auto_memory_dir(&settings);
     Overview {
         claude_dir: env.claude_dir.to_string_lossy().into_owned(),
         repo: env.repo.as_ref().map(|r| r.to_string_lossy().into_owned()),
@@ -318,7 +318,7 @@ fn collect(kind: &str, root: &Path, dir: &Path, items: &mut Vec<Item>) {
     }
 }
 
-const KINDS: &[&str] = &["skills", "agents", "commands", "output-styles", "rules"];
+pub(crate) const KINDS: &[&str] = &["skills", "agents", "commands", "output-styles", "rules"];
 
 fn extensions(env: &Env) -> Vec<Folder> {
     use settings::Scope;
@@ -427,6 +427,21 @@ fn interface(env: &Env) -> Interface {
     }
 }
 
+#[derive(Serialize, Debug)]
+pub struct Files {
+    pub extensions: Vec<Folder>,
+    pub memory: Memory,
+}
+
+/// Skills and the like, and memory, read again without the slow commands of `overview`.
+pub fn files(env: &Env) -> Files {
+    let auto_dir = native::auto_memory_dir(&settings::read(env));
+    Files {
+        extensions: extensions(env),
+        memory: memory(env, auto_dir),
+    }
+}
+
 /// The text of an export, masked once more: whatever the page put in it, no secret reaches the file.
 pub fn export_text(text: &str) -> String {
     text.lines()
@@ -438,3 +453,5 @@ pub fn export_text(text: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_native;

@@ -19,7 +19,9 @@ pub mod conventions;
 mod roles;
 pub mod scout;
 
-pub use claude::{Imported, Outcome, import_claude, materialize};
+pub use claude::{
+    Imported, Outcome, export_claude, export_target, export_text, import_claude, materialize,
+};
 pub use roles::{Setting, applies_to, plannable, role, role_settings};
 
 static SHIPPED: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../library");
@@ -717,6 +719,7 @@ mod tests {
                     "back",
                     "devops",
                     "qa",
+                    "seo",
                     "secops",
                 ][..],
             ),
@@ -740,11 +743,11 @@ mod tests {
             }
         }
         let rule = find(&items, Kind::Rule, "no-text-changes");
-        assert_eq!(rule.applies_to, ["front", "back", "devops"]);
+        assert_eq!(rule.applies_to, ["front", "back", "devops", "seo"]);
         assert_eq!(rule.meta["level"], "block");
         assert_eq!(find(&items, Kind::Role, "secops").meta["effort"], "xhigh");
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 11, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 12, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);

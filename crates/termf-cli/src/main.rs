@@ -15,12 +15,14 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 mod agent;
 mod ci;
 mod claude;
+mod review;
 mod schedule;
 mod scout;
 mod ssh;
 mod sync;
 mod team;
 mod tickets;
+mod vault;
 mod worktree;
 
 const USAGE: &str = "\
@@ -138,6 +140,14 @@ usage:
   termf team stop [<run>]               emergency stop of one team, or of every team at work
   termf team squads [<project>]         the squads and staff of a project (by default every project),
                                         each role with its settings and the layers they come from
+  termf review start [--run <run>] [--repo <path> --base <ref> --head <ref>] [--route <path>]...
+                                        capture the screens before and after (a run's worktree, or two
+                                        commits) with the project's dev server and Chrome, then compare
+  termf review show <id> | --run <run>  the screens, what changed, the decisions and the images
+  termf review decide <id> <screen>|all approve|reject|changes [--comment <text>] [--pin x,y,<text>]...
+                                        decide a screen; once none is pending, the team's visual gate
+                                        goes on, stops the run, or sends the changes to the agent
+  termf review pr <id> [--yes]          show, then (with --yes) post the images on the run's pull request
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
   termf claude settings get <key> [--scope <s>] [--repo <path>]
@@ -153,6 +163,26 @@ usage:
   termf claude plugin enable|disable <plugin> [--scope <s>]
                                         through claude plugin; a command the marketplace runs to install
                                         is shown, and runs only once you pass its --accept-command
+  termf claude sessions [--repo <path>]  Claude Code's saved conversations of the repository and its worktrees
+                                        (titles and first messages only); claude --resume <id> takes one up
+  termf vault init                     create the vault, protected by a master password
+  termf vault unlock | lock | status    TermF's vault: open it with the master password, close it, or see
+                                        whether it is open (locks itself after some idle minutes)
+  termf vault ls [--scope dev|staging|prod] [--project <id>]
+                                        names of the secrets, never their values; a project also sees the
+                                        global ones
+  termf vault set <name> [--scope <s>] [--project <id>] [--description <text>]
+                                        store a value read on stdin (or typed, hidden), never an argument
+  termf vault ref <name> <uri> [--scope <s>] [--project <id>] [--description <text>]
+                                        a secret kept by a manager and read with its CLI each time it is used:
+                                        op://, bw://, doppler://, aws-sm://, vault://
+  termf vault reveal <name> [--scope <s>] [--project <id>]
+                                        print a value
+  termf vault rm <name> [--scope <s>] [--project <id>]
+  termf vault audit [--limit <n>] [--jsonl] | termf vault audit verify
+                                        who read or changed what, or check the log's hash chain
+                                        (the scope is dev without --scope; every vault command that reads or
+                                        writes a secret asks for the master password)
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -246,6 +276,8 @@ fn run(args: &[&str]) -> Result<()> {
         ["agent", rest @ ..] => agent::run(rest.to_vec())?,
         ["team", rest @ ..] => team::run(rest.to_vec())?,
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
+        ["vault", rest @ ..] => vault::run(rest.to_vec())?,
+        ["review", rest @ ..] => review::run(rest.to_vec())?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,

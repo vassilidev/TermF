@@ -1,0 +1,24 @@
+[package]
+name = "termf-visual"
+description = "Visual review before / after: dev servers on the base and the run's worktrees, headless Chrome captures, pixel and text diff, versioned reviews and the team's visual gate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+# The screenshots Chrome sends, base64 in its JSON; already used for keys.
+base64ct = { version = "1.8.3", features = ["alloc"] }
+# Already in the lockfile (Tauri's icons): reads the captures, writes the heatmaps.
+png = "0.18.1"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+termf-core = { path = "../termf-core" }
+termf-team = { path = "../termf-team" }
+termf-tickets = { path = "../termf-tickets" }
+termf-worktree = { path = "../termf-worktree" }
+toml = "1.2.2"
+
+[dev-dependencies]
+termf-agents = { path = "../termf-agents" }

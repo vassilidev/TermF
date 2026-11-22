@@ -65,6 +65,10 @@ impl AgentRuntime for ClaudeCode {
         };
         args.extend([id.into(), launch.session_id.into()]);
         args.extend(options(spec));
+        // A tile gets them from its `--settings` file, which a headless session has none of.
+        for rule in termf_core::claude::SECRET_DENY {
+            args.extend(["--disallowedTools".into(), rule.to_string()]);
+        }
         if let Some(budget) = launch.budget {
             args.extend(["--max-budget-usd".into(), format!("{budget:.4}")]);
         }

@@ -72,6 +72,51 @@ pub enum Call {
     Agent(AgentCall),
     /// Drives the agent team of a ticket run (crate `termf-team`).
     Team(TeamCall),
+    /// The app's vault session (crate `termf-vault`). Never a secret's value: whoever holds the token may be
+    /// an agent.
+    Vault(VaultCall),
+    /// Visual reviews before / after (crate `termf-visual`).
+    Review(ReviewCall),
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum VaultCall {
+    Status,
+    Unlock { password: String },
+    Lock,
+}
+
+impl std::fmt::Debug for VaultCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Status => "Status",
+            Self::Unlock { .. } => "Unlock",
+            Self::Lock => "Lock",
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ReviewCall {
+    /// `request`: a `termf_visual::Request`.
+    Start { request: Value },
+    /// `screen`: a screen id, or `all` for every pending one; `decision`: approve, reject or changes; `pins`:
+    /// `termf_visual::Pin`s.
+    Decide {
+        review: i64,
+        screen: String,
+        decision: String,
+        comment: Option<String>,
+        pins: Option<Value>,
+    },
+    /// Posts the images on the run's pull request; without `confirm` (the preview's fingerprint), shows what
+    /// it would post.
+    PrComment {
+        review: i64,
+        confirm: Option<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
