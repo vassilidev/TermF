@@ -114,3 +114,70 @@ pub fn view(config_dir: &Path, project: &str) -> Result<View> {
             .collect(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn shows_squads_staff_and_where_each_setting_comes_from() {
+        let dir = std::env::temp_dir().join(format!("termf-squads-view-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("projects")).unwrap();
+        fs::write(dir.join("termf.toml"), "[roles.back]\nmodel = \"opus\"\n").unwrap();
+        fs::write(
+            dir.join("projects/acme.toml"),
+            "name = \"Acme\"\n[team]\nstaff = [\"architect\", \"wizard\"]\n[[squads]]\nid = \"api\"\nmax_parallel = 2\n[squads.roles.back]\ncount = 2\neffort = \"xhigh\"\n",
+        )
+        .unwrap();
+        fs::write(dir.join("projects/small.toml"), "name = \"Small\"\n").unwrap();
+
+        let acme = view(&dir, "acme").unwrap();
+        assert!(acme.declared);
+        let api = &acme.squads[0];
+        assert_eq!(api.squad.max_parallel, Some(2));
+        let roles: Vec<(&str, bool, Option<usize>)> = api
+            .members
+            .iter()
+            .map(|m| (m.role.as_str(), m.lead, m.count))
+            .collect();
+        assert_eq!(roles, [("lead", true, None), ("back", false, Some(2))]);
+        let back = &api.members[1];
+        let setting = |key: &str| back.settings.iter().find(|s| s.key == key).unwrap();
+        assert_eq!(
+            (&setting("model").value, setting("model").from.as_slice()),
+            (&json!("opus"), &["global".to_owned()][..])
+        );
+        assert_eq!(setting("effort").from, ["squad"]);
+        assert!(back.plannable && !api.members[0].plannable);
+        assert_eq!(acme.staff[0].role, "architect");
+        assert!(
+            !acme.staff[0].credits.is_empty(),
+            "its prompt credits a source"
+        );
+        assert!(
+            acme.staff[1]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("no role named wizard")
+        );
+
+        let small = view(&dir, "small").unwrap();
+        assert!(!small.declared);
+        let names: Vec<&str> = small.squads[0]
+            .members
+            .iter()
+            .map(|m| m.role.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["lead", "architect", "back", "devops", "front", "qa", "ux"]
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

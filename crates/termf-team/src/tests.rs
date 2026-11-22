@@ -1400,7 +1400,7 @@ fn real_team() {
         worktree: worktree.clone(),
         ticket: "acme/api#1".into(),
         title: "Add hello.txt on both sides".into(),
-        brief: "<ticket source=\"https://example.invalid/1\">\n# Add hello.txt on both sides\n\nCreate api/hello.txt and web/hello.txt, each containing the single word hi. One small task per squad: the server squad writes api/hello.txt, the client squad web/hello.txt. Nothing else, no question.\n</ticket>".into(),
+        brief: "<ticket source=\"https://example.invalid/1\">\n# Add hello.txt on both sides\n\nThis repository is a monorepo: api/ belongs to the server squad, web/ to the client squad, both folders are to be created here. Create api/hello.txt and web/hello.txt in this repository, each containing the single word hi. One small task per squad. Nothing else; everything is decided, no question.\n</ticket>".into(),
     };
     let (notifier, inbox) = channel();
     let agents = Agents::build(config.clone(), data.clone(), Vec::new(), move |u| {

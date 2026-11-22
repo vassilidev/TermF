@@ -96,7 +96,6 @@
     class:broken={m.error}
     aria-pressed={on}
     title={m.error ?? m.description ?? undefined}
-    aria-label={t("rsShowSettings", { role: m.role })}
     onclick={() => pick(squad, m.role)}
   >
     {m.role}{#if m.count && m.count > 1}<small>×{m.count}</small>{/if}
@@ -154,7 +153,7 @@
       </div>
 
       {#if member && picked}
-        <div class="detail" aria-live="polite">
+        <div class="detail">
           <header>
             <div>
               <b>

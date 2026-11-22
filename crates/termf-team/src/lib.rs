@@ -1790,10 +1790,7 @@ impl Inner {
 
     /// The squad a task works in; `None` for a staff role, or when the project's file cannot say.
     fn squad_of(&self, run: &TeamRun, task: &Task) -> Option<Squad> {
-        match self.squads(run).ok()?.squad(&task.squad) {
-            Ok(Membership::Squad(squad)) => Some(squad.clone()),
-            _ => None,
-        }
+        squad_in(&self.squads(run).ok()?, task)
     }
 
     /// Whether the task step `i` must wait for its squad: as many of its tasks at work as it allows, or of its
@@ -1807,10 +1804,10 @@ impl Inner {
                 .find(|t| Some(&t.id) == s.task.as_ref())
                 .cloned()
         };
-        let Some(task) = task_of(&run.steps[i]) else {
+        let (Some(task), Ok(squads)) = (task_of(&run.steps[i]), self.squads(run)) else {
             return false;
         };
-        let Some(squad) = self.squad_of(run, &task) else {
+        let Some(squad) = squad_in(&squads, &task) else {
             return false;
         };
         let mates: Vec<Task> = run
@@ -1818,7 +1815,7 @@ impl Inner {
             .iter()
             .filter(|s| s.kind == StepKind::Task && s.state == StepState::Running)
             .filter_map(task_of)
-            .filter(|t| self.squad_of(run, t).is_some_and(|s| s.id == squad.id))
+            .filter(|t| squad_in(&squads, t).is_some_and(|s| s.id == squad.id))
             .collect();
         let peers = mates
             .iter()
@@ -2052,9 +2049,10 @@ impl Inner {
                 "\n## How to work\n\nWork in this folder only. Do not commit, push or open a pull request: TermF \
                  commits, merges and delivers once the user agrees. When you are done, answer with your report as \
                  JSON: status (done, blocked when you cannot go on without an answer, with your questions; failed), \
-                 summary, the criteria it covers, each visible text you added or changed (text_changes, with the \
-                 criterion that justifies it), the screens and states you touched (affected_views), and the problems \
-                 you saw out of scope (out_of_scope_findings), which you never fix.\n",
+                 summary, the ids of the criteria it covers (covers: AC1…, never prose), each visible text you \
+                 added or changed (text_changes, with the criterion that justifies it), the screens and states you \
+                 touched (affected_views), and the problems you saw out of scope (out_of_scope_findings), which you \
+                 never fix.\n",
             );
         }
         text.push_str(&format!(
@@ -2063,6 +2061,13 @@ impl Inner {
             t.brief
         ));
         Ok(text)
+    }
+}
+
+fn squad_in(squads: &Squads, task: &Task) -> Option<Squad> {
+    match squads.squad(&task.squad) {
+        Ok(Membership::Squad(squad)) => Some(squad.clone()),
+        _ => None,
     }
 }
 
