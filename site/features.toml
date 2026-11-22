@@ -1204,7 +1204,7 @@ default = [
 ]
 tune = ["<code>[updates] channel = \"stable\" | \"beta\"</code> and <code>check</code> in <code>termf.toml</code>.", "<code>--beta</code>, <code>--format appimage|deb|rpm</code> and <code>--dry-run</code> for the script."]
 commands = [["curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh", "install or update from a terminal"]]
-limits = ["The builds are not signed by Apple or Microsoft yet: a file downloaded with a browser still asks for one extra step on first launch.", "The update banner and the first-launch checks were checked with a simulated backend."]
+limits = ["The script refuses a release that publishes no <code>SHA256SUMS</code>: such a release installs from its files, on the download page.", "The builds are not signed by Apple or Microsoft yet: a file downloaded with a browser still asks for one extra step on first launch.", "The update banner and the first-launch checks were checked with a simulated backend."]
 tried = "The script ran in CI on the three systems against a local stand-in for GitHub's API, including a real AppImage install and the refusal of an altered file."
 related = ["cli", "claude-view", "local-api"]
 

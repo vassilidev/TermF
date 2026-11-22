@@ -288,26 +288,39 @@ function item(f) {
   return `<li><span class="fname">${esc(f.what)} · ${name}</span>${get}<small>${a ? mb(a.size) : ''}${state ? (a ? ' · ' : '') + state : ''}</small>${hash}</li>`;
 }
 
-// One command: the install script once the release carries its checksums (SHA256SUMS), else the visitor's file
+// The install scripts take GitHub's latest release (the newest that is not a pre-release, else the newest one), or
+// the newest one with --beta (TERMF_BETA=1 on Windows), and refuse a release without SHA256SUMS
+function script() {
+  const sums = r => r?.assets?.some(x => x.name === 'SHA256SUMS');
+  const latest = releases.find(r => !r.prerelease) ?? releases[0];
+  const beta = latest !== release;
+  if (!sums(release) || (beta && releases[0] !== release)) return '';
+  return os === 'windows' ? `${beta ? '$env:TERMF_BETA=1; ' : ''}irm https://vassilidev.github.io/TermF/install.ps1 | iex`
+    : `curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh${beta ? ' -s -- --beta' : ''}`;
+}
+
+// One command: the install script when it can install the release shown, else the button's own file
 function oneLine(a) {
+  const s = script();
+  if (s) return s;
   if (!a) return '';
-  if (release.assets.some(x => x.name === 'SHA256SUMS'))
-    return os === 'windows' ? 'irm https://vassilidev.github.io/TermF/install.ps1 | iex' : 'curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh';
   const u = a.browser_download_url, n = a.name;
   if (os === 'windows') return `iwr ${u} -OutFile ${n}; .\\${n}`;
-  if (os === 'linux') return /\.deb$/.test(n) ? `curl -fLO ${u} && sudo apt install ./${n}` : `curl -fLO ${u} && chmod +x ${n} && ./${n}`;
+  if (os === 'linux') return `curl -fLO ${u} && ${FILES.linux.find(f => f.re.test(n)).run(n)}`;
   return `curl -fLO ${u} && open ${n}`;
 }
 
 function render() {
   for (const box of document.querySelectorAll('[data-files]')) box.innerHTML = FILES[box.dataset.files].map(item).join('');
   document.querySelector('[data-linux]').innerHTML = FILES.linux.map(f => `<p class="status">${esc(f.how)}</p><div class="cmd"><code>${esc(f.run(find(f)?.name ?? f.name))}</code></div>`).join('');
-  const line = !mobile && release ? oneLine(find(os === 'mac' ? FILES.mac.find(f => f.arch === (arch ?? 'arm')) : os === 'linux' ? FILES.linux[1] : FILES.windows[0])) : '';
+  const line = !mobile && release ? oneLine(find(os === 'mac' ? FILES.mac.find(f => f.arch === (arch ?? 'arm')) : FILES[os][0])) : '';
   document.getElementById('dl-line').hidden = !line;
   document.getElementById('dl-cmd').textContent = line;
+  // An existing button only gets its new text, so its focus and its "Copied" state survive a render
   for (const c of document.querySelectorAll('.cmd')) {
-    c.querySelector('.copy')?.remove();
-    c.insertAdjacentHTML('beforeend', copyBtn(c.querySelector('code').textContent, 'Copy the command'));
+    const text = c.querySelector('code').textContent, btn = c.querySelector('.copy');
+    if (btn) btn.dataset.copy = text;
+    else c.insertAdjacentHTML('beforeend', copyBtn(text, 'Copy the command'));
   }
 
   // The main card: the visitor's system, and on a Mac the build for its chip when the browser tells it

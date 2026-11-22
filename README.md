@@ -47,7 +47,7 @@ curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh                # m
 irm https://vassilidev.github.io/TermF/install.ps1 | iex                     # Windows (PowerShell)
 ```
 
-Add `-s -- --beta` (or `TERMF_BETA=1` on Windows) to take the pre-releases too. Then TermF keeps itself up to date: it checks for updates, verifies their signature and installs them when you click.
+If it fails (a release without checksums), download the file for your system from the [releases page](https://github.com/vassilidev/TermF/releases), as below. Add `-s -- --beta` (or `TERMF_BETA=1` on Windows) to take the pre-releases too. Then TermF keeps itself up to date: it checks for updates, verifies their signature and installs them when you click.
 
 Or download the file for your system from the [download page](https://vassilidev.github.io/TermF/download.html) or the [releases](https://github.com/vassilidev/TermF/releases):
 

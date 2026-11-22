@@ -407,9 +407,15 @@ def roster():
         return f'<span class="mark" aria-hidden="true">{r["mark"]}</span><span><span class="rn">{r["label"]}</span><span class="rs">{r["short"]}</span></span>'
     first = crew["groups"][0]
     leads = "".join(f'<a class="org-lead c-{first["color"]}" href="team.html#role-{r["name"]}">{who(r)}</a>' for r in by_crew[first["id"]])
-    groups = "".join(f'<section class="org-g c-{g["color"]}{" wide" if len(by_crew[g["id"]]) > 6 else ""}" aria-labelledby="org-{g["id"]}"><h3 id="org-{g["id"]}">{g["name"]}<small>{len(by_crew[g["id"]])}</small></h3>'
-                     f'<ul>{"".join(f"""<li><a class="badge-a" href="team.html#role-{r['name']}">{who(r)}</a></li>""" for r in by_crew[g["id"]])}</ul></section>'
-                     for g in crew["groups"][1:] if by_crew[g["id"]])
+    def badge(r):
+        return f'<li><a class="badge-a" href="team.html#role-{r["name"]}">{who(r)}</a></li>'
+
+    def group(g):
+        members = by_crew[g["id"]]
+        wide = " wide" if len(members) > 6 else ""
+        return (f'<section class="org-g c-{g["color"]}{wide}" aria-labelledby="org-{g["id"]}"><h3 id="org-{g["id"]}">{g["name"]}<small>{len(members)}</small></h3>'
+                f'<ul>{"".join(badge(r) for r in members)}</ul></section>')
+    groups = "".join(group(g) for g in crew["groups"][1:] if by_crew[g["id"]])
     return (f'<div class="org"><div class="org-top"><p class="org-you"><span class="mark" aria-hidden="true">You</span><span>talk to the CTO only</span></p>'
             f'<span class="org-arrow" aria-hidden="true"></span>{leads}</div><div class="org-groups">{groups}</div></div>')
 

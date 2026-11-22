@@ -128,8 +128,8 @@
         <li><svg aria-hidden="true"><use href="#g-laptop"/></svg>Runs on your machine, no account</li>
         <li><svg aria-hidden="true"><use href="#g-code-xml"/></svg>Open source, MIT</li>
       </ul>
-      <div class="cmd"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code></div>
-      <p class="note">macOS and Linux. Windows, every file and checksum: <a href="download.html">the download page</a>. You need Claude Code installed. Early version, not signed by Apple or Microsoft yet.</p>
+      <div class="cmd" id="install"><code><a href="download.html">Every file for your system, on the download page</a></code></div>
+      <p class="note">Every system, file and checksum: <a href="download.html">the download page</a>. You need Claude Code installed. Early version, not signed by Apple or Microsoft yet.</p>
     </div>
     <figure class="shot">
       <div class="frame">
@@ -215,7 +215,7 @@
       <p>You need Claude Code installed and signed in, and git. Nothing else to set up.</p>
     </div>
     <ol class="start">
-      <li><h3>Install TermF</h3><p>One command in a terminal, <code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code> (on Windows, <a href="download.html">the PowerShell line</a>), or download the file for your system.</p></li>
+      <li><h3>Install TermF</h3><p>One command in a terminal, or the file for your system: both are on <a href="download.html">the download page</a>, which picks them for your system.</p></li>
       <li><h3>Create a project</h3><p>Pick your repositories. TermF reads your stack, your commands and your CI, and proposes a team, ticket sources and skills. You accept or change each one.</p></li>
       <li><h3>Ask the CTO</h3><p>Write what you want on the project's Home, or start the team on a ticket. Approve the plan, then the delivery: the pull request opens.</p></li>
     </ol>
@@ -287,17 +287,28 @@
 </footer>
 
 <script>
-const COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
-for (const c of document.querySelectorAll('.cmd')) {
-  const b = Object.assign(document.createElement('button'), {className: 'copy', type: 'button', innerHTML: COPY + '<span>Copy</span>'});
-  b.setAttribute('aria-label', 'Copy the install command');
-  b.onclick = async () => {
-    try { await navigator.clipboard.writeText(c.querySelector('code').textContent); } catch { return; }
-    b.classList.add('ok'); b.lastChild.textContent = 'Copied';
-    setTimeout(() => { b.classList.remove('ok'); b.lastChild.textContent = 'Copy'; }, 1600);
-  };
-  c.append(b);
-}
+// The install scripts take GitHub's latest release (the newest that is not a pre-release, else the newest one) and
+// refuse one without SHA256SUMS: the command shows only when that release has them, the link to the files otherwise
+const box = document.getElementById('install');
+const desktop = !/android|iphone|ipad|ipod/i.test(navigator.userAgent) && !((navigator.userAgentData?.platform || navigator.platform || '').toLowerCase().includes('mac') && navigator.maxTouchPoints > 1);
+if (desktop) fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(list => {
+    const shown = list.filter(r => !r.draft), latest = shown.find(r => !r.prerelease) ?? shown[0];
+    if (!latest?.assets?.some(a => a.name === 'SHA256SUMS')) return;
+    const win = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase().includes('win');
+    const text = win ? 'irm https://vassilidev.github.io/TermF/install.ps1 | iex' : 'curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh';
+    box.querySelector('code').textContent = text;
+    const b = Object.assign(document.createElement('button'), {className: 'copy', type: 'button', innerHTML: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span>'});
+    b.setAttribute('aria-label', 'Copy the install command');
+    b.onclick = async () => {
+      try { await navigator.clipboard.writeText(text); } catch { return; }
+      b.classList.add('ok'); b.lastChild.textContent = 'Copied';
+      setTimeout(() => { b.classList.remove('ok'); b.lastChild.textContent = 'Copy'; }, 1600);
+    };
+    box.append(b);
+  })
+  .catch(() => {});
 const nav = document.getElementById('nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {passive: true});
 const menu = nav.querySelector('.menu');
