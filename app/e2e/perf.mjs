@@ -15,9 +15,9 @@ export const build = /[\\/]release[\\/]/.test(APP) ? "release" : "debug";
  * margin, so that a regression still fails. Windows: reported only.
  */
 export const measures = {
-  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: { debug: 1500, release: 1500 } },
-  idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: { debug: 650, release: 650 } },
-  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: { debug: 70, release: 70 } },
+  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: { debug: 900, release: 650 } },
+  idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: { debug: 650, release: 600 } },
+  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: { debug: 40, release: 50 } },
   idleCpu: { label: "CPU at rest, over 10 s", unit: "%", budget: 1, limit: { debug: 2, release: 2 } },
   keyEcho: { label: "Keystroke to echo (median of 30)", unit: "ms", budget: 16, limit: { debug: 24, release: 24 } },
 };
@@ -25,7 +25,7 @@ export const measures = {
 const SESSIONS = 5;
 const IDLE_SECONDS = 10;
 // The web process gives back what hidden terminals let go of on its own schedule, not at once.
-const SETTLE_SECONDS = 5;
+const SETTLE_SECONDS = 10;
 
 function processesLinux() {
   const tick = Number(execFileSync("getconf", ["CLK_TCK"], { encoding: "utf8" })) || 100;
@@ -123,17 +123,25 @@ export async function measure(port, log) {
     out.idleCpu = ((sum(appTree(driver), "cpu") - before) / IDLE_SECONDS) * 100;
 
     await t.project();
+    const open = async (n) => {
+      await t.command(`repo-shell-${box.acme}`);
+      const id = await t.s.wait(() =>
+        t.s.exec((k) => {
+          const tiles = document.querySelectorAll(".tile[data-session]");
+          return tiles.length === k && tiles[k - 1].dataset.session;
+        }, n),
+      );
+      await t.prompt(id);
+      return id;
+    };
+    // A first terminal loads xterm and the view, once: not what each hidden terminal costs.
+    await open(1);
+    await t.view("home");
+    await sleep(SETTLE_SECONDS * 1000);
     const base = sum(appTree(driver, ours), "mem");
     const fill = windows ? "1..10000" : "seq 1 10000";
     for (let i = 0; i < SESSIONS; i++) {
-      await t.command(`repo-shell-${box.acme}`);
-      const id = await t.s.wait(() =>
-        t.s.exec((n) => {
-          const tiles = document.querySelectorAll(".tile[data-session]");
-          return tiles.length === n && tiles[n - 1].dataset.session;
-        }, i + 1),
-      );
-      await t.prompt(id);
+      const id = await open(i + 2);
       await t.typeIn(id, fill + Key.enter);
       await t.s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === "10000"), { what: "10,000 lines", timeout: 60_000 });
     }
@@ -141,11 +149,7 @@ export async function measure(port, log) {
     await sleep(SETTLE_SECONDS * 1000);
     out.hiddenTerminalRam = mb(sum(appTree(driver, ours), "mem") - base) / SESSIONS;
 
-    await t.command(`repo-shell-${box.acme}`);
-    const id = await t.s.wait(() =>
-      t.s.exec((n) => document.querySelectorAll(".tile[data-session]")[n]?.dataset.session, SESSIONS),
-    );
-    await t.prompt(id);
+    const id = await open(SESSIONS + 2);
     await t.s.exec(onPage, id);
     await t.s.click(`.tile[data-session="${id}"] .xterm-screen`);
     for (let i = 1; i <= 30; i++) {
