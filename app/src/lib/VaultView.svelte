@@ -469,7 +469,7 @@
 
   .touch {
     margin: 0;
-    color: var(--accent-text);
+    color: var(--accent-ink);
     font-size: var(--text-sm);
     font-weight: 500;
     text-align: center;

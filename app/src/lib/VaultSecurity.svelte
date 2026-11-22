@@ -420,7 +420,7 @@
   }
 
   .touch {
-    color: var(--accent-text);
+    color: var(--accent-ink);
     font-weight: 500;
   }
 
