@@ -30,17 +30,19 @@
 <script lang="ts">
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import DoneCriteria from "$lib/DoneCriteria.svelte";
   import RunPlan from "$lib/RunPlan.svelte";
   import TeamRouting from "$lib/TeamRouting.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { showConversation, usd } from "$lib/agents.svelte";
-  import { ROUTE, asks, held, rounds, tally, type Finding, type Review, type TeamRun } from "$lib/team-run-logic";
+  import { ROUTE, asks, escalations, held, rounds, tally, type Finding, type Review, type TeamRun } from "$lib/team-run-logic";
 
   /** A team run's own part of the Run page: why this path, the answers given, the plan and the steps. */
   let { run }: { run: TeamRun } = $props();
 
   const waits = $derived(asks(run));
-  const top = $derived(run.steps.filter((s) => s.kind !== "task"));
+  /** A task under its foreach, the CTO's escalation under the step it decides on. */
+  const top = $derived(run.steps.filter((s) => s.kind !== "task" && !s.escalates));
   const planFirst = $derived(!run.steps.some((s) => s.kind === "task" && s.state !== "pending"));
   /** The plan waiting for approval is read in its card. */
   const planAsked = $derived(waits.some((a) => a.kind === "plan") && !!run.plan);
@@ -99,6 +101,7 @@
   {@const [status, label] = stepPill(step)}
   {@const report = step.report}
   {@const task = taskOf(step)}
+  {@const cto = escalations(run, step)}
   <div class="step-head">
     <span><StatusPill {status} {label} /></span>
     <span class="step-name">
@@ -107,6 +110,7 @@
     </span>
     <span class="step-tags">
       {#if step.attempt > 1}<span class="muted small">{t("teamRunsAttempt", { n: step.attempt })}</span>{/if}
+      {#if step.escalated}<span class="badge">{t("disciplineEscalated")}</span>{/if}
       {#if task?.squad}<span class="badge">{t("teamRunsSquad", { name: task.squad })}</span>{/if}
       {#if step.role}<span class="badge">{step.role}</span>{/if}
     </span>
@@ -151,6 +155,13 @@
   {/if}
   {@render violations(step)}
   {#if step.kind === "review"}{@render reviewRounds(step)}{/if}
+  <!-- While the gate waits, its card shows the definition of done. -->
+  {#if step.kind === "connector" && step.state === "done" && run.done}<DoneCriteria done={run.done} />{/if}
+  {#if cto.length}
+    <ol class="steps nested">
+      {#each cto as e (e.key)}<li class="step">{@render stepRow(e)}</li>{/each}
+    </ol>
+  {/if}
 {/snippet}
 
 {#snippet reviewRounds(step: Step)}

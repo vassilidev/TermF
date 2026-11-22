@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 
 use crate::{TeamEvent, TeamRun, now};
 
@@ -27,7 +28,38 @@ CREATE TABLE IF NOT EXISTS team_events (
     message TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS team_events_by_run ON team_events(run, id);
+CREATE TABLE IF NOT EXISTS team_decisions (
+    id INTEGER PRIMARY KEY,
+    project TEXT NOT NULL,
+    run INTEGER NOT NULL,
+    step TEXT NOT NULL,
+    by TEXT NOT NULL,
+    text TEXT NOT NULL,
+    replaces INTEGER,
+    at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS team_decisions_by_project ON team_decisions(project, id);
 ";
+
+/// A decision of a project's journal: a ruling of the CTO, or what the user decided at a gate, kept for the runs to
+/// come. Replaced only by a later decision that says so.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Decision {
+    /// Shown as `D<id>`.
+    pub id: i64,
+    pub project: String,
+    /// The run and the step where it was made.
+    pub run: i64,
+    pub step: String,
+    /// `cto` or `you`.
+    pub by: String,
+    pub text: String,
+    pub replaces: Option<i64>,
+    pub replaced_by: Option<i64>,
+    /// Seconds since the Unix epoch.
+    pub at: i64,
+}
 
 pub(crate) struct Store {
     conn: Connection,
@@ -48,6 +80,11 @@ pub fn run(data_dir: &Path, id: i64) -> Result<TeamRun> {
 /// A team run's events after the event `after` (0: all).
 pub fn events(data_dir: &Path, run: i64, after: i64) -> Result<Vec<TeamEvent>> {
     Store::open(data_dir)?.events(run, after)
+}
+
+/// A project's decisions, newest first, each with the one that replaced it. Reads the database only.
+pub fn decisions(data_dir: &Path, project: &str) -> Result<Vec<Decision>> {
+    Store::open(data_dir)?.decisions(project)
 }
 
 impl Store {
@@ -135,6 +172,64 @@ impl Store {
                 .and_then(|mut f| f.write_all(line.as_bytes()));
         }
         Ok(event)
+    }
+
+    pub(crate) fn decide(
+        &self,
+        project: &str,
+        run: i64,
+        step: &str,
+        by: &str,
+        text: &str,
+        replaces: Option<i64>,
+    ) -> Result<Decision> {
+        let at = now();
+        self.conn.execute(
+            "INSERT INTO team_decisions (project, run, step, by, text, replaces, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![project, run, step, by, text, replaces, at],
+        )?;
+        Ok(Decision {
+            id: self.conn.last_insert_rowid(),
+            project: project.to_owned(),
+            run,
+            step: step.to_owned(),
+            by: by.to_owned(),
+            text: text.to_owned(),
+            replaces,
+            replaced_by: None,
+            at,
+        })
+    }
+
+    pub(crate) fn decisions(&self, project: &str) -> Result<Vec<Decision>> {
+        let mut query = self.conn.prepare(
+            "SELECT id, run, step, by, text, replaces, at FROM team_decisions WHERE project = ?1 ORDER BY id DESC",
+        )?;
+        let rows = query.query_map([project], |r| {
+            Ok(Decision {
+                id: r.get(0)?,
+                project: project.to_owned(),
+                run: r.get(1)?,
+                step: r.get(2)?,
+                by: r.get(3)?,
+                text: r.get(4)?,
+                replaces: r.get(5)?,
+                replaced_by: None,
+                at: r.get(6)?,
+            })
+        })?;
+        let mut list: Vec<Decision> = rows.collect::<rusqlite::Result<_>>()?;
+        let replaced: Vec<(i64, i64)> = list
+            .iter()
+            .filter_map(|d| Some((d.replaces?, d.id)))
+            .collect();
+        for d in &mut list {
+            d.replaced_by = replaced
+                .iter()
+                .find(|(old, _)| *old == d.id)
+                .map(|(_, by)| *by);
+        }
+        Ok(list)
     }
 
     fn events(&self, run: i64, after: i64) -> Result<Vec<TeamEvent>> {

@@ -16,6 +16,7 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import X from "@lucide/svelte/icons/x";
   import Delivery from "$lib/Delivery.svelte";
+  import DoneCriteria from "$lib/DoneCriteria.svelte";
   import RunPlan from "$lib/RunPlan.svelte";
   import TeamQuestionnaire from "$lib/TeamQuestionnaire.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
@@ -26,7 +27,7 @@
   import { showRun } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { awaitsDelivery } from "$lib/run-logic";
-  import { TRIAGE, asks, isForm, rounds, LEAVE, type Ask, type Question, type Step, type TeamRun } from "$lib/team-run-logic";
+  import { TRIAGE, asks, isForm, passes, rounds, LEAVE, type Ask, type Question, type Step, type TeamRun } from "$lib/team-run-logic";
   import { upsertRun, waitTitle } from "$lib/team.svelte";
   import { tickets } from "$lib/tickets.svelte";
 
@@ -58,6 +59,8 @@
   let accepting = $state("");
   let confirmAccept = $state(false);
   let delivering = $state(false);
+  /** The delivery gate whose "deliver anyway" field is open. */
+  let overriding = $state<string | null>(null);
 
   const ticket = $derived(tickets.runs.find((r) => r.id === run.run));
   const waits = $derived(asks(run).filter((a) => step === undefined || a.step.key === step));
@@ -100,6 +103,16 @@
   /** The delivery gate lets the team finish, then the delivery itself is previewed and confirmed. */
   async function deliver(key: string) {
     if (await approve(key)) delivering = true;
+  }
+
+  /** Past a definition of done not met: the user's reason goes with the approval. */
+  async function deliverAnyway(key: string) {
+    const reason = (drafts[draftOf(key)] ?? "").trim();
+    if (await act(`approve:${key}`, "team_approve", { step: key, reason })) {
+      drafts[draftOf(key)] = "";
+      overriding = null;
+      delivering = true;
+    }
   }
 
   const spinning = (name: string) => busy === name;
@@ -191,20 +204,43 @@
   </button>
 {/snippet}
 
-{#snippet deliverCard(onclick: () => void, name: string)}
-  <!-- Nothing to read before it: the preview that follows shows what the delivery sends. -->
+{#snippet deliverCard(onclick: () => void, name: string, gate?: string)}
+  <!-- Nothing else to read before it: the preview that follows shows what the delivery sends. -->
+  {@const held = !!gate && !passes(run.done)}
   <article class="ask">
     <header>
       <BellRing size={15} aria-hidden="true" />
       <b>{t("teamRunsAskDeliver")}</b>
-      <span class="end">
-        <button class="btn sm" class:primary disabled={!!busy} {onclick}>
-          {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
-          {t("runDeliver")}
-        </button>
-      </span>
+      {#if !held}
+        <span class="end">
+          <button class="btn sm" class:primary disabled={!!busy} {onclick}>
+            {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
+            {t("runDeliver")}
+          </button>
+        </span>
+      {/if}
     </header>
     {#if context}<p class="where"><span class="mono">{ticketKey(run.target.ticket)}</span> · {run.target.title}</p>{/if}
+    {#if run.done}<DoneCriteria done={run.done} />{/if}
+    {#if held && gate}
+      <p class="help">{t("disciplineDoneHeld")}</p>
+      {#if overriding === gate}
+        <label class="labelled">
+          <span>{t("disciplineDoneReason")}</span>
+          <textarea class="field" rows="3" bind:value={drafts[draftOf(gate)]}></textarea>
+        </label>
+        <div class="acts">
+          <button class="btn sm" onclick={() => (overriding = null)}>{t("cancel")}</button>
+          <button class="btn sm danger" disabled={!!busy || !(drafts[draftOf(gate)] ?? "").trim()} onclick={() => deliverAnyway(gate)}>
+            {@render spinner(name)}{t("disciplineDoneConfirm")}
+          </button>
+        </div>
+      {:else}
+        <div class="acts">
+          <button class="btn sm" disabled={!!busy} onclick={() => (overriding = gate)}>{t("disciplineDoneAnyway")}</button>
+        </div>
+      {/if}
+    {/if}
   </article>
 {/snippet}
 
@@ -214,7 +250,7 @@
     {#each waits as ask (ask.step.key)}
       {@const key = ask.step.key}
       {#if ask.kind === "deliver"}
-        {#if !delivering}{@render deliverCard(() => deliver(key), `approve:${key}`)}{/if}
+        {#if !delivering}{@render deliverCard(() => deliver(key), `approve:${key}`, key)}{/if}
       {:else}
         <article class="ask">
           {@render head(waitTitle(ask), ask.step)}

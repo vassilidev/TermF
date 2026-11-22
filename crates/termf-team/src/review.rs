@@ -128,7 +128,7 @@ impl Settings {
 }
 
 /// `[team] <key>` in the first of `files` that sets it, with that file's name.
-fn team_key(files: &[&Path], key: &str) -> Result<Option<(toml::Value, String)>> {
+pub(crate) fn team_key(files: &[&Path], key: &str) -> Result<Option<(toml::Value, String)>> {
     for file in files {
         let Ok(text) = fs::read_to_string(file) else {
             continue;

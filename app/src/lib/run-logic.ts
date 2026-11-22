@@ -4,7 +4,7 @@ import type { Ask } from "$lib/team-run-logic";
 
 type Key = Parameters<typeof t>[0];
 type Ticket = { status: string; prUrl: string | null; prState: string | null };
-type Step = { key: string; kind: string; state: string };
+type Step = { key: string; kind: string; state: string; escalates?: string | null };
 type Team = { state: string; steps: Step[] };
 
 export type StageState = "done" | "working" | "waiting" | "failed" | "pending";
@@ -64,7 +64,11 @@ export function stages(ticket: Ticket, team?: Team | null): Stage[] {
     ];
   }
   const groups = new Map<string, Step[]>();
-  for (const step of team.steps) groups.set(stageOf(step), [...(groups.get(stageOf(step)) ?? []), step]);
+  for (const step of team.steps) {
+    // The CTO's escalation belongs to the stage of the step it decides on.
+    const id = stageOf(team.steps.find((s) => s.key === step.escalates) ?? step);
+    groups.set(id, [...(groups.get(id) ?? []), step]);
+  }
   groups.delete("deliver");
   const deliver = team.steps.filter((s) => stageOf(s) === "deliver");
   const out: Stage[] = [...groups]
@@ -124,6 +128,7 @@ export const named = (names: Record<string, Key>, id: string): Key | null => (Ob
  * its name, any other by its id.
  */
 export function stepLabel(key: string, task: string | null = null): { name: Key } | { text: string } {
+  if (key.startsWith("escalate-")) return { name: "disciplineEscalation" };
   const id = task ?? (key.includes(":") ? key.slice(key.indexOf(":") + 1) : null);
   if (id) return { text: id };
   const name = named(stepNames, key);
