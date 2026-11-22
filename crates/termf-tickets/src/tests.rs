@@ -1028,7 +1028,7 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
         Some("https://github.com/acme/front/pull/7")
     );
     assert_eq!(
-        t.after_merge(false, |_| {}).unwrap(),
+        t.after_merge(false, |_| false, |_| {}).unwrap(),
         PrCheck::default(),
         "still open"
     );
@@ -1037,14 +1037,17 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     fs::write(sb.root.join("pr-state"), "merged").unwrap();
     // GitHub cannot tell: said, and asked again next time.
     fs::write(sb.root.join("fail-pulls"), "").unwrap();
-    let failed = t.after_merge(false, |_| {}).unwrap();
+    let failed = t.after_merge(false, |_| false, |_| {}).unwrap();
     assert!(failed.cleanups.is_empty());
     assert_eq!(failed.errors.len(), 1);
     assert_eq!(failed.errors[0].run, 1);
     assert!(failed.errors[0].message.contains("HTTP 502"), "{failed:?}");
     fs::remove_file(sb.root.join("fail-pulls")).unwrap();
     let stopped = Cell::new(0_i64);
-    let found = t.after_merge(false, |id| stopped.set(id)).unwrap().cleanups;
+    let found = t
+        .after_merge(false, |_| false, |id| stopped.set(id))
+        .unwrap()
+        .cleanups;
     assert_eq!(found.len(), 1);
     let ready = &found[0];
     assert!(!ready.cleaned && ready.error.is_none());
@@ -1059,7 +1062,7 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     assert_eq!(kinds(1).last().unwrap(), "pr_merged");
     let asked = pulls();
     assert_eq!(
-        t.after_merge(false, |_| {}).unwrap(),
+        t.after_merge(false, |_| false, |_| {}).unwrap(),
         PrCheck::default(),
         "told once"
     );
@@ -1081,7 +1084,7 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     let over = format!("{:#}", t.resume(1).err().unwrap());
     assert!(over.contains("is closed"), "{over}");
 
-    // Auto: closed by TermF, unless work would be lost.
+    // Auto: a merged pull request's run is closed by TermF, unless work would be lost or its session is at work.
     fs::remove_file(sb.root.join("pr-state")).unwrap();
     let kept = t.start("front#42", None, None).unwrap().run.id;
     deliver(kept);
@@ -1089,45 +1092,78 @@ fn resumes_runs_and_cleans_them_up_after_merge() {
     fs::write(kept_tree.join("late.txt"), "more\n").unwrap();
     let cleaned = t.start("front#42", None, None).unwrap().run.id;
     deliver(cleaned);
-    fs::write(sb.root.join("pr-state"), "closed").unwrap();
-    let found = t.after_merge(true, |id| stopped.set(id)).unwrap().cleanups;
-    let outcome: Vec<(i64, bool, Option<&str>)> = found
+    let busy = t.start("front#42", None, None).unwrap().run.id;
+    deliver(busy);
+    let busy_tree = PathBuf::from(t.run(busy).unwrap().worktree.unwrap());
+    fs::write(sb.root.join("pr-state"), "merged").unwrap();
+    stopped.set(0);
+    let found = t
+        .after_merge(true, |id| id == busy, |id| stopped.set(id))
+        .unwrap()
+        .cleanups;
+    let outcome: Vec<(i64, bool, bool)> = found
         .iter()
-        .map(|c| (c.run.id, c.cleaned, c.run.pr_state.as_deref()))
+        .map(|c| (c.run.id, c.cleaned, c.error.is_some()))
         .collect();
     assert_eq!(
         outcome,
         [
-            (cleaned, true, Some("closed")),
-            (kept, false, Some("closed"))
+            (busy, false, false),
+            (cleaned, true, false),
+            (kept, false, true)
         ]
     );
-    assert!(found[1].error.as_deref().unwrap().contains("not committed"));
+    assert!(found[2].error.as_deref().unwrap().contains("not committed"));
     assert_eq!(
         stopped.get(),
         cleaned,
-        "the session ends before its folder goes"
+        "the session ends before its folder goes, and a session at work never does"
     );
     assert_eq!(t.run(cleaned).unwrap().status, RunStatus::Closed);
     assert!(kinds(cleaned).contains(&"teardown".to_owned()));
-    assert_eq!(t.run(kept).unwrap().status, RunStatus::Delivered);
-    assert!(kept_tree.exists());
+    for id in [kept, busy] {
+        assert_eq!(t.run(id).unwrap().status, RunStatus::Delivered);
+    }
+    assert!(kept_tree.exists() && busy_tree.exists());
+
+    // Closed without a merge, a pull request may be taken up again: told, even with `auto`.
+    let unmerged = t.start("front#42", None, None).unwrap().run.id;
+    deliver(unmerged);
+    let unmerged_tree = PathBuf::from(t.run(unmerged).unwrap().worktree.unwrap());
+    fs::write(sb.root.join("pr-state"), "closed").unwrap();
+    let told = t
+        .after_merge(true, |_| false, |id| stopped.set(id))
+        .unwrap()
+        .cleanups;
+    assert_eq!(told.len(), 1);
+    assert_eq!(told[0].run.id, unmerged);
+    assert_eq!(told[0].run.pr_state.as_deref(), Some("closed"));
+    assert!(!told[0].cleaned && told[0].error.is_none());
+    assert_eq!(t.run(unmerged).unwrap().status, RunStatus::Delivered);
+    assert!(unmerged_tree.exists() && stopped.get() == cleaned);
 
     // Reopened: asked again when cleaning up, and forgotten.
     fs::remove_file(sb.root.join("pr-state")).unwrap();
-    let reopened = format!("{:#}", t.cleanup(kept, || {}).unwrap_err());
+    let reopened = format!("{:#}", t.cleanup(unmerged, || {}).unwrap_err());
     assert!(reopened.contains("is open"), "{reopened}");
-    assert_eq!(t.run(kept).unwrap().pr_state, None);
+    assert_eq!(t.run(unmerged).unwrap().pr_state, None);
     // Closed again, then delivered again: its state is asked again.
     fs::write(sb.root.join("pr-state"), "closed").unwrap();
-    assert_eq!(t.after_merge(false, |_| {}).unwrap().cleanups.len(), 1);
-    assert_eq!(deliver(kept).pr_state, None);
-    assert_eq!(t.run(kept).unwrap().pr_state, None);
-    let again = t.after_merge(true, |_| {}).unwrap().cleanups;
     assert_eq!(
-        (again.len(), again[0].cleaned),
-        (1, true),
-        "the late work went with the delivery"
+        t.after_merge(false, |_| false, |_| {})
+            .unwrap()
+            .cleanups
+            .len(),
+        1
+    );
+    assert_eq!(deliver(unmerged).pr_state, None);
+    assert_eq!(t.run(unmerged).unwrap().pr_state, None);
+    fs::write(sb.root.join("pr-state"), "merged").unwrap();
+    let again = t.after_merge(true, |_| false, |_| {}).unwrap().cleanups;
+    assert_eq!(
+        (again.len(), again[0].run.id, again[0].cleaned),
+        (1, unmerged, true),
+        "merged at last"
     );
 }
 
@@ -1181,7 +1217,7 @@ fn keeps_worktrees_in_the_data_folder_when_asked_and_closes_both_kinds() {
     fs::remove_dir_all(&gone_tree).unwrap();
     t.close(gone, false, || {}).unwrap();
     fs::write(sb.root.join("pr-state"), "merged").unwrap();
-    let found = t.after_merge(true, |_| {}).unwrap().cleanups;
+    let found = t.after_merge(true, |_| false, |_| {}).unwrap().cleanups;
     let cleaned: Vec<(i64, bool)> = found.iter().map(|c| (c.run.id, c.cleaned)).collect();
     assert_eq!(cleaned, [(new, true), (old, true)]);
     assert!(!old_tree.exists() && !sb.root.join("data/worktrees/acme/2").exists());

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addressed, blocked, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, stream, summary, thread } from "../src/lib/conversation-logic.ts";
+import { addressed, blocked, fields, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, stream, summary, thread, ticketNamed, unsaid } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -166,4 +166,54 @@ test("TermF's notices sit in the thread apart from the user's messages", () => {
     { ...turns[2].items[0], key: 0 },
     { type: "notice", key: 0, about: "direct", role: "back", conversation: 9, detail: "hi", text: "The user wrote to back." },
   );
+});
+
+test("the arguments of TermF's tools read as a sentence, in its order; the rest is for the details", () => {
+  assert.deepEqual(fields({ repo: "api", ticket: " ACME-57 ", budget: 8, answers: { q1: "oui" } }), [
+    ["ticket", "ACME-57"],
+    ["repo", "api"],
+    ["budget", "8"],
+  ]);
+  assert.deepEqual(fields({ run: 12 }), [["run", "12"]]);
+  assert.deepEqual(fields({ run: 12, step: "plan", text: "Ajoute un test.\nMerci", workflow: "" }), [
+    ["run", "12"],
+    ["step", "plan"],
+    ["text", "Ajoute un test.\nMerci"],
+  ]);
+  assert.deepEqual(fields(null), []);
+  assert.deepEqual(fields("ACME-57"), []);
+  assert.deepEqual(fields({ id: 3, offset: 0, flag: true }), [["id", "3"]]);
+  assert.deepEqual(fields({ run: 7, step: "plan", answers: "La période par défaut." }), [
+    ["run", "7"],
+    ["step", "plan"],
+    ["answers", "La période par défaut."],
+  ]);
+});
+
+test("what a sentence cannot say, a call's answers or lists, stays visible entry by entry", () => {
+  assert.deepEqual(unsaid({ run: 7, step: "plan", answers: { q1: "30 jours", q2: ["client", "période"], q3: true, q4: { a: 1 } } }), [
+    ["answers", [["q1", "30 jours"], ["q2", "client, période"], ["q3", "true"], ["q4", '{"a":1}']]],
+  ]);
+  assert.deepEqual(unsaid({ sources: ["git", "docs"], limit: 5 }), [["sources", [["", "git, docs"]]]]);
+  assert.deepEqual(unsaid({ ticket: "ACME-57", answers: null }), []);
+  assert.deepEqual(unsaid("texte"), []);
+  assert.deepEqual(unsaid(null), []);
+});
+
+test("a ticket named by a call is found by key, URL or the end of its key, when only one has it", () => {
+  const known = [
+    { key: "acme/platform#57", url: "https://github.com/acme/platform/issues/57", title: "Export CSV" },
+    { key: "acme/api#482", url: "https://github.com/acme/api/issues/482", title: "Pagination" },
+    { key: "acme/api#482", url: "https://github.com/acme/api/issues/482", title: "Pagination" },
+    { key: "acme/web#57", url: "https://github.com/acme/web/issues/57", title: "Filtre" },
+    { key: "ACME-12", url: "https://acme.atlassian.net/browse/ACME-12", title: "Connexion" },
+  ];
+  assert.equal(ticketNamed("acme/platform#57", known)?.title, "Export CSV");
+  assert.equal(ticketNamed("https://github.com/acme/api/issues/482", known)?.title, "Pagination");
+  assert.equal(ticketNamed("platform#57", known)?.title, "Export CSV");
+  assert.equal(ticketNamed("#482", known)?.title, "Pagination", "the same ticket twice is still one");
+  assert.equal(ticketNamed("ACME-12", known)?.title, "Connexion");
+  assert.equal(ticketNamed("#57", known), undefined, "two tickets end in #57");
+  assert.equal(ticketNamed("#5", known), undefined);
+  assert.equal(ticketNamed("ACME-57", known), undefined);
 });
