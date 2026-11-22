@@ -125,9 +125,81 @@ pub fn tail(text: &str) -> String {
     text[start..].into()
 }
 
+/// A program's error output for a message: its start, where the error line is, then its end when cut in between,
+/// without stack frames. Each line is cut at 200 characters (a minified source line in a Node trace).
+pub fn excerpt(text: &str) -> String {
+    let lines: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| match l.char_indices().nth(200) {
+            Some((i, _)) => format!("{}…", &l[..i]),
+            None => l.to_owned(),
+        })
+        .collect();
+    let fits = |budget: usize| {
+        let mut size = 0;
+        move |l: &&String| {
+            size += l.len();
+            size <= budget
+        }
+    };
+    let head = lines
+        .iter()
+        .take_while(fits(600))
+        .count()
+        .max(1)
+        .min(lines.len());
+    let mut end: Vec<&String> = lines[head..]
+        .iter()
+        .rev()
+        .filter(|l| !l.starts_with("at "))
+        .take_while(fits(200))
+        .collect();
+    end.reverse();
+    let mut out: Vec<&str> = lines[..head].iter().map(String::as_str).collect();
+    if lines.len() > head + end.len() {
+        out.push("…");
+    }
+    out.extend(end.into_iter().map(String::as_str));
+    out.join("\n")
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_excerpt_keeps_the_error_line_and_what_the_end_adds() {
+        let code = "var a=1;".repeat(400);
+        let frames: String = (0..40)
+            .map(|i| format!("    at f{i} (file:///opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js:10:{i})\n"))
+            .collect();
+        let trace = format!(
+            "file:///opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js:388\n{code}\n        ^\n\n\
+             TypeError: Cannot read properties of undefined (reading 'prototype')\n{frames}\nNode.js v26.0.0\n"
+        );
+        let said = excerpt(&trace);
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(
+            lines[0],
+            "file:///opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js:388"
+        );
+        assert_eq!(lines[1].chars().count(), 201, "a long line is cut");
+        assert!(
+            said.contains(
+                "\nTypeError: Cannot read properties of undefined (reading 'prototype')\n"
+            ),
+            "{said}"
+        );
+        assert_eq!(lines[lines.len() - 2..], ["…", "Node.js v26.0.0"]);
+        assert!(said.len() < 1000, "{said}");
+
+        assert_eq!(excerpt("  Error: not logged in \n"), "Error: not logged in");
+        assert_eq!(excerpt(""), "");
+        let short = "a\nb\nc";
+        assert_eq!(excerpt(short), short, "nothing cut: no ellipsis");
+    }
 
     /// Within 5 s: dead, or a zombie its new parent has not reaped yet.
     fn gone(pid: &str) -> bool {
