@@ -3,6 +3,7 @@ description: A spy called in beforeAll reads 0 calls after the Vitest 5 upgrade 
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
+
 We moved from vitest 4.1 to 5.1.1 yesterday and this test started failing with `expected "track" to be called 1 times, but got 0 times`. No config change, `vitest.config.ts` only sets `environment: "node"`.
 
 ```ts

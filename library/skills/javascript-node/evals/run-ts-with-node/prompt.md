@@ -3,6 +3,7 @@ description: Running a .ts file with plain Node 26 needs erasable syntax, explic
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
+
 We're on Node 26.13 and I'd like to drop `tsx` and run our migration script with plain `node scripts/migrate.ts`. package.json has `"type": "module"`, tsconfig has `"paths": { "@/lib/*": ["./src/lib/*"] }`. The script:
 
 ```ts

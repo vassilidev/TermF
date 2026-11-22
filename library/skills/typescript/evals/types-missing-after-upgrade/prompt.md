@@ -3,6 +3,7 @@ description: After moving to TypeScript 6+, missing globals are fixed by listing
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
+
 I bumped TypeScript in our API repo and now `npm run typecheck` fails everywhere with things like:
 
 ```

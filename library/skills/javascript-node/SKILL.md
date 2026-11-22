@@ -19,9 +19,17 @@ metadata:
 ---
 # Node.js
 
-Node publishes an index for agents at `https://nodejs.org/llms.txt`; every API page exists in Markdown (`https://nodejs.org/docs/latest/api/<module>.md`, or `docs/latest-v24.x/…` for an older line). Read the page of the module you touch for the project's Node major; nothing ships inside the `node` binary.
+1. Read the Node version in `.nvmrc`, `.node-version`, the `volta` key or `engines.node` of `package.json` (the CI setup step otherwise), compare it with `node --version`, and keep it as the reference for every later step. Done when you can name the version and the file it came from.
+2. Open the docs of that version before writing code: Node publishes an index for agents at `https://nodejs.org/llms.txt`, and every API page exists in Markdown (`https://nodejs.org/docs/latest/api/<module>.md`, or `docs/latest-v24.x/…` for an older line); nothing ships inside the `node` binary. Done when the page of the module you touch is open.
+3. Use the tools the project already has (the package manager named by the lockfile — `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `package-lock.json` — or by `packageManager`, its test runner, linter and TypeScript runner), because a second tool splits the project. Done when every command you plan to run comes from the project.
+4. **Prefer what Node already provides** over a new dependency, within the project's Node major: global `fetch`, `node:test` + `node:assert`, `--env-file`, `--watch`, `util.parseArgs`, `util.styleText`, `fs.promises.glob`. Add a package only when the built-in does not cover the need, and with the project's package manager so the lockfile stays the single one. Done when every new import resolves to a built-in (`node:` prefix) or a dependency listed in package.json.
+5. **Write the module in the file's own system.** Read the `"type"` of the nearest package.json and match the file's `import`/`require` style; in ESM, write relative imports with their extension. For `.ts` run by plain `node`, keep to erasable syntax (Gotchas) and the tsconfig settings Node recommends: `module: nodenext`, `erasableSyntaxOnly`, `verbatimModuleSyntax`, `rewriteRelativeImportExtensions`. Done when `node <entry>` (or the project's start script) loads the file without a module error.
+6. **Handle async and errors explicitly.** Await every promise or return it; wrap rethrown errors with `new Error(message, { cause })`; close servers, timers and handles you open so tests and scripts exit. Done when the process exits on its own after the work and no unhandled rejection is logged.
+7. **Test with the project's runner.** Follow skill `tests-from-criteria` for what to test and skill `testing-js` for Vitest or Jest. In a project with no runner, use `node --test` (it finds `*.test.*`, `*_test.*`, `test-*`, `test/**` files, `.ts` included). Done when the new tests pass and were seen failing without the change.
+8. Run the commands of `## Verify` and put each one with its result in your report. Done when they pass, or when the failure is reported with its output.
 
 ## Gotchas
+
 - Release lines on 2026-11-22: Node 26 is Active LTS ("Lithium", since 2026-10-28), 24 and 22 are in maintenance, Node 20 reached end of life on 2026-04-30. From Node 27 there is one major a year, in April, and every major becomes LTS; 27 is in alpha now and not meant for production.
 - Running `.ts` files with plain `node` works (type stripping: on by default since 22.18 / 23.6, stable since 24.12 / 25.2) but only for erasable syntax: `enum`, namespaces with runtime code, parameter properties and import aliases (`import x = …`) throw `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`; decorators are a parse error; `.tsx` is unsupported; `tsconfig.json` is ignored, so `paths` aliases fail (use `#` subpath imports from `package.json`); type-only imports need `import type`; relative imports keep the `.ts` extension; files under `node_modules` are refused. Nothing is type-checked: run `tsc` as well. `--experimental-transform-types` was removed in Node 26.
 - A `.js` file follows the nearest `package.json` `"type"` (`"module"` = ESM; missing or `"commonjs"` = CommonJS); `.mjs`/`.mts` are always ESM, `.cjs`/`.cts` always CommonJS. ESM has no `__dirname`/`__filename` (`import.meta.dirname`, `import.meta.filename`), no directory-index or extensionless resolution, and imports need the full file name.
@@ -31,20 +39,14 @@ Node publishes an index for agents at `https://nodejs.org/llms.txt`; every API p
 - Corepack is not bundled since Node 25: `corepack enable` fails on Node 26 unless the project installs corepack itself. Use the package manager that the lockfile and the `packageManager` field name, as installed on the PATH.
 - ESLint 10 (2026-02-06) reads only `eslint.config.{js,mjs,cjs,ts,mts,cts}`: `.eslintrc*` and `.eslintignore` are silently ignored, `/* eslint-env */` comments are errors, the config is looked up from each linted file's folder (a nested `eslint.config.*` now applies to its subtree), and Node `^20.19 || ^22.13 || >=24` is required. A project still on `.eslintrc` is on ESLint 9 or older: keep that version unless the task is the migration (`npx @eslint/migrate-config .eslintrc.json`).
 
-## Procedure
-1. **Read the runtime context.** Node version (`node --version`, `engines.node`, `.nvmrc`, `.node-version`, `volta` in package.json, the CI setup step), the `"type"` of the nearest package.json, and the package manager from the lockfile (`pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `package-lock.json`) or `packageManager`. Done when you know the Node major, the module system of the files you will touch, and the install and run commands.
-2. **Prefer what Node already provides** over a new dependency, within the project's Node major: global `fetch`, `node:test` + `node:assert`, `--env-file`, `--watch`, `util.parseArgs`, `util.styleText`, `fs.promises.glob`. Add a package only when the built-in does not cover the need, and with the project's package manager so the lockfile stays the single one. Done when every new import resolves to a built-in (`node:` prefix) or a dependency listed in package.json.
-3. **Write the module in the file's own system.** Match the file's `import`/`require` style; in ESM, write relative imports with their extension. For `.ts` run by plain `node`, keep to erasable syntax (Gotchas) and the tsconfig settings Node recommends: `module: nodenext`, `erasableSyntaxOnly`, `verbatimModuleSyntax`, `rewriteRelativeImportExtensions`. Done when `node <entry>` (or the project's start script) loads the file without a module error.
-4. **Handle async and errors explicitly.** Await every promise or return it; wrap rethrown errors with `new Error(message, { cause })`; close servers, timers and handles you open so tests and scripts exit. Done when the process exits on its own after the work and no unhandled rejection is logged.
-5. **Test with the project's runner.** Follow skill `tests-from-criteria` for what to test and skill `testing-js` for Vitest or Jest. In a project with no runner, use `node --test` (it finds `*.test.*`, `*_test.*`, `test-*`, `test/**` files, `.ts` included). Done when the new tests pass and were seen failing without the change.
-6. **Lint with the project's config** (`npm run lint`, or the ESLint version installed). Done when it reports nothing new.
-
 ## Verify
+
 - Project scripts first, through its package manager: `test`, `lint`, `typecheck`, `build`, `start`.
 - Without scripts: `node --test`, `npx eslint .`, `node --check <file.js>` for a syntax check (not available for `.ts`), `npx tsc --noEmit` when the files are TypeScript.
 - Install from the lockfile without changing it: `npm ci`, `pnpm install --frozen-lockfile`, `yarn install --immutable` (Yarn 2+), `bun install --frozen-lockfile`.
 
 ## Security
+
 - Run processes with `execFile` or `spawn` and an argument array; `exec`, `execSync` or `shell: true` with any interpolated value is command injection. Validate an executable name against an allowlist when it comes from input.
 - Resolve user-supplied paths against a base folder and check the result stays inside it (`const p = path.resolve(base, input); if (!p.startsWith(base + path.sep)) refuse`); reject absolute paths and NUL bytes before touching the filesystem.
 - Merging untrusted JSON into objects (`Object.assign`, deep-merge helpers, `obj[key] = value` with keys from input) can set `__proto__` or `constructor.prototype`; use `Map`, `Object.create(null)` or schema validation that rejects unknown keys.
@@ -53,6 +55,7 @@ Node publishes an index for agents at `https://nodejs.org/llms.txt`; every API p
 - New dependencies: check the exact package name and its install scripts before adding it; the lockfile diff should change only by what you added.
 
 ## References
+
 - [nodejs.org/llms.txt](https://nodejs.org/llms.txt) (index of the API pages in Markdown), [Modules: TypeScript](https://nodejs.org/docs/latest/api/typescript.md), [Command-line API](https://nodejs.org/docs/latest/api/cli.md), [Test runner](https://nodejs.org/docs/latest/api/test.md), [Packages and `"type"`](https://nodejs.org/docs/latest/api/packages.md).
 - [Release schedule announcement](https://nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule); dates per line in [nodejs/Release `schedule.json`](https://github.com/nodejs/Release/blob/main/schedule.json).
 - [ESLint v10.0.0 released](https://eslint.org/blog/2026/02/eslint-v10.0.0-released/) and its migration guide `https://eslint.org/docs/latest/use/migrate-to-10.0.0`.
