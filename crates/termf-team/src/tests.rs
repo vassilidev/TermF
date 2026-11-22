@@ -343,7 +343,7 @@ impl Drop for Env {
 }
 
 fn task(id: &str, role: &str, hints: &[&str], deps: &[&str]) -> Value {
-    json!({"id": id, "role": role, "repo": "api", "size": "S", "covers": ["AC1"], "goal": format!("do {id}"),
+    json!({"id": id, "role": role, "squad": "", "repo": "api", "size": "S", "covers": ["AC1"], "goal": format!("do {id}"),
         "files_hint": hints, "depends_on": deps, "ui_impact": false})
 }
 
@@ -534,7 +534,8 @@ fn checks_the_plan_and_its_questions() {
     );
     let second = env.message("plan", 2);
     assert!(
-        second.contains("## To address in this attempt") && second.contains("no role wizard"),
+        second.contains("## To address in this attempt")
+            && second.contains("role wizard is not one a task may have"),
         "{second}"
     );
     assert!(env.team.approve(1, "plan").is_err(), "nothing to approve");
@@ -1171,6 +1172,163 @@ fn reads_the_target_of_a_ticket_run() {
     assert_eq!(bounded("xhigh", Some(&json!(["medium", "high"]))), "high");
     assert_eq!(bounded("medium", Some(&json!("low, high"))), "medium");
     assert_eq!(bounded("high", None), "high");
+}
+
+#[test]
+fn squads_plan_check_and_pace_their_tasks() {
+    let env = Env::new("squads");
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str(
+        r#"[team]
+staff = ["architect"]
+[[squads]]
+id = "web"
+roles = { front = 2 }
+repos = ["api"]
+paths = ["web/**"]
+domains = ["UI"]
+[[squads]]
+id = "api"
+paths = ["src/**"]
+max_parallel = 1
+[squads.roles.back]
+count = 2
+effort_range = ["high", "high"]
+"#,
+    );
+    fs::write(&file, project).unwrap();
+    let squad = |mut t: Value, s: &str| {
+        t["squad"] = s.into();
+        t
+    };
+    env.answer(
+        "plan.1.json",
+        env.plan(json!([squad(task("T1", "po", &["src"], &[]), "api")])),
+    );
+    env.answer(
+        "plan.2.json",
+        env.plan(json!([
+            squad(task("T1", "back", &["src/api/a.txt"], &[]), "api"),
+            squad(task("T2", "back", &["src/api/b.txt"], &[]), "api"),
+            squad(task("T3", "front", &["web/x.txt"], &[]), "web"),
+            squad(
+                task("T4", "front", &["web/y.txt", "src/shared.txt"], &[]),
+                "web"
+            ),
+            // After T1, so that only its squad holds T6 back: T1, T3, T4 and T6 fit in the workflow's 4.
+            squad(task("T5", "architect", &["docs"], &["T1"]), ""),
+            squad(task("T6", "front", &["web/z.txt"], &[]), "web"),
+        ])),
+    );
+    for (id, file) in [
+        ("T1", "src/api/a.txt"),
+        ("T2", "src/api/b.txt"),
+        ("T3", "web/x.txt"),
+        ("T4", "web/y.txt"),
+        ("T6", "web/z.txt"),
+    ] {
+        env.script(
+            &format!("implement:{id}"),
+            &format!("sleep 1; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
+        );
+    }
+    // T4 strays out of its squad once.
+    env.script(
+        "implement:T4",
+        "sleep 1; mkdir -p web src; echo T4 > web/y.txt\nif [ \"$1\" = 1 ]; then echo x > src/shared.txt; else rm -f src/shared.txt; fi\n",
+    );
+    let options = Options {
+        workflow: Some("squads".into()),
+        rules: [("scope-strict".to_owned(), Level::Block)].into(),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Waiting);
+    assert_eq!(env.step(&run, "approve-plan").state, StepState::Waiting);
+    let first = env.message("plan", 1);
+    assert!(first.contains("You are the cto of the team"), "{first}");
+    assert!(
+        first.contains("## The squads\n\n- web: roles front ×2; repositories api; paths web/**; domains UI\n- api: roles back ×2; paths src/**\n- staff, squad `\"\"`: architect"),
+        "{first}"
+    );
+    for (role, offered) in [
+        ("front", true),
+        ("back", true),
+        ("architect", true),
+        ("po", false),
+        ("devops", false),
+        ("lead", false),
+        ("cto", false),
+    ] {
+        assert_eq!(first.contains(&format!("\n- {role}: ")), offered, "{role}");
+    }
+    let second = env.message("plan", 2);
+    assert!(
+        second.contains("task T1: role po is not one a task may have"),
+        "{second}"
+    );
+    assert!(
+        env.team
+            .events(1, 0)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "violation"
+                && e.message
+                    == "task T4: src/shared.txt is outside the paths of squad web (web/**)")
+    );
+
+    env.team.approve(1, "approve-plan").unwrap();
+    let run = env.until("the delivery gate", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "deliver" && s.state == StepState::Waiting)
+    });
+    let log = env.steps_log();
+    let at = |line: &str| {
+        log.iter()
+            .position(|l| l == line)
+            .unwrap_or_else(|| panic!("{line} in {log:?}"))
+    };
+    assert!(
+        at("implement:T2 1 begin") > at("implement:T1 1 end"),
+        "one task at a time in squad api: {log:?}"
+    );
+    assert!(
+        at("implement:T4 1 begin") < at("implement:T3 1 end"),
+        "two fronts at once in squad web: {log:?}"
+    );
+    assert!(
+        at("implement:T6 1 begin") > at("implement:T3 1 end").min(at("implement:T4 1 end")),
+        "not three: {log:?}"
+    );
+    let t4 = env.step(&run, "implement:T4");
+    assert_eq!(t4.attempt, 2, "{:?}", t4.violations);
+    let retry = env.message("implement:T4", 2);
+    assert!(
+        retry.contains("src/shared.txt: outside the paths of its squad"),
+        "{retry}"
+    );
+    assert!(
+        env.message("implement:T3", 1)
+            .contains("You work in squad web; its paths: web/**; its domains: UI.")
+    );
+    let spec = |key: &str| {
+        env.agents
+            .session(env.step(&run, key).session.unwrap())
+            .unwrap()
+            .spec
+    };
+    assert_eq!(spec("implement:T3").squad.as_deref(), Some("web"));
+    assert_eq!(spec("implement:T5").squad, None, "a staff role");
+    let t1 = spec("implement:T1");
+    assert_eq!(t1.squad.as_deref(), Some("api"));
+    assert_eq!(
+        t1.effort.as_deref(),
+        Some("high"),
+        "a task sized S, within the squad's range for back"
+    );
+    assert_eq!(spec("plan").role.as_deref(), Some("cto"));
 }
 
 /// The team against the real Claude Code, its roles on Haiku, for a few cents: the orchestrator's plan, then a

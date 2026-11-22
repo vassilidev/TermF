@@ -763,6 +763,7 @@ fn checked(mut spec: SessionSpec) -> Result<SessionSpec> {
         &mut spec.effort,
         &mut spec.permission_mode,
         &mut spec.role,
+        &mut spec.squad,
     ] {
         *value = value
             .take()
@@ -814,7 +815,10 @@ fn claude_agent(settings: &Settings, name: Option<&str>) -> Result<String> {
 /// denies (`allowedTools`, `disallowedTools` and `deny`, as lists or comma-separated). Its prompt comes with the
 /// library, at each launch.
 fn play(config_dir: &Path, spec: &mut SessionSpec, role: &str) -> Result<()> {
-    let scope = termf_library::Scope::new(config_dir, Some(&spec.cwd), spec.project.clone())?;
+    let scope = termf_library::Scope {
+        squad: spec.squad.clone(),
+        ..termf_library::Scope::new(config_dir, Some(&spec.cwd), spec.project.clone())?
+    };
     let item = termf_library::role(config_dir, &scope, role)?;
     let text = |keys: &[&str]| {
         keys.iter()
@@ -865,6 +869,7 @@ fn library(config_dir: &Path, spec: &SessionSpec, dir: &Path) -> Option<PathBuf>
             let scope = termf_library::Scope {
                 role: spec.role.clone(),
                 rules: spec.rules.clone(),
+                squad: spec.squad.clone(),
                 ..scope
             };
             termf_library::materialize(config_dir, &scope, dir)

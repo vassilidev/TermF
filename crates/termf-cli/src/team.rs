@@ -4,6 +4,7 @@
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use termf_core::ipc::{Call, TeamCall};
+use termf_team::squads::Member;
 use termf_team::{Level, Options, StepState, TeamRun};
 use termf_tickets::utc;
 
@@ -127,9 +128,92 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 println!("{:>4}  {}", run.run, run.state.as_str());
             }
         }
+        ["squads", project @ ..] if project.len() < 2 => squads(project.first().copied())?,
         _ => bail!(crate::USAGE),
     }
     Ok(())
+}
+
+/// The squads and staff of a project, or of every one, each role with its settings and where each comes from.
+fn squads(project: Option<&str>) -> Result<()> {
+    let config = termf_core::default_config_dir()?;
+    let projects = match project {
+        Some(id) => vec![id.to_owned()],
+        None => termf_core::load_projects(&config)?
+            .into_iter()
+            .map(|p| p.id)
+            .collect(),
+    };
+    for id in projects {
+        let view = termf_team::squads::view(&config, &id)?;
+        let implicit = match view.declared {
+            true => "",
+            false => " (no squad declared: one squad for every role)",
+        };
+        println!("{id}{implicit}");
+        for squad in &view.squads {
+            let s = &squad.squad;
+            let mut about = Vec::new();
+            for (label, items) in [
+                ("repos", &s.repos),
+                ("paths", &s.paths),
+                ("domains", &s.domains),
+            ] {
+                if !items.is_empty() {
+                    about.push(format!("{label} {}", items.join(", ")));
+                }
+            }
+            if let Some(n) = s.max_parallel {
+                about.push(format!("at most {n} at once"));
+            }
+            let about = match about.is_empty() {
+                true => String::new(),
+                false => format!(": {}", about.join("; ")),
+            };
+            println!("  squad {}{about}", s.id);
+            for m in &squad.members {
+                member(m);
+            }
+        }
+        if !view.staff.is_empty() {
+            println!("  staff");
+            for m in &view.staff {
+                member(m);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn member(m: &Member) {
+    let mut name = m.role.clone();
+    if m.lead {
+        name.push_str(" (lead)");
+    }
+    if let Some(n) = m.count {
+        name.push_str(&format!(" ×{n}"));
+    }
+    if let Some(e) = &m.error {
+        println!("    {name}: {e}");
+        return;
+    }
+    let settings: Vec<String> = m
+        .settings
+        .iter()
+        .map(|s| {
+            let value = match &s.value {
+                Value::String(v) => v.clone(),
+                Value::Array(items) => items
+                    .iter()
+                    .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
+                    .collect::<Vec<_>>()
+                    .join(","),
+                v => v.to_string(),
+            };
+            format!("{}={value} [{}]", s.key, s.from.join("+"))
+        })
+        .collect();
+    println!("    {name}  {}", settings.join("  "));
 }
 
 fn status(run: &TeamRun) {

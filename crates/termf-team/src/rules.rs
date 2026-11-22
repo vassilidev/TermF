@@ -52,8 +52,9 @@ pub struct Rule {
 }
 
 impl Rule {
-    pub fn applies(&self, role: &str) -> bool {
-        self.applies_to.is_empty() || self.applies_to.iter().any(|a| a == "all" || a == role)
+    /// Whether it applies to `role` working in `squad`: `applies_to` may name either (`squad:<id>`).
+    pub fn applies(&self, role: &str, squad: Option<&str>) -> bool {
+        termf_library::applies_to(&self.applies_to, role, squad)
     }
 }
 
@@ -177,11 +178,12 @@ pub fn overlap(a: &[String], b: &[String]) -> bool {
         })
 }
 
-/// The `scope` check: each file outside what the role may write, or neither planned for the task nor explained
-/// in its report; and a diff out of proportion with the task's size, which is only a signal.
+/// The `scope` check: each file outside what the role may write within its squad's paths, or neither planned for
+/// the task nor explained in its report; and a diff out of proportion with the task's size, which is only a signal.
 pub fn check_scope(
     task: &Task,
     writes: &[String],
+    paths: &[String],
     report: &Report,
     files: &[String],
     lines: usize,
@@ -203,6 +205,12 @@ pub fn check_scope(
             found.push((
                 Some(file.clone()),
                 "outside what the role may write".to_owned(),
+                true,
+            ));
+        } else if !paths.is_empty() && !paths.iter().any(|p| covers(p, file)) {
+            found.push((
+                Some(file.clone()),
+                "outside the paths of its squad".to_owned(),
                 true,
             ));
         } else if !task.files_hint.is_empty()
@@ -532,6 +540,7 @@ mod tests {
         let task = Task {
             id: "T1".into(),
             role: "back".into(),
+            squad: "api".into(),
             repo: "api".into(),
             size: Size::S,
             covers: vec![],
@@ -540,26 +549,45 @@ mod tests {
             depends_on: vec![],
             ui_impact: false,
         };
-        let files: Vec<String> = ["src/api/a.ts", "README.md", "web/x.ts", "src/util.ts"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let files: Vec<String> = [
+            "src/api/a.ts",
+            "README.md",
+            "web/x.ts",
+            "src/util.ts",
+            "src/lib/b.ts",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         let found = check_scope(
             &task,
             &["src/**".into(), "README.md".into()],
-            &report("Also fixed src/util.ts, which the endpoint needs.", &[]),
+            &["src/api".into(), "src/util.ts".into(), "README.md".into()],
+            &report(
+                "Also fixed src/util.ts and src/lib/b.ts, which the endpoint needs.",
+                &[],
+            ),
             &files,
             250,
         );
         let files: Vec<Option<&str>> = found.iter().map(|f| f.0.as_deref()).collect();
         assert_eq!(
             files,
-            [Some("README.md"), Some("web/x.ts"), None],
+            [
+                Some("README.md"),
+                Some("web/x.ts"),
+                Some("src/lib/b.ts"),
+                None
+            ],
             "{found:?}"
         );
         assert!(found[1].1.contains("role may write"));
         assert!(found[0].1.contains("planned for task T1"));
-        assert!(!found[2].2, "the size is only a signal");
+        assert!(
+            found[2].1.contains("paths of its squad"),
+            "the role's writes and its squad's paths: both"
+        );
+        assert!(!found[3].2, "the size is only a signal");
     }
 
     #[test]
@@ -708,7 +736,14 @@ diff --git a/README.md b/README.md
         );
         let scope = rules.iter().find(|r| r.name == "scope-strict").unwrap();
         assert_eq!(scope.check.as_deref(), Some("scope"));
-        assert!(scope.applies("anyone"));
+        assert!(scope.applies("anyone", None));
+        let squad = Rule {
+            applies_to: vec!["squad:web".into(), "orchestrator".into()],
+            ..scope.clone()
+        };
+        assert!(squad.applies("front", Some("web")) && !squad.applies("front", Some("api")));
+        assert!(squad.applies("lead", None), "the former name of lead");
+        assert!(!squad.applies("back", None));
         assert!(Level::parse("loud").is_err());
         fs::write(dir.join("termf.toml"), "[rules]\nscope-strict = 3\n").unwrap();
         assert!(read_levels(&dir.join("termf.toml")).is_err());
