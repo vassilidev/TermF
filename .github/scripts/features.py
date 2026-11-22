@@ -383,13 +383,17 @@ def roster():
         return (f'<li><a href="team.html#role-{r["name"]}"><span class="mark" aria-hidden="true">{r["mark"]}</span>'
                 f'<span class="rn">{r["label"]}</span><span class="rs">{r["short"]}</span></a></li>')
     head = by_crew[crew["groups"][0]["id"]]
-    cols = []
+    cols, narrow = [], 0
     for g in crew["groups"][1:]:
-        if by_crew[g["id"]]:
-            cols.append(f'<div class="org-col c-{g["color"]}"><p class="oh" id="org-{g["id"]}">{g["name"]}</p>'
-                        f'<ul aria-labelledby="org-{g["id"]}">{"".join(tile(r) for r in by_crew[g["id"]])}</ul></div>')
+        members = by_crew[g["id"]]
+        if members:
+            # A large group gets a row of its own under the columns, so the columns stay wide enough to read
+            wide = len(members) > 5
+            narrow += not wide
+            cols.append(f'<div class="org-col c-{g["color"]}{" wide" if wide else ""}"><p class="oh" id="org-{g["id"]}">{g["name"]}</p>'
+                        f'<ul aria-labelledby="org-{g["id"]}">{"".join(tile(r) for r in members)}</ul></div>')
     return (f'<div class="org"><p class="org-you"><span class="mark you">You</span></p><ul class="org-head c-{crew["groups"][0]["color"]}">{"".join(tile(r) for r in head)}</ul>'
-            f'<div class="org-cols" style="--cols:{len(cols)}">{"".join(cols)}</div></div>')
+            f'<div class="org-cols" style="--cols:{max(narrow, 1)}">{"".join(cols)}</div></div>')
 
 
 def feature_grid():
