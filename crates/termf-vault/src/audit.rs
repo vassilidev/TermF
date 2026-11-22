@@ -94,6 +94,9 @@ pub enum Action {
     Resolve,
     /// Asked and not done; `detail` says why.
     Refused,
+    /// How the vault opens changed; `detail`: `security key added <id>`, `security key removed <id>`,
+    /// `password changed`, `recovery key renewed`, `biometry on, <n> days` or `biometry off`.
+    Security,
 }
 
 /// What [`Log::append`] records.

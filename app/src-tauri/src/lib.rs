@@ -1,5 +1,6 @@
 mod agents;
 mod api;
+mod biometry;
 mod browser;
 mod ci;
 mod claude;
@@ -582,6 +583,17 @@ pub fn run() {
             vault::vault_item_delete,
             vault::vault_item_reveal,
             vault::vault_generate,
+            vault::vault_methods,
+            vault::vault_unlock_biometry,
+            vault::vault_reauth_key,
+            vault::vault_reauth_biometry,
+            vault::vault_keys,
+            vault::vault_key_add,
+            vault::vault_key_remove,
+            vault::vault_password_change,
+            vault::vault_recovery_new,
+            vault::vault_recover,
+            vault::vault_biometry_set,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
