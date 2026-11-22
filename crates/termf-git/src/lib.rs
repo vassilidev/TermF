@@ -436,7 +436,6 @@ impl Git {
             .env("GIT_EDITOR", ":")
             .env("GIT_SEQUENCE_EDITOR", ":")
             .env("GIT_MERGE_AUTOEDIT", "no")
-            .env("GIT_LITERAL_PATHSPECS", "1")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GCM_INTERACTIVE", "never")
             .env("GH_PROMPT_DISABLED", "1")
@@ -493,11 +492,15 @@ impl Git {
 
     fn run_with(&self, dir: &Path, args: &[&str], ssh: Option<&str>) -> Result<String> {
         let out = self.output_with(dir, args, ssh)?;
+        // Some refusals go to the standard output (`commit` with nothing staged).
+        let said = |b: &[u8]| String::from_utf8_lossy(b).trim().to_owned();
         ensure!(
             out.status.success(),
             "git {} failed: {}",
             args[0],
-            String::from_utf8_lossy(&out.stderr).trim()
+            Some(said(&out.stderr))
+                .filter(|e| !e.is_empty())
+                .unwrap_or_else(|| said(&out.stdout))
         );
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
@@ -899,9 +902,11 @@ impl Git {
     fn remote_default(&self, repo: &Path, remote: &str, branch: &str) -> Result<bool> {
         let prefix = format!("refs/remotes/{remote}/");
         let head = self.lookup(repo, &["symbolic-ref", "-q", &format!("{prefix}HEAD")])?;
-        Ok(match head.as_deref().and_then(|h| h.strip_prefix(&prefix)) {
-            Some(default) => default == branch,
-            None => matches!(branch, "main" | "master"),
-        })
+        Ok(
+            match head.as_deref().and_then(|h| h.strip_prefix(&prefix)) {
+                Some(default) => default == branch,
+                None => matches!(branch, "main" | "master"),
+            },
+        )
     }
 }

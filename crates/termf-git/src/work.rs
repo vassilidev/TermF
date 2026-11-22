@@ -12,9 +12,7 @@ use std::process::Stdio;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    Change, Commit, Git, Tip, Unique, checked_name, parse_log, parse_status, short_ref,
-};
+use super::{Change, Commit, Git, Tip, Unique, checked_name, parse_log, parse_status, short_ref};
 
 /// The most diff lines read at once; the files past it are only counted.
 const MAX_DIFF_LINES: usize = 20_000;
@@ -279,7 +277,7 @@ fn hash(parts: &[&[u8]]) -> String {
 }
 
 /// A path as git writes it in a diff: C-quoted when it holds special characters.
-fn unquote(s: &str) -> String {
+pub(crate) fn unquote(s: &str) -> String {
     let Some(inner) = s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) else {
         return s.to_owned();
     };
@@ -351,7 +349,7 @@ fn parse_hunk_header(line: &str) -> Option<Hunk> {
 }
 
 /// Files of a `git diff` (one or many), `max_lines` diff lines kept at most.
-fn parse_diff(out: &str, max_lines: usize) -> Vec<FileDiff> {
+pub(crate) fn parse_diff(out: &str, max_lines: usize) -> Vec<FileDiff> {
     struct Raw {
         diff: FileDiff,
         text: String,
@@ -499,7 +497,7 @@ fn same_halves(rest: &str) -> String {
 /// The patch of the picked lines of `diff`, for `git apply` (`reverse`: for `git apply --reverse`, so the lines
 /// not picked are those of the side applied to). git checks every context line, so a patch built from a diff that
 /// no longer matches the file is refused rather than misapplied.
-fn build_patch(diff: &FileDiff, picks: &[Pick], reverse: bool) -> Result<String> {
+pub(crate) fn build_patch(diff: &FileDiff, picks: &[Pick], reverse: bool) -> Result<String> {
     ensure!(
         diff.partial,
         "{} cannot be staged in parts: stage the whole file",
@@ -564,7 +562,7 @@ fn build_patch(diff: &FileDiff, picks: &[Pick], reverse: bool) -> Result<String>
     Ok(out)
 }
 
-fn parse_blame(out: &str) -> Blame {
+pub(crate) fn parse_blame(out: &str) -> Blame {
     let mut blame = Blame {
         lines: Vec::new(),
         commits: BTreeMap::new(),
@@ -608,7 +606,7 @@ fn parse_blame(out: &str) -> Blame {
 }
 
 /// Records of `log --follow -z --name-status` with `HISTORY_FORMAT`.
-fn parse_history(out: &str, path: &str) -> Vec<FileCommit> {
+pub(crate) fn parse_history(out: &str, path: &str) -> Vec<FileCommit> {
     let mut last = path.to_owned();
     out.split('\x01')
         .filter(|r| !r.is_empty())
@@ -677,6 +675,11 @@ fn parse_stashes(out: &str) -> Vec<Stash> {
         .collect()
 }
 
+/// A path given to git as itself: `*` or a leading `:` would otherwise select other files (a discard too).
+fn literal(path: &str) -> String {
+    format!(":(literal){path}")
+}
+
 /// A path given by the UI, read directly: relative and inside the folder.
 fn inside(dir: &Path, path: &str) -> Result<PathBuf> {
     let rel = Path::new(path);
@@ -691,7 +694,7 @@ fn inside(dir: &Path, path: &str) -> Result<PathBuf> {
 }
 
 /// The first line that still holds a conflict marker, counted from 1.
-fn marker_line(text: &str) -> Option<usize> {
+pub(crate) fn marker_line(text: &str) -> Option<usize> {
     text.lines()
         .position(|l| {
             ["<<<<<<<", ">>>>>>>"].iter().any(|m| {
@@ -728,7 +731,14 @@ impl Git {
     fn untracked(&self, dir: &Path, path: &str) -> Result<Vec<String>> {
         let out = self.run(
             dir,
-            &["ls-files", "-z", "--others", "--exclude-standard", "--", path],
+            &[
+                "ls-files",
+                "-z",
+                "--others",
+                "--exclude-standard",
+                "--",
+                &literal(path),
+            ],
         )?;
         Ok(out
             .split('\0')
@@ -758,9 +768,9 @@ impl Git {
         if staged {
             args.extend(["--cached", "-M"]);
         }
+        let paths: Vec<String> = from.into_iter().chain([path]).map(literal).collect();
         args.push("--");
-        args.extend(from);
-        args.push(path);
+        args.extend(paths.iter().map(String::as_str));
         let out = self.run(dir, &args)?;
         Ok(parse_diff(&out, MAX_DIFF_LINES)
             .into_iter()
@@ -854,7 +864,7 @@ impl Git {
         inside(dir, path)?;
         match picks {
             None => {
-                self.run(dir, &["add", "-A", "--", path])?;
+                self.run(dir, &["add", "-A", "--", &literal(path)])?;
             }
             Some(picks) => {
                 let diff = self.same_diff(dir, path, None, false, id.unwrap_or_default())?;
@@ -876,13 +886,14 @@ impl Git {
         inside(dir, path)?;
         match picks {
             None => {
+                let paths: Vec<String> = [path].into_iter().chain(from).map(literal).collect();
                 let mut args = if self.head(dir)?.is_some() {
-                    vec!["restore", "--staged", "--", path]
+                    vec!["restore", "--staged", "--"]
                 } else {
                     // Before the first commit there is no HEAD to restore from.
-                    vec!["rm", "--cached", "-r", "-q", "--", path]
+                    vec!["rm", "--cached", "-r", "-q", "--"]
                 };
-                args.extend(from);
+                args.extend(paths.iter().map(String::as_str));
                 self.run(dir, &args)?;
             }
             Some(picks) => {
@@ -904,10 +915,10 @@ impl Git {
         match picks {
             _ if !diff.untracked.is_empty() => {
                 ensure!(picks.is_none(), "an untracked file is discarded whole");
-                self.run(dir, &["clean", "-f", "-d", "-q", "--", path])?;
+                self.run(dir, &["clean", "-f", "-d", "-q", "--", &literal(path)])?;
             }
             None => {
-                self.run(dir, &["restore", "--worktree", "--", path])?;
+                self.run(dir, &["restore", "--worktree", "--", &literal(path)])?;
             }
             Some(picks) => {
                 self.apply(dir, &build_patch(&diff, picks, true)?, &["--reverse"])?;
@@ -947,9 +958,7 @@ impl Git {
         ensure!(!message.trim().is_empty(), "the commit needs a message");
         let mut args = vec!["commit", "-m", message];
         if amend {
-            let now = self
-                .head(dir)?
-                .context("there is no commit to amend yet")?;
+            let now = self.head(dir)?.context("there is no commit to amend yet")?;
             ensure!(
                 head == Some(now.as_str()),
                 "HEAD moved since you looked: look again before amending"
@@ -1038,7 +1047,10 @@ impl Git {
             args.extend(["--git-path", name]);
         }
         let paths: Vec<PathBuf> = self.run(dir, &args)?.lines().map(|l| dir.join(l)).collect();
-        ensure!(paths.len() == names.len(), "unexpected git rev-parse output");
+        ensure!(
+            paths.len() == names.len(),
+            "unexpected git rev-parse output"
+        );
         let read = |p: &Path| {
             fs::read_to_string(p)
                 .ok()
@@ -1133,7 +1145,10 @@ impl Git {
         let onto = checked_name(onto)?;
         let replayed = self.only_in(dir, &["HEAD", "--not", onto])?;
         let unpushed: usize = self
-            .run(dir, &["rev-list", "--count", "HEAD", "--not", onto, "--remotes"])?
+            .run(
+                dir,
+                &["rev-list", "--count", "HEAD", "--not", onto, "--remotes"],
+            )?
             .trim()
             .parse()
             .unwrap_or(0);
@@ -1189,7 +1204,7 @@ impl Git {
     pub fn resolve(&self, dir: &Path, path: &str, how: Resolution) -> Result<()> {
         let file = inside(dir, path)?;
         let stages: Vec<String> = self
-            .run(dir, &["ls-files", "-u", "-z", "--", path])?
+            .run(dir, &["ls-files", "-u", "-z", "--", &literal(path)])?
             .split('\0')
             .filter_map(|e| e.split_once('\t'))
             .filter_map(|(meta, _)| meta.split(' ').nth(2).map(str::to_owned))
@@ -1202,11 +1217,11 @@ impl Git {
         };
         match side {
             Some((flag, stage)) if stages.iter().any(|s| s == stage) => {
-                self.run(dir, &["checkout", flag, "--", path])?;
-                self.run(dir, &["add", "--", path])?;
+                self.run(dir, &["checkout", flag, "--", &literal(path)])?;
+                self.run(dir, &["add", "--", &literal(path)])?;
             }
             Some(_) => {
-                self.run(dir, &["rm", "-q", "--", path])?;
+                self.run(dir, &["rm", "-q", "--", &literal(path)])?;
             }
             None => {
                 if file.is_file() {
@@ -1217,7 +1232,7 @@ impl Git {
                         );
                     }
                 }
-                self.run(dir, &["add", "-A", "--", path])?;
+                self.run(dir, &["add", "-A", "--", &literal(path)])?;
             }
         }
         Ok(())
@@ -1226,7 +1241,12 @@ impl Git {
     pub fn tags(&self, dir: &Path) -> Result<Vec<Tag>> {
         Ok(parse_tags(&self.run(
             dir,
-            &["for-each-ref", "--sort=-creatordate", TAG_FORMAT, "refs/tags"],
+            &[
+                "for-each-ref",
+                "--sort=-creatordate",
+                TAG_FORMAT,
+                "refs/tags",
+            ],
         )?))
     }
 
@@ -1259,7 +1279,14 @@ impl Git {
         let exclude = format!("--exclude={name}");
         self.only_in(
             dir,
-            &[&full, "--not", "--branches", "--remotes", &exclude, "--tags"],
+            &[
+                &full,
+                "--not",
+                "--branches",
+                "--remotes",
+                &exclude,
+                "--tags",
+            ],
         )
     }
 
@@ -1303,7 +1330,7 @@ impl Git {
                 HISTORY_FORMAT,
                 &count,
                 "--",
-                path,
+                &literal(path),
             ],
         )?;
         let mut commits = parse_history(&out, path);
