@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { penalty, qr, qrPath } from "../src/lib/qr-logic.ts";
+import { fits, penalty, qr, qrPath } from "../src/lib/qr-logic.ts";
 
 // Made by macOS's own encoder (CoreImage CIQRCodeGenerator, level M), one row of modules per string, without the
-// quiet zone: `.claude/reviews/work/remote-tray-tools/qr-reference.swift`.
+// quiet zone: `app/scripts/qr-reference.swift`.
 const VECTORS = [
   {
     text: "termf",
@@ -155,6 +155,9 @@ test("qr: the smallest version that holds the text, and none past version 10", (
   assert.equal(qr("a".repeat(15)).length, 25);
   assert.equal(qr("a".repeat(213)).length, 57);
   assert.throws(() => qr("a".repeat(214)), /too long/);
+  assert.ok(fits("a".repeat(213)) && !fits("a".repeat(214)));
+  // The longest link TermF accepts (termf_core::remote::LINK_MAX) still fits.
+  assert.ok(fits(`https://claude.ai/code/${"a".repeat(190)}`));
   // UTF-8: "é" takes two bytes.
   assert.equal(qr("é".repeat(7)).length, 21);
   assert.equal(qr("é".repeat(8)).length, 25);

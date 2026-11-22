@@ -38,6 +38,8 @@ pub struct Shown {
     quick: String,
     open: String,
     awake: String,
+    /// "Stay awake" is on (`keep_awake = "always"`): part of what is shown, so the menu follows its changes.
+    awake_on: bool,
     quit: String,
 }
 
@@ -93,6 +95,9 @@ fn apply(app: &AppHandle, tray: &Tray) -> anyhow::Result<()> {
         app.remove_tray_by_id(ID);
         return Ok(());
     }
+    if !shows_icons() {
+        return Ok(());
+    }
     let menu = menu(app, &shown)?;
     let icon = match app.tray_by_id(ID) {
         Some(icon) => {
@@ -105,6 +110,34 @@ fn apply(app: &AppHandle, tray: &Tray) -> anyhow::Result<()> {
     // Beside the icon in the macOS menu bar and some Linux panels; Windows has the tooltip.
     icon.set_title((shown.count > 0).then(|| shown.count.to_string()))?;
     Ok(())
+}
+
+/// Linux shows the icon through libayatana-appindicator or libappindicator, which `tray-icon` loads at run time and
+/// panics without (and the release profile aborts on a panic): without either, TermF goes on with no icon.
+#[cfg(target_os = "linux")]
+fn shows_icons() -> bool {
+    static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FOUND.get_or_init(|| {
+        let names = [
+            "libayatana-appindicator3.so.1",
+            "libappindicator3.so.1",
+            "libayatana-appindicator3.so",
+            "libappindicator3.so",
+        ];
+        // SAFETY: the libraries tray-icon itself would load, and nothing of them is called here.
+        let found = names
+            .iter()
+            .any(|name| unsafe { libloading::Library::new(name) }.is_ok());
+        if !found {
+            eprintln!("termf: no icon in the system tray: install libayatana-appindicator3 (or libappindicator3)");
+        }
+        found
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn shows_icons() -> bool {
+    true
 }
 
 fn build(app: &AppHandle, menu: &Menu<Wry>) -> tauri::Result<tauri::tray::TrayIcon> {
@@ -145,7 +178,6 @@ fn menu(app: &AppHandle, shown: &Shown) -> tauri::Result<Menu<Wry>> {
         }
         menu.append(&item("cut-all".into(), &shown.cut_all)?)?;
     }
-    let always = app.state::<AppState>().keep_awake.state().mode == KeepAwake::Always;
     menu.append(&separator()?)?;
     menu.append(&item("quick".into(), &shown.quick)?)?;
     menu.append(&item("open".into(), &shown.open)?)?;
@@ -154,7 +186,7 @@ fn menu(app: &AppHandle, shown: &Shown) -> tauri::Result<Menu<Wry>> {
         "awake",
         &shown.awake,
         true,
-        always,
+        shown.awake_on,
         None::<&str>,
     )?)?;
     menu.append(&separator()?)?;
@@ -235,4 +267,32 @@ fn dot() -> tauri::image::Image<'static> {
         }
     }
     tauri::image::Image::new_owned(rgba, size, size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stay_awake_changes_what_is_shown() {
+        let shown = |on: bool| -> Shown {
+            serde_json::from_value(serde_json::json!({
+                "count": 1, "tooltip": "", "waitsTitle": "", "waits": [], "nothing": "", "remoteTitle": "",
+                "remote": [], "cutAll": "", "quick": "", "open": "", "awake": "", "awakeOn": on, "quit": "",
+            }))
+            .unwrap()
+        };
+        assert!(shown(true).awake_on);
+        assert_ne!(
+            shown(true),
+            shown(false),
+            "the menu is built again for its check"
+        );
+    }
+
+    #[test]
+    fn looks_for_the_tray_library_without_failing() {
+        // On Linux, true where libayatana-appindicator or libappindicator is installed (the CI); never a panic.
+        let _ = shows_icons();
+    }
 }

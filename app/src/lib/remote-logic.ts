@@ -43,10 +43,14 @@ export type TrayWords = {
   quit: string;
 };
 
-/** What the tray icon and the dock's badge show: the count of what waits, which the badge drops at zero. */
-export function trayShown(waits: Entry[], tiles: Tile[], words: TrayWords) {
+/**
+ * What the tray icon and the dock's badge show: the count of what waits, which the badge drops at zero. `awakeOn`: "stay
+ * awake" is on, which the menu checks.
+ */
+export function trayShown(waits: Entry[], tiles: Tile[], words: TrayWords, awakeOn: boolean) {
   const remote = remoteTiles(tiles).map((s) => ({ key: String(s.id), label: s.remote?.name || s.title }));
   return {
+    awakeOn,
     count: waits.length,
     tooltip: waits.length ? words.tooltip(waits.length) : "TermF",
     waitsTitle: words.waits(waits.length),

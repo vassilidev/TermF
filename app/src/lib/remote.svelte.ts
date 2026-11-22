@@ -18,14 +18,24 @@ export const remoteUi = $state({ open: null as number | null });
 /** The tiles open to remote control, or on their way. */
 export const remoteSessions = () => remoteTiles(app.sessions);
 
-/** A tile's switch: at once when its agent is at its prompt, else at the end of its turn. */
-export async function setRemote(id: number, on: boolean) {
+/** A tile's switch: at once when its agent is at its prompt, else at the end of its turn. False when refused. */
+export async function setRemote(id: number, on: boolean): Promise<boolean> {
   remote.error = "";
   try {
     await invoke("remote_set", { id, on });
+    return true;
   } catch (e) {
     remote.error = String(e);
+    return false;
   }
+}
+
+/** Turned on from a tile's actions or its question: its popover opens on the link, or the refusal shows. */
+export async function turnOn(id: number) {
+  remoteUi.open = id;
+  if (await setRemote(id, true)) return;
+  remoteUi.open = null;
+  app.error = remote.error;
 }
 
 /** Every tile off now, mid-turn or not. */
@@ -82,9 +92,9 @@ export function watchTray(): () => void {
           awake: t("remoteTrayAwake"),
           quit: t("remoteTrayQuit"),
         },
+        app.keepAwake?.mode === "always",
       );
-      // The menu shows the mode as it is now.
-      const key = JSON.stringify([shown, app.keepAwake?.mode]);
+      const key = JSON.stringify(shown);
       if (key === sent) return;
       sent = key;
       invoke("tray_update", { shown }).catch((e) => (app.error = String(e)));

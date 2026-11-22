@@ -11,7 +11,7 @@
   import RemoteSwitch from "$lib/RemoteSwitch.svelte";
   import Terminal from "$lib/Terminal.svelte";
   import { phase } from "$lib/remote-logic";
-  import { remoteUi, setRemote } from "$lib/remote.svelte";
+  import { setRemote, turnOn } from "$lib/remote.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { closeSplit, focusSession, keys, openLauncher, toggleMaximize } from "$lib/commands";
   import { t } from "$lib/i18n";
@@ -33,10 +33,7 @@
   const remote = $derived(session.running ? (session.remote ?? null) : null);
   const pct = (n: number) => `${n * 100}%`;
 
-  function remoteOn() {
-    remoteUi.open = session.id;
-    setRemote(session.id, true);
-  }
+  const remoteOn = () => turnOn(session.id);
   let confirm = $state<HTMLButtonElement>();
 
   // ⌘W on a running session: Enter, or ⌘W again, closes it.

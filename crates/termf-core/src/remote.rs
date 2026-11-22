@@ -121,15 +121,27 @@ pub fn name(project: Option<&str>, ticket: Option<&str>, role: Option<&str>) -> 
     }
 }
 
+/// The longest link TermF shows: the most its QR code holds (`app/src/lib/qr-logic.ts`, version 10, level M).
+pub const LINK_MAX: usize = 213;
+const LINK_START: &str = "https://claude.ai/code/";
+
 /// The page of a Remote Control session on claude.ai, from the id its hooks report. That id comes through the
-/// session's own process, so anything but a plain id is refused.
+/// session's own process, so anything but a plain id, short enough for the QR code, is refused.
 pub fn link(bridge: &str) -> Option<String> {
     let plain = !bridge.is_empty()
-        && bridge.len() <= 200
+        && bridge.len() <= LINK_MAX - LINK_START.len()
         && bridge
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    plain.then(|| format!("https://claude.ai/code/{bridge}"))
+    plain.then(|| format!("{LINK_START}{bridge}"))
+}
+
+/// The conversation a session's options start in: the one `--resume` or `--session-id` names.
+pub fn conversation(args: &[String]) -> Option<&str> {
+    let at = args
+        .iter()
+        .position(|a| matches!(a.as_str(), "--resume" | "-r" | "--session-id"))?;
+    args.get(at + 1).map(String::as_str)
 }
 
 /// A session's options without those that pick its conversation, so that it can start again in another one:
@@ -215,10 +227,27 @@ mod tests {
             "../evil",
             "a b",
             "javascript:x",
-            &"a".repeat(201),
+            &"a".repeat(191),
         ] {
             assert_eq!(link(bad), None, "{bad}");
         }
+        let longest = link(&"a".repeat(190)).unwrap();
+        assert_eq!(longest.len(), LINK_MAX, "the QR code holds every link");
+    }
+
+    #[test]
+    fn the_conversation_a_session_starts_in() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            conversation(&args(&["--session-id", "c0ffee", "first message"])),
+            Some("c0ffee")
+        );
+        assert_eq!(
+            conversation(&args(&["--resume", "abc", "--model", "opus"])),
+            Some("abc")
+        );
+        assert_eq!(conversation(&args(&["--model", "opus"])), None);
+        assert_eq!(conversation(&args(&["--resume"])), None);
     }
 
     #[test]

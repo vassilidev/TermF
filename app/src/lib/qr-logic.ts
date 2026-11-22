@@ -25,6 +25,11 @@ export function qr(text: string, mask?: number): boolean[][] {
   return best!.dark;
 }
 
+/** Whether `qr` can draw `text`: 213 bytes of UTF-8 at most, the links TermF shows (`termf_core::remote::LINK_MAX`). */
+export function fits(text: string): boolean {
+  return new TextEncoder().encode(text).length <= capacity(10, VERSIONS[9]);
+}
+
 /** Per version, at level M: error correction codewords per block, then the blocks' data codewords. */
 const VERSIONS: [number, number[]][] = [
   [10, [16]],

@@ -250,7 +250,7 @@ export function init(): () => void {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.context = payload.context;
   });
-  const unlistenRemote = listen<{ id: number; remoteControl: boolean; remote: RemoteState }>("session-remote", ({ payload }) => {
+  const unlistenRemote = listen<{ id: number; remoteControl: boolean; remote: RemoteState | null }>("session-remote", ({ payload }) => {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) Object.assign(session, { remoteControl: payload.remoteControl, remote: payload.remote });
   });
@@ -326,11 +326,19 @@ export async function setKeepAwake(mode: KeepAwakeMode, displayOn: boolean): Pro
   }
 }
 
-/** Opens `agent` (or a login shell when null) in each repository. Returns the ids of the sessions opened. */
-export async function openRepos(paths: string[], agent: string | null, hold?: (id: number) => void): Promise<number[]> {
+/**
+ * Opens `agent` (or a login shell when null) in each repository. Returns the ids of the sessions opened. `remote`: the
+ * launcher's Remote Control switch; without it, each project's policy applies.
+ */
+export async function openRepos(
+  paths: string[],
+  agent: string | null,
+  hold?: (id: number) => void,
+  remote?: boolean,
+): Promise<number[]> {
   const ids = [];
   for (const path of paths) {
-    const id = await openSession(path, agent, hold);
+    const id = await openSession(path, agent, hold, remote);
     if (id !== null) ids.push(id);
   }
   return ids;
@@ -344,6 +352,7 @@ export async function openSession(
   path: string,
   agent: string | null,
   hold?: (id: number) => void,
+  remote?: boolean,
 ): Promise<number | null> {
   try {
     const session = await invoke<Session>("pty_spawn", {
@@ -352,7 +361,7 @@ export async function openSession(
       title: `${repoName(path)} · ${agent ?? "shell"}`,
       cols: 120,
       rows: 32,
-      remoteControl: launch.remoteControl,
+      remoteControl: remote,
     });
     app.sessions.push(session);
     if (hold) hold(session.id);

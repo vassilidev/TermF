@@ -56,6 +56,11 @@ block2 = "0.6.2"
 objc2 = "0.6.5"
 objc2-foundation = "0.3.2"
 
+# Checks that the tray icon's library is there before Tauri loads it, which aborts without it; already in the lockfile
+# through tray-icon.
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.7.4"
+
 # Windows Hello, through UserConsentVerifier; the same `windows` crate as Tauri's.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Security_Credentials_UI", "Win32_Foundation", "Win32_System_Com", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging"] }

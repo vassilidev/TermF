@@ -29,6 +29,8 @@ pub struct Relaunch {
     pub env: Vec<(String, String)>,
     /// The session's own `--settings` file, where Remote Control is disabled.
     pub settings: Option<PathBuf>,
+    /// The conversation it started in (`--session-id` or `--resume`), until its hooks say which it is in.
+    pub conversation: Option<String>,
 }
 
 impl Relaunch {
@@ -74,6 +76,17 @@ pub struct Tile {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub enum Restart {
+    /// Its process ends.
+    End,
+    /// The conversation in a new process, connected to Remote Control as `connect`.
+    In {
+        conversation: String,
+        connect: Option<String>,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum Step {
     Nothing,
     /// `/remote-control <name>` in the running process.
@@ -95,6 +108,45 @@ impl Tile {
             pending: self.pending,
             ask: self.ask,
             locked: self.locked,
+        }
+    }
+
+    /// The user's switch; `prod`: the session or its run read production data, found just now.
+    pub fn set(&mut self, on: bool, prod: bool) -> Result<()> {
+        self.locked |= prod;
+        if self.locked {
+            self.want = false;
+        }
+        anyhow::ensure!(
+            !on || !self.locked,
+            "this session read production data: Remote Control stays off"
+        );
+        self.want = on;
+        self.ask = false;
+        // Clicked again while it still has not connected: the command is typed again.
+        if on && self.bridge.is_none() {
+            self.asked = false;
+        }
+        self.pending = self.next() != Step::Nothing;
+        Ok(())
+    }
+
+    /// How a new process takes over: in the conversation its hooks said (`known`), else the one it started in; a
+    /// session with neither has nothing to lose when cut, and cannot be connected yet.
+    pub fn restart(&self, known: Option<&str>) -> Result<Restart> {
+        let connect = (self.want && !self.locked).then(|| self.name.clone());
+        match known
+            .map(str::to_owned)
+            .or_else(|| self.relaunch.conversation.clone())
+        {
+            Some(conversation) => Ok(Restart::In {
+                conversation,
+                connect,
+            }),
+            None if connect.is_none() => Ok(Restart::End),
+            None => anyhow::bail!(
+                "the session has not started its conversation yet: try again in a moment"
+            ),
         }
     }
 
@@ -169,12 +221,6 @@ pub fn project_policy(
         })
         .unwrap_or_default();
     (project, policy)
-}
-
-/// The conversation `--resume` picks in a session's options.
-pub fn resumed(args: &[String]) -> Option<&str> {
-    let at = args.iter().position(|a| a == "--resume" || a == "-r")?;
-    args.get(at + 1).map(String::as_str)
 }
 
 /// The "trifecta" rule (§12.4): the conversation, or the run it works for, read production data.
@@ -277,6 +323,63 @@ mod tests {
             bad.state().url,
             None,
             "an id that is not plain gives no link"
+        );
+    }
+
+    #[test]
+    fn the_switch_refuses_a_session_marked_since_its_last_hook() {
+        let mut t = tile();
+        t.set(true, false).unwrap();
+        assert!(t.want && t.pending, "on, waiting to type the command");
+        let mut marked = tile();
+        let refused = marked.set(true, true).unwrap_err().to_string();
+        assert!(refused.contains("production data"), "{refused}");
+        assert!(marked.locked && !marked.want);
+        assert_eq!(marked.next(), Step::Nothing, "nothing was connected");
+        let mut connected = Tile {
+            bridge: Some("session_01".into()),
+            want: true,
+            ..tile()
+        };
+        assert!(connected.set(true, true).is_err());
+        assert_eq!(connected.next(), Step::Relaunch, "connected: cut");
+    }
+
+    #[test]
+    fn starts_again_in_the_conversation_it_started_in() {
+        let started = Tile {
+            want: true,
+            relaunch: Relaunch {
+                conversation: Some("from-args".into()),
+                ..Relaunch::default()
+            },
+            ..tile()
+        };
+        let resume = |conversation: &str| Restart::In {
+            conversation: conversation.into(),
+            connect: Some("acme/api".into()),
+        };
+        assert_eq!(
+            started.restart(Some("from-hooks")).unwrap(),
+            resume("from-hooks")
+        );
+        assert_eq!(
+            started.restart(None).unwrap(),
+            resume("from-args"),
+            "before its first hook"
+        );
+        let fresh = Tile {
+            want: true,
+            ..tile()
+        };
+        assert!(
+            fresh.restart(None).is_err(),
+            "no conversation to connect yet"
+        );
+        assert_eq!(
+            tile().restart(None).unwrap(),
+            Restart::End,
+            "cut: nothing to lose"
         );
     }
 

@@ -47,14 +47,16 @@ test("trayShown: the badge counts what waits, none at zero", () => {
     { key: "tile:3", label: "back waits for your answer" },
     { key: "ask:7:plan", label: "Plan to approve · #12" },
   ];
-  const shown = trayShown(waits, [tile(1, { remoteControl: true }), tile(2)], words);
+  const shown = trayShown(waits, [tile(1, { remoteControl: true }), tile(2)], words, false);
   assert.equal(shown.count, 2);
   assert.equal(shown.tooltip, "TermF: 2 waiting");
   assert.equal(shown.waitsTitle, "Waiting for you (2)");
   assert.deepEqual(shown.remote, [{ key: "1", label: "acme/api" }]);
   assert.equal(shown.remoteTitle, "Remote (1)");
-  const none = trayShown([], [], words);
+  const none = trayShown([], [], words, true);
   assert.equal(none.count, 0);
   assert.equal(none.tooltip, "TermF");
   assert.deepEqual(none.remote, []);
+  assert.equal(shown.awakeOn, false);
+  assert.equal(none.awakeOn, true, "the menu checks stay awake as it is");
 });

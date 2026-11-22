@@ -8,6 +8,7 @@
   import Popover from "$lib/ui/Popover.svelte";
   import { openUrl } from "$lib/claude.svelte";
   import { t } from "$lib/i18n";
+  import { fits } from "$lib/qr-logic";
   import { phase, type RemoteState } from "$lib/remote-logic";
   import { remote, remoteUi, setRemote } from "$lib/remote.svelte";
 
@@ -71,8 +72,10 @@
       <p class="notice error"><Lock size={14} aria-hidden="true" />{t("remoteLocked")}</p>
       <p class="help">{t("remoteLockedHelp")}</p>
     {:else if rc.url}
-      <div class="qr"><RemoteQr text={rc.url} label={t("remoteScan")} /></div>
-      <p class="help center">{t("remoteScan")}</p>
+      {#if fits(rc.url)}
+        <div class="qr"><RemoteQr text={rc.url} label={t("remoteScan")} /></div>
+        <p class="help center">{t("remoteScan")}</p>
+      {/if}
       <p class="link" title={rc.url}>{rc.url}</p>
       <div class="row">
         <button class="btn sm" onclick={() => copy(rc.url!)}>
