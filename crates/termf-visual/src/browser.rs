@@ -128,10 +128,21 @@ pub struct Browser {
     ws: Ws,
     next: u64,
     session: Option<String>,
+    /// The page's events since the last [`Browser::events`], once [`Browser::record`] asked for them.
+    events: Option<Vec<Value>>,
 }
 
 impl Browser {
     pub fn launch(program: &Path) -> Result<Browser> {
+        Browser::launch_with(program, &[], &mut |_, _| {})
+    }
+
+    /// `spawned` hears of the process and its profile as soon as it starts, before Chrome answers.
+    pub fn launch_with(
+        program: &Path,
+        extra: &[String],
+        spawned: &mut dyn FnMut(u32, &Path),
+    ) -> Result<Browser> {
         let profile = termf_core::process::scratch_dir()?;
         let mut cmd = Command::new(program);
         cmd.args([
@@ -148,7 +159,11 @@ impl Browser {
             "--mute-audio",
             "--force-color-profile=srgb",
             "--force-device-scale-factor=1",
+            // Never the user's keychain (macOS) or keyring (Linux): the profile's secrets stay in the profile.
+            "--use-mock-keychain",
+            "--password-store=basic",
         ])
+        .args(extra)
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("about:blank")
         .stdin(Stdio::null())
@@ -159,6 +174,7 @@ impl Browser {
         let mut child = cmd
             .spawn()
             .with_context(|| format!("cannot start {}", program.display()))?;
+        spawned(child.id(), &profile);
         // Chrome writes its port and its browser endpoint there once it listens.
         let file = profile.join("DevToolsActivePort");
         let deadline = Instant::now() + Duration::from_secs(30);
@@ -191,6 +207,7 @@ impl Browser {
             ws,
             next: 0,
             session: None,
+            events: None,
         };
         let target = browser.call("Target.createTarget", json!({"url": "about:blank"}))?;
         let target = target["targetId"].as_str().context("no page")?.to_owned();
@@ -212,18 +229,39 @@ impl Browser {
         self.child.id()
     }
 
-    fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+    /// Keeps the page's events from now on, for [`Browser::events`].
+    pub(crate) fn record(&mut self) {
+        self.events.get_or_insert_with(Vec::new);
+    }
+
+    pub(crate) fn events(&mut self) -> Vec<Value> {
+        self.events.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    fn send(&mut self, method: &str, params: Value) -> Result<u64> {
         self.next += 1;
-        let id = self.next;
-        let mut message = json!({"id": id, "method": method, "params": params});
+        let mut message = json!({"id": self.next, "method": method, "params": params});
         if let Some(session) = &self.session {
             message["sessionId"] = session.clone().into();
         }
         self.ws.send(&message.to_string())?;
+        Ok(self.next)
+    }
+
+    pub(crate) fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+        let id = self.send(method, params)?;
         loop {
             let reply: Value = serde_json::from_str(&self.ws.recv()?)?;
             // Events of the page come in between.
             if reply["id"].as_u64() != Some(id) {
+                // A dialog left open would block the page, and every later call with it.
+                if reply["method"] == "Page.javascriptDialogOpening" {
+                    self.send("Page.handleJavaScriptDialog", json!({"accept": true}))?;
+                }
+                if let (Some(events), true) = (self.events.as_mut(), reply.get("method").is_some())
+                {
+                    events.push(reply);
+                }
                 continue;
             }
             if let Some(error) = reply.get("error") {
@@ -236,7 +274,7 @@ impl Browser {
         }
     }
 
-    fn eval(&mut self, script: &str) -> Result<Value> {
+    pub(crate) fn eval(&mut self, script: &str) -> Result<Value> {
         let reply = self.call(
             "Runtime.evaluate",
             json!({"expression": script, "returnByValue": true, "awaitPromise": true}),
@@ -251,7 +289,7 @@ impl Browser {
         Ok(reply["result"]["value"].clone())
     }
 
-    fn open(&mut self, url: &str) -> Result<()> {
+    pub(crate) fn open(&mut self, url: &str) -> Result<()> {
         let nav = self.call("Page.navigate", json!({"url": url}))?;
         if let Some(error) = nav["errorText"].as_str().filter(|e| !e.is_empty()) {
             bail!("{url}: {error}");
@@ -314,33 +352,49 @@ impl Browser {
         Ok(())
     }
 
-    pub fn capture(&mut self, target: &Target) -> Result<Shot> {
+    pub(crate) fn emulate(
+        &mut self,
+        width: u32,
+        height: u32,
+        mobile: bool,
+        theme: &str,
+    ) -> Result<()> {
         self.call(
             "Emulation.setDeviceMetricsOverride",
-            json!({"width": target.width, "height": target.height, "deviceScaleFactor": 1, "mobile": target.mobile}),
+            json!({"width": width, "height": height, "deviceScaleFactor": 1, "mobile": mobile}),
         )?;
         self.call(
             "Emulation.setEmulatedMedia",
             json!({"media": "", "features": [
-                {"name": "prefers-color-scheme", "value": target.theme},
+                {"name": "prefers-color-scheme", "value": theme},
                 {"name": "prefers-reduced-motion", "value": "reduce"},
             ]}),
         )?;
-        self.open(&target.url)?;
-        self.eval(&format!("{FREEZE}({})", json!(target.mask)))?;
-        std::thread::sleep(SETTLE);
+        Ok(())
+    }
+
+    /// The whole page, up to [`MAX_HEIGHT`], as Chrome's base64 PNG.
+    pub(crate) fn full_page(&mut self, width: u32, height: u32) -> Result<String> {
         let size = self.eval(SIZE)?;
         let height = size[1]
             .as_u64()
-            .unwrap_or(target.height as u64)
+            .unwrap_or(height as u64)
             .clamp(1, MAX_HEIGHT as u64);
         let shot = self.call(
             "Page.captureScreenshot",
             json!({"format": "png", "captureBeyondViewport": true,
-                   "clip": {"x": 0, "y": 0, "width": target.width, "height": height, "scale": 1}}),
+                   "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1}}),
         )?;
-        let data = shot["data"].as_str().context("no screenshot")?;
-        let png = base64ct::Base64::decode_vec(data).context("unreadable screenshot")?;
+        Ok(shot["data"].as_str().context("no screenshot")?.to_owned())
+    }
+
+    pub fn capture(&mut self, target: &Target) -> Result<Shot> {
+        self.emulate(target.width, target.height, target.mobile, &target.theme)?;
+        self.open(&target.url)?;
+        self.eval(&format!("{FREEZE}({})", json!(target.mask)))?;
+        std::thread::sleep(SETTLE);
+        let data = self.full_page(target.width, target.height)?;
+        let png = base64ct::Base64::decode_vec(&data).context("unreadable screenshot")?;
         let texts = serde_json::from_value(self.eval(TEXTS)?).unwrap_or_default();
         Ok(Shot { png, texts })
     }

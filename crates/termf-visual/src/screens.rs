@@ -311,6 +311,7 @@ mod tests {
             dev: Some("serve".into()),
             storybook: None,
             settings,
+            browser: Default::default(),
         }
     }
 
