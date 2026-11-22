@@ -203,14 +203,19 @@ fn proposes_a_team_for_each_kind_of_project() {
         [
             ("architect", true, "design"),
             ("back", false, "no-back"),
+            ("brand", true, "ui"),
+            ("copy", true, "ui"),
             ("devops", true, "infra"),
             ("front", true, "front"),
+            ("motion", true, "web"),
             ("qa", true, "tests"),
             ("seo", true, "web"),
             ("ux", true, "ui"),
         ]
     );
-    assert_eq!(simple.roles[3].detail, ["shop"]);
+    assert_eq!(simple.roles[5].detail, ["shop"]);
+    assert_eq!(simple.roles[2].detail, ["shop"], "brand: the interface");
+    assert_eq!(simple.roles[6].detail, ["shop"], "motion: the public site");
     assert_eq!(
         simple.steps,
         ["cto", "lead", "pm", "po", "reviewer", "secops"]
@@ -225,7 +230,10 @@ fn proposes_a_team_for_each_kind_of_project() {
         squads[0].roles,
         BTreeMap::from([("devops".into(), 1), ("front".into(), 1), ("qa".into(), 1)])
     );
-    assert_eq!(composition(&simple).staff, ["architect", "seo", "ux"]);
+    assert_eq!(
+        composition(&simple).staff,
+        ["architect", "brand", "copy", "motion", "seo", "ux"]
+    );
     assert_eq!(simple.proposal.workflow.as_deref(), Some("default"));
     assert_eq!(writes(&simple, "qa"), Some(strings(&["**/*.test.*"])));
     assert_eq!(writes(&simple, "devops"), Some(strings(&["Dockerfile"])));
@@ -268,7 +276,12 @@ fn proposes_a_team_for_each_kind_of_project() {
             "infra/**"
         ]
     );
-    assert_eq!(composition(&mono).staff, ["architect", "ux"]);
+    assert_eq!(
+        composition(&mono).staff,
+        ["architect", "brand", "copy", "ux"],
+        "an interface but no public site: no motion"
+    );
+    assert!(kept(&mono).contains(&("motion", false, "no-web")));
     assert_eq!(mono.proposal.workflow.as_deref(), Some("squads"));
     assert_eq!(
         writes(&mono, "front"),
@@ -290,6 +303,9 @@ fn proposes_a_team_for_each_kind_of_project() {
         kept(&cargo).contains(&("front", false, "no-front"))
             && kept(&cargo).contains(&("ux", false, "no-ui"))
             && kept(&cargo).contains(&("devops", false, "no-infra"))
+            && kept(&cargo).contains(&("brand", false, "no-ui"))
+            && kept(&cargo).contains(&("copy", false, "no-ui"))
+            && kept(&cargo).contains(&("motion", false, "no-web"))
     );
 
     let (_, config, data) = setup("api", &[("billing", API)]);
@@ -537,7 +553,7 @@ fn writes_the_team_into_the_project_file_and_keeps_the_rest() {
     );
     let read = termf_core::squads::load_team(&config, "acme").unwrap();
     assert!(read.declared);
-    assert_eq!(read.staff, ["architect", "ux"]);
+    assert_eq!(read.staff, ["architect", "brand", "copy", "ux"]);
     assert_eq!(read.squads[1].paths, composition(&proposed).squads[1].paths);
     assert_eq!(read.squads[0].count("front"), Some(2));
     let scope = Scope {
@@ -700,7 +716,7 @@ fn a_new_proposal_respects_what_was_changed_by_hand() {
     assert!(kept(&later).contains(&("seo", true, "web")));
     assert_eq!(
         composition(&later).staff,
-        ["architect", "docs", "seo", "ux"]
+        ["architect", "brand", "copy", "docs", "motion", "seo", "ux"]
     );
     assert_eq!(
         composition(&later).squads[0].paths,

@@ -2308,6 +2308,10 @@ const fr = {
   ux3t4Tour4Title: "Cette machine, la palette et l'aide",
   ux3t4Tour4:
     "Réglages, Claude, clés SSH et planificateur valent pour toute la machine : ils sont rangés ici. La palette trouve tout au clavier ; appuie sur ? hors d'un terminal pour l'aide de la vue où tu es, cette visite s'y relance.",
+  // Roles brand, copy and motion: the natures of a request the CTO routes to them.
+  rolesKindBrand: "Marque",
+  rolesKindCopy: "Textes",
+  rolesKindMotion: "Vidéo et animation",
 };
 
 type Key = keyof typeof fr;
@@ -4603,6 +4607,10 @@ const en: Record<Key, string> = {
   ux3t4Tour4Title: "This machine, the palette and help",
   ux3t4Tour4:
     "Settings, Claude, SSH keys and the scheduler apply to the whole machine: they are tucked away here. The palette finds everything from the keyboard; press ? outside a terminal for help on the view you are on, where this tour starts again.",
+  // Roles brand, copy and motion: the natures of a request the CTO routes to them.
+  rolesKindBrand: "Brand",
+  rolesKindCopy: "Copy",
+  rolesKindMotion: "Video and motion",
 };
 
 const messages = { fr, en };
