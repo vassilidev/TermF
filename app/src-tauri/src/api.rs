@@ -1057,7 +1057,7 @@ fn handle(app: &AppHandle, conn: Stream) -> Result<()> {
             Some(why) => Err(anyhow!(why)),
             None => state.api.confirm(app, &request.call, conn.get_ref()),
         };
-        let result = match allowed.and_then(|()| call(app, &state, request.call)) {
+        let result = match allowed.and_then(|()| call(app, &state, request.call, conn.get_ref())) {
             Ok(value) => Reply::Ok(value),
             Err(e) => Reply::Error(format!("{e:#}")),
         };
@@ -1130,7 +1130,7 @@ fn watch(api: &Api, mut conn: BufReader<Stream>) -> Result<()> {
     Ok(())
 }
 
-fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
+fn call(app: &AppHandle, state: &AppState, call: Call, caller: &Stream) -> Result<Value> {
     Ok(match call {
         Call::List => serde_json::to_value(state.api.list(&state.sessions))?,
         Call::Open { path, agent } => {
@@ -1187,7 +1187,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         Call::Vault(call) => crate::vault::call(app, call)?,
         Call::Review(call) => visual::call(app, call)?,
         Call::Memory(call) => crate::memory::call(app, call)?,
-        Call::Mcp { session, tool } => crate::cto::call(app, session, tool)?,
+        Call::Mcp { session, tool } => crate::cto::call(app, session, tool, &|| hung_up(caller))?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }

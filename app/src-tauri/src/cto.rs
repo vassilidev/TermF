@@ -325,7 +325,13 @@ fn notice_of(event: &TeamEvent, run: &TeamRun, about: &str) -> Notice {
 
 /// A tool of `termf mcp`, for agent session `session` and within its project only. Nothing that looks like a
 /// secret goes back to the agent.
-pub fn call(app: &AppHandle, session: i64, tool: McpCall) -> Result<Value> {
+/// `gone`: the caller went away, for a tool that waits for the user (`ops_run`).
+pub fn call(
+    app: &AppHandle,
+    session: i64,
+    tool: McpCall,
+    gone: &dyn Fn() -> bool,
+) -> Result<Value> {
     let agents = agents(app);
     let conversation = agents.session(session)?;
     let name = serde_json::to_value(&tool)?["tool"].clone();
@@ -338,8 +344,29 @@ pub fn call(app: &AppHandle, session: i64, tool: McpCall) -> Result<Value> {
     let project = conversation
         .spec
         .project
+        .clone()
         .context("this conversation has no project")?;
+    if matches!(tool, McpCall::OpsRecipes {} | McpCall::OpsRun { .. }) {
+        let mut value = crate::ops::mcp(app, &conversation, &project, tool, gone)?;
+        mask(&mut value);
+        return Ok(value);
+    }
+    let passes = matches!(
+        tool,
+        McpCall::StartTeamRun { .. } | McpCall::SendMessage { .. }
+    );
     let mut value = run_tool(app, &agents, &project, tool)?;
+    // The trifecta rule follows what a conversation that read prod hands on: the run it starts, the session it
+    // writes to.
+    let data = &app.state::<crate::ops::OpsState>().data_dir;
+    if passes && termf_core::taint::session(data, &conversation.session_id) {
+        if let Some(run) = value["run"].as_i64() {
+            termf_core::taint::mark_run(data, run)?;
+        }
+        if let Some(other) = value["conversation"].as_i64() {
+            termf_core::taint::mark_session(data, &agents.session(other)?.session_id)?;
+        }
+    }
     mask(&mut value);
     Ok(value)
 }
@@ -504,6 +531,7 @@ fn run_tool(app: &AppHandle, agents: &Agents, id: &str, tool: McpCall) -> Result
             let answer = memory::ask(app, id, &question, None)?;
             json!({ "answer": answer.text, "conversation": answer.session, "cost": answer.cost })
         }
+        McpCall::OpsRecipes {} | McpCall::OpsRun { .. } => bail!("Ops tools run apart"),
     })
 }
 
