@@ -198,7 +198,11 @@ fn finds_hardcoded_and_off_scale_values_with_the_token_to_use() {
         near.at[0].text,
         ".ghost { background: transparent; color: #4f46e6; }"
     );
-    assert_eq!(find(&d, Kind::Hardcoded, "#ffffff").other, ["--bg"]);
+    // White as a text color is the text-on-accent token, not the background one of the same value.
+    assert_eq!(
+        find(&d, Kind::Hardcoded, "#ffffff").other,
+        ["--accent-foreground"]
+    );
     assert_eq!(
         find(&d, Kind::Hardcoded, "#0f172a").at[0].file,
         "src/routes/+page.svelte"

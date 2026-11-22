@@ -118,6 +118,40 @@ fn color_prop(prop: &str) -> bool {
         })
 }
 
+/// What a property paints: 0 text, 1 background, 2 border.
+fn prop_role(prop: &str) -> Option<usize> {
+    if matches!(
+        prop,
+        "color" | "caret-color" | "fill" | "text-decoration-color"
+    ) {
+        Some(0)
+    } else if prop.starts_with("background") {
+        Some(1)
+    } else if ["border", "outline", "column-rule", "stroke"]
+        .iter()
+        .any(|p| prop.starts_with(p))
+    {
+        Some(2)
+    } else {
+        None
+    }
+}
+
+/// What a color token is for, by its name.
+fn name_role(name: &str) -> Option<usize> {
+    let n = bare(name);
+    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
+    if text_like(&n) {
+        Some(0)
+    } else if ground_like(&n) || has(&["bg", "background", "surface"]) {
+        Some(1)
+    } else if has(&["border", "line", "divider", "outline", "ring"]) {
+        Some(2)
+    } else {
+        None
+    }
+}
+
 fn size_family(prop: &str) -> Option<Family> {
     if prop.starts_with("margin")
         || prop.starts_with("padding")
@@ -198,7 +232,8 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
             Some((t, light, dark))
         })
         .collect();
-    let mut by_color: BTreeMap<String, (Rgba, Vec<Loc>)> = BTreeMap::new();
+    // Each literal color with where it is and what it is used for (text, background, border).
+    let mut by_color: BTreeMap<String, (Rgba, Vec<Loc>, [usize; 3])> = BTreeMap::new();
     let mut by_size: BTreeMap<(Family, String), (f64, Vec<Loc>)> = BTreeMap::new();
     let mut size = |family: Family, v: f64, loc: Loc| {
         let skip = match family {
@@ -219,11 +254,11 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
     for (f, d) in &read.decls {
         if !colors.is_empty() && color_prop(&d.prop) {
             for (_, c) in color::literals(&d.value) {
-                by_color
-                    .entry(c.hex())
-                    .or_insert((c, Vec::new()))
-                    .1
-                    .push(read.loc(*f, d.line));
+                let entry = by_color.entry(c.hex()).or_insert((c, Vec::new(), [0; 3]));
+                entry.1.push(read.loc(*f, d.line));
+                if let Some(r) = prop_role(&d.prop) {
+                    entry.2[r] += 1;
+                }
             }
         }
         if let Some(family) = size_family(&d.prop) {
@@ -238,11 +273,16 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
         match utility_family(utility, value) {
             Some(Family::Color) if !colors.is_empty() => {
                 if let Some(c) = color::parse(value) {
-                    by_color
-                        .entry(c.hex())
-                        .or_insert((c, Vec::new()))
-                        .1
-                        .push(read.loc(*f, *line));
+                    let entry = by_color.entry(c.hex()).or_insert((c, Vec::new(), [0; 3]));
+                    entry.1.push(read.loc(*f, *line));
+                    let prop = match utility.as_str() {
+                        "bg" | "from" | "via" | "to" => "background",
+                        "border" | "ring" | "outline" | "divide" => "border",
+                        _ => "color",
+                    };
+                    if let Some(r) = prop_role(prop) {
+                        entry.2[r] += 1;
+                    }
                 }
             }
             Some(family @ (Family::Spacing | Family::Text | Family::Radius)) => {
@@ -253,11 +293,27 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
             _ => {}
         }
     }
-    for (hex, (c, at)) in by_color {
-        let best = colors
-            .iter()
-            .map(|(t, l, d)| (t, color::delta_e(&c, l).min(color::delta_e(&c, d))))
-            .min_by(|a, b| a.1.total_cmp(&b.1));
+    for (hex, (c, at, roles)) in by_color {
+        // The token to use: an equal one before a close one, one made for the same use (a text color for
+        // `color`), the default theme's values before the dark ones.
+        let wanted = (0..3).filter(|&r| roles[r] > 0).max_by_key(|&r| roles[r]);
+        let penalty = |t: &Token| match (wanted, name_role(&t.name)) {
+            (Some(w), Some(r)) if w == r => 0,
+            (Some(_), Some(_)) => 2,
+            _ => 1,
+        };
+        let pick = |dark: bool| {
+            colors
+                .iter()
+                .map(|(t, l, d)| (t, color::delta_e(&c, if dark { d } else { l })))
+                .filter(|(_, e)| *e < NEAR)
+                .min_by(|a, b| {
+                    (a.1 >= 0.5, penalty(a.0))
+                        .cmp(&(b.1 >= 0.5, penalty(b.0)))
+                        .then(a.1.total_cmp(&b.1))
+                })
+        };
+        let best = pick(false).or_else(|| pick(true));
         let (level, other, measure) = match best {
             Some((t, e)) if e < 0.5 => (Level::Warn, vec![t.name.clone()], None),
             Some((t, e)) if e < NEAR => (Level::Warn, vec![t.name.clone()], Some(e)),
