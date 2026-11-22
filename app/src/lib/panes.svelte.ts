@@ -6,12 +6,13 @@ import { views } from "$lib/views";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { focusSession } from "$lib/commands";
 
-/** Remembered on this machine, like the current project. */
 const stored = "termf.panes";
 const known = () => views.map((v) => v.id);
+/** While the handle is dragged, the width is kept only once it is let go. */
+const dragging = $state({ on: false });
 
-/** Shows `id` in the other panel, opened on the right if there was one panel, and moves there. */
-export function openBeside(id: ViewId) {
+/** The keyboard follows, so that what is typed goes where the view-wide shortcuts now point. */
+export async function openBeside(id: ViewId) {
   const view = views.find((v) => v.id === id);
   if (!view || id === ui.view) return;
   if (id !== panes.other) {
@@ -21,9 +22,10 @@ export function openBeside(id: ViewId) {
     view.show();
     panes.last = last;
   } else view.show();
+  await focusPanel();
 }
 
-/** Closes the panel showing `id`; the other one takes the whole area, and the second panel reopens on `id`. */
+/** The second panel reopens on the view closed. */
 export function closePanel(id: ViewId) {
   const p = logic.close({ ...panes, view: ui.view }, id);
   if (panes.other === null || p.other !== null) return;
@@ -32,23 +34,19 @@ export function closePanel(id: ViewId) {
   panes.last = id;
 }
 
-/** Opens the second panel on the view shown before, or closes the one the keyboard is not in. */
+/** With two panels, the one the keyboard is not in closes: the one being worked in stays. */
 export async function toggleSplit() {
   if (panes.other) return closePanel(panes.other);
   const last = panes.last;
-  const next = last && last !== ui.view && known().includes(last) ? last : ui.view === "terminals" ? "tickets" : "terminals";
-  openBeside(next);
-  await focusPanel();
+  await openBeside(last && last !== ui.view && known().includes(last) ? last : ui.view === "terminals" ? "tickets" : "terminals");
 }
 
-/** The keyboard to the other panel. */
 export async function otherPanel() {
   if (!panes.other) return;
   ui.view = panes.other;
   await focusPanel();
 }
 
-/** Gives the keyboard to the active panel: its active terminal, else the panel itself. */
 async function focusPanel() {
   const tab = ui.view === "terminals" ? currentTab() : undefined;
   if (tab) return focusSession(tab.active);
@@ -58,6 +56,10 @@ async function focusPanel() {
 
 export function resizePanes(size: number) {
   panes.size = logic.clamp(size);
+}
+
+export function dragPanes(on: boolean) {
+  dragging.on = on;
 }
 
 function restore() {
@@ -72,7 +74,6 @@ function restore() {
   Object.assign(panes, { other: saved.right, active: 0, size: saved.size });
 }
 
-/** Reopens the panels of the last launch once the workspace is read, then keeps them. Returns a cleanup. */
 export function watchPanes(): () => void {
   return $effect.root(() => {
     let ready = false;
@@ -84,7 +85,7 @@ export function watchPanes(): () => void {
     $effect(() => {
       const text = logic.encode({ ...panes, view: ui.view }, known());
       const single = panes.other === null;
-      if (!ready) return;
+      if (!ready || dragging.on) return;
       try {
         if (text) localStorage.setItem(stored, text);
         // A project's page beside a view is not kept, and does not forget the panels kept before.

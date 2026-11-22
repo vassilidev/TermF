@@ -402,7 +402,6 @@ export function match(e: Press, current: Record<string, string>, ctx: Context): 
   return null;
 }
 
-/** The groups, in the order the editor and the help list them. */
 export const groups: [KeyGroup, Label][] = [
   ["general", "settingsKeysGeneral"],
   ["terminals", "viewTerminals"],
@@ -410,14 +409,12 @@ export const groups: [KeyGroup, Label][] = [
   ["tickets", "viewTickets"],
 ];
 
-/** How an action is asked for: its combination (`⌘1…9` for a 1-to-9 one), then its typed character; none is []. */
 export function shortcut(a: KeyAction, combo: string, mac: boolean): string[] {
   return [display(parse(combo), mac, a.digits ? "1…9" : ""), a.typed ?? ""].filter(Boolean);
 }
 
 export type Sheet = { group: KeyGroup; label: Label; rows: { id: string; label: Label; keys: string[] }[] }[];
 
-/** Every shortcut, as the help lists it: by group, the group of the view shown first, actions without one left out. */
 export function sheet(current: Record<string, string>, mac: boolean, view: string): Sheet {
   const first = groups.filter(([g]) => g === view);
   return [...first, ...groups.filter(([g]) => g !== view)]

@@ -12,13 +12,10 @@
     children,
   }: {
     count: number;
-    /** How many items are shown and can be picked. */
     total: number;
     label: string;
-    /** Every item shown, or none when they all already are. */
     onall: () => void;
     onclear: () => void;
-    /** The actions on the items picked, or the question one of them asks. */
     children: Snippet;
   } = $props();
 

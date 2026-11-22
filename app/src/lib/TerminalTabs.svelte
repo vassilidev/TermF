@@ -38,7 +38,6 @@
     return app.workspace?.projects.find((p) => p.id === id)?.name ?? "";
   }
 
-  /** Tabs picked to close together, among those shown. */
   let picked = $state(none<number>());
   let askingMany = $state(false);
   const ids = $derived(list.map((tab) => tab.id));
@@ -46,7 +45,7 @@
   const chosenSessions = $derived(chosen.flatMap(sessionsOf));
   const running = $derived(chosenSessions.filter((s) => s.running).length);
 
-  /** ⌘-click (Ctrl elsewhere) picks a tab, Shift-click a range from the last one picked, or from the current tab. */
+  /** A first Shift-click ranges from the current tab, as in a browser. */
   const select = async (e: MouseEvent, tab: Tab) => {
     if ((isMac ? e.metaKey : e.ctrlKey) || e.shiftKey) {
       const from = picked.anchor === null && current ? { keys: [], anchor: current.id } : picked;
@@ -57,13 +56,18 @@
     await focusSession(entryOf(tab));
   };
 
+  /** The keyboard moves only if the current tab was among those closed. */
   async function closeMany() {
     const tabs = chosen;
+    const moving = !!current && tabs.includes(current);
     askingMany = false;
     picked = none();
     let next: number | null = null;
     for (const tab of tabs) next = await closeTab(tab);
-    if (next !== null && app.sessions.some((s) => s.id === next)) focusSession(next);
+    if (!moving) return;
+    const left = currentTab();
+    const to = next !== null && app.sessions.some((s) => s.id === next) ? next : left ? entryOf(left) : null;
+    if (to !== null) focusSession(to);
   }
 
   async function close(tab: Tab) {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { all, none, pick, within } from "../src/lib/select-logic.ts";
+import { all, none, pick, settle, within } from "../src/lib/select-logic.ts";
 
 const shown = ["a", "b", "c", "d", "e"];
 
@@ -36,6 +36,20 @@ test("select all, then none", () => {
   assert.deepEqual(every.keys, shown);
   assert.deepEqual(all(every, shown).keys, []);
   assert.deepEqual(all(none(), []).keys, []);
+});
+
+test("a bulk action keeps every error, and tells a choice left to the user from a failure", () => {
+  const out = settle([
+    ["a", "done"],
+    ["b", { error: "network down" }],
+    ["c", "kept"],
+    ["d", { error: "network down" }],
+    ["e", { error: "no such repository" }],
+    ["f", "done"],
+  ]);
+  assert.deepEqual(out, { done: 2, kept: ["c"], failed: ["b", "d", "e"], errors: ["network down", "no such repository"] });
+  assert.deepEqual(settle([[1, { error: "" }]]), { done: 0, kept: [], failed: [1], errors: [] });
+  assert.deepEqual(settle([]), { done: 0, kept: [], failed: [], errors: [] });
 });
 
 test("works with numbers", () => {

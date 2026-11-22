@@ -159,7 +159,8 @@ export function onShortcut(e: KeyboardEvent) {
   const n = asked.n ?? 0;
   const actions: Record<string, (() => void) | undefined> = {
     palette: () => (ui.palette = !ui.palette),
-    help: () => (ui.help = !ui.help),
+    // Held down, the key repeats: the help would open and close in a loop.
+    help: () => e.repeat || (ui.help = !ui.help),
     split_view: toggleSplit,
     // With one panel, the keys stay with the terminal or the field.
     other_panel: panes.other ? otherPanel : undefined,

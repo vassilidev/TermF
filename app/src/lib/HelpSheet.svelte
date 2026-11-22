@@ -14,7 +14,6 @@
 
   type Key = Parameters<typeof t>[0];
 
-  /** What each view is for and how to start, in a sentence or two. */
   const about: Partial<Record<ViewId, [Key, Key]>> = {
     terminals: ["viewTerminals", "t6bHelpTerminals"],
     conversations: ["chatView", "t6bHelpConversations"],

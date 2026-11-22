@@ -24,8 +24,21 @@ export function pick<K>(p: Picked<K>, shown: K[], key: K, range: boolean): Picke
   return { keys: keys.includes(key) ? keys.filter((k) => k !== key) : within([...keys, key], shown), anchor: key };
 }
 
-/** Select all: every item shown, or none when they all already are. */
 export function all<K>(p: Picked<K>, shown: K[]): Picked<K> {
   const every = shown.length > 0 && shown.every((k) => p.keys.includes(k));
   return { keys: every ? [] : [...shown], anchor: p.anchor };
+}
+
+/** "kept": left alone for a reason the user can act on (a repository to choose, work not pushed); not a failure. */
+export type Outcome = "done" | "kept" | { error: string };
+
+/**
+ * A bulk action's results, item by item: what stays picked (kept, then failed) and each error once, so that one item's
+ * error is not lost behind the next one's.
+ */
+export function settle<K>(results: [K, Outcome][]): { done: number; kept: K[]; failed: K[]; errors: string[] } {
+  const kept = results.filter(([, o]) => o === "kept").map(([k]) => k);
+  const failed = results.filter(([, o]) => typeof o === "object").map(([k]) => k);
+  const errors = results.flatMap(([, o]) => (typeof o === "object" && o.error ? [o.error] : []));
+  return { done: results.filter(([, o]) => o === "done").length, kept, failed, errors: [...new Set(errors)] };
 }

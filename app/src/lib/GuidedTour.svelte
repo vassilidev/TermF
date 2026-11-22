@@ -23,7 +23,6 @@
 
   let card = $state<HTMLElement>();
   let next = $state<HTMLButtonElement>();
-  /** The target's box, null when it is not on screen. */
   let box = $state<DOMRect | null>(null);
   let top = $state(0);
   /** Beside the navigation, whatever the target's own width. */

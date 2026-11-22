@@ -11,7 +11,6 @@ export const MAX = 0.75;
 
 export const clamp = (size: number) => (Number.isFinite(size) ? Math.min(MAX, Math.max(MIN, size)) : 0.5);
 
-/** The views on the left and on the right; the right one is null with one panel. */
 export function slots<V extends string>(p: Panes<V>): [V, V | null] {
   return p.other === null ? [p.view, null] : p.active === 0 ? [p.view, p.other] : [p.other, p.view];
 }
@@ -28,13 +27,11 @@ export function beside<V extends string>(p: Panes<V>, next: V): Panes<V> {
   return next === p.view ? p : { ...p, view: next, other: p.view, active: p.active === 0 ? 1 : 0 };
 }
 
-/** Closes the panel showing `view`; the other one takes the whole area. */
 export function close<V extends string>(p: Panes<V>, view: V): Panes<V> {
   if (p.other === null || (view !== p.view && view !== p.other)) return p;
   return { ...p, view: view === p.view ? p.other : p.view, other: null, active: 0 };
 }
 
-/** The panes as kept from one launch to the next, two views of `known` side by side; null with one panel. */
 export function encode<V extends string>(p: Panes<V>, known: readonly string[]): string | null {
   const [left, right] = slots(p);
   if (right === null || !known.includes(left) || !known.includes(right)) return null;

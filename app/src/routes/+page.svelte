@@ -12,7 +12,7 @@
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
   import { MAX, MIN } from "$lib/panes-logic";
-  import { resizePanes, watchPanes } from "$lib/panes.svelte";
+  import { dragPanes, resizePanes, watchPanes } from "$lib/panes.svelte";
   import { showSettings } from "$lib/settings.svelte";
   import { app, init, onScreen, panes, ui } from "$lib/state.svelte";
   import { tour, watchTour } from "$lib/tour.svelte";
@@ -38,14 +38,15 @@
     return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour());
   });
 
-  /** The handle follows the pointer, within the panels' minimum width. */
   function drag(e: PointerEvent) {
     if (!area || e.button !== 0) return;
     const handle = e.currentTarget as HTMLElement;
     const box = area.getBoundingClientRect();
     handle.setPointerCapture(e.pointerId);
+    dragPanes(true);
     const move = (m: PointerEvent) => resizePanes((m.clientX - box.left) / box.width);
     const end = () => {
+      dragPanes(false);
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", end);
       handle.removeEventListener("pointercancel", end);

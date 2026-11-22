@@ -28,12 +28,10 @@
 
   const waiting = $derived(waitingSessions().length + waitingAgents().length);
   const settingsView = views.find((v) => v.id === "settings")!;
-  /** The view whose menu is open (right click, or the context menu key). */
   let menu = $state<{ view: View; trigger: HTMLElement } | null>(null);
   let menuOpen = $state(false);
   const besideKey = isMac ? "⌘" : "Ctrl";
 
-  /** A view is shown where the keyboard is; with ⌘ (Ctrl elsewhere), in the other panel. */
   function pick(e: MouseEvent, view: View) {
     if (isMac ? e.metaKey : e.ctrlKey) openBeside(view.id);
     else view.show();
@@ -50,7 +48,6 @@
     run();
   }
 
-  /** Which side a view on screen is on, with two panels. */
   const side = (id: ViewId) => (!panes.other || !onScreen(id) ? null : (ui.view === id) === (panes.active === 0) ? "left" : "right");
   const projects = $derived(app.workspace?.projects ?? []);
   const counts = $derived(tallies());
@@ -321,7 +318,6 @@
     color: var(--accent-ink);
   }
 
-  /* On screen in the other panel. */
   .nav .nav-item.beside {
     background: var(--hover);
   }

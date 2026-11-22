@@ -53,7 +53,6 @@ export function display(id: string, n?: number): string {
   return logic.display(combo(id), isMac, n === undefined ? "" : String(n));
 }
 
-/** Every way to ask for an action, as the help and the tour show them: `⌘1…9`, `?`; [] when there is none. */
 export function shortcutOf(id: string): string[] {
   const a = logic.action(id);
   return a ? logic.shortcut(a, current()[id] ?? "", isMac) : [];
@@ -77,7 +76,6 @@ export const keys = {
   get palette() {
     return display("palette");
   },
-  /** Its own shortcut if it has one, else the character typed for it. */
   get help() {
     return display("help") || "?";
   },

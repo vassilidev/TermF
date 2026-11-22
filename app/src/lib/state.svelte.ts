@@ -124,10 +124,7 @@ export function setProject(id: string | null) {
   }
 }
 
-/**
- * The main area's second panel (null: one panel), which side the active one is on (0: left), the left one's share of
- * the width, and the view the active panel showed last, which the second panel opens on.
- */
+/** `last`: what the active panel showed before, where ⌘\ reopens the second panel. */
 export const panes = $state({ other: null as ViewId | null, active: 0 as 0 | 1, size: 0.5, last: null as ViewId | null });
 
 /** The view shown, and the overlays opened from the navigation, the shortcuts or the palette. */
@@ -156,7 +153,6 @@ class Ui {
 
 export const ui = new Ui();
 
-/** In either panel. */
 export const onScreen = (view: ViewId) => ui.view === view || panes.other === view;
 
 /** Paths of the repositories ticked in the session launcher. */
