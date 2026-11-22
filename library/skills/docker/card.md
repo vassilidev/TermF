@@ -1,0 +1,10 @@
+- Version: `docker version --format '{{.Server.Version}}'` and `docker compose version`; the Dockerfile frontend is the `# syntax=` line.
+- Docs for this version: https://docs.docker.com/llms.txt (Engine 29, Compose 5 verified 2026-11-22). Official skills: `docker/skills`.
+- Verify: the project's Docker targets, then `docker build --check .`, `docker compose config -q`, `hadolint Dockerfile` if installed.
+- Write `docker compose`, not `docker-compose`; delete the obsolete top-level `version:` key instead of bumping it.
+- `depends_on` alone does not wait for a database: add a healthcheck and `condition: service_healthy`.
+- Build secrets go through `RUN --mount=type=secret`; `ARG` and `ENV` values stay in the image.
+- Pin base images by digest; Engine 29 removed Docker Content Trust from the CLI.
+- In a TermF worktree, use `COMPOSE_PROJECT_NAME` and `TERMF_PORT_<SERVICE>` from the environment instead of fixed ports.
+- Ask before `down -v`, `volume rm` or `system prune`: they delete local data.
+- Read the skill `docker` before changing a Dockerfile, a Compose file or a `.dockerignore`.

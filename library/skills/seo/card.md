@@ -1,0 +1,9 @@
+- Version: no version; Google Search Central changes often, check https://developers.google.com/search/updates for entries after 2026-11-22.
+- Docs: Google Search Central (https://developers.google.com/search/docs); metadata goes through the framework's API (Next `metadata`, Nuxt `useSeoMeta`, SvelteKit `<svelte:head>`, Angular `Meta`).
+- Verify: `curl -s http://localhost:$PORT/<path>` shows title, description, canonical and JSON-LD in the initial HTML; Lighthouse SEO and performance.
+- FAQ rich results are gone (2026-05-07), as are HowTo and the 2025 retired types: do not add them.
+- No `llms.txt`, special markup or chunking for AI Overviews / AI Mode; `nosnippet` and `max-snippet` also limit them. `Google-Extended` does not affect Search.
+- `robots.txt` blocks crawling, not indexing; serve `noindex` on a crawlable page to remove it.
+- Canonical in server HTML, never changed by JavaScript; client-side 404 views need a real 404 or `noindex`.
+- Core Web Vitals: LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1 at p75 field data.
+- Read the skill `seo` before changing metadata, canonicals, hreflang, sitemaps, robots rules or structured data.

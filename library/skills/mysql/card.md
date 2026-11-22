@@ -1,0 +1,9 @@
+- Version: the `mysql:<series>` image in Compose or CI, or `SELECT VERSION(), @@version_comment;` (MariaDB is a different product).
+- Docs for this version: `https://dev.mysql.com/doc/refman/<series>/en/` (9.7.4 LTS, 8.4 LTS, 26.10 Innovation verified 2026-11-22). No official agent skill.
+- Verify: the migration tool's up/down/status and the tests, then `mysql -e "EXPLAIN FORMAT=TREE …"`.
+- LTS upgrades go 8.4 to 9.7 without skipping; after 9.7 versions are calendar based (`26.10`).
+- 9.0 removed `mysql_native_password` from the server and now enforces inline `REFERENCES` clauses.
+- Write `ALTER TABLE … ALGORITHM=INSTANT|INPLACE, LOCK=NONE` explicitly; a column type change copies the table.
+- `utf8mb4` with an explicit collation; `utf8` means the deprecated 3-byte charset.
+- `EXPLAIN ANALYZE` executes the query. In a TermF worktree, migrate only the worktree's database copy.
+- Read the skill `mysql` before writing a migration or changing a slow query on MySQL.
