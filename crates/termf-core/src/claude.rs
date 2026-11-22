@@ -131,6 +131,9 @@ pub const SECRET_DENY: &[&str] = &[
     "Bash(declare -p*)",
     "Bash(declare -x*)",
     "Bash(cat *.env*)",
+    // The user's token (`ipc::USER_TOKEN_DIR`), on any drive.
+    "Read(//**/dev.termf.cli/**)",
+    "Bash(*dev.termf.cli*)",
 ];
 
 /// Settings holding only [`SECRET_DENY`], for a session without TermF's hooks. The same for every session, so
@@ -297,6 +300,10 @@ mod tests {
             !SECRET_DENY.iter().any(|r| r.contains("*printenv*")),
             "`grep -r printenv src/` stays allowed"
         );
+        let token = crate::ipc::USER_TOKEN_DIR;
+        for rule in [format!("Read(//**/{token}/**)"), format!("Bash(*{token}*)")] {
+            assert!(denied.as_array().unwrap().contains(&json!(rule)), "{rule}");
+        }
         assert!(settings["statusLine"]["command"].is_string());
 
         merge_settings(

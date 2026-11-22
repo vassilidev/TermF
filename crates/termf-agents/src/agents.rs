@@ -691,7 +691,7 @@ impl Inner {
                 budget,
                 plugin: plugin.is_dir().then_some(plugin.as_path()),
                 system_prompt: system_prompt.as_deref(),
-                mcp: mcp.as_deref(),
+                mcp: mcp.as_ref().map(|(file, _)| file.as_path()),
                 dirs: &dirs,
             },
         );
@@ -709,6 +709,9 @@ impl Inner {
             cmd.env_remove(var);
         }
         cmd.envs(self.env.iter().map(|(k, v)| (k, v)));
+        if let Some((_, Some(token))) = &mcp {
+            cmd.env(ipc::ENV_MCP_TOKEN, token);
+        }
         // Its own process group, so stopping it also stops what it started.
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
@@ -874,15 +877,24 @@ impl Inner {
         Ok(())
     }
 
-    /// Writes the `--mcp-config` of the session's `termf mcp`, readable by the user only: it holds the
-    /// session's token.
-    fn mcp_config(&self, id: i64, dir: &Path, tools: &[&str]) -> Result<PathBuf> {
+    /// Writes the `--mcp-config` of the session's `termf mcp`, and returns it with the token its process gets in
+    /// its environment: never in the file, which another session of the user could read. Claude Code gives a
+    /// stdio server its own environment and expands `${…}` in its config (2.1.330, `--mcp-config` included).
+    fn mcp_config(&self, id: i64, dir: &Path, tools: &[&str]) -> Result<(PathBuf, Option<String>)> {
         let mcp = self
             .mcp
             .get()
             .context("TermF's tools cannot be served here: the conversation needs the app")?;
         let mut server = (mcp.server)(id)?;
         server["env"][ipc::ENV_MCP_TOOLS] = tools.join(",").into();
+        let env = server["env"].as_object_mut().expect("set just above");
+        let token = env.remove(ipc::ENV_MCP_TOKEN).and_then(|t| t.as_str().map(str::to_owned));
+        if token.is_some() {
+            env.insert(
+                ipc::ENV_MCP_TOKEN.into(),
+                format!("${{{}}}", ipc::ENV_MCP_TOKEN).into(),
+            );
+        }
         let file = dir.join("mcp.json");
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
@@ -894,7 +906,7 @@ impl Inner {
             .and_then(|mut f| f.write_all(config.to_string().as_bytes()))
             .with_context(|| format!("cannot write {}", file.display()))
             .inspect_err(|_| self.end_mcp(id, dir))?;
-        Ok(file)
+        Ok((file, token))
     }
 
     /// Voids the token of the session's `termf mcp` and removes its config: no process of it runs any more.

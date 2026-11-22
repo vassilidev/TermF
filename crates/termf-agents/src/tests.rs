@@ -14,6 +14,7 @@ echo "start $$" >> "$log.events"
 trap 'echo "exit $$" >> "$log.events"' EXIT
 { echo "--- $$"; printf '%s\n' "$@"; } >> "$log.args"
 pwd > "$log.cwd"
+printf '%s' "${TERMF_MCP_TOKEN-}" > "$log.mcptoken"
 prev=
 for a in "$@"; do
   if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi
@@ -1109,14 +1110,19 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
         assert!(names("deny").contains(&tool.to_string()), "{tool}");
     }
     let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
-    let config: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    let text = fs::read_to_string(&file).unwrap();
+    let config: Value = serde_json::from_str(&text).unwrap();
+    let server_env = &config["mcpServers"]["termf"]["env"];
+    assert_eq!(server_env["TERMF_MCP_SESSION"], id.to_string());
     assert_eq!(
-        config["mcpServers"]["termf"]["env"]["TERMF_MCP_SESSION"],
-        id.to_string()
+        server_env["TERMF_MCP_TOKEN"], "${TERMF_MCP_TOKEN}",
+        "Claude Code passes it on from its own environment"
     );
+    assert!(!text.contains("cap-1"), "no token another session could read: {text}");
+    assert_eq!(env.log("mcptoken"), "cap-1", "only in its process's environment");
     use std::os::unix::fs::PermissionsExt;
     let mode = fs::metadata(&file).unwrap().permissions().mode();
-    assert_eq!(mode & 0o777, 0o600, "it holds the session's token");
+    assert_eq!(mode & 0o777, 0o600);
 
     let error = env.agents.takeover(id).unwrap_err();
     assert!(error.to_string().contains("stays in TermF"), "{error}");
@@ -1140,6 +1146,7 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
 
     let plain = env.agents.start(env.spec(), Some("say hello")).unwrap();
     env.settle(plain.id, 1, State::Idle);
+    assert_eq!(env.log("mcptoken"), "", "no tools, no token");
     let args = env.args().pop().unwrap();
     for flag in ["--restricted", "--mcp-config", "--tools", "--settings"] {
         assert!(

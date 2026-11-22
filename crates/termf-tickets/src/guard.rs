@@ -1,15 +1,23 @@
 //! What a run's session may not run: a Claude Code `PreToolUse` hook on Bash calls `termf guard`, which refuses
 //! pushes, pull requests, writes to the tracker, the TermF commands that deliver and starting or cancelling CI
-//! runs. Defense in depth, not a
+//! runs, and reaching the user's token. Defense in depth, not a
 //! guarantee: a script the agent writes then runs, a git alias or a tool other than Bash still gets through.
 
 const REASON: &str = "In a TermF run, pushing, pull requests and writes to the tracker wait until the user \
                       delivers the run. Commit your work if you like, then tell the user it is ready.";
 const CI_REASON: &str =
     "In a TermF run, the user starts and cancels the CI: tell them what to run, and why.";
+const TOKEN_REASON: &str = "The user's TermF token is theirs alone: work without it.";
 
 /// Why the Bash command `line` is refused in a run's session, or `None` when it may run.
 pub fn guard(line: &str) -> Option<String> {
+    // Any case: macOS and Windows file names ignore it.
+    if line
+        .to_lowercase()
+        .contains(termf_core::ipc::USER_TOKEN_DIR)
+    {
+        return Some(format!("`{line}` is refused. {TOKEN_REASON}"));
+    }
     for words in commands(line) {
         for (i, word) in words.iter().enumerate() {
             let rest = &words[i + 1..];
@@ -284,6 +292,20 @@ mod tests {
         }
         let ci = guard("gh workflow run ci.yml").unwrap();
         assert!(ci.contains("the user starts and cancels the CI"), "{ci}");
+    }
+
+    #[test]
+    fn keeps_the_user_token_out_of_reach() {
+        for refused in [
+            r"cat ~/Library/Application\ Support/dev.termf.cli/token",
+            r#"cat "$HOME/.local/share/dev.termf.cli/token""#,
+            "ls ~/Library/'Application Support'/DEV.TERMF.CLI",
+            r#"python3 -c 'print(open("/home/alex/.local/share/dev.termf.cli/token").read())'"#,
+            r"type %LOCALAPPDATA%\dev.termf.cli\token",
+        ] {
+            let reason = guard(refused).unwrap_or_else(|| panic!("{refused} let through"));
+            assert!(reason.contains("token is theirs alone"), "{reason}");
+        }
     }
 
     #[test]

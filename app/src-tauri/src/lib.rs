@@ -265,7 +265,7 @@ pub fn run() {
         .setup(move |app| {
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
-            let (api, listener) = api::Api::new();
+            let (api, listener) = api::Api::new(settings.api.confirm_cli);
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(claude::ClaudeState::new(&data_dir));
             app.manage(claude_native::NativeState::new(&data_dir));
@@ -431,6 +431,8 @@ pub fn run() {
             context::context_settings,
             context::context_settings_set,
             context::context_reset,
+            api::api_confirms,
+            api::api_confirm,
             tickets::tickets_sources,
             tickets::tickets_sources_save,
             tickets::tickets_source_test,

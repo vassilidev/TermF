@@ -1,7 +1,7 @@
 //! Local API shared by the app and the `termf` CLI: one JSON object per line over a local socket.
 //! Every request carries a token; a watch request turns the connection into an event stream.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -391,13 +391,20 @@ pub fn encode<T: Serialize>(msg: &T) -> String {
     line
 }
 
-/// Folder holding the socket and the token, private to the user.
+/// Folder holding the socket, private to the user.
 pub fn run_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("run")
 }
 
-pub fn token_file(data_dir: &Path) -> PathBuf {
-    run_dir(data_dir).join("token")
+/// The folder of the user's token, away from the data folder the sessions are given (the socket's); the
+/// settings of every Claude Code session TermF starts deny it, and so does `termf guard`.
+pub const USER_TOKEN_DIR: &str = "dev.termf.cli";
+
+pub fn user_token_file() -> Result<PathBuf> {
+    Ok(dirs::data_local_dir()
+        .context("no local data directory on this system")?
+        .join(USER_TOKEN_DIR)
+        .join("token"))
 }
 
 /// A socket file path on Unix, a named pipe path on Windows (derived from the per-user data dir).
@@ -461,11 +468,29 @@ pub fn private_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn read_token(data_dir: &Path) -> Result<String> {
-    let file = token_file(data_dir);
+pub fn read_user_token() -> Result<String> {
+    let file = user_token_file()?;
     let token = fs::read_to_string(&file)
         .with_context(|| format!("cannot read {} (is TermF running?)", file.display()))?;
     Ok(token.trim().to_owned())
+}
+
+/// Replaces the token in `file`, readable by the user only, in a folder of its own.
+pub fn write_token(file: &Path, token: &str) -> Result<()> {
+    let dir = file.parent().context("the token file has no folder")?;
+    #[cfg(unix)]
+    private_dir(dir)?;
+    #[cfg(not(unix))]
+    fs::create_dir_all(dir)?;
+    let _ = fs::remove_file(file);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options
+        .open(file)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, token.as_bytes()))
+        .with_context(|| format!("cannot write {}", file.display()))
 }
 
 /// Constant-time comparison, so response timing does not leak how much of a guess was right.
@@ -478,8 +503,8 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
             == 0
 }
 
-/// What a token allows: the user's token (in the token file) everything, a session's token only its own hooks,
-/// an agent session's `termf mcp` token only its tools for that session.
+/// What a token allows: the user's token (in the token file) everything but a session's tools, a session's token
+/// only its own hooks, an agent session's `termf mcp` token only its tools for that session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Full,
@@ -490,12 +515,66 @@ pub enum Access {
 impl Access {
     pub fn allows(self, call: &Call) -> bool {
         match (self, call) {
+            // A session's actions wait for the user's approval in that session, which a call of its tool skips.
+            (Access::Full, Call::Mcp { .. }) => false,
             (Access::Full, _) => true,
             (Access::Session(id), Call::Hook { session, .. }) => *session == id,
             (Access::Mcp(id), Call::Mcp { session, .. }) => *session == id,
             _ => false,
         }
     }
+}
+
+/// A call the user confirms in the app when it comes through the local API: what it does (`action`) and what
+/// it applies to.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Reserved {
+    pub action: &'static str,
+    pub args: BTreeMap<&'static str, String>,
+}
+
+/// Whether `call` is one the user confirms in the app: starting, delivering or closing a run, starting a team,
+/// letting a gate pass, allowing what an agent asks.
+pub fn reserved(call: &Call) -> Option<Reserved> {
+    let (action, args): (_, Vec<(_, String)>) = match call {
+        Call::Run { ticket, .. } => ("run", vec![("ticket", ticket.clone())]),
+        Call::Deliver { run, .. } => ("deliver", vec![("run", run.to_string())]),
+        Call::Close { run, force } => {
+            let action = if *force { "closeForce" } else { "close" };
+            (action, vec![("run", run.to_string())])
+        }
+        Call::Team(TeamCall::Start { run: Some(run), .. }) => {
+            ("team", vec![("run", run.to_string())])
+        }
+        Call::Team(TeamCall::Start { request, .. }) => {
+            let text = request.as_ref().and_then(|r| r["text"].as_str());
+            let text: String = text.unwrap_or_default().chars().take(200).collect();
+            ("teamRequest", vec![("request", text)])
+        }
+        Call::Team(TeamCall::Approve { run, step }) => (
+            "approve",
+            vec![("run", run.to_string()), ("step", step.clone())],
+        ),
+        Call::Review(ReviewCall::Decide {
+            review,
+            screen,
+            decision,
+            ..
+        }) if decision == "approve" => (
+            "review",
+            vec![("review", review.to_string()), ("screen", screen.clone())],
+        ),
+        Call::Agent(AgentCall::Answer {
+            session,
+            allow: true,
+            ..
+        }) => ("allow", vec![("session", session.to_string())]),
+        _ => return None,
+    };
+    Some(Reserved {
+        action,
+        args: args.into_iter().collect(),
+    })
 }
 
 /// The access `token` grants, given the user's token, each terminal session's token and each agent session's
@@ -844,6 +923,10 @@ mod tests {
         assert!(access.allows(&tool(7)));
         assert!(!access.allows(&tool(8)), "another session's tools");
         assert!(!Access::Session(1).allows(&tool(7)));
+        assert!(
+            !Access::Full.allows(&tool(7)),
+            "the user's token skips no approval"
+        );
         for call in [
             Call::List,
             Call::Deliver {
@@ -863,6 +946,108 @@ mod tests {
         ] {
             assert!(!access.allows(&call), "{call:?}");
         }
+    }
+
+    #[test]
+    fn what_acts_for_the_user_waits_for_the_app() {
+        let action = |call: Call| reserved(&call).map(|r| (r.action, r.args));
+        let args = |pairs: &[(&'static str, &str)]| -> BTreeMap<&'static str, String> {
+            pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+        };
+        assert_eq!(
+            action(Call::Deliver {
+                run: 12,
+                confirm: "f".into()
+            }),
+            Some(("deliver", args(&[("run", "12")])))
+        );
+        assert_eq!(
+            action(Call::Run {
+                ticket: "acme/api#42".into(),
+                project: None,
+                repo: None
+            }),
+            Some(("run", args(&[("ticket", "acme/api#42")])))
+        );
+        assert_eq!(
+            action(Call::Close {
+                run: 3,
+                force: true
+            })
+            .unwrap()
+            .0,
+            "closeForce"
+        );
+        assert_eq!(
+            action(Call::Team(TeamCall::Approve {
+                run: 3,
+                step: "plan".into()
+            })),
+            Some(("approve", args(&[("run", "3"), ("step", "plan")])))
+        );
+        let request = json!({"text": "x".repeat(500), "project": "acme"});
+        let (kind, said) = action(Call::Team(TeamCall::Start {
+            run: None,
+            request: Some(request),
+            options: json!({}),
+        }))
+        .unwrap();
+        assert_eq!((kind, said["request"].len()), ("teamRequest", 200));
+        assert_eq!(
+            action(Call::Team(TeamCall::Start {
+                run: Some(4),
+                request: None,
+                options: json!({})
+            }))
+            .unwrap()
+            .0,
+            "team"
+        );
+        let decide = |decision: &str| {
+            action(Call::Review(ReviewCall::Decide {
+                review: 2,
+                screen: "home".into(),
+                decision: decision.into(),
+                comment: None,
+                pins: None,
+            }))
+        };
+        assert_eq!(decide("approve").unwrap().0, "review");
+        assert_eq!(decide("reject"), None);
+        let answer = |allow| {
+            action(Call::Agent(AgentCall::Answer {
+                session: 5,
+                request: "r1".into(),
+                allow,
+                message: None,
+            }))
+        };
+        assert_eq!(answer(true).unwrap().0, "allow");
+        assert_eq!(answer(false), None, "refusing needs no confirmation");
+        for call in [
+            Call::List,
+            Call::Watch,
+            Call::Team(TeamCall::Stop { run: None }),
+            Call::Vault(VaultCall::Lock),
+        ] {
+            assert_eq!(reserved(&call), None, "{call:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_user_token_is_private_and_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("termf-token-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let file = root.join(USER_TOKEN_DIR).join("token");
+        write_token(&file, "old").unwrap();
+        write_token(&file, "new").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new");
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), 0o600);
+        assert_eq!(mode(file.parent().unwrap()), 0o700);
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

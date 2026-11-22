@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
@@ -12,11 +13,11 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Stream, prelude::*};
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::artifacts::Policy;
 use termf_core::claude;
 use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
-use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
+use termf_core::ipc::{self, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
 use crate::{AppState, agents, schedule, team, tickets, visual};
@@ -40,6 +41,8 @@ const TYPE_AFTER: Duration = Duration::from_millis(1500);
 /// How long a step of the reset may take: writing the handoff, or reacting to what TermF typed.
 const HANDOFF_TIME: Duration = Duration::from_secs(600);
 const STEP_TIME: Duration = Duration::from_secs(30);
+/// How long a call through the local API waits for the user's confirmation in the app.
+const CONFIRM_TIME: Duration = Duration::from_secs(300);
 
 #[derive(Serialize, Clone)]
 struct ContextEvent {
@@ -52,7 +55,7 @@ struct Endpoint {
     socket: String,
     /// The user's token, also in the token file.
     token: String,
-    /// Session id → the token its hooks report with.
+    /// Session id → the token its hooks report with, until its process ends.
     session_tokens: Arc<Mutex<HashMap<u32, String>>>,
     /// Agent session id → the token of its `termf mcp`, which only calls TermF's tools for it.
     mcp_tokens: Mutex<HashMap<i64, String>>,
@@ -77,6 +80,58 @@ impl Endpoint {
     }
 }
 
+/// A call through the local API that waits for the user in the app.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Confirm {
+    id: u64,
+    #[serde(flatten)]
+    reserved: Reserved,
+}
+
+/// The calls waiting for the user's answer.
+#[derive(Default)]
+struct Confirms {
+    next: AtomicU64,
+    pending: Mutex<BTreeMap<u64, (Confirm, mpsc::Sender<bool>)>>,
+}
+
+impl Confirms {
+    /// Waits until the user allows the call, refuses it, or `wait` passes. `show` hears `api-confirm` when it
+    /// waits, then `api-confirm-done`.
+    fn ask(&self, reserved: Reserved, wait: Duration, show: impl Fn(&str, &Confirm)) -> Result<()> {
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        let confirm = Confirm { id, reserved };
+        let (tx, rx) = mpsc::channel();
+        self.pending
+            .lock()
+            .unwrap()
+            .insert(id, (confirm.clone(), tx));
+        show("api-confirm", &confirm);
+        let answer = rx.recv_timeout(wait);
+        self.pending.lock().unwrap().remove(&id);
+        show("api-confirm-done", &confirm);
+        match answer {
+            Ok(true) => Ok(()),
+            Ok(false) => bail!("refused in TermF"),
+            Err(_) => bail!(
+                "not confirmed in TermF within {} minutes",
+                wait.as_secs() / 60
+            ),
+        }
+    }
+
+    fn answer(&self, id: u64, allow: bool) {
+        if let Some((_, tx)) = self.pending.lock().unwrap().get(&id) {
+            let _ = tx.send(allow);
+        }
+    }
+
+    fn list(&self) -> Vec<Confirm> {
+        let pending = self.pending.lock().unwrap();
+        pending.values().map(|(c, _)| c.clone()).collect()
+    }
+}
+
 pub struct Api {
     /// `None` when the local API could not be set up: sessions still run, without the CLI or status.
     endpoint: Option<Endpoint>,
@@ -86,11 +141,14 @@ pub struct Api {
     watchers: Mutex<Vec<mpsc::Sender<StatusEvent>>>,
     /// The context reset settings last read from a valid `termf.toml`.
     limits: Mutex<Option<Limits>>,
+    /// `[api] confirm_cli` at startup.
+    confirm_cli: bool,
+    confirms: Confirms,
 }
 
 impl Api {
     /// Sets up the local API, or one that is off (and says why) when that fails.
-    pub fn new() -> (Self, Option<Listener>) {
+    pub fn new(confirm_cli: bool) -> (Self, Option<Listener>) {
         let (endpoint, listener, error) = match open() {
             Ok((endpoint, listener)) => (Some(endpoint), Some(listener), None),
             Err(e) => {
@@ -104,8 +162,20 @@ impl Api {
             meta: Mutex::default(),
             watchers: Mutex::default(),
             limits: Mutex::default(),
+            confirm_cli,
+            confirms: Confirms::default(),
         };
         (api, listener)
+    }
+
+    /// A call through the local API that only the user may make: it waits for their answer in the app.
+    fn confirm(&self, app: &AppHandle, reserved: Reserved) -> Result<()> {
+        if !self.confirm_cli {
+            return Ok(());
+        }
+        self.confirms.ask(reserved, CONFIRM_TIME, |event, confirm| {
+            let _ = app.emit(event, confirm);
+        })
     }
 
     /// A session registry whose processes can report their own hooks, and whose exits end their status.
@@ -399,6 +469,7 @@ impl Api {
 
     /// The process ended: an agent that reports its status is done.
     fn exited(&self, app: &AppHandle, id: u32) {
+        self.revoke_session(id);
         crate::claude::exited(app, id);
         agents::tile_exited(app, id);
         let tracked = self
@@ -415,10 +486,15 @@ impl Api {
         }
     }
 
-    pub fn forget(&self, id: u32) {
+    /// What a session's process left running (a server, a script) no longer reports through its token.
+    fn revoke_session(&self, id: u32) {
         if let Some(endpoint) = &self.endpoint {
             endpoint.session_tokens.lock().unwrap().remove(&id);
         }
+    }
+
+    pub fn forget(&self, id: u32) {
+        self.revoke_session(id);
         if let Some(Meta { dir: Some(dir), .. }) = self.meta.lock().unwrap().remove(&id) {
             let _ = fs::remove_dir_all(dir);
         }
@@ -459,8 +535,9 @@ impl Api {
     }
 }
 
-/// Writes a fresh user token to a file only the user can read and listens on the socket.
-/// No session outlives the app, so old session folders go.
+/// Writes a fresh user token to a file only the user can read, in a folder no session is given, and listens on
+/// the socket. No session outlives the app, so old session folders go, and the token the sessions could find
+/// next to the socket before.
 fn open() -> Result<(Endpoint, Listener)> {
     let data_dir = termf_core::default_data_dir()?;
     let run = ipc::run_dir(&data_dir);
@@ -475,9 +552,8 @@ fn open() -> Result<(Endpoint, Listener)> {
     #[cfg(not(unix))]
     fs::create_dir_all(&run)?;
     let _ = fs::remove_dir_all(data_dir.join("sessions"));
+    let _ = fs::remove_file(run.join("token"));
     let token = random_token()?;
-    let file = ipc::token_file(&data_dir);
-    let _ = fs::remove_file(&file);
 
     // Replaces the socket of a TermF that crashed; a second instance never gets here.
     let listener = ListenerOptions::new()
@@ -485,18 +561,12 @@ fn open() -> Result<(Endpoint, Listener)> {
         .try_overwrite(true)
         .create_sync()
         .with_context(|| format!("cannot listen on {socket}"))?;
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
-        options.mode(0o600);
     }
-    options
-        .open(&file)
-        .and_then(|mut f| f.write_all(token.as_bytes()))
-        .with_context(|| format!("cannot write {}", file.display()))?;
+    ipc::write_token(&ipc::user_token_file()?, &token)?;
 
     let endpoint = Endpoint {
         data_dir,
@@ -880,7 +950,13 @@ fn handle(app: &AppHandle, conn: Stream) -> Result<()> {
         if request.call == Call::Watch {
             return watch(&state.api, conn);
         }
-        let result = match call(app, &state, request.call) {
+        // Only the user's token makes such a call, and whoever holds it may be an agent that runs the CLI: the
+        // user decides in the app.
+        let confirmed = match ipc::reserved(&request.call) {
+            Some(reserved) => state.api.confirm(app, reserved),
+            None => Ok(()),
+        };
+        let result = match confirmed.and_then(|()| call(app, &state, request.call)) {
             Ok(value) => Reply::Ok(value),
             Err(e) => Reply::Error(format!("{e:#}")),
         };
@@ -968,6 +1044,17 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
     })
 }
 
+/// The calls through the local API that wait for the user.
+#[tauri::command]
+pub fn api_confirms(state: State<AppState>) -> Vec<Confirm> {
+    state.api.confirms.list()
+}
+
+#[tauri::command]
+pub fn api_confirm(state: State<AppState>, id: u64, allow: bool) {
+    state.api.confirms.answer(id, allow);
+}
+
 fn claude_dir() -> PathBuf {
     std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
@@ -1017,21 +1104,27 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_termf_mcp_token_lives_as_long_as_its_process() {
-        let api = Api {
+    fn api(session_tokens: HashMap<u32, String>) -> Api {
+        Api {
             endpoint: Some(Endpoint {
                 data_dir: PathBuf::new(),
                 socket: String::new(),
                 token: "user".into(),
-                session_tokens: Arc::default(),
+                session_tokens: Arc::new(Mutex::new(session_tokens)),
                 mcp_tokens: Mutex::default(),
             }),
             error: None,
             meta: Mutex::default(),
             watchers: Mutex::default(),
             limits: Mutex::default(),
-        };
+            confirm_cli: true,
+            confirms: Confirms::default(),
+        }
+    }
+
+    #[test]
+    fn a_termf_mcp_token_lives_as_long_as_its_process() {
+        let api = api(HashMap::new());
         let endpoint = api.endpoint.as_ref().unwrap();
         let tool = |token: &str| Request {
             token: token.into(),
@@ -1048,5 +1141,63 @@ mod tests {
         assert!(endpoint.allows(&tool(&second)));
         api.revoke_mcp(7);
         assert!(!endpoint.allows(&tool(&second)), "its process ended");
+    }
+
+    #[test]
+    fn a_reserved_call_waits_for_the_user() {
+        let confirms = Arc::new(Confirms::default());
+        let deliver = || ipc::reserved(&Call::Deliver { run: 12, confirm: String::new() }).unwrap();
+        let shown: Arc<Mutex<Vec<(String, u64)>>> = Arc::default();
+        let ask = |wait| {
+            let (confirms, shown) = (confirms.clone(), shown.clone());
+            thread::spawn(move || {
+                confirms.ask(deliver(), wait, |event, c| {
+                    shown.lock().unwrap().push((event.into(), c.id))
+                })
+            })
+        };
+        let waiting = |n| {
+            while confirms.list().len() != n {
+                thread::sleep(Duration::from_millis(10));
+            }
+            confirms.list()
+        };
+
+        let allowed = ask(Duration::from_secs(10));
+        let pending = waiting(1);
+        assert_eq!(pending[0].reserved.action, "deliver");
+        assert_eq!(pending[0].reserved.args["run"], "12");
+        confirms.answer(pending[0].id, true);
+        assert!(allowed.join().unwrap().is_ok());
+
+        let refused = ask(Duration::from_secs(10));
+        let id = waiting(1)[0].id;
+        confirms.answer(id, false);
+        let error = refused.join().unwrap().unwrap_err().to_string();
+        assert!(error.contains("refused in TermF"), "{error}");
+
+        let ignored = ask(Duration::from_millis(50)).join().unwrap();
+        assert!(ignored.unwrap_err().to_string().contains("not confirmed"));
+        assert!(confirms.list().is_empty(), "none left waiting");
+        let events: Vec<String> = shown.lock().unwrap().iter().map(|(e, _)| e.clone()).collect();
+        assert_eq!(events.len(), 6, "each shown, then gone: {events:?}");
+        assert_eq!(events[..2], ["api-confirm", "api-confirm-done"]);
+    }
+
+    #[test]
+    fn a_session_token_ends_with_its_process() {
+        let api = api(HashMap::from([(3, "s3".to_string())]));
+        let hook = Request {
+            token: "s3".into(),
+            call: Call::Hook {
+                session: 3,
+                event: "Stop".into(),
+                payload: Value::Null,
+            },
+        };
+        let endpoint = api.endpoint.as_ref().unwrap();
+        assert!(endpoint.allows(&hook));
+        api.revoke_session(3);
+        assert!(!endpoint.allows(&hook), "what it left running reports nothing");
     }
 }
