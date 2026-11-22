@@ -10,6 +10,7 @@
   import MemorySettings from "$lib/MemorySettings.svelte";
   import OnboardingJournal from "$lib/OnboardingJournal.svelte";
   import RepoCard from "$lib/RepoCard.svelte";
+  import RemoteSettings from "$lib/RemoteSettings.svelte";
   import RepoPicker from "$lib/RepoPicker.svelte";
   import StackOffers from "$lib/StackOffers.svelte";
   import TeamDecisions from "$lib/TeamDecisions.svelte";
@@ -409,6 +410,10 @@
 
           <section class="sec flow" hidden={current !== "memory"}>
             <MemorySettings project={id} />
+          </section>
+
+          <section class="sec" hidden={current !== "remote"} aria-labelledby="config-remote">
+            <RemoteSettings project={id} />
           </section>
 
           <section class="sec" hidden={current !== "trust"} aria-labelledby="config-trust">

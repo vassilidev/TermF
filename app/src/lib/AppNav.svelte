@@ -14,6 +14,7 @@
   import X from "@lucide/svelte/icons/x";
   import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
+  import RemoteList from "$lib/RemoteList.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
   import { waitingAgents } from "$lib/agents.svelte";
   import { waitingRuns } from "$lib/team.svelte";
@@ -172,6 +173,7 @@
       {#if keys.next}<kbd>{keys.next}</kbd>{/if}
     </button>
   {/if}
+  <RemoteList />
 
   <!-- Out of the scrolling list, so that ⌘O's search always opens in sight, under it. -->
   <div class="group" bind:this={heading}>

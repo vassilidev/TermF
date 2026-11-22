@@ -11,13 +11,14 @@ import { loadKeys } from "$lib/keymap.svelte";
 import { projectsOf } from "$lib/nav-logic";
 import { go, leaves } from "$lib/panes-logic";
 import type { Side } from "$lib/split-logic";
+import type { RemotePolicy, RemoteState } from "$lib/remote-logic";
 import type { SyncStatus } from "$lib/sync.svelte";
 // Each module reads the other only inside functions, so the import cycles are safe.
 import { place } from "$lib/tabs.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
-export type Project = { id: string; name: string; repos: Repo[] };
+export type Project = { id: string; name: string; repos: Repo[]; remoteControl: RemotePolicy };
 export type Workspace = {
   configDir: string;
   home: string;
@@ -53,6 +54,8 @@ export type Session = {
   /** Only agents that report their state (Claude Code) have one. */
   status: Status | null;
   remoteControl: boolean;
+  /** The Remote Control switch of a Claude Code tile that reports to TermF. */
+  remote?: RemoteState | null;
   /** Context gauge and reset, for Claude Code sessions that report to TermF. */
   context: Gauge | null;
   /** The team role the session works for, once runs launch roles (phase 4). */
@@ -246,6 +249,10 @@ export function init(): () => void {
     const session = app.sessions.find((s) => s.id === payload.id);
     if (session) session.context = payload.context;
   });
+  const unlistenRemote = listen<{ id: number; remoteControl: boolean; remote: RemoteState }>("session-remote", ({ payload }) => {
+    const session = app.sessions.find((s) => s.id === payload.id);
+    if (session) Object.assign(session, { remoteControl: payload.remoteControl, remote: payload.remote });
+  });
   return () => {
     unlisten.then((stop) => stop());
     unlistenStatus.then((stop) => stop());
@@ -253,6 +260,7 @@ export function init(): () => void {
     unlistenKeepAwake.then((stop) => stop());
     unlistenSync.then((stop) => stop());
     unlistenContext.then((stop) => stop());
+    unlistenRemote.then((stop) => stop());
   };
 }
 

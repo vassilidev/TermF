@@ -6,7 +6,7 @@ import { load, ui } from "$lib/state.svelte";
 import { failed, mergeText, refreshVault, say } from "$lib/vault.svelte";
 import type { Merged } from "$lib/vault-logic";
 
-export type Section = "awake" | "context" | "keys" | "ci" | "claude" | "config" | "sync";
+export type Section = "awake" | "tray" | "context" | "keys" | "ci" | "claude" | "config" | "sync";
 export type Transfer =
   | { kind: "exported"; files: number; skippedLinks: string[] }
   | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean; vaultDone?: boolean };

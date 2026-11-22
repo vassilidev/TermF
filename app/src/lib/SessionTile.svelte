@@ -8,7 +8,10 @@
   import UserRound from "@lucide/svelte/icons/user-round";
   import X from "@lucide/svelte/icons/x";
   import ContextGauge from "$lib/ContextGauge.svelte";
+  import RemoteSwitch from "$lib/RemoteSwitch.svelte";
   import Terminal from "$lib/Terminal.svelte";
+  import { phase } from "$lib/remote-logic";
+  import { remoteUi, setRemote } from "$lib/remote.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { closeSplit, focusSession, keys, openLauncher, toggleMaximize } from "$lib/commands";
   import { t } from "$lib/i18n";
@@ -27,7 +30,13 @@
   const failed = $derived(!!session.exitCode);
   const name = $derived(tileName(session.title, session.agent ?? "shell"));
   const asking = $derived(terminals.asking === session.id);
+  const remote = $derived(session.running ? (session.remote ?? null) : null);
   const pct = (n: number) => `${n * 100}%`;
+
+  function remoteOn() {
+    remoteUi.open = session.id;
+    setRemote(session.id, true);
+  }
   let confirm = $state<HTMLButtonElement>();
 
   // ⌘W on a running session: Enter, or ⌘W again, closes it.
@@ -86,13 +95,20 @@
     {/if}
     <span class="title" title={session.cwd}><b>{name}</b><span class="tool">{session.agent ?? t("shell")}</span></span>
     {#if session.context && session.running}<ContextGauge gauge={session.context} />{/if}
-    {#if session.remoteControl}
+    {#if remote && phase(remote) !== "off"}
+      <RemoteSwitch id={session.id} rc={remote} />
+    {:else if session.remoteControl && !session.remote}
       <span class="rc" role="img" aria-label={t("remoteControlOn")} title={t("remoteControlOn")}>
         <Smartphone size={14} aria-hidden="true" />
       </span>
     {/if}
     <!-- Over the end of the header, so a narrow tile keeps its name and gauge readable until hovered. -->
     <div class="actions">
+      {#if remote && phase(remote) === "off"}
+        <button class="icon-btn sm" onclick={remoteOn} aria-label={t("remoteTurnOn")} title={t("remoteTurnOn")}>
+          <Smartphone size={14} aria-hidden="true" />
+        </button>
+      {/if}
       {#if session.context && session.running}
         <button
           class="icon-btn sm"
@@ -146,6 +162,13 @@
       <span>{t("t6aCloseAsk")}</span>
       <button class="btn sm" onclick={cancel}>{t("cancel")}</button>
       <button bind:this={confirm} class="btn sm primary" onclick={() => closeSplit(session.id, true)}>{t("close")}</button>
+    </div>
+  {:else if remote?.ask}
+    <div class="ask" role="group" aria-label={t("remoteAsk")}>
+      <Smartphone size={14} aria-hidden="true" />
+      <span>{t("remoteAsk")}</span>
+      <button class="btn sm" onclick={() => setRemote(session.id, false)}>{t("remoteNo")}</button>
+      <button class="btn sm primary" onclick={remoteOn}>{t("remoteYes")}</button>
     </div>
   {/if}
   <Terminal id={session.id} />
