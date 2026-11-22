@@ -1,0 +1,178 @@
+{
+  "ticket": "r3-lost-update",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "realistic",
+  "at": "2026-11-22T18:43:44.816Z",
+  "state": "done",
+  "wall_s": 48.567,
+  "cost_usd": 0.22061429999999996,
+  "sessions": 1,
+  "turns": 11,
+  "tokens": {
+    "input": 20,
+    "output": 6481,
+    "cache_read": 312723,
+    "cache_creation": 31123
+  },
+  "said": "Edits no longer get lost. All 38 tests pass, and nothing is committed. I haven't run the page itself, so the page change is untested.\n\n**Cause:** `updateTask` read the task, then waited on the activity log, then wrote every column back from its stale copy. A second PATCH arriving during that wait was overwritten. Renaming a task while someone else ticks it done hits exactly this.\n\n**API**\n- **Update fix (`src/tasks.ts`):** The read, version check and write now run in one synchronous transaction with no wait in between. The UPDATE writes only the fields that actually changed, so a PATCH without `version` never drops a change to another field. The activity entry and reminder are recorded after the write.\n- **Version column (`src/db.ts`):** A new migration adds `version`, which is 1 for new and existing tasks. Every task the API returns carries it. It goes up by one on each real change, and a PATCH that changes nothing leaves it alone.\n- **409 on conflict (`src/http.ts`, `src/app.ts`):** A PATCH with a stale `version` answers `409` with `{\"error\": \"version conflict\", \"task\": <current>}` and changes nothing. `HttpError` can now carry extra response fields for this. A `version` that isn't an integer of 1 or more is a 400. I added that rule; the ticket doesn't specify it.\n- **Test coverage:** New tests in `test/tasks.test.ts` cover versioning and the stale-version 409. They also cover concurrent PATCHes of different fields, and concurrent PATCHes with the same version, where one wins and the rest get a 409. With the source changes stashed, all four new tests failed. They pass with the fix.\n\n**Page and README**\n- **Page:** `public/tasks.js` sends the `version` it read with each PATCH. On a 409 it re-renders the list, so the task shows as it is now. It also shows a message saying the change wasn't saved. `public/api.js` now puts the status and body on thrown errors so the page can tell a conflict apart.\n- **README:** It documents `version` and the 409.",
+  "hidden": {
+    "pass": 12,
+    "fail": 0,
+    "tests": 12,
+    "failed": [],
+    "total": 12
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 38,
+    "fail": 0,
+    "tests": 39,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 34,
+    "fail": 0,
+    "tests": 35,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 16,
+      "removed": 2
+    },
+    {
+      "path": "public/api.js",
+      "added": 6,
+      "removed": 1
+    },
+    {
+      "path": "public/tasks.js",
+      "added": 6,
+      "removed": 1
+    },
+    {
+      "path": "src/app.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "src/db.ts",
+      "added": 2,
+      "removed": 0
+    },
+    {
+      "path": "src/http.ts",
+      "added": 5,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 35,
+      "removed": 17
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 60,
+      "removed": 0
+    }
+  ],
+  "lines_added": 131,
+  "lines_removed": 23,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "partial",
+        "why": "PATCH now reads, checks and writes in one synchronous transaction and writes only changed columns, so the reported races are fixed. Other code paths that modify tasks (move/reorder, etc.) are not shown to bump version or be protected."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "Migration adds version INTEGER NOT NULL DEFAULT 1, toView returns it, and UPDATE does version = version + 1. A no-op PATCH leaves it unchanged. Tests cover create, PATCH, GET and list."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "A stale version throws conflict('version conflict', {task}) inside the transaction, giving 409 with the current task and no write. Tests check this, including under simultaneous requests."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "Without version, only the changed columns are written, and the concurrent test shows all four fields kept with version 4."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "A Promise.all test over 20 rounds fails on the old read-await-write code and passes now. A second test covers same-version races."
+      },
+      {
+        "id": 6,
+        "verdict": "partial",
+        "why": "The page sends task.version and on 409 re-renders and shows a message, and the README documents both. A fast second edit before the refresh would send a stale version and conflict with the user's own change. There is no front-end test."
+      }
+    ],
+    "scores": {
+      "correctness": 7,
+      "security": 8,
+      "readability": 7,
+      "tests": 7,
+      "error_handling": 6,
+      "edge_cases": 6,
+      "scope": 9
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "The activity record moved outside the transaction and after the write. If activity.record fails or the process dies, the change is saved with no log entry, and jobs.scheduleReminder is also outside the transaction. The log is no longer atomic with the change."
+      },
+      {
+        "severity": "medium",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "Only updateTask is shown bumping version. Other task writes (move/reorder, position shifts on create, deletions, tag changes made elsewhere) are not shown to bump it, so 'goes up each time the task is changed' and 'no change lost silently' may not hold for them."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "body.version is read before body is validated. A null or non-object body now throws a TypeError, which gives 500 instead of 400."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "public/tasks.js",
+        "what": "patch() sends the version from the last render. Two quick edits on the same task before the refresh finishes make the second one conflict with the user's own first edit."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "There is no test for 409 on a body that is also invalid, no test for tag-only changes bumping version, and no front-end test of the conflict flow."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "The dynamic SQL is built from the `changes` keys, which is safe only because readInput controls them. The `(columns as Record<string, any>)` cast hides that dependency."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 7,
+    "summary": "The fix is sound: the read, version check and partial write happen in one synchronous transaction, and tests reproduce both the lost update and the 409 under concurrency. Weaknesses are that the activity log is no longer atomic with the change, other task-mutating paths may not bump the version, and the page can conflict with its own quick successive edits.",
+    "cost_usd": 0.0621424
+  }
+}

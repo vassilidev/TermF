@@ -228,7 +228,7 @@ impl Store {
         Ok(list)
     }
 
-    fn events(&self, run: i64, after: i64) -> Result<Vec<TeamEvent>> {
+    pub(crate) fn events(&self, run: i64, after: i64) -> Result<Vec<TeamEvent>> {
         let mut query = self.conn.prepare(
             "SELECT id, at, step, kind, message FROM team_events WHERE run = ?1 AND id > ?2 ORDER BY id",
         )?;

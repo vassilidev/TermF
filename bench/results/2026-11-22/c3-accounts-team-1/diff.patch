@@ -1,0 +1,1152 @@
+diff --git a/README.md b/README.md
+index 57803ed..8cd27ad 100644
+--- a/README.md
++++ b/README.md
+@@ -6,26 +6,59 @@ the TypeScript sources directly and brings SQLite (`node:sqlite`).
+ ```sh
+ npm start        # http://localhost:3000, data in tasks.db (PORT and DB_PATH change them)
+ npm test         # the API tests (node:test)
+ ```
+ 
++## Accounts and authentication
++
++Each person has an account and sees only their own tasks. Sign up, sign in for a token, then send the token with every
++`/api/tasks` request:
++
++```sh
++curl -X POST localhost:3000/api/users -H 'content-type: application/json' -d '{"username":"alice","password":"a long password"}'
++curl -X POST localhost:3000/api/sessions -H 'content-type: application/json' -d '{"username":"alice","password":"a long password"}'
++curl localhost:3000/api/tasks -H 'authorization: Bearer <token>'
++```
++
++- **Username**: lowercased first (stored and compared in lowercase, so `Alice` and `alice` are the same account), then 3 to
++  32 characters among `a-z`, `0-9` and `_`.
++- **Password**: at least 10 characters.
++- **Header**: exactly `Authorization: Bearer <token>`. A missing, malformed or unknown token answers 401
++  `{ "error": "authentication required" }`.
++- **Sign-out**: `DELETE /api/sessions` with the token deletes it; it stops working at once. Sessions do not expire: they
++  end only on sign-out. There is no rate limiting.
++- **Ownership**: a task belongs to the user who created it. Reading, changing or deleting another user's task answers
++  404 `{ "error": "task not found" }`, exactly like a task that does not exist.
++- **Tasks created before accounts existed** stay in the database but belong to nobody: no user sees them.
++- **Storage**: a password is stored salted (16 random bytes) and hashed with scrypt (`node:crypto`), and compared in
++  constant time. A token is 32 random bytes from the OS (`randomBytes`); only its SHA-256 is stored, so a copy of the
++  database holds no usable token. No response contains a password, a salt or a hash.
++- A wrong username and a wrong password give the same answer, and cost about the same time.
++
+ ## API
+ 
+-Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z" }`.
++Every body is JSON, at most 16 KB (413 `{ "error": "payload too large" }` above it; invalid JSON, or a body that is not
++an object, is 400 `{ "error": "invalid json" }`). A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z" }`.
+ 
+ | Method and path | What it does | Answers |
+ |---|---|---|
+-| `GET /api/tasks` | Lists the tasks, oldest first; `?done=true` or `?done=false` keeps the done or the open ones | 200, an array of tasks |
++| `POST /api/users` | Creates an account from `{ "username": "…", "password": "…" }` | 201 `{ "id": 1, "username": "alice" }`; 400 `{ "error": "invalid username" }` or `{ "error": "password too short" }`; 409 `{ "error": "username taken" }` |
++| `POST /api/sessions` | Signs in with `{ "username": "…", "password": "…" }` | 201 `{ "token": "…" }`; 401 `{ "error": "invalid credentials" }` |
++| `DELETE /api/sessions` | Signs out (needs the token) | 204; 401 `{ "error": "authentication required" }` |
++| `GET /api/tasks` | Lists your tasks, oldest first; `?done=true` or `?done=false` keeps the done or the open ones | 200, an array of tasks |
+ | `POST /api/tasks` | Creates a task from `{ "title": "…" }` | 201, the task |
+ | `GET /api/tasks/:id` | Reads a task | 200, or 404 `{ "error": "task not found" }` |
+ | `PATCH /api/tasks/:id` | Changes `title` and / or `done` | 200, the task, or 404 |
+ | `DELETE /api/tasks/:id` | Deletes a task | 204, or 404 |
+ 
+-Errors answer `{ "error": "<message>" }`.
++Every `/api/tasks` route answers 401 `{ "error": "authentication required" }` without a valid token. A wrong method on
++a known path answers 405 `{ "error": "method not allowed" }`. Errors answer `{ "error": "<message>" }`; an unexpected
++failure answers 500 `{ "error": "internal error" }` without details.
+ 
+ ## Layout
+ 
+ - `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied).
+-- `src/tasks.ts`: the queries.
++- `src/auth.ts`: usernames, scrypt password hashing, sessions and the bearer token.
++- `src/tasks.ts`: the queries, all scoped to one user.
+ - `src/app.ts`: the HTTP server and its routes.
+ - `public/`: the page.
+ - `test/`: the API tests, against a server on a random port with an in-memory database.
+diff --git a/public/app.js b/public/app.js
+index c5c1b09..147a7ca 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -1,25 +1,68 @@
+ const list = document.querySelector("#tasks");
+ const form = document.querySelector("#new-task");
+ const title = document.querySelector("#title");
+ const filter = document.querySelector("#filter");
+ const error = document.querySelector("#error");
++const signedOut = document.querySelector("#signed-out");
++const signedIn = document.querySelector("#signed-in");
++const signInForm = document.querySelector("#sign-in");
++const signUpForm = document.querySelector("#sign-up");
++const signOutButton = document.querySelector("#sign-out");
++const currentUser = document.querySelector("#current-user");
++
++const TOKEN_KEY = "token";
++const USER_KEY = "username";
++
++class ApiError extends Error {
++  constructor(message, status) {
++    super(message);
++    this.status = status;
++  }
++}
+ 
+ async function api(path, options = {}) {
+-  const res = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
+-  const body = res.status === 204 ? null : await res.json();
+-  if (!res.ok) throw new Error(body?.error ?? res.statusText);
++  const token = sessionStorage.getItem(TOKEN_KEY);
++  const headers = { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) };
++  const res = await fetch(path, { ...options, headers });
++  const body = res.status === 204 ? null : await res.json().catch(() => null);
++  if (!res.ok) {
++    if (res.status === 401 && path.startsWith("/api/tasks")) showSignedOut();
++    throw new ApiError(body?.error ?? res.statusText, res.status);
++  }
+   return body;
+ }
+ 
+ function show(err) {
+   error.textContent = err.message;
+ }
+ 
++function showSignedOut() {
++  sessionStorage.removeItem(TOKEN_KEY);
++  sessionStorage.removeItem(USER_KEY);
++  list.replaceChildren();
++  form.reset();
++  filter.value = "";
++  signedIn.hidden = true;
++  signedOut.hidden = false;
++  signInForm.reset();
++  signUpForm.reset();
++  document.querySelector("#signin-username").focus();
++}
++
++function showSignedIn(username) {
++  currentUser.textContent = username;
++  signedOut.hidden = true;
++  signedIn.hidden = false;
++  title.focus();
++}
++
+ async function render() {
++  const token = sessionStorage.getItem(TOKEN_KEY);
+   const query = filter.value ? `?done=${filter.value}` : "";
+   const tasks = await api(`/api/tasks${query}`);
++  if (sessionStorage.getItem(TOKEN_KEY) !== token) return; // signed out meanwhile
+   error.textContent = "";
+   list.replaceChildren(...tasks.map(taskItem));
+ }
+ 
+ function taskItem(task) {
+@@ -40,15 +83,73 @@ function taskItem(task) {
+   });
+   item.append(box, label, remove);
+   return item;
+ }
+ 
++async function signIn(username, password) {
++  const { token } = await api("/api/sessions", { method: "POST", body: JSON.stringify({ username, password }) });
++  sessionStorage.setItem(TOKEN_KEY, token);
++  sessionStorage.setItem(USER_KEY, username);
++  error.textContent = "";
++  showSignedIn(username);
++  await render().catch(show);
++}
++
++// Run an auth action with the submit button disabled, showing errors in the alert area.
++async function submitAuth(event, action) {
++  event.preventDefault();
++  const formEl = event.currentTarget;
++  const button = formEl.querySelector("button[type=submit]");
++  const data = new FormData(formEl);
++  const username = String(data.get("username")).trim().toLowerCase();
++  const password = String(data.get("password"));
++  button.disabled = true;
++  try {
++    await action(username, password);
++  } catch (err) {
++    show(err);
++  } finally {
++    button.disabled = false;
++  }
++}
++
++signInForm.addEventListener("submit", (event) => submitAuth(event, signIn));
++
++signUpForm.addEventListener("submit", (event) =>
++  submitAuth(event, async (username, password) => {
++    await api("/api/users", { method: "POST", body: JSON.stringify({ username, password }) });
++    await signIn(username, password);
++  }),
++);
++
++signOutButton.addEventListener("click", async () => {
++  signOutButton.disabled = true;
++  try {
++    await api("/api/sessions", { method: "DELETE" });
++    error.textContent = "";
++  } catch (err) {
++    show(err);
++  } finally {
++    signOutButton.disabled = false;
++    showSignedOut();
++  }
++});
++
+ form.addEventListener("submit", async (event) => {
+   event.preventDefault();
+-  await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: title.value }) });
+-  form.reset();
+-  await render();
++  try {
++    await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: title.value }) });
++    form.reset();
++    await render();
++  } catch (err) {
++    show(err);
++  }
+ });
+ 
+ filter.addEventListener("change", () => render().catch(show));
+ 
+-render().catch(show);
++if (sessionStorage.getItem(TOKEN_KEY)) {
++  showSignedIn(sessionStorage.getItem(USER_KEY) ?? "");
++  render().catch(show);
++} else {
++  signedOut.hidden = false;
++}
+diff --git a/public/index.html b/public/index.html
+index 3179186..8e40d9c 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -4,33 +4,79 @@
+     <meta charset="utf-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1" />
+     <title>Tasks</title>
+     <style>
+       body { font: 16px/1.5 system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
++      [hidden] { display: none !important; }
+       form, .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+       input[type="text"] { flex: 1; }
+       ul { list-style: none; padding: 0; }
+       li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+       li span { flex: 1; }
+       #error { color: #b00020; min-height: 1.5em; }
++      button, select, input[type="text"], input[type="password"] { min-height: 1.5rem; min-width: 1.5rem; }
++      button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #1a56db; outline-offset: 2px; }
++      .session { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
++      .session p { flex: 1; margin: 0; }
++      .auth-form { flex-direction: column; align-items: flex-start; }
++      .auth-form label { display: block; }
++      .auth-form input { display: block; width: 100%; max-width: 20rem; box-sizing: border-box; }
++      .hint { margin: 0; font-size: 0.875rem; color: #555; }
+     </style>
+   </head>
+   <body>
+     <h1>Tasks</h1>
+-    <form id="new-task">
+-      <label for="title" hidden>Title</label>
+-      <input id="title" type="text" placeholder="What needs doing?" />
+-      <button type="submit">Add</button>
+-    </form>
+-    <div class="toolbar">
+-      <label for="filter">Show</label>
+-      <select id="filter">
+-        <option value="">All</option>
+-        <option value="false">Open</option>
+-        <option value="true">Done</option>
+-      </select>
+-    </div>
+     <p id="error" role="alert"></p>
+-    <ul id="tasks"></ul>
++
++    <div id="signed-out" hidden>
++      <form id="sign-in" class="auth-form">
++        <h2>Sign in</h2>
++        <div>
++          <label for="signin-username">Username</label>
++          <input id="signin-username" name="username" type="text" autocomplete="username" required autocapitalize="none" spellcheck="false" />
++        </div>
++        <div>
++          <label for="signin-password">Password</label>
++          <input id="signin-password" name="password" type="password" autocomplete="current-password" required />
++        </div>
++        <button type="submit">Sign in</button>
++      </form>
++
++      <form id="sign-up" class="auth-form">
++        <h2>Create an account</h2>
++        <div>
++          <label for="signup-username">Username</label>
++          <input id="signup-username" name="username" type="text" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_]{3,32}" aria-describedby="signup-username-hint" autocapitalize="none" spellcheck="false" />
++          <p id="signup-username-hint" class="hint">3 to 32 letters, digits or underscores.</p>
++        </div>
++        <div>
++          <label for="signup-password">Password</label>
++          <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="10" aria-describedby="signup-password-hint" />
++          <p id="signup-password-hint" class="hint">At least 10 characters.</p>
++        </div>
++        <button type="submit">Sign up</button>
++      </form>
++    </div>
++
++    <div id="signed-in" hidden>
++      <div class="session">
++        <p>Signed in as <strong id="current-user"></strong></p>
++        <button type="button" id="sign-out">Sign out</button>
++      </div>
++      <form id="new-task">
++        <label for="title" hidden>Title</label>
++        <input id="title" type="text" placeholder="What needs doing?" />
++        <button type="submit">Add</button>
++      </form>
++      <div class="toolbar">
++        <label for="filter">Show</label>
++        <select id="filter">
++          <option value="">All</option>
++          <option value="false">Open</option>
++          <option value="true">Done</option>
++        </select>
++      </div>
++      <ul id="tasks"></ul>
++    </div>
+     <script type="module" src="/app.js"></script>
+   </body>
+ </html>
+diff --git a/src/app.ts b/src/app.ts
+index 78a93d6..efdc396 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1,9 +1,20 @@
+ import { createServer as createHttpServer } from "node:http";
+ import { readFile } from "node:fs/promises";
+ import { openDb, type Db } from "./db.ts";
+ import * as tasks from "./tasks.ts";
++import * as auth from "./auth.ts";
++
++const MAX_BODY = 16 * 1024;
++
++class HttpError extends Error {
++  status: number;
++  constructor(status: number, message: string) {
++    super(message);
++    this.status = status;
++  }
++}
+ 
+ const PUBLIC = new URL("../public/", import.meta.url);
+ const STATIC: Record<string, [string, string]> = {
+   "/": ["index.html", "text/html; charset=utf-8"],
+   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+@@ -11,11 +22,16 @@ const STATIC: Record<string, [string, string]> = {
+ 
+ /** The HTTP server of the app, not listening yet. `dbPath` is a SQLite file, or `:memory:`. */
+ export function createServer(dbPath = ":memory:") {
+   const db = openDb(dbPath);
+   const server = createHttpServer((req: any, res: any) => {
+-    handle(db, req, res).catch((err: Error) => send(res, 500, { error: err.message }));
++    handle(db, req, res).catch((err: unknown) => {
++      if (res.headersSent) return res.end();
++      if (err instanceof HttpError) return send(res, err.status, { error: err.message }, err.status === 413);
++      console.error("request failed:", err instanceof Error ? err.message : "unknown error");
++      send(res, 500, { error: "internal error" });
++    });
+   });
+   server.on("close", () => db.close());
+   return server;
+ }
+ 
+@@ -29,53 +45,101 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+     res.writeHead(200, { "content-type": file[1] });
+     res.end(body);
+     return;
+   }
+ 
+-  if (url.pathname === "/api/tasks") {
+-    if (method === "GET") {
+-      const done = url.searchParams.get("done") ?? undefined;
+-      return send(res, 200, tasks.listTasks(db, { done }));
+-    }
++  if (url.pathname === "/api/users") {
++    if (method !== "POST") return send(res, 405, { error: "method not allowed" }, true);
++    const body = await readJson(req);
++    const result = await auth.createUser(db, body.username, body.password);
++    if (result.ok) return send(res, 201, result.user, true);
++    return send(res, result.error === "username taken" ? 409 : 400, { error: result.error }, true);
++  }
++
++  if (url.pathname === "/api/sessions") {
+     if (method === "POST") {
+       const body = await readJson(req);
+-      return send(res, 201, tasks.createTask(db, body.title));
++      const userId = await auth.checkCredentials(db, body.username, body.password);
++      if (userId === undefined) return send(res, 401, { error: "invalid credentials" }, true);
++      return send(res, 201, { token: auth.createSession(db, userId) }, true);
+     }
+-    return send(res, 405, { error: "method not allowed" });
++    if (method === "DELETE") {
++      const token = auth.parseBearer(req.headers.authorization);
++      if (token === undefined || !auth.deleteSession(db, token)) return send(res, 401, AUTH_REQUIRED, true);
++      return send(res, 204, undefined, true);
++    }
++    return send(res, 405, { error: "method not allowed" }, true);
++  }
++
++  if (url.pathname === "/api/tasks" || /^\/api\/tasks\/\d+$/.test(url.pathname)) {
++    // Who is asking comes first: before any lookup, method check or body parsing.
++    const token = auth.parseBearer(req.headers.authorization);
++    const userId = token === undefined ? undefined : auth.findSession(db, token);
++    if (userId === undefined) return send(res, 401, AUTH_REQUIRED, true);
++    return handleTasks(db, userId, url, method, req, res);
+   }
+ 
+-  const match = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);
+-  if (match) {
+-    const id = Number(match[1]);
++  send(res, 404, { error: "not found" });
++}
++
++const AUTH_REQUIRED = { error: "authentication required" };
++
++async function handleTasks(db: Db, userId: number, url: URL, method: string, req: any, res: any): Promise<void> {
++  if (url.pathname === "/api/tasks") {
+     if (method === "GET") {
+-      const task = tasks.getTask(db, id);
+-      return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
++      const done = url.searchParams.get("done") ?? undefined;
++      return send(res, 200, tasks.listTasks(db, userId, { done }));
+     }
+-    if (method === "PATCH") {
++    if (method === "POST") {
+       const body = await readJson(req);
+-      const task = tasks.updateTask(db, id, { title: body.title, done: body.done });
+-      return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+-    }
+-    if (method === "DELETE") {
+-      return tasks.deleteTask(db, id) ? send(res, 204) : send(res, 404, { error: "task not found" });
++      return send(res, 201, tasks.createTask(db, userId, body.title));
+     }
+     return send(res, 405, { error: "method not allowed" });
+   }
+ 
+-  send(res, 404, { error: "not found" });
++  const id = Number(url.pathname.slice("/api/tasks/".length));
++  if (method === "GET") {
++    const task = tasks.getTask(db, userId, id);
++    return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
++  }
++  if (method === "PATCH") {
++    const body = await readJson(req);
++    const task = tasks.updateTask(db, userId, id, { title: body.title, done: body.done });
++    return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
++  }
++  if (method === "DELETE") {
++    return tasks.deleteTask(db, userId, id) ? send(res, 204) : send(res, 404, { error: "task not found" });
++  }
++  return send(res, 405, { error: "method not allowed" });
+ }
+ 
+ async function readJson(req: any): Promise<any> {
+   let text = "";
+-  for await (const chunk of req) text += chunk;
+-  return text ? JSON.parse(text) : {};
++  let size = 0;
++  for await (const chunk of req) {
++    size += chunk.length;
++    if (size > MAX_BODY) throw new HttpError(413, "payload too large");
++    text += chunk;
++  }
++  if (!text) return {};
++  let body: unknown;
++  try {
++    body = JSON.parse(text);
++  } catch {
++    throw new HttpError(400, "invalid json");
++  }
++  if (typeof body !== "object" || body === null || Array.isArray(body)) throw new HttpError(400, "invalid json");
++  return body;
+ }
+ 
+-function send(res: any, status: number, body?: unknown): void {
++function send(res: any, status: number, body?: unknown, noStore = false): void {
++  const headers: Record<string, string> = {};
++  if (noStore) headers["cache-control"] = "no-store";
++  if (status === 413) headers.connection = "close";
+   if (body === undefined) {
+-    res.writeHead(status);
++    res.writeHead(status, headers);
+     res.end();
+     return;
+   }
+-  res.writeHead(status, { "content-type": "application/json" });
++  res.writeHead(status, { ...headers, "content-type": "application/json" });
+   res.end(JSON.stringify(body));
+ }
+diff --git a/src/auth.ts b/src/auth.ts
+new file mode 100644
+index 0000000..6d823e5
+--- /dev/null
++++ b/src/auth.ts
+@@ -0,0 +1,96 @@
++import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
++import type { Db } from "./db.ts";
++
++export const MIN_PASSWORD_LENGTH = 10;
++const USERNAME = /^[a-z0-9_]{3,32}$/;
++const BEARER = /^Bearer ([A-Za-z0-9_-]{43})$/;
++const KEY_LENGTH = 64;
++
++export type CreateUserResult =
++  | { ok: true; user: { id: number; username: string } }
++  | { ok: false; error: "invalid username" | "password too short" | "username taken" };
++
++/** Lowercases the username and checks its shape; undefined when it is invalid. */
++export function normalizeUsername(value: unknown): string | undefined {
++  if (typeof value !== "string") return undefined;
++  const name = value.toLowerCase();
++  return USERNAME.test(name) ? name : undefined;
++}
++
++function derive(password: string, salt: any): Promise<any> {
++  return new Promise((resolve, reject) => {
++    scrypt(password, salt, KEY_LENGTH, (err: Error | null, key: any) => (err ? reject(err) : resolve(key)));
++  });
++}
++
++export async function hashPassword(password: string): Promise<{ salt: string; hash: string }> {
++  const salt = randomBytes(16);
++  const key = await derive(password, salt);
++  return { salt: salt.toString("hex"), hash: key.toString("hex") };
++}
++
++export async function verifyPassword(password: string, salt: string, hash: string): Promise<boolean> {
++  const expected = Buffer.from(hash, "hex");
++  const key = await derive(password, Buffer.from(salt, "hex"));
++  return expected.length === key.length && timingSafeEqual(expected, key);
++}
++
++// Checked when the username is unknown, so that both sign-in failures cost one scrypt.
++const dummy = hashPassword(randomBytes(16).toString("hex"));
++
++export async function createUser(db: Db, username: unknown, password: unknown): Promise<CreateUserResult> {
++  const name = normalizeUsername(username);
++  if (name === undefined) return { ok: false, error: "invalid username" };
++  if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
++    return { ok: false, error: "password too short" };
++  }
++  if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(name)) return { ok: false, error: "username taken" };
++  const { salt, hash } = await hashPassword(password);
++  try {
++    const { lastInsertRowid } = db
++      .prepare("INSERT INTO users (username, password_salt, password_hash) VALUES (?, ?, ?)")
++      .run(name, salt, hash);
++    return { ok: true, user: { id: Number(lastInsertRowid), username: name } };
++  } catch (err: any) {
++    // A concurrent sign-up of the same name passed the pre-check: the UNIQUE constraint decides.
++    if (/UNIQUE/i.test(String(err?.message))) return { ok: false, error: "username taken" };
++    throw err;
++  }
++}
++
++/** The user id when the credentials are right, undefined otherwise (same cost either way). */
++export async function checkCredentials(db: Db, username: unknown, password: unknown): Promise<number | undefined> {
++  const name = normalizeUsername(username);
++  const pass = typeof password === "string" ? password : "";
++  const row = (name === undefined ? undefined : db.prepare("SELECT id, password_salt, password_hash FROM users WHERE username = ?").get(name)) as
++    | { id: number; password_salt: string; password_hash: string }
++    | undefined;
++  const ref = row ? { salt: row.password_salt, hash: row.password_hash } : await dummy;
++  const ok = await verifyPassword(pass, ref.salt, ref.hash);
++  return row && ok && typeof password === "string" ? row.id : undefined;
++}
++
++const sha256 = (token: string): string => createHash("sha256").update(token).digest("hex");
++
++export function createSession(db: Db, userId: number): string {
++  const token = randomBytes(32).toString("base64url");
++  db.prepare("INSERT INTO sessions (user_id, token_hash) VALUES (?, ?)").run(userId, sha256(token));
++  return token;
++}
++
++/** The user id of a token, undefined when unknown. */
++export function findSession(db: Db, token: string): number | undefined {
++  const row = db.prepare("SELECT user_id FROM sessions WHERE token_hash = ?").get(sha256(token)) as
++    | { user_id: number }
++    | undefined;
++  return row?.user_id;
++}
++
++export function deleteSession(db: Db, token: string): boolean {
++  return db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token)).changes > 0;
++}
++
++/** The token of a strict `Bearer <token>` header, undefined for anything else. */
++export function parseBearer(header: unknown): string | undefined {
++  return typeof header === "string" ? BEARER.exec(header)?.[1] : undefined;
++}
+diff --git a/src/db.ts b/src/db.ts
+index f44186d..18642c8 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -8,10 +8,26 @@ const migrations: string[] = [
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )`,
++  // Accounts. tasks.user_id stays NULL for tasks that existed before: no user id equals NULL, so no user sees them.
++  `CREATE TABLE users (
++     id INTEGER PRIMARY KEY AUTOINCREMENT,
++     username TEXT NOT NULL UNIQUE,
++     password_salt TEXT NOT NULL,
++     password_hash TEXT NOT NULL,
++     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
++   );
++   CREATE TABLE sessions (
++     id INTEGER PRIMARY KEY AUTOINCREMENT,
++     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++     token_hash TEXT NOT NULL UNIQUE,
++     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
++   );
++   ALTER TABLE tasks ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
++   CREATE INDEX tasks_user_id ON tasks(user_id);`,
+ ];
+ 
+ export function openDb(path = ":memory:"): Db {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA foreign_keys = ON");
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4fd5acb..e4ddd1b 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -12,37 +12,46 @@ interface Row {
+   title: string;
+   done: number;
+   created_at: string;
+ }
+ 
++const COLUMNS = "id, title, done, created_at";
+ const toTask = (row: Row): Task => ({ ...row, done: row.done === 1 });
+ 
+-export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
++// Every query filters on user_id: a task of another user (or a legacy task, user_id NULL) is a missing task.
++export function listTasks(db: Db, userId: number, filter: { done?: string } = {}): Task[] {
+   if (filter.done === undefined) {
+-    return (db.prepare("SELECT * FROM tasks ORDER BY id").all() as Row[]).map(toTask);
++    return (db.prepare(`SELECT ${COLUMNS} FROM tasks WHERE user_id = ? ORDER BY id`).all(userId) as Row[]).map(toTask);
+   }
+-  const rows = db.prepare("SELECT * FROM tasks WHERE done = ? ORDER BY id").all(filter.done ? 1 : 0) as Row[];
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE user_id = ? AND done = ? ORDER BY id`)
++    .all(userId, filter.done ? 1 : 0) as Row[];
+   return rows.map(toTask);
+ }
+ 
+-export function getTask(db: Db, id: number): Task | undefined {
+-  const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Row | undefined;
++export function getTask(db: Db, userId: number, id: number): Task | undefined {
++  const row = db.prepare(`SELECT ${COLUMNS} FROM tasks WHERE id = ? AND user_id = ?`).get(id, userId) as Row | undefined;
+   return row && toTask(row);
+ }
+ 
+-export function createTask(db: Db, title: string): Task {
+-  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title) VALUES (?)").run(title);
+-  return getTask(db, Number(lastInsertRowid))!;
++export function createTask(db: Db, userId: number, title: string): Task {
++  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title, user_id) VALUES (?, ?)").run(title, userId);
++  return getTask(db, userId, Number(lastInsertRowid))!;
+ }
+ 
+-export function updateTask(db: Db, id: number, changes: { title?: string; done?: boolean }): Task | undefined {
+-  const task = getTask(db, id);
++export function updateTask(
++  db: Db,
++  userId: number,
++  id: number,
++  changes: { title?: string; done?: boolean },
++): Task | undefined {
++  const task = getTask(db, userId, id);
+   if (!task) return undefined;
+   const title = changes.title ?? task.title;
+   const done = changes.done ?? task.done;
+-  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, done ? 1 : 0, id);
+-  return getTask(db, id);
++  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ? AND user_id = ?").run(title, done ? 1 : 0, id, userId);
++  return getTask(db, userId, id);
+ }
+ 
+-export function deleteTask(db: Db, id: number): boolean {
+-  return db.prepare("DELETE FROM tasks WHERE id = ?").run(id).changes > 0;
++export function deleteTask(db: Db, userId: number, id: number): boolean {
++  return db.prepare("DELETE FROM tasks WHERE id = ? AND user_id = ?").run(id, userId).changes > 0;
+ }
+diff --git a/test/accounts.test.ts b/test/accounts.test.ts
+new file mode 100644
+index 0000000..4915d44
+--- /dev/null
++++ b/test/accounts.test.ts
+@@ -0,0 +1,329 @@
++import { after, before, test } from "node:test";
++import assert from "node:assert/strict";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { DatabaseSync } from "node:sqlite";
++import { createServer } from "../src/app.ts";
++import { openDb } from "../src/db.ts";
++
++let server: any;
++let base = "";
++const PASSWORD = "correct horse battery";
++
++before(async () => {
++  server = createServer();
++  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
++  base = `http://127.0.0.1:${server.address().port}`;
++});
++
++after(() => server.close());
++
++async function call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, root = base) {
++  const raw = typeof body === "string";
++  const res = await fetch(root + path, {
++    method,
++    headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
++    body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
++  });
++  const text = await res.text();
++  return { status: res.status, res, text, body: text ? JSON.parse(text) : null };
++}
++
++let n = 0;
++const fresh = () => `acct_${n++}`;
++
++async function account(root = base) {
++  const username = fresh();
++  const created = await call("POST", "/api/users", { username, password: PASSWORD }, {}, root);
++  assert.equal(created.status, 201);
++  const session = await call("POST", "/api/sessions", { username, password: PASSWORD }, {}, root);
++  assert.equal(session.status, 201);
++  return { username, id: created.body.id, token: session.body.token, headers: { authorization: `Bearer ${session.body.token}` } };
++}
++
++// AC1
++test("sign-up answers 201 with the id and the username only", async () => {
++  const res = await call("POST", "/api/users", { username: "alice_1", password: PASSWORD });
++  assert.equal(res.status, 201);
++  assert.deepEqual(Object.keys(res.body).sort(), ["id", "username"]);
++  assert.equal(typeof res.body.id, "number");
++  assert.equal(res.body.username, "alice_1");
++  assert.equal(res.res.headers.get("cache-control"), "no-store");
++});
++
++test("the username is lowercased and a taken name is a 409 in any case", async () => {
++  const first = await call("POST", "/api/users", { username: "MixedCase_9", password: PASSWORD });
++  assert.equal(first.status, 201);
++  assert.equal(first.body.username, "mixedcase_9");
++  for (const name of ["mixedcase_9", "MIXEDCASE_9", "mIxEdCaSe_9"]) {
++    const again = await call("POST", "/api/users", { username: name, password: PASSWORD });
++    assert.equal(again.status, 409);
++    assert.deepEqual(again.body, { error: "username taken" });
++  }
++});
++
++test("a username must be 3 to 32 characters of a-z, 0-9 and _", async () => {
++  const bad = ["ab", "a".repeat(33), "has space", "dash-ed", "dot.ted", "émile", "", "a/b", "名前名前"];
++  for (const username of bad) {
++    const res = await call("POST", "/api/users", { username, password: PASSWORD });
++    assert.equal(res.status, 400, `"${username}"`);
++    assert.deepEqual(res.body, { error: "invalid username" });
++  }
++  for (const username of ["abc", "a".repeat(32)]) {
++    assert.equal((await call("POST", "/api/users", { username, password: PASSWORD })).status, 201, username);
++  }
++});
++
++test("a missing or non-string username is invalid, not a 500", async () => {
++  for (const body of [{ password: PASSWORD }, { username: 123, password: PASSWORD }, { username: ["abc"], password: PASSWORD }, { username: null, password: PASSWORD }]) {
++    const res = await call("POST", "/api/users", body);
++    assert.equal(res.status, 400);
++    assert.deepEqual(res.body, { error: "invalid username" });
++  }
++});
++
++test("a password needs 10 characters", async () => {
++  const short = await call("POST", "/api/users", { username: fresh(), password: "123456789" });
++  assert.equal(short.status, 400);
++  assert.deepEqual(short.body, { error: "password too short" });
++  assert.equal((await call("POST", "/api/users", { username: fresh(), password: "1234567890" })).status, 201);
++  for (const password of [undefined, 1234567890123, ["1234567890"], null]) {
++    const res = await call("POST", "/api/users", { username: fresh(), password });
++    assert.equal(res.status, 400);
++    assert.deepEqual(res.body, { error: "password too short" });
++  }
++});
++
++test("the username is checked before the password", async () => {
++  const res = await call("POST", "/api/users", { username: "x", password: "y" });
++  assert.deepEqual(res.body, { error: "invalid username" });
++});
++
++// AC2
++test("sign-in answers 201 with an opaque token", async () => {
++  const username = fresh();
++  await call("POST", "/api/users", { username, password: PASSWORD });
++  const res = await call("POST", "/api/sessions", { username: username.toUpperCase(), password: PASSWORD });
++  assert.equal(res.status, 201);
++  assert.deepEqual(Object.keys(res.body), ["token"]);
++  assert.match(res.body.token, /^[A-Za-z0-9_-]{43}$/);
++  assert.equal(res.res.headers.get("cache-control"), "no-store");
++  const other = await call("POST", "/api/sessions", { username, password: PASSWORD });
++  assert.notEqual(other.body.token, res.body.token);
++});
++
++test("a wrong username and a wrong password give the same 401", async () => {
++  const { username } = await account();
++  const wrongPassword = await call("POST", "/api/sessions", { username, password: "not the password" });
++  const wrongUser = await call("POST", "/api/sessions", { username: "nobody_here", password: PASSWORD });
++  assert.equal(wrongPassword.status, 401);
++  assert.equal(wrongUser.status, 401);
++  assert.deepEqual(wrongPassword.body, { error: "invalid credentials" });
++  assert.equal(wrongPassword.text, wrongUser.text);
++  for (const body of [{}, { username, password: 5 }, { username: 5, password: PASSWORD }, { username }]) {
++    const res = await call("POST", "/api/sessions", body);
++    assert.equal(res.status, 401);
++    assert.deepEqual(res.body, { error: "invalid credentials" });
++  }
++});
++
++// AC3
++test("every tasks route answers 401 without a valid token", async () => {
++  const { token } = await account();
++  const routes: [string, string, unknown?][] = [
++    ["GET", "/api/tasks"],
++    ["POST", "/api/tasks", { title: "x" }],
++    ["GET", "/api/tasks/1"],
++    ["PATCH", "/api/tasks/1", { done: true }],
++    ["DELETE", "/api/tasks/1"],
++    ["PUT", "/api/tasks"],
++    ["PUT", "/api/tasks/1"],
++  ];
++  const headers: Record<string, string>[] = [
++    {},
++    { authorization: "" },
++    { authorization: `Bearer ${"A".repeat(43)}` },
++    { authorization: token },
++    { authorization: `Basic ${token}` },
++    { authorization: `bearer ${token}` },
++    { authorization: `Bearer  ${token}` },
++    { authorization: `Bearer ${token}x` },
++    { authorization: `Bearer ${token.slice(1)}` },
++  ];
++  for (const [method, path, body] of routes) {
++    for (const h of headers) {
++      const res = await call(method, path, body, h);
++      assert.equal(res.status, 401, `${method} ${path} ${h.authorization}`);
++      assert.deepEqual(res.body, { error: "authentication required" });
++    }
++  }
++});
++
++test("authentication comes before body parsing on the tasks routes", async () => {
++  const res = await call("POST", "/api/tasks", "{not json");
++  assert.equal(res.status, 401);
++});
++
++// AC4
++test("a user sees and changes only their own tasks", async () => {
++  const a = await account();
++  const b = await account();
++  const mine = await call("POST", "/api/tasks", { title: "A's task" }, a.headers);
++  assert.equal(mine.status, 201);
++  assert.deepEqual(Object.keys(mine.body).sort(), ["created_at", "done", "id", "title"]);
++
++  const list = await call("GET", "/api/tasks", undefined, b.headers);
++  assert.equal(list.status, 200);
++  assert.deepEqual(list.body, []);
++  assert.deepEqual((await call("GET", "/api/tasks?done=false", undefined, b.headers)).body, []);
++
++  const missing = await call("GET", "/api/tasks/999999", undefined, b.headers);
++  for (const [method, body] of [["GET"], ["PATCH", { title: "hijacked", done: true }], ["DELETE"]] as [string, unknown?][]) {
++    const res = await call(method, `/api/tasks/${mine.body.id}`, body, b.headers);
++    assert.equal(res.status, 404, method);
++    assert.deepEqual(res.body, { error: "task not found" });
++    assert.equal(res.text, missing.text);
++  }
++  assert.deepEqual((await call("GET", `/api/tasks/${mine.body.id}`, undefined, a.headers)).body, mine.body);
++});
++
++test("each user lists their own tasks", async () => {
++  const a = await account();
++  const b = await account();
++  await call("POST", "/api/tasks", { title: "a1" }, a.headers);
++  await call("POST", "/api/tasks", { title: "b1" }, b.headers);
++  assert.deepEqual((await call("GET", "/api/tasks", undefined, a.headers)).body.map((t: any) => t.title), ["a1"]);
++  assert.deepEqual((await call("GET", "/api/tasks", undefined, b.headers)).body.map((t: any) => t.title), ["b1"]);
++});
++
++// AC5
++test("sign-out answers 204 and the token stops working", async () => {
++  const a = await account();
++  const other = await call("POST", "/api/sessions", { username: a.username, password: PASSWORD });
++  const out = await call("DELETE", "/api/sessions", undefined, a.headers);
++  assert.equal(out.status, 204);
++  assert.equal((await call("GET", "/api/tasks", undefined, a.headers)).status, 401);
++  assert.equal((await call("DELETE", "/api/sessions", undefined, a.headers)).status, 401);
++  // another session of the same user stays valid
++  assert.equal((await call("GET", "/api/tasks", undefined, { authorization: `Bearer ${other.body.token}` })).status, 200);
++});
++
++test("sign-out without a valid token is a 401", async () => {
++  for (const h of [{}, { authorization: "Bearer nope" }, { authorization: `Bearer ${"B".repeat(43)}` }]) {
++    const res = await call("DELETE", "/api/sessions", undefined, h);
++    assert.equal(res.status, 401);
++    assert.deepEqual(res.body, { error: "authentication required" });
++  }
++});
++
++// Input hardening
++test("bad bodies are 400 or 413, and a wrong method is 405", async () => {
++  for (const path of ["/api/users", "/api/sessions"]) {
++    for (const body of ["{not json", "[1,2]", "null", '"text"']) {
++      const res = await call("POST", path, body);
++      assert.equal(res.status, 400, `${path} ${body}`);
++      assert.deepEqual(res.body, { error: "invalid json" });
++    }
++  }
++  const big = await call("POST", "/api/users", JSON.stringify({ username: fresh(), password: "x".repeat(20 * 1024) }));
++  assert.equal(big.status, 413);
++  assert.deepEqual(big.body, { error: "payload too large" });
++  const { headers } = await account();
++  assert.equal((await call("POST", "/api/tasks", "{oops", headers)).status, 400);
++  for (const [method, path] of [["GET", "/api/users"], ["PUT", "/api/users"], ["GET", "/api/sessions"], ["PATCH", "/api/sessions"]]) {
++    const res = await call(method, path);
++    assert.equal(res.status, 405, `${method} ${path}`);
++    assert.deepEqual(res.body, { error: "method not allowed" });
++  }
++});
++
++test("an internal failure does not echo the error message", async () => {
++  const { headers } = await account();
++  const res = await call("POST", "/api/tasks", {}, headers); // title NULL breaks NOT NULL
++  assert.equal(res.status, 500);
++  assert.deepEqual(res.body, { error: "internal error" });
++});
++
++// AC6
++test("neither the password nor the token is stored or returned in clear", async () => {
++  const dir = mkdtempSync(join(tmpdir(), "accounts-"));
++  const file = join(dir, "t.db");
++  const own = createServer(file);
++  await new Promise<void>((resolve) => own.listen(0, "127.0.0.1", resolve));
++  const root = `http://127.0.0.1:${own.address().port}`;
++  try {
++    const username = "stored_user";
++    const created = await call("POST", "/api/users", { username, password: PASSWORD }, {}, root);
++    const session = await call("POST", "/api/sessions", { username, password: PASSWORD }, {}, root);
++    const task = await call("POST", "/api/tasks", { title: "t" }, { authorization: `Bearer ${session.body.token}` }, root);
++    for (const r of [created, session, task]) {
++      assert.ok(!r.text.includes(PASSWORD));
++      assert.ok(!/salt|hash|password/i.test(r.text.replace(session.body.token, "")));
++    }
++    const db = new DatabaseSync(file);
++    const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
++    assert.match(user.password_salt, /^[0-9a-f]{32}$/);
++    assert.match(user.password_hash, /^[0-9a-f]{128}$/);
++    assert.ok(![user.password_salt, user.password_hash].some((v) => v.includes(PASSWORD)));
++    const rows = db.prepare("SELECT token_hash FROM sessions").all() as any[];
++    assert.equal(rows.length, 1);
++    assert.notEqual(rows[0].token_hash, session.body.token);
++    assert.match(rows[0].token_hash, /^[0-9a-f]{64}$/);
++    // two users with the same password get different salts and hashes
++    await call("POST", "/api/users", { username: "stored_two", password: PASSWORD }, {}, root);
++    const two = db.prepare("SELECT * FROM users WHERE username = 'stored_two'").get() as any;
++    assert.notEqual(two.password_salt, user.password_salt);
++    assert.notEqual(two.password_hash, user.password_hash);
++    db.close();
++  } finally {
++    await new Promise((resolve) => own.close(resolve));
++    rmSync(dir, { recursive: true, force: true });
++  }
++});
++
++// AC7
++test("tasks created before accounts are kept and no user sees them", async () => {
++  const dir = mkdtempSync(join(tmpdir(), "accounts-"));
++  const file = join(dir, "v1.db");
++  const v1 = new DatabaseSync(file);
++  v1.exec(`CREATE TABLE tasks (
++     id INTEGER PRIMARY KEY AUTOINCREMENT,
++     title TEXT NOT NULL,
++     done INTEGER NOT NULL DEFAULT 0,
++     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
++   )`);
++  v1.exec("INSERT INTO tasks (title) VALUES ('legacy task')");
++  v1.exec("PRAGMA user_version = 1");
++  v1.close();
++
++  const own = createServer(file);
++  await new Promise<void>((resolve) => own.listen(0, "127.0.0.1", resolve));
++  const root = `http://127.0.0.1:${own.address().port}`;
++  try {
++    const u = await account(root);
++    assert.deepEqual((await call("GET", "/api/tasks", undefined, u.headers, root)).body, []);
++    assert.deepEqual((await call("GET", "/api/tasks?done=false", undefined, u.headers, root)).body, []);
++    const legacy = await call("GET", "/api/tasks/1", undefined, u.headers, root);
++    assert.equal(legacy.status, 404);
++    assert.equal((await call("PATCH", "/api/tasks/1", { title: "mine" }, u.headers, root)).status, 404);
++    assert.equal((await call("DELETE", "/api/tasks/1", undefined, u.headers, root)).status, 404);
++    const created = await call("POST", "/api/tasks", { title: "new" }, u.headers, root);
++    assert.notEqual(created.body.id, 1);
++  } finally {
++    await new Promise((resolve) => own.close(resolve));
++  }
++  const db = new DatabaseSync(file);
++  const row = db.prepare("SELECT title, user_id FROM tasks WHERE id = 1").get() as any;
++  assert.equal(row.title, "legacy task");
++  assert.equal(row.user_id, null);
++  db.close();
++  rmSync(dir, { recursive: true, force: true });
++});
++
++test("the migration is idempotent on a migrated database", () => {
++  const db = openDb(":memory:");
++  const { user_version } = db.prepare("PRAGMA user_version").get() as any;
++  assert.equal(user_version, 2);
++  db.close();
++});
+diff --git a/test/regression.test.ts b/test/regression.test.ts
+new file mode 100644
+index 0000000..5b7ef37
+--- /dev/null
++++ b/test/regression.test.ts
+@@ -0,0 +1,79 @@
++import { after, before, test } from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import { createServer } from "../src/app.ts";
++
++let server: any;
++let base = "";
++const PASSWORD = "correct horse battery";
++
++before(async () => {
++  server = createServer();
++  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
++  base = `http://127.0.0.1:${server.address().port}`;
++});
++after(() => server.close());
++
++async function call(method: string, path: string, body?: unknown, token?: string) {
++  const res = await fetch(base + path, {
++    method,
++    headers: {
++      ...(body === undefined ? {} : { "content-type": "application/json" }),
++      ...(token ? { authorization: `Bearer ${token}` } : {}),
++    },
++    body: body === undefined ? undefined : JSON.stringify(body),
++  });
++  const text = await res.text();
++  return { status: res.status, text, body: text ? JSON.parse(text) : null };
++}
++
++async function signIn(username: string) {
++  const res = await call("POST", "/api/sessions", { username, password: PASSWORD });
++  assert.equal(res.status, 201);
++  return res.body.token as string;
++}
++
++// AC8: what the served page offers a signed-out visitor, and how it talks to the API.
++test("the served page has sign-in and sign-up forms, a sign-out button and sends the bearer token", async () => {
++  const html = await (await fetch(base + "/")).text();
++  const js = await (await fetch(base + "/app.js")).text();
++  assert.match(html, /<form id="sign-in"/);
++  assert.match(html, /<form id="sign-up"/);
++  assert.match(html, /type="password"/);
++  assert.match(html, /<button[^>]*id="sign-out"[^>]*>\s*Sign out/);
++  // The task area starts hidden: a signed-out visitor never sees the old page flow.
++  assert.match(html, /<div id="signed-in" hidden>/);
++  assert.match(js, /Bearer \$\{token\}/);
++  assert.match(js, /\/api\/sessions/);
++  assert.match(js, /\/api\/users/);
++  assert.ok(!/innerHTML/.test(js), "server text must not go through innerHTML");
++  assert.equal(readFileSync(new URL("../public/app.js", import.meta.url), "utf8"), js);
++});
++
++// AC5: signing out ends that token only.
++test("signing out one session leaves the same user's other session and other users untouched", async () => {
++  for (const name of ["reg_a", "reg_b"]) {
++    assert.equal((await call("POST", "/api/users", { username: name, password: PASSWORD })).status, 201);
++  }
++  const a1 = await signIn("reg_a");
++  const a2 = await signIn("reg_a");
++  const b = await signIn("reg_b");
++  assert.notEqual(a1, a2);
++  assert.equal((await call("DELETE", "/api/sessions", undefined, a1)).status, 204);
++  assert.equal((await call("GET", "/api/tasks", undefined, a1)).status, 401);
++  assert.equal((await call("GET", "/api/tasks", undefined, a2)).status, 200);
++  assert.equal((await call("GET", "/api/tasks", undefined, b)).status, 200);
++  // The dead token cannot be signed out twice.
++  const again = await call("DELETE", "/api/sessions", undefined, a1);
++  assert.equal(again.status, 401);
++  assert.deepEqual(again.body, { error: "authentication required" });
++});
++
++// AC2/AC6: a signed-in response never carries credentials material.
++test("sign-in and sign-up responses hold only the documented fields", async () => {
++  const up = await call("POST", "/api/users", { username: "reg_c", password: PASSWORD });
++  assert.deepEqual(Object.keys(up.body).sort(), ["id", "username"]);
++  const inn = await call("POST", "/api/sessions", { username: "REG_C", password: PASSWORD });
++  assert.deepEqual(Object.keys(inn.body), ["token"]);
++  assert.ok(!inn.text.includes(PASSWORD));
++});
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 1fa1bd8..b85da68 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -1,6 +1,6 @@
+-import { after, before, test } from "node:test";
++import { after, before, beforeEach, test } from "node:test";
+ import assert from "node:assert/strict";
+ import { createServer } from "../src/app.ts";
+ 
+ let server: any;
+ let base = "";
+@@ -11,14 +11,31 @@ before(async () => {
+   base = `http://127.0.0.1:${server.address().port}`;
+ });
+ 
+ after(() => server.close());
+ 
++let auth: Record<string, string> = {};
++let counter = 0;
++
++/** Signs up and signs in a fresh user; returns the Authorization header. */
++async function signIn(): Promise<Record<string, string>> {
++  const username = `tasks_user_${counter++}`;
++  const password = "correct horse battery";
++  const headers = { "content-type": "application/json" };
++  await fetch(base + "/api/users", { method: "POST", headers, body: JSON.stringify({ username, password }) });
++  const res = await fetch(base + "/api/sessions", { method: "POST", headers, body: JSON.stringify({ username, password }) });
++  return { authorization: `Bearer ${(await res.json()).token}` };
++}
++
++beforeEach(async () => {
++  auth = await signIn();
++});
++
+ async function call(method: string, path: string, body?: unknown) {
+   const res = await fetch(base + path, {
+     method,
+-    headers: body === undefined ? {} : { "content-type": "application/json" },
++    headers: { ...auth, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+     body: body === undefined ? undefined : JSON.stringify(body),
+   });
+   return { status: res.status, body: res.status === 204 ? null : await res.json() };
+ }
+ 

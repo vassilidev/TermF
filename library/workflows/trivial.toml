@@ -1,0 +1,5 @@
+extends = "direct"
+description = "Trivial, mechanical ticket (a value, a text, a rename, a setting) with nothing to decide and no security stake: the CTO gives the one task; one developer does it and runs the checks, which are its review"
+
+[steps.review]
+enabled = false

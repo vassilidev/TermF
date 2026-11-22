@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tasks</title>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+      form, .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+      input[type="text"] { flex: 1; }
+      ul { list-style: none; padding: 0; }
+      li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+      li span { flex: 1; }
+      #error { color: #b00020; min-height: 1.5em; }
+    </style>
+  </head>
+  <body>
+    <h1>Tasks</h1>
+    <form id="new-task">
+      <label for="title" hidden>Title</label>
+      <input id="title" type="text" placeholder="What needs doing?" />
+      <button type="submit">Add</button>
+    </form>
+    <div class="toolbar">
+      <label for="filter">Show</label>
+      <select id="filter">
+        <option value="">All</option>
+        <option value="false">Open</option>
+        <option value="true">Done</option>
+      </select>
+    </div>
+    <p id="error" role="alert"></p>
+    <ul id="tasks"></ul>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

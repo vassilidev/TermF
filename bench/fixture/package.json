@@ -1,0 +1,14 @@
+{
+  "name": "tasks-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A small task tracker: JSON API over SQLite and a one-page interface.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
+  }
+}

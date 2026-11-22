@@ -1,0 +1,356 @@
+{
+  "ticket": "c1-tags",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:12:01.107Z",
+  "state": "done",
+  "wall_s": 240.592374875,
+  "cost_usd": 1.5602665,
+  "sessions": 9,
+  "turns": 9,
+  "tokens": {
+    "cache_creation": 283258,
+    "cache_read": 1161245,
+    "input": 70,
+    "output": 31097
+  },
+  "routing": {
+    "kind": "feature",
+    "size": "M",
+    "reason": "A fully specified feature across one small codebase: a new migration, API changes, a new endpoint, a page update, tests and README.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "medium"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 2,
+    "rulings": [
+      "Ruling: default workflow — a standard feature that needs a plan and the full review chain — cost if wrong: hotfix would skip the plan gate, so nothing is lost here",
+      "Ruling: skip the frame (po) step — the ticket has 8 numbered, testable acceptance criteria and the code is small (about 275 lines) — cost if wrong: an edge case (for example an invalid `?tag=` value) is decided by the lead and the reviewer instead of the user",
+      "Ruling: no PRD, architect or UX step — the data model is given (own tables, new migration) and the page change is a list of tags plus a filter, in a 36-line HTML page — cost if wrong: the UI may need one revision after the visual review",
+      "Ruling: no SEO step — one private task page, no public content — cost if wrong: none expected",
+      "Ruling: security review at medium effort — user input is parsed and normalized and SQL queries are built with it, but there is no authentication or personal data; parameterized queries are the main point to check — cost if wrong: a missed injection or an unescaped tag in the page, so the page must not use innerHTML for tags",
+      "Ruling: the dba migration review stays on (the diff adds a migration) — it must check the join table with a foreign key `ON DELETE CASCADE` (foreign_keys is already ON in openDb) and that the migration is appended, never edits the shipped one — cost if wrong: orphan links when a task is deleted",
+      "Ruling: budget $2 — M size, about 6 files, a plan gate, and the review steps — cost if wrong: the run asks the user before spending more"
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 3,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.15161799999999998,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.2039311,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.4052101,
+      "sessions": 2,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.14927970000000002,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T3",
+      "role": "qa",
+      "state": "done",
+      "cost": 0.23626970000000003,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.2376005,
+      "sessions": 2,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.1763574,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "implement:T3",
+    "checks",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 40,
+    "fail": 0,
+    "tests": 40,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 15,
+      "removed": 6
+    },
+    {
+      "path": "public/app.js",
+      "added": 45,
+      "removed": 5
+    },
+    {
+      "path": "public/index.html",
+      "added": 13,
+      "removed": 0
+    },
+    {
+      "path": "src/app.ts",
+      "added": 17,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 98,
+      "removed": 12
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 190,
+      "removed": 0
+    }
+  ],
+  "lines_added": 388,
+  "lines_removed": 26,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "toTasks adds tags to every task, sorted by name, defaulting to []; tested on create, get and list."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST and PATCH parse body.tags; PATCH replaces the list only when tags is defined, and tests cover replace, keep and clear."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "normalizeTags trims, lowercases and dedupes, then checks the pattern and the 10-tag cap; invalid input gives 400 before any write, with many invalid-case tests."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "?tag= is normalized, invalid values give 400, and it combines with done in one query; tests cover both."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "listTags joins task_tags, so unused tags are not listed; it is sorted by name and tested through untag and delete."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "A new migration adds tags and task_tags with ON DELETE CASCADE; foreign_keys is on, and tests check the link rows and the upgrade of an old DB."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "Tags render as buttons, clicking one sets the filter, Show all clears it, and the add form takes comma-separated tags."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "The API tests are extensive and the README documents the endpoints and the rules."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 8,
+      "edge_cases": 8,
+      "scope": 7
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "scope",
+        "file": "src/tasks.ts",
+        "what": "listTasks changes how ?done= is handled. The old code treated any non-empty value as true. Now only 'true' or 'false' filter and other values are ignored. This is arguably a bug fix, but the ticket doesn't ask for it, and it has no test or README note."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "toTasks loads every row of task_tags on each call, even for getTask on a single task or a filtered list. That is O(all links) per request. Filtering by task ids would scale better."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "A PATCH with invalid tags on a non-existent task returns 400 instead of 404. Validation runs before the existence check. This is minor and debatable."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/app.js",
+        "what": "The page adds an empty-state message ('No tasks.') and moves focus after the filter changes. Neither is asked for in the ticket. The submit handler also gained a try/catch, which is a reasonable fix."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The ?tag= with ?done=true test and the ?done=false test overlap. The first has a redundant assert (open.id !== done.id). The page's tag UI is not tested, which is understandable given the tooling."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/db.ts",
+        "what": "Migration 2 creates three statements in one string, which relies on exec running multiple statements. It works, but the migration list is now less uniform."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets all eight criteria. It uses a proper migration with cascading link tables, validates before writing, wraps writes in transactions, and has thorough API tests. The deductions are small: an unrequested change to the done= filter semantics, a few extra UI touches, and an inefficient load of all tag links on every task read.",
+    "cost_usd": 0.08551639999999999
+  }
+}

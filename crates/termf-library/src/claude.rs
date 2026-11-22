@@ -29,8 +29,11 @@ pub fn materialize(
     let mut prompt = String::new();
     // The skills and preferences the role names come with it, on or not.
     let mut wanted = Vec::new();
+    // A planner splits the work between roles: it reads every card of the stack.
+    let mut planner = false;
     if let Some(name) = &scope.role {
         let role = crate::role(config_dir, scope, name)?;
+        planner = role.meta.get("output").and_then(Value::as_str) == Some("plan");
         prompt.push_str(&format!("## Role: {name}\n\n{}\n\n", role.body.trim()));
         for kind in [Kind::Skill, Kind::Preference] {
             for wanted_name in crate::list_of(role.meta.get(kind.dir())) {
@@ -66,7 +69,7 @@ pub fn materialize(
     let gets_skill = |item: &Item| {
         (item.active || named(item)) && (named(item) || for_role(item)) && runs_here(item)
     };
-    prompt.push_str(&stack_card(&items, scope, &gets_skill));
+    prompt.push_str(&stack_card(&items, scope, &gets_skill, planner));
     for item in items {
         let level = match scope.rules.get(&item.name) {
             Some(level) if item.kind == Kind::Rule => Some(level.as_str()),
@@ -157,9 +160,14 @@ fn skill_card(item: &Item, has_it: bool) -> String {
 
 /// What every session learns of its repositories' stack, whatever its role: the detected tags and versions, the
 /// official skills and docs their packages bring once Claude Code trusts the repository, then the card of each
-/// active skill for that stack, once. The card of a skill for every stack (`termf-stacks: "*"`) goes only to the
-/// sessions that get the skill (`gets`).
-fn stack_card(items: &[Item], scope: &Scope, gets: &dyn Fn(&Item) -> bool) -> String {
+/// active skill for that stack that the session gets (`gets`), once: a role reads the cards of its own skills only,
+/// a planner every card.
+fn stack_card(
+    items: &[Item],
+    scope: &Scope,
+    gets: &dyn Fn(&Item) -> bool,
+    planner: bool,
+) -> String {
     let stack: &[RepoStack] = &scope.stack;
     let mut text = String::new();
     let mut skills: Vec<&Item> = items
@@ -219,7 +227,7 @@ fn stack_card(items: &[Item], scope: &Scope, gets: &dyn Fn(&Item) -> bool) -> St
         text += &part;
         text.push('\n');
     }
-    for item in skills.iter().filter(|i| !any(i)) {
+    for item in skills.iter().filter(|i| !any(i) && (planner || gets(i))) {
         let wanted = crate::metadata_list(item, "termf-stacks");
         let repos: Vec<&RepoStack> = stack
             .iter()
@@ -752,8 +760,8 @@ mod tests {
         let (prompt, skills) = session_for(Some("back"), true);
         assert_eq!(skills, ["ai-sdk", "tests-first", "vue-app"]);
         assert!(
-            prompt.contains("#### react-app"),
-            "every role gets the card"
+            !prompt.contains("#### react-app") && prompt.contains("Detected: react 18.3.1"),
+            "a role reads the stack, and the cards of its own skills only"
         );
         assert!(prompt.contains("#### tests-first\n\n- Write each test from a criterion."));
 
@@ -871,10 +879,9 @@ mod tests {
         );
 
         let (back, vendor) = prompt_for("back");
-        assert!(back.contains("#### react-app\n\n- Version: in the lockfile.\n"));
         assert!(
-            !back.contains("Read the skill `react-app`"),
-            "the back end does not get the skill: no line sends it there"
+            !back.contains("#### react-app"),
+            "the back end does not get the skill, nor its card"
         );
         assert!(
             !vendor,

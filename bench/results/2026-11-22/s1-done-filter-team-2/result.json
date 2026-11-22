@@ -1,0 +1,290 @@
+{
+  "ticket": "s1-done-filter",
+  "arm": "team",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:16:43.420Z",
+  "state": "done",
+  "wall_s": 90.601428584,
+  "cost_usd": 0.6201262999999999,
+  "sessions": 6,
+  "turns": 6,
+  "tokens": {
+    "cache_creation": 122379,
+    "cache_read": 440323,
+    "input": 34,
+    "output": 8651
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "`listTasks` in src/tasks.ts:23 tests `filter.done ?` on the raw query string, so \"false\" is truthy and selects done=1. The fix is small, in one file, with a 400 validation in src/app.ts and a test.",
+    "workflow": "default",
+    "skip": [],
+    "add": [],
+    "efforts": [
+      {
+        "step": "frame",
+        "effort": "low"
+      },
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 1,
+    "rulings": [
+      "Ruling: workflow default, not hotfix — the bug is real but not an urgent outage, and the plan gate is cheap on an S change — cost if wrong: one extra approval pause",
+      "Ruling: keep the optional frame step on at low effort — the acceptance criteria are already testable, so the PO only confirms edge cases (`?done=`, `?done=yes`) — cost if wrong: a few cents",
+      "Ruling: skip prd, architecture, ux and seo — no vague scope, no design decision, the page's markup and look do not change (the filter's option values already send true/false), and no public page metadata changes — cost if wrong: none expected",
+      "Ruling: security review at medium effort — the change parses a user-supplied query parameter, but it is a strict whitelist (true/false) with no auth, data or dependency impact — cost if wrong: a missed edge case in parsing",
+      "Ruling: no squads declared, so the lead plans the whole ticket; the work is back-end only (src/tasks.ts, src/app.ts, test/tasks.test.ts) — cost if wrong: none",
+      "Ruling: budget $1.00 — S change, one source fix and one test, plus the standard review steps — cost if wrong: TermF asks the user before spending more",
+      "Ruling: validate `done` in src/app.ts (the HTTP layer, answering 400 with {\"error\": \"done must be true or false\"}) and make `listTasks` compare to \"true\"/\"false\" explicitly — the HTTP layer owns input parsing, and `listTasks` must stop treating any non-empty string as true — cost if wrong: the same check would move to another layer"
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0957497,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "frame",
+      "role": "po",
+      "state": "done",
+      "cost": 0.0879018,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.1055044,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.1407955,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.0948239,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.095351,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 6,
+    "fail": 0,
+    "tests": 6,
+    "failed": [],
+    "total": 6
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "src/app.ts",
+      "added": 5,
+      "removed": 2
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 38,
+      "removed": 0
+    }
+  ],
+  "lines_added": 44,
+  "lines_removed": 3,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "listTasks now compares filter.done === \"true\", so \"false\" maps to 0 and returns only open tasks."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "\"true\" maps to 1; absent param gives undefined and lists all; tests cover both."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "app.ts returns 400 with the exact error for any non-null value other than true/false, including empty string; test covers yes, empty, TRUE, 1."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The new ?done=false test creates an open and a done task and would fail on the old code (truthy string \"false\" gave 1)."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The tests share database state and only check inclusion or exclusion by id. The ?done=false and ?done=true tests don't check the exact result set, so they are weaker than 'returns only' implies. The done=false test does catch the bug."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "listTasks still takes done as a string and compares it with \"true\". This leaks HTTP parsing into the data layer. Parsing to a boolean in app.ts would be cleaner. This is a minor design point and it works."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "test/tasks.test.ts",
+        "what": "Repeated ?done=a&done=b parameters aren't tested. Only the first value is read, which is acceptable."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff fixes the root cause, where the string \"false\" was truthy. It also adds the strict 400 validation the ticket asks for, with a small and focused change. The tests cover every criterion, but they use id-inclusion checks on shared state rather than exact result sets.",
+    "cost_usd": 0.0267924
+  }
+}

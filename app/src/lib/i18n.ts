@@ -4004,6 +4004,12 @@ const fr = {
   usage2AnyWindow: "quota d'usage",
   usage2ShowUsage: "Voir l'usage",
   usage2FromConversation: "D'après la session « {session} », {when}.",
+  proportionateSize: "Taille",
+  proportionateTask: "Tâche",
+  proportionateTaskHelp: "Ce workflow n'a pas de plan : une seule tâche, qui couvre tous les critères du ticket.",
+  proportionateTaskRole: "Rôle",
+  proportionateTaskGoal: "Objectif",
+  proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
 };
 
 type Key = keyof typeof fr;
@@ -7981,6 +7987,12 @@ const en: Record<Key, string> = {
   usage2AnyWindow: "usage limit",
   usage2ShowUsage: "See usage",
   usage2FromConversation: "From the session “{session}”, {when}.",
+  proportionateSize: "Size",
+  proportionateTask: "Task",
+  proportionateTaskHelp: "This workflow has no plan: one task, which covers every criterion of the ticket.",
+  proportionateTaskRole: "Role",
+  proportionateTaskGoal: "Goal",
+  proportionateTaskMissing: "Give the task's role and goal.",
 };
 
 const messages = { fr, en };

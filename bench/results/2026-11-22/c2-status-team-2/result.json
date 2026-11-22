@@ -1,0 +1,383 @@
+{
+  "ticket": "c2-status",
+  "arm": "team",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:24:37.696Z",
+  "state": "done",
+  "wall_s": 280.357489,
+  "cost_usd": 1.4590359,
+  "sessions": 10,
+  "turns": 10,
+  "tokens": {
+    "cache_creation": 240714,
+    "cache_read": 1077799,
+    "input": 70,
+    "output": 38826
+  },
+  "routing": {
+    "kind": "refactor",
+    "size": "M",
+    "reason": "A small single-package app (about 330 lines): a schema migration plus API, UI, tests and README, with a compatibility layer for `done`, all fully specified in the ticket.",
+    "workflow": "default",
+    "skip": [],
+    "add": [],
+    "efforts": [
+      {
+        "step": "frame",
+        "effort": "low"
+      },
+      {
+        "step": "plan",
+        "effort": "medium"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 1.5,
+    "rulings": [
+      "Ruling: workflow `default` — it is a planned refactor with a schema migration, not an urgent fix, so the plan gate and the dba migration review stay — cost if wrong: a slower run than `hotfix`",
+      "Ruling: keep `frame` (po) at low effort — the ticket has detailed, testable acceptance criteria, so only implications such as an existing-database migration need a check — cost if wrong: a missed edge case caught later by the review",
+      "Ruling: skip the optional `prd`, `architecture`, `ux` and `seo` steps — the scope is clear, the design is one column and one select in an existing page, and no public SEO page changes — cost if wrong: a UI flaw caught at the visual review",
+      "Ruling: `security` at medium effort — the change adds input validation on a new `status` value and a query filter, but touches no authentication, payments or personal data — cost if wrong: a missed validation gap, limited by the SQL being parameterised",
+      "Ruling: no squads — the project declares none, so the lead plans the whole ticket (back for the migration and API, front for the page, docs for the README) — cost if wrong: none",
+      "Ruling: the new migration must be appended to the `migrations` array in src/db.ts, never an edit of the shipped one; SQLite's DROP COLUMN needs 3.35 or later, and the dba review checks that — cost if wrong: a failed startup migration on existing databases",
+      "Ruling: budget $1.50 — an M change over about 330 lines of code — cost if wrong: the user is asked before any extra spend"
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 3,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0940254,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "frame",
+      "role": "po",
+      "state": "done",
+      "cost": 0.170097,
+      "sessions": 2,
+      "attempt": 2
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.3189482,
+      "sessions": 2,
+      "attempt": 2
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.2712662,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.1308482,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T3",
+      "role": "qa",
+      "state": "done",
+      "cost": 0.209193,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1389589,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.125699,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 10,
+    "fail": 0,
+    "tests": 10,
+    "failed": [],
+    "total": 10
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 25,
+    "fail": 0,
+    "tests": 25,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": false,
+    "errors": 3,
+    "first": [
+      "test/migration.test.ts(28,15): error TS7006: Parameter 'r' implicitly has an 'any' type.",
+      "test/migration.test.ts(48,75): error TS7006: Parameter 'r' implicitly has an 'any' type.",
+      "test/migration.test.ts(50,77): error TS7006: Parameter 'r' implicitly has an 'any' type."
+    ]
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 25,
+      "removed": 4
+    },
+    {
+      "path": "public/app.js",
+      "added": 21,
+      "removed": 6
+    },
+    {
+      "path": "public/index.html",
+      "added": 3,
+      "removed": 2
+    },
+    {
+      "path": "src/app.ts",
+      "added": 29,
+      "removed": 5
+    },
+    {
+      "path": "src/db.ts",
+      "added": 4,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 29,
+      "removed": 11
+    },
+    {
+      "path": "test/migration.test.ts",
+      "added": 66,
+      "removed": 0
+    },
+    {
+      "path": "test/startup-migration.test.ts",
+      "added": 48,
+      "removed": 0
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 120,
+      "removed": 0
+    }
+  ],
+  "lines_added": 345,
+  "lines_removed": 28,
+  "tests_changed": 3,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "toTask always returns status and done; the column defaults to 'todo'."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "A new migration adds status with a CHECK, fills it from done, then drops done."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "done=1 becomes 'done' and done=0 becomes 'todo'. Ids, titles and dates are kept. Both a migration unit test and a file-based startup test cover it."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "POST and PATCH go through parseStatus, which throws BadRequest and the handler maps it to 400 with the exact message. Tests cover null, numbers, empty string and arrays."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "GET ?status= filters, and an unknown or empty value gives the same 400."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "Responses include done. PATCH and POST accept done booleans (false gives todo). ?done=true|false filters, with false meaning status != 'done'."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "The checkbox is replaced by a status select, and the filter offers todo, doing and done."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "Migration and API tests were added, and the README documents status and the done deprecation."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 6,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/db.ts",
+        "what": "The migration is a multi-statement string. The diff doesn't show migrate() wrapping it in a transaction, so a failure partway through could leave status added but done not dropped. The next startup would then fail on a duplicate column. DROP COLUMN also needs SQLite 3.35+."
+      },
+      {
+        "severity": "medium",
+        "category": "error-handling",
+        "file": "src/app.ts",
+        "what": "Malformed JSON still throws a SyntaxError that becomes a 500. Only BadRequest is mapped to 400. This predates the ticket, but the new 400 path makes the gap more visible."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "title is not validated. POST without a title would hit the NOT NULL constraint and return a 500. This is pre-existing."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "If both ?status= and ?done= are sent and done is invalid, done is ignored without error. This is documented ('status wins')."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "public/app.js",
+        "what": "The error handler in the select's change listener is a bit convoluted. The comment explains it, but the variable name `box` is now misleading for a select."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/startup-migration.test.ts",
+        "what": "The temp directory is not cleaned up if an assertion fails, because rmSync is not in a finally block. The tmpdir prefix 'tasks-qa-' is also an odd name."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "what": "The POST done boolean handling and the 'done must be a boolean' 400 go slightly beyond the ticket, but are reasonable for compatibility."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets all eight criteria. The migration, the validation, the backward-compatible done handling, the UI and the README are all covered, and the tests are solid, including a real-file startup migration. The main concerns are that the multi-statement migration may not run in a transaction and that a few pre-existing 500 paths remain, such as malformed JSON.",
+    "cost_usd": 0.07108439999999999
+  }
+}

@@ -67,6 +67,9 @@ pub struct Routing {
     /// The user changed the CTO's routing, or set it.
     #[serde(default)]
     pub changed: bool,
+    /// The direct workflow's one task, which the CTO gives instead of a lead's plan.
+    #[serde(default)]
+    pub task: Option<crate::plan::Task>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -125,6 +128,7 @@ pub fn schema() -> Value {
         "questions": questions_schema(),
         "budget_usd": { "type": "number" },
         "rulings": strings(),
+        "task": { "anyOf": [crate::plan::task_schema(), { "type": "null" }] },
         "replaces": {
             "type": "array",
             "items": object(json!({ "decision": { "type": "string" }, "ruling": { "type": "string" } })),
@@ -275,6 +279,31 @@ fn check_steps(
     for id in routing.skip.iter().filter(|id| routing.add.contains(id)) {
         problems.push(format!("step {id} is both skipped and added"));
     }
+    // TermF runs what `skip` says: a ruling that skips a step `skip` keeps would run a step the journal says it left out.
+    for ruling in &routing.rulings {
+        let lower = ruling.trim().to_lowercase();
+        let what = lower.trim_start_matches("ruling:").trim();
+        // Whatever dash or colon ends the decision: the why after it names steps too.
+        let what = what.split(['—', '–', ':', ';']).next().unwrap_or(what);
+        let what = what.split(" - ").next().unwrap_or(what);
+        let Some(named) = what.strip_prefix("skip ") else {
+            continue;
+        };
+        let words: Vec<&str> = named
+            .split(|c: char| !c.is_alphanumeric() && c != '-')
+            .collect();
+        for (id, step) in &workflow.steps {
+            if step.optional
+                && step.enabled
+                && !routing.skip.contains(id)
+                && words.contains(&id.as_str())
+            {
+                problems.push(format!(
+                    "a ruling skips step {id}, but skip does not list it: put it in skip, or rule to keep it"
+                ));
+            }
+        }
+    }
     for id in &routing.add {
         if let Some(needed) = workflow.steps.get(id).and_then(|s| s.role.as_deref())
             && !role(needed)
@@ -283,6 +312,11 @@ fn check_steps(
                 "step {id} needs the role {needed}, which the library does not have"
             ));
         }
+    }
+    if crate::DIRECT.contains(&name.as_str()) && routing.task.is_none() {
+        problems.push(format!(
+            "workflow {name} needs its one task in task: the role, the goal, the files, the criteria it covers"
+        ));
     }
     let mut routed = workflow.clone();
     if routed.route(&routing.skip, &routing.add).is_err() {
@@ -339,6 +373,95 @@ pub fn flag(file: &Path, key: &str) -> Result<Option<bool>> {
         .with_context(|| format!("`[team] {key}` in {} must be true or false", file.display()))
 }
 
+/// Words of a ticket that touch what a single developer never takes without the security review: authentication,
+/// permissions, secrets, cryptography, data migrations, payments, concurrency. A trailing `*` matches the start of a
+/// word, a space a phrase.
+const SENSITIVE: [&str; 61] = [
+    "auth",
+    "authent*",
+    "authori*",
+    "authn",
+    "authz",
+    "oauth*",
+    "login*",
+    "logout",
+    "signin",
+    "sign in",
+    "signup",
+    "sign up",
+    "password*",
+    "passwd",
+    "passphrase*",
+    "mot de passe",
+    "mots de passe",
+    "2fa",
+    "mfa",
+    "otp",
+    "totp",
+    "sso",
+    "saml",
+    "jwt*",
+    "csrf",
+    "permission*",
+    "privilege*",
+    "rbac",
+    "acl*",
+    "role",
+    "roles",
+    "rôle*",
+    "droit",
+    "droits",
+    "access control",
+    "secret*",
+    "credential*",
+    "api key*",
+    "apikey*",
+    "token*",
+    "private key*",
+    "crypt*",
+    "encrypt*",
+    "decrypt*",
+    "chiffr*",
+    "hmac",
+    "migration*",
+    "migrate*",
+    "backfill*",
+    "payment*",
+    "paiement*",
+    "billing",
+    "factur*",
+    "checkout",
+    "stripe",
+    "refund*",
+    "rembours*",
+    "concurren*",
+    "race condition*",
+    "deadlock*",
+    "same time",
+];
+
+/// The first word of [`SENSITIVE`] that `text` says, if any.
+pub fn sensitive(text: &str) -> Option<&'static str> {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let spaced = format!(" {} ", words.join(" "));
+    SENSITIVE.into_iter().find(|term| {
+        let (stem, prefix) = match term.strip_suffix('*') {
+            Some(stem) => (stem, true),
+            None => (*term, false),
+        };
+        match (stem.contains(' '), prefix) {
+            (true, true) => spaced.contains(&format!(" {stem}")),
+            (true, false) => spaced.contains(&format!(" {stem} ")),
+            (false, true) => words.iter().any(|w| w.starts_with(stem)),
+            (false, false) => words.contains(&stem),
+        }
+    })
+}
+
 /// A short account of a routing, for the events and the CLI.
 pub fn describe(routing: &Routing) -> String {
     let mut parts = vec![format!(
@@ -390,6 +513,7 @@ mod tests {
             rulings: vec![],
             replaces: vec![],
             changed: false,
+            task: None,
         }
     }
 
@@ -459,6 +583,51 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
+        let ruled = |skip: &[&str], ruling: &str| Routing {
+            skip: skip.iter().map(|s| s.to_string()).collect(),
+            rulings: vec![ruling.into()],
+            ..routing()
+        };
+        let skips_frame = "Ruling: skip frame (po) — the ticket lists its criteria — cost if wrong: a missed edge case";
+        for ruling in [
+            skips_frame,
+            "Ruling: skip frame - the ticket lists its criteria - cost if wrong: a missed edge case",
+            "ruling: Skip frame – the ticket lists its criteria",
+            "Ruling: skip frame: the ticket lists its criteria",
+        ] {
+            assert_eq!(
+                check(&ruled(&[], ruling), &workflows, &team, any),
+                [
+                    "a ruling skips step frame, but skip does not list it: put it in skip, or rule to keep it"
+                ],
+                "{ruling}"
+            );
+        }
+        for (skip, ruling) in [
+            (&["frame"][..], skips_frame),
+            (
+                &[],
+                "Ruling: keep frame (po) at low effort — confirms the criteria — cost if wrong: cents",
+            ),
+            (
+                &[],
+                "Ruling: skip prd, architecture, seo — off anyway — cost if wrong: none",
+            ),
+            (
+                &[],
+                "Ruling: budget $1 — skip nothing — cost if wrong: a top-up",
+            ),
+            (
+                &[],
+                "Ruling: keep everything - skip frame would lose the criteria",
+            ),
+        ] {
+            assert!(
+                check(&ruled(skip, ruling), &workflows, &team, any).is_empty(),
+                "{ruling}"
+            );
+        }
+
         let efforts = Routing {
             skip: vec!["frame".into()],
             efforts: vec![
@@ -493,7 +662,7 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
-        assert!(schema()["required"].as_array().unwrap().len() == 12);
+        assert!(schema()["required"].as_array().unwrap().len() == 13);
     }
 
     #[test]
@@ -521,5 +690,35 @@ mod tests {
             describe(&routing()),
             "feature, size M, workflow default; adds ux; squads web; efforts security high; budget $4.00: a new export"
         );
+    }
+
+    #[test]
+    fn a_sensitive_ticket_is_told_by_its_words() {
+        for (text, word) in [
+            ("Reset the PASSWORD of a user", "password*"),
+            (
+                "Only admins with the right permissions can share",
+                "permission*",
+            ),
+            ("Partage d'une liste avec des rôles", "rôle*"),
+            ("Store the API key in the vault", "api key*"),
+            (
+                "Edits are lost when two devices save at the same time",
+                "same time",
+            ),
+            ("Add a migration for the version column", "migration*"),
+            ("Le paiement échoue", "paiement*"),
+            ("Fix the OAuth callback", "oauth*"),
+        ] {
+            assert_eq!(sensitive(text), Some(word), "{text}");
+        }
+        for text in [
+            "Rename the Save button",
+            "The author's name is cut on the card",
+            "Fix a typo in the README, keep the same timeline",
+            "Export invoices to CSV",
+        ] {
+            assert_eq!(sensitive(text), None, "{text}");
+        }
     }
 }

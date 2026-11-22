@@ -1,0 +1,360 @@
+{
+  "ticket": "c2-status",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T18:23:43.855Z",
+  "state": "done",
+  "wall_s": 166.910187083,
+  "cost_usd": 1.0270629,
+  "sessions": 7,
+  "turns": 7,
+  "tokens": {
+    "cache_creation": 179922,
+    "cache_read": 742709,
+    "input": 52,
+    "output": 23300
+  },
+  "routing": {
+    "kind": "refactor",
+    "size": "M",
+    "reason": "A schema migration plus API validation, a backward-compatible `done` layer, the page and the docs touch five small files in one codebase, with testable criteria.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "medium"
+      },
+      {
+        "step": "security",
+        "effort": "low"
+      },
+      {
+        "step": "review",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 2,
+    "rulings": [
+      "Ruling: default workflow, not `direct` — the change is M (migration, API, page, docs in several files, with a data-loss risk) — cost if wrong: a little more spend on the plan gate and reviews.",
+      "Ruling: skip the product owner (`frame`) — the ticket already lists 8 testable acceptance criteria with exact error messages — cost if wrong: a missed edge case surfaces at code review instead.",
+      "Ruling: skip prd, architecture, ux and seo — the design is fixed by the ticket (status column, select replacing the checkbox, no new public pages, no cross-module decision) — cost if wrong: a later round to add a design step.",
+      "Ruling: security review at low effort — no authentication, personal data or secrets; the only new input is `status`, an enum checked against three values, and the SQL stays parameterised — cost if wrong: a missed validation hole in the `done`/`status` mix, which the code review also looks at.",
+      "Ruling: the migration must be a new entry appended to `migrations` in `src/db.ts` (version 2), never an edit of migration 1 — the file says shipped migrations are not edited; it must keep ids, titles and `created_at` and map done=1 to done and done=0 to todo, and the dba review step stays on for it — cost if wrong: existing databases lose data or fail at startup.",
+      "Ruling: the plan must note that `GET /api/tasks?done=` reads the raw string, so `done=false` is currently truthy in `listTasks`; AC6 needs `done=false` to return todo and doing, with other values of `done` answering 400 — cost if wrong: the compatibility filter silently returns the wrong tasks.",
+      "Ruling: if both `status` and `done` are sent to PATCH or POST, `status` wins, and the plan must say so and test it — cost if wrong: an old client and a new one disagree on the result, a small ambiguity the ticket leaves open.",
+      "Ruling: budget $2.00 — one developer task, a plan, one or two review rounds, the dba review and a low security review, with a margin for a checks fix — cost if wrong: the run stops before its reviews and the user must raise the budget."
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": null
+  },
+  "plan_tasks": 3,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0954657,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.2171494,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.22420450000000003,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.1279917,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T3",
+      "role": "qa",
+      "state": "done",
+      "cost": 0.15961599999999998,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1025046,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.100131,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 10,
+    "fail": 0,
+    "tests": 10,
+    "failed": [],
+    "total": 10
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 30,
+    "fail": 0,
+    "tests": 30,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 18,
+      "removed": 6
+    },
+    {
+      "path": "public/app.js",
+      "added": 11,
+      "removed": 6
+    },
+    {
+      "path": "public/index.html",
+      "added": 3,
+      "removed": 2
+    },
+    {
+      "path": "src/app.ts",
+      "added": 26,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 4,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 29,
+      "removed": 11
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 175,
+      "removed": 0
+    }
+  ],
+  "lines_added": 266,
+  "lines_removed": 28,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "toTask returns status, and the column default plus createTask default give 'todo'."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "Migration 2 adds status with a CHECK, backfills it from done, then drops done."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The UPDATE maps done=1 to 'done' and everything else to 'todo'. Ids and created_at are untouched, and a test checks this on a v1 database."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "statusFromBody validates status on POST and PATCH and returns the exact 400 message. It runs before the task lookup."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "?status= filters in SQL, and an unknown or empty value returns the same 400."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "Responses include done, PATCH and POST accept done booleans, and ?done=false maps to status != 'done'. The new 400 on a non-boolean done is an addition the ticket doesn't ask for."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "The page uses a per-task select, PATCHes status, and the filter offers todo, doing and done."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "The tests cover the migration and the API paths. The README documents status and marks done as deprecated."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 6,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The test imports `migrate` from ../src/db.ts, but the diff doesn't show db.ts exporting it. If it isn't exported, the whole test file fails to load. I couldn't verify this from the diff."
+      },
+      {
+        "severity": "medium",
+        "category": "error-handling",
+        "file": "src/app.ts",
+        "what": "statusFromBody calls Object.hasOwn(body, ...) on whatever JSON was parsed. A body of `null` (or a bare number or string) throws a TypeError, which gives a 500 or a hang depending on the handler's catch. Malformed JSON had the same problem before this diff, but the new code adds another way to hit it."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "?done= now returns 400 for values other than true or false. Before, any value was accepted, so an old client sending ?done=1 would now break. This works against 'old clients keep working' and the ticket doesn't ask for it."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "POST and PATCH now return 400 for a non-boolean done, with a new error message. The ticket doesn't specify this, though it is documented in the README."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/db.ts",
+        "what": "The migration runs three statements through one exec. The diff doesn't show them wrapped in a transaction, so a failure partway (for example, DROP COLUMN on an old SQLite) could leave a half-migrated table. The migration test only checks the success path."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "Several tests assert over a shared database and use `every` or `some`. They pass trivially if the filter result is empty, and the ?done= tests are weak for that reason."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The change meets every criterion with clean validation, a correct data-preserving migration, and broad API and migration tests. The main concerns are a possibly unexported `migrate` that the test imports, a 500 path on non-object JSON bodies, and a stricter `?done=` that could break old clients.",
+    "cost_usd": 0.0685664
+  }
+}
