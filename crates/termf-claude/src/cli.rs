@@ -370,6 +370,11 @@ pub fn which(env: &Env, program: &str) -> Option<PathBuf> {
         .clone()
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default();
+    which_in(&path, program)
+}
+
+/// The program `path`, a `PATH`-like list of folders, resolves.
+pub fn which_in(path: &std::ffi::OsStr, program: &str) -> Option<PathBuf> {
     let exts: &[&str] = if cfg!(windows) {
         &[".exe", ".cmd", ".bat", ""]
     } else {

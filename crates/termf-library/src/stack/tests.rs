@@ -834,3 +834,55 @@ fn cleans_versions_and_checks_ranges() {
         assert_eq!(covers(range, version), want, "{range} {version}");
     }
 }
+
+#[test]
+fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() {
+    let bin = temp_dir("stack-lsp-bin");
+    put(&bin.join("rust-analyzer"), "");
+    put(&bin.join("basedpyright-langserver"), "");
+    let tags: Vec<Tag> = ["docker", "python", "rust", "node", "typescript"]
+        .iter()
+        .map(|t| Tag {
+            name: (*t).into(),
+            version: None,
+            source: "x".into(),
+        })
+        .collect();
+    let servers = language_servers(&tags, bin.as_os_str());
+    let found: Vec<(&str, &str, bool)> = servers
+        .iter()
+        .map(|s| (s.name, s.r#for.as_str(), s.installed))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("rust-analyzer", "rust", true),
+            ("typescript", "node", false),
+            ("basedpyright", "python", true),
+        ],
+        "basedpyright takes pyright's place once installed; docker has none"
+    );
+    assert!(servers[1].docs.ends_with("/plugins/typescript-lsp"));
+
+    let declared = Value::Object(lsp_json(&servers));
+    assert_eq!(
+        declared,
+        serde_json::json!({
+            "rust-analyzer": { "command": "rust-analyzer", "extensionToLanguage": { ".rs": "rust" } },
+            "basedpyright": {
+                "command": "basedpyright-langserver",
+                "args": ["--stdio"],
+                "extensionToLanguage": { ".py": "python", ".pyi": "python" },
+            },
+        })
+    );
+
+    let none = temp_dir("stack-lsp-none");
+    let missing = language_servers(&tags, none.as_os_str());
+    assert!(missing.iter().all(|s| !s.installed));
+    assert_eq!(
+        missing[2].name, "pyright",
+        "the official one is the one to install"
+    );
+    assert!(lsp_json(&missing).is_empty());
+}

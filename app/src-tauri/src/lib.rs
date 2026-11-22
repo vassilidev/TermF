@@ -364,6 +364,7 @@ pub fn run() {
             keep_awake::keep_awake_set,
             library::library_list,
             library::library_stack,
+            library::library_lsp,
             library::library_toggle,
             library::library_explain,
             library::library_import_claude,

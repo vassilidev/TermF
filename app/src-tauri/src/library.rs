@@ -53,6 +53,22 @@ pub async fn library_stack(
         .collect())
 }
 
+/// Whether the project's sessions get the language servers of its stack, after writing `enabled` when given.
+#[tauri::command]
+pub fn library_lsp(
+    state: State<AppState>,
+    project: String,
+    enabled: Option<bool>,
+) -> CmdResult<bool> {
+    if let Some(on) = enabled {
+        termf_library::set_language_servers(&state.config_dir, &project, on).map_err(err)?;
+    }
+    Ok(termf_library::language_servers_on(
+        &state.config_dir,
+        Some(&project),
+    ))
+}
+
 /// `enabled: null` removes the toggle, so the item inherits.
 #[tauri::command]
 pub fn library_toggle(

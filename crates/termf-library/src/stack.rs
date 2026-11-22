@@ -1181,6 +1181,8 @@ pub struct RepoStack {
     /// Claude Code trusts the repository: the skills and guides of its packages are loaded like its own
     /// `.claude/skills`. Otherwise they are offered, off until switched on.
     pub trusted: bool,
+    /// The language servers of its stack, installed or not; `read` leaves them to the caller.
+    pub servers: Vec<LanguageServer>,
 }
 
 impl RepoStack {
@@ -1209,6 +1211,7 @@ impl RepoStack {
             skills,
             guides,
             trusted: false,
+            servers: Vec::new(),
         };
         CACHE
             .lock()
@@ -1652,6 +1655,222 @@ pub fn offers(stack: &RepoStack) -> (Vec<McpOffer>, Vec<SkillSource>) {
         }
     }
     (mcp, sources)
+}
+
+/// A language server Claude Code can start for the stack, so that the agent sees the errors of its edits and
+/// finds code by symbol. TermF declares it in the session's plugin only when it is installed.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageServer {
+    /// Its name in `.lsp.json`.
+    pub name: &'static str,
+    /// The tag it is offered for.
+    pub r#for: String,
+    /// The binary Claude Code starts from the `PATH`.
+    pub command: &'static str,
+    pub installed: bool,
+    /// How to install it.
+    pub docs: String,
+}
+
+struct ServerDef {
+    tags: &'static [&'static str],
+    /// Servers of the same language are alternatives: the first one installed is declared.
+    language: &'static str,
+    name: &'static str,
+    command: &'static str,
+    args: &'static [&'static str],
+    extensions: &'static [(&'static str, &'static str)],
+    startup_timeout: Option<u64>,
+    docs: &'static str,
+}
+
+const OFFICIAL: &str = "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/";
+
+/// The configurations of Anthropic's code intelligence plugins (claude-plugins-official, checked 2026-11-22),
+/// and basedpyright as an alternative to pyright.
+const SERVERS: [ServerDef; 11] = [
+    ServerDef {
+        tags: &["rust"],
+        language: "rust",
+        name: "rust-analyzer",
+        command: "rust-analyzer",
+        args: &[],
+        extensions: &[(".rs", "rust")],
+        startup_timeout: None,
+        docs: "rust-analyzer-lsp",
+    },
+    ServerDef {
+        tags: &["typescript", "node"],
+        language: "typescript",
+        name: "typescript",
+        command: "typescript-language-server",
+        args: &["--stdio"],
+        extensions: &[
+            (".ts", "typescript"),
+            (".tsx", "typescriptreact"),
+            (".js", "javascript"),
+            (".jsx", "javascriptreact"),
+            (".mts", "typescript"),
+            (".cts", "typescript"),
+            (".mjs", "javascript"),
+            (".cjs", "javascript"),
+        ],
+        startup_timeout: None,
+        docs: "typescript-lsp",
+    },
+    ServerDef {
+        tags: &["python"],
+        language: "python",
+        name: "pyright",
+        command: "pyright-langserver",
+        args: &["--stdio"],
+        extensions: &[(".py", "python"), (".pyi", "python")],
+        startup_timeout: None,
+        docs: "pyright-lsp",
+    },
+    ServerDef {
+        tags: &["python"],
+        language: "python",
+        name: "basedpyright",
+        command: "basedpyright-langserver",
+        args: &["--stdio"],
+        extensions: &[(".py", "python"), (".pyi", "python")],
+        startup_timeout: None,
+        docs: "https://docs.basedpyright.com/latest/installation/command-line-and-language-server/",
+    },
+    ServerDef {
+        tags: &["go"],
+        language: "go",
+        name: "gopls",
+        command: "gopls",
+        args: &[],
+        extensions: &[(".go", "go")],
+        startup_timeout: None,
+        docs: "gopls-lsp",
+    },
+    ServerDef {
+        tags: &["php"],
+        language: "php",
+        name: "intelephense",
+        command: "intelephense",
+        args: &["--stdio"],
+        extensions: &[(".php", "php")],
+        startup_timeout: None,
+        docs: "php-lsp",
+    },
+    ServerDef {
+        tags: &["ruby"],
+        language: "ruby",
+        name: "ruby-lsp",
+        command: "ruby-lsp",
+        args: &[],
+        extensions: &[
+            (".rb", "ruby"),
+            (".rake", "ruby"),
+            (".gemspec", "ruby"),
+            (".ru", "ruby"),
+            (".erb", "erb"),
+        ],
+        startup_timeout: None,
+        docs: "ruby-lsp",
+    },
+    ServerDef {
+        tags: &["java"],
+        language: "java",
+        name: "jdtls",
+        command: "jdtls",
+        args: &[],
+        extensions: &[(".java", "java")],
+        startup_timeout: Some(120_000),
+        docs: "jdtls-lsp",
+    },
+    ServerDef {
+        tags: &["kotlin"],
+        language: "kotlin",
+        name: "kotlin-lsp",
+        command: "kotlin-lsp",
+        args: &["--stdio"],
+        extensions: &[(".kt", "kotlin"), (".kts", "kotlin")],
+        startup_timeout: Some(120_000),
+        docs: "kotlin-lsp",
+    },
+    ServerDef {
+        tags: &["swift", "ios"],
+        language: "swift",
+        name: "sourcekit-lsp",
+        command: "sourcekit-lsp",
+        args: &[],
+        extensions: &[(".swift", "swift")],
+        startup_timeout: None,
+        docs: "swift-lsp",
+    },
+    ServerDef {
+        tags: &["dotnet"],
+        language: "csharp",
+        name: "csharp-ls",
+        command: "csharp-ls",
+        args: &[],
+        extensions: &[(".cs", "csharp")],
+        startup_timeout: None,
+        docs: "csharp-lsp",
+    },
+];
+
+/// The language servers of `tags`, one a language, found or not in `path` (the `PATH` the sessions get).
+pub fn language_servers(tags: &[Tag], path: &std::ffi::OsStr) -> Vec<LanguageServer> {
+    let language_of = |name: &str| SERVERS.iter().find(|d| d.name == name).map(|d| d.language);
+    let mut servers: Vec<LanguageServer> = Vec::new();
+    for def in &SERVERS {
+        let Some(tag) = tags.iter().find(|t| def.tags.contains(&t.name.as_str())) else {
+            continue;
+        };
+        let server = LanguageServer {
+            name: def.name,
+            r#for: tag.name.clone(),
+            command: def.command,
+            installed: termf_claude::cli::which_in(path, def.command).is_some(),
+            docs: match def.docs.starts_with("https://") {
+                true => def.docs.to_owned(),
+                false => format!("{OFFICIAL}{}", def.docs),
+            },
+        };
+        match servers
+            .iter_mut()
+            .find(|s| language_of(s.name) == Some(def.language))
+        {
+            Some(s) if !s.installed && server.installed => *s = server,
+            Some(_) => {}
+            None => servers.push(server),
+        }
+    }
+    servers
+}
+
+/// `.lsp.json` for the installed servers of `servers`, each once.
+pub fn lsp_json(servers: &[LanguageServer]) -> serde_json::Map<String, Value> {
+    let mut map = serde_json::Map::new();
+    for server in servers.iter().filter(|s| s.installed) {
+        let Some(def) = SERVERS.iter().find(|d| d.name == server.name) else {
+            continue;
+        };
+        let mut config = serde_json::json!({
+            "command": def.command,
+            "extensionToLanguage": def
+                .extensions
+                .iter()
+                .map(|(ext, lang)| ((*ext).to_owned(), Value::from(*lang)))
+                .collect::<serde_json::Map<_, _>>(),
+        });
+        if !def.args.is_empty() {
+            config["args"] = def.args.into();
+        }
+        if let Some(ms) = def.startup_timeout {
+            config["startupTimeout"] = ms.into();
+        }
+        map.insert(def.name.to_owned(), config);
+    }
+    map
 }
 
 #[cfg(test)]
