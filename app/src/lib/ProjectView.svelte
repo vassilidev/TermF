@@ -231,7 +231,7 @@
           id: s.id,
           label: t(s.id === "project" && !project ? "newProject" : s.label),
           icon: s.icon,
-          count: s.id === "project" ? chosen.length : null,
+          count: s.id === "project" && chosen.length ? chosen.length : null,
           apart: s.id === "delete",
           danger: s.id === "delete",
         }))}
@@ -507,7 +507,9 @@
     letter-spacing: -0.01em;
   }
 
-  h2 + .help {
+  /* A title's description sits close under it; the trust panel starts with its own. */
+  h2 + .help,
+  h2 + :global(.trust) {
     margin-top: -10px;
   }
 

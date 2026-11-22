@@ -174,7 +174,7 @@
   }
 
   .access {
-    width: 168px;
+    width: 22%;
   }
 
   .layer {
@@ -213,8 +213,7 @@
   }
 
   .off .who b,
-  .off .tag,
-  .off td.muted {
+  .off .tag {
     opacity: 0.6;
   }
 
@@ -232,16 +231,20 @@
     line-height: 1.35;
   }
 
+  .who b,
+  .who small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .who b {
     font-weight: 600;
   }
 
   .who small {
-    overflow: hidden;
     color: var(--muted);
     font-size: var(--text-sm);
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .mark {
