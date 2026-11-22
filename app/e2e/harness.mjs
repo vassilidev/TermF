@@ -82,7 +82,13 @@ function visible(css) {
 
 function kill(driver) {
   if (!driver.pid || driver.exitCode !== null || driver.signalCode !== null) return;
-  if (windows) execFileSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"], { stdio: "ignore" });
+  if (windows) {
+    try {
+      execFileSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      // Already gone.
+    }
+  }
   else process.kill(-driver.pid, "SIGKILL");
 }
 
