@@ -1,0 +1,9 @@
+- Version: the `redis:<v>` or `valkey/valkey:<v>` image in Compose or CI, or `redis-cli INFO server`; the client library in the lockfile.
+- Docs: https://redis.io/llms.txt (Redis 8.10.3, Valkey 9.2.0 verified 2026-11-22). Official skills: `redis/agent-skills` (MIT), `valkey-io/valkey-skills` (BSD-3-Clause).
+- Verify: the project's tests against the local server, `redis-cli -u "$REDIS_URL" PING`, `--scan --pattern '<prefix>:*'`, `TTL <key>`.
+- Every cache key gets a TTL set with the value (`SET k v EX 300`); keep the project's key prefix.
+- `SCAN`, never `KEYS`; no whole reads of large hashes, sets or lists.
+- Redis 8 has JSON, `FT.*`, time series built in, and widens `@read`/`@write` ACL categories; Valkey does not have them.
+- Cluster: keys used together share a `{hash tag}`.
+- Licence: Redis 8+ AGPLv3/RSALv2/SSPLv1, Valkey BSD-3-Clause: say it in the report when adding a server.
+- Read the skill `redis` before adding caching, locks, rate limits or queues on Redis or Valkey.
