@@ -101,7 +101,7 @@ export async function measure(port, log) {
       async () => (await t.s.exec(() => !!document.querySelector('.nav [data-project="acme"]'))) && Date.now(),
       { what: "the window to be usable", timeout: 60_000, every: 10 },
     );
-    const started = appTree(app.driver.pid)[0].started;
+    const started = appTree(app.root)[0].started;
     starts.push(shown - started);
     // Where the time goes: the backend and the webview until the page starts loading, then the page.
     const page = await t.s.exec(() => performance.timeOrigin);
@@ -109,7 +109,7 @@ export async function measure(port, log) {
   }
   out.coldStart = median(starts);
   try {
-    const driver = t.app.driver.pid;
+    const driver = t.app.root;
     await t.ready();
     await t.settled("home");
     out.idleRam = mb(sum(appTree(driver, ours), "mem"));

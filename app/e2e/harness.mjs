@@ -1,6 +1,6 @@
 // Starts the real app through tauri-driver in a sandbox, and the helpers every scenario uses.
 import { spawn, execFileSync } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Key, Session } from "./webdriver.mjs";
@@ -81,66 +81,79 @@ function visible(css) {
   return !!el && el.getClientRects().length > 0;
 }
 
-function kill(driver) {
-  if (!driver.pid || driver.exitCode !== null || driver.signalCode !== null) return;
-  if (windows) {
-    try {
-      execFileSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"], { stdio: "ignore" });
-    } catch {
-      // Already gone.
-    }
+function kill(child) {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+  if (!windows) return process.kill(-child.pid, "SIGKILL");
+  try {
+    execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  } catch {
+    // Already gone.
   }
-  else process.kill(-driver.pid, "SIGKILL");
 }
 
-/** tauri-driver on `port`, its native driver on `port + 1`. `args` go to the app on Linux, to WebView2 on Windows. */
+function watch(child) {
+  const state = { failed: null };
+  state.exited = new Promise((resolve) => child.once("exit", resolve).once("error", (e) => resolve((state.failed = e))));
+  return state;
+}
+
+/**
+ * Linux: tauri-driver on `port`, WebKitWebDriver on `port + 1`, `args` to the app. Windows: Edge WebDriver launching
+ * the app leaves its session hanging (the app does start), so the app is started here with WebView2's debugging
+ * port open (`port + 1`, `args` added to WebView2's), and Edge WebDriver on `port` attaches to it, as Microsoft
+ * documents for WebView2 apps.
+ */
 export async function launch(box, port, { args = [] } = {}, signal) {
   const log = join(box.root, "app.log");
   const fd = openSync(log, "a");
-  const driver = spawn(tauriDriver(), ["--port", String(port), "--native-port", String(port + 1)], {
-    env: box.env,
-    stdio: ["ignore", fd, fd],
-    detached: !windows,
-  });
+  const io = { stdio: ["ignore", fd, fd], detached: !windows };
+  const debug = port + 1;
+  const driver = windows
+    ? spawn("msedgedriver", [`--port=${port}`], { env: box.env, ...io })
+    : spawn(tauriDriver(), ["--port", String(port), "--native-port", String(debug)], { env: box.env, ...io });
+  const app = windows
+    ? spawn(APP, [], {
+        env: { ...box.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: [`--remote-debugging-port=${debug}`, ...args].join(" ") },
+        ...io,
+      })
+    : null;
   closeSync(fd);
-  let failed = null;
-  const exited = new Promise((resolve) => driver.once("exit", resolve).once("error", (e) => resolve((failed = e))));
+  const children = [driver, app].filter(Boolean).map((child) => ({ child, ...watch(child) }));
+  const failed = () => children.find((c) => c.failed)?.failed;
+  const stop = async () => {
+    for (const { child } of children) kill(child);
+    await Promise.all(children.map((c) => c.exited));
+  };
   const base = `http://127.0.0.1:${port}`;
+  const probe = new Session(base, "", signal);
   try {
-    await new Session(base, "", signal).wait(() => failed || fetch(`${base}/status`).then((r) => r.ok, () => false), {
-      what: "tauri-driver to listen",
-      timeout: 30_000,
-    });
-    if (failed) throw new Error(`cannot run tauri-driver: ${failed.message}`);
+    await probe.wait(() => failed() || fetch(`${base}/status`).then((r) => r.ok, () => false), { what: "the WebDriver to listen", timeout: 30_000 });
+    if (windows) {
+      await probe.wait(() => failed() || fetch(`http://127.0.0.1:${debug}/json/version`).then((r) => r.ok, () => false), {
+        what: "WebView2 to open its debugging port",
+        timeout: 60_000,
+      });
+    }
+    if (failed()) throw new Error(`cannot run the driver or the app: ${failed().message}`);
     const asked = Date.now();
-    const s = await Session.create(base, { browserName: "wry", "tauri:options": { application: APP, args } }, signal);
+    const capabilities = windows
+      ? { browserName: "webview2", "ms:edgeOptions": { debuggerAddress: `127.0.0.1:${debug}` } }
+      : { browserName: "wry", "tauri:options": { application: APP, args } };
+    const s = await Session.create(base, capabilities, signal);
     await s.exec(prepare);
-    // WebKitGTK under xvfb drops the first click of a pointer that never entered the window.
-    const enter = [{ type: "pointerMove", origin: "viewport", x: 1, y: 1, duration: 0 }];
-    await s.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions: enter }] });
     return {
       s,
       log,
       asked,
-      driver,
+      // The process the app runs under, for the measures.
+      root: windows ? process.pid : driver.pid,
       async stop() {
         await s.close().catch(() => {});
-        kill(driver);
-        await exited;
+        await stop();
       },
     };
   } catch (e) {
-    if (windows) {
-      // What runs when the session could not open: the app, its WebView2, the drivers.
-      const list = "Get-Process termf-app,msedgewebview2,msedgedriver,tauri-driver -ErrorAction SilentlyContinue | Format-Table -AutoSize Id,ProcessName,StartTime | Out-String -Width 200";
-      try {
-        appendFileSync(log, execFileSync("powershell", ["-NoProfile", "-Command", list], { encoding: "utf8" }));
-      } catch {
-        // Diagnostics only.
-      }
-    }
-    kill(driver);
-    await exited;
+    await stop();
     throw e;
   }
 }
