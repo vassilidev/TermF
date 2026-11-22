@@ -5877,6 +5877,7 @@ dependencies = [
  "termf-ssh",
  "termf-sync",
  "termf-team",
+ "termf-term",
  "termf-tickets",
  "termf-vault",
  "termf-visual",
