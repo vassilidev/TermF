@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addressed, blocked, mentioned, merge, nextAfter, pending, pinnedFirst, stream, summary, thread } from "../src/lib/conversation-logic.ts";
+import { addressed, blocked, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, stream, summary, thread } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -127,6 +127,17 @@ test("the CTO conversation shows first, the order stays otherwise", () => {
   const list = [{ id: 9 }, { id: 8, mcp: true }, { id: 7 }];
   assert.deepEqual(pinnedFirst(list).map((s) => s.id), [8, 9, 7]);
   assert.deepEqual(list.map((s) => s.id), [9, 8, 7], "the list itself, the most recent first, is untouched");
+});
+
+test("the expert's conversation shows under the CTO's, its answers to agents do not", () => {
+  const list = [
+    { id: 12, mcp: true, role: "expert", budget: 1 },
+    { id: 11, mcp: true, role: "expert", budget: null },
+    { id: 10 },
+    { id: 9, mcp: true, role: "cto", budget: null },
+  ];
+  assert.deepEqual(pinnedFirst(list).map((s) => s.id), [9, 11, 12, 10]);
+  assert.equal(pinned(list[0]), false, "an answer to another agent has a budget");
 });
 
 test("typing @ offers the project's roles", () => {

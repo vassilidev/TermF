@@ -33,6 +33,7 @@ const STOP_WAIT: Duration = Duration::from_secs(10);
 const KILL_WAIT: Duration = Duration::from_secs(5);
 /// How long a terminal may take to close when its session is handed back.
 const TILE_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 });
+const CONSULT_POLL: Duration = Duration::from_millis(if cfg!(test) { 50 } else { 500 });
 const BUSY: &str = "the session is being stopped, taken over or handed back";
 
 /// Clones share the same sessions.
@@ -61,6 +62,8 @@ struct Live {
     /// TermF's notices the agent has not read yet, and whether one should start a turn of its own.
     notices: Vec<String>,
     wake: bool,
+    /// The user's messages written during a turn: they go, as one, once it ends.
+    queued: Vec<String>,
     /// Permission requests waiting for an answer, with the tool input each asks about.
     pending: HashMap<String, Value>,
     interrupting: bool,
@@ -182,6 +185,22 @@ impl Agents {
         let store = inner.store()?;
         let mut live = inner.live.lock().unwrap();
         inner.deliver(&store, id, live.entry(id).or_default(), Some(text))
+    }
+
+    /// Sends a message now between two turns; during one, keeps it for its end (`true`), when it goes as the
+    /// user's message, so that nothing written to a busy agent is lost.
+    pub fn send_or_queue(&self, id: i64, text: &str) -> Result<bool> {
+        ensure!(!text.trim().is_empty(), "the message is empty");
+        let inner = &self.inner;
+        let store = inner.store()?;
+        let mut live = inner.live.lock().unwrap();
+        let entry = live.entry(id).or_default();
+        if matches!(store.session(id)?.state, State::Working | State::Waiting) {
+            entry.queued.push(text.to_owned());
+            return Ok(true);
+        }
+        inner.deliver(&store, id, entry, Some(text))?;
+        Ok(false)
     }
 
     /// Shows a notice from TermF in the conversation; the agent reads it with the next message. `wake`: in a
@@ -443,6 +462,75 @@ impl Agents {
     pub fn events(&self, id: i64, after: i64) -> Result<Vec<StoredEvent>> {
         store::events(&self.inner.data_dir, id, after)
     }
+
+    /// Starts a session on `prompt` and waits for its answer, what TermF asks an agent for another (`ask_expert`).
+    /// Nobody is there to approve a tool, so each permission it asks for is refused; past `timeout` it is stopped.
+    /// Its process ends with the answer; the conversation stays, and a message resumes it.
+    pub fn consult(
+        &self,
+        spec: SessionSpec,
+        prompt: &str,
+        timeout: Duration,
+    ) -> Result<(AgentSession, String)> {
+        let id = self.start(spec, Some(prompt))?.id;
+        let deadline = std::time::Instant::now() + timeout;
+        let session = loop {
+            let session = self.session(id)?;
+            match session.state {
+                State::Working => {}
+                State::Waiting => {
+                    let pending: Vec<String> = {
+                        let live = self.inner.live.lock().unwrap();
+                        live.get(&id)
+                            .map(|e| e.pending.keys().cloned().collect())
+                            .unwrap_or_default()
+                    };
+                    for request in pending {
+                        let why = "Nobody can approve this here: answer with what you can read.";
+                        let _ = self.answer(id, &request, false, Some(why));
+                    }
+                }
+                _ => break session,
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = self.stop(id);
+                bail!(
+                    "no answer within {} minutes (conversation {id})",
+                    timeout.as_secs() / 60
+                );
+            }
+            std::thread::sleep(CONSULT_POLL);
+        };
+        if session.state == State::Idle {
+            self.stop(id)?;
+        }
+        let events = self.events(id, 0)?;
+        // The result line holds the answer; its last text says the same when that line has none.
+        let said = events.iter().rev().find_map(|e| match &e.event {
+            AgentEvent::Text { text, parent: None } => Some(text.clone()),
+            _ => None,
+        });
+        let end = events.into_iter().rev().find_map(|e| match e.event {
+            AgentEvent::TurnEnd {
+                outcome,
+                result,
+                error,
+                ..
+            } => Some((outcome, result.or(said.clone()), error)),
+            _ => None,
+        });
+        match end {
+            Some((Outcome::Done, Some(text), _)) if !text.trim().is_empty() => {
+                Ok((self.session(id)?, text))
+            }
+            Some((Outcome::Budget, ..)) => bail!(
+                "its budget ran out (${:.2}) before it answered (conversation {id})",
+                session.cost
+            ),
+            Some((_, _, Some(error))) => bail!("no answer: {error} (conversation {id})"),
+            _ => bail!("no answer (conversation {id})"),
+        }
+    }
 }
 
 fn tile(entry: &Live) -> Option<u32> {
@@ -537,12 +625,21 @@ impl Inner {
         if entry.process.is_none() {
             self.launch(store, id, entry)?;
         }
-        self.write(entry, &self.runtime.message(&message(&entry.notices, text)))?;
+        let mut said = entry.queued.clone();
+        said.extend(text.map(str::to_owned));
+        let text = (!said.is_empty()).then(|| said.join("\n\n"));
+        self.write(
+            entry,
+            &self
+                .runtime
+                .message(&message(&entry.notices, text.as_deref())),
+        )?;
         entry.notices.clear();
+        entry.queued.clear();
         entry.wake = false;
         entry.interrupting = false;
         if let Some(text) = text {
-            self.record(store, id, AgentEvent::User { text: text.into() });
+            self.record(store, id, AgentEvent::User { text });
         }
         self.set_state(store, id, entry, State::Working)
     }
@@ -573,12 +670,18 @@ impl Inner {
         let system_prompt = library(&self.config_dir, &session.spec, &dir);
         let plugin = dir.join("plugin");
         let resume = store.started(id)?;
-        let (mcp, dirs) = match session.spec.mcp {
-            true => {
-                let dirs = other_repos(&self.config_dir, &session.spec)?;
-                (Some(self.mcp_config(id, &dir)?), dirs)
-            }
-            false => (None, Vec::new()),
+        let dirs = match session.spec.mcp {
+            true => other_repos(&self.config_dir, &session.spec)?,
+            false => Vec::new(),
+        };
+        let tools = crate::mcp_tools(&session.spec);
+        let mcp = if tools.is_empty() {
+            None
+        } else if session.spec.mcp {
+            Some(self.mcp_config(id, &dir, &tools)?)
+        } else {
+            // A role that may ask the expert still works without it, e.g. with no app to serve the tool.
+            self.mcp_config(id, &dir, &tools).ok()
         };
         let args = self.runtime.headless_args(
             &session.spec,
@@ -764,7 +867,8 @@ impl Inner {
             session.tile = tile(entry);
             (self.sink)(Update::Session(session.clone()));
         }
-        if current && entry.wake && !entry.busy && session.state == State::Idle {
+        let due = entry.wake || !entry.queued.is_empty();
+        if current && due && !entry.busy && session.state == State::Idle {
             self.deliver(store, id, entry, None)?;
         }
         Ok(())
@@ -772,12 +876,13 @@ impl Inner {
 
     /// Writes the `--mcp-config` of the session's `termf mcp`, readable by the user only: it holds the
     /// session's token.
-    fn mcp_config(&self, id: i64, dir: &Path) -> Result<PathBuf> {
+    fn mcp_config(&self, id: i64, dir: &Path, tools: &[&str]) -> Result<PathBuf> {
         let mcp = self
             .mcp
             .get()
             .context("TermF's tools cannot be served here: the conversation needs the app")?;
-        let server = (mcp.server)(id)?;
+        let mut server = (mcp.server)(id)?;
+        server["env"][ipc::ENV_MCP_TOOLS] = tools.join(",").into();
         let file = dir.join("mcp.json");
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);

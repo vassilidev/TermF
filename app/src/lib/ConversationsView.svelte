@@ -11,10 +11,21 @@
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { agents, conversation, ctoOf, listed, showCto, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import {
+    agents,
+    conversation,
+    ctoOf,
+    expertOf,
+    listed,
+    showCto,
+    showExpert,
+    upsert,
+    usd,
+    type AgentSession,
+  } from "$lib/agents.svelte";
   import { currentProject, isMac, scopeRepos } from "$lib/files.svelte";
   import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
-  import { pinnedFirst } from "$lib/conversation-logic";
+  import { pinned, pinnedFirst } from "$lib/conversation-logic";
   import { ago, t } from "$lib/i18n";
   import type { Item } from "$lib/library.svelte";
   import { mostRecent } from "$lib/nav-logic";
@@ -193,6 +204,18 @@
           </button>
         </li>
       {/if}
+      {#if app.project !== null && !expertOf(app.project)}
+        <li class="row">
+          <span class="slot" aria-hidden="true"></span>
+          <button class="pick" onclick={showExpert}>
+            <span class="name">
+              <span class="title">{t("expertTitle", { project: currentProject()?.name ?? app.project })}</span>
+              <Pin size={12} class="pin" aria-label={t("ctoPinned")} />
+            </span>
+            <span class="desc">{t("expertStart")}</span>
+          </button>
+        </li>
+      {/if}
       {#each sessions as session (session.id)}
         <li class="row" class:current={session === current && !creating} class:picked={chosen.includes(session)}>
           <input
@@ -209,8 +232,8 @@
           >
             <span class="name">
               <span class="title">{session.title}</span>
-              {#if session.mcp}<Pin size={12} class="pin" aria-label={t("ctoPinned")} />{/if}
-              {#if session.role && !session.mcp}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
+              {#if pinned(session)}<Pin size={12} class="pin" aria-label={t("ctoPinned")} />{/if}
+              {#if session.role && !pinned(session)}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
             </span>
             <span class="desc">{usd(session.cost)} · {ago(session.updated)}</span>
           </button>
