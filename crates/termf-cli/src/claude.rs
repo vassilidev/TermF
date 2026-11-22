@@ -12,7 +12,8 @@ use crate::take_opt;
 pub fn run(mut args: Vec<&str>) -> Result<()> {
     let scope = take_opt(&mut args, "--scope")?;
     let accept = take_opt(&mut args, "--accept-command")?;
-    let repo = match take_opt(&mut args, "--repo")? {
+    let repo_arg = take_opt(&mut args, "--repo")?;
+    let repo = match &repo_arg {
         Some(repo) => std::path::absolute(repo)?,
         None => std::env::current_dir()?,
     };
@@ -36,7 +37,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 key: key.to_string(),
                 value,
             };
-            let saved = settings::save(&env, scope, &edit)?;
+            let saved = settings::save(&env, scope, &edit, None)?;
             if saved.diff.is_empty() {
                 println!("{} already says so", saved.path);
             } else {
@@ -65,34 +66,40 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
             println!("{}", manage::mcp(&env, &action)?);
             Ok(())
         }
-        ["plugin", action, plugin] => {
+        ["plugin", "install", plugin] => {
+            let scope = scope.unwrap_or_else(|| "user".into());
+            let action = PluginAction::Install {
+                plugin: plugin.to_string(),
+                scope: scope.clone(),
+                accept,
+            };
+            let done = manage::plugin(&env, &action)?;
+            if let Some(shown) = done.shown {
+                let sha = shown["sha256"].as_str().unwrap_or_default();
+                bail!(
+                    "{}\nthe marketplace runs this command to install it:\n  {}\nonce you trust it: {}",
+                    done.message,
+                    shown["command"].as_str().unwrap_or_default(),
+                    accept_hint(plugin, &scope, repo_arg.as_deref(), sha)
+                );
+            }
+            println!("{}", done.message);
+            Ok(())
+        }
+        ["plugin", action @ ("remove" | "enable" | "disable"), plugin] => {
+            if accept.is_some() {
+                bail!("--accept-command goes with install only");
+            }
             let plugin = plugin.to_string();
             let action = match *action {
-                "install" => PluginAction::Install {
-                    plugin,
-                    scope: scope.unwrap_or_else(|| "user".into()),
-                    accept,
-                },
                 "remove" => PluginAction::Uninstall {
                     plugin,
                     scope: scope.unwrap_or_else(|| "user".into()),
                 },
                 "enable" => PluginAction::Enable { plugin, scope },
-                "disable" => PluginAction::Disable { plugin, scope },
-                _ => bail!(crate::USAGE),
+                _ => PluginAction::Disable { plugin, scope },
             };
-            let done = manage::plugin(&env, &action)?;
-            if let Some(shown) = done.shown {
-                bail!(
-                    "{}\nthe marketplace runs this command to install it:\n  {}\nonce you trust it: \
-                     termf claude plugin install {} --accept-command {}",
-                    done.message,
-                    shown["command"].as_str().unwrap_or_default(),
-                    shown["plugin"].as_str().unwrap_or_default(),
-                    shown["sha256"].as_str().unwrap_or_default()
-                );
-            }
-            println!("{}", done.message);
+            println!("{}", manage::plugin(&env, &action)?.message);
             Ok(())
         }
         _ => bail!(crate::USAGE),
@@ -133,4 +140,22 @@ fn get(env: &Env, key: &str, scope: Option<&str>) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// The same install, with what it needs to run the command the marketplace showed.
+fn accept_hint(plugin: &str, scope: &str, repo: Option<&str>, sha: &str) -> String {
+    let repo = repo.map(|r| format!(" --repo {r}")).unwrap_or_default();
+    format!("termf claude plugin install {plugin} --scope {scope}{repo} --accept-command {sha}")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_accept_hint_keeps_scope_and_repository() {
+        assert_eq!(
+            super::accept_hint("db@acme", "project", Some("../api"), "ab12"),
+            "termf claude plugin install db@acme --scope project --repo ../api --accept-command ab12"
+        );
+        assert!(!super::accept_hint("db@acme", "user", None, "ab12").contains("--repo"));
+    }
 }

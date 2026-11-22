@@ -32,7 +32,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { allRepos } from "$lib/files.svelte";
-  import { alerts, field, type Alert } from "$lib/claude-logic";
+  import { alerts, field, prefill, type Alert } from "$lib/claude-logic";
   import {
     blockMarkdown,
     blockTitle,
@@ -206,9 +206,7 @@
     if (!edit || !o) return;
     discard();
     editError = "";
-    // Another scope's value is a handy start, unless it is masked: it could not be revealed from this file.
-    const other = effective(o, edit.key)?.value;
-    const v = fileValue(o, edit.scope, edit.key) ?? (JSON.stringify(other ?? "").includes("••••••") ? undefined : other);
+    const v = prefill(fileValue(o, edit.scope, edit.key), effective(o, edit.key));
     edit.value = v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v, null, 2);
   }
 

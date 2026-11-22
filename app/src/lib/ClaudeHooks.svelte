@@ -62,7 +62,7 @@
             class="icon-btn sm"
             title={t("claudeMgmtRemoveItem", { item: h.event })}
             aria-label={t("claudeMgmtRemoveItem", { item: `${h.event} · ${h.run}` })}
-            onclick={() => propose(`hook:${h.scope}:${h.event}:${h.group}:${h.index}`, h.scope, { op: "dropHook", event: h.event, group: h.group, index: h.index })}
+            onclick={() => propose(`hook:${h.scope}:${h.event}:${h.group}:${h.index}`, h.scope, { op: "dropHook", event: h.event, group: h.group, index: h.index, run: h.run })}
             ><X size={13} aria-hidden="true" /></button
           >
         {:else}

@@ -62,7 +62,7 @@
   function items(key: string) {
     return order.flatMap((s) => {
       const v = fileValue(o, s, key);
-      return Array.isArray(v) ? v.map((item, index) => ({ scope: s, item: show(item), index })) : [];
+      return Array.isArray(v) ? v.map((item, index) => ({ scope: s, item: show(item), raw: item as unknown, index })) : [];
     });
   }
 
@@ -160,7 +160,7 @@
                   onchange={(e) => {
                     const to = e.currentTarget.value;
                     e.currentTarget.value = "";
-                    if (to) edit("permissions", { op: "move", key, index: r.index, to: `permissions.${to}` });
+                    if (to) edit("permissions", { op: "move", key, index: r.index, to: `permissions.${to}`, value: r.raw });
                   }}
                 >
                   <option value="" disabled>{t("claudeMgmtMoveTo")}</option>
@@ -168,7 +168,7 @@
                 </select>
               </label>
             {/if}
-            {@render remove(r.scope, r.item, { op: "drop", key, index: r.index }, "permissions")}
+            {@render remove(r.scope, r.item, { op: "drop", key, index: r.index, value: r.raw }, "permissions")}
             </span>
           </li>
         {/each}

@@ -96,21 +96,22 @@ pub fn secret_key(key: &str) -> bool {
         })
 }
 
-/// `${API_KEY}`, `${API_KEY:-}`, `$API_KEY`: where the secret comes from, not the secret.
+/// `${API_KEY}`, `${API_KEY:-}`, `$API_KEY`: where the secret comes from, not the secret. A default value
+/// (`${API_KEY:-…}`) may be one, and so may a word that only starts with `$` (`$Up3rS3cret`).
 fn reference(value: &str) -> bool {
-    // In free text the closing brace is already cut off as punctuation.
     let name = match value.strip_prefix("${") {
-        Some(rest) => rest
-            .trim_end_matches('}')
-            .split(":-")
-            .next()
-            .unwrap_or_default(),
+        // In free text the closing brace is already cut off as punctuation.
+        Some(rest) => {
+            let inner = rest.strip_suffix('}').unwrap_or(rest);
+            inner.strip_suffix(":-").unwrap_or(inner)
+        }
         None => match value.strip_prefix('$') {
-            Some(name) => name,
-            None => return false,
+            Some(name) if !name.contains(|c: char| c.is_ascii_lowercase()) => name,
+            _ => return false,
         },
     };
-    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 pub fn secret_value(value: &str) -> bool {
@@ -173,6 +174,9 @@ fn secret_flag(word: &str) -> bool {
 }
 
 fn mask_word(word: &str) -> String {
+    if reference(word) {
+        return word.to_owned();
+    }
     if word.contains("://") {
         return mask_url(word);
     }
@@ -369,5 +373,37 @@ mod tests {
             v["GITHUB_TOKEN"], "${GITHUB_TOKEN}",
             "a reference, not a secret"
         );
+    }
+
+    #[test]
+    fn a_reference_hides_nothing_but_its_default_may() {
+        let masked = |key: &str, value: &str| {
+            let mut v = json!({ key: value });
+            mask(&mut v);
+            v[key] != value
+        };
+        for value in [
+            "${API_KEY}",
+            "${API_KEY:-}",
+            "$API_KEY",
+            "Bearer ${API_KEY}",
+        ] {
+            assert!(!masked("API_KEY", value), "{value}");
+            assert!(!masked("Authorization", value), "{value}");
+        }
+        for value in [
+            "${API_KEY:-sk-ant-api03-abcdefghijklmnop}",
+            "${API_KEY:-hunter2}",
+            "$Up3rS3cret",
+            "$hunter2",
+            "Bearer ${API_KEY:-abc}",
+        ] {
+            assert!(masked("API_KEY", value), "{value}");
+        }
+        assert_eq!(
+            mask_text("API_KEY=${API_KEY:-hunter2} TOKEN=$Up3rS3cret OK=${KEY:-}"),
+            format!("API_KEY={MASK}}} TOKEN={MASK} OK=${{KEY:-}}")
+        );
+        assert!(!masked("BASE_URL", "${BASE_URL:-https://api.acme.dev}"));
     }
 }

@@ -123,16 +123,17 @@ pub struct Saved {
     hooks: Vec<Hook>,
 }
 
-/// Returns the settings and hooks read again, masked.
+/// Writes what the preview `hash` showed, then returns the settings and hooks read again, masked.
 #[tauri::command]
 pub fn claude_setting_save(
     state: State<AppState>,
     scope: Scope,
     edit: Edit,
+    hash: String,
     repo: Option<String>,
 ) -> CmdResult<Saved> {
     let env = env(&state.config_dir, repo);
-    settings::save(&env, scope, &edit).map_err(err)?;
+    settings::save(&env, scope, &edit, Some(&hash)).map_err(err)?;
     let read = settings::read(&env);
     Ok(Saved {
         hooks: termf_claude::hooks(&read),
@@ -208,16 +209,17 @@ pub fn claude_mcp_json_preview(
     manage::mcp_json_preview(&env, &text).map_err(err)
 }
 
-/// Returns the servers listed again.
+/// Writes what the preview `hash` showed, then returns the servers listed again.
 #[tauri::command]
 pub async fn claude_mcp_json_save(
     state: State<'_, AppState>,
     repo: Option<String>,
     text: String,
+    hash: String,
 ) -> CmdResult<Mcp> {
     let env = env(&state.config_dir, repo);
     tauri::async_runtime::spawn_blocking(move || {
-        manage::mcp_json_save(&env, &text).map_err(err)?;
+        manage::mcp_json_save(&env, &text, Some(&hash)).map_err(err)?;
         Ok(cli::mcp(&env))
     })
     .await

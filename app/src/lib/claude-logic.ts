@@ -111,6 +111,21 @@ export function alerts(o: Overview): Alert[] {
   return out;
 }
 
+/** Answers that may come back out of order: only the last request asked counts. */
+export function latest() {
+  let last = 0;
+  return { next: () => ++last, isLast: (id: number) => id === last };
+}
+
+/** What the settings editor starts with for a key in one scope: that file's value; another scope's only for a
+ * single value: lists and objects add up across scopes, so copying what is in effect would bring every scope's
+ * items into this file, and a masked value could not be revealed from this file. */
+export function prefill(own: unknown, other: { value: unknown; merged: boolean } | undefined): unknown {
+  if (own !== undefined) return own;
+  if (!other || other.merged || (other.value !== null && typeof other.value === "object")) return undefined;
+  return JSON.stringify(other.value).includes("••••••") ? undefined : other.value;
+}
+
 type Schema = Record<string, unknown>;
 
 /** How the settings editor shows a key: a form control for what the schema describes simply, JSON for the rest

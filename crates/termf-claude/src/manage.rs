@@ -429,12 +429,21 @@ pub fn mcp_json_preview(env: &Env, text: &str) -> Result<Preview> {
     Ok(Preview {
         path: path.to_string_lossy().into_owned(),
         diff: settings::diff(&before, &text),
+        hash: settings::fingerprint(&before),
         text,
     })
 }
 
-pub fn mcp_json_save(env: &Env, text: &str) -> Result<Preview> {
+/// Refused when the file changed since the preview of `hash`.
+pub fn mcp_json_save(env: &Env, text: &str, hash: Option<&str>) -> Result<Preview> {
     let preview = mcp_json_preview(env, text)?;
+    if let Some(hash) = hash {
+        ensure!(
+            hash == preview.hash,
+            "{} changed since its preview: refresh and look at the change again",
+            preview.path
+        );
+    }
     settings::write_atomic(Path::new(&preview.path), &preview.text)?;
     Ok(preview)
 }

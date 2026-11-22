@@ -207,24 +207,12 @@ pub fn hooks(settings: &settings::Settings) -> Vec<Hook> {
             for (g, group) in groups.as_array().into_iter().flatten().enumerate() {
                 let matcher = group["matcher"].as_str().filter(|m| !m.is_empty());
                 for (index, hook) in group["hooks"].as_array().into_iter().flatten().enumerate() {
-                    let kind = hook["type"].as_str().unwrap_or("command");
-                    let run = ["command", "url", "prompt", "tool"]
-                        .iter()
-                        .find_map(|k| hook[*k].as_str())
-                        .unwrap_or_default();
-                    let args: Vec<&str> = hook["args"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .collect();
-                    let run = [run].into_iter().chain(args).collect::<Vec<_>>().join(" ");
                     list.push(Hook {
                         scope: f.scope,
                         event: event.clone(),
                         matcher: matcher.map(str::to_owned),
-                        kind: kind.to_owned(),
-                        run: mask::mask_text(&run),
+                        kind: hook["type"].as_str().unwrap_or("command").to_owned(),
+                        run: hook_run(hook),
                         group: g,
                         index,
                     });
@@ -233,6 +221,21 @@ pub fn hooks(settings: &settings::Settings) -> Vec<Hook> {
         }
     }
     list
+}
+
+/// What a hook runs, as the page shows it: the command, URL or prompt and its arguments, masked.
+pub(crate) fn hook_run(hook: &Value) -> String {
+    let run = ["command", "url", "prompt", "tool"]
+        .iter()
+        .find_map(|k| hook[*k].as_str())
+        .unwrap_or_default();
+    let args = hook["args"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    let run = [run].into_iter().chain(args).collect::<Vec<_>>().join(" ");
+    mask::mask_text(&run)
 }
 
 /// `name` and `description` from a Markdown file's frontmatter.

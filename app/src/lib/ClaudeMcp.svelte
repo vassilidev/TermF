@@ -77,13 +77,19 @@
   // Adding a server.
   type Pair = { key: string; value: string; shown: boolean };
   let adding = $state(false);
-  let form = $state({ name: "", transport: "stdio", scope: "local", command: "", args: "", url: "" });
+  // Without a repository, only the user scope can be chosen.
+  const blank = () => ({ name: "", transport: "stdio", scope: claudeView.repo ? "local" : "user", command: "", args: "", url: "" });
+  let form = $state(blank());
   let pairs = $state<Pair[]>([{ key: "", value: "", shown: false }]);
   const transports = ["stdio", "http", "sse"];
 
+  $effect(() => {
+    if (!claudeView.repo && form.scope !== "user") form.scope = "user";
+  });
+
   function resetForm() {
     adding = false;
-    form = { name: "", transport: "stdio", scope: "local", command: "", args: "", url: "" };
+    form = blank();
     pairs = [{ key: "", value: "", shown: false }];
   }
 
@@ -132,10 +138,10 @@
   }
 
   async function saveJson() {
-    if (!json) return;
+    if (!json || !jsonPreview) return;
     busy = "json";
     try {
-      o.mcp = await invoke<Overview["mcp"]>("claude_mcp_json_save", { repo: repo(), text: json.text });
+      o.mcp = await invoke<Overview["mcp"]>("claude_mcp_json_save", { repo: repo(), text: json.text, hash: jsonPreview.hash });
       claudeView.done = t("claudeMgmtSaved", { path: json.path });
       json = null;
       jsonPreview = null;
@@ -356,7 +362,7 @@
         </label>
       {:else}
         <label class="labelled">
-          <span>URL</span>
+          <span>{t("claudeMgmtUrl")}</span>
           <input class="field mono" bind:value={form.url} placeholder="https://mcp.example.com/mcp" required spellcheck="false" autocomplete="off" />
         </label>
       {/if}
@@ -484,9 +490,12 @@
                 disabled={!!busy}
                 aria-label={`${t("claudeViewEnabled")} · ${id}`}
                 title={p.enabled ? t("claudeViewOn") : t("claudeViewOff")}
-                onchange={(e) => {
-                  const on = e.currentTarget.checked;
-                  plugin({ op: on ? "enable" : "disable", plugin: id, scope: p.scope }, `toggle:${id}`, t(on ? "claudeMgmtEnabled" : "claudeMgmtDisabled", { id }));
+                onchange={async (e) => {
+                  const input = e.currentTarget;
+                  const on = input.checked;
+                  await plugin({ op: on ? "enable" : "disable", plugin: id, scope: p.scope }, `toggle:${id}`, t(on ? "claudeMgmtEnabled" : "claudeMgmtDisabled", { id }));
+                  // What Claude Code says now, whether the command worked or not.
+                  input.checked = !!o.plugins.plugins.find((x) => show(x.id) === id)?.enabled;
                 }}
               />
             {:else}
@@ -639,7 +648,7 @@
     {:else if ask.kind === "shown"}
       <p>{t("claudeMgmtShownText")}</p>
       <pre class="command">{ask.shown.command ?? JSON.stringify(ask.shown, null, 2)}</pre>
-      <p class="mono small">sha256 {ask.shown.sha256}</p>
+      <p class="mono small">{t("claudeMgmtSha", { sha: ask.shown.sha256 })}</p>
       <Banner kind="warn">{t("claudeMgmtShownWarning")}</Banner>
     {:else if ask.kind === "uninstall"}
       <p>{t("claudeMgmtUninstallText")}</p>

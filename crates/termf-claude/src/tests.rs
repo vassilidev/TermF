@@ -135,7 +135,7 @@ fn edits_a_setting_atomically_in_strict_json() {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&user, fs::Permissions::from_mode(0o600)).unwrap();
     }
-    settings::save(&env, Scope::User, &set("model", json!("opus"))).unwrap();
+    settings::save(&env, Scope::User, &set("model", json!("opus")), None).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -163,15 +163,22 @@ fn edits_a_setting_atomically_in_strict_json() {
         &env,
         Scope::User,
         &set("permissions.defaultMode", json!("plan")),
+        None,
     )
     .unwrap();
-    settings::save(&env, Scope::User, &unset("model")).unwrap();
+    settings::save(&env, Scope::User, &unset("model"), None).unwrap();
     let value: Value = serde_json::from_str(&fs::read_to_string(&user).unwrap()).unwrap();
     assert_eq!(value["permissions"]["defaultMode"], "plan");
     assert!(value.get("model").is_none());
 
     // The project file and its folder are created.
-    settings::save(&env, Scope::Local, &set("autoMemoryEnabled", json!(false))).unwrap();
+    settings::save(
+        &env,
+        Scope::Local,
+        &set("autoMemoryEnabled", json!(false)),
+        None,
+    )
+    .unwrap();
     let local: Value = serde_json::from_str(
         &fs::read_to_string(root.join("repo/.claude/settings.local.json")).unwrap(),
     )
@@ -215,7 +222,7 @@ fn edits_a_setting_atomically_in_strict_json() {
     }
 
     write(&root.join("repo/.claude/settings.json"), "{ broken");
-    let err = settings::save(&env, Scope::Project, &set("model", json!("opus"))).unwrap_err();
+    let err = settings::save(&env, Scope::Project, &set("model", json!("opus")), None).unwrap_err();
     assert!(err.to_string().contains("not a valid JSON object"), "{err}");
     assert_eq!(
         fs::read_to_string(root.join("repo/.claude/settings.json")).unwrap(),
@@ -232,7 +239,7 @@ fn writes_through_a_symlinked_settings_file() {
     write(&real, "{}");
     fs::create_dir_all(&env.claude_dir).unwrap();
     std::os::unix::fs::symlink(&real, env.claude_dir.join("settings.json")).unwrap();
-    settings::save(&env, Scope::User, &set("effortLevel", json!("high"))).unwrap();
+    settings::save(&env, Scope::User, &set("effortLevel", json!("high")), None).unwrap();
     assert!(
         fs::symlink_metadata(env.claude_dir.join("settings.json"))
             .unwrap()
@@ -1191,7 +1198,7 @@ fn edits_lists_and_hooks_item_by_item() {
         &user,
         "{\n\t\"model\": \"sonnet\",\n\t\"permissions\": {\n\t\t\"allow\": [\"Bash(npm test)\", \"Read\"]\n\t}\n}\n",
     );
-    let save = |edit: Edit| settings::save(&env, Scope::User, &edit).unwrap();
+    let save = |edit: Edit| settings::save(&env, Scope::User, &edit, None).unwrap();
 
     let p = save(Edit::Add {
         key: "permissions.deny".into(),
@@ -1202,6 +1209,7 @@ fn edits_lists_and_hooks_item_by_item() {
         key: "permissions.allow".into(),
         index: 1,
         to: "permissions.ask".into(),
+        value: Some(json!("Read")),
     });
     let v = read_json(&user);
     assert_eq!(v["permissions"]["allow"], json!(["Bash(npm test)"]));
@@ -1227,6 +1235,7 @@ fn edits_lists_and_hooks_item_by_item() {
         &Edit::Drop {
             key: "permissions.allow".into(),
             index: 5,
+            value: None,
         },
     );
     assert!(wrong.unwrap_err().to_string().contains("refresh"));
@@ -1235,14 +1244,17 @@ fn edits_lists_and_hooks_item_by_item() {
     save(Edit::Drop {
         key: "permissions.allow".into(),
         index: 0,
+        value: None,
     });
     save(Edit::Drop {
         key: "permissions.ask".into(),
         index: 0,
+        value: None,
     });
     save(Edit::Drop {
         key: "permissions.deny".into(),
         index: 0,
+        value: None,
     });
     assert_eq!(read_json(&user), json!({"model": "sonnet"}));
 
@@ -1281,6 +1293,7 @@ fn edits_lists_and_hooks_item_by_item() {
             event: "PostToolUse".into(),
             group,
             index,
+            run: None,
         });
     }
     assert!(read_json(&user).get("hooks").is_none(), "nothing left");
@@ -1296,6 +1309,7 @@ fn edits_lists_and_hooks_item_by_item() {
             event: "Stop".into(),
             group: 0,
             index: 0,
+            run: None,
         },
     ] {
         assert!(
@@ -1326,6 +1340,117 @@ fn refuses_secrets_in_the_shared_project_file() {
         settings::preview(&env, Scope::Local, edit).unwrap();
     }
     settings::preview(&env, Scope::Project, &set("env.NODE_ENV", json!("test"))).unwrap();
+    fs::remove_dir_all(&root).unwrap();
+}
+
+/// A hook already in the shared file with a secret is the user's to move out; it does not block other hooks,
+/// and neither do references (`${VAR}`), while a literal default or `$Password` is a secret.
+#[test]
+fn only_what_an_edit_brings_in_is_checked_for_secrets() {
+    let (root, env) = tree("added-hook");
+    write(
+        &root.join("repo/.claude/settings.json"),
+        &json!({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+            {"type": "command", "command": format!("curl -H 'Authorization: Bearer {TOKEN}' https://x.test")}
+        ]}]}})
+        .to_string(),
+    );
+    let hook = |command: &str| Edit::AddHook {
+        event: "PreToolUse".into(),
+        matcher: Some("Bash".into()),
+        command: command.into(),
+    };
+    settings::save(&env, Scope::Project, &hook("./scripts/guard.sh"), None).unwrap();
+    let v = read_json(&root.join("repo/.claude/settings.json"));
+    assert_eq!(
+        v["hooks"]["PreToolUse"][0]["hooks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    for value in ["${API_KEY}", "${API_KEY:-}", "$API_KEY"] {
+        settings::preview(&env, Scope::Project, &set("env.API_KEY", json!(value))).unwrap();
+    }
+    for value in ["${API_KEY:-sk-ant-api03-abcdefghijklmnop}", "$Up3rS3cret"] {
+        assert!(
+            settings::preview(&env, Scope::Project, &set("env.API_KEY", json!(value))).is_err()
+        );
+    }
+    fs::remove_dir_all(&root).unwrap();
+}
+
+/// Saving writes what the preview showed: a file changed since, or an item that is no longer where the page saw
+/// it, is refused.
+#[test]
+fn saves_only_what_the_preview_showed() {
+    let (root, env) = tree("stale");
+    let user = env.claude_dir.join("settings.json");
+    write(
+        &user,
+        &json!({"permissions": {"allow": ["Bash(ls)", "Bash(rm -rf *)"]}, "env": {"A": "1"},
+            "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify --token abc"}]}]}})
+        .to_string(),
+    );
+    let drop = |index, value: &str| Edit::Drop {
+        key: "permissions.allow".into(),
+        index,
+        value: Some(json!(value)),
+    };
+    let p = settings::preview(&env, Scope::User, &drop(0, "Bash(ls)")).unwrap();
+    // Someone else edits the file between the preview and the save.
+    write(
+        &user,
+        &json!({"permissions": {"allow": ["Bash(rm -rf *)", "Bash(ls)"]}, "env": {"A": "1"}})
+            .to_string(),
+    );
+    let err = settings::save(&env, Scope::User, &drop(0, "Bash(ls)"), Some(&p.hash)).unwrap_err();
+    assert!(
+        err.to_string().contains("changed since its preview"),
+        "{err}"
+    );
+    assert!(
+        settings::preview(&env, Scope::User, &drop(0, "Bash(ls)")).is_err(),
+        "not at 0 any more"
+    );
+    let p = settings::preview(&env, Scope::User, &drop(1, "Bash(ls)")).unwrap();
+    settings::save(&env, Scope::User, &drop(1, "Bash(ls)"), Some(&p.hash)).unwrap();
+    assert_eq!(
+        read_json(&user)["permissions"]["allow"],
+        json!(["Bash(rm -rf *)"])
+    );
+
+    write(
+        &user,
+        &json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify --token abc"}]}]}})
+            .to_string(),
+    );
+    let drop_hook = |run: &str| Edit::DropHook {
+        event: "Stop".into(),
+        group: 0,
+        index: 0,
+        run: Some(run.into()),
+    };
+    assert!(settings::preview(&env, Scope::User, &drop_hook("other.sh")).is_err());
+    let shown = format!("notify --token {}", mask::MASK);
+    settings::save(&env, Scope::User, &drop_hook(&shown), None).unwrap();
+    assert_eq!(read_json(&user), json!({}));
+    fs::remove_dir_all(&root).unwrap();
+}
+
+/// Removing the last key of an object removes the object too, as removing from a list does.
+#[test]
+fn removing_a_key_leaves_no_empty_object() {
+    let (root, env) = tree("prune-set");
+    let user = env.claude_dir.join("settings.json");
+    write(
+        &user,
+        &json!({"model": "opus", "env": {"A": "1"}, "permissions": {"defaultMode": "plan"}})
+            .to_string(),
+    );
+    settings::save(&env, Scope::User, &unset("env.A"), None).unwrap();
+    settings::save(&env, Scope::User, &unset("permissions.defaultMode"), None).unwrap();
+    assert_eq!(read_json(&user), json!({"model": "opus"}));
     fs::remove_dir_all(&root).unwrap();
 }
 
@@ -1597,8 +1722,13 @@ fn edits_the_repository_mcp_json_after_a_diff() {
     let p = manage::mcp_json_preview(&env, next).unwrap();
     assert!(p.diff.contains("+    \"web\""), "{}", p.diff);
     assert!(fs::read_to_string(&file).unwrap().contains("kept"));
-    manage::mcp_json_save(&env, next).unwrap();
+    manage::mcp_json_save(&env, next, Some(&p.hash)).unwrap();
     assert_eq!(fs::read_to_string(&file).unwrap(), format!("{next}\n"));
+    let stale = manage::mcp_json_save(&env, "{}", Some(&p.hash)).unwrap_err();
+    assert!(
+        stale.to_string().contains("changed since its preview"),
+        "{stale}"
+    );
 
     for bad in [
         "{ nope",

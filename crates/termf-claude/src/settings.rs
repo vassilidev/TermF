@@ -150,8 +150,9 @@ pub fn masked(mut settings: Settings) -> Settings {
     settings
 }
 
-/// One change to a settings file. Lists and hooks change item by item, by position: what the page shows is
-/// masked, so it never sends a whole value back unless you revealed it.
+/// One change to a settings file. Lists and hooks change item by item, by position and by what the page shows
+/// there (masked), so a file changed meanwhile is never edited at the wrong place; and the page never sends a
+/// whole value back unless you revealed it.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "op", rename_all = "camelCase")]
 pub enum Edit {
@@ -159,13 +160,20 @@ pub enum Edit {
     Set { key: String, value: Option<Value> },
     /// Appends an item to the list at `key`.
     Add { key: String, value: Value },
-    /// Removes item `index` of the list at `key`.
-    Drop { key: String, index: usize },
+    /// Removes item `index` of the list at `key`, which must be `value` (as masked) when given.
+    Drop {
+        key: String,
+        index: usize,
+        #[serde(default)]
+        value: Option<Value>,
+    },
     /// Moves item `index` of the list at `key` to the end of the list at `to` (`permissions.allow` → `deny`).
     Move {
         key: String,
         index: usize,
         to: String,
+        #[serde(default)]
+        value: Option<Value>,
     },
     /// Adds a command hook to `event`, in the group of the same matcher.
     AddHook {
@@ -173,11 +181,13 @@ pub enum Edit {
         matcher: Option<String>,
         command: String,
     },
-    /// Removes hook `index` of matcher group `group` of `event`.
+    /// Removes hook `index` of matcher group `group` of `event`, which must run `run` (as masked) when given.
     DropHook {
         event: String,
         group: usize,
         index: usize,
+        #[serde(default)]
+        run: Option<String>,
     },
 }
 
@@ -186,9 +196,19 @@ pub enum Edit {
 pub struct Preview {
     pub path: String,
     pub diff: String,
+    /// The file as read for this preview: saving refuses a file that changed since.
+    pub hash: String,
     /// The whole file once saved: it gets this text exactly.
     #[serde(skip)]
     pub text: String,
+}
+
+/// FNV-1a: the same text gives the same value in any process and version.
+pub fn fingerprint(text: &str) -> String {
+    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{hash:016x}")
 }
 
 pub(crate) fn read_text(path: &Path) -> Result<String> {
@@ -227,11 +247,20 @@ pub fn preview(env: &Env, scope: Scope, edit: &Edit) -> Result<Preview> {
     Ok(Preview {
         path: path.to_string_lossy().into_owned(),
         diff: diff(&before, &text),
+        hash: fingerprint(&before),
         text,
     })
 }
 
-pub fn save(env: &Env, scope: Scope, edit: &Edit) -> Result<Preview> {
+/// Writes what the preview of `hash` showed: refused when the file changed since (`None`: no preview shown).
+pub fn save(env: &Env, scope: Scope, edit: &Edit, hash: Option<&str>) -> Result<Preview> {
+    if let (Some(hash), Some(path)) = (hash, file(env, scope)) {
+        ensure!(
+            hash == fingerprint(&read_text(&path)?),
+            "{} changed since its preview: refresh and look at the change again",
+            path.display()
+        );
+    }
     let preview = preview(env, scope, edit)?;
     write_atomic(Path::new(&preview.path), &preview.text)?;
     Ok(preview)
@@ -254,6 +283,11 @@ fn apply(root: &mut Map<String, Value>, edit: &Edit) -> Result<Option<(String, V
     Ok(match edit {
         Edit::Set { key, value } => {
             set(root, key, value.as_ref())?;
+            if value.is_none()
+                && let Some((parent, _)) = key.rsplit_once('.')
+            {
+                prune(root, parent);
+            }
             value.clone().map(|v| (key.clone(), v, false))
         }
         Edit::Add { key, value } => {
@@ -262,14 +296,19 @@ fn apply(root: &mut Map<String, Value>, edit: &Edit) -> Result<Option<(String, V
             list.push(value.clone());
             Some((key.clone(), value.clone(), true))
         }
-        Edit::Drop { key, index } => {
-            take(list(root, key)?, *index, key)?;
+        Edit::Drop { key, index, value } => {
+            take(list(root, key)?, *index, value.as_ref(), key)?;
             prune(root, key);
             None
         }
-        Edit::Move { key, index, to } => {
+        Edit::Move {
+            key,
+            index,
+            to,
+            value,
+        } => {
             ensure!(key != to, "{key} is already where it goes");
-            let item = take(list(root, key)?, *index, key)?;
+            let item = take(list(root, key)?, *index, value.as_ref(), key)?;
             let target = list(root, to)?;
             if !target.contains(&item) {
                 target.push(item.clone());
@@ -290,32 +329,29 @@ fn apply(root: &mut Map<String, Value>, edit: &Edit) -> Result<Option<(String, V
             let key = format!("hooks.{event}");
             let matcher = matcher.as_deref().map(str::trim).filter(|m| !m.is_empty());
             let hook = json!({"type": "command", "command": command});
+            // Checked alone in a group of its own: the hooks already there are not this edit's.
+            let mut added = Map::new();
+            if let Some(m) = matcher {
+                added.insert("matcher".into(), m.into());
+            }
+            added.insert("hooks".into(), json!([hook]));
+            let added = Value::Object(added);
             let groups = list(root, &key)?;
             let same = |g: &Value| g["matcher"].as_str().filter(|m| !m.is_empty()) == matcher;
-            let group = match groups.iter_mut().find(|g| same(g)) {
-                Some(group) => {
-                    group["hooks"]
-                        .as_array_mut()
-                        .context("a hook group of this event has no list of hooks")?
-                        .push(hook);
-                    group.clone()
-                }
-                None => {
-                    let mut group = Map::new();
-                    if let Some(m) = matcher {
-                        group.insert("matcher".into(), m.into());
-                    }
-                    group.insert("hooks".into(), json!([hook]));
-                    groups.push(Value::Object(group));
-                    groups.last().cloned().unwrap_or_default()
-                }
-            };
-            Some((key, group, true))
+            match groups.iter_mut().find(|g| same(g)) {
+                Some(group) => group["hooks"]
+                    .as_array_mut()
+                    .context("a hook group of this event has no list of hooks")?
+                    .push(hook),
+                None => groups.push(added.clone()),
+            }
+            Some((key, added, true))
         }
         Edit::DropHook {
             event,
             group,
             index,
+            run,
         } => {
             let key = format!("hooks.{event}");
             let groups = list(root, &key)?;
@@ -325,7 +361,13 @@ fn apply(root: &mut Map<String, Value>, edit: &Edit) -> Result<Option<(String, V
                 .with_context(|| {
                     format!("{key} has no hook group {group}: refresh and try again")
                 })?;
-            take(hooks, *index, &key)?;
+            if let Some(run) = run {
+                ensure!(
+                    hooks.get(*index).map(crate::hook_run).as_ref() == Some(run),
+                    "{key} has no such hook at {group}/{index}: refresh and try again"
+                );
+            }
+            take(hooks, *index, None, &key)?;
             if hooks.is_empty() {
                 groups.remove(*group);
             }
@@ -353,10 +395,18 @@ fn list<'a>(root: &'a mut Map<String, Value>, key: &str) -> Result<&'a mut Vec<V
         .with_context(|| format!("{key} is not a list in this file"))
 }
 
-fn take(list: &mut Vec<Value>, index: usize, key: &str) -> Result<Value> {
+/// Item `index` of `list`, which must be `expected` as the page shows it (masked).
+fn take(list: &mut Vec<Value>, index: usize, expected: Option<&Value>, key: &str) -> Result<Value> {
+    let found = list.get(index).is_some_and(|item| {
+        expected.is_none_or(|e| {
+            let mut shown = item.clone();
+            mask::mask(&mut shown);
+            item == e || &shown == e
+        })
+    });
     ensure!(
-        index < list.len(),
-        "{key} has no item {index}: refresh and try again"
+        found,
+        "{key} has no such item {index}: refresh and try again"
     );
     Ok(list.remove(index))
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alerts, field, filterArtifacts, nextSort, selection, sortArtifacts, toggleAll, updatedAt, updatedDay } from "../src/lib/claude-logic.ts";
+import { alerts, field, filterArtifacts, latest, nextSort, prefill, selection, sortArtifacts, toggleAll, updatedAt, updatedDay } from "../src/lib/claude-logic.ts";
 
 const art = (id, title, owner, updated, cwd = null, seen = 0) => ({ id, url: `https://claude.ai/code/artifact/${id}`, title, owner, updated, cwd, seen });
 const list = [
@@ -100,6 +100,32 @@ test("the overview lists what needs a look, worst first", () => {
   );
   const broken = alerts(o({ account: { auth: null, authError: "claude: not found" }, plugins: { error: "exit 2" } }));
   assert.deepEqual(broken.map((a) => [a.section, a.text]), [["mcp", "exit 2"], ["account", "claude: not found"]]);
+});
+
+test("a preview that comes back after a newer one asked is ignored", async () => {
+  const asked = latest();
+  const shown = [];
+  const request = async (diff, ms) => {
+    const id = asked.next();
+    await new Promise((r) => setTimeout(r, ms));
+    if (asked.isLast(id)) shown.push(diff);
+  };
+  await Promise.all([request("slow and stale", 30), request("latest", 5)]);
+  assert.deepEqual(shown, ["latest"]);
+  const id = asked.next();
+  asked.next(); // Cancelled meanwhile.
+  assert.equal(asked.isLast(id), false);
+});
+
+test("the editor starts from this scope's file, never from lists merged across scopes", () => {
+  assert.deepEqual(prefill(["Bash(ls)"], { value: ["Bash(ls)", "Read"], merged: true }), ["Bash(ls)"]);
+  assert.equal(prefill(undefined, { value: ["Bash(ls)", "Read"], merged: true }), undefined);
+  assert.equal(prefill(undefined, { value: ["Bash(ls)"], merged: false }), undefined, "another scope's list");
+  assert.equal(prefill(undefined, { value: { A: "1" }, merged: false }), undefined);
+  assert.equal(prefill(undefined, { value: "••••••", merged: false }), undefined, "masked");
+  assert.equal(prefill(undefined, { value: "opus", merged: false }), "opus");
+  assert.equal(prefill(undefined, { value: 30, merged: false }), 30);
+  assert.equal(prefill(undefined, undefined), undefined);
 });
 
 test("the settings editor shows a form for simple keys of the schema, JSON for the rest", () => {

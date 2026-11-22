@@ -1360,6 +1360,8 @@ const fr = {
   claudeMgmtRemoveMarketTitle: "Retirer la marketplace {name} ?",
   claudeMgmtRemoveMarketText: "Claude Code désinstalle aussi tous les plugins que tu as installés depuis elle, avec leurs données.",
   claudeMgmtMarketRemoved: "Marketplace {name} retirée.",
+  claudeMgmtUrl: "URL",
+  claudeMgmtSha: "sha256 {sha}",
   keysGenerateLong: "Générer une clé…",
   keysGenerateHelp:
     "Tout se passe sur cette machine. Une clé SSH au format OpenSSH va dans {dir} ; toute autre clé est seulement affichée, ou enregistrée dans le dossier que tu choisis.",
@@ -3035,6 +3037,8 @@ const en: Record<Key, string> = {
   claudeMgmtRemoveMarketTitle: "Remove the marketplace {name}?",
   claudeMgmtRemoveMarketText: "Claude Code also uninstalls every plugin you installed from it, with their data.",
   claudeMgmtMarketRemoved: "Marketplace {name} removed.",
+  claudeMgmtUrl: "URL",
+  claudeMgmtSha: "sha256 {sha}",
   keysGenerateLong: "Generate a key…",
   keysGenerateHelp:
     "Everything happens on this machine. An SSH key in OpenSSH format goes to {dir}; any other key is only shown, or saved in the folder you choose.",

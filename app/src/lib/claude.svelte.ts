@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ui } from "$lib/state.svelte";
 import { t } from "$lib/i18n";
+import { latest } from "$lib/claude-logic";
 
 export type Scope = "user" | "project" | "local" | "managed";
 export type FileState = "absent" | "invalid" | "ok";
@@ -53,7 +54,8 @@ export type Overview = {
   };
   tools: { name: string; version: string | null; path: string | null }[];
 };
-export type Preview = { path: string; diff: string };
+/** `hash`: the file as read for this preview, sent back with the save. */
+export type Preview = { path: string; diff: string; hash: string };
 export type Plugins = {
   plugins: Record<string, unknown>[];
   /** What the marketplaces offer and is not installed: `{pluginId, name, marketplaceName, source, description?}`. */
@@ -65,10 +67,10 @@ export type Plugins = {
 export type Edit =
   | { op: "set"; key: string; value: unknown }
   | { op: "add"; key: string; value: unknown }
-  | { op: "drop"; key: string; index: number }
-  | { op: "move"; key: string; index: number; to: string }
+  | { op: "drop"; key: string; index: number; value?: unknown }
+  | { op: "move"; key: string; index: number; to: string; value?: unknown }
   | { op: "addHook"; event: string; matcher: string | null; command: string }
-  | { op: "dropHook"; event: string; group: number; index: number };
+  | { op: "dropHook"; event: string; group: number; index: number; run?: string };
 /** A command the marketplace runs to install a plugin, run only once accepted by its sha256. */
 export type Shown = { command?: string; plugin?: string; sha256: string };
 
@@ -198,20 +200,26 @@ export async function loadArtifacts() {
   }
 }
 
+const proposals = latest();
+
+/** The edit and its preview only arrive together, from the last request: Save writes the diff shown. */
 export async function propose(origin: string, scope: Scope, edit: Edit) {
-  Object.assign(change, { origin, scope, edit, preview: null, error: "" });
+  const id = proposals.next();
+  Object.assign(change, { origin, scope, edit: null, preview: null, error: "" });
   try {
-    change.preview = await invoke<Preview>("claude_setting_preview", { scope, edit, repo: claudeView.repo || null });
+    const preview = await invoke<Preview>("claude_setting_preview", { scope, edit, repo: claudeView.repo || null });
+    if (proposals.isLast(id)) Object.assign(change, { edit, preview });
   } catch (e) {
-    change.error = String(e);
+    if (proposals.isLast(id)) change.error = String(e);
   }
 }
 
 export function discard() {
+  proposals.next();
   Object.assign(change, { origin: "", edit: null, preview: null, error: "" });
 }
 
-/** Writes the change previewed, then shows the settings and hooks read again. */
+/** Writes the change previewed, refused when the file changed since; then the settings and hooks read again. */
 export async function commit() {
   const o = claudeView.overview;
   if (!change.edit || !change.preview || !o) return;
@@ -220,6 +228,7 @@ export async function commit() {
     const saved = await invoke<{ settings: Settings; hooks: Hook[] }>("claude_setting_save", {
       scope: change.scope,
       edit: change.edit,
+      hash: change.preview.hash,
       repo: claudeView.repo || null,
     });
     o.settings = saved.settings;
