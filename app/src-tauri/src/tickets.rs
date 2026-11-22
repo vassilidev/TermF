@@ -23,6 +23,8 @@ use crate::{AppState, CmdResult, api, err};
 const CHECK_EVERY: Duration = Duration::from_secs(15 * 60);
 /// The first time, once the window listens.
 const FIRST_CHECK: Duration = Duration::from_secs(30);
+/// A run's session idle for less than this may be the user's at work: `auto` leaves its run alone.
+const QUIET: Duration = Duration::from_secs(30 * 60);
 
 pub struct TicketsState {
     tickets: Arc<Tickets>,
@@ -249,6 +251,29 @@ fn stop_session(app: &AppHandle, id: i64) {
     }
 }
 
+/// The run's tile at work or used lately, or its team running: never closed behind the user's back.
+fn busy(app: &AppHandle, id: i64) -> bool {
+    let session = app
+        .state::<TicketsState>()
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .copied();
+    let state = app.state::<AppState>();
+    let tile = session.is_some_and(|session| {
+        let live = state
+            .sessions
+            .list()
+            .iter()
+            .any(|s| s.id == session && s.running);
+        live && state.api.busy(session, QUIET)
+    });
+    tile || crate::team::team(app)
+        .run(id)
+        .is_ok_and(|run| run.state == termf_team::RunState::Running)
+}
+
 /// Closes the run; its session ends first.
 pub fn close(app: &AppHandle, id: i64, force: bool) -> Result<Run> {
     let run = tickets(app).close(id, force, || stop_session(app, id))?;
@@ -282,7 +307,8 @@ pub fn check(app: &AppHandle) -> Result<PrCheck> {
     let ticket_state = app.state::<TicketsState>();
     let checking = ticket_state.checking.lock().unwrap();
     let auto = mode == TicketCleanup::Auto;
-    let mut check = tickets(app).after_merge(auto, |id| stop_session(app, id))?;
+    let mut check =
+        tickets(app).after_merge(auto, |id| busy(app, id), |id| stop_session(app, id))?;
     drop(checking);
     for cleanup in &mut check.cleanups {
         cleanup.run = with_session(app, cleanup.run.clone());

@@ -27,6 +27,8 @@ use crate::{AppState, agents, schedule, team, tickets, visual};
 struct Meta {
     title: String,
     status: Option<Status>,
+    /// When `status` last changed, or the session started.
+    since: Instant,
     remote_control: bool,
     agent_session_id: Option<String>,
     /// Removed with the session.
@@ -259,6 +261,19 @@ impl Api {
             .collect()
     }
 
+    /// Whether a session's agent is at work, or stopped less than `recent` ago. One that reports no status may be
+    /// at work too.
+    pub fn busy(&self, id: u32, recent: Duration) -> bool {
+        self.meta
+            .lock()
+            .unwrap()
+            .get(&id)
+            .is_none_or(|m| match m.status {
+                Some(Status::Idle | Status::Done) => m.since.elapsed() < recent,
+                _ => true,
+            })
+    }
+
     /// What a task's session may do, set before it started.
     pub fn policy(&self, id: u32) -> Option<Policy> {
         self.meta.lock().unwrap().get(&id)?.policy.clone()
@@ -300,6 +315,7 @@ impl Api {
                 return;
             };
             m.status = Some(status);
+            m.since = Instant::now();
             StatusEvent {
                 id,
                 title: m.title.clone(),
@@ -753,6 +769,7 @@ pub fn spawn_command(
             Meta {
                 title: title.clone(),
                 status: None,
+                since: Instant::now(),
                 remote_control: false,
                 agent_session_id: None,
                 dir: None,
@@ -829,6 +846,7 @@ fn launch(
             Meta {
                 title: title.clone(),
                 status: hooks.is_some().then_some(Status::Starting),
+                since: Instant::now(),
                 remote_control,
                 agent_session_id: None,
                 dir: dir.clone(),
