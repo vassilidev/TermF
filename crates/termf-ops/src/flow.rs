@@ -215,6 +215,31 @@ struct Detail<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     truncated: bool,
+    /// What the user did with the output rather than a run: `follow` (a stream started), and for a `.env`
+    /// `reveal`, `copy` or `write`, with the `key` and, for `write`, the `run` whose worktree got it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run: Option<i64>,
+}
+
+/// What a followed recipe sends, masked: lines, then its end.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Streamed {
+    Lines { lines: Vec<String>, masks: usize },
+    End { exit: Option<i32>, errors: String },
+}
+
+/// What the user does with a value of a `.env` output, audited.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Use {
+    Reveal,
+    Copy,
+    /// Into the `.env` of a run's worktree.
+    Write(i64),
 }
 
 /// Everything a run needs: the config, the data folder (the audit, the trifecta marks), the vault and the
@@ -242,6 +267,7 @@ impl Ops<'_> {
             .collect();
         let recipes = recipes
             .iter()
+            .filter(|r| !r.follow)
             .filter_map(|r| {
                 let on: Vec<String> = open
                     .iter()
@@ -337,18 +363,174 @@ impl Ops<'_> {
             exit: output.and_then(|o| o.exit),
             error,
             truncated: output.is_some_and(|o| o.truncated),
+            event: None,
+            key: None,
+            run: None,
         };
+        self.append(
+            project,
+            actor,
+            plan,
+            &detail,
+            output.map(|o| o.text.len() as u64),
+            output.map(|o| o.masks as u64),
+        )
+    }
+
+    fn append(
+        &self,
+        project: &str,
+        actor: &Actor,
+        plan: &Plan,
+        detail: &Detail,
+        size: Option<u64>,
+        masks: Option<u64>,
+    ) -> Result<Entry> {
         self.vault.record(Event {
             target: Some(SecretId {
                 name: plan.connection.clone(),
                 scope: plan.env,
                 project: Some(project.into()),
             }),
-            size: output.map(|o| o.text.len() as u64),
-            masks: output.map(|o| o.masks as u64),
-            detail: Some(serde_json::to_string(&detail)?),
+            size,
+            masks,
+            detail: Some(serde_json::to_string(detail)?),
             ..Event::new(actor, Action::Ops)
         })
+    }
+
+    /// Audits what the user does with the value of `key` in a `.env` output (`size`: its bytes): in the history as
+    /// the run is, with the event and the key, never the value. A value shown or copied is audited before it leaves;
+    /// a value written, once it is (`error`: why it was not).
+    pub fn record_use(
+        &self,
+        project: &str,
+        plan: &Plan,
+        what: Use,
+        key: &str,
+        size: usize,
+        error: Option<String>,
+    ) -> Result<Entry> {
+        let (event, run) = match what {
+            Use::Reveal => ("reveal", None),
+            Use::Copy => ("copy", None),
+            Use::Write(run) => ("write", Some(run)),
+        };
+        let detail = Detail {
+            recipe: &plan.recipe,
+            mode: plan.mode,
+            params: &plan.params,
+            command: &plan.command,
+            approval: "user",
+            exit: None,
+            error,
+            truncated: false,
+            event: Some(event),
+            key: Some(key),
+            run,
+        };
+        self.append(
+            project,
+            &Actor::human(),
+            plan,
+            &detail,
+            Some(size as u64),
+            None,
+        )
+    }
+
+    /// The user follows a recipe that runs until stopped: audited when it starts, each line masked before `sink`
+    /// gets it. Dropping what it returns stops it.
+    pub fn follow(
+        &self,
+        project: &str,
+        recipe: &str,
+        connection: &str,
+        params: &BTreeMap<String, String>,
+        sink: impl Fn(Streamed) + Send + Sync + 'static,
+    ) -> Result<(Plan, crate::Following)> {
+        let actor = Actor::human();
+        let plan = self.plan(project, recipe, connection, params)?;
+        ensure!(
+            plan.follow,
+            "{} is not followed: run it from the recipes",
+            plan.recipe
+        );
+        let masker = self.masker()?;
+        let secret = self.secret(&actor, project, plan.env);
+        let used: Vec<(String, Secret)> = plan
+            .secrets
+            .iter()
+            .map(|n| Ok((n.clone(), secret(n)?)))
+            .collect::<Result<_>>()?;
+        let values: Vec<Secret> = used.iter().map(|(_, s)| s.clone()).collect();
+        let lines = redact::Lines::new(masker.as_ref(), &values, &plan.redact);
+        // What would refuse the start is checked before the audit, which no line may precede.
+        ensure!(
+            plan.base.tunnel.is_none() && plan.base.stdin.is_empty(),
+            "{} cannot be followed: it needs a tunnel or its input",
+            plan.recipe
+        );
+        ensure!(
+            self.runner.find(&plan.base.program).is_some(),
+            "{} is not installed or not on the PATH: install {}",
+            plan.base.program,
+            crate::install_hint(&plan.base.program)
+        );
+        let mut detail = Detail {
+            recipe: &plan.recipe,
+            mode: plan.mode,
+            params: &plan.params,
+            command: &plan.command,
+            approval: "user",
+            exit: None,
+            error: None,
+            truncated: false,
+            event: Some("follow"),
+            key: None,
+            run: None,
+        };
+        self.append(project, &actor, &plan, &detail, None, None)?;
+        let lookup = |name: &str| -> Result<Secret> {
+            used.iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, s)| s.clone())
+                .context("unknown secret")
+        };
+        let sink = std::sync::Arc::new(sink);
+        let ended = std::sync::Arc::clone(&sink);
+        let errors = redact::Lines::new(masker.as_ref(), &values, &plan.redact);
+        let following = self.runner.follow(
+            &plan,
+            &lookup,
+            move |batch| {
+                let mut masks = 0;
+                let lines = batch
+                    .iter()
+                    .map(|l| {
+                        let (text, n) = lines.mask(l);
+                        masks += n;
+                        text
+                    })
+                    .collect();
+                sink(Streamed::Lines { lines, masks });
+            },
+            move |exit, said| {
+                ended(Streamed::End {
+                    exit,
+                    errors: errors.mask(&said).0,
+                })
+            },
+        );
+        match following {
+            Ok(following) => Ok((plan, following)),
+            Err(e) => {
+                // The start was audited: the entry after it says it failed.
+                detail.error = Some(format!("{e:#}"));
+                self.append(project, &actor, &plan, &detail, None, None)?;
+                Err(e)
+            }
+        }
     }
 
     /// Runs the plan for `actor`, masks and audits it: no audit entry, no output.
@@ -372,7 +554,13 @@ impl Ops<'_> {
                 return Err(e);
             }
         };
-        let output = redact::mask(raw, masker.as_ref(), personal, &plan.limits);
+        let output = if plan.table {
+            redact::table(raw, plan.kind, masker.as_ref(), personal, &plan.limits)
+        } else if plan.dotenv {
+            redact::dotenv(raw, masker.as_ref(), &plan.limits)
+        } else {
+            redact::mask(raw, masker.as_ref(), personal, &plan.limits)
+        };
         self.record(
             project,
             actor,
@@ -456,7 +644,8 @@ impl Ops<'_> {
         let actor = Actor::agent(agent.run, Some(agent.session.to_string()));
         let (connections, recipes) = self.load(project)?;
         let seen = |c: &&Connection| c.ai_access != AiAccess::None;
-        let found = recipes.iter().find(|r| r.name == recipe);
+        // A stream is the user's to follow: an agent reads logs through a recipe that ends.
+        let found = recipes.iter().find(|r| r.name == recipe && !r.follow);
         let open: Vec<&Connection> = connections
             .iter()
             .filter(seen)
@@ -555,6 +744,21 @@ impl Ops<'_> {
             }
         }
         let output = output?;
+        if plan.dotenv {
+            return Ok(json!({
+                "recipe": plan.recipe,
+                "connection": plan.connection,
+                "env": plan.env,
+                "command": plan.command,
+                "exit": output.exit,
+                "keys": output.keys,
+                "errors": output.errors,
+                "truncated": output.truncated,
+                "stopped": output.stopped,
+                "note": "Only the names of the .env's keys: TermF never gives an agent a value of it. The user reveals \
+                         them in TermF's Ops view.",
+            }));
+        }
         Ok(json!({
             "recipe": plan.recipe,
             "connection": plan.connection,

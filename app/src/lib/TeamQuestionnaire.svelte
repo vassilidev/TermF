@@ -22,7 +22,7 @@
   import Send from "@lucide/svelte/icons/send";
   import QuestionInput from "$lib/ui/QuestionInput.svelte";
   import type { Snippet } from "svelte";
-  import { byTheme, proposed, unanswered, withOthers, type Question, type TeamRun } from "$lib/team-run-logic";
+  import { byTheme, implications, proposed, unanswered, withOthers, type Question, type TeamRun } from "$lib/team-run-logic";
   import { upsertRun } from "$lib/team.svelte";
 
   /**
@@ -88,10 +88,12 @@
         {#if q.kind === "choice" || q.kind === "multi"}
           <input class="field other" placeholder={t("ctoEntryOther")} aria-label={t("ctoEntryOther")} bind:value={others[q.id]} />
         {/if}
-        {#if q.implications.length === q.options.length && q.implications.some((i) => i.trim())}
+        {#if implications(q).length}
           <ul class="implications">
-            {#each q.options as option, i (option)}
-              {#if q.implications[i]?.trim()}<li><b>{optionLabel(option)}</b> · {q.implications[i]}</li>{/if}
+            {#each implications(q) as row, i (i)}
+              <li>
+                {#if row.option !== null}<b>{q.kind === "bool" ? t(row.option === "yes" ? "obYes" : "obNo") : optionLabel(row.option)}</b> · {/if}{row.text}
+              </li>
             {/each}
           </ul>
         {/if}
@@ -107,7 +109,7 @@
 {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
 <div class="buttons">
   {@render children?.()}
-  <button class="btn sm" class:primary disabled={busy || missing.length > 0} onclick={send}>
+  <button class="btn" class:sm={!primary} class:primary disabled={busy || missing.length > 0} onclick={send}>
     {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
     {t("ctoEntrySend")}
   </button>
