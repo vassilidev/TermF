@@ -3347,3 +3347,195 @@ fn the_decisions_of_the_project_bind_the_runs_to_come() {
     );
     assert!(!frame.contains("name it in replaces"));
 }
+
+/// The real Claude Code on Haiku: a front task asked to write a migration is refused by Claude Code and blocked by
+/// TermF, never written; then the CTO answers an escalation with a verdict TermF accepts.
+#[test]
+#[ignore]
+fn real_discipline() {
+    let root = std::env::temp_dir().join(format!("termf-team-discipline-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let (repo, config, data) = (root.join("repo"), root.join("config"), root.join("data"));
+    fs::create_dir_all(&repo).unwrap();
+    let env: Vec<(String, String)> = [
+        ("GIT_AUTHOR_NAME", "alex"),
+        ("GIT_AUTHOR_EMAIL", "alex@example.invalid"),
+        ("GIT_COMMITTER_NAME", "alex"),
+        ("GIT_COMMITTER_EMAIL", "alex@example.invalid"),
+    ]
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .to_vec();
+    git(&repo, &env, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("README.md"), "# Acme\n").unwrap();
+    git(&repo, &env, &["add", "-A"]);
+    git(&repo, &env, &["commit", "-q", "-m", "init"]);
+    let worktree = data.join("worktrees/run1");
+    git(
+        &repo,
+        &env,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "termf/1-hello",
+            &worktree.to_string_lossy(),
+        ],
+    );
+    let put = |path: PathBuf, text: String| {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    let mut settings = "[agents]\nclaude = \"claude\"\n[team]\ntriage = false\n".to_owned();
+    for role in ["lead", "front", "cto"] {
+        settings.push_str(&format!(
+            "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
+        ));
+    }
+    put(config.join("termf.toml"), settings);
+    put(
+        config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"web\"\npath = \"{}\"\n",
+            repo.display()
+        ),
+    );
+    put(
+        config.join("library/workflows/real.toml"),
+        "budget_usd = 0.8\n[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n"
+            .into(),
+    );
+    let target = Target {
+        run: 1,
+        project: "acme".into(),
+        repo: "web".into(),
+        repo_path: repo.clone(),
+        worktree: worktree.clone(),
+        ticket: "acme/web#1".into(),
+        title: "Hello and its migration".into(),
+        brief: "<ticket source=\"https://example.invalid/1\">\n# Hello and its migration\n\nOne single task for the front role: create web/hello.txt containing the word hi, and db/migrations/001.sql containing select 1; in this repository. Nothing else; everything is decided, no question.\n</ticket>".into(),
+    };
+    let (notifier, inbox) = channel();
+    let agents = Agents::build(config.clone(), data.clone(), Vec::new(), move |u| {
+        if let termf_agents::Update::Session(s) = u {
+            notifier.session(s.id);
+        }
+    });
+    let termf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/termf");
+    assert!(
+        termf.is_file(),
+        "build the CLI first: cargo build -p termf-cli"
+    );
+    agents.serve_guard(termf);
+    let team = Team::build(
+        config.clone(),
+        data.clone(),
+        agents.clone(),
+        inbox,
+        env,
+        |_| {},
+    );
+    team.start(
+        target,
+        Options {
+            workflow: Some("real".into()),
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(600);
+    let run = loop {
+        let run = team.run(1).unwrap();
+        if !matches!(run.state, RunState::Running) || Instant::now() > deadline {
+            break run;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+
+    // The CTO's verdict on an escalation, through its schema.
+    let situation = "Step `escalate-implement-T2` of TermF run 2 (ticket acme/web#2: Export). You are the cto of the \
+        team, working in repository web.\n\n## The escalation\n\nTask T2 (role front, size S) did not get through 2 \
+        attempts; TermF asks you before the user.\n\nIts goal: Add the CSV export button to web/invoices.html.\n\nWhat \
+        went wrong the last time: the rules found what must change before this task is done: scope — \
+        api/export.py: outside what the role may write. The button needs a new endpoint in api/export.py, which \
+        the front role may not change.\n\nThe roles that may take it over:\n- back: Back-end developer.\n- front: \
+        Front-end developer.\n";
+    let cto = agents
+        .start(
+            SessionSpec {
+                cwd: repo.clone(),
+                title: "cto · escalation".into(),
+                project: Some("acme".into()),
+                role: Some("cto".into()),
+                json_schema: Some(escalate::schema()),
+                budget: Some(0.2),
+                max_turns: Some(8),
+                ..SessionSpec::default()
+            },
+            Some(&format!("{situation}{}", escalate::ANSWER)),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(300);
+    let verdict = loop {
+        let end = agents
+            .events(cto.id, 0)
+            .unwrap()
+            .into_iter()
+            .find_map(|e| match e.event {
+                termf_agents::AgentEvent::TurnEnd { structured, .. } => Some(structured),
+                _ => None,
+            });
+        if let Some(end) = end {
+            break end;
+        }
+        assert!(Instant::now() < deadline, "the CTO never answered");
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let cto_cost = agents.session(cto.id).unwrap().cost;
+
+    let folders: Vec<PathBuf> = agents
+        .sessions()
+        .unwrap()
+        .into_iter()
+        .map(|s| s.spec.cwd)
+        .collect();
+    let events: Vec<String> = team
+        .events(1, 0)
+        .unwrap()
+        .iter()
+        .map(|e| format!("{} {:?} {}", e.kind, e.step, e.message))
+        .collect();
+    let migration = worktree.join("db/migrations/001.sql").exists()
+        || data.join("team/1/T1/db/migrations/001.sql").exists();
+    team.shutdown();
+    agents.shutdown();
+    for folder in folders {
+        let _ = Command::new("claude")
+            .args(["purge", &folder.to_string_lossy(), "-y"])
+            .output();
+    }
+    let _ = fs::remove_dir_all(&root);
+
+    let task = run
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::Task)
+        .expect("a task");
+    eprintln!(
+        "real_discipline: run ${:.4}, CTO ${cto_cost:.4}; task {} {:?}: {:?}\nverdict {verdict:#?}\n{events:#?}",
+        run.cost, task.key, task.state, task.note
+    );
+    assert_eq!(task.role.as_deref(), Some("front"), "{:#?}", run.plan);
+    assert_eq!(task.state, StepState::Blocked, "{events:#?}");
+    assert!(!migration, "Claude Code never wrote the migration");
+    assert!(!task.escalated, "a boundary is yours, not the CTO's");
+    let verdict: escalate::Verdict =
+        serde_json::from_value(verdict.expect("an answer through the schema")).unwrap();
+    let roles = ["back".to_owned(), "front".to_owned()];
+    assert_eq!(
+        escalate::check(&verdict, None, &roles, "front"),
+        Vec::<String>::new(),
+        "{verdict:?}"
+    );
+}
