@@ -198,6 +198,11 @@ usage:
   termf vault reveal <name> [--scope <s>] [--project <id>]
                                         print a value
   termf vault rm <name> [--scope <s>] [--project <id>]
+  termf vault items [--project <id>]   the password manager's logins and notes: id, kind, project, title,
+                                        user name; never a value
+  termf vault item <id> [password|totp|seed|notes]
+                                        print a login's password (by default), its TOTP code now, its TOTP
+                                        secret or the notes
   termf vault audit [--limit <n>] [--jsonl] | termf vault audit verify
                                         who read or changed what, or check the log's hash chain
                                         (the scope is dev without --scope; every vault command that reads or
