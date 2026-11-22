@@ -36,8 +36,9 @@ import Telescope from "@lucide/svelte/icons/telescope";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
-import { agents, conversation, showConversation, showCto, showExpert, waitingAgents } from "$lib/agents.svelte";
+import { agents, conversation, showConversation, showExpert, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
+import { goToWait, home, projectWaits, talkCto } from "$lib/home.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -99,8 +100,18 @@ export async function focusSession(id: number) {
     ?.focus({ preventScroll: true });
 }
 
-/** Tiles first, then headless sessions, then team runs; from the conversation or team run shown, or the active tile. */
+/**
+ * Tiles first, then headless sessions, then team runs; from the conversation or team run shown, or the active tile.
+ * On the Home, its own list instead, from the wait it last went to.
+ */
 export function nextWaiting() {
+  const list = onScreen("home") ? projectWaits(app.project) : [];
+  if (list.length) {
+    const keys = list.map((w) => w.key);
+    const next = nextAfter(keys, keys, home.shown);
+    const wait = list.find((w) => w.key === next);
+    if (wait) return void goToWait(wait);
+  }
   const tile = (id: number) => `tile:${id}`;
   const agent = (id: number) => `agent:${id}`;
   const run = (id: number) => `team:${id}`;
@@ -185,7 +196,7 @@ export function onShortcut(e: KeyboardEvent) {
     next_waiting: nextWaiting,
     launch_ticket: launchTicket,
     switch_project: () => (ui.switcher = !ui.switcher),
-    talk_cto: app.project === null ? undefined : showCto,
+    talk_cto: app.project === null ? undefined : talkCto,
     new_session: () => openLauncher(),
     maximize: () => toggleMaximize(),
     tile: () => goTo(shownTabs[n - 1]),
@@ -281,7 +292,7 @@ export function commands(): Command[] {
     list.push({ id: "project-edit", label: t("ticketsEditProject"), icon: Pencil, group: "projects", run: () => editProject(id) });
     const name = app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
     list.push({ id: "project-setup", label: t("obPalette", { project: name }), icon: WandSparkles, group: "projects", run: () => openSetup(id) });
-    list.push({ id: "cto", label: t("ctoTalkTo", { project: name }), keys: keys.cto, icon: MessageSquareText, group: "projects", run: showCto });
+    list.push({ id: "cto", label: t("ctoTalkTo", { project: name }), keys: keys.cto, icon: MessageSquareText, group: "projects", run: talkCto });
     list.push({ id: "expert", label: t("expertTalkTo", { project: name }), icon: BrainCircuit, group: "projects", run: showExpert });
   }
 

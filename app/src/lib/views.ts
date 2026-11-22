@@ -2,6 +2,7 @@ import type { Component } from "svelte";
 import Bot from "@lucide/svelte/icons/bot";
 import CalendarClock from "@lucide/svelte/icons/calendar-clock";
 import FolderTree from "@lucide/svelte/icons/folder-tree";
+import House from "@lucide/svelte/icons/house";
 import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LibraryBig from "@lucide/svelte/icons/library-big";
@@ -15,11 +16,12 @@ import { agents, showConversations, waitingAgents } from "$lib/agents.svelte";
 import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
 import { files, showFiles } from "$lib/files.svelte";
+import { projectWaits, showHome } from "$lib/home.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { schedule, showScheduler } from "$lib/schedule.svelte";
 import { settings, showSettings } from "$lib/settings.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
-import { ui, waitingSessions, type ViewId } from "$lib/state.svelte";
+import { app, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
 import { showTeam, team } from "$lib/team.svelte";
 import { showTickets, tickets } from "$lib/tickets.svelte";
 
@@ -48,6 +50,18 @@ export function showTerminals() {
 
 /** Every view, in the navigation's order; a view not listed here appears nowhere. */
 export const views: View[] = [
+  {
+    id: "home",
+    label: "ux3t1Home",
+    command: "ux3t1ShowHome",
+    icon: House,
+    group: "work",
+    show: showHome,
+    loaded: () => true,
+    load: () => import("$lib/HomeView.svelte"),
+    count: () => projectWaits(app.project).length || undefined,
+    hot: true,
+  },
   {
     id: "terminals",
     label: "viewTerminals",

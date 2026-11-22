@@ -77,6 +77,7 @@ export type Gauge = {
 };
 export type ContextSettings = { on: boolean; resetAt: number; warningAt: number };
 export type ViewId =
+  | "home"
   | "terminals"
   | "conversations"
   | "files"
@@ -129,7 +130,7 @@ export const panes = $state({ other: null as ViewId | null, active: 0 as 0 | 1, 
 
 /** The view shown, and the overlays opened from the navigation, the shortcuts or the palette. */
 class Ui {
-  #view = $state<ViewId>("terminals");
+  #view = $state<ViewId>("home");
   palette = $state(false);
   switcher = $state(false);
   launcher = $state(false);
