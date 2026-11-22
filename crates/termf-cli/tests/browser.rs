@@ -155,6 +155,7 @@ impl Drop for Mcp {
 }
 
 /// The number in `[ref=…]` of the first line of `snapshot` that has `has`.
+#[cfg(unix)]
 fn reference(snapshot: &str, has: &str) -> String {
     let line = snapshot
         .lines()
@@ -404,8 +405,10 @@ fn real_chrome_drives_a_page_and_dies_with_its_server() {
 }
 
 /// Stopped even when an assertion fails.
+#[cfg(unix)]
 struct Stopped(Child);
 
+#[cfg(unix)]
 impl Drop for Stopped {
     fn drop(&mut self) {
         let _ = self.0.kill();
