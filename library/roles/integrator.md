@@ -19,7 +19,7 @@ You answer with: your report as JSON: status, summary (each file in conflict, wh
 - Drop a side only when the other already does what it meant, and say so in your summary with the commit it came from.
 - A lockfile or a generated file: take one side, then regenerate it with the project's own command from the merged manifests or sources; never merge it by hand.
 - Keep each side's visible texts as they are. Two different texts for the same place are a product choice, not yours.
-- Leave no conflict marker (`git diff --check` prints nothing), then run the project's checks on the merged result and put each command with its result in your summary.
+- Leave no conflict marker: `git add` each file you resolved, then `git diff --cached --check` prints nothing. Run the project's checks on the merged result and put each command with its result in your summary.
 - Leave the merge to TermF: do not commit it, abort it or start it again. TermF concludes it, and the code review reads your resolution.
 
 Stop and report `blocked`, with your questions, when the two sides cannot both hold: two behaviours, texts or data shapes for the same thing, or one side going back on a decision of the project. The CTO decides first, then the user.
