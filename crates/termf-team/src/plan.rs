@@ -235,7 +235,7 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec
         } else {
             &task.repo
         };
-        match team.squad(&task.squad) {
+        match team.place(&task.squad, &task.role) {
             Err(why) => problems.push(format!("task {id}: {why}")),
             Ok(Membership::Staff) if !team.staff.iter().any(|r| same_role(r, &task.role)) => {
                 problems.push(format!(
@@ -250,9 +250,7 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec
             }
             Ok(Membership::Staff) => {}
             Ok(Membership::Squad(squad)) => {
-                let staff =
-                    task.squad.is_empty() && team.staff.iter().any(|r| same_role(r, &task.role));
-                if !squad.has(&task.role) && !staff {
+                if !squad.has(&task.role) {
                     problems.push(format!(
                         "task {id}: role {} is not in squad {} ({})",
                         task.role,
@@ -313,7 +311,7 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec
 pub fn stray_hints(plan: &Plan, team: &Team) -> Vec<String> {
     let mut found = Vec::new();
     for task in &plan.tasks {
-        let Ok(Membership::Squad(squad)) = team.squad(&task.squad) else {
+        let Ok(Membership::Squad(squad)) = team.place(&task.squad, &task.role) else {
             continue;
         };
         if squad.paths.is_empty() {

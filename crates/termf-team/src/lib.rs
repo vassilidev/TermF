@@ -2065,7 +2065,7 @@ impl Inner {
 }
 
 fn squad_in(squads: &Squads, task: &Task) -> Option<Squad> {
-    match squads.squad(&task.squad) {
+    match squads.place(&task.squad, &task.role) {
         Ok(Membership::Squad(squad)) => Some(squad.clone()),
         _ => None,
     }

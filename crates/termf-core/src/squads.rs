@@ -92,6 +92,18 @@ impl Team {
                 .ok_or_else(|| format!("no squad {id} in the project (its squads: {})", ids())),
         }
     }
+
+    /// Where a task of `role` that names `id` works: as [`Team::squad`], but `""` stays with the staff for a
+    /// staff role that the only squad does not have.
+    pub fn place(&self, id: &str, role: &str) -> Result<Membership<'_>, String> {
+        let staff = self.staff.iter().any(|r| same_role(r, role));
+        match self.squad(id)? {
+            Membership::Squad(squad) if id.is_empty() && staff && !squad.has(role) => {
+                Ok(Membership::Staff)
+            }
+            found => Ok(found),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -270,6 +282,19 @@ effort = "xhigh"
                 .contains("no squad ops in the project (its squads: web, api)")
         );
         assert!(same_role(&api.lead, "lead"));
+        let one = parse(
+            "[team]\nstaff = [\"architect\"]\n[[squads]]\nid = \"web\"\nroles = { front = 1 }\n",
+        )
+        .unwrap();
+        assert!(matches!(one.place("", "front"), Ok(Membership::Squad(s)) if s.id == "web"));
+        assert!(
+            matches!(one.place("", "architect"), Ok(Membership::Staff)),
+            "a staff role the only squad does not have"
+        );
+        assert!(matches!(
+            one.place("web", "architect"),
+            Ok(Membership::Squad(_))
+        ));
 
         for (bad, why) in [
             ("[[squads]]\nid = \"a b\"\n", "is not made of"),
