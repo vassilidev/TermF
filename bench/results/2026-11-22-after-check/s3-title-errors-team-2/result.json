@@ -1,0 +1,307 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "team",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:33:21.762Z",
+  "state": "done",
+  "wall_s": 102.697915917,
+  "cost_usd": 0.622329,
+  "sessions": 5,
+  "turns": 5,
+  "tokens": {
+    "cache_creation": 114313,
+    "cache_read": 481490,
+    "input": 34,
+    "output": 11686
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "Input validation and error handling in one small API file (src/app.ts, src/tasks.ts), a one-line client fix in public/app.js, and tests; the ticket already lists testable acceptance criteria.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 0.7,
+    "rulings": [
+      "Ruling: workflow default, not hotfix — a validation bug with a clear fix, not an urgent outage — cost if wrong: one extra plan gate to approve",
+      "Ruling: skip frame (po) — the ticket already lists 7 testable acceptance criteria, framing would only repeat them — cost if wrong: an edge case (e.g. PATCH with a non-string title, 400 on a missing task id vs 404 order) is decided by the implementer",
+      "Ruling: no prd, architecture, ux, seo — no vague scope, no cross-cutting decision, the page keeps its existing error element (#error), no public page metadata change — cost if wrong: none expected",
+      "Ruling: security review at medium effort — input parsing and error leakage (criterion 5) are touched, but the app has no auth, payments or personal data — cost if wrong: a missed leak path such as a body-size or non-object JSON body (e.g. `null` or an array) reaching the handlers",
+      "Ruling: budget $0.70 — S change of 3 source files plus tests, covering plan, one implement round, one review round and the security review — cost if wrong: run stops before its reviews and needs a budget increase",
+      "Ruling: no squads declared — the lead plans the whole ticket; back takes src/app.ts, src/tasks.ts and test/tasks.test.ts, front takes the one-line check in public/app.js (form submit must catch the API error and call show())"
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.1002228,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.11352040000000002,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.1782097,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1224335,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.1079426,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": false,
+    "errors": 1,
+    "first": [
+      "test/tasks.test.ts(96,74): error TS7006: Parameter 't' implicitly has an 'any' type."
+    ]
+  },
+  "files": [
+    {
+      "path": "public/app.js",
+      "added": 7,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 17,
+      "removed": 2
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 24,
+      "removed": 3
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 95,
+      "removed": 0
+    }
+  ],
+  "lines_added": 143,
+  "lines_removed": 8,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "createTask calls validateTitle, which rejects missing, empty, blank and non-string titles with 400 'title is required'; validation runs before the insert. Tests cover {}, '', '   ', 123 and null."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "PATCH validates when body.title !== undefined, and updateTask validates again. null is rejected as well. Tests cover bad PATCH titles and check that the task is unchanged."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The title is trimmed and then checked against 200 characters, with the exact error message. The saved value is the trimmed one. Tests cover 201, 200 and padded 200."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "readJson turns JSON.parse failures into HttpError(400, 'invalid JSON body'). It also rejects null, arrays and primitives, which is slightly beyond the ticket but sensible. Tests cover POST and PATCH."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "The catch handler sends HttpError messages as-is. Anything else is logged with console.error and answered with 500 'internal error'. A test breaks the DB and checks the response and the log call."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The submit handler wraps the call in try/catch and calls show(err). This assumes api() throws an Error carrying the API's message, which the diff doesn't show. No UI test."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "New tests cover every server-side case. The UI change is untested, but that is reasonable for this project."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 9,
+      "tests": 9,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 9
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "Title validation runs twice on PATCH: once in app.ts and again in updateTask. The call in app.ts is redundant, and the second call re-trims."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "The server doesn't treat non-integer ids or oversized bodies specially, and PATCH `done` isn't validated. These were out of scope for the ticket, so this is only a note. Separately, a non-boolean `done` could still reach SQLite."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The 500 test relies on dropping the table from a second connection. It works, but it is somewhat heavyweight and fragile. The front-end error display has no test."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "readJson also rejects valid JSON that isn't an object (null, arrays, numbers) with 'invalid JSON body'. This goes slightly past the ticket, but it prevents a crash on `body.title`."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets every acceptance criterion. It adds a small HttpError class and a shared validateTitle, hides internal error messages behind a logged 500, and makes the page show API errors. The tests are thorough and include a real 500 path. The only issues are minor: PATCH validates the title twice, and the UI change has no test.",
+    "cost_usd": 0.0422324
+  }
+}

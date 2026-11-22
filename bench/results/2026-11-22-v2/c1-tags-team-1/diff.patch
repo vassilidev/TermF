@@ -1,0 +1,644 @@
+diff --git a/README.md b/README.md
+index 57803ed..512fbd1 100644
+--- a/README.md
++++ b/README.md
+@@ -8,24 +8,35 @@ npm start        # http://localhost:3000, data in tasks.db (PORT and DB_PATH cha
+ npm test         # the API tests (node:test)
+ ```
+ 
+ ## API
+ 
+-Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z" }`.
++Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z", "tags": ["home"] }`.
++`tags` is always an array of strings sorted alphabetically, `[]` when the task has none.
+ 
+ | Method and path | What it does | Answers |
+ |---|---|---|
+-| `GET /api/tasks` | Lists the tasks, oldest first; `?done=true` or `?done=false` keeps the done or the open ones | 200, an array of tasks |
+-| `POST /api/tasks` | Creates a task from `{ "title": "…" }` | 201, the task |
++| `GET /api/tasks` | Lists the tasks, oldest first; `?done=true` or `?done=false` keeps the done or the open ones; `?tag=home` keeps the tasks with that tag; both combine | 200, an array of tasks, or 400 `{ "error": "invalid done" }` for any other `done` value |
++| `GET /api/tags` | Lists the tags in use with their number of tasks, sorted by name: `[{ "name": "home", "count": 2 }]`; a tag no task uses is not listed | 200, an array |
++| `POST /api/tasks` | Creates a task from `{ "title": "…", "tags": ["home"] }` (`tags` is optional) | 201, the task, or 400 `{ "error": "invalid tags" }` |
+ | `GET /api/tasks/:id` | Reads a task | 200, or 404 `{ "error": "task not found" }` |
+-| `PATCH /api/tasks/:id` | Changes `title` and / or `done` | 200, the task, or 404 |
++| `PATCH /api/tasks/:id` | Changes `title`, `done` and / or `tags`; `tags` replaces the whole list (`[]` clears it), and leaving it out keeps the tags | 200, the task, 400 `{ "error": "invalid tags" }`, or 404 |
+ | `DELETE /api/tasks/:id` | Deletes a task | 204, or 404 |
+ 
+ Errors answer `{ "error": "<message>" }`.
+ 
++### Tags
++
++Tags are normalized first: trimmed, lowercased, duplicates removed. A valid tag is 1 to 30 characters among `a-z`,
++`0-9` and `-`, and a task has at most 10 tags (counted after removing duplicates). `tags` must be an array of strings;
++anything else, or a tag that breaks these rules, answers 400 `{ "error": "invalid tags" }` and nothing changes (no task
++is created, none is updated). `?tag=` takes a name normalized the same way; a name that is not a valid tag matches no
++task and answers `[]`. Deleting a task removes its links to tags.
++
+ ## Layout
+ 
+-- `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied).
++- `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied). Tables:
++  `tasks`, `tags` (`id`, unique `name`) and `task_tags` (`task_id`, `tag_id`, both `ON DELETE CASCADE`).
+ - `src/tasks.ts`: the queries.
+ - `src/app.ts`: the HTTP server and its routes.
+ - `public/`: the page.
+ - `test/`: the API tests, against a server on a random port with an in-memory database.
+diff --git a/public/app.js b/public/app.js
+index c5c1b09..9d22a99 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -1,10 +1,16 @@
+ const list = document.querySelector("#tasks");
+ const form = document.querySelector("#new-task");
+ const title = document.querySelector("#title");
+ const filter = document.querySelector("#filter");
+ const error = document.querySelector("#error");
++const newTags = document.querySelector("#new-tags");
++const activeTag = document.querySelector("#active-tag");
++const activeTagName = document.querySelector("#active-tag-name");
++const clearTag = document.querySelector("#clear-tag");
++
++let currentTag = "";
+ 
+ async function api(path, options = {}) {
+   const res = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
+   const body = res.status === 204 ? null : await res.json();
+   if (!res.ok) throw new Error(body?.error ?? res.statusText);
+@@ -14,13 +20,18 @@ async function api(path, options = {}) {
+ function show(err) {
+   error.textContent = err.message;
+ }
+ 
+ async function render() {
+-  const query = filter.value ? `?done=${filter.value}` : "";
++  const params = new URLSearchParams();
++  if (filter.value) params.set("done", filter.value);
++  if (currentTag) params.set("tag", currentTag);
++  const query = params.size ? `?${params}` : "";
+   const tasks = await api(`/api/tasks${query}`);
+   error.textContent = "";
++  activeTag.hidden = !currentTag;
++  activeTagName.textContent = currentTag ? `Tag: ${currentTag}` : "";
+   list.replaceChildren(...tasks.map(taskItem));
+ }
+ 
+ function taskItem(task) {
+   const item = document.createElement("li");
+@@ -36,19 +47,43 @@ function taskItem(task) {
+   const remove = document.createElement("button");
+   remove.textContent = "Delete";
+   remove.addEventListener("click", () => {
+     api(`/api/tasks/${task.id}`, { method: "DELETE" }).then(render, show);
+   });
+-  item.append(box, label, remove);
++  const tags = document.createElement("div");
++  tags.className = "tags";
++  for (const name of task.tags) {
++    const tag = document.createElement("button");
++    tag.type = "button";
++    tag.className = "tag";
++    tag.textContent = name;
++    tag.setAttribute("aria-pressed", String(name === currentTag));
++    tag.addEventListener("click", () => {
++      currentTag = name;
++      render().then(() => clearTag.focus(), show);
++    });
++    tags.append(tag);
++  }
++  item.append(box, label, tags, remove);
+   return item;
+ }
+ 
+ form.addEventListener("submit", async (event) => {
+   event.preventDefault();
+-  await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: title.value }) });
+-  form.reset();
+-  await render();
++  const tags = newTags.value.split(",").map((name) => name.trim()).filter(Boolean);
++  try {
++    await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: title.value, tags }) });
++    form.reset();
++    await render();
++  } catch (err) {
++    show(err);
++  }
++});
++
++clearTag.addEventListener("click", () => {
++  currentTag = "";
++  render().then(() => filter.focus(), show);
+ });
+ 
+ filter.addEventListener("change", () => render().catch(show));
+ 
+ render().catch(show);
+diff --git a/public/index.html b/public/index.html
+index 3179186..66af513 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -9,27 +9,42 @@
+       form, .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+       input[type="text"] { flex: 1; }
+       ul { list-style: none; padding: 0; }
+       li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+       li span { flex: 1; }
++      .tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
++      .tag { min-width: 24px; min-height: 24px; padding: 0 0.6rem; border: 1px solid #767676; border-radius: 999px; background: #f2f2f2; color: inherit; font: inherit; font-size: 0.85rem; cursor: pointer; }
++      .tag[aria-pressed="true"] { background: #1a1a1a; border-color: #1a1a1a; color: #fff; }
++      .tag:focus-visible, .toolbar button:focus-visible { outline: 2px solid #0050c8; outline-offset: 2px; }
++      .toolbar { align-items: center; flex-wrap: wrap; }
++      #active-tag { display: flex; align-items: center; gap: 0.5rem; }
++      #active-tag[hidden] { display: none; }
+       #error { color: #b00020; min-height: 1.5em; }
+     </style>
+   </head>
+   <body>
+     <h1>Tasks</h1>
+     <form id="new-task">
+       <label for="title" hidden>Title</label>
+       <input id="title" type="text" placeholder="What needs doing?" />
++      <label for="new-tags" hidden>Tags</label>
++      <input id="new-tags" type="text" placeholder="home, work" />
+       <button type="submit">Add</button>
+     </form>
+     <div class="toolbar">
+       <label for="filter">Show</label>
+       <select id="filter">
+         <option value="">All</option>
+         <option value="false">Open</option>
+         <option value="true">Done</option>
+       </select>
++      <div aria-live="polite">
++        <div id="active-tag" hidden>
++          <span id="active-tag-name"></span>
++          <button type="button" id="clear-tag">All tags</button>
++        </div>
++      </div>
+     </div>
+     <p id="error" role="alert"></p>
+     <ul id="tasks"></ul>
+     <script type="module" src="/app.js"></script>
+   </body>
+diff --git a/src/app.ts b/src/app.ts
+index 78a93d6..02918f6 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -31,30 +31,44 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+     return;
+   }
+ 
+   if (url.pathname === "/api/tasks") {
+     if (method === "GET") {
+-      const done = url.searchParams.get("done") ?? undefined;
+-      return send(res, 200, tasks.listTasks(db, { done }));
++      const doneParam = url.searchParams.get("done") ?? undefined;
++      if (doneParam !== undefined && doneParam !== "true" && doneParam !== "false") {
++        return send(res, 400, { error: "invalid done" });
++      }
++      const done = doneParam === undefined ? undefined : doneParam === "true";
++      const tag = url.searchParams.get("tag") ?? undefined;
++      return send(res, 200, tasks.listTasks(db, { done, tag }));
+     }
+     if (method === "POST") {
+       const body = await readJson(req);
+-      return send(res, 201, tasks.createTask(db, body.title));
++      const tags = parseTags(body.tags);
++      if (tags === null) return send(res, 400, { error: "invalid tags" });
++      return send(res, 201, tasks.createTask(db, body.title, tags));
+     }
+     return send(res, 405, { error: "method not allowed" });
+   }
+ 
++  if (url.pathname === "/api/tags") {
++    if (method === "GET") return send(res, 200, tasks.listTags(db));
++    return send(res, 405, { error: "method not allowed" });
++  }
++
+   const match = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);
+   if (match) {
+     const id = Number(match[1]);
+     if (method === "GET") {
+       const task = tasks.getTask(db, id);
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "PATCH") {
+       const body = await readJson(req);
+-      const task = tasks.updateTask(db, id, { title: body.title, done: body.done });
++      const tags = parseTags(body.tags);
++      if (tags === null) return send(res, 400, { error: "invalid tags" });
++      const task = tasks.updateTask(db, id, { title: body.title, done: body.done, tags });
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "DELETE") {
+       return tasks.deleteTask(db, id) ? send(res, 204) : send(res, 404, { error: "task not found" });
+     }
+@@ -62,10 +76,16 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+   }
+ 
+   send(res, 404, { error: "not found" });
+ }
+ 
++/** undefined when `tags` is absent, null when it is invalid, else the normalized tags. */
++function parseTags(input: unknown): string[] | undefined | null {
++  if (input === undefined) return undefined;
++  return tasks.normalizeTags(input) ?? null;
++}
++
+ async function readJson(req: any): Promise<any> {
+   let text = "";
+   for await (const chunk of req) text += chunk;
+   return text ? JSON.parse(text) : {};
+ }
+diff --git a/src/db.ts b/src/db.ts
+index f44186d..a100d67 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -8,10 +8,20 @@ const migrations: string[] = [
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )`,
++  `CREATE TABLE tags (
++     id INTEGER PRIMARY KEY AUTOINCREMENT,
++     name TEXT NOT NULL UNIQUE
++   );
++   CREATE TABLE task_tags (
++     task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++     tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
++     PRIMARY KEY (task_id, tag_id)
++   );
++   CREATE INDEX task_tags_tag_id ON task_tags(tag_id)`,
+ ];
+ 
+ export function openDb(path = ":memory:"): Db {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA foreign_keys = ON");
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4fd5acb..59aa6a7 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -3,46 +3,131 @@ import type { Db } from "./db.ts";
+ export interface Task {
+   id: number;
+   title: string;
+   done: boolean;
+   created_at: string;
++  tags: string[];
+ }
+ 
+ interface Row {
+   id: number;
+   title: string;
+   done: number;
+   created_at: string;
+ }
+ 
+-const toTask = (row: Row): Task => ({ ...row, done: row.done === 1 });
++const TAG_PATTERN = /^[a-z0-9-]{1,30}$/;
++const MAX_TAGS = 10;
+ 
+-export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
+-  if (filter.done === undefined) {
+-    return (db.prepare("SELECT * FROM tasks ORDER BY id").all() as Row[]).map(toTask);
++/** A tag name as stored: trimmed and lowercased. */
++export const normalizeTag = (name: string): string => name.trim().toLowerCase();
++
++/** The normalized, deduplicated tags, or undefined when the input is not a valid list of tags. */
++export function normalizeTags(input: unknown): string[] | undefined {
++  if (!Array.isArray(input)) return undefined;
++  const tags = new Set<string>();
++  for (const item of input) {
++    if (typeof item !== "string") return undefined;
++    const tag = normalizeTag(item);
++    if (!TAG_PATTERN.test(tag)) return undefined;
++    tags.add(tag);
++  }
++  return tags.size > MAX_TAGS ? undefined : [...tags];
++}
++
++function withTags(db: Db, rows: Row[]): Task[] {
++  const links = db
++    .prepare("SELECT tt.task_id AS task_id, t.name AS name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id ORDER BY t.name")
++    .all() as { task_id: number; name: string }[];
++  const byTask = new Map<number, string[]>();
++  for (const { task_id, name } of links) {
++    const names = byTask.get(task_id);
++    if (names) names.push(name);
++    else byTask.set(task_id, [name]);
++  }
++  return rows.map((row) => ({ ...row, done: row.done === 1, tags: byTask.get(row.id) ?? [] }));
++}
++
++export function listTasks(db: Db, filter: { done?: boolean; tag?: string } = {}): Task[] {
++  const where: string[] = [];
++  const params: (string | number)[] = [];
++  if (filter.done !== undefined) {
++    where.push("done = ?");
++    params.push(filter.done ? 1 : 0);
++  }
++  if (filter.tag !== undefined) {
++    const tag = normalizeTag(filter.tag);
++    if (!TAG_PATTERN.test(tag)) return [];
++    where.push("EXISTS (SELECT 1 FROM task_tags tt JOIN tags t ON t.id = tt.tag_id WHERE tt.task_id = tasks.id AND t.name = ?)");
++    params.push(tag);
+   }
+-  const rows = db.prepare("SELECT * FROM tasks WHERE done = ? ORDER BY id").all(filter.done ? 1 : 0) as Row[];
+-  return rows.map(toTask);
++  const sql = `SELECT * FROM tasks${where.length ? " WHERE " + where.join(" AND ") : ""} ORDER BY id`;
++  return withTags(db, db.prepare(sql).all(...params) as Row[]);
+ }
+ 
+ export function getTask(db: Db, id: number): Task | undefined {
+   const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Row | undefined;
+-  return row && toTask(row);
++  return row && withTags(db, [row])[0];
+ }
+ 
+-export function createTask(db: Db, title: string): Task {
+-  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title) VALUES (?)").run(title);
+-  return getTask(db, Number(lastInsertRowid))!;
++/** Replaces the links of a task with `tags` (already normalized). Run inside a transaction. */
++function setTags(db: Db, taskId: number, tags: string[]): void {
++  db.prepare("DELETE FROM task_tags WHERE task_id = ?").run(taskId);
++  const insertTag = db.prepare("INSERT OR IGNORE INTO tags (name) VALUES (?)");
++  const insertLink = db.prepare("INSERT INTO task_tags (task_id, tag_id) SELECT ?, id FROM tags WHERE name = ?");
++  for (const tag of tags) {
++    insertTag.run(tag);
++    insertLink.run(taskId, tag);
++  }
++}
++
++function inTransaction<T>(db: Db, work: () => T): T {
++  db.exec("BEGIN");
++  try {
++    const result = work();
++    db.exec("COMMIT");
++    return result;
++  } catch (err) {
++    db.exec("ROLLBACK");
++    throw err;
++  }
+ }
+ 
+-export function updateTask(db: Db, id: number, changes: { title?: string; done?: boolean }): Task | undefined {
++/** `tags` must be normalized (see normalizeTags). */
++export function createTask(db: Db, title: string, tags: string[] = []): Task {
++  const id = inTransaction(db, () => {
++    const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title) VALUES (?)").run(title);
++    setTags(db, Number(lastInsertRowid), tags);
++    return Number(lastInsertRowid);
++  });
++  return getTask(db, id)!;
++}
++
++/** `tags`, when given, replaces the whole list and must be normalized; when undefined the tags are left alone. */
++export function updateTask(
++  db: Db,
++  id: number,
++  changes: { title?: string; done?: boolean; tags?: string[] },
++): Task | undefined {
+   const task = getTask(db, id);
+   if (!task) return undefined;
+   const title = changes.title ?? task.title;
+   const done = changes.done ?? task.done;
+-  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, done ? 1 : 0, id);
++  inTransaction(db, () => {
++    db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, done ? 1 : 0, id);
++    if (changes.tags !== undefined) setTags(db, id, changes.tags);
++  });
+   return getTask(db, id);
+ }
+ 
+ export function deleteTask(db: Db, id: number): boolean {
+   return db.prepare("DELETE FROM tasks WHERE id = ?").run(id).changes > 0;
+ }
++
++/** The tags used by at least one task, with their number of tasks, sorted by name. */
++export function listTags(db: Db): { name: string; count: number }[] {
++  return db
++    .prepare(
++      "SELECT t.name AS name, COUNT(*) AS count FROM tags t JOIN task_tags tt ON tt.tag_id = t.id GROUP BY t.id ORDER BY t.name",
++    )
++    .all() as { name: string; count: number }[];
++}
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 1fa1bd8..541bbec 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -1,8 +1,13 @@
+ import { after, before, test } from "node:test";
+ import assert from "node:assert/strict";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { DatabaseSync } from "node:sqlite";
+ import { createServer } from "../src/app.ts";
++import { openDb, type Db } from "../src/db.ts";
+ 
+ let server: any;
+ let base = "";
+ 
+ before(async () => {
+@@ -69,5 +74,201 @@ test("lists only the done tasks with ?done=true", async () => {
+ test("serves the page", async () => {
+   const res = await fetch(base + "/");
+   assert.equal(res.status, 200);
+   assert.match(await res.text(), /<h1>Tasks<\/h1>/);
+ });
++
++// Tags. The shared server above holds other tests' tasks, so tests that count tags use their own server.
++async function withApp(run: (api: typeof call, db: Db) => Promise<void>) {
++  const dir = mkdtempSync(join(tmpdir(), "tasks-test-"));
++  const app = createServer(join(dir, "tasks.db"));
++  const db = openDb(join(dir, "tasks.db")); // a second connection, to look at the tables
++  await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
++  const root = `http://127.0.0.1:${(app.address() as any).port}`;
++  const api = async (method: string, path: string, body?: unknown) => {
++    const res = await fetch(root + path, {
++      method,
++      headers: body === undefined ? {} : { "content-type": "application/json" },
++      body: body === undefined ? undefined : JSON.stringify(body),
++    });
++    return { status: res.status, body: res.status === 204 ? null : await res.json() };
++  };
++  try {
++    await run(api, db);
++  } finally {
++    db.close();
++    await new Promise<void>((resolve) => app.close(() => resolve()));
++    rmSync(dir, { recursive: true, force: true });
++  }
++}
++
++test("a task has no tags by default", async () => {
++  const created = await call("POST", "/api/tasks", { title: "Untagged" });
++  assert.deepEqual(created.body.tags, []);
++  assert.deepEqual((await call("GET", `/api/tasks/${created.body.id}`)).body.tags, []);
++  const list = await call("GET", "/api/tasks");
++  assert.ok(list.body.every((t: any) => Array.isArray(t.tags)));
++});
++
++test("creates a task with tags normalized, deduplicated and sorted", async () => {
++  const created = await call("POST", "/api/tasks", { title: "Tagged", tags: [" Work ", "home", "WORK", "a-1"] });
++  assert.equal(created.status, 201);
++  assert.deepEqual(created.body.tags, ["a-1", "home", "work"]);
++  assert.deepEqual((await call("GET", `/api/tasks/${created.body.id}`)).body.tags, ["a-1", "home", "work"]);
++});
++
++test("PATCH replaces the tags, keeps them when absent and clears them with []", async () => {
++  const created = await call("POST", "/api/tasks", { title: "Patch tags", tags: ["one", "two"] });
++  const path = `/api/tasks/${created.body.id}`;
++  assert.deepEqual((await call("PATCH", path, { tags: ["Three"] })).body.tags, ["three"]);
++  const renamed = await call("PATCH", path, { title: "Renamed", done: true });
++  assert.equal(renamed.status, 200);
++  assert.deepEqual(renamed.body.tags, ["three"]);
++  const cleared = await call("PATCH", path, { tags: [] });
++  assert.deepEqual(cleared.body.tags, []);
++  assert.deepEqual((await call("GET", path)).body.tags, []);
++});
++
++const invalidTags: [string, unknown][] = [
++  ["a string", "home"],
++  ["null", null],
++  ["an object", { home: true }],
++  ["a number item", ["home", 3]],
++  ["an empty string", ["home", ""]],
++  ["a blank string", ["  "]],
++  ["31 characters", ["a".repeat(31)]],
++  ["a space inside", ["my tag"]],
++  ["an underscore", ["my_tag"]],
++  ["an accent", ["café"]],
++  ["11 tags", Array.from({ length: 11 }, (_, i) => `t${i}`)],
++];
++
++for (const [name, tags] of invalidTags) {
++  test(`rejects tags that are ${name}: 400 and nothing changes`, async () => {
++    await withApp(async (api) => {
++      const before = await api("POST", "/api/tasks", { title: "Keep", tags: ["keep"] });
++      const path = `/api/tasks/${before.body.id}`;
++      const patched = await api("PATCH", path, { title: "Changed", done: true, tags });
++      assert.equal(patched.status, 400);
++      assert.deepEqual(patched.body, { error: "invalid tags" });
++      assert.deepEqual((await api("GET", path)).body, before.body);
++      const created = await api("POST", "/api/tasks", { title: "New", tags });
++      assert.equal(created.status, 400);
++      assert.deepEqual(created.body, { error: "invalid tags" });
++      assert.equal((await api("GET", "/api/tasks")).body.length, 1);
++      assert.deepEqual((await api("GET", "/api/tags")).body, [{ name: "keep", count: 1 }]);
++    });
++  });
++}
++
++test("accepts 10 tags of 30 characters, counting duplicates once", async () => {
++  const tags = Array.from({ length: 10 }, (_, i) => String(i).repeat(30).slice(0, 30));
++  const created = await call("POST", "/api/tasks", { title: "Limits", tags: [...tags, tags[0].toUpperCase()] });
++  assert.equal(created.status, 201);
++  assert.equal(created.body.tags.length, 10);
++});
++
++test("?tag= lists only the tasks with that tag, normalized, and combines with done", async () => {
++  await withApp(async (api) => {
++    const a = await api("POST", "/api/tasks", { title: "A", tags: ["home", "work"] });
++    const b = await api("POST", "/api/tasks", { title: "B", tags: ["home"] });
++    await api("POST", "/api/tasks", { title: "C", tags: ["work"] });
++    await api("POST", "/api/tasks", { title: "D" });
++    await api("PATCH", `/api/tasks/${b.body.id}`, { done: true });
++    const ids = async (query: string) => (await api("GET", `/api/tasks${query}`)).body.map((t: any) => t.title);
++    assert.deepEqual(await ids("?tag=home"), ["A", "B"]);
++    assert.deepEqual(await ids("?tag=%20HOME%20"), ["A", "B"]);
++    assert.deepEqual(await ids("?tag=home&done=true"), ["B"]);
++    assert.deepEqual(await ids("?tag=home&done=false"), ["A"]);
++    assert.deepEqual(await ids("?tag=work&done=true"), []);
++    assert.deepEqual(await ids("?tag=nope"), []);
++    assert.deepEqual(await ids("?tag=not%20valid"), []);
++    assert.deepEqual(await ids("?tag="), []);
++    assert.deepEqual((await api("GET", "/api/tasks?tag=home")).body[0].tags, ["home", "work"]);
++    assert.equal(a.status, 201);
++  });
++});
++
++test("?done=false lists the open tasks and ?done=true the done ones", async () => {
++  await withApp(async (api) => {
++    const open = await api("POST", "/api/tasks", { title: "Open" });
++    const done = await api("POST", "/api/tasks", { title: "Done" });
++    await api("PATCH", `/api/tasks/${done.body.id}`, { done: true });
++    assert.deepEqual((await api("GET", "/api/tasks?done=false")).body.map((t: any) => t.id), [open.body.id]);
++    assert.deepEqual((await api("GET", "/api/tasks?done=true")).body.map((t: any) => t.id), [done.body.id]);
++    assert.equal((await api("GET", "/api/tasks")).body.length, 2);
++  });
++});
++
++test("?done= with another value is a 400", async () => {
++  const res = await call("GET", "/api/tasks?done=maybe");
++  assert.equal(res.status, 400);
++  assert.deepEqual(res.body, { error: "invalid done" });
++});
++
++test("GET /api/tags counts the tasks per tag, sorted by name, and drops unused tags", async () => {
++  await withApp(async (api) => {
++    assert.deepEqual((await api("GET", "/api/tags")).body, []);
++    const a = await api("POST", "/api/tasks", { title: "A", tags: ["work", "home"] });
++    const b = await api("POST", "/api/tasks", { title: "B", tags: ["home"] });
++    assert.deepEqual((await api("GET", "/api/tags")).body, [
++      { name: "home", count: 2 },
++      { name: "work", count: 1 },
++    ]);
++    await api("PATCH", `/api/tasks/${a.body.id}`, { tags: ["home"] });
++    assert.deepEqual((await api("GET", "/api/tags")).body, [{ name: "home", count: 2 }]);
++    assert.equal((await api("DELETE", `/api/tasks/${b.body.id}`)).status, 204);
++    assert.deepEqual((await api("GET", "/api/tags")).body, [{ name: "home", count: 1 }]);
++    await api("PATCH", `/api/tasks/${a.body.id}`, { tags: [] });
++    assert.deepEqual((await api("GET", "/api/tags")).body, []);
++    assert.equal((await api("POST", "/api/tags", {})).status, 405);
++  });
++});
++
++test("deleting a task removes its links to tags", async () => {
++  await withApp(async (api, db) => {
++    const created = await api("POST", "/api/tasks", { title: "Gone", tags: ["a", "b"] });
++    const count = () => (db.prepare("SELECT COUNT(*) AS n FROM task_tags").get() as { n: number }).n;
++    assert.equal(count(), 2);
++    await api("DELETE", `/api/tasks/${created.body.id}`);
++    assert.equal(count(), 0);
++  });
++});
++
++test("opening a database file made by the first release adds the tag tables and keeps its tasks", async () => {
++  const dir = mkdtempSync(join(tmpdir(), "tasks-v1-"));
++  const path = join(dir, "v1.db");
++  try {
++    // The schema exactly as the first release shipped it (user_version 1).
++    const old = new DatabaseSync(path);
++    old.exec(`CREATE TABLE tasks (
++      id INTEGER PRIMARY KEY AUTOINCREMENT,
++      title TEXT NOT NULL,
++      done INTEGER NOT NULL DEFAULT 0,
++      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
++    )`);
++    old.exec("INSERT INTO tasks (title, done) VALUES ('Old task', 1)");
++    old.exec("PRAGMA user_version = 1");
++    old.close();
++
++    const app = createServer(path);
++    await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
++    const root = `http://127.0.0.1:${(app.address() as any).port}`;
++    try {
++      const list = await (await fetch(`${root}/api/tasks`)).json();
++      assert.equal(list.length, 1);
++      assert.equal(list[0].title, "Old task");
++      assert.equal(list[0].done, true);
++      assert.deepEqual(list[0].tags, []);
++      const patched = await fetch(`${root}/api/tasks/${list[0].id}`, {
++        method: "PATCH",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({ tags: ["Legacy"] }),
++      });
++      assert.deepEqual((await patched.json()).tags, ["legacy"]);
++    } finally {
++      await new Promise<void>((resolve) => app.close(() => resolve()));
++    }
++  } finally {
++    rmSync(dir, { recursive: true, force: true });
++  }
++});

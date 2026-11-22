@@ -1,0 +1,321 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:25:39.776Z",
+  "state": "done",
+  "wall_s": 137.825430333,
+  "cost_usd": 0.7403026000000001,
+  "sessions": 6,
+  "turns": 6,
+  "tokens": {
+    "cache_creation": 134154,
+    "cache_read": 409726,
+    "input": 32,
+    "output": 16265
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "Small, well-specified validation and error-handling fix in a ~340-line app (src/app.ts, src/tasks.ts, public/app.js, tests), with testable acceptance criteria already listed.",
+    "workflow": "default",
+    "skip": [],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 1.5,
+    "rulings": [
+      "Ruling: workflow default, not hotfix — a 500 on invalid input is a bug but not an urgent outage, and the plan gate is cheap on an S change — cost if wrong: one extra gate",
+      "Ruling: skip frame (po) — the ticket already lists 7 testable acceptance criteria, framing them again only repeats them — cost if wrong: a missed edge case surfaces at code review",
+      "Ruling: skip prd, architecture, ux, seo — not a vague epic, no cross-cutting decision, only an error line on the existing page, no public page change — cost if wrong: minor rework",
+      "Ruling: security effort medium — input validation and error-message leakage (A10:2025) are in scope, but no auth, payments or personal data — cost if wrong: a missed leak of an internal message",
+      "Ruling: budget $1.50 — S change covering one implement task, review rounds and the security review — cost if wrong: run stops before its reviews and needs a top-up"
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0858892,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "frame",
+      "role": "po",
+      "state": "done",
+      "cost": 0.124287,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.1277967,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.1777788,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1181547,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.1063962,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 8,
+      "removed": 3
+    },
+    {
+      "path": "public/app.js",
+      "added": 7,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 20,
+      "removed": 4
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 16,
+      "removed": 3
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 106,
+      "removed": 1
+    }
+  ],
+  "lines_added": 157,
+  "lines_removed": 14,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "parseTitle rejects missing, empty, blank and non-string titles with 400 'title is required' before insert; tested."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "PATCH uses Object.hasOwn(body,'title') and parseTitle, so null/empty titles are rejected; tested."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "parseTitle enforces a 200-character limit after trimming with the exact message and returns the trimmed title; tested."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "readJson converts parse failures (and non-object JSON) to ValidationError 'invalid JSON body', which is answered with 400."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "The catch handler logs with console.error and sends the generic 'internal error' message with 500."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The submit handler wraps the call in try/catch and calls show(err), assuming api() throws with the API error message."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "New tests cover POST, PATCH, length, trimming, invalid JSON and the 500 path. The page change is untested."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "createTask calls parseTitle again, and app.ts already called it, so POST validates twice. updateTask does the same for PATCH. The redundancy is harmless but muddles where validation belongs."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH validates the title before the task lookup, so a nonexistent id with a bad title returns 400, not 404. This is deliberate and tested, but it is not in the ticket."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "Rejecting valid non-object JSON ('null', '[]', '5') as 'invalid JSON body' goes slightly beyond the ticket, though it is reasonable and documented. The res.headersSent guard is also extra."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The front-end error display (criterion 6) has no test. The 500 test depends on dropping the table from a second connection, which is a bit fragile."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH still passes body.done unvalidated, which is outside this ticket. The readJson loop also has no body size limit, which is pre-existing."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets every acceptance criterion. It uses one shared parseTitle validator, a ValidationError class mapped to 400, a generic logged 500, and a try/catch on the page. Tests are thorough and the README is updated; the weak spots are validation running twice, no test for the page change, and a few small additions beyond the ticket.",
+    "cost_usd": 0.0463944
+  }
+}

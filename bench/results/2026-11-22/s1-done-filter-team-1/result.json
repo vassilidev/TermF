@@ -1,0 +1,279 @@
+{
+  "ticket": "s1-done-filter",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:13:36.942Z",
+  "state": "done",
+  "wall_s": 71.580308542,
+  "cost_usd": 0.5054341,
+  "sessions": 5,
+  "turns": 5,
+  "tokens": {
+    "cache_creation": 99516,
+    "cache_read": 354241,
+    "input": 28,
+    "output": 7189
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "In src/tasks.ts `listTasks` receives `done` as a string, so `filter.done ? 1 : 0` treats \"false\" as truthy; the fix also needs strict validation in the API handler (src/app.ts) and a regression test.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "low"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 0.6,
+    "rulings": [
+      "Ruling: workflow default, not hotfix — a filter bug with no data loss or outage, and keeping the plan gate costs little — cost if wrong: a slightly slower delivery",
+      "Ruling: skip the `frame` step — the ticket already gives four testable acceptance criteria and the cause is clear — cost if wrong: an unframed side effect, such as the UI sending an unexpected `done` value, reaches the plan; the lead should check public/app.js:19 and the option values in public/index.html",
+      "Ruling: no PM, architect, UX or SEO — one query parameter in an existing endpoint, no interface change, no public page — cost if wrong: none expected",
+      "Ruling: security review at low effort — the only input parsing is one query parameter, validated strictly, with no authentication, personal data or dependencies involved — cost if wrong: a missed edge case in parsing (e.g. repeated `done` params), which the tests should cover",
+      "Ruling: no squads — the project declares none; the lead plans the whole ticket (back-end role: src/app.ts validation returning 400 {\"error\":\"done must be true or false\"} for any value other than true/false, including empty; src/tasks.ts to compare against \"true\"/\"false\" explicitly; a test in test/tasks.test.ts for done=false, done=true, no filter and invalid values) — cost if wrong: none",
+      "Ruling: budget $0.60 — a size S fix in two source files plus a test — cost if wrong: the run asks the user before spending more"
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0998514,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.1175456,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.1123729,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.0920628,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.08360139999999999,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 6,
+    "fail": 0,
+    "tests": 6,
+    "failed": [],
+    "total": 6
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 13,
+    "fail": 0,
+    "tests": 13,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "src/app.ts",
+      "added": 5,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 40,
+      "removed": 0
+    }
+  ],
+  "lines_added": 46,
+  "lines_removed": 2,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "The API now parses 'false' to boolean false, and listTasks queries done=0, so only open tasks are returned."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "'true' maps to true, a missing parameter maps to undefined (unfiltered list), and tests cover both."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Any non-null value other than 'true' or 'false' (including empty string) returns 400 with the exact error message."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "A done=false test asserts the done task is excluded and would fail on the old code, which treated the string 'false' as truthy."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 9,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The tests share a database and use .some/.every checks, not exact results. They are weaker than asserting the exact list, but they are robust to leftover state."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "A repeated parameter (?done=true&done=false) uses only the first value, and no test covers it. This is minor."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The loop test passes an empty value as `?done=` and covers the ticket's example. Its name uses JSON.stringify, which is fine."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff fixes the root cause. The query-string value was passed as a string, so 'false' was truthy. The fix parses it to a boolean, validates it with the exact 400 message, and tightens the listTasks type. The tests cover all four criteria with only small weaknesses, and the scope is minimal.",
+    "cost_usd": 0.0257664
+  }
+}

@@ -1,0 +1,274 @@
+{
+  "ticket": "s1-done-filter",
+  "arm": "team",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:29:54.746Z",
+  "state": "done",
+  "wall_s": 53.760410291,
+  "cost_usd": 0.2938452,
+  "sessions": 3,
+  "turns": 3,
+  "tokens": {
+    "cache_creation": 54621,
+    "cache_read": 222652,
+    "input": 18,
+    "output": 5306
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "listTasks tests the string \"false\" for truthiness, so done=false selects the done tasks; a small fix in src/tasks.ts and src/app.ts with testable criteria.",
+    "workflow": "direct",
+    "skip": [],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "review",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 0.6,
+    "rulings": [
+      "Ruling: workflow direct — S bug with four testable acceptance criteria, one developer, no security stake (no auth, payments, personal data or secrets) — cost if wrong: the short review may miss an edge case; switch to default.",
+      "Ruling: skip the PO, PM, architect, UX and SEO steps — criteria are already testable, the fix touches two small functions, and the page already sends ?done=true|false or no parameter, so the interface does not change — cost if wrong: low.",
+      "Ruling: direct has no security step — the only input is a query-string flag validated strictly against true/false and the SQL stays parameterised — cost if wrong: low.",
+      "Ruling: budget $0.60 — one small task, one review round, plan and checks — cost if wrong: the run stops before its review and asks the user for more.",
+      "Ruling: root cause is in src/tasks.ts (filter.done ? 1 : 0 on the string \"false\", which is truthy); an empty ?done= also acts as true today and AC3 turns it into a 400 — cost if wrong: none, it is what the ticket asks."
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": {
+      "id": "T1",
+      "role": "back",
+      "squad": "",
+      "repo": "app",
+      "size": "S",
+      "covers": [
+        "AC1",
+        "AC2",
+        "AC3",
+        "AC4"
+      ],
+      "goal": "Fix GET /api/tasks?done=... Cause: in src/tasks.ts, listTasks takes filter.done as a string and uses `filter.done ? 1 : 0`, so the string \"false\" is truthy and selects done tasks. In src/app.ts the GET /api/tasks handler reads `url.searchParams.get(\"done\") ?? undefined`; an empty `?done=` gives \"\" and is also treated as true today. Do this: in src/app.ts, when `url.searchParams.has(\"done\")` and the value is not exactly \"true\" or \"false\", answer 400 with {\"error\": \"done must be true or false\"} (this covers ?done=yes and ?done=). Otherwise pass a real boolean (or undefined when the param is absent) to listTasks. Change listTasks in src/tasks.ts to take `{ done?: boolean }` and use `filter.done === undefined` for the unfiltered case and `filter.done ? 1 : 0` for the filtered one. Without the done param every task is still listed. public/app.js already sends ?done=true, ?done=false or no parameter (line 19), so leave it unchanged. Tests in test/tasks.test.ts, in the style of the existing call() helper: create two tasks, PATCH one to done, then check that done=false returns only the open one (and not the done one), done=true returns only the done one, no param lists both, and ?done=yes and ?done= each give 400 with the exact error body. The test for done=false must fail on the old code. Run the project's checks (package.json scripts) before finishing.",
+      "files_hint": [
+        "src/app.ts",
+        "src/tasks.ts",
+        "test/tasks.test.ts"
+      ],
+      "depends_on": [],
+      "ui_impact": false
+    }
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.118945,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.101113,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.0737872,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 6,
+    "fail": 0,
+    "tests": 6,
+    "failed": [],
+    "total": 6
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "src/app.ts",
+      "added": 5,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 24,
+      "removed": 0
+    }
+  ],
+  "lines_added": 30,
+  "lines_removed": 2,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "done=false now parses to boolean false and listTasks queries done = 0; the old code treated the string \"false\" as truthy, which was the bug."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "done=true maps to true and returns only done tasks; a missing param gives undefined and the full list. The new test covers both."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Any value other than null, \"true\" or \"false\" returns 400 with the exact error message; ?done= gives an empty string, which is rejected."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The test 'filters the list by done' fails on the old code (done=false returned the done task) and passes with the fix."
+      }
+    ],
+    "scores": {
+      "correctness": 10,
+      "security": 9,
+      "readability": 9,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "Tests only check that ids are included or excluded, and the DB is shared with other tests. They never assert that the result contains only the expected tasks, so they are weaker than they could be. This is acceptable for a shared DB."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "Case variants such as ?done=TRUE and a repeated ?done=true&done=false (only the first is read) are not tested. They are handled sensibly: the first is rejected and the second uses the first value."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The fix is minimal and correct. It parses `done` strictly at the API boundary, types the filter as boolean, and returns the specified 400. The tests cover the bug and the validation, though their assertions are loose.",
+    "cost_usd": 0.024326399999999998
+  }
+}

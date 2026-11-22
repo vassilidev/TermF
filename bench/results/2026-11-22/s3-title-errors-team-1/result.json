@@ -1,0 +1,336 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:15:04.685Z",
+  "state": "done",
+  "wall_s": 114.870646958,
+  "cost_usd": 0.8168730000000001,
+  "sessions": 7,
+  "turns": 7,
+  "tokens": {
+    "cache_creation": 152677,
+    "cache_read": 428999,
+    "input": 34,
+    "output": 13765
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "Input validation and error handling in one small API (src/app.ts, src/tasks.ts), one client handler (public/app.js) and tests, with fully specified acceptance criteria.",
+    "workflow": "default",
+    "skip": [],
+    "add": [],
+    "efforts": [
+      {
+        "step": "frame",
+        "effort": "low"
+      },
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 0.8,
+    "rulings": [
+      "Ruling: workflow default, not hotfix — a validation bug with explicit criteria, no outage, so the plan gate and full review stay — cost if wrong: a slightly slower delivery.",
+      "Ruling: PRD, architecture, UX and SEO skipped — the criteria are explicit, the design is one validation helper, and the only UI change is showing an existing error message in an existing #error element — cost if wrong: a missed design question, cheap to fix.",
+      "Ruling: frame kept at low effort — it checks the edge cases the ticket leaves open — cost if wrong: a few cents spent on a ticket that was already clear.",
+      "Ruling: security review at medium — the diff parses untrusted request bodies and changes what error text leaves the server (criterion 5), but touches no authentication, payments or dependencies — cost if wrong: a missed leak of an internal message.",
+      "Ruling: a JSON body that is valid but not an object (null, an array, a number) answers 400 {\"error\": \"invalid JSON body\"} — today body.title throws a TypeError and answers 500, which criterion 5 and the intent of criterion 4 forbid — cost if wrong: a one-line change in the validator.",
+      "Ruling: PATCH validates the title only when the key `title` is present in the body (`title: null` or `\"\"` is rejected with 400 \"title is required\"); a PATCH without `title` keeps working — matches criterion 2 — cost if wrong: a PATCH {done:true} regression, which a test covers.",
+      "Ruling: the server logs the real error with console.error and sends only {\"error\": \"internal error\"} — criterion 5 — cost if wrong: a leak of internal detail, which the security review checks.",
+      "Ruling: the 200-character limit counts characters of the trimmed title, and the saved title is trimmed on both POST and PATCH — criterion 3 — cost if wrong: a boundary off-by-one, which tests at 200 and 201 cover.",
+      "Ruling: the page fix goes in the submit handler of public/app.js: catch the failed POST and call the existing show(err) — criterion 6 — cost if wrong: the empty-task click would still look dead.",
+      "Ruling: no squad, since the project declares none; the lead plans the whole ticket as one batch with back and front tasks, tests written by the back developer — cost if wrong: none."
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 2,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.1068138,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "frame",
+      "role": "po",
+      "state": "done",
+      "cost": 0.0888495,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.1284495,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.16275550000000005,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.1099308,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1152957,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.1047782,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "security",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 13,
+    "fail": 0,
+    "tests": 13,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": false,
+    "errors": 1,
+    "first": [
+      "test/tasks.test.ts(143,95): error TS7006: Parameter 't' implicitly has an 'any' type."
+    ]
+  },
+  "files": [
+    {
+      "path": "public/app.js",
+      "added": 11,
+      "removed": 2
+    },
+    {
+      "path": "src/app.ts",
+      "added": 18,
+      "removed": 3
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 24,
+      "removed": 3
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 81,
+      "removed": 0
+    }
+  ],
+  "lines_added": 134,
+  "lines_removed": 8,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "createTask calls validateTitle, which throws 400 'title is required' for missing, empty, blank or non-string titles before any insert; tests cover these."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "updateTask validates when 'title' is in changes, and app.ts only passes title when the key is present; validation runs before the update, and tests cover it."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "validateTitle trims, rejects more than 200 characters with the exact message, and returns the trimmed value, which is saved; tests check the 200/201 boundary and trimming."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "readJson turns a JSON.parse failure into HttpError 400 'invalid JSON body'. It does the same for non-object JSON, which goes slightly beyond the ticket but is reasonable."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "The catch handler logs with console.error and sends a generic 'internal error'. It handles headersSent, and a test checks that nothing leaks and the error is logged."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The submit handler catches errors from api() and calls show(err). This assumes api() throws with the API's error message, which the diff doesn't show."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "New tests cover POST, PATCH, length, invalid JSON and the 500 case. The page change is untested, which is acceptable."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH checks `\"title\" in body`, so `{\"title\": undefined}` can't occur in JSON, but PATCH with `done` of a non-boolean type is still unvalidated. This is out of scope for the ticket but still a latent hole."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "Non-object JSON bodies (null, arrays, numbers) now return 400 'invalid JSON body'. This is beyond the literal ticket, though it prevents a 500 on `\"title\" in null`."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/app.ts",
+        "what": "The PATCH line builds two different objects to work around the `in` check, and the long ternary line is awkward. Passing `body` fields conditionally would be cleaner."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "Mocking DatabaseSync.prototype.prepare with t.mock depends on the implementation, and the front-end change (item 6) has no test."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "readJson still has no body size limit, and a malformed request stream error would be a 500. Neither is in scope."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets every acceptance criterion with a small HttpError and validateTitle design. It sends a safe generic 500 and logs the real error on the server. The tests are thorough on boundaries and on the PATCH-unchanged case; the only gaps are minor ones, such as no test for the front-end change and a slightly awkward PATCH line.",
+    "cost_usd": 0.041790400000000005
+  }
+}

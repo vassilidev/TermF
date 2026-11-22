@@ -1931,5 +1931,78 @@ pub fn lsp_json(servers: &[LanguageServer]) -> serde_json::Map<String, Value> {
     map
 }
 
+/// The checks a repository configures without a script to run them: its typecheck and its lint, each a command
+/// to run in the repository, when its tool is installed there (`node_modules/.bin`) or in a folder of `path`.
+pub fn checks(repo: &Path, path: &std::ffi::OsStr) -> Vec<String> {
+    let has = |file: &str| repo.join(file).is_file();
+    let text = |file: &str| fs::read_to_string(repo.join(file)).unwrap_or_default();
+    let exe = |name: &str| {
+        if cfg!(windows) {
+            vec![format!("{name}.cmd"), format!("{name}.exe")]
+        } else {
+            vec![name.to_owned()]
+        }
+    };
+    let local = |name: &str| {
+        exe(name)
+            .into_iter()
+            .map(|n| Path::new("node_modules").join(".bin").join(n))
+            .find(|p| repo.join(p).is_file())
+            .map(|p| p.to_string_lossy().into_owned())
+    };
+    let global = |name: &str| {
+        std::env::split_paths(path)
+            .any(|dir| exe(name).iter().any(|n| dir.join(n).is_file()))
+            .then(|| name.to_owned())
+    };
+    let (pyproject, setup) = (text("pyproject.toml"), text("setup.cfg"));
+    let mut found = Vec::new();
+    if has("tsconfig.json")
+        && let Some(tsc) = local("tsc").or_else(|| global("tsc"))
+    {
+        found.push(format!("{tsc} --noEmit -p tsconfig.json"));
+    }
+    let eslint = [
+        "eslint.config.js",
+        "eslint.config.mjs",
+        "eslint.config.cjs",
+        "eslint.config.ts",
+        ".eslintrc",
+        ".eslintrc.js",
+        ".eslintrc.cjs",
+        ".eslintrc.json",
+        ".eslintrc.yml",
+        ".eslintrc.yaml",
+    ];
+    if eslint.iter().any(|f| has(f))
+        && let Some(bin) = local("eslint")
+    {
+        found.push(format!("{bin} ."));
+    }
+    let mypy = has("mypy.ini")
+        || has(".mypy.ini")
+        || pyproject.contains("[tool.mypy]")
+        || setup.contains("[mypy");
+    if mypy && let Some(bin) = global("mypy") {
+        found.push(format!("{bin} ."));
+    }
+    if (has("pyrightconfig.json") || pyproject.contains("[tool.pyright]"))
+        && let Some(bin) = global("pyright")
+    {
+        found.push(bin);
+    }
+    if (has("ruff.toml") || has(".ruff.toml") || pyproject.contains("[tool.ruff]"))
+        && let Some(bin) = global("ruff")
+    {
+        found.push(format!("{bin} check ."));
+    }
+    if has("Cargo.toml")
+        && let Some(cargo) = global("cargo")
+    {
+        found.push(format!("{cargo} clippy --all-targets --quiet"));
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests;

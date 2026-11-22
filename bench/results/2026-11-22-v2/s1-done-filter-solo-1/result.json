@@ -1,0 +1,125 @@
+{
+  "ticket": "s1-done-filter",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:21:00.689Z",
+  "state": "done",
+  "wall_s": 13.124,
+  "cost_usd": 0.0561719,
+  "sessions": 1,
+  "turns": 5,
+  "tokens": {
+    "input": 10,
+    "output": 1368,
+    "cache_read": 99719,
+    "cache_creation": 8125
+  },
+  "said": "`GET /api/tasks?done=false` now returns only the open tasks, and `npm test` passes (9 tests).\n\nThe cause was that the query value reached `listTasks` as the string `\"false\"`. That string is truthy, so the filter looked for done tasks.\n\n- **`src/app.ts`:** the handler now accepts only `true` or `false`. Any other value, including an empty `?done=`, returns `400` with `{\"error\": \"done must be true or false\"}`. With no `done` parameter, every task is listed as before.\n- **`src/tasks.ts`:** `listTasks` now takes `done` as a boolean instead of a string.\n- **`test/tasks.test.ts`:** two new tests. One covers `?done=false` returning only open tasks, which failed before the fix. The other covers the `400` for `yes` and for an empty value.\n\nI didn't change the page: \"All\" already sends no `done` parameter, and \"Open\" sends `false`, so it's fixed by the server change.",
+  "hidden": {
+    "pass": 6,
+    "fail": 0,
+    "tests": 6,
+    "failed": [],
+    "total": 6
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "src/app.ts",
+      "added": 5,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 18,
+      "removed": 0
+    }
+  ],
+  "lines_added": 24,
+  "lines_removed": 2,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "done=false now parses to boolean false, and listTasks queries done = 0, so only open tasks come back."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "done=true maps to true and returns done tasks. A missing done gives undefined and lists everything."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Any value other than null, 'true' or 'false' returns 400 with the exact error message. An empty string is not null, so done= is rejected."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The new done=false test fails on the old code and passes on the fix. A second test covers the 400 cases."
+      }
+    ],
+    "scores": {
+      "correctness": 10,
+      "security": 9,
+      "readability": 9,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The done=false test only checks that the open task is present and that no done tasks appear. It doesn't check that the finished task is absent by id. The every(!done) check does cover that indirectly, so the gap is minor."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "test/tasks.test.ts",
+        "what": "The 400 test covers only 'yes' and ''. Other cases the ticket implies are untested: 'TRUE', '1', and a repeated done parameter, where getAll would matter. The implementation handles them, since case-sensitive matching rejects 'TRUE' and the first value is used for duplicates."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "No test checks that omitting done still lists every task. This behaviour is unchanged, but the ticket lists it as a criterion."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The fix is minimal and correct. The query parameter is now parsed to a boolean at the API boundary, which removes the root cause: the string \"false\" was truthy. Invalid values return 400 with the specified message, and tests cover the bug and the validation, with only small gaps in edge-case coverage.",
+    "cost_usd": 0.0252024
+  }
+}

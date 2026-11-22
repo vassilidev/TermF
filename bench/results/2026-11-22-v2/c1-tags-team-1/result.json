@@ -1,0 +1,362 @@
+{
+  "ticket": "c1-tags",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T18:25:28.474Z",
+  "state": "done",
+  "wall_s": 275.552099917,
+  "cost_usd": 1.3562626,
+  "sessions": 7,
+  "turns": 7,
+  "tokens": {
+    "cache_creation": 219343,
+    "cache_read": 1428046,
+    "input": 78,
+    "output": 33593
+  },
+  "routing": {
+    "kind": "feature",
+    "size": "M",
+    "reason": "Tags span a new migration, the API (create, patch, list filter, /api/tags), the one-page UI and tests/README, in a small codebase (~370 lines) with fully testable acceptance criteria.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "medium"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 2,
+    "rulings": [
+      "Ruling: default workflow, not direct — the work is M, crosses back (API, migration) and front (page) and the ticket asks for a new table, so one task is not enough — cost if wrong: a slightly heavier run than needed.",
+      "Ruling: skip the product owner (frame) — the ticket already lists 8 testable acceptance criteria — cost if wrong: a missed edge case, caught by the code review.",
+      "Ruling: no PM, no architect, no UX, no SEO — the design is given (separate tags and task_tags tables, existing page patterns, no public pages) — cost if wrong: the plan lead has to decide the page's tag-filter layout itself.",
+      "Ruling: security review at medium effort — tags are user input parsed and bound into SQL filters, but there is no authentication, payment or personal data — cost if wrong: a missed injection or validation gap, mitigated by prepared statements and the HTML escaping check on the page.",
+      "Ruling: the DBA migration review stays on (default) — a new migration adds tables with foreign keys; it must be a new entry in `src/db.ts` with ON DELETE CASCADE, never an edit of the shipped one (foreign_keys is already ON) — cost if wrong: orphaned links on task deletion.",
+      "Ruling: note for the plan — the current `done` filter in `src/tasks.ts` treats the string \"false\" as truthy, so `?done=false` returns done tasks; since AC4 requires the tag filter to combine with `done`, the plan must fix and test it as part of this work — cost if wrong: the combined filter returns wrong results.",
+      "Ruling: note for the plan — invalid-tag requests must answer 400 `{\"error\":\"invalid tags\"}` before any write (validate, then write in one transaction), and a non-array `tags` is invalid too; page tag rendering must escape tag text (no innerHTML with raw values) — cost if wrong: partial writes or XSS on the page.",
+      "Ruling: budget $2.00 — covers the plan, back and front tasks, a QA task, the review rounds, the DBA review and the security review for an M change — cost if wrong: the run stops before its reviews and the user must raise it."
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": null
+  },
+  "plan_tasks": 3,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0957053,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.2012175,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.2674388,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.26354449999999996,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T3",
+      "role": "qa",
+      "state": "done",
+      "cost": 0.24916320000000003,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1549935,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.1241998,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 28,
+    "fail": 0,
+    "tests": 28,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 16,
+      "removed": 5
+    },
+    {
+      "path": "public/app.js",
+      "added": 40,
+      "removed": 5
+    },
+    {
+      "path": "public/index.html",
+      "added": 15,
+      "removed": 0
+    },
+    {
+      "path": "src/app.ts",
+      "added": 24,
+      "removed": 4
+    },
+    {
+      "path": "src/db.ts",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 97,
+      "removed": 12
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 201,
+      "removed": 0
+    }
+  ],
+  "lines_added": 403,
+  "lines_removed": 26,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "withTags always sets tags from links ordered by t.name, defaulting to []; tested."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST and PATCH parse tags; PATCH replaces via setTags only when defined; tests cover replace, keep and clear."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "normalizeTags trims, lowercases, dedups, checks the pattern and max 10 after dedup, and the route returns 400 'invalid tags'. Validation runs before any write, and many invalid cases are tested."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The tag filter is normalized and combined with done through an EXISTS clause; tests cover combinations."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "listTags joins task_tags, groups and sorts by name, so unused tags are dropped; tested."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "New migration adds tags and task_tags with ON DELETE CASCADE; a test checks links are removed and the upgrade from v1."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "The page renders tag buttons, filters on click, has an 'All tags' reset and a comma-separated tags input."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "API tests are added and the README documents the tags endpoints and rules."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 6,
+      "edge_cases": 7,
+      "scope": 6
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "Adds a new 400 'invalid done' for GET /api/tasks?done=other. Previously any other value was treated as open. This is an unrequested behavior change and could break existing clients. It also changed the listTasks signature from string to boolean."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "test/tasks.test.ts",
+        "what": "Adds a test for ?done=false/true and for the invalid done value, which are outside the ticket."
+      },
+      {
+        "severity": "medium",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "A null or non-object JSON body (e.g. `null`) makes body.tags throw, and malformed JSON throws in readJson. The diff adds new uses of body.tags without guarding, so such requests are likely to produce a 500 or a crash. This is pre-existing but extended."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "withTags loads every task_tags link in the database for every call, even when returning a single task. This is O(total links) per request; it should filter by task ids."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "Tags that are no longer used stay in the tags table forever (never cleaned up). Listing is correct, but rows accumulate."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "test/tasks.test.ts",
+        "what": "The ?tag test has a stray `assert.equal(a.status, 201)` and an unused variable. The 'ids' helper actually returns titles."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "public/app.js",
+        "what": "The tag filter sets currentTag, but the form submit does not report an invalid tag in a friendly way beyond showing the server message. Tags typed in the add form are not lowercased client side, which is fine because the server normalizes."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets every acceptance criterion with a clean migration, transactional writes, validation before any change, and thorough API tests including a migration upgrade test. Points off for the unrequested `done` validation that changes existing behavior, no guard against null JSON bodies, and loading every tag link on each query.",
+    "cost_usd": 0.07669640000000001
+  }
+}

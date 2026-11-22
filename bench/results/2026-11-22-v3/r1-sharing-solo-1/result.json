@@ -1,0 +1,267 @@
+{
+  "ticket": "r1-sharing",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "realistic",
+  "at": "2026-11-22T18:45:58.475Z",
+  "state": "done",
+  "wall_s": 183.243,
+  "cost_usd": 0.6081790999999999,
+  "sessions": 1,
+  "turns": 13,
+  "tokens": {
+    "input": 24,
+    "output": 29087,
+    "cache_read": 628771,
+    "cache_creation": 63596
+  },
+  "said": "Lists can now be shared with `editor` and `viewer` members through expiring invitation links. The full suite passes (53 tests, 1 skipped as before), including a new `test/sharing.test.ts`. I only syntax-checked the page scripts and haven't run the page in a browser.\n\n**API**\n- **Endpoints:** all the routes from the ticket are in `src/sharing.ts`. Every list `GET /api/lists` returns, and `GET /api/lists/:id`, carries the caller's `role`.\n- **Roles:** reads need any role. Task writes and comments need `editor` or higher. Renaming or deleting the list, invitations and removing members need `owner`. Someone with no access gets 404 as before. A member without the right gets 403.\n- **Assignees:** a task can be assigned to the owner or any member.\n- **Existing lists:** they behave as before for their owners.\n\n**Choices the ticket left open**\n- **Link format:** the `url` is `<origin>/#invitation=<token>`. The fragment keeps the token out of server logs and referrers. The origin is the `PUBLIC_URL` environment variable if set, otherwise the request's `Host`.\n- **Token storage:** only the hash is stored, so the token appears once, when the invitation is created. The pending list shows `id`, `role`, `created_at` and `expires_at`.\n- **Single use:** an invitation works once, and the first signed-in user to accept it becomes a member. If the owner accepts their own link, nothing changes. A viewer who accepts an editor link becomes an editor. Other members keep their role.\n- **Accept errors:** an unknown, revoked or already-used token gives 404, and an expired one gives 410.\n- **Removing a member:** access ends immediately. Their tasks in that list are unassigned and their reminders cancelled. The reminder and digest jobs also skip assignees who no longer have access.\n- **Activity:** it records `member.joined` and `member.removed`.\n\n**Page**\n- A sharing section lists members with their roles. The owner can create an invitation link and copy it, revoke pending invitations and remov",
+  "hidden": {
+    "pass": 15,
+    "fail": 0,
+    "tests": 15,
+    "failed": [],
+    "total": 15
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 53,
+    "fail": 0,
+    "tests": 54,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 34,
+    "fail": 0,
+    "tests": 35,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 44,
+      "removed": 11
+    },
+    {
+      "path": "package.json",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "public/app.js",
+      "added": 24,
+      "removed": 1
+    },
+    {
+      "path": "public/index.html",
+      "added": 26,
+      "removed": 0
+    },
+    {
+      "path": "public/lists.js",
+      "added": 6,
+      "removed": 1
+    },
+    {
+      "path": "public/sharing.js",
+      "added": 106,
+      "removed": 0
+    },
+    {
+      "path": "public/style.css",
+      "added": 5,
+      "removed": 0
+    },
+    {
+      "path": "public/tasks.js",
+      "added": 31,
+      "removed": 5
+    },
+    {
+      "path": "src/app.ts",
+      "added": 17,
+      "removed": 0
+    },
+    {
+      "path": "src/auth.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "src/comments.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "src/db.ts",
+      "added": 19,
+      "removed": 0
+    },
+    {
+      "path": "src/http.ts",
+      "added": 3,
+      "removed": 2
+    },
+    {
+      "path": "src/jobs.ts",
+      "added": 6,
+      "removed": 3
+    },
+    {
+      "path": "src/lists.ts",
+      "added": 42,
+      "removed": 12
+    },
+    {
+      "path": "src/sharing.ts",
+      "added": 128,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 21,
+      "removed": 16
+    },
+    {
+      "path": "test/sharing.test.ts",
+      "added": 311,
+      "removed": 0
+    }
+  ],
+  "lines_added": 792,
+  "lines_removed": 54,
+  "tests_changed": 1,
+  "out_of_scope": [
+    "package.json"
+  ],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "list_members table with editor/viewer CHECK, roleOf/RANK give the owner every right."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST invitations returns 201 with id, token, url, role and expires_at. Default is 72h, max 720, and the input is validated. Only the token hash is stored."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Accept runs in a transaction, creates the membership and returns the list with its role. It answers 404 for unknown or used tokens and 410 for expired ones. The one-use rule is a design choice the ticket doesn't state."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "GET lists pending invitations without tokens, and DELETE answers 204. Revoke is scoped to the list id."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "Members are returned with the owner first. Removal answers 204, 400 for the owner and 404 for a non-member."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The VIEW query joins list_members and returns role. listLists includes shared lists."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "loadList/loadTask take a required role. Editor is needed for task writes and comments, and owner for rename, delete, invitations and removing members. Viewers get 403 on writes."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "checkAssignee accepts the owner or a member. Removing a member unassigns their tasks, and the reminder and digest queries filter by membership."
+      },
+      {
+        "id": 9,
+        "verdict": "partial",
+        "why": "The page has a members list, invite form, copy button, revoke and remove, and it accepts the fragment link after sign-in. Assignment is a crude prompt() by username. showList awaits showSharing before renderTasks, so a members fetch error blocks the task list. There are no UI tests."
+      },
+      {
+        "id": 10,
+        "verdict": "met",
+        "why": "Owners keep the same behaviour, and the tests for the owner path are kept. The assignee check is stricter on type but compatible."
+      },
+      {
+        "id": 11,
+        "verdict": "partial",
+        "why": "The README is thorough and the tests are broad on access control. They don't cover the job and reminder changes, PUBLIC_URL or Host handling, or concurrent accepts. The reminder-cancellation test doesn't assert that reminders are cancelled."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 7,
+      "error_handling": 7,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "tests",
+        "file": "test/sharing.test.ts",
+        "what": "The test named 'removing a member unassigns their tasks and cancels their reminders' never checks that reminders were cancelled. No test covers the changed reminder/digest queries in jobs.ts, so a removed or non-member assignee is untested there."
+      },
+      {
+        "severity": "medium",
+        "category": "readability",
+        "file": "src/sharing.ts",
+        "what": "removeMember deletes jobs with raw SQL (json_extract on payload) instead of the existing jobs.cancelReminders. This duplicates logic and depends on the payload shape."
+      },
+      {
+        "severity": "low",
+        "category": "security",
+        "file": "src/sharing.ts",
+        "what": "Without PUBLIC_URL, the invitation URL is built from the request Host header and always uses http. The regex limits the characters, but a deployment behind TLS gets wrong or insecure links unless PUBLIC_URL is set. The link only goes back to the owner who asked for it."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/sharing.ts",
+        "what": "An expired invitation answers 410 until the owner creates another invitation on that list. That purge then turns it into a 404. Expired rows are only cleaned lazily. The accept token also travels in the API path and can end up in access logs."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "public/tasks.js",
+        "what": "showList awaits showSharing before renderTasks. If the members or invitations fetch fails, the tasks never render. Assignment through prompt() by username is clumsy, and it fails when two members have similar names."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/style.css",
+        "what": "The global `[hidden]{display:none !important}` rule and the package.json version bump go beyond the ticket."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/http.ts",
+        "what": "A special case for the key name `token` in the generic Router makes the param regex implicit and brittle."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/sharing.ts",
+        "what": "Invitations are single-use, and an owner or an existing editor accepting does not consume the link. The ticket doesn't specify this. Sending one link to several people (a family) needs one link per person, which is documented but is a product limitation."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The implementation is solid and security-conscious. Roles are enforced in one place, tokens are stored hashed and kept out of the server via the URL fragment, a stranger gets 404, and a removed member loses access at once. The weaknesses are test gaps (job and reminder changes, the reminder-cancellation assertion, URL base handling), a duplicated reminder-cancel query, and a crude assignee UI.",
+    "cost_usd": 0.16888440000000002
+  }
+}

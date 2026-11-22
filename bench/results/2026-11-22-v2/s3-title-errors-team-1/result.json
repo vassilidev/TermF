@@ -1,0 +1,312 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:28:47.083Z",
+  "state": "done",
+  "wall_s": 77.184082041,
+  "cost_usd": 0.4283345,
+  "sessions": 3,
+  "turns": 3,
+  "tokens": {
+    "cache_creation": 76382,
+    "cache_read": 323185,
+    "input": 24,
+    "output": 9044
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "Input validation and error handling in a ~80-line server plus a three-line front-end catch, with seven testable acceptance criteria and no security-sensitive area.",
+    "workflow": "direct",
+    "skip": [],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 0.6,
+    "rulings": [
+      "Ruling: workflow direct — S ticket, seven testable criteria, one developer can do the API, the page and the tests in one go — cost if wrong: a missed edge case is caught by the single review round, and the default workflow would cost about twice as much",
+      "Ruling: no security review step — the change only validates input and stops leaking internal messages; no authentication, permissions, payments, personal data or secrets are involved — cost if wrong: a bypass of validation would only be caught by the code review",
+      "Ruling: no PM, PO, architect, UX or SEO — acceptance criteria are already testable and the UI change is only showing an existing error message in the existing #error element — cost if wrong: a design gap on the error display shows up at the visual step",
+      "Ruling: no squads — the project declares none — cost if wrong: none",
+      "Ruling: budget $0.60 — one task, plan, one review round and the visual step — cost if wrong: the run stops before delivery and the user must raise the budget"
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": {
+      "id": "T1",
+      "role": "back",
+      "squad": "",
+      "repo": "app",
+      "size": "S",
+      "covers": [
+        "AC1",
+        "AC2",
+        "AC3",
+        "AC4",
+        "AC5",
+        "AC6",
+        "AC7"
+      ],
+      "goal": "Fix the title validation and error handling of the tasks API, and show the error on the page. (1) In `src/app.ts` and `src/tasks.ts`: validate `title` in POST /api/tasks (always) and in PATCH /api/tasks/:id (when the body has a `title` key) — a missing, non-string, empty or blank title answers 400 `{\"error\": \"title is required\"}`; after trimming, more than 200 characters answers 400 `{\"error\": \"title must be at most 200 characters\"}`; titles are saved trimmed; no task is created or changed on failure. Validate before touching the database (for instance a small validation error class thrown by the validator and mapped to its status in the handler). (2) Make `readJson` throw a 400 error `{\"error\": \"invalid JSON body\"}` when the body is not valid JSON; also reject a body that parses to something other than an object (null, array, number) with the same message rather than crashing. (3) In `createServer`'s catch, answer 500 `{\"error\": \"internal error\"}` for any unexpected error, log the real error on the server with `console.error`, and never send `err.message` to the client; keep the 400s of (1) and (2) answered as such. Keep the 404/405 behaviours. (4) In `public/app.js`, the form's submit handler must catch a failed `api()` call and call the existing `show(err)` so the API's message appears in `#error`; keep the form content when it fails and clear `#error` on success (render already does). (5) Tests in `test/tasks.test.ts`, in the style of the existing ones: POST with `{}`, `{\"title\":\"\"}`, `{\"title\":\"   \"}`, a number title, a null title; a 201-char title (400) and a 200-char title after trimming (201, saved trimmed); a title with surrounding spaces saved trimmed; PATCH with an invalid title (400, task unchanged), PATCH with only `done` still works; invalid JSON body on POST and PATCH (400 `invalid JSON body`); an unexpected error answers 500 `internal error` without the internal message (for instance by forcing a failure in the db or a closed database, and spying on console.error so the test output stays clean); and that no task is created after a 400. Run the project's checks (typecheck and tests) before finishing.",
+      "files_hint": [
+        "src/app.ts",
+        "src/tasks.ts",
+        "public/app.js",
+        "test/tasks.test.ts"
+      ],
+      "depends_on": [],
+      "ui_impact": true
+    }
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0985832,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.18443,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1453213,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 19,
+    "fail": 0,
+    "tests": 19,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "public/app.js",
+      "added": 7,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 18,
+      "removed": 4
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 19,
+      "removed": 0
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 101,
+      "removed": 1
+    }
+  ],
+  "lines_added": 145,
+  "lines_removed": 8,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "validateTitle rejects missing, empty, blank and non-string titles with 400 'title is required' before createTask; tests check no task is created."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "PATCH calls validateTitle when 'title' in body, so a null or invalid title gives 400; tests cover it."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Trimmed length over 200 gives the exact 400 message, and the trimmed title is stored; tests check 201 characters and 200 after trim."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "readJson wraps JSON.parse and throws HttpError 400 'invalid JSON body'. It also rejects non-object bodies, which is a reasonable extra."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "The catch handler logs with console.error and returns a generic 'internal error'; a test forces a DB failure and checks it."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The submit handler wraps the api call in try/catch and calls show(err). This assumes api() throws with the API error message, which was not visible in the diff."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "New tests cover POST and PATCH validation, trimming, length, invalid JSON and the 500 path. There is no UI test."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 9,
+      "tests": 9,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 9
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH passes body.done through unvalidated. A non-boolean or object value for done would reach SQLite and give a 500 'internal error' instead of a 400. The ticket does not cover this."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "Arrays, null and scalar JSON bodies now return 400 'invalid JSON body'. This goes slightly beyond the ticket, but it is sensible and tested."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The client change in public/app.js (criterion 6) has no test. The 500 test uses a temp file DB and drops the table, which is a bit heavy but works."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/app.ts",
+        "what": "HttpError lives in tasks.ts, although it is an HTTP concern. app.ts also imports tasks.ts twice, as a namespace and by name."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "Title length is measured in UTF-16 code units, so some emoji count as 2 characters. This is minor."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets all seven criteria with a small, focused change: a shared validateTitle, an HttpError class, and a central error handler that logs internals and returns only 'internal error'. The tests are thorough, with small gaps in done validation on PATCH and no UI test.",
+    "cost_usd": 0.0407924
+  }
+}

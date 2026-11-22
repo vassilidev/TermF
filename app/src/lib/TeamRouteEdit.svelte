@@ -3,10 +3,10 @@
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { t } from "$lib/i18n";
-  import { budgetError, editRouting, routeBudget, runs, type Routing, type TeamRun, type WorkflowView } from "$lib/team-run-logic";
+  import { budgetError, DIRECT, editRouting, routeBudget, runs, taskRoles, type Routing, type TeamRun, type WorkflowView } from "$lib/team-run-logic";
   import { stepTitle, upsertRun } from "$lib/team.svelte";
 
-  /** Changes the CTO's routing before it applies: the workflow, its optional steps, the squads, the budget. */
+  /** Changes the CTO's routing before it applies: the workflow and its size, its optional steps or its one task, the squads, the budget. */
   let { run, routing, onclose }: { run: TeamRun; routing: Routing; onclose: () => void } = $props();
 
   let workflows = $state<WorkflowView[]>([]);
@@ -18,18 +18,27 @@
   let picked = $state<string[]>([...routing.squads]);
   // svelte-ignore state_referenced_locally
   let budget = $state<number | null>(routeBudget(run.budget, routing.budget_usd));
+  // svelte-ignore state_referenced_locally
+  let size = $state(routing.size);
+  let roles = $state<string[]>([]);
+  // svelte-ignore state_referenced_locally
+  let role = $state(routing.task?.role ?? "");
+  // svelte-ignore state_referenced_locally
+  let goal = $state(routing.task?.goal ?? run.target.title);
   let running = $state<string[]>([]);
   let busy = $state(false);
   let error = $state("");
 
   const workflow = $derived(workflows.find((w) => w.name === name));
   const optional = $derived(workflow?.steps.filter((s) => s.optional) ?? []);
+  const direct = $derived(DIRECT.includes(name));
+  const taskMissing = $derived(direct && (!role || !goal.trim()));
 
   $effect(() => {
     let cancelled = false;
     Promise.all([
       invoke<WorkflowView[]>("team_workflows", { run: run.run }),
-      invoke<{ declared: boolean; squads: { id: string }[] }>("team_squads", {
+      invoke<{ declared: boolean; squads: { id: string; members?: { role: string; lead: boolean; plannable: boolean }[] }[] }>("team_squads", {
         project: run.target.project,
       }),
     ]).then(
@@ -37,6 +46,8 @@
         if (cancelled) return;
         workflows = list;
         squads = team.declared ? team.squads.map((s) => s.id) : [];
+        roles = taskRoles(team.squads);
+        if (!role) role = roles[0] ?? "";
         const own = list.find((w) => w.name === routing.workflow);
         running = (own?.steps ?? []).filter((s) => s.optional && runs(s, routing)).map((s) => s.id);
       },
@@ -59,7 +70,7 @@
     busy = true;
     error = "";
     try {
-      const next = editRouting(routing, workflow, running, picked);
+      const next = editRouting(routing, workflow, running, picked, size, direct ? { role, goal } : null);
       upsertRun(await invoke<TeamRun>("team_route", { run: run.run, routing: next, budget: budget ?? undefined }));
       onclose();
     } catch (e) {
@@ -78,12 +89,37 @@
         {#each workflows as w (w.name)}<option value={w.name}>{w.name}</option>{/each}
       </select>
     </label>
+    <label class="labelled size">
+      <span>{t("proportionateSize")}</span>
+      <select class="field" bind:value={size}>
+        {#each ["S", "M", "L"] as const as s (s)}<option value={s}>{s}</option>{/each}
+      </select>
+    </label>
     <label class="labelled budget">
       <span>{t("ctoEntryRunBudget")}</span>
       <input class="field" type="number" min="0" step="0.5" bind:value={budget} />
     </label>
   </div>
   {#if workflow?.description}<p class="help">{workflow.description}</p>{/if}
+
+  {#if direct}
+    <fieldset>
+      <legend>{t("proportionateTask")}</legend>
+      <div class="row">
+        <label class="labelled">
+          <span>{t("proportionateTaskRole")}</span>
+          <select class="field" bind:value={role}>
+            {#each roles as r (r)}<option value={r}>{r}</option>{/each}
+          </select>
+        </label>
+        <label class="labelled goal">
+          <span>{t("proportionateTaskGoal")}</span>
+          <input class="field" bind:value={goal} />
+        </label>
+      </div>
+      <p class="help">{taskMissing ? t("proportionateTaskMissing") : t("proportionateTaskHelp")}</p>
+    </fieldset>
+  {/if}
 
   <fieldset>
     <legend>{t("ctoEntryOptional")}</legend>
@@ -119,7 +155,7 @@
   {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
   <div class="buttons">
     <button class="btn sm" onclick={onclose}>{t("cancel")}</button>
-    <button class="btn sm primary" disabled={busy || !workflow || !!budgetError(budget)} onclick={apply}>
+    <button class="btn sm primary" disabled={busy || !workflow || taskMissing || !!budgetError(budget)} onclick={apply}>
       {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{t("ctoEntryApply")}
     </button>
   </div>
@@ -145,6 +181,15 @@
 
   .row .budget {
     width: 150px;
+  }
+
+  .row .size {
+    width: 80px;
+  }
+
+  .row .goal {
+    flex: 1;
+    min-width: 200px;
   }
 
   .field {
