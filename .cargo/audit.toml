@@ -1,0 +1,7 @@
+# cargo audit (CI job `audit`): each advisory ignored here says why it does not apply to TermF.
+[advisories]
+ignore = [
+  # rsa, Marvin timing attack on RSA decryption, no fixed version yet. TermF never decrypts with RSA: termf-ssh
+  # only signs once to test a local key (docs/STATUS.md §4, SSH).
+  "RUSTSEC-2023-0071",
+]

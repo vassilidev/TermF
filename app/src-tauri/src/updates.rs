@@ -77,6 +77,9 @@ pub struct Release {
     draft: bool,
     #[serde(default)]
     prerelease: bool,
+    /// The release's notes as published, which may differ from those built into `latest.json`.
+    #[serde(default)]
+    body: Option<String>,
     #[serde(default)]
     assets: Vec<Asset>,
 }
@@ -160,13 +163,21 @@ async fn find(app: &AppHandle, channel: Channel) -> Result<Option<Update>> {
     let Some(url) = manifest(&releases, channel) else {
         return Ok(None);
     };
-    Ok(app
+    let notes = releases
+        .iter()
+        .find(|r| r.assets.iter().any(|a| a.browser_download_url == url))
+        .and_then(|r| r.body.clone());
+    let update = app
         .updater_builder()
         .endpoints(vec![url.parse()?])?
         .timeout(Duration::from_secs(30))
         .build()?
         .check()
-        .await?)
+        .await?;
+    Ok(update.map(|mut u| {
+        u.body = notes.or(u.body);
+        u
+    }))
 }
 
 #[tauri::command]
@@ -257,6 +268,7 @@ mod tests {
             tag_name: tag.into(),
             draft: false,
             prerelease,
+            body: None,
             assets: manifest
                 .then(|| Asset {
                     name: MANIFEST.into(),

@@ -1,7 +1,10 @@
 name: Release
 
-# A version tag (v0.1.0…) builds the installers for every platform into a draft GitHub release.
-# Run it by hand to check the pipeline: it only ever creates or updates a draft.
+# A version tag (v0.2.0, v0.3.0-beta.1…) builds the installers for every platform into a draft GitHub release,
+# which the maintainer publishes; a tag with a hyphen is a pre-release, which only the beta channel takes. Run by
+# hand, it builds into a draft of its own, v<version>-dispatch.<run>, never into a published release.
+# With the TAURI_SIGNING_PRIVATE_KEY secret, the update packages and latest.json come along; without it the build
+# goes on, and the summary says installed copies will not be offered this release. Procedure: docs/STATUS.md §5.
 on:
   push:
     tags: ["v*"]
@@ -11,19 +14,62 @@ permissions:
   contents: write
 
 jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      signed: ${{ steps.meta.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          version=$(jq -r .version app/src-tauri/tauri.conf.json)
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            tag=$GITHUB_REF_NAME
+            if [ "$tag" != "v$version" ]; then
+              echo "::error::tag $tag is not the app's version v$version (app/src-tauri/tauri.conf.json)"
+              exit 1
+            fi
+          else
+            tag=v$version-dispatch.$GITHUB_RUN_NUMBER
+          fi
+          case $tag in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          signed=false
+          [ -z "$KEY" ] || signed=true
+          { echo "tag=$tag"; echo "prerelease=$prerelease"; echo "signed=$signed"; } >> "$GITHUB_OUTPUT"
+
   build:
+    needs: meta
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
+            rust: aarch64-apple-darwin
           - os: macos-latest
             target: x86_64-apple-darwin
+            rust: x86_64-apple-darwin
+          # One .dmg for both processors; the updater keeps the smaller per-processor packages above.
+          - os: macos-latest
+            target: universal-apple-darwin
+            rust: aarch64-apple-darwin,x86_64-apple-darwin
+            universal: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            rust: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            rust: aarch64-pc-windows-msvc
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            rust: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            rust: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +83,7 @@ jobs:
           cache-dependency-path: app/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
@@ -47,16 +93,62 @@ jobs:
       - name: Frontend dependencies
         working-directory: app
         run: pnpm install --frozen-lockfile
+      # macOS: signed ad hoc (bundle.macOS.signingIdentity "-"), not with a Developer ID nor notarized yet.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           tauriScript: pnpm tauri
-          # The bundle config also builds and ships the `termf` CLI next to the app.
-          args: --target ${{ matrix.target }} --config src-tauri/tauri.bundle.conf.json
-          tagName: v__VERSION__
-          releaseName: TermF v__VERSION__
+          # The bundle config also builds and ships the `termf` CLI next to the app; the updater one adds the
+          # signed update packages.
+          args: >-
+            --target ${{ matrix.target }} --config src-tauri/tauri.bundle.conf.json
+            ${{ needs.meta.outputs.signed == 'true' && '--config src-tauri/tauri.updater.conf.json' || '' }}
+          tagName: ${{ needs.meta.outputs.tag }}
+          releaseName: TermF ${{ needs.meta.outputs.tag }}
           releaseBody: Unsigned early build. See the README for how to open it on macOS and Windows.
           releaseDraft: true
-          prerelease: true
+          prerelease: ${{ needs.meta.outputs.prerelease }}
+          includeUpdaterJson: ${{ !matrix.universal }}
+          updaterJsonPreferNsis: true
+
+  # Once every build is in: SHA256SUMS for the install scripts, and what the updater will see.
+  checksums:
+    needs: [meta, build]
+    if: ${{ !cancelled() && needs.meta.result == 'success' }}
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.meta.outputs.tag }}
+      SIGNED: ${{ needs.meta.outputs.signed }}
+    steps:
+      - name: SHA256SUMS
+        run: |
+          mkdir dist
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D dist
+          rm -f dist/SHA256SUMS
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          gh release upload "$TAG" dist/SHA256SUMS --clobber -R "$GITHUB_REPOSITORY"
+          { echo "### $TAG"; echo; echo '```'; cat dist/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Updater
+        run: |
+          if [ "$SIGNED" != true ]; then
+            msg="No TAURI_SIGNING_PRIVATE_KEY secret: built without update packages nor latest.json, so installed copies of TermF will not be offered $TAG."
+            echo "::warning::$msg"
+            printf '\n> [!WARNING]\n> %s\n' "$msg" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          missing=
+          for p in darwin-aarch64 darwin-x86_64 windows-x86_64 windows-aarch64 linux-x86_64 linux-aarch64; do
+            jq -e --arg p "$p" '.platforms[$p]' dist/latest.json > /dev/null 2>&1 || missing="$missing $p"
+          done
+          if [ -n "$missing" ]; then
+            msg="latest.json has no update for:$missing (that build failed, or two builds wrote latest.json at once: rerun that build)."
+            echo "::warning::$msg"
+            printf '\n> [!WARNING]\n> %s\n' "$msg" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "latest.json covers every platform." >> "$GITHUB_STEP_SUMMARY"
+          fi
