@@ -92,6 +92,24 @@ pub struct Settings {
     #[serde(deserialize_with = "vault_settings")]
     pub vault: VaultSettings,
     pub memory: MemorySettings,
+    pub api: ApiSettings,
+}
+
+/// `[api]` in `termf.toml`: the local API the `termf` CLI talks to.
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(default)]
+pub struct ApiSettings {
+    /// Starting, delivering or closing a run, starting a team, letting a gate pass or allowing what an agent
+    /// asks waits for the user's confirmation in the app when it comes through the local API: the CLI cannot tell
+    /// the user from an agent that runs it. Read at startup, so that an agent that writes it changes nothing
+    /// before the user starts TermF again.
+    pub confirm_cli: bool,
+}
+
+impl Default for ApiSettings {
+    fn default() -> Self {
+        Self { confirm_cli: true }
+    }
 }
 
 /// `[memory]` in `termf.toml`: the project memory the expert searches (crate `termf-memory`).
@@ -295,6 +313,7 @@ impl Default for Settings {
             keys: BTreeMap::new(),
             vault: VaultSettings::default(),
             memory: MemorySettings::default(),
+            api: ApiSettings::default(),
         }
     }
 }

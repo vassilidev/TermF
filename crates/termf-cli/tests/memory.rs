@@ -36,7 +36,9 @@ fn home(name: &str) -> Home {
     fs::create_dir_all(data.join("run")).unwrap();
     fs::create_dir_all(config.join("projects")).unwrap();
     fs::create_dir_all(&repo).unwrap();
-    fs::write(data.join("run/token"), "tok").unwrap();
+    let token = data.with_file_name("dev.termf.cli");
+    fs::create_dir_all(&token).unwrap();
+    fs::write(token.join("token"), "tok").unwrap();
     fs::write(config.join("termf.toml"), "").unwrap();
     fs::write(
         config.join("projects/acme.toml"),
