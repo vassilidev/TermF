@@ -371,7 +371,7 @@
         <button class="btn sm danger" onclick={disable} disabled={!!sync.busy}>{t("syncDisableRun")}</button>
       </div>
     {:else}
-      <button class="btn sm quiet danger-text" onclick={() => setMode("disable")}>
+      <button class="btn sm quiet danger" onclick={() => setMode("disable")}>
         <Power size={14} aria-hidden="true" />{t("syncDisable")}
       </button>
     {/if}
@@ -380,7 +380,7 @@
 
 <section class="sync">
   <header class="head">
-    <h2><FolderSync size={18} aria-hidden="true" />{t("syncTitle")}</h2>
+    <h2>{t("syncTitle")}</h2>
     <div class="actions">
       {#if ready && !sync.recoveryKey}
         <button class="btn sm" onclick={() => syncNow(false)} disabled={!!sync.busy}>
@@ -875,18 +875,12 @@
     gap: 12px;
   }
 
+  /* The section's title, as on the other pages of Settings. */
   h2 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
     margin: 0;
     font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.01em;
-  }
-
-  h2 :global(svg) {
-    color: var(--accent-ink);
   }
 
   h3 {
@@ -1201,10 +1195,6 @@
     font-size: var(--text-sm);
   }
 
-  .danger-text {
-    color: var(--danger);
-  }
-
   .recovery {
     display: flex;
     flex-direction: column;
@@ -1259,10 +1249,9 @@
     gap: 8px;
     max-width: 660px;
     padding: 12px 14px;
-    border: 1px solid var(--border-strong);
-    border-left: 3px solid var(--warning);
+    border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
     border-radius: var(--radius-lg);
-    background: var(--bg);
+    background: var(--waiting-soft);
   }
 
   .warn-title {

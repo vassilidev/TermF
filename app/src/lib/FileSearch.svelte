@@ -123,7 +123,7 @@
   .error {
     margin: 0;
     padding: 0 12px;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .error {
@@ -143,7 +143,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 600;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .hit {
