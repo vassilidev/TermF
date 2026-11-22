@@ -393,7 +393,16 @@ fn the_real_claude_code_shows_its_loop_to_termf() {
         what()
     );
     sessions.type_line(id, "/exit").unwrap();
-    wait_for(what, Duration::from_secs(30), || has("SessionEnd"));
+    let mut answered = false;
+    wait_for(what, Duration::from_secs(30), || {
+        // With a task scheduled, Claude Code asks first; "Exit and stop tasks" comes first.
+        if !answered && screen.lock().unwrap().contains("Exit and stop tasks") {
+            answered = true;
+            std::thread::sleep(Duration::from_millis(500));
+            let _ = sessions.write(id, b"\r");
+        }
+        has("SessionEnd")
+    });
     for (event, payload) in payloads(&got, id) {
         loops.hook(&event, &payload, now_ms());
     }
