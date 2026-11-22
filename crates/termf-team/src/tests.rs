@@ -1085,6 +1085,24 @@ fn shares_the_run_budget_between_parallel_sessions() {
     );
 }
 
+/// A run with less than a cent left gave its session a cent all the same, so it could spend twice its budget (seen
+/// with the real Claude Code on 2026-11-22: $0.006 for $0.003).
+#[test]
+fn a_session_never_gets_more_than_the_run_has_left() {
+    let env = Env::new("share-small");
+    env.answer("plan.json", env.plan(json!([task("T1", "back", &[], &[])])));
+    let options = Options {
+        workflow: Some("nogate".into()),
+        budget: Some(0.003),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Budget);
+    let session = env.step(&run, "plan").session.unwrap();
+    let given = env.agents.session(session).unwrap().spec.budget.unwrap();
+    assert!((given - 0.003).abs() < 1e-9, "{given}");
+}
+
 #[test]
 fn a_bigger_budget_goes_on_in_new_sessions() {
     let mut env = Env::new("budget-more");
@@ -2494,6 +2512,10 @@ fn without_a_task_to_send_it_to_a_finding_asks_why_it_stays() {
             json!([finding("important", "src/api/a.txt", 2, "")]),
         ),
     );
+    // A finding is on a file of the repository.
+    let file = env.target.worktree.join("src/api/a.txt");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, "a\nb\n").unwrap();
     env.team
         .start(
             env.target.clone(),
@@ -4159,6 +4181,14 @@ fn the_integrator_resolves_a_conflict_with_the_base_then_the_review_reads_it() {
     assert!(
         review.contains("## The base update")
             && review.contains(&format!("--remerge-diff {merge}")),
+        "{review}"
+    );
+    // Against the base as merged in: what it brought is not the run's to review, nor to undo.
+    let base = run.base.clone().unwrap();
+    assert!(
+        review.contains(&format!(
+            "## What to review\n\nThe run's own changes: `git diff {base} HEAD`"
+        )) && review.contains("never ask to undo or change it"),
         "{review}"
     );
     assert_eq!(checked(&env), 2, "the checks ran again on the resolution");
