@@ -51,6 +51,8 @@ export type Change = {
 export type Preview = {
   changes: Change[];
   missingRepos: { project: string; path: string; remote: string | null }[];
+  /** The archive holds the vault, sealed by its own export password. */
+  vault: boolean;
 };
 
 export const kinds: Kind[] = ["skill", "command", "role", "preference", "rule", "workflow"];

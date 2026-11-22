@@ -1,5 +1,6 @@
 //! Export and import of the configuration as one `.tar.gz`: `termf.toml`, `layouts.toml`, the projects and the
-//! libraries. Repository paths are made portable (`~/…` plus the git `remote`), and no secret is ever included.
+//! libraries. Repository paths are made portable (`~/…` plus the git `remote`), and no secret is ever included
+//! in clear: the vault, when asked, comes sealed by its own export password ([`VAULT`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -24,6 +25,8 @@ const INCLUDED: &[&str] = &[
 const MAX_SIZE: u64 = 64 << 20;
 /// Hidden, so never exported; removed once the import is done.
 const STAGING: &str = ".import";
+/// The vault's export, sealed by `termf-vault` before it gets here: the archive never sees a value.
+pub const VAULT: &str = "vault.termfvault";
 
 /// `/`-separated path relative to the config folder → content.
 pub type Files = BTreeMap<String, Vec<u8>>;
@@ -88,6 +91,8 @@ pub struct Preview {
     pub changes: Vec<Change>,
     /// Repositories of the archive's projects that are not on this machine.
     pub missing_repos: Vec<MissingRepo>,
+    /// The archive holds a sealed vault export, imported by the vault with its password.
+    pub vault: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -99,6 +104,11 @@ pub struct Exported {
 }
 
 pub fn export(config_dir: &Path, out: &Path) -> Result<Exported> {
+    export_with_vault(config_dir, out, None)
+}
+
+/// The same, with a vault export already sealed by its own password.
+pub fn export_with_vault(config_dir: &Path, out: &Path, vault: Option<&[u8]>) -> Result<Exported> {
     let (files, skipped_links) = local_files(config_dir, None)?;
     let file = File::create(out).with_context(|| format!("cannot write {}", out.display()))?;
     let mut tar = tar::Builder::new(GzEncoder::new(file, Compression::default()));
@@ -108,6 +118,12 @@ pub fn export(config_dir: &Path, out: &Path) -> Result<Exported> {
         header.set_mode(mode(&config_dir.join(path)));
         tar.append_data(&mut header, path, bytes.as_slice())?;
     }
+    if let Some(vault) = vault {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(vault.len() as u64);
+        header.set_mode(0o600);
+        tar.append_data(&mut header, VAULT, vault)?;
+    }
     tar.into_inner()?.finish()?;
     Ok(Exported {
         files: files.len(),
@@ -116,15 +132,27 @@ pub fn export(config_dir: &Path, out: &Path) -> Result<Exported> {
 }
 
 pub fn preview(archive: &Path, config_dir: &Path) -> Result<Preview> {
-    compare(&read_archive(archive)?.0, config_dir)
+    let (files, _, vault) = read_archive(archive)?;
+    Ok(Preview {
+        vault: vault.is_some(),
+        ..compare(&files, config_dir)?
+    })
+}
+
+/// The sealed vault export the archive holds, if any.
+pub fn vault(archive: &Path) -> Result<Option<Vec<u8>>> {
+    Ok(read_archive(archive)?.2)
 }
 
 /// Imports `archive`: added items are written, items in `replace` take the archive's version, and the others
 /// are merged (see [`Change::action`]). Everything is staged first, so a failure before the first rename
 /// changes nothing; a failure after says which items were already imported. Returns the preview it acted on.
 pub fn apply(archive: &Path, config_dir: &Path, replace: &[String]) -> Result<Preview> {
-    let (incoming, modes) = read_archive(archive)?;
-    let preview = compare(&incoming, config_dir)?;
+    let (incoming, modes, vault) = read_archive(archive)?;
+    let preview = Preview {
+        vault: vault.is_some(),
+        ..compare(&incoming, config_dir)?
+    };
     let mut ops = Vec::new();
     for change in &preview.changes {
         let mut writes: Vec<(String, Vec<u8>)> = Vec::new();
@@ -283,6 +311,7 @@ fn compare(incoming: &Files, config_dir: &Path) -> Result<Preview> {
     Ok(Preview {
         changes,
         missing_repos: missing_repos(incoming)?,
+        vault: false,
     })
 }
 
@@ -522,13 +551,16 @@ fn without_credentials(url: &str) -> String {
     format!("{scheme}://{user}{}", &rest[at + 1..])
 }
 
-/// Reads every file and its mode, refusing any path an export would not hold: no `..`, no absolute path,
-/// no link.
-fn read_archive(archive: &Path) -> Result<(Files, BTreeMap<String, u32>)> {
+type Archive = (Files, BTreeMap<String, u32>, Option<Vec<u8>>);
+
+/// Reads every file and its mode, and the sealed vault export, refusing any path an export would not hold: no
+/// `..`, no absolute path, no link.
+fn read_archive(archive: &Path) -> Result<Archive> {
     let file = File::open(archive).with_context(|| format!("cannot open {}", archive.display()))?;
     let mut tar = tar::Archive::new(GzDecoder::new(file));
     let mut files = Files::new();
     let mut modes = BTreeMap::new();
+    let mut vault = None;
     let mut size = 0;
     for entry in tar.entries().context("not a TermF export")? {
         let mut entry = entry.context("not a TermF export")?;
@@ -537,6 +569,14 @@ fn read_archive(archive: &Path) -> Result<(Files, BTreeMap<String, u32>)> {
             continue;
         }
         let path = entry.path()?.into_owned();
+        if kind.is_file() && path == Path::new(VAULT) {
+            size += entry.size();
+            ensure!(size <= MAX_SIZE, "the archive is too large");
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes)?;
+            vault = Some(bytes);
+            continue;
+        }
         let rel = path
             .components()
             .map(|c| match c {
@@ -554,7 +594,7 @@ fn read_archive(archive: &Path) -> Result<(Files, BTreeMap<String, u32>)> {
         entry.read_to_end(&mut bytes)?;
         files.insert(rel, bytes);
     }
-    Ok((files, modes))
+    Ok((files, modes, vault))
 }
 
 #[cfg(test)]
@@ -608,7 +648,8 @@ mod tests {
         let archive = dir.join("config.tar.gz");
         let exported = export(&from, &archive).unwrap();
         assert_eq!((exported.files, exported.skipped_links.len()), (7, 0));
-        let (files, _) = read_archive(&archive).unwrap();
+        let (files, _, vault) = read_archive(&archive).unwrap();
+        assert!(vault.is_none());
         assert!(files.values().all(|b| b != b"SECRET"), "{:?}", files.keys());
         let project = String::from_utf8(files["projects/acme.toml"].clone()).unwrap();
         assert!(
@@ -662,6 +703,29 @@ mod tests {
             "{:?}",
             again.changes
         );
+    }
+
+    #[test]
+    fn carries_a_sealed_vault_export_beside_the_config() {
+        let dir = temp_dir("archive-vault");
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        put(&from.join("termf.toml"), "scan_depth = 3\n");
+        let archive = dir.join("config.tar.gz");
+        export_with_vault(&from, &archive, Some(b"{\"termf\": \"sealed\"}")).unwrap();
+        let preview = preview(&archive, &to).unwrap();
+        assert!(preview.vault);
+        assert_eq!(preview.changes.len(), 1, "not a config item");
+        assert_eq!(
+            vault(&archive).unwrap().unwrap(),
+            b"{\"termf\": \"sealed\"}"
+        );
+        apply(&archive, &to, &[]).unwrap();
+        assert!(
+            !to.join(VAULT).exists(),
+            "the vault imports it, never the config"
+        );
+        export(&from, &archive).unwrap();
+        assert!(!super::preview(&archive, &to).unwrap().vault);
     }
 
     #[test]

@@ -59,6 +59,9 @@ pub(crate) struct Item {
     pub agents: bool,
     pub created: u64,
     pub updated: u64,
+    /// Its versions, newest last: see [`crate::merge`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub revs: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq)]
@@ -85,6 +88,8 @@ pub struct ItemInfo {
     pub agents: bool,
     pub created: u64,
     pub updated: u64,
+    /// Other versions a merge kept beside it, for the user to choose from.
+    pub conflicts: usize,
 }
 
 /// A new item (`id: None`) or the changes to one. `password`, `totp` and `notes`: `None` keeps what it has, empty
@@ -132,6 +137,7 @@ impl Item {
             agents: self.agents,
             created: self.created,
             updated: self.updated,
+            conflicts: 0,
         }
     }
 

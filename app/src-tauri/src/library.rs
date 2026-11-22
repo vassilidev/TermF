@@ -93,9 +93,54 @@ pub async fn library_import_claude(
     termf_library::import_claude(&from, &library, overwrite).map_err(err)
 }
 
+/// The vault in a config export: sealed by its own password, the whole vault or one project's part, once the
+/// master password is typed again.
+#[derive(serde::Deserialize)]
+pub struct VaultPart {
+    password: String,
+    project: Option<String>,
+    master: String,
+}
+
 #[tauri::command]
-pub async fn config_export(state: State<'_, AppState>, path: String) -> CmdResult<Exported> {
-    archive::export(&state.config_dir, Path::new(&path)).map_err(err)
+pub async fn config_export(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    vault: Option<VaultPart>,
+) -> CmdResult<Exported> {
+    let Some(part) = vault else {
+        return archive::export(&state.config_dir, Path::new(&path)).map_err(err);
+    };
+    let password = termf_vault::Secret::new(part.password);
+    let master = termf_vault::Secret::new(part.master);
+    let (config_dir, project) = (state.config_dir.clone(), part.project);
+    // The vault's export entry is written once the archive is.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut exported = None;
+        let result = crate::vault::sealed(
+            &app,
+            project.as_deref(),
+            password.expose(),
+            master.expose(),
+            &mut |bytes| {
+                exported = Some(archive::export_with_vault(
+                    &config_dir,
+                    Path::new(&path),
+                    Some(bytes),
+                )?);
+                Ok(())
+            },
+        );
+        if result.is_err() && exported.is_some() {
+            let _ = std::fs::remove_file(&path);
+        }
+        result?;
+        exported.ok_or_else(|| anyhow::anyhow!("nothing exported"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)
 }
 
 #[tauri::command]

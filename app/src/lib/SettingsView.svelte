@@ -240,6 +240,34 @@
                   <FileUp size={14} aria-hidden="true" />{t("configImportLong")}
                 </button>
               </div>
+              <label class="check">
+                <input type="checkbox" bind:checked={settings.vaultExport.on} />
+                {t("vault3ConfigInclude")}
+              </label>
+              {#if settings.vaultExport.on}
+                <div class="vault-part">
+                  <label class="labelled">
+                    {t("vault3ExportWhat")}
+                    <select class="field" bind:value={settings.vaultExport.project}>
+                      <option value={null}>{t("vault3ExportAll")}</option>
+                      {#each app.workspace.projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+                    </select>
+                  </label>
+                  <label class="labelled">
+                    {t("vault3ExportPassword")}
+                    <input class="field" type="password" autocomplete="new-password" minlength="8" bind:value={settings.vaultExport.password} />
+                  </label>
+                  <label class="labelled">
+                    {t("vaultPasswordAgain")}
+                    <input class="field" type="password" autocomplete="new-password" bind:value={settings.vaultExport.again} />
+                  </label>
+                  <label class="labelled">
+                    {t("vault3ConfigMaster")}
+                    <input class="field" type="password" autocomplete="current-password" bind:value={settings.vaultExport.master} />
+                  </label>
+                  <p class="help">{t("vault3ExportPasswordHelp")} {t("vault3ConfigIncludeHelp")}</p>
+                </div>
+              {/if}
             {/if}
           {/if}
         </div>
@@ -349,5 +377,17 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+
+  .buttons + .check {
+    margin-top: 14px;
+  }
+
+  .vault-part {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+    padding-left: 24px;
   }
 </style>

@@ -1,0 +1,2 @@
+Title,URL,Username,Password,Notes,OTPAuth
+linear.app (alex),https://linear.app/login,alex,safari-linear-Hunter2!,,otpauth://totp/Linear:alex?secret=JBSWY3DPEHPK3PXP
