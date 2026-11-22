@@ -4,7 +4,7 @@
   import { t } from "$lib/i18n";
   import type { Done } from "$lib/team-run-logic";
 
-  /** The definition of done as the delivery gate read it: each criterion, whether it holds, and what the run shows. */
+  /** The definition of done as the delivery gate read it: each criterion, whether it holds, and what holds it. */
   let { done }: { done: Done } = $props();
 
   const labels: Record<string, Parameters<typeof t>[0]> = {
@@ -24,7 +24,8 @@
       <li class:unmet={!c.met}>
         {#if c.met}<CircleCheck size={14} aria-hidden="true" />{:else}<CircleX size={14} aria-hidden="true" />{/if}
         <span class="label">{label(c.id)}<span class="sr-only">, {t(c.met ? "disciplineDoneMet" : "disciplineDoneUnmet")}</span></span>
-        {#if c.note}<span class="note">{c.note}</span>{/if}
+        <!-- What holds a criterion matters; a met one needs no word. -->
+        {#if !c.met && c.note}<span class="note">{c.note}</span>{/if}
       </li>
     {/each}
   </ul>
