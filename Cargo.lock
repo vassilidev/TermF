@@ -5581,6 +5581,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-git"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "termf-core",
+]
+
+[[package]]
 name = "termf-library"
 version = "0.1.0"
 dependencies = [
