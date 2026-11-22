@@ -1,0 +1,9 @@
+- Version: the target cluster minor from CI, Terraform or `kubeVersion` in `Chart.yaml`; `helm version` for Helm (3 or 4).
+- Docs for this version: kubernetes.io, versioned per minor; supported on 2026-11-22: 1.37 (1.37.2), 1.36, 1.35.
+- Verify: the project's lint target, then `kubectl kustomize <dir> | kubeconform -strict -summary -kubernetes-version <v>`, `helm lint`, `helm template … | kubeconform …`.
+- Ingress NGINX is retired (no fixes after March 2026); the Ingress API is frozen. New routing uses Gateway API (`Gateway`, `HTTPRoute`).
+- Native sidecars (`initContainers` with `restartPolicy: Always`) are stable since 1.33.
+- Every container: pinned image, CPU and memory requests, memory limit, readiness probe; liveness never checks a dependency.
+- Pod Security `restricted`: non-root, no privilege escalation, drop ALL capabilities, `RuntimeDefault` seccomp.
+- Check `kubectl config current-context`; never apply, delete or upgrade on a shared or production cluster.
+- Read the skill `kubernetes` before writing manifests, Kustomize overlays or Helm charts.
