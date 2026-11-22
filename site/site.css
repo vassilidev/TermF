@@ -652,12 +652,15 @@ footer{margin-top:144px;border-top:1px solid var(--line);overflow:hidden}
   .foot-about{grid-column:1/-1}
   .os-steps,.reqs{grid-template-columns:minmax(0,1fr)}
 }
-@media (max-width:720px){
-  .wrap{padding:0 18px}
+/* The six links stop fitting in the bar a little under 810 px: the menu takes over before that */
+@media (max-width:880px){
   .nav .links{display:none}
   .nav{gap:6px}
   .nav>.pill{margin-left:auto}
   .menu{display:block}
+}
+@media (max-width:720px){
+  .wrap{padding:0 18px}
   section{padding-top:96px}
   .hero{padding-top:108px}
   .hero h1{margin-top:8px}

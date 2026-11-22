@@ -24,9 +24,10 @@ crew = tomllib.load(open(os.path.join(SITE, "roles.toml"), "rb"))
 
 def frontmatter(path):
     """The top-level `key: value` lines of a role's frontmatter; [a, b] lists and comma lists become Python lists."""
-    head = re.match(r"---\n(.*?)\n---\n", open(path).read(), re.S).group(1)
+    head = re.match(r"---\n(.*?)\n---\n", open(path, encoding="utf-8").read().replace("\r\n", "\n"), re.S)
+    assert head, f"{path}: no frontmatter"
     meta = {}
-    for line in head.splitlines():
+    for line in head.group(1).splitlines():
         key, sep, value = line.partition(":")
         if sep and not line.startswith((" ", "\t", "-")):
             meta[key.strip()] = value.strip()
@@ -44,11 +45,14 @@ def role_card(path):
     known = crew["roles"].get(name)
     if known is None:
         print(f"warning: role {name} is not in site/roles.toml; shown with its description")
-        label, _, rest = meta["description"].partition(". ")
+        desc = meta.get("description", "").strip()
+        label, sep, rest = desc.partition(". ")
+        if not sep:
+            label, rest = name.capitalize(), desc
         never = re.search(r"\bNot for (.*)$", rest)
-        known = {"label": label, "group": crew["groups"][-1]["id"], "short": label,
-                 "does": re.sub(r"\s*\bNot for .*$", "", rest).rstrip(". ") + ".",
-                 "never": never.group(1)[0].upper() + never.group(1)[1:] + "." if never else ""}
+        does = re.sub(r"\s*\bNot for .*$", "", rest).strip().rstrip(".") or desc.rstrip(".")
+        known = {"label": label, "group": crew["groups"][-1]["id"], "short": label, "does": does + "." if does else "",
+                 "never": never.group(1)[0].upper() + never.group(1)[1:].rstrip(".") + "." if never else ""}
     denied = meta.get("disallowedTools", [])
     if "writes" in meta:
         access = known.get("access", "Writes only its own paths") if meta["writes"] else "Reads only"
@@ -64,10 +68,12 @@ def role_card(path):
 
 
 roles = [role_card(p) for p in sorted(glob.glob(os.path.join(ROOT, "library", "roles", "*.md")))]
+assert roles, "no role in library/roles/: the team pages need at least one"
 order = {name: i for i, name in enumerate(crew["roles"])}
 roles.sort(key=lambda r: (order.get(r["name"], len(order)), r["name"]))
 by_crew = {g["id"]: [r for r in roles if r["group"] == g["id"]] for g in crew["groups"]}
-COUNTS = {"roles": str(len(roles)), "role_names": ", ".join(r["name"] for r in roles[:-1]) + " and " + roles[-1]["name"]}
+names = [r["name"] for r in roles]
+COUNTS = {"roles": str(len(roles)), "role_names": " and ".join(filter(None, [", ".join(names[:-1]), names[-1]]))}
 
 
 def counted(value):
@@ -94,7 +100,7 @@ for f in features:
     for key in ("name", "tagline", "problem", "how", "default", "tune", "limits", "tried"):
         assert f.get(key), f"{f['slug']}: no {key}"
 
-shell = open(os.path.join(SITE, "how-it-works.html")).read()
+shell = open(os.path.join(SITE, "how-it-works.html"), encoding="utf-8").read()
 SPRITE = re.search(r'<svg width="0".*?</svg>', shell, re.S).group(0)
 NAV = re.search(r'<header class="nav".*?</header>', shell, re.S).group(0).replace(' aria-current="page"', "")
 FOOTER = re.search(r"<footer>.*?</footer>", shell, re.S).group(0)
@@ -198,7 +204,7 @@ addEventListener('keydown', e => {{ if (e.key === 'Escape' && menu.open) {{ menu
     html = rebase(html, "../" * depth) if depth else html
     out = os.path.join(SITE, path)
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    open(out, "w").write(html)
+    open(out, "w", encoding="utf-8").write(html)
     return path
 
 
@@ -337,6 +343,9 @@ q.addEventListener('input', () => {
     sec.hidden = !n;
     const soon = sec.querySelector('.soon');
     if (soon) soon.hidden = words.length > 0;
+    const entry = document.querySelector(`.cat-toc a[href="#${sec.id}"]`);
+    entry.parentNode.hidden = !n;
+    entry.querySelector('small').textContent = n;
     shown += n;
   }
   none.hidden = shown > 0;
@@ -410,18 +419,20 @@ def feature_grid():
 fills = {"count": COUNTS["roles"], "fcount": str(len(features)), "gcount": str(len(groups)),
          "icons": sprite(sorted(set(GROUP_ICONS) | {"laptop", "code-xml", "badge-check"})),
          "roster": roster(), "groups": feature_grid(), "team": team_cards()}
-for name in ("index.html", "team.html"):
+expected = {"index.html": ("count", "fcount", "gcount", "icons", "roster", "groups"), "team.html": ("count", "roster", "team")}
+for name, keys in expected.items():
     path = os.path.join(SITE, name)
-    source = open(path).read()
+    source = open(path, encoding="utf-8").read()
     filled = source
-    for key, value in fills.items():
-        filled = re.sub(rf"(<!-- gen:{key} -->).*?(<!-- /gen:{key} -->)", lambda m: m.group(1) + value + m.group(2), filled, flags=re.S)
+    for key in keys:
+        filled, n = re.subn(rf"(<!-- gen:{key} -->).*?(<!-- /gen:{key} -->)", lambda m: m.group(1) + fills[key] + m.group(2), filled, flags=re.S)
+        assert n, f"{name}: no <!-- gen:{key} --> … <!-- /gen:{key} --> marker"
     if filled != source:
-        open(path, "w").write(filled)
+        open(path, "w", encoding="utf-8").write(filled)
         print(f"{name}: generated parts refreshed")
 
 pages = ["" if p == "index.html" else p for p in sorted(os.listdir(SITE)) if p.endswith(".html") and p != "404.html"]
 pages += [p for p in written if p.startswith("features/")]
 urls = "".join(f"  <url>\n    <loc>{BASE}{p}</loc>\n  </url>\n" for p in sorted(set(pages), key=lambda p: (p != "", p)))
-open(os.path.join(SITE, "sitemap.xml"), "w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n')
+open(os.path.join(SITE, "sitemap.xml"), "w", encoding="utf-8").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n')
 print(f"{len(written)} pages and sitemap.xml ({len(set(pages))} urls), {len(roles)} roles")

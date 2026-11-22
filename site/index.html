@@ -134,19 +134,19 @@
       <figcaption class="demo-cap"><b>One ticket, from your request to a pull request</b><span>A sample run on acme/platform#57</span></figcaption>
       <div class="demo-body">
         <ol class="demo-steps">
-          <li class="past" data-kind="you"><button type="button" data-frame="0"><span class="n">1</span>You ask the CTO</button></li>
-          <li class="past" data-kind="you"><button type="button" data-frame="1"><span class="n">2</span>The CTO picks the team</button></li>
-          <li class="now" data-kind="you"><button type="button" data-frame="2" aria-current="step"><span class="n">3</span>You approve the plan</button></li>
+          <li class="now" data-kind="you"><button type="button" data-frame="0" aria-current="step"><span class="n">1</span>You ask the CTO</button></li>
+          <li data-kind="you"><button type="button" data-frame="1"><span class="n">2</span>The CTO picks the team</button></li>
+          <li data-kind="you"><button type="button" data-frame="2"><span class="n">3</span>You approve the plan</button></li>
           <li data-kind="agents"><button type="button" data-frame="3"><span class="n">4</span>Agents work in parallel</button></li>
           <li data-kind="agents"><button type="button" data-frame="4"><span class="n">5</span>Checks and reviews</button></li>
           <li data-kind="you"><button type="button" data-frame="5"><span class="n">6</span>You approve the delivery</button></li>
         </ol>
         <div class="demo-stage">
-          <p class="say"><b>You</b><span>Start the team on #57: export invoices to CSV in the accountant's format.</span><b>CTO</b><span id="cto">The product owner wrote 3 acceptance criteria. The lead's plan has 3 tasks, and it waits for you.</span></p>
+          <p class="say"><b>You</b><span>Start the team on #57: export invoices to CSV in the accountant's format.</span><b>CTO</b><span id="cto">I'll put the team on #57. Starting the team needs your OK.</span></p>
           <ol class="strips" id="strips">
-            <li class="strip" data-state="done"><span class="cs">PO<small>product owner</small></span><span class="what">3 acceptance criteria<small>one item out of scope</small></span><span class="st">Done</span></li>
-            <li class="strip" data-state="waiting"><span class="cs">Lead<small>tech lead</small></span><span class="what">The plan: 3 tasks<small>back, front, then QA</small></span><span class="st">Waits for you<button type="button" class="gate">Approve the plan</button></span></li>
-            <li class="strip" data-state="queued"><span class="cs">Back<small>back-end</small></span><span class="what">CSV writer, accountant format<small>starts once you approve</small></span><span class="st">Next</span></li>
+            <li class="strip" data-state="waiting"><span class="cs">CTO<small>your contact</small></span><span class="what">Start the team<small>acme/platform#57</small></span><span class="st">Waits for you<button type="button" class="gate">Allow</button></span></li>
+            <li class="strip" data-state="queued"><span class="cs">PO<small>product owner</small></span><span class="what">Frames the ticket<small>after the CTO</small></span><span class="st">Next</span></li>
+            <li class="strip" data-state="queued"><span class="cs">Lead<small>tech lead</small></span><span class="what">Plans the tasks<small>after the product owner</small></span><span class="st">Next</span></li>
           </ol>
         </div>
       </div>
@@ -359,7 +359,8 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.o
   ];
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let at = 0, timer = 0, paused = still;
-  function show(i) {
+  // The page is served with the first frame already drawn: the first call only wires it up, with no entrance
+  function show(i, first) {
     at = i;
     const [step, says, strips] = frames[i];
     cto.textContent = says;
@@ -374,8 +375,10 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.o
     const gate = list.querySelector('.gate');
     if (gate) gate.onclick = () => next(true);
     run.classList.remove('fresh');
-    run.offsetWidth;
-    run.classList.add('fresh');
+    if (!first) {
+      run.offsetWidth;
+      run.classList.add('fresh');
+    }
     control();
     schedule();
   }
@@ -402,7 +405,7 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.o
   };
   replay.onclick = () => { if (!still) paused = false; show(0); };
   play.hidden = replay.hidden = false;
-  show(0);
+  show(0, true);
 })();
 </script>
 </body>
