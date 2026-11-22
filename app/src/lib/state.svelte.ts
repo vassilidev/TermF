@@ -85,6 +85,7 @@ export type ViewId =
   | "ssh"
   | "tickets"
   | "ci"
+  | "design"
   | "scheduler"
   | "claude"
   | "project"

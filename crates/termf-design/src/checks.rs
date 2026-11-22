@@ -17,6 +17,7 @@ const AA_LARGE: f64 = 3.0;
 const MAX_AT: usize = 30;
 const MAX_PAIRS: usize = 200;
 
+#[allow(clippy::too_many_arguments)]
 fn finding(
     kind: Kind,
     level: Level,
@@ -27,11 +28,13 @@ fn finding(
     theme: Option<Theme>,
     mut at: Vec<Loc>,
 ) -> Finding {
+    let count = at.len();
     at.truncate(MAX_AT);
     Finding {
+        count,
         id: format!(
-            "{kind:?}:{subject}:{}:{}",
-            other.join(","),
+            "{kind:?}:{family:?}:{subject}:{}:{}",
+            other.first().map_or("", String::as_str),
             theme.map_or("", |t| if t == Theme::Dark { "dark" } else { "light" })
         ),
         kind,
@@ -203,7 +206,7 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
             Family::Radius => v <= 2.0 || v >= 999.0,
             _ => false,
         };
-        if !skip && count(family) >= if family == Family::Radius { 2 } else { 3 } {
+        if !skip && count(family) > 0 {
             by_size
                 .entry((family, fmt_px(v)))
                 .or_insert((v, Vec::new()))
@@ -211,9 +214,10 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
                 .push(loc);
         }
     };
+    // A literal that equals or nears a token is always worth a word; any other one only in a real palette.
     let enough_colors = colors.len() >= 3;
     for (f, d) in &read.decls {
-        if enough_colors && color_prop(&d.prop) {
+        if !colors.is_empty() && color_prop(&d.prop) {
             for (_, c) in color::literals(&d.value) {
                 by_color
                     .entry(c.hex())
@@ -232,7 +236,7 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
     }
     for (f, line, utility, value) in &read.arbitrary {
         match utility_family(utility, value) {
-            Some(Family::Color) if enough_colors => {
+            Some(Family::Color) if !colors.is_empty() => {
                 if let Some(c) = color::parse(value) {
                     by_color
                         .entry(c.hex())
@@ -257,7 +261,8 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
         let (level, other, measure) = match best {
             Some((t, e)) if e < 0.5 => (Level::Warn, vec![t.name.clone()], None),
             Some((t, e)) if e < NEAR => (Level::Warn, vec![t.name.clone()], Some(e)),
-            _ => (Level::Info, Vec::new(), None),
+            _ if enough_colors => (Level::Info, Vec::new(), None),
+            _ => continue,
         };
         out.push(finding(
             Kind::Hardcoded,
@@ -285,7 +290,9 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
             values.dedup();
             values.into_iter().take(16).map(fmt_px).collect::<Vec<_>>()
         };
+        let scaled = count(family) >= if family == Family::Radius { 2 } else { 3 };
         let finding = match (same, family) {
+            (None, _) if !scaled => continue,
             (Some(t), _) => finding(
                 Kind::Hardcoded,
                 Level::Warn,
@@ -299,6 +306,17 @@ fn hardcoded(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
             (None, Family::Text) => finding(
                 Kind::OffScale,
                 Level::Warn,
+                Some(family),
+                &label,
+                scale(),
+                None,
+                None,
+                at,
+            ),
+            // Corners have their own scale, not the spacing grid.
+            (None, Family::Radius) => finding(
+                Kind::OffScale,
+                Level::Info,
                 Some(family),
                 &label,
                 scale(),
@@ -436,7 +454,7 @@ fn off_scale(read: &Read, tokens: &[Token], base: Option<f64>, out: &mut Vec<Fin
     let Some(b) = base else { return };
     for t in tokens
         .iter()
-        .filter(|t| matches!(t.family, Family::Spacing | Family::Radius) && !t.alias)
+        .filter(|t| t.family == Family::Spacing && !t.alias)
     {
         if let Some(v) =
             t.px.filter(|&v| v > 2.0 && v < 999.0 && (v % b).abs() > 0.01)
@@ -498,8 +516,19 @@ fn unused(read: &Read, tokens: &[Token], out: &mut Vec<Finding>, notes: &mut Vec
 
 fn package_styles(read: &Read) -> Vec<String> {
     let mut out: BTreeSet<String> = BTreeSet::new();
-    for (_, target) in &read.imports {
+    for (f, target) in &read.imports {
         let t = target.trim();
+        // In SCSS and Less, a bare name is a partial of the project; a package is `~name` or `@scope/name`.
+        let rel = &read.files[*f].rel;
+        let sass = rel.ends_with(".scss")
+            || rel.ends_with(".less")
+            || rel.ends_with(".svelte")
+            || rel.ends_with(".vue");
+        if t.contains(':') && !t.starts_with("http")
+            || sass && !(t.starts_with('~') || t.starts_with('@') && !t.starts_with("@/"))
+        {
+            continue;
+        }
         let local = t.starts_with('.')
             || t.starts_with('/')
             || t.starts_with("~/")
@@ -649,11 +678,9 @@ fn text_like(n: &str) -> bool {
             .any(|s| n.ends_with(s))
 }
 
-fn bg_like(n: &str) -> bool {
-    let words = [
-        "hover", "active", "selected", "soft", "overlay", "scrim", "backdrop", "subtle", "muted",
-    ];
-    (matches!(
+/// The surfaces text is laid on everywhere; a special one (`--term-bg`) is measured only where a rule uses it.
+fn ground_like(n: &str) -> bool {
+    matches!(
         n,
         "bg" | "background"
             | "surface"
@@ -664,24 +691,35 @@ fn bg_like(n: &str) -> bool {
             | "raised"
             | "popover"
             | "base"
-    ) || ["bg-", "surface-", "background-"]
-        .iter()
-        .any(|p| n.starts_with(p))
-        || ["-bg", "-background", "-surface"]
-            .iter()
-            .any(|s| n.ends_with(s)))
-        && !words.iter().any(|w| n.contains(w))
+    )
 }
 
 /// The pairs worth measuring: a rule's color on its background, `X-foreground` on `X`, and every text color on
 /// every background color; each in each theme, measured against WCAG AA.
 fn contrast(read: &Read, tokens: &[Token], dark: bool, out: &mut Vec<Finding>) -> Vec<Pair> {
-    let colors: HashMap<&str, &Token> = tokens
+    let list: Vec<&Token> = tokens
         .iter()
         .filter(|t| t.family == Family::Color && t.color.is_some())
-        .map(|t| (t.name.as_str(), t))
         .collect();
-    let by_bare: HashMap<String, &Token> = colors.values().map(|t| (bare(&t.name), *t)).collect();
+    let colors: HashMap<&str, &Token> = list.iter().map(|t| (t.name.as_str(), *t)).collect();
+    // `--color-primary: var(--primary)` (Tailwind's theme over shadcn's variables) is `--primary` again: the
+    // token with its own value stands for both.
+    let mut by_bare: HashMap<String, &Token> = HashMap::new();
+    for t in list
+        .iter()
+        .filter(|t| t.alias)
+        .chain(list.iter().filter(|t| !t.alias))
+    {
+        by_bare.insert(bare(&t.name), t);
+    }
+    let list: Vec<&Token> = list
+        .into_iter()
+        .filter(|t| {
+            by_bare
+                .get(&bare(&t.name))
+                .is_some_and(|o| o.name == t.name)
+        })
+        .collect();
     let themes: &[Theme] = if dark {
         &[Theme::Light, Theme::Dark]
     } else {
@@ -723,25 +761,31 @@ fn contrast(read: &Read, tokens: &[Token], dark: bool, out: &mut Vec<Finding>) -
         Some((color::contrast(&front, &back), front.over(&back), back))
     };
     let mut candidates: Vec<(String, String, Option<Loc>)> = Vec::new();
-    // A rule that sets both.
-    let mut rules: BTreeMap<usize, (Option<(String, Loc)>, Option<String>)> = BTreeMap::new();
-    let side = |value: &str| -> Option<String> {
+    // A rule that sets both: its text color (and where), and its background.
+    type Rule = (Option<(String, Loc)>, Option<String>);
+    let mut rules: BTreeMap<usize, Rule> = BTreeMap::new();
+    // A literal translucent background shows what is under it, which a rule alone does not say.
+    let side = |value: &str, back: bool| -> Option<String> {
         let v = value.trim();
         if let Some(inner) = v.strip_prefix("var(").and_then(|r| r.strip_suffix(')')) {
             let name = inner.split(',').next()?.trim();
             return colors.contains_key(name).then(|| name.to_owned());
         }
-        color::parse(v).map(|_| v.to_owned())
+        color::parse(v)
+            .filter(|c| !back || c.a >= 0.999)
+            .map(|_| v.to_owned())
     };
+    let mut backgrounds: BTreeSet<String> = BTreeSet::new();
     for (f, d) in &read.decls {
         match d.prop.as_str() {
             "color" => {
-                if let Some(s) = side(&d.value) {
+                if let Some(s) = side(&d.value, false) {
                     rules.entry(d.rule).or_default().0 = Some((s, read.loc(*f, d.line)));
                 }
             }
             "background" | "background-color" => {
-                if let Some(s) = side(&d.value) {
+                if let Some(s) = side(&d.value, true) {
+                    backgrounds.insert(s.clone());
                     rules.entry(d.rule).or_default().1 = Some(s);
                 }
             }
@@ -754,7 +798,7 @@ fn contrast(read: &Read, tokens: &[Token], dark: bool, out: &mut Vec<Finding>) -
         }
     }
     let mut paired: BTreeSet<&str> = BTreeSet::new();
-    for t in colors.values() {
+    for t in &list {
         let n = bare(&t.name);
         if n.contains("disabled") || n.contains("placeholder") {
             continue;
@@ -769,37 +813,25 @@ fn contrast(read: &Read, tokens: &[Token], dark: bool, out: &mut Vec<Finding>) -
             paired.insert(t.name.as_str());
             continue;
         }
-        // `--accent-text` may be text on the accent or accent-colored text: the reading that holds best wins.
-        if let Some(base) = ["-text", "-ink"]
-            .iter()
-            .find_map(|s| n.strip_suffix(s))
+        // `--accent-text` is text on the accent when the accent is a background somewhere, else accent-colored
+        // text, measured on the grounds like any other.
+        if let Some(base) = n
+            .strip_suffix("-text")
             .and_then(|b| by_bare.get(b))
+            .filter(|b| backgrounds.contains(&b.name))
         {
-            let g = ["bg", "background", "surface"]
-                .iter()
-                .find_map(|n| by_bare.get(*n))
-                .map(|g| g.name.clone());
-            let on_base = ratio(&t.name, &base.name, Theme::Light).map_or(0.0, |r| r.0);
-            let on_ground = g
-                .as_ref()
-                .and_then(|g| ratio(&t.name, g, Theme::Light))
-                .map_or(0.0, |r| r.0);
-            let bg = match g {
-                Some(g) if on_ground > on_base => g,
-                _ => base.name.clone(),
-            };
-            candidates.push((t.name.clone(), bg, None));
+            candidates.push((t.name.clone(), base.name.clone(), None));
             paired.insert(t.name.as_str());
         }
     }
-    let texts: Vec<&&Token> = colors
-        .values()
+    let texts: Vec<&&Token> = list
+        .iter()
         .filter(|t| text_like(&bare(&t.name)) && !paired.contains(t.name.as_str()))
         .collect();
-    let grounds: Vec<&&Token> = colors
-        .values()
+    let grounds: Vec<&&Token> = list
+        .iter()
         .filter(|t| {
-            bg_like(&bare(&t.name)) && get(&t.name, Theme::Light).is_some_and(|c| c.a >= 0.999)
+            ground_like(&bare(&t.name)) && get(&t.name, Theme::Light).is_some_and(|c| c.a >= 0.999)
         })
         .collect();
     for fg in &texts {

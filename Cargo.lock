@@ -5490,6 +5490,7 @@ dependencies = [
  "termf-ci",
  "termf-claude",
  "termf-core",
+ "termf-design",
  "termf-files",
  "termf-library",
  "termf-memory",

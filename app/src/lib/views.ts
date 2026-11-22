@@ -7,6 +7,7 @@ import KeyRound from "@lucide/svelte/icons/key-round";
 import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
+import Palette from "@lucide/svelte/icons/palette";
 import SettingsIcon from "@lucide/svelte/icons/settings";
 import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
 import Ticket from "@lucide/svelte/icons/ticket";
@@ -15,6 +16,7 @@ import type { t } from "$lib/i18n";
 import { agents, showConversations } from "$lib/agents.svelte";
 import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
+import { design, showDesign } from "$lib/design.svelte";
 import { files, showFiles } from "$lib/files.svelte";
 import { projectWaits, showHome } from "$lib/home.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
@@ -105,6 +107,16 @@ export const views: View[] = [
     show: showCi,
     loaded: () => ci.loaded,
     load: () => import("$lib/CiView.svelte"),
+  },
+  {
+    id: "design",
+    label: "designView",
+    command: "designShow",
+    icon: Palette,
+    group: "project",
+    show: showDesign,
+    loaded: () => design.loaded,
+    load: () => import("$lib/DesignView.svelte"),
   },
   {
     id: "project",

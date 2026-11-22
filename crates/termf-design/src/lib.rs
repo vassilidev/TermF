@@ -168,7 +168,10 @@ pub struct Finding {
     pub other: Vec<String>,
     pub measure: Option<f64>,
     pub theme: Option<Theme>,
+    /// Where, the first 30.
     pub at: Vec<Loc>,
+    /// How many places in all.
+    pub count: usize,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -321,7 +324,7 @@ pub fn scan(repo: &Path) -> Design {
     let (mut findings, pairs, more) = checks::run(&read, &tokens, dark);
     let components = components::inventory(repo, &read);
     findings.extend(checks::components(&read, &components));
-    findings.sort_by(|a, b| a.level.cmp(&b.level).then(b.at.len().cmp(&a.at.len())));
+    findings.sort_by(|a, b| a.level.cmp(&b.level).then(b.count.cmp(&a.count)));
     let sources: BTreeSet<String> = tokens.iter().map(|t| t.file.clone()).collect();
     Design {
         tokens,
@@ -890,6 +893,22 @@ fn assemble(read: &Read) -> Vec<Token> {
             }
         }
     };
+    // Design tokens first: the CSS made from them is their output, and they are where a change belongs.
+    for (f, t, dark) in &read.dtcg {
+        let name = format!("--{}", t.path.replace('.', "-"));
+        let theme = if *dark { Theme::Dark } else { Theme::Light };
+        add(
+            &mut tokens,
+            &name,
+            Some(t.path.clone()),
+            Format::Dtcg,
+            theme,
+            &t.value,
+            *f,
+            t.line,
+            None,
+        );
+    }
     for (f, v) in read.vars.iter().filter(|(_, v)| v.global) {
         // Tailwind's own sub-properties (`--text-lg--line-height`) and resets (`--color-*: initial`).
         if v.name[2..].contains("--") || v.name.contains('*') {
@@ -930,21 +949,6 @@ fn assemble(read: &Read) -> Vec<Token> {
             value,
             *f,
             *line,
-            None,
-        );
-    }
-    for (f, t, dark) in &read.dtcg {
-        let name = format!("--{}", t.path.replace('.', "-"));
-        let theme = if *dark { Theme::Dark } else { Theme::Light };
-        add(
-            &mut tokens,
-            &name,
-            Some(t.path.clone()),
-            Format::Dtcg,
-            theme,
-            &t.value,
-            *f,
-            t.line,
             None,
         );
     }

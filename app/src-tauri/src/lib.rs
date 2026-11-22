@@ -7,6 +7,7 @@ mod claude_native;
 mod config;
 mod context;
 mod cto;
+mod design;
 mod files;
 mod keep_awake;
 mod library;
@@ -536,6 +537,8 @@ pub fn run() {
             visual::visual_decide,
             visual::visual_image,
             visual::visual_pr_comment,
+            design::design_scan,
+            design::design_pdf,
             onboarding::onboarding_state,
             onboarding::onboarding_analyze,
             onboarding::onboarding_answer,

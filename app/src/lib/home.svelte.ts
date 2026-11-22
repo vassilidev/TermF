@@ -119,8 +119,8 @@ async function reach(selector: string): Promise<HTMLElement | null> {
   return null;
 }
 
-/** ⌘⇧H: the Home, the cursor in the message to the CTO. */
-export async function talkCto() {
+/** ⌘⇧H: the Home, the cursor in the message to the CTO; `draft` is written there for the user to read and send. */
+export async function talkCto(draft?: string) {
   const project = app.project;
   if (project === null) return;
   home.with = "cto";
@@ -128,7 +128,13 @@ export async function talkCto() {
   // A page with unsaved changes may keep the screen: it asks first.
   if (!onScreen("home")) return;
   await ensure(project, "cto");
-  (await reach('[data-panel="home"] .composer textarea'))?.focus();
+  const box = await reach('[data-panel="home"] .composer textarea');
+  if (draft && box instanceof HTMLTextAreaElement) {
+    box.value = draft;
+    // The conversation's binding takes it from the event, as if typed.
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  box?.focus();
 }
 
 /** Goes where a wait is decided: its card in the CTO's thread, its tile, or its conversation. */

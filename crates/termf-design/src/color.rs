@@ -253,10 +253,11 @@ pub fn literals(value: &str) -> Vec<(String, Rgba)> {
         if bytes[i] == b'#' && (i == 0 || !is_word(bytes[i - 1])) {
             let len = rest[1..].bytes().take_while(u8::is_ascii_hexdigit).count();
             let end = 1 + len;
-            if matches!(len, 3 | 4 | 6 | 8) && !rest[end..].bytes().next().is_some_and(is_word) {
-                if let Some(c) = parse_hex(&rest[1..end]) {
-                    out.push((rest[..end].to_owned(), c));
-                }
+            if matches!(len, 3 | 4 | 6 | 8)
+                && !rest[end..].bytes().next().is_some_and(is_word)
+                && let Some(c) = parse_hex(&rest[1..end])
+            {
+                out.push((rest[..end].to_owned(), c));
             }
             i += end;
             continue;

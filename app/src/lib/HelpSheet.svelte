@@ -22,6 +22,7 @@
     files: ["viewFiles", "t6bHelpFiles"],
     library: ["viewLibrary", "t6bHelpLibrary"],
     ci: ["viewCi", "t6bHelpCi"],
+    design: ["designView", "designHelp"],
     scheduler: ["schedulerView", "t6bHelpScheduler"],
     claude: ["claudeViewTitle", "t6bHelpClaude"],
     ssh: ["viewSsh", "t6bHelpSsh"],

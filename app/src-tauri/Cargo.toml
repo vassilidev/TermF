@@ -33,6 +33,7 @@ termf-worktree = { path = "../../crates/termf-worktree" }
 termf-claude = { path = "../../crates/termf-claude" }
 termf-onboarding = { path = "../../crates/termf-onboarding" }
 termf-visual = { path = "../../crates/termf-visual" }
+termf-design = { path = "../../crates/termf-design" }
 anyhow = "1.0.104"
 tauri-plugin-global-shortcut = "2"
 getrandom = "0.3.4"
