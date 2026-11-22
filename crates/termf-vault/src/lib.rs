@@ -1087,7 +1087,15 @@ impl Vault {
         };
         // The password cannot be checked without the key's part: the key is touched first either way.
         let factor = match &file.factor {
-            Some(_) => Some(self.touch(&file, pin)?.1),
+            Some(_) => {
+                let touched = self.touch(&file, pin).inspect_err(|_| {
+                    let _ = self.record(Event {
+                        detail: Some("security key".into()),
+                        ..Event::new(actor, Action::UnlockFailed)
+                    });
+                })?;
+                Some(touched.1)
+            }
             None => None,
         };
         let mut material = Material {
@@ -1497,37 +1505,58 @@ impl Vault {
             );
         }
         let (id, material) = self.confirmed()?;
-        let detail = match days {
-            Some(days) => format!("biometry on, {days} days"),
-            None => "biometry off".into(),
-        };
-        self.record(security(actor, detail))?;
         match days {
-            Some(days) => self.seal_quick(&id, days, &material)?,
+            Some(days) => {
+                self.seal_quick(&id, days, &material)?;
+                // No entry, no change.
+                if let Err(e) = self.record(security(actor, format!("biometry on, {days} days"))) {
+                    self.drop_quick(&id);
+                    return Err(e);
+                }
+            }
             None => {
                 self.drop_quick(&id);
                 match fs::remove_file(self.dir.join(QUICK)) {
                     Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
                     _ => {}
                 }
+                // Like a lock, turning it off is never refused.
+                let _ = self.record(security(actor, "biometry off".into()));
             }
         }
         self.status()
     }
 
-    /// Reopens the vault from this machine's keychain, once the app had Touch ID or Windows Hello say yes.
-    pub fn unlock_quick(&self, actor: &Actor) -> Result<Status> {
+    /// Whether changing how the vault opens would go through now, so the app asks the system only then.
+    pub fn can_change(&self) -> Result<()> {
+        self.confirmed().map(|_| ())
+    }
+
+    /// Whether Touch ID or Windows Hello could reopen the vault now (or confirm prod), so the app asks the
+    /// system only then.
+    pub fn can_unlock_quick(&self) -> Result<()> {
         let file = self.read()?;
-        let quick = self
-            .quick(&file.id)
-            .context("the master password is needed")?;
-        let (Some(until), Some(sealed)) = (quick.until, quick.key.as_deref()) else {
+        self.ready_quick(&file.id).map(|_| ())
+    }
+
+    /// The slot's deadline and sealed keys, unless it is off or the password is due (then the slot goes).
+    fn ready_quick(&self, id: &str) -> Result<(u64, String)> {
+        let quick = self.quick(id).context("the master password is needed")?;
+        let (Some(until), Some(sealed)) = (quick.until, quick.key) else {
             bail!("the master password is needed");
         };
         if until <= self.clock.wall() {
-            self.drop_quick(&file.id);
+            self.drop_quick(id);
             bail!("{} days went by: the master password is needed", quick.days);
         }
+        Ok((until, sealed))
+    }
+
+    /// Reopens the vault from this machine's keychain, once the app had Touch ID or Windows Hello say yes.
+    pub fn unlock_quick(&self, actor: &Actor) -> Result<Status> {
+        let file = self.read()?;
+        let (until, sealed) = self.ready_quick(&file.id)?;
+        let sealed = sealed.as_str();
         let material = self
             .store
             .get(&quick_account(&file.id))

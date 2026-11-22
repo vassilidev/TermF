@@ -1235,6 +1235,12 @@ fn a_security_key_makes_the_password_alone_open_nothing() {
         err(vault.unlock(&human(), Some(PASSWORD), None, Some("0000"))),
         "wrong PIN for the security key"
     );
+    // A key that failed is in the audit, as a wrong password is.
+    let last = &vault.audit(1).unwrap()[0];
+    assert_eq!(
+        (last.action, last.detail.as_deref()),
+        (Action::UnlockFailed, Some("security key"))
+    );
     assert_eq!(
         err(vault.unlock(&human(), Some("not the password"), None, Some(PIN))),
         "wrong master password"
@@ -1647,4 +1653,67 @@ fn real_security_key() {
     vault
         .unlock(&human(), Some(PASSWORD), None, pin.as_deref())
         .unwrap();
+}
+
+/// A keychain that refuses to keep anything.
+struct NoKeychain;
+
+impl KeyStore for NoKeychain {
+    fn get(&self, _: &str) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+    fn set(&self, _: &str, _: &[u8]) -> Result<()> {
+        bail!("the keychain is locked")
+    }
+    fn delete(&self, _: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn says_before_the_system_asks_whether_it_would_go_through() {
+    let env = Env::new("quick-checks");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    assert_eq!(
+        err(vault.can_unlock_quick()),
+        "the master password is needed"
+    );
+    vault.can_change().unwrap();
+    vault.set_quick(&human(), Some(1)).unwrap();
+    vault.can_unlock_quick().unwrap();
+    env.clock.awake(5 * 60);
+    assert!(
+        vault
+            .can_change()
+            .unwrap_err()
+            .downcast_ref::<Unconfirmed>()
+            .is_some()
+    );
+    env.clock.asleep(86_400);
+    assert_eq!(
+        err(vault.can_unlock_quick()),
+        "1 days went by: the master password is needed"
+    );
+
+    // Turned on only once sealed: a keychain that refuses leaves no entry saying it is on.
+    let refused = Env::new("quick-refused");
+    let vault = Vault::new(
+        &refused.data(),
+        Box::new(NoKeychain),
+        Box::new(refused.clock.clone()),
+    )
+    .with_quick();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    assert_eq!(
+        err(vault.set_quick(&human(), Some(7))),
+        "the keychain is locked"
+    );
+    assert!(!refused.actions(&vault).contains(&Action::Security));
+    assert_eq!(vault.status().unwrap().quick_until, None);
+    vault.set_quick(&human(), None).unwrap();
+    assert_eq!(
+        vault.audit(1).unwrap()[0].detail.as_deref(),
+        Some("biometry off")
+    );
 }

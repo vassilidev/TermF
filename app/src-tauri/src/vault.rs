@@ -331,6 +331,8 @@ pub async fn vault_unlock_biometry(
     reason: String,
 ) -> CmdResult<Status> {
     blocking(&state, move |v| {
+        // The system asks only when it would open the vault.
+        v.can_unlock_quick()?;
         biometry::verify(&reason)?;
         v.unlock_quick(&Actor::human())
     })
@@ -355,6 +357,8 @@ pub async fn vault_reauth_biometry(
     reason: String,
 ) -> CmdResult<Status> {
     blocking(&state, move |v| {
+        anyhow::ensure!(v.status()?.unlocked, termf_vault::Locked);
+        v.can_unlock_quick()?;
         biometry::verify(&reason)?;
         v.reauth_quick(&Actor::human())
     })
@@ -451,6 +455,7 @@ pub async fn vault_biometry_set(
 ) -> CmdResult<Status> {
     blocking(&state, move |v| {
         if days.is_some() {
+            v.can_change()?;
             biometry::verify(&reason)?;
         }
         v.set_quick(&Actor::human(), days)

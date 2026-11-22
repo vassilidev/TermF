@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use termf_sync::crypto;
 
 use super::ctap::{Device, Status, TIMEOUT};
@@ -16,6 +16,8 @@ const KEEPALIVE: u8 = 0xbb;
 const ERROR: u8 = 0xbf;
 /// Longer than a key's own wait for a touch (30 s for most), so the key says it first.
 const WAIT: Duration = Duration::from_secs(40);
+/// A key answers INIT at once: a device still silent after this is not one to wait for.
+const INIT_WAIT: Duration = Duration::from_secs(3);
 
 /// Sends and receives one report; `Ok(None)` when nothing came before `timeout`.
 pub trait Reports {
@@ -28,6 +30,25 @@ pub struct Channel<R> {
     cid: [u8; 4],
 }
 
+/// A channel on each device; one that cannot have one (an old U2F-only key, no answer, garbage) is skipped, and
+/// its error comes back only when no key is left.
+pub fn channels<R: Reports>(
+    devices: impl IntoIterator<Item = Result<R>>,
+) -> Result<Vec<Channel<R>>> {
+    let mut keys = Vec::new();
+    let mut failed = None;
+    for device in devices {
+        match device.and_then(Channel::open) {
+            Ok(channel) => keys.push(channel),
+            Err(e) => failed = Some(e),
+        }
+    }
+    match failed {
+        Some(e) if keys.is_empty() => Err(e),
+        _ => Ok(keys),
+    }
+}
+
 impl<R: Reports> Channel<R> {
     pub fn open(reports: R) -> Result<Self> {
         let mut channel = Self {
@@ -35,20 +56,30 @@ impl<R: Reports> Channel<R> {
             cid: BROADCAST,
         };
         let nonce: [u8; 8] = crypto::random();
-        let answer = channel.transact(INIT, &nonce)?;
-        ensure!(
-            answer.len() >= 17 && answer[..8] == nonce,
-            "the security key did not open a channel"
-        );
-        ensure!(
-            answer[16] & 0x04 != 0,
-            "this security key does not speak CTAP2"
-        );
-        channel.cid.copy_from_slice(&answer[8..12]);
-        Ok(channel)
+        channel.send(INIT, &nonce)?;
+        let deadline = Instant::now() + INIT_WAIT;
+        loop {
+            let answer =
+                channel
+                    .receive(INIT, deadline)
+                    .map_err(|e| match e.downcast_ref::<Status>() {
+                        Some(&TIMEOUT) => anyhow!("the security key did not answer"),
+                        _ => e,
+                    })?;
+            // Another program opening its own channel gets its answer on the broadcast channel too.
+            if answer.len() < 17 || answer[..8] != nonce {
+                continue;
+            }
+            ensure!(
+                answer[16] & 0x04 != 0,
+                "this security key does not speak CTAP2"
+            );
+            channel.cid.copy_from_slice(&answer[8..12]);
+            return Ok(channel);
+        }
     }
 
-    fn transact(&mut self, command: u8, data: &[u8]) -> Result<Vec<u8>> {
+    fn send(&mut self, command: u8, data: &[u8]) -> Result<()> {
         ensure!(data.len() <= 7609, "message too long for the security key");
         let mut report = [0u8; REPORT];
         report[..4].copy_from_slice(&self.cid);
@@ -64,11 +95,10 @@ impl<R: Reports> Channel<R> {
             report[5..5 + chunk.len()].copy_from_slice(chunk);
             self.reports.send(&report)?;
         }
-        self.receive(command)
+        Ok(())
     }
 
-    fn receive(&mut self, command: u8) -> Result<Vec<u8>> {
-        let deadline = Instant::now() + WAIT;
+    fn receive(&mut self, command: u8, deadline: Instant) -> Result<Vec<u8>> {
         let next = |reports: &mut R| -> Result<[u8; REPORT]> {
             loop {
                 let left = deadline.saturating_duration_since(Instant::now());
@@ -112,7 +142,8 @@ impl<R: Reports> Channel<R> {
 
 impl<R: Reports> Device for Channel<R> {
     fn cbor(&mut self, command: u8, request: &[u8]) -> Result<Vec<u8>> {
-        let answer = self.transact(CBOR, &[&[command][..], request].concat())?;
+        self.send(CBOR, &[&[command][..], request].concat())?;
+        let answer = self.receive(CBOR, Instant::now() + WAIT)?;
         let (&status, body) = answer
             .split_first()
             .context("the security key sent an empty answer")?;
@@ -149,28 +180,21 @@ pub mod usb {
         }
     }
 
-    /// Every security key plugged in, each on its own channel.
+    /// Every security key plugged in that answers CTAP2, each on its own channel.
     pub fn devices() -> Result<Vec<Channel<Hid>>> {
         let api = hidapi::HidApi::new().context("cannot list the USB devices")?;
-        let mut keys = Vec::new();
-        let mut refused = None;
-        for info in api.device_list() {
-            if info.usage_page() != USAGE_PAGE || info.usage() != USAGE {
-                continue;
-            }
-            match info.open_device(&api) {
-                Ok(device) => keys.push(Channel::open(Hid(device))?),
-                Err(e) => refused = Some(e),
-            }
-        }
-        if keys.is_empty()
-            && let Some(e) = refused
-        {
-            bail!(
-                "cannot open the security key ({e}); on Linux, the system needs udev's rules for FIDO keys (systemd 244 or later, or the libfido2 package)"
-            );
-        }
-        Ok(keys)
+        let opened: Vec<Result<Hid>> = api
+            .device_list()
+            .filter(|info| info.usage_page() == USAGE_PAGE && info.usage() == USAGE)
+            .map(|info| {
+                info.open_device(&api).map(Hid).map_err(|e| {
+                    anyhow!(
+                        "cannot open the security key ({e}); on Linux, the system needs udev's rules for FIDO keys (systemd 244 or later, or the libfido2 package)"
+                    )
+                })
+            })
+            .collect();
+        channels(opened)
     }
 }
 
@@ -183,8 +207,22 @@ mod tests {
     /// A key that echoes CBOR requests back after a keepalive, in reports cut as CTAPHID cuts them.
     struct Echo {
         cid: [u8; 4],
+        /// What INIT says it speaks: 0x04 is CBOR, CTAP2.
+        capabilities: u8,
+        /// Another program's INIT answer, on the broadcast channel, comes before ours.
+        foreign: bool,
         sent: Vec<[u8; REPORT]>,
         replies: VecDeque<[u8; REPORT]>,
+    }
+
+    fn echo(capabilities: u8, foreign: bool) -> Echo {
+        Echo {
+            cid: BROADCAST,
+            capabilities,
+            foreign,
+            sent: Vec::new(),
+            replies: VecDeque::new(),
+        }
     }
 
     impl Echo {
@@ -206,7 +244,7 @@ mod tests {
         }
     }
 
-    impl Reports for &mut Echo {
+    impl Reports for Echo {
         fn send(&mut self, report: &[u8; REPORT]) -> Result<()> {
             self.sent.push(*report);
             let first = &self.sent[0];
@@ -222,8 +260,13 @@ mod tests {
             let command = first[4];
             self.sent.clear();
             if command == INIT {
+                if self.foreign {
+                    let mut theirs = vec![1u8; 8];
+                    theirs.extend([5, 5, 5, 5, 2, 1, 0, 0, 0x05]);
+                    self.reply(INIT, &theirs);
+                }
                 let mut answer = data.clone();
-                answer.extend([9, 9, 9, 9, 2, 1, 0, 0, 0x04 | 0x01]);
+                answer.extend([9, 9, 9, 9, 2, 1, 0, 0, self.capabilities]);
                 self.reply(INIT, &answer);
                 self.cid = [9; 4];
             } else {
@@ -251,16 +294,33 @@ mod tests {
 
     #[test]
     fn cuts_and_joins_messages_in_reports() {
-        let mut echo = Echo {
-            cid: BROADCAST,
-            sent: Vec::new(),
-            replies: VecDeque::new(),
-        };
-        let mut channel = Channel::open(&mut echo).unwrap();
+        let mut channel = Channel::open(echo(0x05, false)).unwrap();
         assert_eq!(channel.cid, [9; 4]);
         let long: Vec<u8> = (0..300u32).map(|i| i as u8).collect();
         assert_eq!(channel.cbor(0x04, &long).unwrap(), long);
         assert_eq!(channel.cbor(0x04, b"").unwrap(), b"");
+    }
+
+    #[test]
+    fn skips_another_programs_channel_answer() {
+        let channel = Channel::open(echo(0x05, true)).unwrap();
+        assert_eq!(channel.cid, [9; 4], "ours, not the one with another nonce");
+    }
+
+    #[test]
+    fn skips_a_device_that_is_not_a_ctap2_key() {
+        let u2f = echo(0x01, false);
+        let refused = Err(anyhow!("cannot open the security key"));
+        let keys = channels([Ok(u2f), refused, Ok(echo(0x05, false))]).unwrap();
+        assert_eq!(
+            keys.len(),
+            1,
+            "the U2F key and the one that would not open are skipped"
+        );
+
+        let err = channels([Ok(echo(0x01, false))]).map(|_| ()).unwrap_err();
+        assert_eq!(err.to_string(), "this security key does not speak CTAP2");
+        assert!(channels(Vec::<Result<Echo>>::new()).unwrap().is_empty());
     }
 
     #[test]
