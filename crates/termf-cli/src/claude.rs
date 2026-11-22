@@ -1,5 +1,5 @@
-//! `termf claude settings | mcp | plugin`: Claude Code's settings by scope, its MCP servers and its plugins, with
-//! the checks of the app's Claude view. TermF does not need to run.
+//! `termf claude settings | mcp | plugin | sessions`: Claude Code's settings by scope, its MCP servers and its
+//! plugins, with the checks of the app's Claude view, and its saved conversations. TermF does not need to run.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -43,6 +43,16 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
             } else {
                 print!("{}", saved.diff);
                 println!("saved {}", saved.path);
+            }
+            Ok(())
+        }
+        ["sessions"] => {
+            for project in termf_claude::sessions::list(&env, env.repo.as_deref()) {
+                println!("{}", project.cwd.as_deref().unwrap_or(&project.folder));
+                for s in project.sessions {
+                    let what = s.title.or(s.prompt).unwrap_or_default();
+                    println!("  {}  {:>12}  {what}", s.id, crate::sync::ago(s.modified));
+                }
             }
             Ok(())
         }

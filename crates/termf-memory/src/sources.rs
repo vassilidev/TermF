@@ -12,6 +12,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use anyhow::{Result, bail};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::Value;
+use termf_claude::sessions::{belongs, folder_name};
 use termf_core::Project;
 
 use crate::{Doc, Found, MAX_BODY, Paths, Source, cut};
@@ -213,25 +214,14 @@ fn files_in(dir: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     files
 }
 
-/// The folder Claude Code keeps a directory's sessions in: every character but ASCII letters and digits
-/// becomes `-` (code.claude.com/docs/en/sessions).
-pub(crate) fn folder_name(path: &Path) -> String {
-    path.to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
-}
-
-/// The folders of `projects/` that belong to the repositories: their own, and their worktrees'
-/// (`<repo>/.claude/worktrees/…`), by the path given and the real one (`/tmp` is `/private/tmp` on macOS).
-/// A name longer than 200 characters is cut and hashed by Claude Code: only its first 200 are compared.
+/// The folders of `projects/` that belong to the repositories and their worktrees, by the path given and the
+/// real one (`/tmp` is `/private/tmp` on macOS).
 fn claude_folders(claude_dir: &Path, repos: &[PathBuf]) -> Vec<PathBuf> {
-    let cut = |s: &str| s.as_bytes()[..s.len().min(200)].to_vec();
-    let mut names: Vec<Vec<u8>> = Vec::new();
+    let mut names = Vec::new();
     for repo in repos {
-        names.push(cut(&folder_name(repo)));
+        names.push(folder_name(repo));
         if let Ok(real) = fs::canonicalize(repo) {
-            names.push(cut(&folder_name(&real)));
+            names.push(folder_name(&real));
         }
     }
     let mut folders: Vec<PathBuf> = fs::read_dir(claude_dir.join("projects"))
@@ -239,10 +229,8 @@ fn claude_folders(claude_dir: &Path, repos: &[PathBuf]) -> Vec<PathBuf> {
         .flatten()
         .flatten()
         .filter(|e| {
-            let folder = cut(&e.file_name().to_string_lossy());
-            names.iter().any(|n| {
-                folder == *n || folder.starts_with(&[n.as_slice(), b"--claude-worktrees-"].concat())
-            })
+            let folder = e.file_name().to_string_lossy().into_owned();
+            names.iter().any(|n| belongs(&folder, n))
         })
         .map(|e| e.path())
         .collect();

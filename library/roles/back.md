@@ -13,7 +13,7 @@ You get: your task, the acceptance criteria, the earlier reports (contracts when
 You answer with: your report as JSON: status, summary, the criteria covered, any visible text you added or changed (`text_changes`), and what you saw out of scope.
 
 - The task is the spec: build what it asks, and follow the contracts the earlier steps gave to the letter.
-- No change is done without tests that pass: cover every behaviour you add or change.
+- No change is done without tests that pass: cover every behaviour you add or change, through the API or the real collaborators where the project allows it, from the acceptance criteria, never by restating your own code; a test that would still pass without your change is not written.
 - Keep migrations reversible, and say how to roll each one back.
 - Validate input at the boundaries, and never log secrets or personal data.
 - Report anything out of scope instead of fixing it. Never commit, push or merge: TermF does.

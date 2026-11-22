@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -233,6 +233,41 @@ pub fn import_claude(claude_dir: &Path, library: &Path, overwrite: bool) -> Resu
         }
     }
     Ok(report)
+}
+
+/// Where an item goes in a Claude Code folder (`~/.claude` or a repository's `.claude`), the reverse of
+/// `import_claude`: a skill's folder, a command, a role as an agent, a preference or a rule as one of Claude
+/// Code's rules. Returns the destination (a folder for a skill) and its main file.
+pub fn export_target(item: &Item, claude_dir: &Path) -> Result<(PathBuf, PathBuf)> {
+    let file = format!("{}.md", item.name);
+    let dest = match item.kind {
+        Kind::Skill => claude_dir.join("skills").join(&item.name),
+        Kind::Command => claude_dir.join("commands").join(file),
+        Kind::Role => claude_dir.join("agents").join(file),
+        Kind::Preference | Kind::Rule => claude_dir.join("rules").join(file),
+        Kind::Workflow => {
+            anyhow::bail!("Claude Code has no workflows: {} stays in TermF", item.name)
+        }
+    };
+    let main = match item.kind {
+        Kind::Skill => dest.join("SKILL.md"),
+        _ => dest.clone(),
+    };
+    Ok((dest, main))
+}
+
+/// The item's main file as it would be written.
+pub fn export_text(item: &Item) -> Result<String> {
+    crate::item_file(item, None).with_context(|| format!("cannot read {}", item.name))
+}
+
+/// Copies an item into a Claude Code folder. Something already there is never replaced: the caller moves it
+/// away first, once the user saw the diff and agreed.
+pub fn export_claude(item: &Item, claude_dir: &Path) -> Result<PathBuf> {
+    let (dest, _) = export_target(item, claude_dir)?;
+    anyhow::ensure!(!dest.exists(), "{} exists already", dest.display());
+    copy_item(item, &dest)?;
+    Ok(dest)
 }
 
 #[cfg(test)]
@@ -499,6 +534,59 @@ mod tests {
         assert_eq!(entries.len(), 1, "{hooks}");
         assert!(session.join("plugin/rules/fmt/hook.sh").is_file());
         assert!(!session.join("plugin/rules/imported").exists());
+    }
+
+    #[test]
+    fn exports_to_claude_code_and_never_over_an_item_there() {
+        let dir = temp_dir("export-claude");
+        let config = dir.join("config");
+        let claude = dir.join(".claude");
+        put(
+            &config.join("library/skills/pdf/SKILL.md"),
+            "---\nname: pdf\n---\nPDF\n",
+        );
+        put(&config.join("library/skills/pdf/reference.md"), "ref\n");
+        put(
+            &config.join("library/roles/qa.md"),
+            "---\nname: qa\n---\nTest it.\n",
+        );
+        put(&config.join("library/preferences/tone.md"), "Short.\n");
+        put(&config.join("termf.toml"), "");
+        let items = resolve(&config, &Scope::new(&config, None, None).unwrap()).unwrap();
+        let item = |kind, name: &str| {
+            items
+                .iter()
+                .find(|i| i.kind == kind && i.name == name)
+                .unwrap()
+        };
+
+        let (dest, main) = export_target(item(Kind::Skill, "pdf"), &claude).unwrap();
+        assert_eq!(
+            (dest.clone(), main),
+            (
+                claude.join("skills/pdf"),
+                claude.join("skills/pdf/SKILL.md")
+            )
+        );
+        assert_eq!(
+            export_text(item(Kind::Skill, "pdf")).unwrap(),
+            "---\nname: pdf\n---\nPDF\n"
+        );
+        export_claude(item(Kind::Skill, "pdf"), &claude).unwrap();
+        assert!(claude.join("skills/pdf/reference.md").is_file());
+        assert!(
+            export_claude(item(Kind::Skill, "pdf"), &claude).is_err(),
+            "never over it"
+        );
+
+        assert_eq!(
+            export_claude(item(Kind::Role, "qa"), &claude).unwrap(),
+            claude.join("agents/qa.md")
+        );
+        assert_eq!(
+            export_claude(item(Kind::Preference, "tone"), &claude).unwrap(),
+            claude.join("rules/tone.md")
+        );
     }
 
     #[test]

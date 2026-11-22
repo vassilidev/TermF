@@ -85,7 +85,9 @@ fn fixture(name: &str) -> Fixture {
         ],
     );
 
-    let folder = claude.join("projects").join(sources::folder_name(&repo));
+    let folder = claude
+        .join("projects")
+        .join(termf_claude::sessions::folder_name(&repo));
     let line = |kind: &str, text: &str| {
         let content = if kind == "user" {
             json!(text)
@@ -112,7 +114,7 @@ fn fixture(name: &str) -> Fixture {
             .join("projects")
             .join(format!(
                 "{}--claude-worktrees-termf-7-fix",
-                sources::folder_name(&repo)
+                termf_claude::sessions::folder_name(&repo)
             ))
             .join("22222222-2222-2222-2222-222222222222.jsonl"),
         &line("user", "Rename the ledger table in the worktree"),
