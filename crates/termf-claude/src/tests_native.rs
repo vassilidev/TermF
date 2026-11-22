@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use crate::settings::Scope;
-use crate::{Env, account, native, sessions, usage};
+use crate::{Env, native, sessions, usage};
 
 const TOKEN: &str = "ghp_0123456789abcdefghij0123456789abcd";
 
@@ -310,6 +310,7 @@ fn fake(bin: &Path, body: &str) {
 #[cfg(unix)]
 #[test]
 fn runs_claude_codes_own_commands_and_masks_what_they_print() {
+    use crate::account;
     let (root, env) = tree("commands");
     let log = root.join("claude.log");
     fake(
