@@ -6,6 +6,7 @@
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleQuestionMark from "@lucide/svelte/icons/circle-question-mark";
   import Eye from "@lucide/svelte/icons/eye";
+  import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
@@ -25,6 +26,7 @@
   import OpsRequest from "$lib/OpsRequest.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { agentProjects, agents, ctoOf, expertOf, showConversations, showConversation } from "$lib/agents.svelte";
@@ -277,6 +279,8 @@
 
   // Every project at a glance, when none is chosen.
   const projects = $derived(app.workspace?.projects ?? []);
+  // Read and holding no project: not while the workspace loads or failed to.
+  const empty = $derived(!!app.workspace && projects.length === 0);
 
   // What the machine needs, above them: until it is read at the first launch, and whenever a required tool lacks.
   const NEEDS_SEEN = "termf.needs";
@@ -438,7 +442,7 @@
 <div class="home-view">
   <ViewHeader title={t("ux3t1Home")} context={project ? [project.name, project.repos.map((r) => r.name).join(", ")].filter(Boolean).join(" · ") : t("ticketsAll")}>
     {#snippet actions()}
-      {#if !project}
+      {#if !project && !empty}
         <button class="btn sm" onclick={newProject}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
       {/if}
     {/snippet}
@@ -555,50 +559,59 @@
           </div>
         {/if}
 
-        <h2 class="sec">{t("projects")} <span class="n">{projects.length}</span></h2>
-        <div class="table" role="table" aria-label={t("projects")}>
-          <div class="trow th" role="row">
-            <span class="t" role="columnheader">{t("ctoEntryProject")}</span>
-            <span class="agents" role="columnheader">{t("t5InService")}</span>
-            <span class="num" role="columnheader">{t("teamRunsTab")}</span>
-            <span class="num" role="columnheader">{t("viewTickets")}</span>
-            <span class="num" role="columnheader">{t("ux3t1Activity")}</span>
-            <span class="chev-space"></span>
+        {#if empty}
+          <!-- A first launch: what a project is and how to make one, instead of an empty table. -->
+          <EmptyState icon={FolderPlus} title={t("uxfT1NoProjectTitle")} text={t("uxfT1NoProjectBody")}>
+            <button class="btn primary" onclick={newProject}><Plus size={16} aria-hidden="true" />{t("newProject")}</button>
+          </EmptyState>
+        {:else}
+          <h2 class="sec">{t("projects")} <span class="n">{projects.length}</span></h2>
+          <div class="table" role="table" aria-label={t("projects")}>
+            <div class="trow th" role="row">
+              <span class="t" role="columnheader">{t("ctoEntryProject")}</span>
+              <span class="agents" role="columnheader">{t("t5InService")}</span>
+              <span class="num" role="columnheader">{t("teamRunsTab")}</span>
+              <span class="num" role="columnheader">{t("viewTickets")}</span>
+              <span class="num" role="columnheader">{t("ux3t1Activity")}</span>
+              <span class="chev-space"></span>
+            </div>
+            {#each projects as p (p.id)}
+              {@const waiting = projectWaits(p.id).length}
+              {@const tally = counts[p.id]}
+              {@const open = openRuns(tickets.runs, team.runs, p.id).length}
+              {@const at = activity(p.id)}
+              <button class="trow" role="row" onclick={() => openProject(p.id)}>
+                <span class="t" role="cell">
+                  <span class="mark big" aria-hidden="true">{initial(p.name)}</span>
+                  <span class="names"><b>{p.name}</b><span>{p.repos.map((r) => r.name).join(", ")}</span></span>
+                </span>
+                <span class="agents" role="cell">
+                  {#if waiting}<StatusPill status="waiting" label={t(waiting === 1 ? "ux3t1WaitOne" : "ux3t1WaitMany", { count: waiting })} />{/if}
+                  {#if tally?.working}<StatusPill status="working" label={String(tally.working)} />{/if}
+                  {#if tally?.failed}<StatusPill status="failed" label={t("ux3t1Failed", { count: tally.failed })} />{/if}
+                </span>
+                <span class="num" role="cell">{open ? t(open === 1 ? "ux3t1OpenOne" : "ux3t1OpenMany", { count: open }) : "—"}</span>
+                <span class="num" role="cell">{#if tickets.inbox}<b>{tickets.inbox.filter((x) => x.project === p.id).length}</b>{:else}—{/if}</span>
+                <span class="num" role="cell">{at === null ? "—" : ago(at)}</span>
+                <ChevronRight size={14} aria-hidden="true" class="chev" />
+              </button>
+            {/each}
           </div>
-          {#each projects as p (p.id)}
-            {@const waiting = projectWaits(p.id).length}
-            {@const tally = counts[p.id]}
-            {@const open = openRuns(tickets.runs, team.runs, p.id).length}
-            {@const at = activity(p.id)}
-            <button class="trow" role="row" onclick={() => openProject(p.id)}>
-              <span class="t" role="cell">
-                <span class="mark big" aria-hidden="true">{initial(p.name)}</span>
-                <span class="names"><b>{p.name}</b><span>{p.repos.map((r) => r.name).join(", ")}</span></span>
-              </span>
-              <span class="agents" role="cell">
-                {#if waiting}<StatusPill status="waiting" label={t(waiting === 1 ? "ux3t1WaitOne" : "ux3t1WaitMany", { count: waiting })} />{/if}
-                {#if tally?.working}<StatusPill status="working" label={String(tally.working)} />{/if}
-                {#if tally?.failed}<StatusPill status="failed" label={t("ux3t1Failed", { count: tally.failed })} />{/if}
-              </span>
-              <span class="num" role="cell">{open ? t(open === 1 ? "ux3t1OpenOne" : "ux3t1OpenMany", { count: open }) : "—"}</span>
-              <span class="num" role="cell">{#if tickets.inbox}<b>{tickets.inbox.filter((x) => x.project === p.id).length}</b>{:else}—{/if}</span>
-              <span class="num" role="cell">{at === null ? "—" : ago(at)}</span>
-              <ChevronRight size={14} aria-hidden="true" class="chev" />
-            </button>
-          {/each}
-        </div>
+        {/if}
 
-        <h2 class="sec">
-          {t("ux3t1OpenRuns")} <span class="n">{runs.length}</span>
-          {@render more(t("ux3t1AllRuns"), () => showAll("runs"))}
-        </h2>
-        <div class="table">
-          {#each runs as o (o.run?.id ?? o.team?.run)}
-            {@render runRow(o, true)}
-          {:else}
-            <p class="empty-line pad">{t("ux3t1NoRuns")}</p>
-          {/each}
-        </div>
+        {#if !empty || runs.length}
+          <h2 class="sec">
+            {t("ux3t1OpenRuns")} <span class="n">{runs.length}</span>
+            {@render more(t("ux3t1AllRuns"), () => showAll("runs"))}
+          </h2>
+          <div class="table">
+            {#each runs as o (o.run?.id ?? o.team?.run)}
+              {@render runRow(o, true)}
+            {:else}
+              <p class="empty-line pad">{t("ux3t1NoRuns")}</p>
+            {/each}
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
