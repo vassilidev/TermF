@@ -41,6 +41,22 @@ pub const WRITES: &[&str] = &[
     "conventions_apply",
     "conventions_switch",
     "vault_auto_lock_set",
+    // The vault's file, when its scope is synced.
+    "vault_init",
+    "vault_set",
+    "vault_ref",
+    "vault_delete",
+    "vault_item_save",
+    "vault_item_delete",
+    "vault_key_add",
+    "vault_key_remove",
+    "vault_password_change",
+    "vault_recovery_new",
+    "vault_recover",
+    "vault_resolve",
+    "vault_join",
+    "vault_import_apply",
+    "vault_import_foreign",
 ];
 
 enum Wake {
@@ -53,8 +69,9 @@ pub struct SyncState {
     wake: Mutex<Sender<Wake>>,
 }
 
-pub fn start(app: &AppHandle, config_dir: PathBuf) -> SyncState {
-    let engine = Arc::new(Engine::new(config_dir, Box::new(OsKeyStore::SYNC)));
+pub fn start(app: &AppHandle, config_dir: PathBuf, vault_dir: PathBuf) -> SyncState {
+    let engine =
+        Arc::new(Engine::new(config_dir, Box::new(OsKeyStore::SYNC)).with_vault(vault_dir));
     let (tx, rx) = mpsc::channel();
     let (app, background) = (app.clone(), engine.clone());
     std::thread::spawn(move || run(app, background, rx));
@@ -101,7 +118,9 @@ fn run(app: AppHandle, engine: Arc<Engine>, wake: Receiver<Wake>) {
                 last = Instant::now();
                 // Locked: the UI asks for the password; trying would only fail again.
                 if engine.status().is_ok_and(|s| s.enabled && s.unlocked) {
-                    let _ = engine.sync(true);
+                    if engine.sync(true).is_ok() {
+                        merged(&app, &engine);
+                    }
                     if let Ok(status) = engine.status() {
                         let _ = app.emit("sync-status", status);
                     }
@@ -109,6 +128,14 @@ fn run(app: AppHandle, engine: Arc<Engine>, wake: Receiver<Wake>) {
             }
             Err(RecvTimeoutError::Disconnected) => return,
         }
+    }
+}
+
+/// Another machine's vault came in (by this sync or the CLI's): merged now when the vault is open, then pushed,
+/// so the remote holds both.
+fn merged(app: &AppHandle, engine: &Engine) {
+    if crate::vault::synced(app) {
+        let _ = engine.sync(true);
     }
 }
 
@@ -163,13 +190,23 @@ pub async fn sync_recover(
 }
 
 #[tauri::command]
-pub async fn sync_push(state: State<'_, SyncState>) -> CmdResult<Report> {
-    blocking(&state, |e| e.sync(true)).await
+pub async fn sync_push(app: AppHandle, state: State<'_, SyncState>) -> CmdResult<Report> {
+    blocking(&state, move |e| {
+        let report = e.sync(true)?;
+        merged(&app, e);
+        Ok(report)
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn sync_pull(state: State<'_, SyncState>) -> CmdResult<Report> {
-    blocking(&state, |e| e.sync(false)).await
+pub async fn sync_pull(app: AppHandle, state: State<'_, SyncState>) -> CmdResult<Report> {
+    blocking(&state, move |e| {
+        let report = e.sync(false)?;
+        crate::vault::synced(&app);
+        Ok(report)
+    })
+    .await
 }
 
 #[tauri::command]

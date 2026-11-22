@@ -625,7 +625,7 @@ fn a_disabled_scope_is_not_synced() {
     assert_eq!(b.read("projects/a-only/conventions/c/source.md"), "A\n");
     assert!(!b.dir.join("projects/a-only.toml").exists());
     assert!(
-        a.engine.set_scopes(&[Scope::Vault]).is_err(),
+        a.engine.set_scopes(&[Scope::SshKeys]).is_err(),
         "not available yet"
     );
     assert!(a.engine.set_scopes(&[]).is_err());

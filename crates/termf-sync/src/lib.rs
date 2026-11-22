@@ -7,6 +7,10 @@
 //! file for three-way merges, and the git clone. The key derived from the password lives in the system
 //! keychain; without one (a headless Linux) it stays in memory for the process and the password is asked
 //! again next time: it is never written to disk.
+//!
+//! The vault's file, already sealed by its own key, travels as it is: the sync never opens it. Another
+//! machine's version lands beside it (`incoming.json`), for the vault to merge item by item when it opens;
+//! until then this machine's version is not pushed, as it would not hold the other one's changes.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -33,6 +37,11 @@ pub use remote::{Folder, Git, Remote, RemoteSpec};
 pub use store::{KeyStore, OsKeyStore};
 pub use termf_library::archive::MissingRepo;
 
+/// The vault's file as synced, and the name the other machines' version takes beside it until the vault merges
+/// it (`termf-vault`): the sync never opens it.
+pub const VAULT_PATH: &str = "vault/vault.json";
+pub const VAULT_INCOMING: &str = "incoming.json";
+const VAULT_FILE: &str = "vault.json";
 const KEYS: &str = "termf-sync.json";
 const FILES: &str = "files";
 const DEVICES: &str = "devices";
@@ -52,13 +61,21 @@ pub enum Scope {
     Projects,
     /// `projects/<id>/conventions/`.
     Conventions,
+    /// The vault's sealed file: `<data>/vault/vault.json`, never `quick.json` (this machine's Touch ID).
     Vault,
     /// Only ever on explicit request.
     SshKeys,
 }
 
 impl Scope {
-    pub const AVAILABLE: [Scope; 3] = [Scope::Config, Scope::Projects, Scope::Conventions];
+    pub const AVAILABLE: [Scope; 4] = [
+        Scope::Config,
+        Scope::Projects,
+        Scope::Conventions,
+        Scope::Vault,
+    ];
+    /// What a setup syncs unless told otherwise: the vault only when asked.
+    pub const DEFAULT: [Scope; 3] = [Scope::Config, Scope::Projects, Scope::Conventions];
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -396,6 +413,8 @@ pub struct Engine {
     memory: Mutex<Option<(String, Key)>>,
     /// Extra environment for git, so tests never read the user's git config.
     git_env: Vec<(String, String)>,
+    /// `<data>/vault`, for the vault scope.
+    vault_dir: Option<PathBuf>,
 }
 
 impl Engine {
@@ -405,7 +424,21 @@ impl Engine {
             store,
             memory: Mutex::new(None),
             git_env: Vec::new(),
+            vault_dir: None,
         }
+    }
+
+    /// Where the vault lives (`<data>/vault`): without it, the vault scope syncs nothing.
+    pub fn with_vault(mut self, dir: PathBuf) -> Self {
+        self.vault_dir = Some(dir);
+        self
+    }
+
+    /// Git's environment, so the tests of a crate built on this one never read the user's git config.
+    #[doc(hidden)]
+    pub fn with_git_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.git_env = env;
+        self
     }
 
     fn dir(&self) -> PathBuf {
@@ -751,6 +784,13 @@ impl Engine {
                     }
                 }
             }
+            if state.scopes.contains(&Scope::Vault)
+                && let Some(dir) = &self.vault_dir
+                && let Some(record) =
+                    sync_vault(dir, &theirs, &mut base, &mut pulled, &state.device_id)?
+            {
+                outgoing.push(record);
+            }
             // What came from the remote is in place: kept even if publishing fails.
             self.save_base(&base)?;
 
@@ -947,4 +987,70 @@ fn check_password(password: &str) -> Result<()> {
         "the sync password needs at least 8 characters"
     );
     Ok(())
+}
+
+/// The vault's writers' lock, so its file and the version brought here are never read half-written.
+fn vault_lock(dir: &Path) -> Result<File> {
+    fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    fs::set_permissions(dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("lock"))?;
+    file.lock()?;
+    Ok(file)
+}
+
+/// Leaves another machine's version of the vault beside it (readable by the user only), or returns this
+/// machine's to push: only once the vault merged what came before, so the remote always holds every change.
+fn sync_vault(
+    dir: &Path,
+    theirs: &BTreeMap<String, Record>,
+    base: &mut BTreeMap<String, Record>,
+    pulled: &mut BTreeSet<String>,
+    device: &str,
+) -> Result<Option<Record>> {
+    let _lock = vault_lock(dir)?;
+    let b = base.get(VAULT_PATH);
+    let b_entry = b.and_then(|r| r.entry.as_ref());
+    let mine = match fs::read(dir.join(VAULT_FILE)) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e.into()),
+    };
+    // A deletion is never synced: a vault is not lost through the remote.
+    if let Some(r) = theirs.get(VAULT_PATH).filter(|r| r.entry.is_some())
+        && r.entry.as_ref() != b_entry
+    {
+        let bytes = &r.entry.as_ref().expect("filtered").bytes;
+        if mine.as_ref() != Some(bytes) {
+            let tmp = dir.join(format!(".{VAULT_INCOMING}.tmp"));
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            let mut out = options.open(&tmp)?;
+            std::io::Write::write_all(&mut out, bytes)?;
+            out.sync_all()?;
+            fs::rename(&tmp, dir.join(VAULT_INCOMING))?;
+            pulled.insert(VAULT_PATH.into());
+        }
+        base.insert(VAULT_PATH.into(), r.clone());
+        return Ok(None);
+    }
+    if dir.join(VAULT_INCOMING).exists() {
+        return Ok(None);
+    }
+    let Some(bytes) = mine.filter(|m| Some(m) != b_entry.map(|e| &e.bytes)) else {
+        return Ok(None);
+    };
+    let b_clock = b.map(|r| r.clock.clone()).unwrap_or_default();
+    let r_clock = theirs.get(VAULT_PATH).map_or(&b_clock, |r| &r.clock);
+    Ok(Some(Record {
+        path: VAULT_PATH.into(),
+        entry: Some(Entry { bytes, exec: false }),
+        clock: record::next(&b_clock, r_clock, device),
+    }))
 }

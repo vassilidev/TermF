@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { t } from "$lib/i18n";
 import { CLEAR_AFTER, digest } from "$lib/ssh.svelte";
 import { app, ui } from "$lib/state.svelte";
-import type { ItemInfo, SecretInfo } from "$lib/vault-logic";
+import { counts, type ItemInfo, type Merged, type SecretInfo } from "$lib/vault-logic";
 
 export type VaultStatus = {
   initialized: boolean;
@@ -16,6 +16,8 @@ export type VaultStatus = {
   quickDays: number | null;
   quickUntil: number | null;
   confirmedUntil: number | null;
+  /** Another machine's version, brought by the sync, waits beside the vault, or did not open and was set aside. */
+  synced: "pending" | "secured" | "other" | "newer" | "damaged" | null;
 };
 export type VaultView = "vault" | "vaultAll";
 export type KeyInfo = { id: string; name: string; created: number };
@@ -37,6 +39,10 @@ export const vault = $state({
   methods: null as VaultMethods | null,
   /** Shown once, until the user says it is stored; never kept past that. */
   recoveryKey: null as { key: string; reason: RecoveryReason } | null,
+  /** Counts the merges done while open, so what shows other versions reads them again. */
+  merged: 0,
+  /** The set-aside synced version was told once this session. */
+  damagedSeen: false,
 });
 
 /** Touch ID or Windows Hello by its name, when this machine has one. */
@@ -59,6 +65,19 @@ function watch() {
     setStatus(e.payload);
     if (opened) refreshVault();
   });
+  // Another machine's version merged while the vault is open.
+  listen<Merged[]>("vault-merged", (e) => {
+    vault.merged++;
+    refreshVault();
+    if (counts(e.payload).length) say(t("vault3Merged", { summary: mergeText(e.payload) }));
+  });
+}
+
+/** "2 ajouté(s), 1 en double version", in the user's language. */
+export function mergeText(rows: Merged[]): string {
+  const words = { added: "vault3CountAdded", changed: "vault3CountChanged", deleted: "vault3CountDeleted", conflict: "vault3CountConflict" } as const;
+  const parts = counts(rows).map(([change, n]) => t(words[change], { n }));
+  return parts.length ? parts.join(", ") : t("vault3NothingChanged");
 }
 
 export function setStatus(status: VaultStatus) {
@@ -101,6 +120,8 @@ export function failed(e: unknown): string {
   }
   if (/wrong master password/.test(text)) return t("vaultWrongPassword");
   if (/wrong recovery key/.test(text)) return t("vault2WrongRecovery");
+  if (/master password changed on another machine/.test(text)) return t("vault3PasswordChanged");
+  if (/wrong export password/.test(text)) return t("vault3WrongExportPassword");
   return text;
 }
 
