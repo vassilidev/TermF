@@ -221,7 +221,7 @@ impl Api {
                 .args
                 .extend(agents::permission(app, *session, request)),
             Call::Say { session, .. } => {
-                let sessions = self.list(&app.state::<AppState>().sessions);
+                let sessions = crate::tiles(&app.state::<AppState>());
                 if let Ok(id) = ipc::find_session(&sessions, session) {
                     let title = sessions
                         .iter()
@@ -1660,7 +1660,7 @@ fn watch(api: &Api, mut conn: BufReader<Stream>) -> Result<()> {
 
 fn call(app: &AppHandle, state: &AppState, call: Call, caller: &Stream) -> Result<Value> {
     Ok(match call {
-        Call::List => serde_json::to_value(state.api.list(&state.sessions))?,
+        Call::List => serde_json::to_value(crate::tiles(state))?,
         Call::Open { path, agent } => {
             let cwd = PathBuf::from(path);
             if !cwd.is_dir() {
@@ -1684,7 +1684,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call, caller: &Stream) -> Resul
             serde_json::to_value(session)?
         }
         Call::Say { session, text } => {
-            let id = ipc::find_session(&state.api.list(&state.sessions), &session)?;
+            let id = ipc::find_session(&crate::tiles(state), &session)?;
             state.sessions.type_line(id, &text)?;
             state.api.input(app, id, b"\r");
             Value::Null

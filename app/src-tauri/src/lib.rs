@@ -216,7 +216,11 @@ fn pty_kill(app: AppHandle, state: State<AppState>, id: u32) -> CmdResult<()> {
 
 #[tauri::command]
 fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
-    // The quick terminal has its own panel, never a tile.
+    tiles(&state)
+}
+
+/// The sessions, without the quick terminal: it has its own panel, never a tile, and `termf ls` does not list it.
+pub(crate) fn tiles(state: &AppState) -> Vec<SessionSummary> {
     let quick = *state.quick_terminal.session.lock().unwrap();
     state
         .api
@@ -228,6 +232,12 @@ fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Started from a Claude Code session, TermF would pass its markers to every terminal: a Claude Code run there
+    // would be its child and save no transcript (`SESSION_MARKERS`).
+    for marker in termf_core::claude::SESSION_MARKERS {
+        // SAFETY: first thing in `main`, before any other thread starts.
+        unsafe { std::env::remove_var(marker) };
+    }
     let config_dir = termf_core::default_config_dir().expect("cannot locate the config directory");
     let data_dir = termf_core::default_data_dir().expect("cannot locate the data directory");
     let builder = tauri::Builder::default();

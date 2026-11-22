@@ -1,5 +1,6 @@
 //! Keeps the computer from sleeping while agents work: sleep suspends them, a locked screen does not.
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -31,6 +32,8 @@ struct Inner {
     guard: Option<keepawake::KeepAwake>,
     idle_since: Option<Instant>,
     error: Option<String>,
+    /// Headless agent sessions at work (team steps, conversations), which have no tile.
+    agents: HashSet<i64>,
 }
 
 #[derive(Default)]
@@ -63,12 +66,27 @@ impl KeepAwake {
         self.update(app);
     }
 
+    /// A headless agent session changed: one at work keeps the computer awake as a tile does.
+    pub fn agent(&self, app: &AppHandle, id: i64, working: bool) {
+        let changed = {
+            let mut inner = self.inner.lock().unwrap();
+            match working {
+                true => inner.agents.insert(id),
+                false => inner.agents.remove(&id),
+            }
+        };
+        if changed {
+            self.update(app);
+        }
+    }
+
     /// Re-evaluates after any change in what sessions are doing.
     pub fn update(&self, app: &AppHandle) {
         let state = app.state::<AppState>();
         let busy = state.api.list(&state.sessions).iter().any(ipc::keeps_awake);
 
         let mut inner = self.inner.lock().unwrap();
+        let busy = busy || !inner.agents.is_empty();
         let was_active = inner.guard.is_some();
         let hold = match inner.mode {
             Mode::Always => true,
