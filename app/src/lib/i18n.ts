@@ -3473,6 +3473,10 @@ const fr = {
   review5bComposerHint: "Clique sur l'image pour épingler un endroit précis.",
   review5bSendChanges: "Demander ces modifications",
   review5bRecap: "Récapitulatif",
+  adaptersTool: "Outil",
+  adaptersCodex: "Codex CLI",
+  adaptersGemini: "Gemini CLI",
+  adaptersTurnTokens: "ce tour {input} jetons en entrée · {output} en sortie",
 };
 
 type Key = keyof typeof fr;
@@ -6925,6 +6929,10 @@ const en: Record<Key, string> = {
   review5bComposerHint: "Click the image to pin a precise spot.",
   review5bSendChanges: "Ask for these changes",
   review5bRecap: "Summary",
+  adaptersTool: "Tool",
+  adaptersCodex: "Codex CLI",
+  adaptersGemini: "Gemini CLI",
+  adaptersTurnTokens: "this turn {input} input tokens · {output} output",
 };
 
 const messages = { fr, en };

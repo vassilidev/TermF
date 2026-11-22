@@ -50,10 +50,13 @@ struct Shared {
     scrollback: VecDeque<u8>,
     sink: Option<Sink>,
     exit: Option<Option<u32>>,
+    /// When the program last wrote.
+    written: Option<std::time::Instant>,
 }
 
 impl Shared {
     fn push(&mut self, chunk: &[u8]) {
+        self.written = Some(std::time::Instant::now());
         self.scrollback.extend(chunk);
         let overflow = self.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
         self.scrollback.drain(..overflow);
@@ -223,6 +226,13 @@ impl Sessions {
         // Already exited is fine.
         let _ = killer.kill();
         Ok(())
+    }
+
+    /// How long the session's program has written nothing; `None` when it never wrote or is unknown.
+    pub fn quiet_for(&self, id: u32) -> Option<std::time::Duration> {
+        let shared = self.with(id, |s| s.shared.clone()).ok()?;
+        let written = shared.lock().unwrap().written?;
+        Some(written.elapsed())
     }
 
     pub fn list(&self) -> Vec<SessionInfo> {

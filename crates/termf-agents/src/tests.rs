@@ -1033,7 +1033,7 @@ fn refuses_what_cannot_start() {
     assert!(refused(|s| s.budget = Some(0.0)).contains("budget"));
     assert!(refused(|s| s.budget = Some(f64::NAN)).contains("budget"));
     assert!(refused(|s| s.agent = Some("shell".into())).contains("does not run Claude Code"));
-    assert!(refused(|s| s.agent = Some("codex".into())).contains("no agent codex"));
+    assert!(refused(|s| s.agent = Some("aider".into())).contains("no agent aider"));
     assert!(env.agents.send(42, "hi").is_err());
     assert!(env.agents.sessions().unwrap().is_empty());
 }
@@ -1471,11 +1471,10 @@ fn real_claude() {
         )
         .unwrap();
     let second = wait(2);
-    let pid = crate::store::Store::open(&root.join("data"))
-        .unwrap()
-        .pid(id)
-        .unwrap();
-    let recognized = pid.is_some_and(|pid| crate::agents::ours(pid, &session.session_id));
+    let store = crate::store::Store::open(&root.join("data")).unwrap();
+    let pid = store.pid(id).unwrap();
+    let dir = store.dir(id).join("session");
+    let recognized = pid.is_some_and(|pid| crate::agents::ours(pid, &session.session_id, &dir));
     let events: Vec<AgentEvent> = agents
         .events(id, 0)
         .unwrap()
@@ -1526,4 +1525,438 @@ fn real_claude() {
             .count()
             == 1
     );
+}
+
+/// Codex CLI as `codex exec --json` answers, its lines from developers.openai.com/codex/noninteractive and
+/// codex-rs/exec/src/exec_events.rs (2026-11-22; no Codex installed here to record a real run). One process per
+/// turn: the prompt on stdin, the thread resumed by its id.
+const FAKE_CODEX: &str = r#"
+[ "$1" = --version ] && { echo 'codex-cli 0.171.0'; exit 0; }
+{ echo "--- $$"; printf '%s\n' "$@"; } >> "$log.args"
+prompt=$(cat)
+printf '%s\n--- end\n' "$prompt" >> "$log.stdin"
+tid=019a6b2e-0000-7000-8000-00000000c0de
+prev=
+for a in "$@"; do [ "$prev" = resume ] && tid=$a; prev=$a; done
+say() { printf '%s\n' "$1"; }
+say "{\"type\":\"thread.started\",\"thread_id\":\"$tid\"}"
+say '{"type":"turn.started"}'
+# The user's words come last, after the instructions TermF puts first.
+case "$(printf '%s\n' "$prompt" | tail -n 1)" in
+  *slow*)
+    trap 'exit 130' INT
+    say '{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"bash -lc sleep","status":"in_progress"}}'
+    sleep 30; exit 0 ;;
+  *fail*) say '{"type":"turn.failed","error":{"message":"model overloaded"}}'; exit 1 ;;
+esac
+say '{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"in_progress"}}'
+say '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"docs\nsdk\n","exit_code":0,"status":"completed"}}'
+say '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Repo contains docs, sdk, and examples directories."}}'
+say '{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122,"reasoning_output_tokens":0}}'
+"#;
+
+/// Gemini CLI as `gemini --output-format stream-json` answers, its objects from gemini-cli's
+/// packages/core/src/output/types.ts and stream-json-formatter.test.ts (2026-11-22; no Gemini installed here).
+const FAKE_GEMINI: &str = r##"
+[ "$1" = --version ] && { echo '0.70.0'; exit 0; }
+{ echo "--- $$"; printf '%s\n' "$@"; } >> "$log.args"
+prompt=$(cat)
+printf '%s\n--- end\n' "$prompt" >> "$log.stdin"
+prev=
+for a in "$@"; do
+  if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi
+  prev=$a
+done
+say() { printf '%s\n' "$1"; }
+at='"timestamp":"2026-11-22T10:00:00.000Z"'
+say "{\"type\":\"init\",$at,\"session_id\":\"$sid\",\"model\":\"gemini-3-pro\"}"
+say "{\"type\":\"message\",$at,\"role\":\"user\",\"content\":\"hidden\"}"
+case "$prompt" in
+  *slow*)
+    trap 'echo Cancelling... >&2; exit 130' INT
+    say "{\"type\":\"message\",$at,\"role\":\"assistant\",\"content\":\"Counting\",\"delta\":true}"
+    sleep 30; exit 0 ;;
+esac
+say "{\"type\":\"message\",$at,\"role\":\"assistant\",\"content\":\"Reading \",\"delta\":true}"
+say "{\"type\":\"message\",$at,\"role\":\"assistant\",\"content\":\"it.\",\"delta\":true}"
+say "{\"type\":\"tool_use\",$at,\"tool_name\":\"read_file\",\"tool_id\":\"read-123\",\"parameters\":{\"file_path\":\"README.md\"}}"
+say "{\"type\":\"tool_result\",$at,\"tool_id\":\"read-123\",\"status\":\"success\",\"output\":\"# acme\"}"
+say "{\"type\":\"message\",$at,\"role\":\"assistant\",\"content\":\"It is acme.\",\"delta\":true}"
+say "{\"type\":\"result\",$at,\"status\":\"success\",\"stats\":{\"total_tokens\":100,\"input_tokens\":50,\"output_tokens\":50,\"cached\":20,\"input\":30,\"duration_ms\":1200,\"tool_calls\":1,\"models\":{}}}"
+"##;
+
+impl Env {
+    /// Adds fake `codex` and `gemini` as agents of those names; `extra`: more of termf.toml.
+    fn with_cli(&self, extra: &str) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = self.fake.parent().unwrap();
+        let fake = |name: &str, body: &str| {
+            let path = bin.join(name);
+            fs::write(
+                &path,
+                format!("#!/bin/sh\nlog='{}'\n{body}", path.display()),
+            )
+            .unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let (codex, gemini) = (fake("codex", FAKE_CODEX), fake("gemini", FAKE_GEMINI));
+        fs::write(
+            self.root.join("config/termf.toml"),
+            format!(
+                "[agents]\nclaude = \"{}\"\ncodex = \"{}\"\ngemini = \"{}\"\n{extra}",
+                self.fake.display(),
+                codex.display(),
+                gemini.display()
+            ),
+        )
+        .unwrap();
+        (codex, gemini)
+    }
+
+    fn cli_args(path: &std::path::Path) -> Vec<Vec<String>> {
+        let log = fs::read_to_string(format!("{}.args", path.display())).unwrap_or_default();
+        let runs = log.split("--- ").skip(1);
+        runs.map(|r| r.lines().skip(1).map(str::to_owned).collect())
+            .collect()
+    }
+
+    fn exits(&self, id: i64) -> usize {
+        self.kinds(id).iter().filter(|k| *k == "exited").count()
+    }
+}
+
+#[test]
+fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
+    let env = Env::new("codex");
+    let (codex, _) = env.with_cli("[roles.docs]\nagent = \"codex\"\n");
+    fs::write(env.dir.join("AGENTS.md"), "mine").unwrap();
+    let spec = SessionSpec {
+        cwd: env.dir.clone(),
+        role: Some("docs".into()),
+        permission_mode: Some("acceptEdits".into()),
+        ..SessionSpec::default()
+    };
+    let session = env.agents.start(spec, Some("list the repo")).unwrap();
+    let id = session.id;
+    assert_eq!(session.runtime, "codex");
+    assert_eq!(
+        session.spec.agent.as_deref(),
+        Some("codex"),
+        "the role's agent"
+    );
+    assert_eq!(
+        (
+            session.spec.model.as_deref(),
+            session.spec.effort.as_deref()
+        ),
+        (None, None),
+        "the role file's sonnet and effort are Claude Code's"
+    );
+    env.until("the first turn and its process's end", || {
+        env.turns(id) == 1 && env.exits(id) == 1
+    });
+    let session = env.session(id);
+    assert_eq!(session.state, State::Idle, "no process between turns");
+    assert_eq!(session.session_id, "019a6b2e-0000-7000-8000-00000000c0de");
+    assert_eq!(
+        env.kinds(id),
+        [
+            "started",
+            "user",
+            "init",
+            "tool_use",
+            "tool_result",
+            "text",
+            "turn_end",
+            "exited"
+        ]
+    );
+    let (outcome, cost, ..) = turn_end(&env.events(id));
+    assert_eq!((outcome, cost), (Outcome::Done, 0.0));
+
+    env.agents.send(id, "and again").unwrap();
+    env.until("the second turn", || {
+        env.turns(id) == 2 && env.exits(id) == 2
+    });
+    let runs = Env::cli_args(&codex);
+    assert_eq!(runs.len(), 2, "one process per turn");
+    assert_eq!(
+        &runs[0][..5],
+        [
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write"
+        ]
+    );
+    assert!(!runs[0].contains(&"resume".to_owned()));
+    assert!(
+        !runs[0].iter().any(|a| a.contains("Role")),
+        "no instructions on a command line cmd.exe would cut"
+    );
+    assert_eq!(
+        runs[1][runs[1].len() - 3..],
+        ["resume", "019a6b2e-0000-7000-8000-00000000c0de", "-"]
+    );
+    let stdin = fs::read_to_string(format!("{}.stdin", codex.display())).unwrap();
+    let turns: Vec<&str> = stdin.split("--- end\n").collect();
+    assert!(
+        turns[0].starts_with("<termf-instructions>\n## Role: docs"),
+        "{stdin}"
+    );
+    assert!(turns[0].ends_with("list the repo\n"));
+    assert_eq!(turns[1], "and again\n", "once per conversation");
+    assert_eq!(
+        fs::read_to_string(env.dir.join("AGENTS.md")).unwrap(),
+        "mine",
+        "never written"
+    );
+
+    env.agents.send(id, "go slow").unwrap();
+    env.until("the command under way", || {
+        env.events(id)
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolUse { id, .. } if id == "item_0"))
+    });
+    env.agents.interrupt(id).unwrap();
+    env.until("the interrupted turn", || {
+        env.turns(id) == 3 && env.exits(id) == 3
+    });
+    assert_eq!(turn_end(&env.events(id)).0, Outcome::Interrupted);
+    assert_eq!(
+        env.session(id).state,
+        State::Idle,
+        "the conversation goes on"
+    );
+
+    env.agents.send(id, "this will fail").unwrap();
+    env.until("the failed turn", || {
+        env.turns(id) == 4 && env.exits(id) == 4
+    });
+    let (outcome, _, _, error, _) = turn_end(&env.events(id));
+    assert_eq!(
+        (outcome, error.as_deref()),
+        (Outcome::Error, Some("model overloaded"))
+    );
+    assert_eq!(env.session(id).state, State::Error);
+
+    let takeover = env.agents.takeover(id).unwrap();
+    assert_eq!(takeover.agent, "codex");
+    assert_eq!(
+        takeover.args[..2],
+        ["resume", "019a6b2e-0000-7000-8000-00000000c0de"]
+    );
+    env.agents.attach_tile(id, None).unwrap();
+}
+
+#[test]
+fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
+    let env = Env::new("gemini");
+    let (_, gemini) = env.with_cli("");
+    let spec = SessionSpec {
+        cwd: env.dir.clone(),
+        agent: Some("gemini".into()),
+        role: Some("docs".into()),
+        model: Some("gemini-3-pro".into()),
+        permission_mode: Some("plan".into()),
+        ..SessionSpec::default()
+    };
+    let id = env.agents.start(spec, Some("what is this")).unwrap().id;
+    env.until("the first turn", || {
+        env.turns(id) == 1 && env.exits(id) == 1
+    });
+    let session = env.session(id);
+    assert_eq!(
+        (session.runtime.as_str(), session.state),
+        ("gemini", State::Idle)
+    );
+    assert_eq!(
+        env.kinds(id),
+        [
+            "started",
+            "user",
+            "init",
+            "text",
+            "tool_use",
+            "tool_result",
+            "text",
+            "turn_end",
+            "exited"
+        ]
+    );
+    let events = env.events(id);
+    assert!(events.contains(&AgentEvent::Text {
+        text: "Reading it.".into(),
+        parent: None
+    }));
+    let AgentEvent::TurnEnd { result, usage, .. } = &events[7] else {
+        panic!()
+    };
+    assert_eq!(
+        (result.as_deref(), usage.input, usage.cache_read),
+        (Some("It is acme."), 50, 20)
+    );
+    assert!(
+        events.contains(&AgentEvent::User {
+            text: "what is this".into()
+        }),
+        "your words alone"
+    );
+
+    env.agents.send(id, "more").unwrap();
+    env.until("the second turn", || {
+        env.turns(id) == 2 && env.exits(id) == 2
+    });
+    let runs = Env::cli_args(&gemini);
+    assert_eq!(
+        arg_after(&runs[0], "--session-id"),
+        Some(session.session_id.as_str())
+    );
+    assert_eq!(
+        arg_after(&runs[1], "--resume"),
+        Some(session.session_id.as_str())
+    );
+    assert_eq!(arg_after(&runs[0], "--approval-mode"), Some("plan"));
+    let policy = fs::read_to_string(arg_after(&runs[1], "--policy").unwrap()).unwrap();
+    assert!(policy.contains("printenv") && policy.contains("decision = \"deny\""));
+    let stdin = fs::read_to_string(format!("{}.stdin", gemini.display())).unwrap();
+    let turns: Vec<&str> = stdin.split("--- end\n").collect();
+    assert!(
+        turns[0].starts_with("<termf-instructions>\n## Role: docs"),
+        "{stdin}"
+    );
+    assert!(turns[0].ends_with("what is this\n"));
+    assert_eq!(turns[1], "more\n", "once per conversation");
+    assert!(!env.dir.join("GEMINI.md").exists());
+
+    env.agents.send(id, "slow please").unwrap();
+    env.until("the first words", || {
+        env.updates.lock().unwrap().iter().any(|u| {
+            matches!(u, Update::Event(StoredEvent { event: AgentEvent::Delta { text }, .. }) if text == "Counting")
+        })
+    });
+    assert!(
+        env.agents.send_or_queue(id, "then this").unwrap(),
+        "kept for the end of the turn"
+    );
+    env.agents.interrupt(id).unwrap();
+    env.until("the interrupted turn, then the one it kept", || {
+        env.turns(id) == 4 && env.exits(id) == 4
+    });
+    let ends: Vec<Outcome> = env
+        .events(id)
+        .into_iter()
+        .filter_map(|e| match e {
+            AgentEvent::TurnEnd { outcome, .. } => Some(outcome),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ends[2..], [Outcome::Interrupted, Outcome::Done]);
+    let stdin = fs::read_to_string(format!("{}.stdin", gemini.display())).unwrap();
+    assert!(stdin.ends_with("then this\n--- end\n"), "{stdin}");
+    assert_eq!(env.session(id).state, State::Idle);
+}
+
+#[test]
+fn codex_and_gemini_refuse_what_only_claude_code_does() {
+    let env = Env::new("cli-refuse");
+    let (codex, _) = env.with_cli("[roles.cto]\nagent = \"codex\"\n");
+    let refused = |agent: &str, change: fn(&mut SessionSpec)| {
+        let mut spec = SessionSpec {
+            cwd: env.dir.clone(),
+            agent: Some(agent.into()),
+            ..SessionSpec::default()
+        };
+        change(&mut spec);
+        env.agents.start(spec, Some("hi")).unwrap_err().to_string()
+    };
+    for agent in ["codex", "gemini"] {
+        assert!(refused(agent, |s| s.json_schema = Some(json!({}))).contains("JSON schema"));
+        assert!(refused(agent, |s| s.budget = Some(1.0)).contains("cost"));
+        assert!(
+            refused(agent, |s| s.permission_mode = Some("manual".into())).contains("cannot ask")
+        );
+        assert!(refused(agent, |s| s.role = Some("reviewer".into())).contains("single tools"));
+    }
+    assert!(refused("gemini", |s| s.effort = Some("high".into())).contains("effort"));
+    assert!(env.agents.sessions().unwrap().is_empty(), "nothing started");
+
+    let spec = SessionSpec {
+        cwd: env.dir.clone(),
+        agent: Some("codex".into()),
+        ..SessionSpec::default()
+    };
+    let id = env.agents.start(spec, None).unwrap().id;
+    assert_eq!(
+        env.session(id).state,
+        State::Stopped,
+        "no process before its first message"
+    );
+    assert!(
+        env.agents.answer(id, "r1", true, None).is_err(),
+        "nothing ever asks"
+    );
+
+    // The CTO stays on Claude Code whatever its role says.
+    let cto = SessionSpec {
+        cwd: env.dir.clone(),
+        role: Some("cto".into()),
+        ..SessionSpec::default()
+    };
+    let cto = env.agents.create(SessionSpec { mcp: true, ..cto }).unwrap();
+    assert_eq!(
+        (cto.runtime.as_str(), cto.spec.agent.as_deref()),
+        ("claude-code", Some("claude"))
+    );
+
+    fs::write(&codex, "#!/bin/sh\necho 'codex-cli 0.90.0'\n").unwrap();
+    let old = refused("codex", |_| {});
+    assert!(
+        old.contains("Codex CLI 0.90.0 at")
+            && old.contains("is too old: TermF needs 0.171.0 or later"),
+        "{old}"
+    );
+}
+
+#[test]
+fn the_first_codex_process_left_by_the_last_launch_is_stopped() {
+    let env = Env::new("codex-orphan");
+    env.with_cli("");
+    let spec = SessionSpec {
+        cwd: env.dir.clone(),
+        agent: Some("codex".into()),
+        ..SessionSpec::default()
+    };
+    let id = env.agents.start(spec, Some("go slow")).unwrap().id;
+    env.until("the command under way", || {
+        env.events(id)
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolUse { id, .. } if id == "item_0"))
+    });
+    let store = crate::store::Store::open(&env.root.join("data")).unwrap();
+    let session = store.session(id).unwrap();
+    let pid = store.pid(id).unwrap().unwrap();
+    assert_eq!(
+        session.session_id, "019a6b2e-0000-7000-8000-00000000c0de",
+        "the id Codex gave, on no command line yet"
+    );
+    assert!(crate::agents::ours(
+        pid,
+        &session.session_id,
+        &store.dir(id).join("session")
+    ));
+    assert!(
+        !crate::agents::ours(pid, "another", &store.dir(id + 1).join("session")),
+        "another session's"
+    );
+    // The app quit without stopping it: the next launch does.
+    let _again = Agents::build(
+        env.root.join("config"),
+        env.root.join("data"),
+        Vec::new(),
+        |_| {},
+    );
+    env.until("the orphan killed", || !running(pid));
 }
