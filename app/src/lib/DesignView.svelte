@@ -30,6 +30,7 @@
   import { design, openAt } from "$lib/design.svelte";
   import {
     FAMILY_SECTIONS,
+    latest,
     describe,
     passes,
     request,
@@ -65,9 +66,10 @@
   let playing = $state<string | null>(null);
 
   const repos = $derived(scopeRepos());
-  const repoName = $derived(repos.find((r) => r.path === design.repo)?.name ?? "");
+  // Everything shown, and every action, is about the repository read: never the one just picked, not read yet.
+  const repoName = $derived(repos.find((r) => r.path === scanned)?.name ?? "");
   // The CTO who takes a request is the project's: under every project, the one that has the repository.
-  const owner = $derived(app.workspace?.projects.find((p) => p.repos.some((r) => r.path === design.repo)) ?? null);
+  const owner = $derived(app.workspace?.projects.find((p) => p.repos.some((r) => r.path === scanned)) ?? null);
   const fmt = new Intl.NumberFormat(lang, { maximumFractionDigits: 2 });
   const number = (n: number) => fmt.format(n);
   const tt = (key: string, vars?: Record<string, string | number>) => t(key as Key, vars);
@@ -81,22 +83,30 @@
     if (repo && onScreen("design")) untrack(() => scan(repo));
   });
 
+  const reads = latest();
+
   async function scan(repo = design.repo) {
     if (!repo) return;
+    const read = reads.start();
+    if (repo !== scanned) {
+      data = null;
+      scanned = "";
+      chosen.clear();
+      open = null;
+    }
     loading = true;
     error = "";
     try {
       const found = await invoke<Design>("design_scan", { repo });
-      if (repo !== design.repo) return;
-      if (repo !== scanned) chosen.clear();
+      if (!reads.isLast(read)) return;
       data = found;
       scanned = repo;
       const kept = stillThere(new Set(chosen), found.findings);
       for (const id of [...chosen]) if (!kept.has(id)) chosen.delete(id);
     } catch (e) {
-      error = String(e);
+      if (reads.isLast(read)) error = String(e);
     } finally {
-      loading = false;
+      if (reads.isLast(read)) loading = false;
     }
   }
 
@@ -151,15 +161,16 @@
   }
 
   async function exportPdf() {
+    const repo = scanned;
     const path = await save({
       defaultPath: `${repoName || "brand"}-guidelines.pdf`,
-      filters: [{ name: "PDF", extensions: ["pdf"] }],
+      filters: [{ name: t("designPdfFilter"), extensions: ["pdf"] }],
     });
-    if (!path) return;
+    if (!path || !repo) return;
     exporting = true;
     error = "";
     try {
-      await invoke("design_pdf", { repo: design.repo, path });
+      await invoke("design_pdf", { repo, path });
       done = t("designPdfDone", { path });
     } catch (e) {
       error = String(e);
@@ -196,7 +207,7 @@
 </script>
 
 {#snippet source(tk: Token)}
-  <button class="src mono" onclick={() => openAt(design.repo, tk.file, tk.line)} title={t("designOpenAt", { file: tk.file, line: tk.line })}>
+  <button class="src mono" onclick={() => openAt(scanned, tk.file, tk.line)} title={t("designOpenAt", { file: tk.file, line: tk.line })}>
     {tk.file}:{tk.line}
   </button>
 {/snippet}
@@ -332,7 +343,7 @@
                             <ul class="places">
                               {#each f.at as a, i (i)}
                                 <li>
-                                  <button class="place" onclick={() => openAt(design.repo, a.file, a.line)} title={t("designOpenAt", { file: a.file, line: a.line })}>
+                                  <button class="place" onclick={() => openAt(scanned, a.file, a.line)} title={t("designOpenAt", { file: a.file, line: a.line })}>
                                     <span class="mono loc">{a.file}:{a.line}</span>
                                     {#if a.text}<code>{a.text}</code>{/if}
                                   </button>
@@ -360,7 +371,7 @@
                           <span class="grow"></span>
                           <span class="uses" class:none={c.uses === 0} title={c.usedIn.join("\n")}>{uses(c.uses)}</span>
                         </div>
-                        <button class="src mono" onclick={() => openAt(design.repo, c.file, 1)}>{c.file}</button>
+                        <button class="src mono" onclick={() => openAt(scanned, c.file, 1)}>{c.file}</button>
                         {#each c.variants as v (v.prop)}
                           <div class="variants">
                             <span class="muted">{v.prop}</span>
@@ -403,7 +414,7 @@
                       <tbody>
                         {#each data.pairs.slice(0, 60) as p, i (i)}
                           <tr>
-                            <td><span class="sample" style:color={p.fgColor} style:background={p.bgColor}>Aa</span></td>
+                            <td><span class="sample" style:color={p.fgColor} style:background={p.bgColor}>{t("designSampleShort")}</span></td>
                             <td class="mono">{p.fg} <span class="muted">/</span> {p.bg}</td>
                             <td>
                               {#if p.theme === "dark"}<Moon size={13} aria-label={t("designDark")} />{:else}<Sun size={13} aria-label={t("designLight")} />{/if}
@@ -488,7 +499,7 @@
             <header class="head">
               <h2>{t("designTabBrand")}</h2>
               <span class="grow"></span>
-              <button class="btn sm primary" onclick={exportPdf} disabled={!brand.guidelines || exporting} title={brand.guidelines ? undefined : t("designNoGuidelines")}>
+              <button class="btn sm primary" onclick={exportPdf} disabled={!brand.printable || exporting} title={brand.printable ? undefined : t("designNoGuidelines")}>
                 {#if exporting}<LoaderCircle size={14} class="spin" aria-hidden="true" />{:else}<FileDown size={14} aria-hidden="true" />{/if}
                 {t("designPdf")}
               </button>
@@ -570,7 +581,7 @@
 
             {#if brand.summary}
               <section>
-                <h3>BRAND.md</h3>
+                <h3>{t("designBrandFile")}</h3>
                 <pre class="summary">{brand.summary}</pre>
               </section>
             {/if}
@@ -580,6 +591,8 @@
               {#if brand.guidelines}
                 <p class="hint">{t("designPreviewNote")}</p>
                 <iframe class="guidelines" title={t("designGuidelines")} sandbox="" srcdoc={brand.guidelines}></iframe>
+              {:else if brand.printable}
+                <p class="muted">{t("designGuidelinesTooBig")}</p>
               {:else}
                 <p class="muted">{t("designNoGuidelines")}</p>
               {/if}

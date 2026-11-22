@@ -755,3 +755,133 @@ fn stays_within_its_limits() {
         }]
     );
 }
+
+#[test]
+fn a_length_is_never_a_color_whatever_its_name() {
+    let d = scan(&repo(
+        "lengths",
+        &[(
+            "a.css",
+            ":root { --border-width: 1px; --focus-ring-width: 0.125rem; --accent-size: 50%; --border: #e5e7eb; --border-color: var(--nowhere); }",
+        )],
+    ));
+    let family = |n: &str| token(&d, n).family;
+    assert_eq!(family("--border-width"), Family::Other);
+    assert_eq!(family("--focus-ring-width"), Family::Other);
+    assert_eq!(family("--accent-size"), Family::Other);
+    assert_eq!(family("--border"), Family::Color);
+    assert_eq!(family("--border-color"), Family::Color);
+}
+
+/// Every reader, on text made of the markers they look for mixed with characters wider than a byte, in many
+/// orders: a file of the repository, whatever it holds, never makes the scan fail.
+#[test]
+fn never_panics_on_any_text() {
+    const PIECES: [&str; 48] = [
+        "-[",
+        "]",
+        "import",
+        "{",
+        "}",
+        "(",
+        ")",
+        "--",
+        "$",
+        "<",
+        ">",
+        "style=",
+        "\"",
+        "'",
+        "`",
+        ":",
+        ";",
+        ",",
+        "fonts.googleapis.com/css2?family=",
+        "@fontsource/",
+        "next/font/google",
+        ".css\"",
+        ".css'",
+        "var(",
+        "url(",
+        "#",
+        "#fff",
+        "rgb(",
+        "oklch(",
+        "/*",
+        "*/",
+        "//",
+        ":not(",
+        "dark",
+        ".dark",
+        "variants",
+        "variant?:",
+        "theme",
+        "theme:",
+        "-",
+        "|",
+        "é",
+        "€",
+        "😀",
+        "日本",
+        " ",
+        "\n",
+        "café",
+    ];
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let kinds = [
+        Lang::Style { scss: true },
+        Lang::Component("svelte"),
+        Lang::Script { jsx: true },
+        Lang::Html,
+    ];
+    for _ in 0..3000 {
+        let len = (next() % 40) as usize;
+        let text: String = (0..len)
+            .map(|_| PIECES[(next() % PIECES.len() as u64) as usize])
+            .collect();
+        css::parse(&text, true, 1, &mut 0);
+        css::parse(&text, false, 1, &mut 0);
+        for (block, line, scss) in css::style_blocks(&text) {
+            css::parse(block, scss, line, &mut 0);
+        }
+        markup::inline_styles(&text);
+        markup::arbitrary(&text);
+        markup::fonts(&text);
+        markup::css_imports(&text);
+        markup::custom_props(&text, |_, _, _, _, _| {});
+        markup::scss_uses(&text, &mut HashMap::new());
+        markup::classes(&text, &mut HashMap::new());
+        markup::tags(&text);
+        markup::skeleton(&text);
+        jsobj::after_key(&text, "theme");
+        jsobj::after_key(&text, "variants");
+        jsobj::at(&text);
+        color::literals(&text);
+        color::parse(&text);
+        dtcg::read(&text);
+        for kind in &kinds {
+            components::found(0, "src/components/X.svelte", "X.svelte", kind, &text);
+        }
+    }
+    // The cases found in review, then a whole scan of such files.
+    assert!(markup::arbitrary("<a class=\"café-[draft]\">").is_empty());
+    assert_eq!(markup::arbitrary("<a class=\"é bg-[#fff]\">")[0].1, "bg");
+    assert!(markup::fonts("// important } { next/font/google").is_empty());
+    let d = scan(&repo(
+        "unicode",
+        &[
+            ("a.css", ":root { --é: #fff } .café-[x] { color: #000 }"),
+            (
+                "B.tsx",
+                "/* important } */ import(\"x\"); // next/font/google\n<div className=\"日本-[#fff]\" />",
+            ),
+        ],
+    ));
+    assert_eq!(d.files, 2);
+}

@@ -13,9 +13,12 @@ const MAX_LOGOS: usize = 24;
 const MAX_LOGO: u64 = 256 * 1024;
 const MAX_EXPORTS: usize = 200;
 const MAX_SUMMARY: u64 = 64 * 1024;
-const MAX_GUIDELINES: u64 = 4 * 1024 * 1024;
-const MAX_INLINED: u64 = 2 * 1024 * 1024;
-const MAX_INLINED_TOTAL: u64 = 8 * 1024 * 1024;
+/// The guidelines shown in the view, and printed.
+const MAX_PREVIEW: u64 = 4 * 1024 * 1024;
+const MAX_PRINTED: u64 = 32 * 1024 * 1024;
+/// What a file of `brand/` may weigh to be inlined, and all of them together: for the view, for the PDF.
+const PREVIEW: (u64, u64) = (2 * 1024 * 1024, 8 * 1024 * 1024);
+const PRINT: (u64, u64) = (16 * 1024 * 1024, 64 * 1024 * 1024);
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -26,7 +29,9 @@ pub struct Brand {
     pub exports: Vec<Export>,
     /// `favicon`, `appleTouch`, `og`, and `appIcon` for an app (Tauri, Electron, iOS, Android).
     pub missing: Vec<&'static str>,
-    /// `brand/guidelines.html`, its images and fonts from `brand/` inlined so it shows on its own.
+    /// `brand/guidelines.html` exists: it can be exported to PDF.
+    pub printable: bool,
+    /// Its preview, up to 4 MB: its images and fonts from `brand/` inlined so it shows on its own.
     pub guidelines: Option<String>,
     /// `brand/guidelines.pdf` exists.
     pub pdf: bool,
@@ -131,8 +136,9 @@ pub fn read(repo: &Path) -> Option<Brand> {
         logos,
         missing: missing(repo, &export_files),
         exports,
-        guidelines: small(&dir.join("guidelines.html"), MAX_GUIDELINES)
-            .map(|html| inline(&html, &dir)),
+        printable: dir.join("guidelines.html").is_file(),
+        guidelines: small(&dir.join("guidelines.html"), MAX_PREVIEW)
+            .map(|html| inline(&html, &dir, PREVIEW)),
         pdf: dir.join("guidelines.pdf").is_file(),
     })
 }
@@ -207,8 +213,8 @@ fn mime(path: &str) -> Option<&'static str> {
 }
 
 /// The guidelines with the files they reference from `brand/` as data URIs, so they show in a frame that loads
-/// nothing; a reference outside `brand/` stays as it is.
-fn inline(html: &str, dir: &Path) -> String {
+/// nothing; a reference outside `brand/` stays as it is, and leads nowhere there. `(per file, in all)`: sizes.
+fn inline(html: &str, dir: &Path, (max_file, max_total): (u64, u64)) -> String {
     let Ok(root) = dir.canonicalize() else {
         return html.to_owned();
     };
@@ -242,7 +248,7 @@ fn inline(html: &str, dir: &Path) -> String {
             .and_then(|p| {
                 let mime = mime(target)?;
                 let size = fs::metadata(&p).ok()?.len();
-                (size <= MAX_INLINED && total + size <= MAX_INLINED_TOTAL).then_some(())?;
+                (size <= max_file && total + size <= max_total).then_some(())?;
                 total += size;
                 Some(format!(
                     "data:{mime};base64,{}",
@@ -263,44 +269,45 @@ fn inline(html: &str, dir: &Path) -> String {
     }
 }
 
-/// A `file://` URL Chrome can open.
-fn file_url(path: &Path) -> String {
-    let text = path.to_string_lossy().replace('\\', "/");
-    let text = text.strip_prefix("//?/").unwrap_or(&text);
-    let mut out = String::from(if text.starts_with('/') {
-        "file://"
-    } else {
-        "file:///"
-    });
-    for b in text.bytes() {
-        if b.is_ascii_alphanumeric() || b"/-_.~:".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
-
-/// `brand/guidelines.html` printed to PDF by headless Chrome, its `@page` size kept; nothing on the page runs and
-/// nothing loads from the network.
+/// `brand/guidelines.html` printed to PDF by headless Chrome, its `@page` size kept. The page is never opened
+/// from disk (a trapped one could reach any file of the machine): its `brand/` files are inlined, and Chrome
+/// prints it from a blank page that runs nothing and loads nothing.
 pub fn pdf(repo: &Path) -> Result<Vec<u8>> {
-    let page = repo.join("brand").join("guidelines.html");
+    let dir = repo.join("brand");
+    let page = dir.join("guidelines.html");
     ensure!(
         page.is_file(),
         "this repository has no brand/guidelines.html"
     );
-    let page = page
-        .canonicalize()
-        .context("cannot open brand/guidelines.html")?;
+    let html = small(&page, MAX_PRINTED)
+        .context("brand/guidelines.html is over 32 MB or is not UTF-8 text")?;
     let program = termf_visual::browser::find()?;
     let mut browser = termf_visual::browser::Browser::launch(&program)?;
-    browser.print(&file_url(&page))
+    browser.print_html(&inline(&html, &dir, PRINT))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `file://` URL Chrome can open.
+    fn file_url(path: &Path) -> String {
+        let text = path.to_string_lossy().replace('\\', "/");
+        let text = text.strip_prefix("//?/").unwrap_or(&text);
+        let mut out = String::from(if text.starts_with('/') {
+            "file://"
+        } else {
+            "file:///"
+        });
+        for b in text.bytes() {
+            if b.is_ascii_alphanumeric() || b"/-_.~:".contains(&b) {
+                out.push(b as char);
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+        out
+    }
 
     #[test]
     fn reads_the_brand_folder_and_inlines_its_images() {
@@ -349,8 +356,14 @@ mod tests {
         );
         assert!(html.contains("href=\"https://acme.test\""));
         assert!(!b.pdf);
+        assert!(b.printable);
         assert!(read(&repo.join("src-tauri")).is_none());
         assert_eq!(file_url(Path::new("/a b/c.html")), "file:///a%20b/c.html");
+        // Too big to preview, still there to print.
+        let big = format!("<p>{}</p>", "x".repeat(MAX_PREVIEW as usize));
+        fs::write(repo.join("brand/guidelines.html"), big).unwrap();
+        let b = read(&repo).unwrap();
+        assert!(b.printable && b.guidelines.is_none());
         fs::remove_dir_all(&repo).unwrap();
     }
 
@@ -383,6 +396,111 @@ mod tests {
         assert!(
             (size[2] - 842.0).abs() < 1.0 && (size[3] - 595.0).abs() < 1.0,
             "{size:?}"
+        );
+        fs::remove_dir_all(&repo).unwrap();
+    }
+
+    /// A PNG of one color, of a size nothing else in a PDF has (37 × 29), stored without compression.
+    fn png(rgb: [u8; 3]) -> Vec<u8> {
+        let (w, h) = (37u32, 29u32);
+        // Each row: no filter, then its pixels.
+        let row: Vec<u8> = std::iter::once(0).chain(rgb.repeat(w as usize)).collect();
+        let raw = row.repeat(h as usize);
+        let crc = |data: &[u8]| {
+            let mut c = 0xffff_ffffu32;
+            for &b in data {
+                c ^= b as u32;
+                for _ in 0..8 {
+                    c = if c & 1 != 0 {
+                        0xedb8_8320 ^ (c >> 1)
+                    } else {
+                        c >> 1
+                    };
+                }
+            }
+            !c
+        };
+        let (mut a, mut b) = (1u32, 0u32);
+        for &x in &raw {
+            a = (a + x as u32) % 65521;
+            b = (b + a) % 65521;
+        }
+        let len = raw.len() as u16;
+        let mut z = vec![0x78, 0x01, 0x01];
+        z.extend(len.to_le_bytes());
+        z.extend((!len).to_le_bytes());
+        z.extend(&raw);
+        z.extend(((b << 16) | a).to_be_bytes());
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut ihdr = Vec::new();
+        ihdr.extend(w.to_be_bytes());
+        ihdr.extend(h.to_be_bytes());
+        ihdr.extend([8, 2, 0, 0, 0]);
+        for (kind, data) in [(&b"IHDR"[..], ihdr), (b"IDAT", z), (b"IEND", Vec::new())] {
+            out.extend((data.len() as u32).to_be_bytes());
+            let mut body = kind.to_vec();
+            body.extend(data);
+            out.extend(&body);
+            out.extend(crc(&body).to_be_bytes());
+        }
+        out
+    }
+
+    /// A trapped `guidelines.html` reaches for files outside `brand/` every way HTML and CSS can: none of them gets
+    /// into the PDF, while an image of `brand/` does.
+    #[test]
+    #[ignore]
+    fn real_chrome_prints_nothing_from_outside_brand() {
+        let repo = std::env::temp_dir().join(format!("termf-design-trap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&repo);
+        fs::create_dir_all(repo.join("brand/logo")).unwrap();
+        fs::write(repo.join("secret.png"), png([0, 255, 0])).unwrap();
+        fs::write(repo.join("secret.html"), "<img src='secret.png' width=200>").unwrap();
+        fs::write(repo.join("secret.css"), "body{background:url(secret.png)}").unwrap();
+        let abs = repo
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let file = |name: &str| file_url(Path::new(&format!("{abs}/{name}")));
+        let (img, html) = (file("secret.png"), file("secret.html"));
+        let ways = [
+            "<style>@import url(../secret.css);</style>".to_owned(),
+            "<link rel='stylesheet' href='../secret.css'>".to_owned(),
+            "<img src='../secret.png' width=100>".to_owned(),
+            format!("<img src='{img}' width=100>"),
+            "<img srcset='../secret.png 1x' width=100>".to_owned(),
+            "<iframe src='../secret.html'></iframe>".to_owned(),
+            format!("<iframe src='{html}'></iframe>"),
+            "<object data='../secret.png'></object>".to_owned(),
+            format!("<embed src='{img}'>"),
+            "<svg width=100 height=100><image href='../secret.png' width=100 height=100/></svg>"
+                .to_owned(),
+            format!("<div style=\"width:100px;height:100px;background:url('{img}')\"></div>"),
+        ];
+        // A broken image is drawn as an icon, an image too: only one of this size is the file.
+        let images = |pdf: &[u8]| String::from_utf8_lossy(pdf).matches("/Width 37").count();
+        let mut leaked = Vec::new();
+        for way in &ways {
+            let page = format!("<!doctype html><base href='{}'>{way}", file("brand/"));
+            fs::write(repo.join("brand/guidelines.html"), page).unwrap();
+            if images(&pdf(&repo).unwrap()) > 0 {
+                leaked.push(way);
+            }
+        }
+        assert!(
+            leaked.is_empty(),
+            "files outside brand/ in the PDF through {leaked:?}"
+        );
+        fs::write(repo.join("brand/logo/mark.png"), png([255, 0, 0])).unwrap();
+        fs::write(
+            repo.join("brand/guidelines.html"),
+            "<img src='logo/mark.png' width=100>",
+        )
+        .unwrap();
+        assert!(
+            images(&pdf(&repo).unwrap()) > 0,
+            "the images of brand/ are printed"
         );
         fs::remove_dir_all(&repo).unwrap();
     }

@@ -210,26 +210,81 @@ fn without_not(text: &str) -> String {
     out
 }
 
-fn dark(prelude: &str) -> bool {
-    let p = without_not(&prelude.to_ascii_lowercase());
-    p.match_indices("dark").any(|(i, _)| {
-        let before = p[..i].chars().next_back();
-        let after = p[i + 4..].chars().next();
-        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+/// Classes that name a theme, as whole class names: `.dark`, `.dark-mode`, never `.dark-overlay` or `.lightbox`.
+const DARK: [&str; 5] = ["dark", "theme-dark", "dark-theme", "dark-mode", "mode-dark"];
+const LIGHT: [&str; 5] = [
+    "light",
+    "theme-light",
+    "light-theme",
+    "light-mode",
+    "mode-light",
+];
+
+fn ident(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
+fn classes(selector: &str) -> impl Iterator<Item = &str> {
+    selector
+        .split('.')
+        .skip(1)
+        .map(|s| &s[..s.find(|c: char| !ident(c)).unwrap_or(s.len())])
+}
+
+/// `dark` as a word of its own, `-` and `_` joining words: `[data-theme="dark"]`, `prefers-color-scheme: dark`.
+fn dark_word(text: &str) -> bool {
+    text.match_indices("dark").any(|(i, _)| {
+        !text[..i].chars().next_back().is_some_and(ident)
+            && !text[i + 4..].chars().next().is_some_and(ident)
     })
 }
 
+fn dark(prelude: &str) -> bool {
+    let p = without_not(&prelude.to_ascii_lowercase());
+    if p.starts_with('@') {
+        return dark_word(&p);
+    }
+    classes(&p).any(|c| DARK.contains(&c))
+        || p.split('[')
+            .skip(1)
+            .any(|attr| dark_word(attr.split(']').next().unwrap_or("")))
+}
+
+/// The selector without what its brackets and parentheses hold.
+fn outside_brackets(selector: &str) -> String {
+    let mut depth = 0usize;
+    selector
+        .chars()
+        .filter(|&c| {
+            match c {
+                '[' | '(' => depth += 1,
+                ']' | ')' => depth = depth.saturating_sub(1),
+                _ => return depth == 0,
+            }
+            false
+        })
+        .collect()
+}
+
+/// A selector of the whole page or of a theme, each part one element (`.dark .card` is a component's value).
 fn rootish(selector: &str) -> bool {
     selector.split(',').all(|part| {
         let p = part.trim().trim_start_matches('&').to_ascii_lowercase();
-        [
-            ":root",
-            "html",
-            ":host",
-            "body",
-            ".dark",
-            ".light",
-            ".theme-",
+        let compound = outside_brackets(&p);
+        if p.is_empty()
+            || compound.contains(|c: char| c.is_whitespace() || matches!(c, '>' | '+' | '~'))
+        {
+            return false;
+        }
+        let element = [":root", "html", ":host", "body"].iter().any(|e| {
+            p.strip_prefix(e)
+                .is_some_and(|rest| !rest.starts_with(ident))
+        });
+        let class = p.starts_with('.')
+            && classes(&compound).next().is_some_and(|c| {
+                DARK.contains(&c) || LIGHT.contains(&c) || c.starts_with("theme-")
+            });
+        let attribute = [
             "[data-theme",
             "[data-mode",
             "[data-color-scheme",
@@ -237,7 +292,8 @@ fn rootish(selector: &str) -> bool {
             "[class~=",
         ]
         .iter()
-        .any(|s| p.starts_with(s))
+        .any(|s| p.starts_with(s));
+        element || class || attribute
     })
 }
 
@@ -411,6 +467,36 @@ mod tests {
                 ("padding", "$space", 14),
                 ("color", "darken($primary, 5%)", 15),
                 ("margin", "0", 16)
+            ]
+        );
+    }
+
+    #[test]
+    fn tells_theme_selectors_from_classes_that_only_start_alike() {
+        let s = sheet(
+            ".dark-overlay { --a: 1 } .darkened { --b: 1 } .lightbox { --c: 1 } .light-panel { --d: 1 }
+.dark .card { --e: 1 } .theme-dark { --f: 1 } html.dark-mode { --g: 1 } [data-theme='dark'] { --h: 1 }
+.light, :root { --i: 1 } :root[data-theme~=\"dark\"] { --j: 1 } @variant dark { :root { --k: 1 } }",
+        );
+        let got: Vec<_> = s
+            .vars
+            .iter()
+            .map(|v| (v.name.as_str(), v.theme, v.global))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("--a", Theme::Light, false),
+                ("--b", Theme::Light, false),
+                ("--c", Theme::Light, false),
+                ("--d", Theme::Light, false),
+                ("--e", Theme::Dark, false),
+                ("--f", Theme::Dark, true),
+                ("--g", Theme::Dark, true),
+                ("--h", Theme::Dark, true),
+                ("--i", Theme::Light, true),
+                ("--j", Theme::Dark, true),
+                ("--k", Theme::Dark, true),
             ]
         );
     }

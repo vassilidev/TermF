@@ -62,6 +62,11 @@ impl Parser<'_> {
         self.s[self.i..].chars().next()
     }
 
+    /// Past the next character, whatever its width; at the end, nothing.
+    fn bump(&mut self) {
+        self.i += self.peek().map_or(0, char::len_utf8);
+    }
+
     fn skip(&mut self) {
         loop {
             let rest = &self.s[self.i..];
@@ -204,7 +209,7 @@ impl Parser<'_> {
             let Some(key) = self.key() else {
                 let text = self.expression();
                 if text.is_empty() {
-                    self.i += 1;
+                    self.bump();
                 }
                 continue;
             };
@@ -241,7 +246,7 @@ impl Parser<'_> {
                     let before = self.i;
                     items.push(self.value(depth + 1));
                     if self.i == before {
-                        self.i += 1;
+                        self.bump();
                     }
                 }
             }

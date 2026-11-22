@@ -812,7 +812,7 @@ fn family(name: &str, value: &str, kind: Option<&str>) -> Family {
     {
         return Family::Font;
     }
-    if px(&v).is_some() || v.ends_with("em") {
+    if px(&v).is_some() || v.ends_with("em") || v.ends_with('%') {
         if has(&["font-size", "fontsize", "text", "fs-", "type", "size-"])
             && !has(&["space", "gap"])
         {
@@ -823,6 +823,8 @@ fn family(name: &str, value: &str, kind: Option<&str>) -> Family {
         ]) {
             return Family::Spacing;
         }
+        // A length is never a color, whatever its name says (`--border-width`, `--focus-ring-width`).
+        return Family::Other;
     }
     if has(&[
         "color",

@@ -61,6 +61,9 @@ export type Brand = {
   logos: { file: string; svg: string }[];
   exports: { file: string; size: number; width: number | null; height: number | null }[];
   missing: ("favicon" | "appleTouch" | "og" | "appIcon")[];
+  /** `brand/guidelines.html` exists: it can be exported. */
+  printable: boolean;
+  /** Its preview, null over 4 MB. */
   guidelines: string | null;
   pdf: boolean;
 };
@@ -167,6 +170,12 @@ export function request(findings: Finding[], repo: string, t: T, number: (n: num
 /** WCAG AA for normal text. */
 export function passes(ratio: number): boolean {
   return ratio >= 4.5;
+}
+
+/** Reads that overlap (the repository changed meanwhile): only the last one started may show its answer. */
+export function latest() {
+  let last = 0;
+  return { start: () => ++last, isLast: (read: number) => read === last };
 }
 
 /** Keeps only the chosen findings that are still there after a new scan. */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describe, literal, passes, request, sectionOf, size, stillThere, swatches, tally, tokensOf } from "../src/lib/design-logic.ts";
+import { describe, latest, literal, passes, request, sectionOf, size, stillThere, swatches, tally, tokensOf } from "../src/lib/design-logic.ts";
 
 const t = (key, vars = {}) => `${key}${Object.keys(vars).length ? JSON.stringify(vars) : ""}`;
 const number = (n) => String(n);
@@ -88,4 +88,12 @@ test("tally, literal, passes, stillThere, size", () => {
   assert.deepEqual([...kept], ["a"]);
   assert.equal(size(512, "en"), "512 byte");
   assert.equal(size(2048, "en"), "2 kB");
+});
+
+test("latest: a read of the repository left behind finishes without a say", () => {
+  const reads = latest();
+  const left = reads.start();
+  const picked = reads.start();
+  assert.ok(!reads.isLast(left));
+  assert.ok(reads.isLast(picked));
 });

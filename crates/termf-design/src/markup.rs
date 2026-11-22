@@ -104,9 +104,12 @@ fn kebab(camel: &str) -> String {
 pub fn arbitrary(text: &str) -> Vec<(usize, String, String)> {
     let mut out = Vec::new();
     for (at, _) in text.match_indices("-[") {
+        // Past the character that ends the utility, which may be wider than a byte (`café-[…]`).
         let start = text[..at]
-            .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
-            .map_or(0, |i| i + 1);
+            .char_indices()
+            .rev()
+            .find(|&(_, c)| !(c.is_ascii_alphanumeric() || c == '-'))
+            .map_or(0, |(i, c)| i + c.len_utf8());
         let utility = &text[start..at];
         let Some(end) = text[at + 2..].find(']') else {
             continue;
@@ -166,7 +169,9 @@ pub fn fonts(text: &str) -> Vec<(usize, String)> {
             continue;
         };
         let names = &text[open..at];
-        if let (Some(a), Some(b)) = (names.find('{'), names.find('}')) {
+        // `import` may be a word of something else (`important`, a dynamic `import(…)`): the braces must open, then close.
+        let Some(a) = names.find('{') else { continue };
+        if let Some(b) = names[a..].find('}').map(|b| a + b) {
             for name in names[a + 1..b].split(',') {
                 let name = name.split(" as ").next().unwrap_or("").trim();
                 if !name.is_empty() {

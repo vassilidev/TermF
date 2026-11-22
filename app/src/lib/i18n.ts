@@ -2419,6 +2419,10 @@ const fr = {
   designGuidelines: "brand/guidelines.html",
   designNoGuidelines: "Pas de brand/guidelines.html : rien à exporter en PDF.",
   designPreviewNote: "Aperçu sans script ni réseau : les polices de la charte n'y sont pas chargées, le PDF les a.",
+  designGuidelinesTooBig: "brand/guidelines.html dépasse 4 Mo : pas d'aperçu ici, l'export en PDF reste possible.",
+  designSampleShort: "Aa",
+  designBrandFile: "BRAND.md",
+  designPdfFilter: "Document PDF",
 
   // Vault, password manager slice 1: logins with their 2FA codes and secure notes, by project.
   vaultTitle: "Coffre",
@@ -5043,6 +5047,10 @@ const en: Record<Key, string> = {
   designGuidelines: "brand/guidelines.html",
   designNoGuidelines: "No brand/guidelines.html: nothing to export to PDF.",
   designPreviewNote: "Preview without scripts or network: the guidelines' fonts are not loaded here, the PDF has them.",
+  designGuidelinesTooBig: "brand/guidelines.html is over 4 MB: no preview here, the PDF export still works.",
+  designSampleShort: "Aa",
+  designBrandFile: "BRAND.md",
+  designPdfFilter: "PDF document",
 
   // Vault, password manager slice 1: logins with their 2FA codes and secure notes, by project.
   vaultTitle: "Vault",

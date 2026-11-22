@@ -33,9 +33,11 @@ pub async fn design_pdf(files: State<'_, Arc<Files>>, repo: String, path: String
         );
         let pdf = termf_design::brand::pdf(&root)?;
         let tmp = path.with_extension("pdf.tmp");
-        fs::write(&tmp, pdf)
-            .and_then(|()| fs::rename(&tmp, &path))
-            .with_context(|| format!("cannot write {}", path.display()))
+        let written = fs::write(&tmp, pdf).and_then(|()| fs::rename(&tmp, &path));
+        if written.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        written.with_context(|| format!("cannot write {}", path.display()))
     })
     .await
     .map_err(|e| e.to_string())?
