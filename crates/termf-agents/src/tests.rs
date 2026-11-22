@@ -1790,6 +1790,10 @@ fn real_claude_restart() {
             cols: 120,
             rows: 40,
             env: Vec::new(),
+            base_env: Some(
+                termf_core::agent_env::load(&root.join("config"), None)
+                    .keep(Some(termf_core::claude::Tool::Claude), std::env::vars_os()),
+            ),
         })
         .unwrap();
     agents.attach_tile(id, Some(tile)).unwrap();

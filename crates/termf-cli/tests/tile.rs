@@ -230,6 +230,11 @@ fn real_tile() {
             cols: 120,
             rows: 40,
             env: Vec::new(),
+            // What an agent's tile starts from (`agent_env`), the allowlist by default.
+            base_env: Some(
+                termf_core::agent_env::load(&root, None)
+                    .keep(Some(termf_core::claude::Tool::Claude), std::env::vars_os()),
+            ),
         })
         .unwrap();
     assert_eq!(id, 1);
@@ -259,8 +264,10 @@ fn real_tile() {
             "{}",
             screen(&sessions)
         );
+        // An arrow sent before the dialog reads keys would arrive as Esc.
+        thread::sleep(Duration::from_secs(1));
         sessions.write(id, b"\x1b[B").unwrap();
-        thread::sleep(Duration::from_millis(300));
+        thread::sleep(Duration::from_millis(500));
         sessions.write(id, b"\r").unwrap();
     }
     until("SessionStart", 60, || events("SessionStart") > 0, &sessions);
