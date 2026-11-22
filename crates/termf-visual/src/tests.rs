@@ -889,3 +889,47 @@ fn real_chrome_captures_a_page() {
     drop(server);
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// The whole review of two commits with the Chrome of the machine: `cargo test -p termf-visual -- --ignored
+/// real_chrome`.
+#[test]
+#[ignore]
+fn real_chrome_reviews_two_commits() {
+    let _serial = serial();
+    let env = Env::new(
+        "real",
+        "[visual]\nroutes = [{ path = \"/\", viewports = [\"desktop\", \"mobile\"] }]\nthemes = [\"light\", \"dark\"]\n",
+    );
+    let base = git(&env.repo, &env.env, &["rev-parse", "HEAD"]);
+    env.commit(PAGE_AFTER);
+    let updates = env.updates.clone();
+    let visual = Visual::build(
+        env.config.clone(),
+        env.data.clone(),
+        env.env.clone(),
+        None,
+        move |u| updates.lock().unwrap().push(u),
+    );
+    let review = visual
+        .start(Request {
+            repo: Some(env.repo.clone()),
+            base: Some(base),
+            head: Some("main".into()),
+            ..Request::default()
+        })
+        .unwrap();
+    let v = captured(&visual, review.id);
+    assert_eq!(v.state, VersionState::Ready, "{v:#?}");
+    assert_eq!(v.screens.len(), 4);
+    for s in &v.screens {
+        assert!(
+            s.error.is_none() && s.changed && !s.rects.is_empty(),
+            "{s:#?}"
+        );
+        let added = |t: &TextChange| t.text == "Exporter en CSV" && t.change == "added";
+        assert!(s.texts.iter().any(added), "{:?}", s.texts);
+    }
+    let after = visual.image(review.id, 1, "03-home-mobile-light", "after");
+    assert_eq!(diff::decode(&after.unwrap()).unwrap().width, 390);
+    let _ = fs::remove_dir_all(&env.root);
+}

@@ -256,6 +256,8 @@ struct Inner {
     gate: Mutex<Option<Gate>>,
     /// Dev servers and browsers at work, killed when the app quits.
     children: Mutex<BTreeSet<u32>>,
+    /// One capture at a time: two on the same base commit would share its worktree and port.
+    capturing: Mutex<()>,
 }
 
 /// The texts the ticket and the agents justify, and the ones the team's check flagged.
@@ -293,6 +295,7 @@ impl Visual {
                 sink: Box::new(sink),
                 gate: Mutex::default(),
                 children: Mutex::default(),
+                capturing: Mutex::default(),
             }),
         };
         if let Err(e) = visual.recover() {
@@ -543,6 +546,7 @@ impl Visual {
     /// Prepares both sides, captures every screen on each, then compares them.
     fn capture(&self, id: i64, n: u32, team: Option<&TeamRun>) -> Result<()> {
         let inner = &self.inner;
+        let _one = inner.capturing.lock().unwrap_or_else(|e| e.into_inner());
         let review = self.review(id)?;
         let version = review
             .versions
