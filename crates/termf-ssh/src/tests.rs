@@ -453,20 +453,20 @@ fn adds_a_host_before_the_catch_all() {
         added,
         CONFIG.replace(
             "# defaults\n",
-            "Host work\n  HostName github.com\n  IdentityFile \"~/.ssh/my key\"\n\n# defaults\n"
+            "# Written by TermF\nHost work\n  HostName github.com\n  IdentityFile \"~/.ssh/my key\"\n\n# defaults\n"
         )
     );
     assert_eq!(
         diff(CONFIG, &added),
-        "     IdentityFile ~/.ssh/second\n     ProxyJump none\n \n+Host work\n+  HostName github.com\n+  IdentityFile \"~/.ssh/my key\"\n+\n # defaults\n Host *\n     AddKeysToAgent yes\n"
+        "     IdentityFile ~/.ssh/second\n     ProxyJump none\n \n+# Written by TermF\n+Host work\n+  HostName github.com\n+  IdentityFile \"~/.ssh/my key\"\n+\n # defaults\n Host *\n     AddKeysToAgent yes\n"
     );
     assert_eq!(
         upsert("", &entry).unwrap(),
-        "Host work\n  HostName github.com\n  IdentityFile \"~/.ssh/my key\"\n"
+        "# Written by TermF\nHost work\n  HostName github.com\n  IdentityFile \"~/.ssh/my key\"\n"
     );
     assert_eq!(
         upsert("Host a\n  User b", &entry).unwrap(),
-        "Host a\n  User b\n\nHost work\n  HostName github.com\n  IdentityFile \"~/.ssh/my key\"\n"
+        "Host a\n  User b\n\n# Written by TermF\nHost work\n  HostName github.com\n  IdentityFile \"~/.ssh/my key\"\n"
     );
     for alias in ["", "a b", "*", "-oProxyCommand=x", "a\nHost b"] {
         let bad = HostEntry {
@@ -494,7 +494,7 @@ fn quotes_values_so_openssh_reads_them_back() {
     let text = upsert("", &entry).unwrap();
     assert_eq!(
         text,
-        "Host box\n  User \"o'neil\"\n  IdentityFile \"~/.ssh/my key\"\n"
+        "# Written by TermF\nHost box\n  User \"o'neil\"\n  IdentityFile \"~/.ssh/my key\"\n"
     );
     fs::write(ssh.config(), &text).unwrap();
     let hosts = config::hosts(&ssh.dir, &ssh.home);
@@ -844,4 +844,116 @@ fn fixes_permissions() {
         (0o600, 0o644, 0o700)
     );
     assert!(ssh.fix_permissions().unwrap().is_empty());
+}
+
+#[test]
+fn pairs_go_to_another_machine_private_and_never_over_a_file() {
+    let (from, to) = (scratch("pairs-from"), scratch("pairs-to"));
+    from.generate("id_work", KeyType::Ed25519, "work", Some("correct horse"))
+        .unwrap();
+    from.generate("solo", KeyType::Ed25519, "", None).unwrap();
+    fs::remove_file(from.dir.join("solo.pub")).unwrap();
+    fs::write(from.dir.join("notes.txt"), "not a key").unwrap();
+    let pairs = from.pairs().unwrap();
+    let names: Vec<&str> = pairs.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["id_work", "solo"]);
+    assert!(pairs[1].public.is_none());
+
+    fs::remove_dir_all(&to.dir).unwrap();
+    for pair in &pairs {
+        to.restore(pair).unwrap();
+    }
+    assert_eq!(
+        fs::read(to.dir.join("id_work")).unwrap(),
+        fs::read(from.dir.join("id_work")).unwrap()
+    );
+    assert!(!to.dir.join("solo.pub").exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&to.dir.join("id_work")), 0o600);
+        assert_eq!(mode(&to.dir.join("id_work.pub")) & 0o022, 0);
+        assert_eq!(mode(&to.dir) & 0o077, 0);
+    }
+    let error = to.restore(&pairs[0]).unwrap_err().to_string();
+    assert!(error.contains("already exists"), "{error}");
+    for bad in ["../x", ".hidden", "config", "a/b", "k.pub", ""] {
+        assert!(!valid_name(bad), "{bad}");
+    }
+}
+
+#[test]
+fn only_the_blocks_termf_added_are_synced() {
+    let ssh = scratch("marked");
+    ssh.host_save(&HostEntry {
+        alias: "gh-work".into(),
+        host_name: Some("github.com".into()),
+        user: Some("git".into()),
+        ..Default::default()
+    })
+    .unwrap();
+    let by_hand = "Host mine\n  User me\n\n";
+    let text = fs::read_to_string(ssh.config()).unwrap();
+    fs::write(ssh.config(), format!("{by_hand}{text}")).unwrap();
+    let marked = ssh.marked_hosts().unwrap();
+    assert_eq!(marked.len(), 1);
+    assert_eq!(
+        (marked[0].alias.as_str(), marked[0].user.as_deref()),
+        ("gh-work", Some("git"))
+    );
+    assert!(ssh.hand_written("mine").unwrap() && !ssh.hand_written("gh-work").unwrap());
+
+    // Another machine's blocks: one updated, one added with a key path out of ~/.ssh (dropped), and one
+    // for an alias written by hand here (left alone).
+    let incoming = [
+        HostEntry {
+            alias: "gh-work".into(),
+            host_name: Some("github.com".into()),
+            user: Some("git".into()),
+            port: Some(443),
+            ..Default::default()
+        },
+        HostEntry {
+            alias: "mine".into(),
+            user: Some("other".into()),
+            ..Default::default()
+        },
+        HostEntry {
+            alias: "box".into(),
+            user: Some("root".into()),
+            identity_file: Some("/etc/passwd".into()),
+            ..Default::default()
+        },
+    ];
+    ssh.apply_hosts(&incoming).unwrap();
+    let text = fs::read_to_string(ssh.config()).unwrap();
+    assert!(text.starts_with(by_hand), "{text}");
+    assert!(
+        text.contains("  Port 443") && !text.contains("/etc/passwd"),
+        "{text}"
+    );
+    assert_eq!(ssh.marked_hosts().unwrap().len(), 2);
+
+    // Gone on the other machine: removed here, mark included.
+    ssh.apply_hosts(&incoming[1..2]).unwrap();
+    assert_eq!(
+        fs::read_to_string(ssh.config()).unwrap(),
+        "Host mine\n  User me\n"
+    );
+
+    assert!(synced_identity("~/.ssh/work/id_ed25519") && synced_identity("~/.ssh/id"));
+    for bad in [
+        "/etc/passwd",
+        "~/.ssh/../x",
+        "~/.ssh/",
+        "~/.ssh/a//b",
+        "~/.ssh/a\\b",
+    ] {
+        assert!(!synced_identity(bad), "{bad}");
+    }
+    // Unreadable is an error, never "no blocks": the sync would delete them elsewhere.
+    fs::write(ssh.config(), b"# Written by TermF\nHost caf\xe9\n").unwrap();
+    assert!(ssh.marked_hosts().is_err());
+    assert!(ssh.hand_written("x").is_err() && ssh.apply_hosts(&[]).is_err());
 }
