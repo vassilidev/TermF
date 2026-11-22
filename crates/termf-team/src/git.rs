@@ -116,6 +116,17 @@ impl Git<'_> {
             .lines()
             .filter(|l| l.ends_with("leftover conflict marker"))
             .collect();
+        if !markers.is_empty() && self.merging(dir) {
+            // `add -A` marked these paths resolved: their conflict stages come back for the next attempt.
+            let mut paths: Vec<&str> = markers
+                .iter()
+                .filter_map(|l| l.rsplitn(3, ':').nth(2))
+                .collect();
+            paths.dedup();
+            let mut args = vec!["update-index", "--unresolve", "--"];
+            args.extend(paths);
+            let _ = self.output(dir, &args);
+        }
         ensure!(
             markers.is_empty(),
             "conflict markers are left: {}",

@@ -3916,14 +3916,21 @@ fn a_routing_never_replaces_a_decision_replaced_meanwhile() {
 /// checks, the code review, the update with the base, the delivery), and a commit of the base that writes `base` in
 /// `theirs`, pushed to `origin` from another clone when `remote`. The checks log each run in `checks.log`.
 fn integrated(env: &Env, file: &str, theirs: &str, remote: bool) {
+    integrated_with(env, file, theirs, remote, "", "");
+}
+
+/// `integrated`, its workflow's file opening with `head` and ending with `tail`.
+fn integrated_with(env: &Env, file: &str, theirs: &str, remote: bool, head: &str, tail: &str) {
     fs::write(
         env.config.join("library/workflows/integrated.toml"),
-        "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+        format!(
+            "{head}[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
          [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
-         [steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{ repo.checks }}\"\n\
+         [steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{{{ repo.checks }}}}\"\n\
          [steps.review]\ntype = \"review\"\nrole = \"reviewer\"\nneeds = [\"checks\"]\n\
          [steps.update-base]\ntype = \"update\"\nrole = \"integrator\"\nneeds = [\"review\"]\n\
-         [steps.deliver]\ntype = \"connector\"\nneeds = [\"update-base\"]\n",
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"update-base\"]\n{tail}"
+        ),
     )
     .unwrap();
     let repo = &env.target.repo_path;
@@ -4098,6 +4105,85 @@ fn the_integrator_resolves_a_conflict_with_the_base_then_the_review_reads_it() {
         env.team.approve(1, "deliver").unwrap().state,
         RunState::Done
     );
+}
+
+#[test]
+fn a_conflict_marker_left_brings_the_conflict_back_for_the_next_attempt() {
+    let env = Env::new("update-marker");
+    let unmerged = env.root.join("unmerged");
+    env.script(
+        "update-base",
+        &format!(
+            "if [ \"$1\" = 1 ]; then git add -A; else git diff --name-only --diff-filter=U > '{0}'; \
+             git show :1:shared.txt >> '{0}'; printf 'base\\nrun\\n' > shared.txt; fi\n",
+            unmerged.display()
+        ),
+    );
+    integrated(&env, "shared.txt", "shared.txt", false);
+    let run = env.until("the delivery", delivery);
+    let events = env.team.events(1, 0).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.message.contains("conflict markers are left"))
+    );
+    assert_eq!(
+        fs::read_to_string(&unmerged).unwrap(),
+        "shared.txt\n",
+        "the second attempt finds the conflict, its base side included"
+    );
+    assert_eq!(env.step(&run, "update-base").sessions.len(), 2);
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("shared.txt")).unwrap(),
+        "base\nrun\n"
+    );
+}
+
+#[test]
+fn changes_left_in_the_runs_worktree_block_the_update_before_any_agent() {
+    let env = Env::new("update-dirty");
+    integrated(&env, "a.txt", "NEWS.md", false);
+    env.until("the delivery", delivery);
+    env.team.approve(1, "deliver").unwrap();
+    let repo = &env.target.repo_path;
+    fs::write(repo.join("a.txt"), "base\n").unwrap();
+    git(repo, &env.env, &["add", "-A"]);
+    git(repo, &env.env, &["commit", "-q", "-m", "Base: a.txt"]);
+    fs::write(env.target.worktree.join("a.txt"), "mine\n").unwrap();
+    env.team.update_base(1).unwrap();
+    let run = env.until("the update blocked", update_blocked);
+    let update = env.step(&run, "update-base");
+    let note = update.note.clone().unwrap();
+    assert!(
+        note.contains("changes not committed") && note.contains("a.txt"),
+        "{note}"
+    );
+    assert!(update.sessions.is_empty(), "no agent paid for it");
+    assert!(!env.data.join("team/1/update-base").exists());
+}
+
+#[test]
+fn the_integrator_waits_for_room_among_the_agents_at_work() {
+    let env = Env::new("update-room");
+    env.script("notes", "sleep 1\n");
+    env.script("update-base", "printf 'base\\nrun\\n' > shared.txt\n");
+    integrated_with(
+        &env,
+        "shared.txt",
+        "shared.txt",
+        false,
+        "max_parallel_agents = 1\n",
+        "[steps.notes]\ntype = \"agent\"\nrole = \"back\"\nneeds = [\"review\"]\n",
+    );
+    env.until("the delivery", delivery);
+    let log = env.steps_log();
+    let at = |line: &str| {
+        log.iter()
+            .position(|l| l == line)
+            .unwrap_or_else(|| panic!("{line} in {log:?}"))
+    };
+    assert!(at("notes 1 begin") < at("update-base 1 begin"), "{log:?}");
+    assert!(at("update-base 1 begin") > at("notes 1 end"), "{log:?}");
 }
 
 #[test]

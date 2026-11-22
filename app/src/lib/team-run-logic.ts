@@ -370,7 +370,7 @@ export function runs(step: { id: string; on: boolean }, routing: Pick<Routing, "
 export function editRouting(routing: Routing, workflow: WorkflowView, running: string[], squads: string[]): Routing {
   const optional = workflow.steps.filter((s) => s.optional);
   const agents = workflow.steps
-    .filter((s) => (s.kind === "agent" || s.kind === "review") && (!s.optional || running.includes(s.id)))
+    .filter((s) => ["agent", "review", "update"].includes(s.kind) && (!s.optional || running.includes(s.id)))
     .map((s) => s.id);
   return {
     ...routing,

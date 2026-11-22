@@ -52,7 +52,7 @@ function stageState(steps: Step[], team: Team): StageState {
 
 /**
  * The run's timeline: the routed workflow's stages in order, a stage every step of which was skipped left out, and the
- * delivery last, done once a pull request is open; a run without a team goes launched → pull request → delivered (merged).
+ * delivery last, done once a pull request is open and the team is not at work; a run without a team goes launched → pull request → delivered (merged).
  */
 export function stages(ticket: Ticket, team?: Team | null): Stage[] {
   if (!team) {
@@ -74,7 +74,8 @@ export function stages(ticket: Ticket, team?: Team | null): Stage[] {
   const out: Stage[] = [...groups]
     .filter(([, steps]) => steps.some((s) => s.state !== "skipped"))
     .map(([id, steps]) => ({ id, state: stageState(steps, team) }));
-  const delivered = !!ticket.prUrl;
+  // A delivered run the team updates with its base again is at work, not done.
+  const delivered = !!ticket.prUrl && !(working(team) && deliver.length);
   const last: StageState = delivered
     ? "done"
     : awaitsDelivery(ticket, team)

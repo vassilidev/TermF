@@ -2886,6 +2886,13 @@ impl Inner {
         run.steps[i].files = Vec::new();
         run.steps[i].merge = None;
         if git.merge(&dir, &commit, &message).is_err() {
+            // Changes left uncommitted in the run's worktree would stop the resolved merge from coming back in.
+            let dirty = git.run(&dir, &["status", "--porcelain", "--untracked-files=no"])?;
+            ensure!(
+                dirty.is_empty(),
+                "the run's worktree has changes not committed, in the way of {base}: commit them or set them aside, \
+                 then revise {key}\n{dirty}"
+            );
             let path = self
                 .data_dir
                 .join("team")
@@ -2901,10 +2908,9 @@ impl Inner {
                 run.steps[i].files = conflicts;
                 let why = format!("{base} conflicts with the run's work in {files}");
                 self.event(store, run, Some(&key), "base", &why);
-                let budget = self.share(run, i).map(|b| b.max(0.01));
-                return self.launch(store, run, i, budget);
+                return Ok(());
             }
-            // It merged in a clean copy: the run's worktree holds changes in the way.
+            // It merged in a clean copy: untracked files of the run's worktree are in the way.
             let head = git.head(&path)?;
             self.drop_worktree(run, i);
             run.steps[i].worktree = None;
@@ -3267,7 +3273,9 @@ impl Inner {
             }
             StepKind::Update if run.steps[i].worktree.is_some() => {
                 // The merge waits in its own worktree: this attempt of its agent resolves it.
-                let budget = self.share(run, i).map(|b| b.max(0.01));
+                let Some(budget) = self.room(run, i) else {
+                    return Ok(false);
+                };
                 if let Err(e) = self.launch(store, run, i, budget) {
                     self.block(store, run, i, &format!("its agent cannot start: {e:#}"));
                 }
@@ -3302,16 +3310,6 @@ impl Inner {
                 if run.steps[i].kind == StepKind::Review && !self.review_on(store, run, i) {
                     return Ok(true);
                 }
-                let running = |kind: Option<StepKind>| {
-                    run.steps.iter().filter(move |s| {
-                        s.state == StepState::Running
-                            && s.agent()
-                            && kind.is_none_or(|k| s.kind == k)
-                    })
-                };
-                if running(None).count() >= run.max_parallel {
-                    return Ok(false);
-                }
                 if run.steps[i].kind == StepKind::Task {
                     let hints = |s: &Step| {
                         run.plan
@@ -3321,25 +3319,44 @@ impl Inner {
                             .unwrap_or_default()
                     };
                     let mine = hints(&run.steps[i]);
-                    if running(Some(StepKind::Task)).any(|s| rules::overlap(&mine, &hints(s))) {
+                    let mut tasks = run
+                        .steps
+                        .iter()
+                        .filter(|s| s.state == StepState::Running && s.kind == StepKind::Task);
+                    if tasks.any(|s| rules::overlap(&mine, &hints(s))) {
                         return Ok(false);
                     }
                     if self.squad_full(run, i) {
                         return Ok(false);
                     }
                 }
-                let running = running(None).count();
-                let budget = self.share(run, i);
-                if running > 0 && budget.is_some_and(|b| b < 0.01) {
+                let Some(budget) = self.room(run, i) else {
                     return Ok(false);
-                }
-                let budget = budget.map(|b| b.max(0.01));
+                };
                 if let Err(e) = self.launch(store, run, i, budget) {
                     self.block(store, run, i, &format!("its agent cannot start: {e:#}"));
                 }
             }
         }
         Ok(true)
+    }
+
+    /// The budget an agent of step `i` starts with now, or `None` while it waits: `max_parallel` sessions at
+    /// work, or too little left for one more beside them.
+    fn room(&self, run: &mut TeamRun, i: usize) -> Option<Option<f64>> {
+        let running = run
+            .steps
+            .iter()
+            .filter(|s| s.state == StepState::Running && s.agent())
+            .count();
+        if running >= run.max_parallel {
+            return None;
+        }
+        let budget = self.share(run, i);
+        if running > 0 && budget.is_some_and(|b| b < 0.01) {
+            return None;
+        }
+        Some(budget.map(|b| b.max(0.01)))
     }
 
     /// The budget of the session of step `i`: its step's, within its share of what the run has left once the

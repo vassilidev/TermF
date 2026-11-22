@@ -156,6 +156,11 @@ test("the update with the base, and the CTO's decision on it, belong to the deli
   ];
   assert.equal(flat(stages(ticket(), team(steps))), "review:done deliver:working");
   assert.deepEqual(stepLabel("update-base"), { name: "integratorStep" });
+  const delivered = ticket({ status: "delivered", prUrl: "u" });
+  assert.equal(flat(stages(delivered, team(steps))), "review:done deliver:working", "updated again after its pull request");
+  const again = [steps[0], step("update-base", "done", "update"), step("deliver", "waiting", "connector")];
+  assert.equal(flat(stages(delivered, team(again, "waiting"))), "review:done deliver:waiting");
+  assert.equal(flat(stages(delivered, team(again.map((s) => ({ ...s, state: "done" })), "done"))), "review:done deliver:done");
 });
 
 test("a pull request in conflict or behind its base is said, with the team's update once the team is done", () => {

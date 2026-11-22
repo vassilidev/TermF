@@ -118,7 +118,7 @@
     <span class="open">{@render conversation(step)}</span>
   </div>
   {#if step.note && step.state !== "done"}<p class="note mono">{step.note}</p>{/if}
-  {#if step.kind === "update" && step.files.length}
+  {#if step.kind === "update" && step.state !== "done" && step.files.length}
     <p class="note">{t("integratorConflicts", { files: step.files.join(", ") })}</p>
   {/if}
   <!-- A review's report is its last round, shown with the others. -->
