@@ -9,9 +9,9 @@ description: >-
 paths: "**/*.java, **/pom.xml, **/build.gradle, **/build.gradle.kts, **/settings.gradle*, **/application*.properties, **/application*.yml, **/application*.yaml"
 license: MIT
 metadata:
-  termf-stacks: "java spring-boot"
+  termf-stacks: "spring-boot java"
   termf-roles: "back qa"
-  termf-versions: "spring-boot>=3.4 java>=17"
+  termf-versions: ">=3.4"
   termf-verified: "2026-11-22 spring-boot@4.2.0 spring-framework@7.1.0 jdk@25-lts gradle@9.9.2 maven@3.10.1"
   termf-sources: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.1-Release-Notes https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.2-Release-Notes https://docs.spring.io/spring-boot/system-requirements.html https://docs.spring.io/spring-boot/reference/actuator/endpoints.html https://docs.gradle.org/llms.txt https://github.com/gradle/gradle-skills"
 ---

@@ -12,7 +12,7 @@ license: MIT
 metadata:
   termf-stacks: "junit java kotlin spring-boot"
   termf-roles: "qa back"
-  termf-versions: "junit>=5.10"
+  termf-versions: ">=5.10"
   termf-verified: "2026-11-22 junit@6.1.3 assertj@3.27.7 mockito@5.24.0 mockk@1.14.12 testcontainers-java@2.0.5 spring-boot@4.2.0"
   termf-sources: "https://docs.junit.org/current/release-notes/ https://docs.junit.org/6.0.0/release-notes/ https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html https://docs.spring.io/spring-boot/reference/testing/testcontainers.html https://java.testcontainers.org/ https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0 https://javadoc.io/static/org.mockito/mockito-core/5.24.0/org.mockito/org/mockito/Mockito.html https://docs.gradle.org/current/userguide/java_testing.html"
 ---

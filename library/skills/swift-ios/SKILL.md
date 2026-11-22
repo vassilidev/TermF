@@ -11,7 +11,7 @@ license: MIT
 metadata:
   termf-stacks: "swift ios"
   termf-roles: "front qa"
-  termf-versions: "swift>=5.10"
+  termf-versions: ">=5.10"
   termf-verified: "2026-11-22 swift@6.4.3 xcode@27.2"
   termf-sources: "https://www.swift.org/blog/swift-6.4-released/ https://www.swift.org/blog/swift-6.3-released/ https://www.swift.org/blog/swift-6.2-released/ https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/swifttest https://developer.apple.com/documentation/xcode-release-notes https://developer.apple.com/documentation/xcode/giving-external-agents-access-to-xcode https://developer.apple.com/documentation/testing"
 ---
