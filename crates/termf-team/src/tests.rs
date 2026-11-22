@@ -4761,7 +4761,7 @@ fn second_repo(env: &Env, origin: &str) -> PathBuf {
     fs::write(
         env.config.join("library/workflows/checked.toml"),
         "extends = \"lean\"\n[steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{ repo.checks }}\"\n\
-         [steps.rules]\nneeds = [\"checks\"]\n",
+         [steps.rules]\nneeds = [\"checks\"]\n[steps.deliver]\ntype = \"connector\"\nneeds = [\"rules\"]\n",
     )
     .unwrap();
     let mut tickets = termf_tickets::Tickets::new(env.config.clone(), env.data.clone());
@@ -4812,9 +4812,13 @@ fn a_plan_over_two_repositories_works_in_each() {
     let child = tickets.run(joined.run).unwrap();
     assert_eq!(child.parent, Some(1));
     assert!(joined.worktree.starts_with(web.join(".claude/worktrees")));
+    assert!(
+        env.team.check_delivery(joined.run).is_err(),
+        "the run of another repository waits for the team, as the run's own does"
+    );
 
     env.team.approve(1, "approve-plan").unwrap();
-    let run = env.state(RunState::Done);
+    let run = env.until("the delivery gate", delivery);
     assert!(
         joined.worktree.join("web.txt").is_file(),
         "T2 merged into web's run"

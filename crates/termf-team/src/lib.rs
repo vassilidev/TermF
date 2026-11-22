@@ -662,7 +662,7 @@ impl Team {
     /// gate, or whose gate passed (it read the definition of done then, or came before it), goes: `None`.
     pub fn check_delivery(&self, id: i64) -> Result<Option<done::Done>> {
         let inner = &self.inner;
-        let Some(run) = inner.store()?.get(id)? else {
+        let Some(run) = inner.store()?.get(inner.change(id))? else {
             return Ok(None);
         };
         let gates: Vec<&Step> = run
@@ -691,7 +691,7 @@ impl Team {
         let inner = &self.inner;
         let _lock = inner.lock.lock().unwrap();
         let store = inner.store()?;
-        let run = inner.get(&store, id)?;
+        let run = inner.get(&store, inner.change(id))?;
         let gate = run
             .steps
             .iter()
@@ -1054,6 +1054,12 @@ impl Team {
 impl Inner {
     fn store(&self) -> Result<Store> {
         Store::open(&self.data_dir)
+    }
+
+    /// The ticket run whose team works on run `id`: its own, or the one it works for in another repository.
+    fn change(&self, id: i64) -> i64 {
+        let tickets = termf_tickets::Tickets::new(self.config_dir.clone(), self.data_dir.clone());
+        tickets.run(id).ok().and_then(|r| r.parent).unwrap_or(id)
     }
 
     /// Runs the blocked step `i` again, or the step the gate `i` waits on, with `feedback`.
