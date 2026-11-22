@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { byActivity, derive, forge, githubSlugs, groups, projectId, shown, unique } from "../src/lib/setup-logic.ts";
+import { byActivity, derive, forge, githubSlugs, gitlabRepos, groups, projectId, shown, unique } from "../src/lib/setup-logic.ts";
 
 const H = "/Users/alex";
 const gh = (slug) => ({ host: "github.com", slug });
@@ -63,4 +63,10 @@ test("GitHub repositories and forges", () => {
   assert.equal(forge("gitlab.example.org"), "gitlab");
   assert.equal(forge("git.example.org"), "other");
   assert.equal(forge(undefined), "none");
+});
+
+test("GitLab repositories, on the first one's host", () => {
+  const other = card("tools", `${H}/code/acme/tools`, { host: "gitlab.acme.dev", slug: "acme/tools" });
+  assert.equal(gitlabRepos([api, web]), null);
+  assert.deepEqual(gitlabRepos([api, infra, other, { ...infra }]), { host: "gitlab.com", slugs: ["acme/infra"] });
 });

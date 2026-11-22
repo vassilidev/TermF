@@ -264,7 +264,7 @@ fn guards_paths_from_the_ui() {
         assert!(
             problems
                 .iter()
-                .any(|p| p.path.ends_with("leak") && p.error.contains("outside")),
+                .any(|p| p.path.ends_with("leak") && p.code == Some("outside")),
             "{problems:?}"
         );
         assert!(find(&keys, "real").too_open);
@@ -956,4 +956,34 @@ fn only_the_blocks_termf_added_are_synced() {
     fs::write(ssh.config(), b"# Written by TermF\nHost caf\xe9\n").unwrap();
     assert!(ssh.marked_hosts().is_err());
     assert!(ssh.hand_written("x").is_err() && ssh.apply_hosts(&[]).is_err());
+}
+
+#[test]
+fn lists_an_ecdsa_key_whose_scalar_lost_its_leading_zero() {
+    use crate::keys::tests::{
+        OPENSSH_SHORT_SCALAR, OPENSSH_SHORT_SCALAR_ENCRYPTED, OPENSSH_SHORT_SCALAR_PUBLIC,
+    };
+    let ssh = scratch("short-scalar");
+    for (name, text) in [
+        ("id_short", OPENSSH_SHORT_SCALAR),
+        ("id_short_enc", OPENSSH_SHORT_SCALAR_ENCRYPTED),
+    ] {
+        fs::write(ssh.dir.join(name), text).unwrap();
+        fs::write(
+            ssh.dir.join(format!("{name}.pub")),
+            format!("{OPENSSH_SHORT_SCALAR_PUBLIC}\n"),
+        )
+        .unwrap();
+    }
+    let (keys, problems) = ssh.scan();
+    assert!(problems.is_empty(), "{problems:?}");
+    for (name, encrypted) in [("id_short", false), ("id_short_enc", true)] {
+        let key = find(&keys, name);
+        assert_eq!(
+            (key.algorithm.as_str(), key.encrypted),
+            ("ecdsa-sha2-nistp521", Some(encrypted))
+        );
+        assert_eq!(key.public_key.as_deref(), Some(OPENSSH_SHORT_SCALAR_PUBLIC));
+    }
+    let _ = fs::remove_dir_all(&ssh.home);
 }

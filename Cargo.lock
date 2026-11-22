@@ -3835,6 +3835,7 @@ dependencies = [
  "der",
  "pbkdf2",
  "scrypt",
+ "sha1",
  "sha2 0.10.9",
  "spki",
 ]
@@ -5877,6 +5878,7 @@ dependencies = [
  "termf-ssh",
  "termf-sync",
  "termf-team",
+ "termf-term",
  "termf-tickets",
  "termf-vault",
  "termf-visual",

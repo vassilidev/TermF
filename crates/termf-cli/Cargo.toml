@@ -31,3 +31,6 @@ termf-tickets = { path = "../termf-tickets" }
 termf-vault = { path = "../termf-vault" }
 termf-visual = { path = "../termf-visual" }
 termf-worktree = { path = "../termf-worktree" }
+
+[dev-dependencies]
+termf-term = { path = "../termf-term" }

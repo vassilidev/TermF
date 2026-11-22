@@ -35,6 +35,7 @@
   let file = $state("");
   let kind = $state<"termf" | "foreign" | null>(null);
   let exportPassword = $state("");
+  let restore = $state(false);
   let rows = $state<Merged[] | null>(null);
   let preview = $state<ForeignPreview | null>(null);
   let skip = $state<number[]>([]);
@@ -128,13 +129,13 @@
   function show(e: SubmitEvent) {
     e.preventDefault();
     run("show", async () => {
-      rows = await invoke<Merged[]>("vault_import_preview", { path: file, password: exportPassword });
+      rows = await invoke<Merged[]>("vault_import_preview", { path: file, password: exportPassword, restore });
     });
   }
 
   function importTermf() {
     run("import", async () => {
-      const merged = await invoke<Merged[]>("vault_import_apply", { path: file, password: exportPassword });
+      const merged = await invoke<Merged[]>("vault_import_apply", { path: file, password: exportPassword, restore });
       exportPassword = "";
       kind = null;
       rows = null;
@@ -224,6 +225,10 @@
           {t("vault3ImportTermf")}
           <!-- svelte-ignore a11y_autofocus (the file was just chosen) -->
           <input class="field" type="password" autocomplete="off" bind:value={exportPassword} required autofocus />
+        </label>
+        <label class="restore">
+          <input type="checkbox" bind:checked={restore} onchange={() => (rows = null)} />
+          {t("vaultRestore")}
         </label>
         <div class="buttons">
           <button type="submit" class="btn" disabled={!!busy || !exportPassword}>{@render spinner("show")}{t("vault3ImportShow")}</button>
@@ -478,6 +483,17 @@
     gap: 10px;
   }
 
+  .restore {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .restore input {
+    margin: 0;
+  }
+
   .row .labelled {
     flex: 1 1 200px;
   }
@@ -542,7 +558,7 @@
   }
 
   tr.off td:not(.check) {
-    opacity: 0.55;
+    color: var(--muted);
   }
 
   .title {

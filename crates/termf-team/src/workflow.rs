@@ -439,6 +439,52 @@ mod tests {
             );
         }
 
+        let kickoff = load(&dir, None, None, "kickoff").unwrap();
+        let ids: Vec<String> = kickoff
+            .steps()
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        let at = |id: &str| ids.iter().position(|s| s == id).unwrap();
+        assert_eq!(ids[0], "frame");
+        assert!(at("research") < at("decide") && at("competition") < at("decide"));
+        assert!(at("decide") < at("approve-decision"));
+        assert!(at("approve-decision") < at("architecture"));
+        assert!(at("architecture") < at("plan") && at("plan") < at("approve-plan"));
+        assert_eq!(ids.last().unwrap(), "deliver");
+        assert!(!ids.contains(&"reverse".to_owned()), "off unless routed");
+        let steps: BTreeMap<String, StepDef> = kickoff.steps().unwrap().into_iter().collect();
+        assert_eq!(steps["research"].role.as_deref(), Some("researcher"));
+        assert_eq!(
+            steps["competition"].role.as_deref(),
+            Some("competitive-analyst")
+        );
+        assert_eq!(steps["decide"].role.as_deref(), Some("cto"));
+        assert_eq!(steps["decide"].needs, ["competition", "frame", "research"]);
+        assert_eq!(steps["approve-decision"].kind, StepKind::Gate);
+        assert_eq!(steps["architecture"].needs, ["approve-decision"]);
+        assert!(!steps["frame"].optional && !steps["architecture"].optional);
+        assert!(steps["research"].optional && steps["competition"].optional);
+        assert_eq!(kickoff.budget_usd, Some(25.0));
+        let mut routed = kickoff.clone();
+        routed
+            .route(
+                &["research".into(), "competition".into()],
+                &["reverse".into()],
+            )
+            .unwrap();
+        let steps: BTreeMap<String, StepDef> = routed.steps().unwrap().into_iter().collect();
+        assert_eq!(steps["decide"].needs, ["frame", "reverse"]);
+        assert_eq!(steps["reverse"].role.as_deref(), Some("reverse-engineer"));
+        // The default workflow keeps its path: the research steps are off until the CTO routes them.
+        let steps: BTreeMap<String, StepDef> = default.steps().unwrap().into_iter().collect();
+        for id in ["research", "competition", "reverse"] {
+            assert!(!steps.contains_key(id), "{id}");
+            assert!(default.steps[id].optional, "{id}");
+        }
+        assert_eq!(steps["plan"].needs, ["frame"]);
+
         put(
             &dir.join("projects/acme/library/workflows/default.toml"),
             "extends = \"default\"\nmax_parallel_agents = 2\n[steps.checks]\nrun = \"make ci\"\n[rules]\nscope-strict = \"warn\"\n",

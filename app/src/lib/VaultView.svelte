@@ -15,6 +15,7 @@
   import VaultIcon from "@lucide/svelte/icons/lock-keyhole";
   import { invoke } from "@tauri-apps/api/core";
   import { getContext } from "svelte";
+  import VaultAgentKeys from "$lib/VaultAgentKeys.svelte";
   import VaultEntry from "$lib/VaultEntry.svelte";
   import VaultForm from "$lib/VaultForm.svelte";
   import VaultRecoveryKey from "$lib/VaultRecoveryKey.svelte";
@@ -184,7 +185,7 @@
 </script>
 
 <div class="vault">
-  <ViewHeader title={t("vaultTitle")} {context}>
+  <ViewHeader title={t(view === "vaultAll" ? "uxfT1VaultAll" : "vaultTitle")} {context}>
     {#snippet actions()}
       {#if status?.unlocked}
         <button class="btn sm primary" data-testid="vault-new" onclick={() => create("login")}><Plus size={14} aria-hidden="true" />{t("vaultNew")}</button>
@@ -333,8 +334,9 @@
           {/if}
         </div>
         <div class="scroll">
+          <!-- An empty vault says so once: the detail's empty state does, unless a panel covers it. -->
           {#if !seen.length}
-            <p class="muted empty">{t("vaultEmpty")}</p>
+            {#if security || transfer || editing}<p class="muted empty">{t("vaultEmpty")}</p>{/if}
           {:else if !list.length}
             <p class="muted empty">{t("vaultNoMatch")}</p>
           {/if}
@@ -351,7 +353,7 @@
                       <span class="name" class:mono={entry.type === "secret"}>{entry.type === "item" ? entry.item.title : entry.secret.name}</span>
                       {#if entry.type === "item" && entry.item.totp}<span class="badge">{t("vaultBadge2fa")}</span>{/if}
                       {#if entry.type === "item" && entry.item.agents}<span class="badge" title={t("vaultAgentsOn")}><Bot size={11} aria-label={t("vaultAgentsOn")} /></span>{/if}
-                      {#if (entry.type === "item" ? entry.item.conflicts : entry.secret.conflicts) > 0}<span class="badge conflict">{t("vault3Conflict")}</span>{/if}
+                      {#if (entry.type === "item" ? entry.item.conflicts : entry.secret.conflicts) > 0}<span class="badge warn">{t("vault3Conflict")}</span>{/if}
                       {#if entry.type === "secret"}<span class="badge">{entry.secret.scope}</span>{/if}
                     </span>
                     <span class="desc">
@@ -384,6 +386,7 @@
               {/each}
             </ul>
           {/each}
+          {#if scope}<VaultAgentKeys project={scope} />{/if}
         </div>
         <label class="autolock muted">
           <Timer size={13} aria-hidden="true" />
@@ -647,11 +650,6 @@
     gap: 2px;
     opacity: 0;
     transition: opacity var(--dur-fast) ease-out;
-  }
-
-  .badge.conflict {
-    border-color: var(--warning);
-    color: var(--warning);
   }
 
   .row:hover .quick,

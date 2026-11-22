@@ -16,7 +16,7 @@ hmac = "0.12.1"
 p256 = "0.13.2"
 p384 = "0.13.1"
 p521 = "0.13.3"
-pkcs8 = { version = "0.10.2", features = ["encryption", "pem", "std"] }
+pkcs8 = { version = "0.10.2", features = ["encryption", "pem", "sha1-insecure", "std"] }
 rsa = "0.9.10"
 sec1 = { version = "0.7.3", features = ["der"] }
 serde = { version = "1.0.229", features = ["derive"] }

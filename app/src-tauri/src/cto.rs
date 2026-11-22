@@ -378,6 +378,22 @@ pub fn call(
         mask(&mut value);
         return Ok(value);
     }
+    if let McpCall::RequestSecret {
+        variable,
+        purpose,
+        signup_url,
+    } = tool
+    {
+        return crate::agentenv::request(
+            app,
+            &conversation,
+            &project,
+            variable,
+            purpose,
+            signup_url,
+            gone,
+        );
+    }
     // The trifecta rule follows what a conversation that read prod hands on: the run it starts and the session it
     // writes to are marked before either gets a word of it.
     let data = app.state::<crate::ops::OpsState>().data_dir.clone();
@@ -564,7 +580,9 @@ fn run_tool(
             let answer = memory::ask(app, id, &question, None)?;
             json!({ "answer": answer.text, "conversation": answer.session, "cost": answer.cost })
         }
-        McpCall::OpsRecipes {} | McpCall::OpsRun { .. } => bail!("Ops tools run apart"),
+        McpCall::OpsRecipes {} | McpCall::OpsRun { .. } | McpCall::RequestSecret { .. } => {
+            bail!("Ops tools and request_secret run apart")
+        }
     })
 }
 

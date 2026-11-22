@@ -28,6 +28,8 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
         bail!("termf ci does not take {flag} there\n{}", crate::USAGE);
     }
     let repo = match take_opt(&mut args, "--repo")? {
+        // `owner/name` when no such folder exists here, as `gh --repo` takes it.
+        Some(repo) if !std::path::Path::new(&repo).exists() => repo.into(),
         Some(repo) => std::path::absolute(repo)?,
         None => std::env::current_dir()?,
     };

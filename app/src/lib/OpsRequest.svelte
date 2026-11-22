@@ -69,7 +69,7 @@
   </header>
   <p class="facts">
     <span class="badge env" class:prod={r.plan.env === "prod"}>{r.plan.env}</span>
-    <span class="badge" class:write={r.plan.mode === "write"}>{t(r.plan.mode === "write" ? "opsWrite" : "opsRead")}</span>
+    <span class="badge" class:danger={r.plan.mode === "write"}>{t(r.plan.mode === "write" ? "opsWrite" : "opsRead")}</span>
     <span class="mono target">{r.plan.target}</span>
   </p>
   <div class="command">
@@ -145,7 +145,7 @@
     margin: 0;
   }
 
-  .badge {
+  .badge:not(.danger) {
     background: var(--panel);
   }
 
@@ -153,11 +153,6 @@
     border-color: var(--danger);
     background: var(--danger);
     color: var(--danger-text);
-  }
-
-  .badge.write {
-    border-color: var(--danger);
-    color: var(--danger);
   }
 
   .target {

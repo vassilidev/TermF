@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askTitle, awaitsDelivery, baseUpdate, expected, named, prName, repoRuns, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
+import { askTitle, awaitsDelivery, baseUpdate, expected, mergeRequest, named, prName, repoRuns, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
 
 const ticket = (o = {}) => ({ status: "running", prUrl: null, prState: null, ...o });
 const step = (key, state, kind = "agent") => ({ key, kind, state });
@@ -140,7 +140,10 @@ test("a wait's title, naming its step only where the title says it", () => {
 test("a GitHub pull request is named owner/repo#n", () => {
   assert.equal(prName("https://github.com/acme/api/pull/486"), "acme/api#486");
   assert.equal(prName("https://github.com/acme/api/pull/486/files"), "acme/api#486");
-  assert.equal(prName("https://gitlab.example/acme/api/-/merge_requests/3"), "https://gitlab.example/acme/api/-/merge_requests/3");
+  assert.equal(prName("https://gitlab.example/acme/api/-/merge_requests/3"), "acme/api!3");
+  assert.equal(prName("https://gitlab.com/acme/platform/api/-/merge_requests/7/diffs"), "acme/platform/api!7");
+  assert.equal(prName("https://example.com/acme/api/pull/3"), "https://example.com/acme/api/pull/3");
+  assert.equal(mergeRequest("https://github.com/acme/api/pull/486"), null);
 });
 
 test("the CTO's escalation shows through the step it decides on, never as a stage of its own", () => {

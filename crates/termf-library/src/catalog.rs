@@ -34,7 +34,16 @@ const MIN_EVALS: usize = 3;
 /// Skills shipped without evals, each with the reason.
 const NO_EVALS: [(&str, &str); 0] = [];
 /// The roles whose behaviour `pnpm evals` checks, in `library/roles/evals/<role>/`.
-const EVALUATED_ROLES: [&str; 5] = ["cto", "reviewer", "qa", "front", "back"];
+const EVALUATED_ROLES: [&str; 8] = [
+    "cto",
+    "reviewer",
+    "qa",
+    "front",
+    "back",
+    "researcher",
+    "competitive-analyst",
+    "reverse-engineer",
+];
 const MIN_ROLE_EVALS: usize = 2;
 /// The frontmatter keys of a `prompt.md` (an unknown one fails the case), and the grader types, of `claude plugin
 /// eval` (code.claude.com/docs/en/plugin-evals, 2026-11-22).

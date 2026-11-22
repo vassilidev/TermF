@@ -15,6 +15,11 @@ const folded: Record<string, string> = {
   prd: "frame",
   architecture: "frame",
   ux: "frame",
+  research: "frame",
+  competition: "frame",
+  reverse: "frame",
+  decide: "frame",
+  "approve-decision": "frame",
   "approve-plan": "plan",
   checks: "review",
   rules: "review",
@@ -118,6 +123,11 @@ export const stepNames: Record<string, Key> = {
   seo: "ux3t2StepSeo",
   visual: "ux3t2StepVisual",
   migrations: "roles2StepMigrations",
+  research: "greenfieldStepResearch",
+  competition: "greenfieldStepCompetition",
+  reverse: "greenfieldStepReverse",
+  decide: "greenfieldStepDecide",
+  "approve-decision": "greenfieldStepApproveDecision",
   "update-base": "integratorStep",
   deliver: "ux3t2StageDeliver",
 };
@@ -215,10 +225,18 @@ export function baseUpdate(
   return { state, action: !!team?.steps.some((s) => s.kind === "update") };
 }
 
-/** A GitHub pull request as `owner/repo#n`; any other address as it is. */
+/** A GitHub pull request as `owner/repo#n`, a GitLab merge request as `group/project!n`; any other address as it is. */
 export function prName(url: string): string {
   const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
-  return m ? `${m[1]}#${m[2]}` : url;
+  if (m) return `${m[1]}#${m[2]}`;
+  const mr = mergeRequest(url);
+  return mr ? `${mr.slug}!${mr.number}` : url;
+}
+
+/** A GitLab merge request's project and number, from its address. */
+export function mergeRequest(url: string): { slug: string; number: number } | null {
+  const m = /^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)/.exec(url);
+  return m ? { slug: m[1], number: Number(m[2]) } : null;
 }
 
 type Related = Ticket & { id: number; parent?: number | null };

@@ -29,6 +29,7 @@ pub fn state(
     team: termf_team::Notifier,
 ) -> AgentsState {
     let handle = app.clone();
+    let config = config_dir.clone();
     let agents = Agents::new(config_dir, data_dir, move |update| {
         let _ = match update {
             Update::Event(event) => handle.emit("agent-event", event),
@@ -38,10 +39,20 @@ pub fn state(
             }
         };
     });
-    let (app, gone) = (app.clone(), app.clone());
+    let (app, gone, secrets) = (app.clone(), app.clone(), app.clone());
     if let Some(termf) = api::termf_binary() {
         agents.serve_guard(termf);
     }
+    agents.serve_secrets(move |session, project| {
+        if secrets.try_state::<crate::vault::VaultState>().is_none() {
+            return termf_agents::Given::default();
+        }
+        let actor = termf_vault::Actor::agent(
+            crate::ops::run_of(&secrets, session),
+            Some(session.to_string()),
+        );
+        crate::agentenv::given(&crate::vault::shared(&secrets), &config, project, &actor)
+    });
     agents.serve_mcp(
         move |session| {
             let state = app.try_state::<AppState>().context("TermF is starting")?;

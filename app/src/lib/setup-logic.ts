@@ -9,7 +9,8 @@ export type Card = {
   branch?: string | null;
   remote?: Remote | null;
   changes?: number;
-  stack?: string[];
+  /** `null` once reading it failed. */
+  stack?: string[] | null;
 };
 export type Filter = "all" | "recent" | "github";
 /** Where a name comes from: the only repository, their GitHub owner, their folder, or the first one. */
@@ -90,6 +91,14 @@ export function groups(cards: Card[], chosen: string[], home: string): Group[] {
   const root = home.replace(/[\\/]+$/, "");
   collect("folder", (c) => (dir(c.path) === root ? null : dir(c.path)), (k) => k);
   return found.sort((a, b) => b.paths.length - a.paths.length);
+}
+
+/** The GitLab host of the chosen repositories (the first one's) and their projects on it: what GitLab would read. */
+export function gitlabRepos(cards: Card[]): { host: string; slugs: string[] } | null {
+  const on = cards.filter((c) => forge(c.remote?.host) === "gitlab").map((c) => c.remote!);
+  if (!on.length) return null;
+  const host = on[0].host;
+  return { host, slugs: [...new Set(on.filter((r) => r.host === host).map((r) => r.slug.toLowerCase()))] };
 }
 
 /** The GitHub repositories (`owner/name`) of the chosen ones: what GitHub Issues would read. */

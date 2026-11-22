@@ -1,3 +1,4 @@
+mod agentenv;
 mod agents;
 mod api;
 mod biometry;
@@ -10,6 +11,8 @@ mod config;
 mod context;
 mod cto;
 mod design;
+#[cfg(feature = "e2e")]
+mod e2e;
 mod files;
 mod git;
 mod keep_awake;
@@ -29,6 +32,7 @@ mod tray;
 mod updates;
 mod vault;
 mod visual;
+mod window;
 mod worktree;
 
 use std::path::PathBuf;
@@ -44,6 +48,8 @@ use termf_term::{Output, Sessions};
 
 struct AppState {
     config_dir: PathBuf,
+    /// What gives a terminal's agent the vault's values for its project.
+    vault: Arc<termf_vault::Vault>,
     sessions: Sessions,
     quick_terminal: quick_terminal::QuickTerminal,
     api: api::Api,
@@ -201,89 +207,40 @@ fn pty_list(state: State<AppState>) -> Vec<SessionSummary> {
         .collect()
 }
 
-/// Tauri's default macOS menu without Close Window, whose ⌘W would never reach the webview: there it closes a split.
-#[cfg(target_os = "macos")]
-fn app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
-    use tauri::menu::{
-        AboutMetadata, Menu, PredefinedMenuItem as Item, Submenu, WINDOW_SUBMENU_ID,
-    };
-    let info = app.package_info();
-    let about = AboutMetadata {
-        name: Some(info.name.clone()),
-        version: Some(info.version.to_string()),
-        copyright: app.config().bundle.copyright.clone(),
-        authors: app.config().bundle.publisher.clone().map(|p| vec![p]),
-        ..Default::default()
-    };
-    let separator = || Item::separator(app);
-    Menu::with_items(
-        app,
-        &[
-            &Submenu::with_items(
-                app,
-                &info.name,
-                true,
-                &[
-                    &Item::about(app, None, Some(about))?,
-                    &separator()?,
-                    &Item::services(app, None)?,
-                    &separator()?,
-                    &Item::hide(app, None)?,
-                    &Item::hide_others(app, None)?,
-                    &separator()?,
-                    &Item::quit(app, None)?,
-                ],
-            )?,
-            &Submenu::with_items(
-                app,
-                "Edit",
-                true,
-                &[
-                    &Item::undo(app, None)?,
-                    &Item::redo(app, None)?,
-                    &separator()?,
-                    &Item::cut(app, None)?,
-                    &Item::copy(app, None)?,
-                    &Item::paste(app, None)?,
-                    &Item::select_all(app, None)?,
-                ],
-            )?,
-            &Submenu::with_items(app, "View", true, &[&Item::fullscreen(app, None)?])?,
-            &Submenu::with_id_and_items(
-                app,
-                WINDOW_SUBMENU_ID,
-                "Window",
-                true,
-                &[&Item::minimize(app, None)?, &Item::maximize(app, None)?],
-            )?,
-        ],
-    )
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config_dir = termf_core::default_config_dir().expect("cannot locate the config directory");
     let data_dir = termf_core::default_data_dir().expect("cannot locate the data directory");
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(app_menu);
+    let builder = builder.menu(window::menu);
+    // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    // After the single instance: a second launch never opens a second bridge.
+    #[cfg(feature = "e2e")]
+    let builder = match e2e::plugin() {
+        Some(bridge) => builder.plugin(bridge),
+        None => builder,
+    };
     builder
-        // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(Files::default()))
         .manage(ssh::KeyFiles::default())
         .plugin(quick_terminal::plugin())
+        .on_menu_event(window::on_menu)
         // One setup: a second call to `setup` would replace this one.
         .setup(move |app| {
+            window::open(app.handle(), &data_dir);
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
+            termf_core::agent_env::configure(config_dir.clone(), api::termf_binary());
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new(settings.api.confirm_cli);
             app.manage(tray::Tray::new(settings.tray));
@@ -316,6 +273,7 @@ pub fn run() {
             ));
             app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
             app.manage(ops::state(config_dir.clone(), data_dir.clone()));
+            app.manage(agentenv::state(config_dir.clone()));
             app.manage(memory::start(
                 app.handle(),
                 config_dir.clone(),
@@ -323,6 +281,7 @@ pub fn run() {
             ));
             app.manage(AppState {
                 config_dir,
+                vault: vault::shared(app.handle()),
                 sessions: api.sessions(app.handle().clone()),
                 quick_terminal: Default::default(),
                 api,
@@ -354,6 +313,7 @@ pub fn run() {
             if let tauri::WindowEvent::Focused(true) = event {
                 sync::focused(window.app_handle());
             }
+            window::on_event(window, event);
         })
         .invoke_handler(sync::hook(tauri::generate_handler![
             workspace,
@@ -474,6 +434,9 @@ pub fn run() {
             tickets::tickets_jira_token_save,
             tickets::tickets_jira_token,
             tickets::tickets_jira_token_forget,
+            tickets::tickets_token,
+            tickets::tickets_token_save,
+            tickets::tickets_token_forget,
             tickets::tickets_mcp_servers,
             tickets::tickets_configured,
             browser::open_url,
@@ -654,10 +617,18 @@ pub fn run() {
             ops::ops_sql_export,
             ops::ops_follow_start,
             ops::ops_follow_stop,
+            agentenv::agentenv_requests,
+            agentenv::agentenv_answer,
+            agentenv::agentenv_settings,
+            agentenv::agentenv_allow_set,
+            agentenv::agentenv_grants,
+            agentenv::agentenv_revoke,
             onboarding::setup_repos,
             onboarding::setup_detect,
             onboarding::setup_draft,
             onboarding::setup_preview,
+            onboarding::greenfield_plan,
+            onboarding::greenfield_create,
             vault::vault_status,
             vault::vault_init,
             vault::vault_unlock,
@@ -698,15 +669,21 @@ pub fn run() {
             vault::vault_import_apply,
             vault::vault_import_foreign,
             vault::vault_import_delete,
+            #[cfg(feature = "e2e")]
+            e2e::e2e_result,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => {
+                window::save(app);
                 team::shutdown(app);
                 visual::shutdown(app);
                 agents::shutdown(app);
                 ops::shutdown(app);
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => window::reopen(app),
+            _ => {}
         });
 }

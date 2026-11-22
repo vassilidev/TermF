@@ -117,7 +117,7 @@ const INFRA_FILES: [&str; 13] = [
 const MAX_INFRA: usize = 12;
 /// The dependencies that call for a specialist, by kind of signal, in npm, PyPI, Composer, RubyGems, Go and
 /// crates.io names.
-const DEPS: [(&str, &[&str]); 4] = [
+const DEPS: [(&str, &[&str]); 5] = [
     (
         "data",
         &[
@@ -239,6 +239,20 @@ const DEPS: [(&str, &[&str]); 4] = [
             "standardwebhooks",
         ],
     ),
+    (
+        "reverse",
+        &[
+            "frida",
+            "frida-tools",
+            "capstone",
+            "lief",
+            "r2pipe",
+            "pwntools",
+            "angr",
+            "mitmproxy",
+            "kaitaistruct",
+        ],
+    ),
 ];
 /// Manifests read for those dependencies, and the most markers kept of one kind.
 const MAX_MANIFEST_READS: usize = 50;
@@ -319,6 +333,32 @@ fn signals(repo: &Path, files: &[String]) -> BTreeMap<String, Vec<String>> {
         if let Some(marker) = docs {
             found.entry("docs".into()).or_default().insert(marker);
         }
+        // Network captures to study: a site or an API the project works out to interoperate with.
+        if [".har", ".pcap", ".pcapng"]
+            .iter()
+            .any(|e| name.to_lowercase().ends_with(e))
+        {
+            found.entry("reverse".into()).or_default().insert(f.clone());
+        }
+    }
+    // Nothing yet but what starts a repository (a README, a licence, dotfiles), whatever its language: a project
+    // starting from an idea.
+    let starter = |f: &String| {
+        let upper = f.to_uppercase();
+        !f.contains('/')
+            && (f.starts_with('.')
+                || ["README", "LICENSE", "LICENCE", "COPYING", "CHANGELOG"]
+                    .iter()
+                    .any(|s| upper.starts_with(s)))
+    };
+    if files.iter().all(starter) {
+        let kept = files.iter().cloned().collect::<BTreeSet<_>>();
+        let marker = if kept.is_empty() {
+            BTreeSet::from(["(empty)".to_owned()])
+        } else {
+            kept
+        };
+        found.insert("new".into(), marker);
     }
     found
         .into_iter()
@@ -1017,6 +1057,7 @@ pub(crate) fn propose(
     };
     // Payments, sign-in and analytics handle personal data, which the law frames even without a public site.
     let personal = unique([found("integrations"), found("analytics")].concat());
+    let fresh = !repos.is_empty() && repos.iter().all(|r| r.signals.contains_key("new"));
 
     let mut choices = Vec::new();
     for role in roles.iter().filter(|r| r.plannable) {
@@ -1045,6 +1086,10 @@ pub(crate) fn propose(
             "legal" if !web.is_empty() => (true, "web", labels(&web)),
             "legal" if !personal.is_empty() => (true, "personal", personal.clone()),
             "legal" => (false, "no-public", Vec::new()),
+            // No code yet in any repository: a project starting from an idea, whose first decisions need research.
+            "researcher" | "competitive-analyst" if fresh => (true, "new", found("new")),
+            "researcher" | "competitive-analyst" => (false, "no-new", Vec::new()),
+            "reverse-engineer" => signal("reverse", "no-reverse"),
             "architect" => (true, "design", Vec::new()),
             _ => (true, "own", Vec::new()),
         };

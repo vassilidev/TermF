@@ -6,7 +6,7 @@ import { load, ui } from "$lib/state.svelte";
 import { failed, mergeText, refreshVault, say } from "$lib/vault.svelte";
 import type { Merged } from "$lib/vault-logic";
 
-export type Section = "awake" | "tray" | "context" | "keys" | "ci" | "claude" | "config" | "sync" | "updates" | "tools";
+export type Section = "awake" | "tray" | "context" | "keys" | "ci" | "claude" | "agentenv" | "config" | "sync" | "updates" | "tools";
 export type Transfer =
   | { kind: "exported"; files: number; skippedLinks: string[] }
   | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean; vaultDone?: boolean };
@@ -14,7 +14,7 @@ export type Transfer =
 export const settings = $state({
   /** Loaded once first shown, then kept mounted, like the other views. */
   loaded: false,
-  section: "awake" as Section,
+  section: "claude" as Section,
   /** What an export wrote, or an import's preview, shown in Configuration. */
   transfer: null as Transfer | null,
   busy: false,

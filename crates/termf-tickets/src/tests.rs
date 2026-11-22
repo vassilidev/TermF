@@ -78,6 +78,9 @@ impl Sandbox {
             secrets: Box::new(self.secrets.clone()),
             claude_dir: self.root.join("claude-dir"),
             etags: Default::default(),
+            glab: self.root.join("glab"),
+            linear_api: "http://127.0.0.1:9".into(),
+            answers: Default::default(),
         }
     }
 
@@ -1494,6 +1497,92 @@ fn runs_a_request_written_in_termf() {
     );
 }
 
+/// A project created without GitHub: its delivery merges the branch into `main` in the repository itself.
+#[test]
+fn delivers_into_main_here_when_the_repository_has_no_origin() {
+    let sb = Sandbox::new("local-delivery");
+    let repo = sb.root.join("repos/plant-care");
+    fs::create_dir_all(&repo).unwrap();
+    sb.git(&repo, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("README.md"), "# plant-care\n").unwrap();
+    sb.git(&repo, &["add", "-A"]);
+    sb.git(&repo, &["commit", "-q", "-m", "Initial commit"]);
+    sb.project(
+        "plant",
+        &format!(
+            "name = \"plant-care\"\n[[repos]]\nname = \"plant-care\"\npath = {:?}\n",
+            path(&repo)
+        ),
+    );
+    let t = sb.tickets();
+    let run = t.start_request("Water reminders", "plant", None).unwrap();
+    let worktree = PathBuf::from(run.worktree.clone().unwrap());
+    fs::write(worktree.join("a.txt"), "a\n").unwrap();
+    let preview = t.deliver_preview(run.id).unwrap();
+    assert_eq!(preview.local.as_deref(), Some("main"));
+
+    // Changes not committed on main: refused, main untouched.
+    fs::write(repo.join("README.md"), "# edited\n").unwrap();
+    let refused = format!("{:#}", t.deliver(run.id, &preview.fingerprint).unwrap_err());
+    assert!(
+        refused.contains("changes not committed on main"),
+        "{refused}"
+    );
+    assert_eq!(
+        sb.git(&repo, &["log", "--format=%s", "main"]),
+        "Initial commit"
+    );
+    sb.git(&repo, &["checkout", "-q", "--", "README.md"]);
+
+    // main moved meanwhile: a merge commit, both sides kept.
+    fs::write(repo.join("b.txt"), "b\n").unwrap();
+    sb.git(&repo, &["add", "b.txt"]);
+    sb.git(&repo, &["commit", "-q", "-m", "b on main"]);
+    let preview = t.deliver_preview(run.id).unwrap();
+    let delivered = t.deliver(run.id, &preview.fingerprint).unwrap();
+    assert_eq!(delivered.run.status, RunStatus::Delivered);
+    assert_eq!(delivered.run.pr_url, None);
+    assert!(repo.join("a.txt").is_file() && repo.join("b.txt").is_file());
+    assert_eq!(
+        sb.git(&repo, &["rev-list", "--merges", "--count", "main"]),
+        "1"
+    );
+    let merged = t
+        .events(run.id)
+        .unwrap()
+        .into_iter()
+        .find_map(|e| match e.event {
+            Event::Merged { into, commit } => Some((into, commit)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        merged,
+        ("main".into(), sb.git(&repo, &["rev-parse", "main"]))
+    );
+    assert!(!sb.root.join("gh.log").exists(), "no pull request");
+    assert_eq!(
+        t.close(run.id, false, || {}).unwrap().status,
+        RunStatus::Closed
+    );
+
+    // main not checked out: a fast-forward, which touches no file.
+    let next = t.start_request("Add a plant", "plant", None).unwrap();
+    fs::write(
+        PathBuf::from(next.worktree.clone().unwrap()).join("c.txt"),
+        "c\n",
+    )
+    .unwrap();
+    sb.git(&repo, &["switch", "-q", "-c", "elsewhere"]);
+    let preview = t.deliver_preview(next.id).unwrap();
+    t.deliver(next.id, &preview.fingerprint).unwrap();
+    assert_eq!(sb.git(&repo, &["show", "main:c.txt"]), "c");
+    assert!(
+        !repo.join("c.txt").exists(),
+        "the checkout stays on elsewhere"
+    );
+}
+
 /// A change over two repositories: one run each, two pull requests that name each other, delivered and closed
 /// repository by repository.
 #[cfg(unix)]
@@ -1684,9 +1773,11 @@ struct Request {
     path: String,
     auth: String,
     body: String,
+    if_none_match: String,
 }
 
-/// A Jira of its own on 127.0.0.1, answering with `answer` and keeping every request.
+/// A tracker of its own on 127.0.0.1, answering with `answer` and keeping every request. A GET answered 200
+/// carries an ETag made from its body, and the same ETag asked again gets a 304, as Rails' middleware does.
 fn fake_jira(answer: fn(&Request) -> (u16, String)) -> (String, Arc<Mutex<Vec<Request>>>) {
     use std::io::{BufRead, BufReader, Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1705,7 +1796,7 @@ fn fake_jira(answer: fn(&Request) -> (u16, String)) -> (String, Arc<Mutex<Vec<Re
                 words.next().unwrap_or_default(),
                 words.next().unwrap_or_default(),
             );
-            let (mut length, mut auth) = (0, String::new());
+            let (mut length, mut auth, mut if_none_match) = (0, String::new(), String::new());
             loop {
                 let mut header = String::new();
                 reader.read_line(&mut header).unwrap();
@@ -1715,6 +1806,7 @@ fn fake_jira(answer: fn(&Request) -> (u16, String)) -> (String, Arc<Mutex<Vec<Re
                 match name.to_ascii_lowercase().as_str() {
                     "content-length" => length = value.trim().parse().unwrap(),
                     "authorization" => auth = value.trim().to_owned(),
+                    "if-none-match" => if_none_match = value.trim().to_owned(),
                     _ => {}
                 }
             }
@@ -1725,13 +1817,25 @@ fn fake_jira(answer: fn(&Request) -> (u16, String)) -> (String, Arc<Mutex<Vec<Re
                 path,
                 auth,
                 body: String::from_utf8(body).unwrap(),
+                if_none_match,
             };
-            let (status, reply) = answer(&request);
+            let (mut status, mut reply) = answer(&request);
+            let mut etag = String::new();
+            if request.method == "GET" && status == 200 {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                reply.hash(&mut hasher);
+                etag = format!("\"{:x}\"", hasher.finish());
+                if request.if_none_match == etag {
+                    (status, reply) = (304, String::new());
+                }
+                etag = format!("ETag: {etag}\r\n");
+            }
             log.lock().unwrap().push(request);
             let mut stream = reader.into_inner();
             let _ = write!(
                 stream,
-                "HTTP/1.1 {status} Fake\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                "HTTP/1.1 {status} Fake\r\nContent-Type: application/json\r\n{etag}Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
                 reply.len()
             );
         }
@@ -2738,6 +2842,9 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
             comment: true,
             transition: Some("In Review".into()),
         }),
+        linear: None,
+        gitlab: None,
+        azure: None,
         mcp: [(
             "linear".to_owned(),
             McpTracker {
@@ -2886,6 +2993,998 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
             owner: "me".into(),
             number: 12
         }
+    );
+}
+
+// Linear, GitLab and Azure DevOps.
+
+const LINEAR_KEY: &str = "lin_api_s3cret";
+const GITLAB_TOKEN: &str = "glpat-s3cret";
+/// `:pat-s3cret`, as HTTP basic authentication sends it.
+const AZURE_BASIC: &str = "Basic OnBhdC1zM2NyZXQ=";
+
+/// The key of a second workspace, `beta`, whose only ticket is OPS-9.
+const LINEAR_BETA: &str = "lin_api_beta";
+
+fn linear_answers(r: &Request) -> (u16, String) {
+    if r.auth == LINEAR_BETA {
+        let data = json!({ "issues": {
+            "nodes": [{
+                "identifier": "OPS-9", "title": "Rotate keys", "url": "https://linear.app/beta/issue/OPS-9/rotate",
+                "updatedAt": "2026-11-21T10:00:00.000Z", "state": { "name": "Todo" }, "labels": { "nodes": [] },
+                "assignee": null,
+            }],
+            "pageInfo": { "hasNextPage": false, "endCursor": null },
+        }});
+        return (200, json!({ "data": data }).to_string());
+    }
+    if r.auth != LINEAR_KEY {
+        let refused =
+            json!({ "errors": [{ "message": "Authentication required, not authenticated" }] });
+        return (400, refused.to_string());
+    }
+    let asked: Value = serde_json::from_str(&r.body).unwrap();
+    let query = asked["query"].as_str().unwrap_or_default();
+    let issue = |key: &str, title: &str, updated: &str| {
+        json!({
+            "identifier": key, "title": title, "url": format!("https://linear.app/acme/issue/{key}/some-title"),
+            "updatedAt": updated, "state": { "name": "Todo" }, "labels": { "nodes": [{ "name": "bug" }] },
+            "assignee": { "displayName": "Alex" },
+        })
+    };
+    let data = if query.contains("issues(") {
+        match asked["variables"]["after"].as_str() {
+            None => json!({ "issues": {
+                "nodes": [issue("ENG-2", "Export invoices", "2026-11-20T10:00:00.000Z")],
+                "pageInfo": { "hasNextPage": true, "endCursor": "c1" },
+            }}),
+            Some(_) => json!({ "issues": {
+                "nodes": [issue("ENG-1", "Fix the login", "2026-11-18T09:00:00.000Z")],
+                "pageInfo": { "hasNextPage": false, "endCursor": null },
+            }}),
+        }
+    } else if query.contains("states(") {
+        json!({ "issue": { "team": { "states": { "nodes": [
+            { "id": "s1", "name": "Todo" }, { "id": "s2", "name": "In Review" },
+        ]}}}})
+    } else if query.contains("comments(") {
+        json!({ "issue": {
+            "identifier": "ENG-1", "title": "Fix the login", "description": "See https://logs.example.com/1",
+            "url": "https://linear.app/acme/issue/ENG-1/fix-the-login", "state": { "name": "In Progress" },
+            "labels": { "nodes": [{ "name": "auth" }] }, "assignee": { "displayName": "Alex" },
+            "creator": { "displayName": "Sam" },
+            "comments": { "nodes": [
+                { "body": "Second", "createdAt": "2026-11-19T11:00:00.000Z", "user": { "displayName": "Kim" } },
+                { "body": "First", "createdAt": "2026-11-19T10:00:00.000Z", "user": { "displayName": "Sam" } },
+            ]},
+        }})
+    } else if query.contains("commentCreate") {
+        json!({ "commentCreate": { "success": true } })
+    } else if query.contains("issueUpdate") {
+        json!({ "issueUpdate": { "success": true } })
+    } else if query.contains("attachmentLinkURL") {
+        json!({ "attachmentLinkURL": { "success": true } })
+    } else {
+        return (
+            400,
+            json!({ "errors": [{ "message": "unknown query" }] }).to_string(),
+        );
+    };
+    (200, json!({ "data": data }).to_string())
+}
+
+fn bodies(requests: &Arc<Mutex<Vec<Request>>>) -> Vec<Value> {
+    let requests = requests.lock().unwrap();
+    let parsed = requests
+        .iter()
+        .map(|r| serde_json::from_str(&r.body).unwrap_or(Value::Null));
+    parsed.collect()
+}
+
+#[test]
+fn reads_and_writes_linear() {
+    let sb = Sandbox::new("linear");
+    let (url, requests) = fake_jira(linear_answers);
+    sb.project(
+        "acme",
+        "name = \"Acme\"\n[trackers.linear]\nworkspace = \"acme\"\nteam = \"ENG\"\ncomment = true\ntransition = \"in review\"\n",
+    );
+    let mut t = sb.tickets();
+    t.linear_api = url;
+
+    let inbox = t.inbox(Some("acme"), false).unwrap();
+    assert!(inbox.tickets.is_empty());
+    assert_eq!(inbox.errors[0].source, "linear");
+    assert!(
+        inbox.errors[0]
+            .message
+            .contains("no Linear API key for the workspace acme"),
+        "{:?}",
+        inbox.errors
+    );
+    assert!(
+        requests.lock().unwrap().is_empty(),
+        "nothing asked without a key"
+    );
+    t.save_token("linear", "Acme", "wrong").unwrap();
+    let refused = t.inbox(Some("acme"), true).unwrap();
+    assert!(
+        refused.errors[0]
+            .message
+            .contains("Linear refused the API key of acme"),
+        "{:?}",
+        refused.errors
+    );
+    t.save_token("linear", "acme", LINEAR_KEY).unwrap();
+    assert!(t.sources("acme").unwrap().tokens.linear);
+    assert!(!t.sources("acme").unwrap().tokens.gitlab);
+
+    let inbox = t.inbox(Some("acme"), true).unwrap();
+    assert_eq!(inbox.errors, []);
+    assert_eq!(keys(&inbox.tickets), ["ENG-2", "ENG-1"], "every page");
+    let first = &inbox.tickets[0];
+    assert_eq!(first.reference.url, "https://linear.app/acme/issue/ENG-2");
+    assert_eq!(
+        (
+            first.source.as_str(),
+            first.state.as_str(),
+            first.project.as_deref()
+        ),
+        ("linear", "Todo", Some("acme"))
+    );
+    assert_eq!(first.assignees, ["Alex"]);
+    let asked = bodies(&requests).pop().unwrap();
+    assert_eq!(
+        asked["variables"]["filter"],
+        json!({
+            "assignee": { "isMe": { "eq": true } },
+            "team": { "key": { "eqIgnoreCase": "ENG" } },
+            "state": { "type": { "nin": ["completed", "canceled"] } },
+        })
+    );
+    let count = requests.lock().unwrap().len();
+    assert_eq!(t.inbox(Some("acme"), false).unwrap(), inbox);
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        count,
+        "Linear gives no ETag: its answer stands for a minute"
+    );
+    t.inbox(Some("acme"), true).unwrap();
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        count + 2,
+        "a refresh asks again"
+    );
+
+    for input in [
+        "ENG-1",
+        "eng-1",
+        "https://linear.app/acme/issue/ENG-1/fix-the-login",
+        "https://linear.app/acme/issue/ENG-1",
+    ] {
+        let r = t.resolve(input, None).unwrap();
+        let found = (
+            r.ticket.provider.as_str(),
+            r.ticket.key.as_str(),
+            r.ticket.url.as_str(),
+        );
+        assert_eq!(
+            found,
+            ("linear", "ENG-1", "https://linear.app/acme/issue/ENG-1"),
+            "{input}"
+        );
+        assert_eq!(r.project, "acme");
+    }
+    let elsewhere = t
+        .resolve("https://linear.app/other/issue/ENG-1", None)
+        .unwrap_err();
+    assert!(
+        format!("{elsewhere:#}").contains("add a Linear source for the workspace other"),
+        "{elsewhere:#}"
+    );
+    assert!(t.resolve("OPS-1", None).is_err(), "another team");
+
+    let linear = t.provider("acme", "linear").unwrap();
+    let reference = t.resolve("ENG-1", None).unwrap().ticket;
+    let ticket = linear.fetch(&reference).unwrap();
+    assert_eq!(
+        (
+            ticket.title.as_str(),
+            ticket.state.as_str(),
+            ticket.author.as_deref()
+        ),
+        ("Fix the login", "In Progress", Some("Sam"))
+    );
+    assert_eq!(ticket.body, "See https://logs.example.com/1");
+    let comments: Vec<&str> = ticket.comments.iter().map(|c| c.body.as_str()).collect();
+    assert_eq!(comments, ["First", "Second"], "oldest first");
+    assert_eq!(ticket.links, ["https://logs.example.com/1"]);
+    assert!(
+        prompt(&ticket, "termf/ENG-1-fix-the-login", "origin/main")
+            .contains("<ticket source=\"https://linear.app/acme/issue/ENG-1\">")
+    );
+
+    linear.comment(&reference, "On it").unwrap();
+    linear.transition(&reference, "in review").unwrap();
+    let wrong = linear.transition(&reference, "Shipped").unwrap_err();
+    assert!(
+        format!("{wrong:#}").contains("it has Todo, In Review"),
+        "{wrong:#}"
+    );
+    let mr = "https://gitlab.com/acme/api/-/merge_requests/7";
+    linear.link_pr(&reference, mr).unwrap();
+    let asked: Vec<Value> = bodies(&requests).into_iter().rev().take(5).collect();
+    assert_eq!(
+        asked[0]["variables"],
+        json!({ "id": "ENG-1", "url": mr, "title": "Merge request acme/api!7" })
+    );
+    assert_eq!(
+        asked[2]["variables"],
+        json!({ "id": "ENG-1", "state": "s2" })
+    );
+    assert_eq!(
+        asked[4]["variables"],
+        json!({ "id": "ENG-1", "body": "On it" })
+    );
+    assert_eq!(
+        t.writes("acme", "linear"),
+        (true, Some("in review".to_owned()))
+    );
+    t.forget_token("linear", "acme").unwrap();
+    assert!(!t.has_token("linear", "acme").unwrap());
+}
+
+fn gitlab_answers(r: &Request) -> (u16, String) {
+    if r.auth != format!("Bearer {GITLAB_TOKEN}") {
+        return (401, json!({ "message": "401 Unauthorized" }).to_string());
+    }
+    let issue = |iid: u64, title: &str, updated: &str| {
+        json!({
+            "iid": iid, "title": title, "state": "opened", "labels": ["backend"],
+            "assignees": [{ "username": "alex" }], "updated_at": updated,
+            "references": { "full": format!("acme/api#{iid}") },
+        })
+    };
+    let answer = match (r.method.as_str(), r.path.as_str()) {
+        (
+            "GET",
+            "/api/v4/projects/acme%2Fapi/issues?state=opened&scope=assigned_to_me&order_by=updated_at&per_page=100&page=1",
+        ) => json!([
+            issue(42, "Fix the login", "2026-11-20T10:00:00.000+01:00"),
+            issue(7, "Export invoices", "2026-11-19T10:00:00Z"),
+        ]),
+        ("GET", "/api/v4/projects/acme%2Fapi/issues/42") => json!({
+            "iid": 42, "title": "Fix the login", "description": "Fails on https://example.com/x",
+            "state": "opened", "labels": ["bug"], "assignees": [{ "username": "alex" }],
+            "author": { "username": "sam" },
+        }),
+        ("GET", p) if p.starts_with("/api/v4/projects/acme%2Fapi/issues/42/notes?") => json!([
+            { "body": "changed the description", "system": true, "author": { "username": "sam" }, "created_at": "2026-11-20T10:30:00Z" },
+            { "body": "Also on mobile", "system": false, "author": { "username": "kim" }, "created_at": "2026-11-20T11:00:00Z" },
+        ]),
+        ("POST", "/api/v4/projects/acme%2Fapi/issues/42/notes") => json!({ "id": 1 }),
+        _ => return (404, json!({ "message": "404 Not found" }).to_string()),
+    };
+    (200, answer.to_string())
+}
+
+#[test]
+fn reads_and_writes_gitlab_with_a_token() {
+    let sb = Sandbox::new("gitlab");
+    let (url, requests) = fake_jira(gitlab_answers);
+    sb.project(
+        "acme",
+        &format!(
+            "name = \"Acme\"\n[trackers.gitlab]\nhost = \"{url}\"\nrepo = \"acme/api\"\ncomment = true\n"
+        ),
+    );
+    let t = sb.tickets();
+    let host = url.trim_start_matches("http://");
+
+    let inbox = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(inbox.errors[0].source, "gitlab");
+    assert!(
+        inbox.errors[0].message.contains(&format!(
+            "install glab and run `glab auth login --hostname {host}`"
+        )),
+        "neither glab nor a token: {:?}",
+        inbox.errors
+    );
+    t.save_token("gitlab", &url, GITLAB_TOKEN).unwrap();
+    let sources = t.sources("acme").unwrap();
+    assert!(sources.tokens.gitlab);
+    assert_eq!(sources.gitlab_repos, ["acme/api"]);
+    assert_eq!(t.configured(Some("acme")).unwrap()[0].sources, ["gitlab"]);
+
+    let inbox = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(inbox.errors, []);
+    assert_eq!(keys(&inbox.tickets), ["acme/api#42", "acme/api#7"]);
+    let first = &inbox.tickets[0];
+    assert_eq!(first.reference.url, format!("{url}/acme/api/-/issues/42"));
+    assert_eq!(first.updated, "2026-11-20T09:00:00Z");
+    assert_eq!(
+        (first.source.as_str(), first.state.as_str()),
+        ("gitlab", "opened")
+    );
+    assert_eq!(
+        t.inbox(Some("acme"), false).unwrap(),
+        inbox,
+        "not modified (304)"
+    );
+    let last = |r: &Arc<Mutex<Vec<Request>>>| r.lock().unwrap().last().unwrap().clone();
+    assert!(
+        last(&requests).if_none_match.starts_with('"'),
+        "asked with its ETag"
+    );
+    t.inbox(Some("acme"), true).unwrap();
+    assert!(
+        last(&requests).if_none_match.is_empty(),
+        "a refresh asks without it"
+    );
+
+    let issue = format!("{url}/acme/api/-/issues/42");
+    let item = format!("{url}/acme/api/-/work_items/42");
+    for input in ["acme/api#42", "#42", "api#42", &issue, &item] {
+        let r = t.resolve(input, None).unwrap();
+        let found = (
+            r.ticket.provider.as_str(),
+            r.ticket.key.as_str(),
+            r.ticket.url.as_str(),
+        );
+        assert_eq!(found, ("gitlab", "acme/api#42", issue.as_str()), "{input}");
+    }
+    let gitlab = t.provider("acme", "gitlab").unwrap();
+    let reference = t.resolve("#42", None).unwrap().ticket;
+    let ticket = gitlab.fetch(&reference).unwrap();
+    assert_eq!(ticket.author.as_deref(), Some("sam"));
+    assert_eq!(ticket.comments.len(), 1, "system notes left out");
+    assert_eq!(ticket.comments[0].author.as_deref(), Some("kim"));
+    assert_eq!(ticket.links, ["https://example.com/x"]);
+    let mr = format!("{url}/acme/api/-/merge_requests/7");
+    gitlab.link_pr(&reference, &mr).unwrap();
+    let note = bodies(&requests).pop().unwrap();
+    assert_eq!(
+        note,
+        json!({ "body": format!("Merge request acme/api!7: {mr}") })
+    );
+    assert!(gitlab.transition(&reference, "Done").is_err());
+    assert_eq!(t.writes("acme", "gitlab"), (true, None));
+
+    t.save_token("gitlab", &url, "nope").unwrap();
+    let refused = t.inbox(Some("acme"), true).unwrap();
+    assert!(
+        refused.errors[0]
+            .message
+            .contains("refused the access token"),
+        "{:?}",
+        refused.errors
+    );
+}
+
+#[cfg(unix)]
+/// A glab signed in to `host` (`gitlab.test`, `gitlab.test:8080`), whose GitLab's pages are at `web`.
+fn fake_glab(sb: &Sandbox, host: &str, web: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let script = format!(
+        r#"#!/bin/sh
+root='{root}'
+log="$root/glab.log"
+printf '%s\n' "$*" >> "$log"
+api='api --hostname {host}'
+case "$*" in
+"auth status --hostname {host}") ;;
+"$api -X GET projects/acme%2Fapi/issues/42")
+  echo '{{"iid":42,"title":"Fix the login","description":"Nothing happens.","state":"opened","labels":[],"assignees":[],"author":{{"username":"sam"}}}}' ;;
+"$api -X GET projects/acme%2Fapi/issues/42/notes?sort=asc&order_by=created_at&per_page=100&page=1")
+  echo '[]' ;;
+"$api -X POST projects/acme%2Fapi/merge_requests -H Content-Type: application/json --input -")
+  cat >> "$log"; echo >> "$log"; echo '{{"web_url":"{web}/acme/api/-/merge_requests/7"}}' ;;
+"$api -X POST projects/acme%2Fapi/issues/42/notes -H Content-Type: application/json --input -")
+  cat >> "$log"; echo >> "$log"; echo '{{}}' ;;
+"$api -X GET projects/acme%2Fapi/merge_requests/7?include_diverged_commits_count=true")
+  case "$(cat "$root/mr-state" 2>/dev/null)" in
+  merged) echo '{{"state":"merged","has_conflicts":false,"detailed_merge_status":"mergeable","diverged_commits_count":0}}' ;;
+  *) echo '{{"state":"opened","has_conflicts":true,"detailed_merge_status":"conflict","diverged_commits_count":3}}' ;;
+  esac ;;
+*)
+  echo "unexpected glab call: $*" >&2; exit 1 ;;
+esac
+"#,
+        root = sb.root.display()
+    );
+    let glab = sb.root.join("glab");
+    fs::write(&glab, script).unwrap();
+    fs::set_permissions(&glab, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn delivers_a_gitlab_issue_as_a_merge_request() {
+    delivers_a_merge_request(
+        "gitlab-mr",
+        "gitlab.test",
+        "gitlab.test",
+        "https://gitlab.test",
+    );
+}
+
+/// A GitLab of its own over plain HTTP on a port of its own: the merge request's address names both, and its
+/// state is still asked where the project's tracker says.
+#[cfg(unix)]
+#[test]
+fn follows_a_merge_request_on_a_gitlab_with_its_own_port() {
+    delivers_a_merge_request(
+        "gitlab-port",
+        "http://gitlab.test:8080",
+        "gitlab.test:8080",
+        "http://gitlab.test:8080",
+    );
+}
+
+/// Runs `#42` of a project whose `[trackers.gitlab] host` is `tracker` and whose origin is on `gitlab.test`, from
+/// the worktree to the merge request on `web` (glab signed in to `glab_host`) and its cleanup once merged.
+#[cfg(unix)]
+fn delivers_a_merge_request(name: &str, tracker: &str, glab_host: &str, web: &str) {
+    let sb = Sandbox::new(name);
+    fake_glab(&sb, glab_host, web);
+    let remotes = sb.root.join("remotes");
+    let rewrite = format!(
+        "[url \"{}/\"]\n\tinsteadOf = https://gitlab.test/\n",
+        remotes.display()
+    );
+    fs::write(sb.root.join("gitconfig"), rewrite).unwrap();
+    let bare = remotes.join("acme/api.git");
+    fs::create_dir_all(&bare).unwrap();
+    sb.git(&bare, &["init", "-q", "--bare", "-b", "main"]);
+    let seed = sb.repo("seed", &path(&bare));
+    sb.git(&seed, &["push", "-q", "origin", "main"]);
+    let api = sb.root.join("repos/api");
+    sb.git(
+        &sb.root,
+        &[
+            "clone",
+            "-q",
+            "https://gitlab.test/acme/api.git",
+            &path(&api),
+        ],
+    );
+    sb.project(
+        "acme",
+        &format!(
+            "name = \"Acme\"\n[[repos]]\npath = {api:?}\n[trackers.gitlab]\nhost = \"{tracker}\"\ncomment = true\n"
+        ),
+    );
+    let t = sb.tickets();
+    let log = || fs::read_to_string(sb.root.join("glab.log")).unwrap_or_default();
+    assert_eq!(t.sources("acme").unwrap().gitlab_repos, ["acme/api"]);
+
+    let launch = t.start("#42", Some("acme"), None).unwrap();
+    let run = launch.run;
+    let issue = format!("{web}/acme/api/-/issues/42");
+    assert_eq!(
+        (
+            run.ticket.provider.as_str(),
+            run.ticket.key.as_str(),
+            run.ticket.url.as_str()
+        ),
+        ("gitlab", "acme/api#42", issue.as_str())
+    );
+    let brief = fs::read_to_string(&launch.brief).unwrap();
+    assert!(brief.contains("Nothing happens."), "{brief}");
+    let worktree = PathBuf::from(run.worktree.clone().unwrap());
+    fs::write(worktree.join("login.txt"), "fixed\n").unwrap();
+
+    let preview = t.deliver_preview(run.id).unwrap();
+    assert!(preview.merge_request, "origin is on a GitLab");
+    let delivered = t.deliver(run.id, &preview.fingerprint).unwrap();
+    assert_eq!(delivered.warning, None);
+    let mr = format!("{web}/acme/api/-/merge_requests/7");
+    assert_eq!(delivered.run.pr_url.as_deref(), Some(mr.as_str()));
+    let sent = log();
+    let comment = format!("Merge request acme/api!7: {mr}");
+    for part in [
+        "\"description\":\"Closes #42\"",
+        "\"source_branch\":\"termf/42-fix-the-login\"",
+        "\"target_branch\":\"main\"",
+        &comment,
+    ] {
+        assert!(sent.contains(part), "{part} in {sent}");
+    }
+    sb.git(
+        &bare,
+        &["rev-parse", "--verify", "refs/heads/termf/42-fix-the-login"],
+    );
+    let merge = t.pr_merge(run.id).unwrap().unwrap();
+    assert!(merge.conflict && merge.state == "CONFLICT");
+    assert!(
+        merge.behind,
+        "its base gained commits, whatever the merge method"
+    );
+
+    let check = t.after_merge(true, |_| false, |_| {}).unwrap();
+    assert_eq!(
+        (check.cleanups.len(), check.errors.len()),
+        (0, 0),
+        "still open"
+    );
+    fs::write(sb.root.join("mr-state"), "merged").unwrap();
+    let check = t.after_merge(true, |_| false, |_| {}).unwrap();
+    assert_eq!(check.cleanups.len(), 1);
+    assert!(check.cleanups[0].cleaned, "{:?}", check.cleanups[0].error);
+    let run = t.run(run.id).unwrap();
+    assert_eq!(
+        (run.status, run.pr_state.as_deref()),
+        (RunStatus::Closed, Some("merged"))
+    );
+    assert!(!worktree.exists());
+}
+
+fn azure_answers(r: &Request) -> (u16, String) {
+    if r.auth != AZURE_BASIC {
+        return (401, "<html>Unauthorized</html>".into());
+    }
+    let fields = |id: u64, title: &str, changed: &str| {
+        json!({
+            "System.Id": id, "System.Title": title, "System.State": "Active", "System.Tags": "api; urgent",
+            "System.AssignedTo": { "displayName": "Alex" }, "System.ChangedDate": changed,
+            "System.TeamProject": "Shop", "System.CreatedBy": { "displayName": "Sam" },
+            "System.Description": "<div>Pay <b>fails</b> &amp; <a href=\"https://logs.example.com/12\">logs</a></div><ul><li>one</li><li>two</li></ul>",
+            "Microsoft.VSTS.Common.AcceptanceCriteria": "<p>It pays</p>",
+        })
+    };
+    let answer = match (r.method.as_str(), r.path.as_str()) {
+        ("POST", "/Shop/_apis/wit/wiql?api-version=7.1&$top=1000") => {
+            json!({ "workItems": [{ "id": 12 }, { "id": 11 }] })
+        }
+        ("POST", "/_apis/wit/workitemsbatch?api-version=7.1") => json!({ "value": [
+            { "id": 12, "fields": fields(12, "Checkout fails", "2026-11-21T08:00:00.12Z") },
+            { "id": 11, "fields": fields(11, "Slow cart", "2026-11-20T08:00:00Z") },
+        ]}),
+        ("GET", "/_apis/wit/workitems/12?api-version=7.1") => {
+            json!({ "id": 12, "fields": fields(12, "Checkout fails", "2026-11-21T08:00:00Z") })
+        }
+        ("GET", "/_apis/wit/workitems/12?api-version=7.1&$expand=relations") => json!({
+            "id": 12, "fields": fields(12, "Checkout fails", "2026-11-21T08:00:00Z"),
+            "relations": [{ "rel": "Hyperlink", "url": "https://github.com/acme/shop/pull/2" }],
+        }),
+        (
+            "GET",
+            "/Shop/_apis/wit/workItems/12/comments?api-version=7.1-preview.4&$top=200&order=asc",
+        ) => json!({ "comments": [{
+            "text": "<p>Seen on mobile</p>", "createdBy": { "displayName": "Kim" },
+            "createdDate": "2026-11-21T09:00:00Z",
+        }]}),
+        ("POST", "/Shop/_apis/wit/workItems/12/comments?api-version=7.1-preview.4")
+        | ("PATCH", "/_apis/wit/workitems/12?api-version=7.1") => json!({ "id": 12 }),
+        _ => return (404, json!({ "message": "not found" }).to_string()),
+    };
+    (200, answer.to_string())
+}
+
+#[test]
+fn reads_and_writes_azure_devops() {
+    let sb = Sandbox::new("azure");
+    let (url, requests) = fake_jira(azure_answers);
+    sb.project(
+        "acme",
+        &format!(
+            "name = \"Acme\"\n[trackers.azure]\norganization = \"{url}\"\nproject = \"Shop\"\ncomment = true\ntransition = \"Resolved\"\n"
+        ),
+    );
+    let t = sb.tickets();
+
+    let inbox = t.inbox(Some("acme"), false).unwrap();
+    assert!(
+        inbox.errors[0]
+            .message
+            .contains("no personal access token for the Azure DevOps organization"),
+        "{:?}",
+        inbox.errors
+    );
+    t.save_token("azure", &url, "pat-s3cret").unwrap();
+    assert!(t.sources("acme").unwrap().tokens.azure);
+    let inbox = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(inbox.errors, []);
+    assert_eq!(keys(&inbox.tickets), ["AB#12", "AB#11"]);
+    let first = &inbox.tickets[0];
+    let edit = format!("{url}/Shop/_workitems/edit/12");
+    assert_eq!(first.reference.url, edit);
+    assert_eq!(
+        (
+            first.state.as_str(),
+            first.updated.as_str(),
+            first.source.as_str()
+        ),
+        ("Active", "2026-11-21T08:00:00Z", "azure")
+    );
+    assert_eq!(first.labels, ["api", "urgent"]);
+    assert_eq!(first.assignees, ["Alex"]);
+    assert_eq!(bodies(&requests)[0], json!({ "query": DEFAULT_WIQL }));
+
+    let board = format!("{url}/Shop/_boards/board/t/Shop%20Team/Stories?workitem=12");
+    for input in ["AB#12", edit.as_str(), board.as_str()] {
+        let r = t.resolve(input, None).unwrap();
+        let found = (
+            r.ticket.provider.as_str(),
+            r.ticket.key.as_str(),
+            r.ticket.url.as_str(),
+        );
+        assert_eq!(found, ("azure", "AB#12", edit.as_str()), "{input}");
+    }
+    let azure = t.provider("acme", "azure").unwrap();
+    let reference = t.resolve("AB#12", None).unwrap().ticket;
+    let ticket = azure.fetch(&reference).unwrap();
+    assert_eq!(
+        ticket.body,
+        "Pay fails & [logs](https://logs.example.com/12)\n\n- one\n- two\n\n### Acceptance criteria\n\nIt pays"
+    );
+    assert_eq!(ticket.comments[0].body, "Seen on mobile");
+    assert_eq!(ticket.comments[0].author.as_deref(), Some("Kim"));
+    assert_eq!(ticket.author.as_deref(), Some("Sam"));
+    assert_eq!(ticket.links, ["https://logs.example.com/12"]);
+
+    azure
+        .comment(&reference, "Pull request: https://x.test/1 <ok>")
+        .unwrap();
+    assert_eq!(
+        bodies(&requests).pop().unwrap(),
+        json!({ "text": "Pull request: https://x.test/1 &lt;ok&gt;" })
+    );
+    azure.transition(&reference, "Resolved").unwrap();
+    assert_eq!(
+        bodies(&requests).pop().unwrap(),
+        json!([{ "op": "add", "path": "/fields/System.State", "value": "Resolved" }])
+    );
+    let count = requests.lock().unwrap().len();
+    azure
+        .link_pr(&reference, "https://github.com/acme/shop/pull/2")
+        .unwrap();
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        count + 1,
+        "already linked: nothing written"
+    );
+    azure
+        .link_pr(&reference, "https://github.com/acme/shop/pull/3")
+        .unwrap();
+    assert_eq!(
+        bodies(&requests).pop().unwrap(),
+        json!([{ "op": "add", "path": "/relations/-", "value": {
+            "rel": "Hyperlink", "url": "https://github.com/acme/shop/pull/3",
+            "attributes": { "comment": "Pull request acme/shop#3" },
+        }}])
+    );
+    assert_eq!(
+        t.writes("acme", "azure"),
+        (true, Some("Resolved".to_owned()))
+    );
+
+    t.save_token("azure", &url, "nope").unwrap();
+    let refused = t.inbox(Some("acme"), true).unwrap();
+    assert!(
+        refused.errors[0]
+            .message
+            .contains("Azure DevOps refused the personal access token"),
+        "{:?}",
+        refused.errors
+    );
+}
+
+#[test]
+fn keeps_the_answers_of_each_workspace_apart() {
+    let sb = Sandbox::new("linear-two");
+    let (url, requests) = fake_jira(linear_answers);
+    sb.project(
+        "acme",
+        "name = \"Acme\"\n[trackers.linear]\nworkspace = \"acme\"\n",
+    );
+    sb.project(
+        "beta",
+        "name = \"Beta\"\n[trackers.linear]\nworkspace = \"beta\"\n",
+    );
+    let mut t = sb.tickets();
+    t.linear_api = url;
+    t.save_token("linear", "acme", LINEAR_KEY).unwrap();
+    t.save_token("linear", "beta", LINEAR_BETA).unwrap();
+    let acme = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(keys(&acme.tickets), ["ENG-2", "ENG-1"]);
+    let beta = t.inbox(Some("beta"), false).unwrap();
+    assert_eq!(
+        keys(&beta.tickets),
+        ["OPS-9"],
+        "the same query in another workspace is asked there"
+    );
+    let count = requests.lock().unwrap().len();
+    assert_eq!(t.inbox(Some("acme"), false).unwrap(), acme);
+    assert_eq!(t.inbox(Some("beta"), false).unwrap(), beta);
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        count,
+        "each kept its own answer"
+    );
+}
+
+/// `#42` and `api#42` in a project that has both GitHub and GitLab: its repositories' origin, else its trackers.
+#[test]
+fn tells_github_from_gitlab_inside_a_project() {
+    let sb = Sandbox::new("forges");
+    let github = sb.repo("api", "https://github.com/acme/api.git");
+    let resolve = |input: &str| {
+        let r = sb.tickets().resolve(input, Some("acme"))?;
+        anyhow::Ok((r.ticket.provider, r.ticket.key))
+    };
+    let both = format!(
+        "name = \"Acme\"\n[[repos]]\npath = {github:?}\n[trackers.gitlab]\nrepo = \"acme/api-issues\"\n"
+    );
+    sb.project("acme", &both);
+    for input in ["#42", "api#42"] {
+        assert_eq!(
+            resolve(input).unwrap(),
+            ("github".into(), "acme/api#42".into()),
+            "{input}: origin is on GitHub"
+        );
+    }
+    assert_eq!(
+        resolve("acme/api-issues#42").unwrap(),
+        ("gitlab".into(), "acme/api-issues#42".into())
+    );
+
+    let mirrored = sb.repo("web", "https://gitlab.com/acme/web.git");
+    sb.git(
+        &mirrored,
+        &["remote", "add", "mirror", "https://github.com/acme/web.git"],
+    );
+    let gitlab = format!("name = \"Acme\"\n[[repos]]\npath = {mirrored:?}\n[trackers.gitlab]\n");
+    sb.project("acme", &gitlab);
+    for input in ["#42", "web#42"] {
+        assert_eq!(
+            resolve(input).unwrap(),
+            ("gitlab".into(), "acme/web#42".into()),
+            "{input}: origin is on GitLab, GitHub is a mirror"
+        );
+    }
+
+    let ops = sb.repo("ops", "git@gitlab.com:acme/ops.git");
+    let two = format!(
+        "name = \"Acme\"\n[[repos]]\npath = {github:?}\n[[repos]]\npath = {ops:?}\n[trackers.gitlab]\n"
+    );
+    sb.project("acme", &two);
+    let unclear = format!("{:#}", resolve("#42").unwrap_err());
+    assert!(
+        unclear.contains("write owner/repo#42 or group/project#42"),
+        "{unclear}"
+    );
+    sb.project("acme", &format!("{two}repo = \"acme/ops\"\n"));
+    assert_eq!(
+        resolve("#42").unwrap(),
+        ("gitlab".into(), "acme/ops#42".into()),
+        "only GitLab names the repository of its issues"
+    );
+}
+
+#[test]
+fn a_source_that_fails_leaves_the_others_in_the_inbox() {
+    let sb = Sandbox::new("partial");
+    let (url, _) = fake_jira(linear_answers);
+    sb.project(
+        "acme",
+        "name = \"Acme\"\n[trackers.linear]\nworkspace = \"acme\"\n[trackers.gitlab]\nrepo = \"acme/api\"\n[trackers.azure]\norganization = \"acme\"\nproject = \"Shop\"\n",
+    );
+    let mut t = sb.tickets();
+    t.linear_api = url;
+    t.save_token("linear", "acme", LINEAR_KEY).unwrap();
+    assert_eq!(
+        t.configured(Some("acme")).unwrap()[0].sources,
+        ["gitlab", "linear", "azure"]
+    );
+    let inbox = t.inbox(Some("acme"), false).unwrap();
+    assert_eq!(keys(&inbox.tickets), ["ENG-2", "ENG-1"]);
+    let failed: Vec<&str> = inbox.errors.iter().map(|e| e.source.as_str()).collect();
+    assert_eq!(failed, ["gitlab", "azure"], "{:?}", inbox.errors);
+    assert!(
+        inbox.errors[0]
+            .message
+            .contains("glab auth login --hostname gitlab.com")
+    );
+}
+
+#[test]
+fn reads_the_addresses_of_linear_gitlab_and_azure_devops() {
+    assert_eq!(linear::parse("ENG-12"), Some(("ENG-12".into(), None)));
+    assert_eq!(
+        linear::parse("https://linear.app/Acme/issue/eng-12/fix-it?x=1"),
+        Some(("ENG-12".into(), Some("acme".into())))
+    );
+    for other in [
+        "https://linear.app/acme/project/x",
+        "https://example.com/acme/issue/ENG-1",
+        "#12",
+    ] {
+        assert_eq!(linear::parse(other), None, "{other}");
+    }
+
+    assert_eq!(
+        gitlab::parse_url("https://GitLab.com/acme/sub/api/-/issues/42/"),
+        Some(("https://gitlab.com".into(), "acme/sub/api".into(), 42))
+    );
+    assert_eq!(
+        gitlab::parse_url("https://gitlab.com/acme/api/-/merge_requests/7"),
+        None
+    );
+    assert_eq!(
+        gitlab::merge_request("https://gitlab.acme.dev/acme/api/-/merge_requests/7"),
+        Some(("https://gitlab.acme.dev".into(), "acme/api".into(), 7))
+    );
+    assert_eq!(
+        gitlab::request_title("https://github.com/acme/front/pull/12"),
+        "Pull request acme/front#12"
+    );
+    assert!(gitlab::split("acme#4").is_err() && gitlab::split("a/b/c#4").is_ok());
+    let home = std::env::temp_dir().join(format!("termf-gitlab-ssh-{}", std::process::id()));
+    fs::create_dir_all(home.join(".ssh")).unwrap();
+    fs::write(
+        home.join(".ssh/config"),
+        "Host gl-work\n  HostName gitlab.com\n",
+    )
+    .unwrap();
+    let ssh = termf_ssh::Ssh::new(home.clone());
+    let hosts = ["code.acme.dev".to_owned()];
+    for (url, found) in [
+        (
+            "git@gitlab.com:Acme/API.git",
+            Some(("gitlab.com", "acme/api")),
+        ),
+        (
+            "https://gitlab.com/acme/sub/api",
+            Some(("gitlab.com", "acme/sub/api")),
+        ),
+        (
+            "ssh://git@code.acme.dev:2222/acme/api.git",
+            Some(("code.acme.dev", "acme/api")),
+        ),
+        ("gl-work:acme/api.git", Some(("gitlab.com", "acme/api"))),
+        ("git@github.com:acme/api.git", None),
+        ("/srv/git/api", None),
+    ] {
+        let got = gitlab::remote_slug(url, &ssh, &hosts);
+        let got = got.as_ref().map(|(h, s)| (h.as_str(), s.as_str()));
+        assert_eq!(got, found, "{url}");
+    }
+    let _ = fs::remove_dir_all(home);
+
+    assert_eq!(azure::parse("AB#123"), Some((None, 123)));
+    let acme = Some("https://dev.azure.com/acme".to_owned());
+    for url in [
+        "https://dev.azure.com/Acme/Shop/_workitems/edit/123/",
+        "https://acme.visualstudio.com/Shop/_workitems/edit/123",
+        "https://dev.azure.com/acme/Shop/_boards/board/t/Team/Stories?workitem=123",
+    ] {
+        assert_eq!(azure::parse(url), Some((acme.clone(), 123)), "{url}");
+    }
+    assert_eq!(
+        azure::parse("https://example.com/Shop/_workitems/edit/1"),
+        None
+    );
+    assert_eq!(azure::parse("ab#1"), None);
+    assert_eq!(
+        azure::text("<h2>Steps</h2><p>Click &#39;Pay&#x27; &lt;now&gt;<br>then wait</p>&nbsp;"),
+        "## Steps\n\nClick 'Pay' <now>\nthen wait"
+    );
+    assert_eq!(
+        azure::text(
+            "<a class=\"x\" data-href=\"no\" HREF='https://y.test/1?a=1&amp;b=2'>y</a> <a href=https://z.test>z</a>"
+        ),
+        "[y](https://y.test/1?a=1&b=2) [z](https://z.test)"
+    );
+
+    for (site, base) in [
+        ("gitlab.acme.dev:8443", "https://gitlab.acme.dev:8443"),
+        (
+            "http://gitlab.acme.dev:8080/",
+            "http://gitlab.acme.dev:8080",
+        ),
+        ("https://GitLab.com", "https://gitlab.com"),
+        ("", "https://gitlab.com"),
+    ] {
+        assert_eq!(gitlab::base(site).unwrap(), base, "{site}");
+    }
+    for bad in [
+        "gitlab.acme.dev:84a3",
+        "gitlab",
+        "ftp://gitlab.com",
+        "gitlab.com/x",
+    ] {
+        assert!(gitlab::base(bad).is_err(), "{bad}");
+    }
+    assert_eq!(
+        gitlab::name("http://gitlab.acme.dev:8080").unwrap(),
+        "gitlab.acme.dev"
+    );
+}
+
+#[test]
+fn saves_linear_gitlab_and_azure_sources() {
+    let sb = Sandbox::new("save-more");
+    let file = sb.root.join("config/projects/acme.toml");
+    sb.project("acme", "name = \"Acme\"\n");
+    let t = sb.tickets();
+    let trackers = Trackers {
+        linear: Some(LinearTracker {
+            workspace: "acme".into(),
+            team: Some(" ".into()),
+            mine: true,
+            states: vec!["Todo".into(), "In Progress".into()],
+            comment: true,
+            transition: Some("In Review".into()),
+        }),
+        gitlab: Some(GitlabTracker {
+            host: "gitlab.com".into(),
+            repo: Some("acme/api".into()),
+            mine: false,
+            comment: false,
+        }),
+        azure: Some(AzureTracker {
+            organization: "acme".into(),
+            project: "Shop".into(),
+            wiql: Some(DEFAULT_WIQL.into()),
+            comment: false,
+            transition: None,
+        }),
+        ..Trackers::default()
+    };
+    let saved = t.save_sources("acme", &trackers).unwrap();
+    let text = fs::read_to_string(&file).unwrap();
+    for written in [
+        "[trackers.linear]",
+        "workspace = \"acme\"",
+        "states = [\"Todo\", \"In Progress\"]",
+        "transition = \"In Review\"",
+        "[trackers.gitlab]",
+        "repo = \"acme/api\"",
+        "mine = false",
+        "[trackers.azure]",
+        "organization = \"acme\"",
+        "project = \"Shop\"",
+    ] {
+        assert!(text.contains(written), "{written} in {text}");
+    }
+    for default in ["team", "host", "wiql", "mine = true"] {
+        assert!(!text.contains(default), "{default} in {text}");
+    }
+    assert_eq!(saved.trackers.gitlab, trackers.gitlab);
+    assert_eq!(saved.trackers.azure.as_ref().unwrap().wiql, None);
+
+    let invalid = |change: fn(&mut Trackers)| {
+        let mut bad = trackers.clone();
+        change(&mut bad);
+        format!("{:#}", t.save_sources("acme", &bad).unwrap_err())
+    };
+    assert!(
+        invalid(|b| b.linear.as_mut().unwrap().workspace = "a b".into())
+            .contains("not a Linear workspace")
+    );
+    assert!(
+        invalid(|b| b.linear.as_mut().unwrap().team = Some("EN-G".into()))
+            .contains("not a team key")
+    );
+    assert!(
+        invalid(|b| b.gitlab.as_mut().unwrap().repo = Some("api".into())).contains("group/project")
+    );
+    assert!(
+        invalid(|b| b.gitlab.as_mut().unwrap().host = "gitlab".into())
+            .contains("not a GitLab host")
+    );
+    assert!(
+        invalid(|b| b.azure.as_mut().unwrap().project = " ".into()).contains("name the project")
+    );
+    assert!(
+        invalid(|b| b.azure.as_mut().unwrap().organization = "a/b".into())
+            .contains("not an Azure DevOps organization")
+    );
+    assert!(t.save_token("gitlab", "gitlab.com", " ").is_err());
+    assert!(
+        t.has_token("jira", "x").is_err(),
+        "Jira keeps its own commands"
     );
 }
 

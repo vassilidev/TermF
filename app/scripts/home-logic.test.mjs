@@ -28,6 +28,21 @@ test("waits: live tiles first, then the most recent first, the CTO's permission 
   assert.deepEqual(waits([], [], []), []);
 });
 
+test("waits: an Ops request and an agent's request for a key take their place by date", () => {
+  const list = waits([], [{ id: 32, updated: 100, cto: false }], [], [{ id: 4, at: 50, project: "acme" }], [
+    { id: 2, at: 150, project: "acme" },
+  ]);
+  assert.deepEqual(
+    list.map((w) => [w.kind, w.key]),
+    [
+      ["secret", "secret:2"],
+      ["agent", "agent:32"],
+      ["ops", "ops:4"],
+    ],
+  );
+  assert.equal(list[0].project, "acme");
+});
+
 test("place: a card takes the latest notice of its step, a step nobody told of goes at the head of the thread", () => {
   const notices = [
     { key: 10, about: "waiting", run: 7, step: "approve-plan" },

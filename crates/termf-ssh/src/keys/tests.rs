@@ -66,6 +66,95 @@ AAAA
 -----END EC PRIVATE KEY-----
 ";
 
+// Throwaway keys made by `ssh-keygen -t ecdsa -m PKCS8` of macOS (OpenSSH 10.2 on LibreSSL 3.3.6): the curve
+// spelled out instead of named, and, protected by "passphrase", PBKDF2 with HMAC-SHA1 and AES-128-CBC.
+const LIBRESSL_EXPLICIT: &str = "-----BEGIN PRIVATE KEY-----
+MIIBeQIBADCCAQMGByqGSM49AgEwgfcCAQEwLAYHKoZIzj0BAQIhAP////8AAAAB
+AAAAAAAAAAAAAAAA////////////////MFsEIP////8AAAABAAAAAAAAAAAAAAAA
+///////////////8BCBaxjXYqjqT57PrvVV2mIa8ZR0GsMxTsPY7zjw+J9JgSwMV
+AMSdNgiG5wSTamZ44ROdJreBn36QBEEEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg
+9KE5RdiYwpZP40Li/hp/m47n60p8D54WK84zV2sxXs7LtkBoN79R9QIhAP////8A
+AAAA//////////+85vqtpxeehPO5ysL8YyVRAgEBBG0wawIBAQQgpEFeso6apmqw
+fDDIlu+P9pLqlF5NuuJeXE+jttPwDuyhRANCAARqemUqEL3Sk8Cry6JmC5mO28UK
+6AIuvDdqKSxWYaKjMKZlO5fZpytGayb5h7xh6IiFKTdS08M9xYuWl1eRjMEv
+-----END PRIVATE KEY-----
+";
+const LIBRESSL_EXPLICIT_PUBLIC: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBGp6ZSoQvdKTwKvLomYLmY7bxQroAi68N2opLFZhoqMwpmU7l9mnK0ZrJvmHvGHoiIUpN1LTwz3Fi5aXV5GMwS8= made";
+const LIBRESSL_ENCRYPTED: &str = "-----BEGIN ENCRYPTED PRIVATE KEY-----
+MIIBzzBJBgkqhkiG9w0BBQ0wPDAbBgkqhkiG9w0BBQwwDgQI3RLqJwb/O0gCAggA
+MB0GCWCGSAFlAwQBAgQQcKxYEF3J9WzjauK+896uzgSCAYBKtrl2zfGs+ww7z4Dk
+uyS8HnuHiPAths2MVo4yeollHB/uqbEmsLwMl5ObZCo8iHEcdu9w9+Dq/IXAA4D4
+Dows+8uJYJuiU5JVC6m41Qa3ZbUI65HeDzFmeftryzQx0L2POwJI/KOSxKMqTaeg
+zzk6pKFmZMJ8kthgiDIFgvvAXwzmYdovDJ0rxvAsqGJostODN2QOfkBsdyqKNdXN
+GXHM7m8pduxiQbj4Rrwn20XTiK9ZM4U5q1uwYmC9+Nn8tNz6fWiNm0UcPky5GwT+
+4xk1M/KBEoPOAq6SivILgGXmvxgs43NmAlbTzQuPbctc5R5nw1gRLe/hHZWZGdp9
+o+vPw2J+a03VQy4d4AB99L9ufPCveGrjwI6K8/aK7MIfu8B02MgSrGu3aAiprAxH
+9aSmCIz4KfA/gpGez4FnHKL53HErc6MURxjnwnTslUdZp+/MgYKS93ykhQhQ+BDp
+VCFKljbJLPEAnypiFzJQOSt3Sbg2LONTygFKQOn8o0pb8Zk=
+-----END ENCRYPTED PRIVATE KEY-----
+";
+const LIBRESSL_ENCRYPTED_PUBLIC: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBP6iLr7/MDsAHRubyu0AsMXBjQObok60Jy02+My3zGc3bF0v4eZEj9WkaZ9dOdaRLx4bvaaNaF1qTkomXwhvzYA= made";
+
+// A throwaway P-521 key whose scalar `ssh-keygen` wrote without its leading zero, then the same protected by
+// "passphrase".
+pub(crate) const OPENSSH_SHORT_SCALAR: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAArAAAABNlY2RzYS
+1zaGEyLW5pc3RwNTIxAAAACG5pc3RwNTIxAAAAhQQAww5qvpgl+uM9BRuo72P/Q5qCrgFe
+dAqD83ViHLBGnrN7SP8W0ylOSkZJT5Tm30DMJS9d7S8gza53WMAgWssQIyoBF6/+EMqSDZ
+ACwpXwPtt89TKrG6ZxtIvUeTTbgBNneiC+Rkf0s3H36CWL1UMQ15IILDkgt1z19a6pdLUm
+02cWyxEAAAEIl3eBEJd3gRAAAAATZWNkc2Etc2hhMi1uaXN0cDUyMQAAAAhuaXN0cDUyMQ
+AAAIUEAMMOar6YJfrjPQUbqO9j/0Oagq4BXnQKg/N1YhywRp6ze0j/FtMpTkpGSU+U5t9A
+zCUvXe0vIM2ud1jAIFrLECMqARev/hDKkg2QAsKV8D7bfPUyqxumcbSL1Hk024ATZ3ogvk
+ZH9LNx9+gli9VDENeSCCw5ILdc9fWuqXS1JtNnFssRAAAAQUj05W7Ztz3arTO7PS8a40On
+zsIGMCXOasqfB0cYhWmqUq706rI0x22h8J0akZzV/0/G4Re7RxoSH3RkCMcFjz11AAAABG
+1hZGUBAgMEBQYH
+-----END OPENSSH PRIVATE KEY-----
+";
+pub(crate) const OPENSSH_SHORT_SCALAR_ENCRYPTED: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBLoTAXIx
+8IFoDtX8rwBGzvAAAAGAAAAAEAAACsAAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlz
+dHA1MjEAAACFBADDDmq+mCX64z0FG6jvY/9DmoKuAV50CoPzdWIcsEaes3tI/xbTKU5KRk
+lPlObfQMwlL13tLyDNrndYwCBayxAjKgEXr/4QypINkALClfA+23z1MqsbpnG0i9R5NNuA
+E2d6IL5GR/SzcffoJYvVQxDXkggsOSC3XPX1rql0tSbTZxbLEQAAARAxlrn2OA/ekXG9fA
+S8DL5igshvLFRKwYGC8ZmBFFbeKgVCAHFEgPR0wPfe3paQThyX+nILKfuqw8AQE82Grap6
+0P1BJHXN9ZussPYlwCq0VYw13QD9ix+rGCSc4l5XwIZu+TdVdpFSlU+ha5hCLyuhv45iVl
+wx7ZYozXqGr/BImO9LfUgBLHuGv2yoUpHAn08QSrnqQx1bt0V3ztiZFOFRmXsV6RwhPTez
+qXFmRd5DneyG6WHdw9BBPaCkLWdRg+10dwdoFOyvlUXEW2qK/W0vo69pPj2QcxYnJTwDJi
+EOmu1ZqWhQjiPgwtWzm4Wliiqw8nywnjfC2JYcvDjcoVjjbgnP+FODF0kLktko6drBVw==
+-----END OPENSSH PRIVATE KEY-----
+";
+pub(crate) const OPENSSH_SHORT_SCALAR_PUBLIC: &str = "ecdsa-sha2-nistp521 AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjEAAACFBADDDmq+mCX64z0FG6jvY/9DmoKuAV50CoPzdWIcsEaes3tI/xbTKU5KRklPlObfQMwlL13tLyDNrndYwCBayxAjKgEXr/4QypINkALClfA+23z1MqsbpnG0i9R5NNuAE2d6IL5GR/SzcffoJYvVQxDXkggsOSC3XPX1rql0tSbTZxbLEQ== made";
+
+// The same, protected by the two ciphers that carry an authentication tag.
+const OPENSSH_SHORT_SCALAR_GCM: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAAFmFlczI1Ni1nY21Ab3BlbnNzaC5jb20AAAAGYmNyeXB0AA
+AAGAAAABBsJK9SNfgiONr/oRNAZScIAAAAGAAAAAEAAACsAAAAE2VjZHNhLXNoYTItbmlz
+dHA1MjEAAAAIbmlzdHA1MjEAAACFBADDDmq+mCX64z0FG6jvY/9DmoKuAV50CoPzdWIcsE
+aes3tI/xbTKU5KRklPlObfQMwlL13tLyDNrndYwCBayxAjKgEXr/4QypINkALClfA+23z1
+MqsbpnG0i9R5NNuAE2d6IL5GR/SzcffoJYvVQxDXkggsOSC3XPX1rql0tSbTZxbLEQAAAR
+BwIIOMeZ6y+K3nErOvl/DKZMa0IqOr1Ud6nXxTa0FyS8Fhphz8yz+C9dpZoHUyBRbxi8uE
+6aoI0CPF/gahtJkI+P+jqtP+QmyvKspfdLGQQn103YQAIIZmuEGC1BLdUggCPq2mWy5dfz
+yUKin7OsC4y6Mp5ofJYpJfHiTywxqhT9VvPQrNVm9wJY4/u8L6i1up8rgpAEMjCZ02qX6Q
+QyLcMCh2xvW0r95AyZ7s6C122sTcMKBgA2uEWxlqku2Xyzx5n4cn4Acw0JjBL8s6X6ucfr
+UatbbAIbm+XRMTIz4KYLvVEZ1+LfzialMLUiRrVUFGaRZkYso7hcRvtaOV0cejYiUeVy05
+xNy3Jo13mFi/wKNM6zyA8VyXJHB/TsdFvXQ=
+-----END OPENSSH PRIVATE KEY-----
+";
+const OPENSSH_SHORT_SCALAR_CHACHA: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAAHWNoYWNoYTIwLXBvbHkxMzA1QG9wZW5zc2guY29tAAAABm
+JjcnlwdAAAABgAAAAQFVDrfeuy6uu5X5WJoazbxQAAABgAAAABAAAArAAAABNlY2RzYS1z
+aGEyLW5pc3RwNTIxAAAACG5pc3RwNTIxAAAAhQQAww5qvpgl+uM9BRuo72P/Q5qCrgFedA
+qD83ViHLBGnrN7SP8W0ylOSkZJT5Tm30DMJS9d7S8gza53WMAgWssQIyoBF6/+EMqSDZAC
+wpXwPtt89TKrG6ZxtIvUeTTbgBNneiC+Rkf0s3H36CWL1UMQ15IILDkgt1z19a6pdLUm02
+cWyxEAAAEIpWcB1RMJxo+8c9nOuBHnNkp0hNklnPd2YUpVVVjfUCf3t0eA6ju7vLlAzhHY
+VmPowBJQyOh/424A8DmXjrj3wGfwf2TeaTCUB13B2TJ1o9RVHJyN0JX8VltiyK7ExNKPas
+Sn6T0srFXQCaeDiMQP7iQ12dvLfYottq5aTCK4nvGt+gactucKYvjGIJOSR9gwR8sstUQt
+WWQA+79Z535YI6N2kv9mP0uBM1ROk59i4CrQO9j48TNTsGvsHQzYOl7fNKrJfdK5e3kMr+
+gS/nKRAAowLYsXeqytgdMuM3d/YxGnZlEsqhwwBimJbMhJZrDIRrIgNEJSohwu03GfIqT+
+sdSVLMm8k0+uD/B/cUxhqkx+HPJFUnKCIg==
+-----END OPENSSH PRIVATE KEY-----
+";
+
 fn scratch(name: &str) -> (Ssh, PathBuf) {
     let home = std::env::temp_dir().join(format!("termf-keys-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&home);
@@ -755,5 +844,322 @@ fn clipboard_digest_ignores_line_endings() {
     assert_ne!(
         crate::tools::clipboard_digest("-----BEGIN-----\nabd\n-----END-----"),
         digest
+    );
+}
+
+/// OpenSSH's own `ssh-keygen`, given nothing of the user's: `-f` names every file, all of them in `dir`.
+#[cfg(unix)]
+fn ssh_keygen(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("ssh-keygen")
+        .args(args)
+        .current_dir(dir)
+        .env("HOME", dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+#[cfg(unix)]
+fn key_part(line: &str) -> String {
+    line.split_whitespace()
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(unix)]
+#[test]
+fn ssh_keygen_reads_every_key_termf_writes_and_termf_reads_its() {
+    use std::os::unix::fs::PermissionsExt;
+    if std::process::Command::new("ssh-keygen")
+        .arg("-?")
+        .output()
+        .is_err()
+    {
+        eprintln!("no ssh-keygen here: skipped");
+        return;
+    }
+    let (_, dir) = scratch("ssh-keygen");
+    let write = |name: &str, text: &str| {
+        let path = dir.join(name);
+        fs::write(&path, text).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        path.to_string_lossy().into_owned()
+    };
+    let pass = "pass phrase é";
+    for algo in ALGOS.into_iter().filter(|a| *a != Algo::X25519) {
+        let secret = Secret::random(algo).unwrap();
+        let ssh_line = secret
+            .encode(Format::Openssh, "alex@acme", None, Usage::Ssh)
+            .unwrap()[1]
+            .text
+            .to_string();
+        for (format, passphrase) in [
+            (Format::Openssh, None),
+            (Format::Openssh, Some(pass)),
+            (Format::Pkcs8, None),
+            (Format::Pkcs8, Some(pass)),
+            (Format::Pkcs1, None),
+            (Format::Sec1, None),
+        ] {
+            if !supported(algo, format) {
+                continue;
+            }
+            let outputs = secret
+                .encode(format, "alex@acme", passphrase, Usage::Ssh)
+                .unwrap();
+            let what = format!(
+                "{algo:?} as {format:?}, passphrase {}",
+                passphrase.is_some()
+            );
+            let private = write(&format!("k{}", outputs[0].suffix), &outputs[0].text);
+            let derived = ssh_keygen(
+                &dir,
+                &["-y", "-P", passphrase.unwrap_or(""), "-f", &private],
+            );
+            // An OpenSSH built on LibreSSL reads no Ed25519 PEM: only its own format is required then.
+            if derived.is_none() && algo == Algo::Ed25519 && format != Format::Openssh {
+                eprintln!("ssh-keygen cannot read {what}: skipped");
+                continue;
+            }
+            let derived = derived.unwrap_or_else(|| panic!("ssh-keygen cannot read {what}"));
+            assert_eq!(key_part(&derived), key_part(&ssh_line), "{what}");
+            if passphrase.is_some() {
+                assert!(
+                    ssh_keygen(&dir, &["-y", "-P", "wrong", "-f", &private]).is_none(),
+                    "{what}: a wrong passphrase opens it"
+                );
+            }
+            for public in outputs.iter().skip(1) {
+                let path = write(&format!("k{}", public.suffix), &public.text);
+                let line = if public.suffix == ".pub" {
+                    public.text.to_string()
+                } else {
+                    ssh_keygen(&dir, &["-i", "-m", "PKCS8", "-f", &path]).unwrap_or_else(|| {
+                        panic!("ssh-keygen cannot read the public half of {what}")
+                    })
+                };
+                assert_eq!(
+                    key_part(&line),
+                    key_part(&ssh_line),
+                    "{what}{}",
+                    public.suffix
+                );
+            }
+        }
+    }
+
+    // The other way: keys ssh-keygen makes, protected or not, in each of its formats.
+    for (kind, bits) in [
+        ("ed25519", ""),
+        ("ecdsa", "256"),
+        ("ecdsa", "384"),
+        ("ecdsa", "521"),
+        ("rsa", "2048"),
+    ] {
+        for (format, passphrase) in [
+            ("RFC4716", ""),
+            ("RFC4716", pass),
+            ("PKCS8", ""),
+            ("PKCS8", pass),
+            ("PEM", ""),
+        ] {
+            if kind == "ed25519" && format != "RFC4716" {
+                continue;
+            }
+            let name = format!("made-{kind}{bits}-{format}-{}", passphrase.len());
+            let file = dir.join(&name).to_string_lossy().into_owned();
+            let mut args = vec![
+                "-q", "-t", kind, "-m", format, "-N", passphrase, "-C", "made", "-f", &file,
+            ];
+            if !bits.is_empty() {
+                args.extend(["-b", bits]);
+            }
+            ssh_keygen(&dir, &args).unwrap_or_else(|| panic!("ssh-keygen {args:?}"));
+            let public = fs::read_to_string(format!("{file}.pub")).unwrap();
+            let text = fs::read_to_string(&file).unwrap();
+            let pass = (!passphrase.is_empty()).then_some(passphrase);
+            let parsed =
+                parse(&text, pass).unwrap_or_else(|e| panic!("TermF cannot read {name}: {e:#}"));
+            assert_eq!(
+                parsed.secret.spki().unwrap(),
+                parse_public(&public).unwrap(),
+                "{name}"
+            );
+            if pass.is_some() {
+                assert!(parse(&text, Some("wrong")).is_err(), "{name}");
+            }
+        }
+    }
+    let _ = fs::remove_dir_all(dir.parent().unwrap());
+}
+
+#[test]
+fn reads_ecdsa_keys_whose_curve_is_spelled_out() {
+    for (text, pass, public) in [
+        (LIBRESSL_EXPLICIT, None, LIBRESSL_EXPLICIT_PUBLIC),
+        (
+            LIBRESSL_ENCRYPTED,
+            Some("passphrase"),
+            LIBRESSL_ENCRYPTED_PUBLIC,
+        ),
+    ] {
+        let read = parse(text, pass).unwrap();
+        assert_eq!(read.secret.spki().unwrap(), parse_public(public).unwrap());
+    }
+    assert_eq!(
+        locked(parse(LIBRESSL_ENCRYPTED, Some("wrong")).err().unwrap()),
+        Locked::WrongPassphrase
+    );
+    // The same key with a public point that is not its own: refused, never read as another curve's.
+    let der = pkcs8::SecretDocument::from_pem(LIBRESSL_EXPLICIT)
+        .unwrap()
+        .1;
+    let mut bytes = der.as_bytes().to_vec();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    assert!(formats::from_pkcs8(&bytes).is_err());
+}
+
+#[test]
+fn reads_openssh_ecdsa_keys_whose_scalar_lost_its_leading_zero() {
+    for (text, pass) in [
+        (OPENSSH_SHORT_SCALAR, None),
+        (OPENSSH_SHORT_SCALAR_ENCRYPTED, Some("passphrase")),
+        (OPENSSH_SHORT_SCALAR_GCM, Some("passphrase")),
+        (OPENSSH_SHORT_SCALAR_CHACHA, Some("passphrase")),
+    ] {
+        let read = parse(text, pass).unwrap();
+        assert_eq!(
+            read.secret.spki().unwrap(),
+            parse_public(OPENSSH_SHORT_SCALAR_PUBLIC).unwrap()
+        );
+        assert_eq!(
+            (read.comment.as_str(), read.encrypted),
+            ("made", pass.is_some())
+        );
+    }
+    for text in [
+        OPENSSH_SHORT_SCALAR_ENCRYPTED,
+        OPENSSH_SHORT_SCALAR_GCM,
+        OPENSSH_SHORT_SCALAR_CHACHA,
+    ] {
+        assert_eq!(
+            locked(parse(text, Some("wrong")).err().unwrap()),
+            Locked::WrongPassphrase
+        );
+    }
+    assert_eq!(
+        locked(parse(OPENSSH_SHORT_SCALAR_ENCRYPTED, None).err().unwrap()),
+        Locked::NeedsPassphrase
+    );
+}
+
+/// `inner` (an ECPrivateKey) under the EC algorithm with `params`, as PKCS#8 DER.
+fn ec_pkcs8(params: pkcs8::der::asn1::AnyRef<'_>, inner: &[u8]) -> Vec<u8> {
+    use pkcs8::der::Encode;
+    pkcs8::PrivateKeyInfo {
+        algorithm: pkcs8::AlgorithmIdentifierRef {
+            oid: pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.2.1"),
+            parameters: Some(params),
+        },
+        private_key: inner,
+        public_key: None,
+    }
+    .to_der()
+    .unwrap()
+}
+
+/// SEQUENCE { 1, d, [1] point } in DER, the point left out when `None`.
+fn ec_inner(d: &[u8], point: Option<&[u8]>) -> Vec<u8> {
+    let mut body = vec![0x02, 0x01, 0x01, 0x04, d.len() as u8];
+    body.extend_from_slice(d);
+    if let Some(point) = point {
+        body.extend([
+            0xa1,
+            point.len() as u8 + 3,
+            0x03,
+            point.len() as u8 + 1,
+            0x00,
+        ]);
+        body.extend_from_slice(point);
+    }
+    let mut out = vec![0x30, body.len() as u8];
+    out.extend(body);
+    out
+}
+
+#[test]
+fn an_explicit_curve_is_read_from_its_parameters_with_any_public_point() {
+    use pkcs8::der::Decode;
+    let der = pkcs8::SecretDocument::from_pem(LIBRESSL_EXPLICIT)
+        .unwrap()
+        .1;
+    let info = pkcs8::PrivateKeyInfo::from_der(der.as_bytes()).unwrap();
+    let params = info.algorithm.parameters.unwrap();
+    let Secret::Ec(_, d) = formats::from_pkcs8(der.as_bytes()).unwrap() else {
+        panic!("not an EC key");
+    };
+    let public = parse_public(LIBRESSL_EXPLICIT_PUBLIC).unwrap();
+    let spki = pkcs8::spki::SubjectPublicKeyInfoRef::try_from(public.as_slice()).unwrap();
+    let point = spki.subject_public_key.raw_bytes();
+    let mut compressed = vec![2 + (point[64] & 1)];
+    compressed.extend_from_slice(&point[1..33]);
+    for inner in [
+        ec_inner(&d, None),
+        ec_inner(&d, Some(&compressed)),
+        ec_inner(&d, Some(point)),
+    ] {
+        let read = formats::from_pkcs8(&ec_pkcs8(params, &inner)).unwrap();
+        assert_eq!(read.spki().unwrap(), public);
+    }
+    let mut other = point.to_vec();
+    other[64] ^= 1;
+    assert!(formats::from_pkcs8(&ec_pkcs8(params, &ec_inner(&d, Some(&other)))).is_err());
+}
+
+#[test]
+fn a_key_that_opens_but_is_not_supported_is_never_a_wrong_passphrase() {
+    use pkcs8::der::asn1::AnyRef;
+    let secp256k1 = pkcs8::ObjectIdentifier::new_unwrap("1.3.132.0.10");
+    let der = ec_pkcs8(AnyRef::from(&secp256k1), &ec_inner(&[7; 32], None));
+    let params =
+        pkcs8::pkcs5::pbes2::Parameters::pbkdf2_sha256_aes256cbc(2048, &[1; 16], &[2; 16]).unwrap();
+    let pem = pkcs8::PrivateKeyInfo::try_from(der.as_slice())
+        .unwrap()
+        .encrypt_with_params(params, "passphrase")
+        .unwrap()
+        .to_pem("ENCRYPTED PRIVATE KEY", pkcs8::LineEnding::LF)
+        .unwrap();
+    let error = parse(&pem, Some("passphrase")).err().unwrap();
+    assert!(error.downcast_ref::<Locked>().is_none(), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("unsupported PKCS#8 key"),
+        "{error:#}"
+    );
+    assert_eq!(
+        locked(parse(&pem, Some("wrong")).err().unwrap()),
+        Locked::WrongPassphrase
+    );
+}
+
+#[test]
+fn a_key_that_is_not_ecdsa_is_left_to_ssh_key_before_any_derivation() {
+    let secret = Secret::random(Algo::Ed25519).unwrap();
+    let outputs = secret
+        .encode(Format::Openssh, "", Some("passphrase"), Usage::Ssh)
+        .unwrap();
+    // Without a passphrase: no derivation was even tried, so no `NeedsPassphrase`.
+    assert!(
+        formats::openssh_ecdsa(&outputs[0].text, None)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        locked(parse(&outputs[0].text, Some("wrong")).err().unwrap()),
+        Locked::WrongPassphrase
     );
 }

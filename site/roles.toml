@@ -87,6 +87,33 @@ does = "Settles a design decision: options with their trade-offs, a proposed dec
 when = "For a large task or a decision that crosses modules or squads: before the plan, or first in it."
 never = "Writes code. Not called for a change that fits one module's existing design."
 
+[roles.researcher]
+label = "Researcher"
+mark = "RES"
+group = "product"
+short = "Researches the web, sources it all"
+does = "Answers what the code cannot: what exists, what a standard or an API really says, which approach fits. Several primary sources, each claim dated, options with their trade-offs."
+when = "At the start of a new project, and when a request asks for a study or a choice to settle."
+never = "Changes a file, or states a figure it could not source: it says \"not found\"."
+
+[roles.competitive-analyst]
+label = "Competitive analyst"
+mark = "CMP"
+group = "product"
+short = "Maps competitors and alternatives"
+does = "Compares who else solves the problem: features, public prices, positioning, strengths and weaknesses, public reviews, in a sourced table, and what would set the project apart."
+when = "At the start of a new project, and when a request asks who else does it."
+never = "Changes a file, or fills a cell without a source: it says \"not found\"."
+
+[roles.reverse-engineer]
+label = "Reverse engineer"
+mark = "REV"
+group = "product"
+short = "Works out how existing software behaves"
+does = "Describes how an existing product, API, file format or site works, to interoperate with it or learn from it: its code, its network traffic, its files, each point with how it was observed."
+when = "When the project must work with something that has no documentation, or learn how others do it."
+never = "Bypasses a protection or a DRM, breaks terms of use or a licence, uses access it was not given, or touches personal data."
+
 [roles.lead]
 label = "Tech lead"
 group = "build"

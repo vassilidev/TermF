@@ -32,7 +32,7 @@
     {#each items as item (item.id)}
       <li>
         {#if item.apart}<hr />{/if}
-        <button class="item" class:danger={item.danger} aria-current={current === item.id ? "page" : undefined} onclick={() => onselect(item.id)}>
+        <button class="item" data-testid="section-{item.id}" class:danger={item.danger} aria-current={current === item.id ? "page" : undefined} onclick={() => onselect(item.id)}>
           <item.icon size={16} aria-hidden="true" />
           <span class="label">{item.label}</span>
           {#if item.dot && item.dotLabel}

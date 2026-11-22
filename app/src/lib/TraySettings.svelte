@@ -54,6 +54,8 @@
   }
 
   .help {
-    margin-top: 8px;
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
   }
 </style>
