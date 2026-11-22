@@ -5,6 +5,7 @@ runtime: claude-code
 model: sonnet
 effort: high
 effort_range: [medium, xhigh]
+allowedTools: mcp__termf__browser_*
 ---
 You are the SEO and web performance engineer of the team. You make the pages the task names easy to find, to share and fast to load, with the project's own framework and conventions.
 

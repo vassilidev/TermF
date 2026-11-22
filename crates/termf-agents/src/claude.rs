@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 use termf_core::context::Gauge;
-use termf_core::ipc::{MCP_ACTIONS, MCP_EXPERT, MCP_READ};
+use termf_core::ipc::{MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_READ};
 
 use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
 
@@ -18,24 +18,34 @@ pub struct ClaudeCode;
 /// The role whose conversation searches the project memory, and the tool another role calls it with.
 pub const EXPERT: &str = "expert";
 pub const ASK_EXPERT: &str = "mcp__termf__ask_expert";
+/// What a role allows to get the browser of `termf mcp`: every `browser_*` tool, without a permission prompt.
+pub const BROWSER: &str = "mcp__termf__browser_*";
 
 fn expert(spec: &SessionSpec) -> bool {
     spec.mcp && spec.role.as_deref() == Some(EXPERT)
 }
 
 /// The tools of `termf mcp` a session gets: the expert's conversation searches the project memory; a CTO
-/// conversation reads and acts; a role that lists `mcp__termf__ask_expert` in its allowed tools only asks the
-/// expert; any other session none.
+/// conversation reads and acts; any other session the ones its allowed tools name: `mcp__termf__ask_expert`
+/// asks the expert, `mcp__termf__browser_*` (or one `mcp__termf__browser_…`) drives its own browser.
 pub fn mcp_tools(spec: &SessionSpec) -> Vec<&'static str> {
     if expert(spec) {
-        MCP_EXPERT.to_vec()
-    } else if spec.mcp {
-        MCP_READ.iter().chain(&MCP_ACTIONS).copied().collect()
-    } else if spec.allowed_tools.iter().any(|t| t == ASK_EXPERT) {
-        vec!["ask_expert"]
-    } else {
-        Vec::new()
+        return MCP_EXPERT.to_vec();
     }
+    if spec.mcp {
+        return MCP_READ.iter().chain(&MCP_ACTIONS).copied().collect();
+    }
+    let allowed = |tool: &str| {
+        spec.allowed_tools
+            .iter()
+            .any(|t| t == BROWSER || t.strip_prefix("mcp__termf__") == Some(tool))
+    };
+    let mut tools: Vec<&str> = Vec::new();
+    if spec.allowed_tools.iter().any(|t| t == ASK_EXPERT) {
+        tools.push("ask_expert");
+    }
+    tools.extend(MCP_BROWSER.iter().filter(|t| allowed(t)));
+    tools
 }
 
 /// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user

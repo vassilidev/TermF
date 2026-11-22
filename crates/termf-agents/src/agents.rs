@@ -906,6 +906,11 @@ impl Inner {
             .context("TermF's tools cannot be served here: the conversation needs the app")?;
         let mut server = (mcp.server)(id)?;
         server["env"][ipc::ENV_MCP_TOOLS] = tools.join(",").into();
+        if tools.iter().any(|t| t.starts_with("browser_")) {
+            // Its browser reads the project's `[browser]` and reserves the worktree's port where TermF does.
+            server["env"][ipc::ENV_CONFIG_DIR] = self.config_dir.to_string_lossy().into();
+            server["env"][ipc::ENV_DATA_DIR] = self.data_dir.to_string_lossy().into();
+        }
         let env = server["env"].as_object_mut().expect("set just above");
         let token = env
             .remove(ipc::ENV_MCP_TOKEN)

@@ -5,6 +5,7 @@ runtime: claude-code
 model: sonnet
 effort: high
 effort_range: [medium, xhigh]
+allowedTools: mcp__termf__browser_*
 writes: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/spec/**", "**/*.test.*", "**/*.spec.*", "**/*_test.*", "**/test_*"]
 credits:
   - "garrytan/gstack@dd611038ca41f81fab9fa129b670852c17954b44 (MIT): qa/SKILL.md"
