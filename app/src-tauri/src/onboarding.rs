@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::State;
 use termf_claude::trust::{self, RepoTrust};
-use termf_onboarding::{self as onboarding, Decision, Step};
+use termf_onboarding::{self as onboarding, Decision, Step, setup};
 
 use crate::library::{blocking, claude};
 use crate::{AppState, CmdResult, err};
@@ -151,6 +151,64 @@ pub async fn onboarding_team(
         )
     })
     .await
+}
+
+/// The new-project setup: each repository's card (git state, remote, stack), read off the window's thread.
+#[tauri::command]
+pub async fn setup_repos(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> CmdResult<Vec<setup::Card>> {
+    blocking(&state, move |_| Ok(setup::cards(&paths))).await
+}
+
+/// What TermF finds by itself in one repository chosen for a new project.
+#[tauri::command]
+pub async fn setup_detect(state: State<'_, AppState>, path: String) -> CmdResult<setup::Detected> {
+    blocking(&state, move |dir| setup::detect(dir, &path)).await
+}
+
+#[derive(serde::Serialize)]
+pub struct SetupDraft {
+    #[serde(flatten)]
+    draft: setup::Draft,
+    /// Claude Code's trust in each repository, and what trusting it loads.
+    trust: Vec<RepoTrust>,
+}
+
+/// What TermF proposes for the repositories of a project not created yet.
+#[tauri::command]
+pub async fn setup_draft(state: State<'_, AppState>, repos: Vec<String>) -> CmdResult<SetupDraft> {
+    blocking(&state, move |dir| {
+        let named: Vec<(String, PathBuf)> = repos
+            .iter()
+            .map(|p| {
+                let path = PathBuf::from(p);
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                (name, path)
+            })
+            .collect();
+        Ok(SetupDraft {
+            draft: setup::draft(dir, &repos)?,
+            trust: trust::state(&trust::file(), &named)?,
+        })
+    })
+    .await
+}
+
+/// The project file creating the project with `team` and `trackers` would write.
+#[tauri::command]
+pub async fn setup_preview(
+    name: String,
+    repos: Vec<String>,
+    team: Option<onboarding::Edit>,
+    trackers: Option<termf_tickets::Trackers>,
+) -> CmdResult<String> {
+    setup::preview(&name, &repos, team.as_ref(), trackers.as_ref()).map_err(err)
 }
 
 /// The diff `edit` makes to the project's file, before it is written.

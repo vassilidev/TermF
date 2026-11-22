@@ -29,9 +29,10 @@
   import { openRuns, place, primary, type Wait } from "$lib/home-logic";
   import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject, type Decision } from "$lib/home.svelte";
   import { ago, t } from "$lib/i18n";
-  import { openSetup, setup } from "$lib/onboarding.svelte";
+  import { analyzing, openSetup, setup } from "$lib/onboarding.svelte";
   import type { Step } from "$lib/onboarding-logic";
-  import { editProject, sessionProjects, tallies } from "$lib/project.svelte";
+  import { newProject } from "$lib/newproject.svelte";
+  import { sessionProjects, tallies } from "$lib/project.svelte";
   import { awaitsDelivery, shown } from "$lib/run-logic";
   import { app, onScreen, repoName, setProject, shortPath } from "$lib/state.svelte";
   import { initials } from "$lib/team-logic";
@@ -94,6 +95,8 @@
   $effect(() => {
     const id = project?.id;
     void setup.project;
+    // Read again when an analysis started from the new project's setup ends.
+    void analyzing[id ?? ""];
     if (!visible || !id) return;
     invoke<Onboarding>("onboarding_state", { project: id }).then(
       (state) => {
@@ -109,6 +112,7 @@
   function stepText(step: Step, ob: Onboarding): string {
     const a = ob.analysis;
     if (step === "analysis") {
+      if (project && analyzing[project.id]) return t("obAnalyzing");
       if (!a) return "";
       const repos = a.repos.map((r) => [r.name, r.stack.join(", ")].filter(Boolean).join(" · "));
       const ci = [...new Set(a.repos.flatMap((r) => r.workflows))];
@@ -369,11 +373,13 @@
         {#each setupSteps as step, i (step)}
           {@const text = stepText(step, ob)}
           <li class:done={i < at} class:now={i === at} aria-current={i === at ? "step" : undefined}>
-            <span class="n">{#if i < at}<Check size={13} aria-hidden="true" />{:else}{i + 1}{/if}</span>
+            <span class="n">
+              {#if i < at}<Check size={13} aria-hidden="true" />{:else if step === "analysis" && analyzing[project.id]}<LoaderCircle size={13} aria-hidden="true" class="spin" />{:else}{i + 1}{/if}
+            </span>
             <span class="t"><b>{t(stepLabels[step as keyof typeof stepLabels])}</b>{#if text}<span>{text}</span>{/if}</span>
             {#if i === at}
               <button class="btn sm" class:primary={main === null && cto?.state !== "waiting"} onclick={() => openSetup(project.id)}>
-                {t(stepActions[step as keyof typeof stepActions])}<ChevronRight size={14} aria-hidden="true" />
+                {step === "analysis" && analyzing[project.id] ? t("setupFollow") : t(stepActions[step as keyof typeof stepActions])}<ChevronRight size={14} aria-hidden="true" />
               </button>
             {/if}
           </li>
@@ -388,7 +394,7 @@
   <ViewHeader title={t("ux3t1Home")} context={project ? [project.name, project.repos.map((r) => r.name).join(", ")].filter(Boolean).join(" · ") : t("ticketsAll")}>
     {#snippet actions()}
       {#if !project}
-        <button class="btn sm" onclick={() => editProject("")}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
+        <button class="btn sm" onclick={newProject}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
       {/if}
     {/snippet}
   </ViewHeader>

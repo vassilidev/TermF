@@ -94,6 +94,7 @@ export type ViewId =
   | "review"
   | "settings"
   | "onboarding"
+  | "newProject"
   | "vault"
   | "vaultAll";
 

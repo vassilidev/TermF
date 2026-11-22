@@ -14,6 +14,7 @@
     members,
     replacesHand,
     teamEdit,
+    teamWhy,
     teamKeys,
     toReview,
     type TeamChanges,
@@ -62,38 +63,8 @@
   const left = $derived(team?.roles.filter((r) => !r.keep) ?? []);
   const workflow = $derived(changes.workflow ?? team?.proposal.workflow ?? "default");
 
-  const whyKey = {
-    front: "obTeamWhyFront",
-    back: "obTeamWhyBack",
-    tests: "obTeamWhyTests",
-    "no-tests": "obTeamWhyNoTests",
-    infra: "obTeamWhyInfra",
-    ui: "obTeamWhyUi",
-    web: "obTeamWhyWeb",
-    design: "obTeamWhyDesign",
-    own: "obTeamWhyOwn",
-    "no-front": "obTeamWhyNoFront",
-    "no-back": "obTeamWhyNoBack",
-    "no-infra": "obTeamWhyNoInfra",
-    "no-ui": "obTeamWhyNoUi",
-    "no-web": "obTeamWhyNoWeb",
-    data: "roles2WhyData",
-    "no-data": "roles2WhyNoData",
-    llm: "roles2WhyLlm",
-    "no-llm": "roles2WhyNoLlm",
-    analytics: "roles2WhyAnalytics",
-    "no-analytics": "roles2WhyNoAnalytics",
-    integrations: "roles2WhyIntegrations",
-    "no-integrations": "roles2WhyNoIntegrations",
-    service: "roles2WhyService",
-    "no-service": "roles2WhyNoService",
-    docs: "roles2WhyDocs",
-    "no-docs": "roles2WhyNoDocs",
-    personal: "roles2WhyPersonal",
-    "no-public": "roles2WhyNoPublic",
-  } as const;
   const why = (r: RoleChoice) =>
-    t(whyKey[r.why as keyof typeof whyKey] ?? "obTeamWhyOwn", { detail: r.detail.join(", ") });
+    t(teamWhy[r.why as keyof typeof teamWhy] ?? "obTeamWhyOwn", { detail: r.detail.join(", ") });
   const models = ["", "haiku", "sonnet", "opus"];
   const efforts = ["", "low", "medium", "high", "xhigh", "max"];
 
