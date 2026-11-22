@@ -91,6 +91,7 @@ export type ViewId =
   | "claude"
   | "project"
   | "run"
+  | "review"
   | "settings"
   | "onboarding"
   | "vault"
