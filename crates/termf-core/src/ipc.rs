@@ -431,6 +431,9 @@ pub struct SessionSummary {
     /// Remote Control of a Claude Code tile that reports to TermF, which can turn it on and off.
     #[serde(default)]
     pub remote: Option<crate::remote::State>,
+    /// The `/loop`s and scheduled tasks of a Claude Code session that reports through hooks.
+    #[serde(default)]
+    pub loops: Vec<crate::loops::Loop>,
 }
 
 /// Serializes `msg` as one line; serde_json escapes newlines inside strings.
@@ -912,6 +915,7 @@ mod tests {
             agent_session_id: None,
             context: None,
             remote: None,
+            loops: Vec::new(),
         }
     }
 

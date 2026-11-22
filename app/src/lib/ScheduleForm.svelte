@@ -42,8 +42,9 @@
           enabled: start.enabled,
           catchup: start.catchup,
         }
-      : { ...blank },
+      : { ...blank, ...schedule.draft },
   );
+  schedule.draft = null;
   let runs = $state<number[]>([]);
   let cronError = $state("");
   let saving = $state(false);

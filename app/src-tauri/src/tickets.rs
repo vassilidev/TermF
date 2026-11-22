@@ -654,6 +654,7 @@ mod tests {
             agent_session_id: conversation.map(Into::into),
             context: None,
             remote: None,
+            loops: Vec::new(),
         };
         let c = "0b9c3c1e-5f0a-4d6b-9a57-3f1d2c4e8a10";
         let live = [
