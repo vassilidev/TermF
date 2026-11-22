@@ -243,7 +243,10 @@ fn the_reaper_cleans_up_once_its_server_is_gone() {
     ]);
     std::os::unix::process::CommandExt::process_group(&mut browser, 0);
     let mut browser = browser.spawn().unwrap();
-    until("the child started", || root.join("child").exists());
+    // The shell creates the file before it writes the pid into it.
+    until("the child started", || {
+        fs::read_to_string(root.join("child")).is_ok_and(|s| s.trim().parse::<u32>().is_ok())
+    });
     let child: u32 = fs::read_to_string(root.join("child"))
         .unwrap()
         .trim()
