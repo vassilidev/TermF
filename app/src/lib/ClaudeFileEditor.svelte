@@ -23,8 +23,8 @@
   let file = $state<FileText | null>(null);
   let editing = $state(false);
   let text = $state("");
-  /** What the editor started from; null: a file to create. */
-  let base = $state<string | null>(null);
+  /** The file as the editor read it; null: a file to create. */
+  let hash = $state<string | null>(null);
   let preview = $state<Diff | null>(null);
   let error = $state("");
   let busy = $state(false);
@@ -55,7 +55,7 @@
     try {
       const real = await invoke<FileText>("claude_file_read", { path, reveal: true, repo: repoArg() });
       text = real.text;
-      base = fresh ? null : real.text;
+      hash = fresh ? null : real.hash;
       editing = true;
     } catch (e) {
       error = String(e);
@@ -65,7 +65,7 @@
   async function showPreview() {
     error = "";
     try {
-      preview = await invoke<Diff>("claude_file_preview", { path, text, base, repo: repoArg() });
+      preview = await invoke<Diff>("claude_file_preview", { path, text, hash, repo: repoArg() });
     } catch (e) {
       preview = null;
       error = String(e);
@@ -75,7 +75,7 @@
   async function save() {
     busy = true;
     try {
-      await invoke<Diff>("claude_file_save", { path, text, base, repo: repoArg() });
+      await invoke<Diff>("claude_file_save", { path, text, hash, repo: repoArg() });
       claudeView.done = t("claudeDgSaved", { path });
       fresh = false;
       await refreshFiles();

@@ -26,6 +26,8 @@ pub struct Text {
     pub masked: bool,
     /// Managed by the organization: never written.
     pub read_only: bool,
+    /// The file as read (`settings::fingerprint`), which saving gives back; `None`: not there yet.
+    pub hash: Option<String>,
 }
 
 /// Where each kind lives in a scope: `~/.claude/<kind>` or `<repo>/.claude/<kind>`.
@@ -131,7 +133,9 @@ pub fn read(env: &Env, path: &Path, reveal: bool) -> Result<Text> {
     if !read_only {
         writable(env, path)?;
     }
-    let text = read_text(path)?.unwrap_or_default();
+    let found = read_text(path)?;
+    let hash = found.as_deref().map(settings::fingerprint);
+    let text = found.unwrap_or_default();
     let shown = if reveal && !read_only {
         text.clone()
     } else {
@@ -142,16 +146,17 @@ pub fn read(env: &Env, path: &Path, reveal: bool) -> Result<Text> {
         masked: shown != text,
         text: shown,
         read_only,
+        hash,
     })
 }
 
-/// What saving `text` would change. `base` is the text the editor started from (`None`: a file to create):
-/// a file changed on disk since, or created meanwhile, is never overwritten.
+/// What saving `text` would change. `hash` is the file as the editor read it (`None`: a file to create): a file
+/// changed on disk since, or created meanwhile, is never overwritten.
 pub fn preview(
     env: &Env,
     path: &Path,
     text: &str,
-    base: Option<&str>,
+    hash: Option<&str>,
 ) -> Result<settings::Preview> {
     let path = writable(env, path)?;
     ensure!(
@@ -160,17 +165,15 @@ pub fn preview(
         mask::MASK
     );
     let before = read_text(&path)?;
-    match (before.as_deref(), base) {
+    match (before.as_deref(), hash) {
         (Some(_), None) => bail!("{} exists already", path.display()),
-        (Some(now), Some(base)) if now != base => {
+        (Some(now), Some(hash)) if settings::fingerprint(now) != hash => {
             bail!(
                 "{} changed since you opened it: open it again",
                 path.display()
             )
         }
-        (None, Some(base)) if !base.is_empty() => {
-            bail!("{} was deleted since you opened it", path.display())
-        }
+        (None, Some(_)) => bail!("{} was deleted since you opened it", path.display()),
         _ => {}
     }
     let text = if text.is_empty() || text.ends_with('\n') {
@@ -181,6 +184,7 @@ pub fn preview(
     Ok(settings::Preview {
         path: path.to_string_lossy().into_owned(),
         diff: line_diff(before.as_deref().unwrap_or_default(), &text),
+        hash: settings::fingerprint(before.as_deref().unwrap_or_default()),
         text,
     })
 }
@@ -241,8 +245,8 @@ pub fn line_diff(before: &str, after: &str) -> String {
     out
 }
 
-pub fn save(env: &Env, path: &Path, text: &str, base: Option<&str>) -> Result<settings::Preview> {
-    let preview = preview(env, path, text, base)?;
+pub fn save(env: &Env, path: &Path, text: &str, hash: Option<&str>) -> Result<settings::Preview> {
+    let preview = preview(env, path, text, hash)?;
     settings::write_atomic(Path::new(&preview.path), &preview.text)?;
     Ok(preview)
 }

@@ -67,7 +67,7 @@ fn reads_masked_and_reveals_only_when_asked() {
     assert!(shown.masked && !shown.text.contains(TOKEN) && !shown.read_only);
     let revealed = native::read(&env, &file, true).unwrap();
     assert!(!revealed.masked && revealed.text.contains(TOKEN));
-    assert!(native::preview(&env, &file, &shown.text, Some(&revealed.text)).is_err());
+    assert!(native::preview(&env, &file, &shown.text, revealed.hash.as_deref()).is_err());
 
     write(
         &env.managed_dir.join("CLAUDE.md"),
@@ -80,7 +80,7 @@ fn reads_masked_and_reveals_only_when_asked() {
             &env,
             &env.managed_dir.join("CLAUDE.md"),
             "x",
-            Some(&managed.text)
+            managed.hash.as_deref()
         )
         .is_err()
     );
@@ -97,11 +97,12 @@ fn saves_with_a_diff_and_never_over_a_change_made_meanwhile() {
         "exists already"
     );
 
-    let preview = native::preview(&env, &file, "# Me\nShort answers.", Some("# Me\n")).unwrap();
+    let opened = native::read(&env, &file, true).unwrap().hash;
+    let preview = native::preview(&env, &file, "# Me\nShort answers.", opened.as_deref()).unwrap();
     assert_eq!(preview.diff, " # Me\n+Short answers.\n");
     assert_eq!(preview.text, "# Me\nShort answers.\n");
     fs::write(&file, "# Me, edited elsewhere\n").unwrap();
-    let stale = native::save(&env, &file, "# Me\nShort answers.\n", Some("# Me\n"));
+    let stale = native::save(&env, &file, "# Me\nShort answers.\n", opened.as_deref());
     assert!(stale.unwrap_err().to_string().contains("changed since"));
     assert_eq!(
         fs::read_to_string(&file).unwrap(),

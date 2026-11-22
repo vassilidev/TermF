@@ -69,17 +69,17 @@ pub fn claude_file_read(
     native::read(&env(&state.config_dir, repo), Path::new(&path), reveal).map_err(err)
 }
 
-/// `base`: the text the editor started from; `null` for a file to create.
+/// `hash`: the file as the editor read it (`claude_file_read`); `null` for a file to create.
 #[tauri::command]
 pub fn claude_file_preview(
     state: State<AppState>,
     path: String,
     text: String,
-    base: Option<String>,
+    hash: Option<String>,
     repo: Option<String>,
 ) -> CmdResult<Preview> {
     let env = env(&state.config_dir, repo);
-    native::preview(&env, Path::new(&path), &text, base.as_deref()).map_err(err)
+    native::preview(&env, Path::new(&path), &text, hash.as_deref()).map_err(err)
 }
 
 #[tauri::command]
@@ -87,11 +87,11 @@ pub fn claude_file_save(
     state: State<AppState>,
     path: String,
     text: String,
-    base: Option<String>,
+    hash: Option<String>,
     repo: Option<String>,
 ) -> CmdResult<Preview> {
     let env = env(&state.config_dir, repo);
-    native::save(&env, Path::new(&path), &text, base.as_deref()).map_err(err)
+    native::save(&env, Path::new(&path), &text, hash.as_deref()).map_err(err)
 }
 
 /// Returns the new file.

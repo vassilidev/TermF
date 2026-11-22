@@ -3,7 +3,7 @@ import { focusSession } from "$lib/commands";
 import { app, type Session } from "$lib/state.svelte";
 import { claudeView, type Folder, type Overview } from "$lib/claude.svelte";
 
-export type FileText = { path: string; text: string; masked: boolean; readOnly: boolean };
+export type FileText = { path: string; text: string; masked: boolean; readOnly: boolean; hash: string | null };
 export type Diff = { path: string; diff: string };
 export type SavedSession = { id: string; title: string | null; prompt: string | null; modified: number; size: number };
 export type SessionProject = { folder: string; cwd: string | null; sessions: SavedSession[] };

@@ -14,6 +14,7 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
 mod agent;
 mod ci;
+mod claude;
 mod schedule;
 mod scout;
 mod ssh;
@@ -137,6 +138,19 @@ usage:
   termf team stop [<run>]               emergency stop of one team, or of every team at work
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
+  termf claude settings get <key> [--scope <s>] [--repo <path>]
+                                        a Claude Code setting in each scope's file (masked), and which wins
+  termf claude settings set <key> <value> [--scope user|project|local] [--repo <path>]
+  termf claude settings unset <key> [--scope user|project|local] [--repo <path>]
+                                        <value> is JSON, else text; checked like in the app, then the diff
+                                        is shown and the file written (default scope: user; repo: here)
+  termf claude mcp add <name> <json> [--scope local|project|user] [--repo <path>]
+                                        through claude mcp add-json, the server on stdin
+  termf claude mcp remove <name> [--scope <s>] [--repo <path>]
+  termf claude plugin install|remove <plugin> [--scope user|project|local] [--accept-command <sha256>]
+  termf claude plugin enable|disable <plugin> [--scope <s>]
+                                        through claude plugin; a command the marketplace runs to install
+                                        is shown, and runs only once you pass its --accept-command
 kinds: skill, command, role, preference, rule, workflow";
 
 fn main() -> ExitCode {
@@ -229,6 +243,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         ["agent", rest @ ..] => agent::run(rest.to_vec())?,
         ["team", rest @ ..] => team::run(rest.to_vec())?,
+        ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,
