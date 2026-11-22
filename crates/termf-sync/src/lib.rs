@@ -18,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
-mod crypto;
+pub mod crypto;
 mod local;
 mod merge;
 mod record;
