@@ -550,12 +550,13 @@ pub fn check_questions(questions: &[Question]) -> Vec<String> {
         if q.kind != QuestionKind::Multi && q.proposed.len() > 1 {
             problems.push(format!("question {id} proposes more than one answer"));
         }
-        // A yes/no question lists no options: its implications are yes's, then no's.
+        // A yes/no question lists no options: its implications are yes's, then no's. A free text's are only read.
         let choices = match q.kind {
-            QuestionKind::Bool => 2,
-            _ => q.options.len(),
+            QuestionKind::Bool => Some(2),
+            QuestionKind::Text => None,
+            _ => Some(q.options.len()),
         };
-        if !q.implications.is_empty() && q.implications.len() != choices {
+        if !q.implications.is_empty() && choices.is_some_and(|n| q.implications.len() != n) {
             problems.push(format!(
                 "question {id}: give one implication per option, or none"
             ));
@@ -1155,7 +1156,10 @@ paths = ["services/**"]
         // What the real Claude Code writes for a yes/no question: what yes implies, then no.
         let mut weighed = question("weighed", QuestionKind::Bool, &[], &["yes"]);
         weighed.implications = vec!["a public link".into(), "signed-in users only".into()];
-        assert_eq!(check_questions(&[weighed]), Vec::<String>::new());
+        // And for a free text: what its proposal and another answer would imply.
+        let mut titled = question("titled", QuestionKind::Text, &[], &["Multiply"]);
+        titled.implications = vec!["matches the page".into(), "the user writes it".into()];
+        assert_eq!(check_questions(&[weighed, titled]), Vec::<String>::new());
         let good = [
             format.clone(),
             columns.clone(),
