@@ -87,7 +87,27 @@ impl Git<'_> {
         );
     }
 
-    /// Commits everything that changed in `dir`, when anything did, unless a conflict marker is left.
+    /// Whether `dir` is in the middle of a merge.
+    pub fn merging(&self, dir: &Path) -> bool {
+        self.run(dir, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+            .is_ok()
+    }
+
+    /// Whether `commit` is part of what `dir` is on.
+    pub fn contains(&self, dir: &Path, commit: &str) -> Result<bool> {
+        let out = self.output(dir, &["merge-base", "--is-ancestor", commit, "HEAD"])?;
+        match out.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => anyhow::bail!(
+                "git merge-base failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+        }
+    }
+
+    /// Commits everything that changed in `dir`, when anything did or a merge is under way, unless a conflict
+    /// marker is left.
     pub fn commit_all(&self, dir: &Path, message: &str) -> Result<()> {
         self.run(dir, &["add", "-A"])?;
         let check = self.output(dir, &["diff", "--cached", "--check"])?;
@@ -105,7 +125,8 @@ impl Git<'_> {
             .output(dir, &["diff", "--cached", "--quiet"])?
             .status
             .success();
-        if staged {
+        // A merge resolved to what HEAD already had stages nothing, yet must still be concluded.
+        if staged || self.merging(dir) {
             self.run(dir, &["commit", "-q", "-m", message])?;
         }
         Ok(())

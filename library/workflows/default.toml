@@ -86,7 +86,12 @@ prompt = "Review the database changes of the run (git diff of this branch agains
 type = "visual"
 needs = ["review"]
 
+[steps.update-base]
+type = "update"
+role = "integrator"
+needs = ["security", "seo", "visual", "migrations"]
+
 [steps.deliver]
 type = "connector"
-needs = ["security", "seo", "visual", "migrations"]
+needs = ["security", "seo", "visual", "migrations", "update-base"]
 actions = ["commit", "pull_request"]
