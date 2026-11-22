@@ -18,8 +18,104 @@ pub struct Plan {
     pub acceptance: Vec<Criterion>,
     pub out_of_scope: Vec<String>,
     /// While there are any, nothing runs: the user answers first.
-    pub questions: Vec<String>,
+    pub questions: Vec<Question>,
     pub tasks: Vec<Task>,
+}
+
+/// What the user must answer before a step goes on: the same questionnaire for the triage, the PRD, the
+/// framing, the plan and any step that reports `blocked`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(from = "QuestionIn")]
+pub struct Question {
+    pub id: String,
+    /// One of [`THEMES`]: how the form groups the questions.
+    pub theme: String,
+    pub question: String,
+    /// Why it matters: what the answer changes, or the side effect found.
+    pub why: String,
+    pub kind: QuestionKind,
+    pub options: Vec<String>,
+    /// The answer proposed, in the shape of an answer.
+    pub proposed: Vec<String>,
+    /// What each option implies, in the order of `options`; empty when there is nothing to say.
+    pub implications: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum QuestionKind {
+    /// One of `options`.
+    Choice,
+    /// Any of `options`.
+    Multi,
+    /// `yes` or `no`.
+    Bool,
+    Text,
+}
+
+/// How the questions are grouped.
+pub const THEMES: [&str; 7] = [
+    "product",
+    "scope",
+    "interface",
+    "technical",
+    "security",
+    "delivery",
+    "other",
+];
+
+/// A question as stored before the questionnaire, a sentence, still reads.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum QuestionIn {
+    Full {
+        id: String,
+        theme: String,
+        question: String,
+        why: String,
+        kind: QuestionKind,
+        options: Vec<String>,
+        proposed: Vec<String>,
+        #[serde(default)]
+        implications: Vec<String>,
+    },
+    Sentence(String),
+}
+
+impl From<QuestionIn> for Question {
+    fn from(q: QuestionIn) -> Question {
+        match q {
+            QuestionIn::Full {
+                id,
+                theme,
+                question,
+                why,
+                kind,
+                options,
+                proposed,
+                implications,
+            } => Question {
+                id,
+                theme,
+                question,
+                why,
+                kind,
+                options,
+                proposed,
+                implications,
+            },
+            QuestionIn::Sentence(question) => Question {
+                id: String::new(),
+                theme: "other".into(),
+                question,
+                why: String::new(),
+                kind: QuestionKind::Text,
+                options: Vec::new(),
+                proposed: Vec::new(),
+                implications: Vec::new(),
+            },
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -85,7 +181,7 @@ pub struct Report {
     pub out_of_scope_findings: Vec<String>,
     /// With `blocked`: what the agent needs to know to go on.
     #[serde(default)]
-    pub questions: Vec<String>,
+    pub questions: Vec<Question>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,15 +208,33 @@ pub struct View {
     pub viewports: Vec<String>,
 }
 
-fn strings() -> Value {
+pub(crate) fn strings() -> Value {
     json!({ "type": "array", "items": { "type": "string" } })
 }
 
-fn object(properties: Value) -> Value {
+pub(crate) fn object(properties: Value) -> Value {
     let required: Vec<&String> = properties
         .as_object()
         .map_or(Vec::new(), |p| p.keys().collect());
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
+}
+
+/// A question of the questionnaire, as the `questions` of any step's JSON schema take it.
+pub fn question_schema() -> Value {
+    object(json!({
+        "id": { "type": "string" },
+        "theme": { "type": "string", "enum": THEMES },
+        "question": { "type": "string" },
+        "why": { "type": "string" },
+        "kind": { "type": "string", "enum": ["choice", "multi", "bool", "text"] },
+        "options": strings(),
+        "proposed": strings(),
+        "implications": strings(),
+    }))
+}
+
+pub fn questions_schema() -> Value {
+    json!({ "type": "array", "items": question_schema() })
 }
 
 pub fn plan_schema() -> Value {
@@ -141,7 +255,7 @@ pub fn plan_schema() -> Value {
         "summary": { "type": "string" },
         "acceptance": { "type": "array", "items": criterion },
         "out_of_scope": strings(),
-        "questions": strings(),
+        "questions": questions_schema(),
         "tasks": { "type": "array", "items": task },
     }))
 }
@@ -164,7 +278,7 @@ pub fn report_schema() -> Value {
         "text_changes": { "type": "array", "items": change },
         "affected_views": { "type": "array", "items": view },
         "out_of_scope_findings": strings(),
-        "questions": strings(),
+        "questions": questions_schema(),
     }))
 }
 
@@ -303,6 +417,87 @@ pub fn check_plan(plan: &Plan, roles: &[String], repo: &str, team: &Team) -> Vec
     if problems.is_empty() && cycle(&plan.tasks) {
         problems.push("the tasks depend on each other in a cycle".to_owned());
     }
+    problems.extend(check_questions(&plan.questions));
+    problems
+}
+
+/// What is wrong with a questionnaire beyond its schema.
+pub fn check_questions(questions: &[Question]) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut ids = HashSet::new();
+    for q in questions {
+        let id = &q.id;
+        if id.is_empty()
+            || !id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
+        {
+            problems.push(format!(
+                "question id {id:?} is not made of letters, digits, - or _ ({})",
+                q.question
+            ));
+        }
+        if !ids.insert(id.as_str()) {
+            problems.push(format!("two questions are named {id}"));
+        }
+        if !THEMES.contains(&q.theme.as_str()) {
+            problems.push(format!(
+                "question {id}: theme {} is not one of {}",
+                q.theme,
+                THEMES.join(", ")
+            ));
+        }
+        if q.question.trim().is_empty() || q.why.trim().is_empty() {
+            problems.push(format!("question {id} must say what it asks and why"));
+        }
+        let listed = matches!(q.kind, QuestionKind::Choice | QuestionKind::Multi);
+        if listed && q.options.len() < 2 {
+            problems.push(format!("question {id} offers fewer than two options"));
+        }
+        if let Some(wrong) = q.proposed.iter().find(|p| !answerable(q, p)) {
+            problems.push(format!(
+                "question {id}: {wrong:?} is not an answer it takes"
+            ));
+        }
+        if q.kind != QuestionKind::Multi && q.proposed.len() > 1 {
+            problems.push(format!("question {id} proposes more than one answer"));
+        }
+        if !q.implications.is_empty() && q.implications.len() != q.options.len() {
+            problems.push(format!(
+                "question {id}: give one implication per option, or none"
+            ));
+        }
+    }
+    problems
+}
+
+fn answerable(q: &Question, answer: &str) -> bool {
+    match q.kind {
+        QuestionKind::Choice | QuestionKind::Multi => q.options.iter().any(|o| o == answer),
+        QuestionKind::Bool => matches!(answer, "yes" | "no"),
+        QuestionKind::Text => !answer.trim().is_empty(),
+    }
+}
+
+/// What is wrong with the user's answers to `questions`: each one answered, in the shape its kind takes (a
+/// multiple choice may tick nothing).
+pub fn check_answers(
+    questions: &[Question],
+    answers: &BTreeMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for id in answers.keys() {
+        if !questions.iter().any(|q| &q.id == id) {
+            problems.push(format!("there is no question {id}"));
+        }
+    }
+    for q in questions {
+        let answer = answers.get(&q.id).map(Vec::as_slice).unwrap_or_default();
+        let one = q.kind != QuestionKind::Multi;
+        if (one && answer.len() != 1) || answer.iter().any(|a| !answerable(q, a)) {
+            problems.push(format!("answer question {}: {}", q.id, q.question));
+        }
+    }
     problems
 }
 
@@ -364,6 +559,7 @@ pub fn check_report(report: &Report, criteria: Option<&[Criterion]>) -> Vec<Stri
     if report.summary.trim().is_empty() {
         problems.push("the report has no summary".to_owned());
     }
+    problems.extend(check_questions(&report.questions));
     if let Some(criteria) = criteria {
         for covered in &report.covers {
             if !criteria.iter().any(|c| &c.id == covered) {
@@ -558,6 +754,106 @@ paths = ["services/**"]
             check_report(&empty, Some(&plan(vec![]).acceptance)).len(),
             2
         );
+    }
+
+    fn question(id: &str, kind: QuestionKind, options: &[&str], proposed: &[&str]) -> Question {
+        Question {
+            id: id.into(),
+            theme: "product".into(),
+            question: format!("{id}?"),
+            why: "it changes the export".into(),
+            kind,
+            options: options.iter().map(|o| o.to_string()).collect(),
+            proposed: proposed.iter().map(|o| o.to_string()).collect(),
+            implications: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn checks_a_questionnaire_and_its_answers() {
+        let format = question("format", QuestionKind::Choice, &["CSV", "Excel"], &["CSV"]);
+        let columns = question(
+            "columns",
+            QuestionKind::Multi,
+            &["date", "amount", "client"],
+            &["date", "amount"],
+        );
+        let public = question("public", QuestionKind::Bool, &[], &["no"]);
+        let name = question("name", QuestionKind::Text, &[], &[]);
+        let good = [
+            format.clone(),
+            columns.clone(),
+            public.clone(),
+            name.clone(),
+        ];
+        assert_eq!(check_questions(&good), Vec::<String>::new());
+
+        let mut odd = question("format", QuestionKind::Choice, &["CSV"], &["PDF"]);
+        odd.theme = "mood".into();
+        odd.why = " ".into();
+        odd.implications = vec!["a".into(), "b".into()];
+        let mut two = question("x y", QuestionKind::Bool, &[], &["maybe", "no"]);
+        two.question = String::new();
+        let all = check_questions(&[format.clone(), odd, two]).join("\n");
+        for expected in [
+            "two questions are named format",
+            "theme mood is not one of",
+            "question format must say what it asks and why",
+            "question format offers fewer than two options",
+            "question format: \"PDF\" is not an answer it takes",
+            "one implication per option",
+            "question id \"x y\" is not made of",
+            "question x y: \"maybe\" is not an answer it takes",
+            "question x y proposes more than one answer",
+        ] {
+            assert!(all.contains(expected), "{expected} in {all}");
+        }
+
+        let answers = |pairs: &[(&str, &[&str])]| -> BTreeMap<String, Vec<String>> {
+            pairs
+                .iter()
+                .map(|(id, a)| (id.to_string(), a.iter().map(|s| s.to_string()).collect()))
+                .collect()
+        };
+        let full = answers(&[
+            ("format", &["Excel"]),
+            ("columns", &[]),
+            ("public", &["yes"]),
+            ("name", &["invoices.csv"]),
+        ]);
+        assert_eq!(check_answers(&good, &full), Vec::<String>::new());
+        let wrong = answers(&[
+            ("format", &["PDF"]),
+            ("columns", &["date", "tax"]),
+            ("public", &["yes", "no"]),
+            ("ghost", &["x"]),
+        ]);
+        let all = check_answers(&good, &wrong).join("\n");
+        for expected in [
+            "there is no question ghost",
+            "answer question format",
+            "answer question columns",
+            "answer question public",
+            "answer question name",
+        ] {
+            assert!(all.contains(expected), "{expected} in {all}");
+        }
+
+        let old: Plan =
+            serde_json::from_value(json!({"summary": "s", "acceptance": [], "out_of_scope": [],
+            "questions": ["CSV or Excel?"], "tasks": []}))
+            .unwrap();
+        assert_eq!(
+            old.questions[0].question, "CSV or Excel?",
+            "a plan stored before the questionnaire"
+        );
+        assert!(
+            !check_questions(&old.questions).is_empty(),
+            "never valid as a new answer"
+        );
+        let back: Question =
+            serde_json::from_value(serde_json::to_value(&columns).unwrap()).unwrap();
+        assert_eq!(back, columns);
     }
 
     #[test]
