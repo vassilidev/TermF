@@ -416,7 +416,12 @@ struct Inner {
     /// The `shell` steps at work, by run and step: their launch, and what kills it.
     shells: Mutex<BTreeMap<(i64, String), Launch>>,
     launches: AtomicU64,
+    visual: Mutex<Option<VisualHook>>,
 }
+
+/// Called when a visual gate opens, with the run and the gate's step: the visual review starts. It must not
+/// call the team back before returning.
+pub type VisualHook = Box<dyn Fn(TeamRun, String) + Send + Sync>;
 
 impl Team {
     /// `agents` must hand every session update to the notifier of `inbox`. The runs a restart interrupted are
@@ -451,6 +456,7 @@ impl Team {
             closed: AtomicBool::new(false),
             shells: Mutex::default(),
             launches: AtomicU64::new(0),
+            visual: Mutex::default(),
         });
         if let Err(e) = inner.recover() {
             eprintln!("termf: team runs left as they were: {e:#}");
@@ -468,6 +474,11 @@ impl Team {
             }
         });
         Team { inner }
+    }
+
+    /// Where a visual gate that opens goes: the visual review.
+    pub fn on_visual(&self, hook: impl Fn(TeamRun, String) + Send + Sync + 'static) {
+        *self.inner.visual.lock().unwrap() = Some(Box::new(hook));
     }
 
     /// Nothing more happens: the app quits, its agents are about to be killed.
@@ -1892,7 +1903,15 @@ impl Inner {
                 self.wait(store, run, i, &note);
             }
             StepKind::Visual => {
-                if run.ui_changed {
+                let hook = self.visual.lock().unwrap();
+                if let (true, Some(hook)) = (run.ui_changed, hook.as_ref()) {
+                    let note = format!(
+                        "the interface changed: TermF captures the screens before and after, then decide each one in the visual review (`termf review show --run {}`)",
+                        run.run
+                    );
+                    self.wait(store, run, i, &note);
+                    hook(run.clone(), key.clone());
+                } else if run.ui_changed {
                     self.wait(store, run, i, "the interface changed: review the screens before and after, then approve (the review page comes with phase 5)");
                 } else {
                     self.skip(

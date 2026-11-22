@@ -19,7 +19,7 @@ use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary, Status, StatusEvent};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
-use crate::{AppState, agents, schedule, team, tickets};
+use crate::{AppState, agents, schedule, team, tickets, visual};
 
 struct Meta {
     title: String,
@@ -856,6 +856,7 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
         Call::Agent(call) => agents::call(app, call)?,
         Call::Team(call) => team::call(app, call)?,
         Call::Vault(call) => crate::vault::call(app, call)?,
+        Call::Review(call) => visual::call(app, call)?,
         Call::Watch => unreachable!("handled by the connection loop"),
     })
 }

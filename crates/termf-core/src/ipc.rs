@@ -75,6 +75,8 @@ pub enum Call {
     /// The app's vault session (crate `termf-vault`). Never a secret's value: whoever holds the token may be
     /// an agent.
     Vault(VaultCall),
+    /// Visual reviews before / after (crate `termf-visual`).
+    Review(ReviewCall),
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -93,6 +95,28 @@ impl std::fmt::Debug for VaultCall {
             Self::Lock => "Lock",
         })
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ReviewCall {
+    /// `request`: a `termf_visual::Request`.
+    Start { request: Value },
+    /// `screen`: a screen id, or `all` for every pending one; `decision`: approve, reject or changes; `pins`:
+    /// `termf_visual::Pin`s.
+    Decide {
+        review: i64,
+        screen: String,
+        decision: String,
+        comment: Option<String>,
+        pins: Option<Value>,
+    },
+    /// Posts the images on the run's pull request; without `confirm` (the preview's fingerprint), shows what
+    /// it would post.
+    PrComment {
+        review: i64,
+        confirm: Option<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

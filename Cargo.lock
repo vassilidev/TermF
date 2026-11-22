@@ -5500,6 +5500,7 @@ dependencies = [
  "termf-term",
  "termf-tickets",
  "termf-vault",
+ "termf-visual",
  "termf-worktree",
 ]
 
@@ -5547,6 +5548,7 @@ dependencies = [
  "termf-team",
  "termf-tickets",
  "termf-vault",
+ "termf-visual",
  "termf-worktree",
 ]
 
@@ -5728,6 +5730,24 @@ dependencies = [
  "termf-core",
  "termf-sync",
  "zeroize",
+]
+
+[[package]]
+name = "termf-visual"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64ct",
+ "png",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "termf-agents",
+ "termf-core",
+ "termf-team",
+ "termf-tickets",
+ "termf-worktree",
+ "toml 1.2.2+spec-1.1.0",
 ]
 
 [[package]]
