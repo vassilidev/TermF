@@ -369,7 +369,7 @@ fn may_delete(confirmed: bool, without_confirmation: bool) -> Result<()> {
 /// these links only and refuses anything else, its settings deny the tools it does not need, and it runs in
 /// the mode that asks, so whatever the hook does not answer shows its tile instead of going ahead.
 #[tauri::command]
-pub fn artifacts_delete(
+pub async fn artifacts_delete(
     app: AppHandle,
     urls: Vec<String>,
     confirmed: bool,
@@ -426,7 +426,7 @@ fn delete_args() -> Vec<String> {
 
 /// Opens your Claude Code agent on the artifact, in the folder it was published from when TermF knows it.
 #[tauri::command]
-pub fn artifacts_edit(app: AppHandle, url: String) -> CmdResult<SessionSummary> {
+pub async fn artifacts_edit(app: AppHandle, url: String) -> CmdResult<SessionSummary> {
     let url = check_url(&url).map_err(err)?;
     let state = app.state::<AppState>();
     let claude = app.state::<ClaudeState>();

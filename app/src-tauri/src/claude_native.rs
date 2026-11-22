@@ -16,6 +16,7 @@ use termf_claude::sessions::{self, Background, Project};
 use termf_claude::settings::{Preview, Scope};
 use termf_claude::usage::{self, Limits};
 use termf_claude::{Env, Files, account};
+use termf_core::claude::start;
 use termf_core::ipc::SessionSummary;
 use termf_library::Kind;
 use termf_term::shell_quote;
@@ -228,8 +229,8 @@ pub async fn claude_sessions(
 
 /// Resumes a saved conversation in a tile, or a copy of it (`fork`), with the Claude Code agent's command.
 #[tauri::command]
-pub fn claude_session_open(
-    state: State<AppState>,
+pub async fn claude_session_open(
+    state: State<'_, AppState>,
     id: String,
     cwd: Option<String>,
     fork: bool,
@@ -282,17 +283,22 @@ pub async fn claude_background(state: State<'_, AppState>) -> CmdResult<Backgrou
     blocking(move || Ok(sessions::background(&env))).await
 }
 
-fn claude_program(state: &AppState) -> String {
-    termf_claude::cli::program(&env(&state.config_dir, None))
+/// How a tile's command starts Claude Code. Asking its version can take seconds.
+async fn claude_program(state: &AppState) -> CmdResult<String> {
+    let env = env(&state.config_dir, None);
+    blocking(move || Ok(start(&termf_claude::cli::program(&env), shell_quote))).await
 }
 
 /// Opens a background session in a tile, with `claude attach`.
 #[tauri::command]
-pub fn claude_background_attach(state: State<AppState>, id: String) -> CmdResult<SessionSummary> {
+pub async fn claude_background_attach(
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<SessionSummary> {
     sessions::check_background(&id).map_err(err)?;
     let command = format!(
         "{} attach {}",
-        shell_quote(&claude_program(&state)),
+        claude_program(&state).await?,
         shell_quote(&id)
     );
     let home = termf_core::expand_tilde("~");
@@ -381,8 +387,8 @@ pub fn claude_usage(native_state: State<NativeState>) -> Usage {
 
 /// `claude auth login` in a tile: it opens a browser and may ask for a code, which only you can give.
 #[tauri::command]
-pub fn claude_auth_login(
-    state: State<AppState>,
+pub async fn claude_auth_login(
+    state: State<'_, AppState>,
     method: Option<String>,
 ) -> CmdResult<SessionSummary> {
     let flag = match method.as_deref() {
@@ -391,7 +397,7 @@ pub fn claude_auth_login(
         Some("sso") => " --sso",
         Some(other) => return Err(format!("unknown login method {other}")),
     };
-    let command = format!("{} auth login{flag}", shell_quote(&claude_program(&state)));
+    let command = format!("{} auth login{flag}", claude_program(&state).await?);
     let home = termf_core::expand_tilde("~");
     api::spawn_command(&state, home, "claude auth login".into(), &command).map_err(err)
 }

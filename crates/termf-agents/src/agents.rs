@@ -180,6 +180,7 @@ impl Agents {
     /// A new session, its process started, with `prompt` as its first message when there is one.
     pub fn start(&self, spec: SessionSpec, prompt: Option<&str>) -> Result<AgentSession> {
         let inner = &self.inner;
+        let _ = inner.command(&spec);
         let id = self.create(spec)?.id;
         let store = inner.store()?;
         let mut live = inner.live.lock().unwrap();
@@ -196,6 +197,7 @@ impl Agents {
         ensure!(!text.trim().is_empty(), "the message is empty");
         let inner = &self.inner;
         let store = inner.store()?;
+        let _ = inner.command(&store.session(id)?.spec);
         let mut live = inner.live.lock().unwrap();
         inner.deliver(&store, id, live.entry(id).or_default(), Some(text))
     }
@@ -206,6 +208,7 @@ impl Agents {
         ensure!(!text.trim().is_empty(), "the message is empty");
         let inner = &self.inner;
         let store = inner.store()?;
+        let _ = inner.command(&store.session(id)?.spec);
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         if matches!(store.session(id)?.state, State::Working | State::Waiting) {
@@ -443,6 +446,7 @@ impl Agents {
                 bail!("terminal {tile} did not close: close it, then hand the session back");
             }
         }
+        let _ = inner.command(&store.session(id)?.spec);
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         entry.busy = false;
@@ -658,6 +662,18 @@ impl Inner {
         self.set_state(store, id, entry, State::Working)
     }
 
+    /// The agent's command, a bare `claude` replaced by the Claude Code it runs. Asking an install its version can
+    /// take seconds: callers that may start a process ask once before taking `live`, then it is cached.
+    fn command(&self, spec: &SessionSpec) -> Result<(String, claude::Install)> {
+        let settings = termf_core::load_settings(&self.config_dir)?;
+        let agent = spec.agent.as_deref().unwrap_or_default();
+        let command = settings
+            .agents
+            .get(agent)
+            .with_context(|| format!("no agent {agent} in termf.toml [agents]"))?;
+        claude::in_command(command, shell_quote)
+    }
+
     /// Starts the session's process, which waits for a message. The library is written again, so that what
     /// changed since applies.
     fn launch(self: &Arc<Self>, store: &Store, id: i64, entry: &mut Live) -> Result<()> {
@@ -672,13 +688,7 @@ impl Inner {
         {
             bail!("a process of this session still runs (pid {pid}): it must end first");
         }
-        let settings = termf_core::load_settings(&self.config_dir)?;
-        let agent = session.spec.agent.as_deref().unwrap_or_default();
-        let command = settings
-            .agents
-            .get(agent)
-            .with_context(|| format!("no agent {agent} in termf.toml [agents]"))?;
-        let (command, claude) = claude::in_command(command, shell_quote)?;
+        let (command, claude) = self.command(&session.spec)?;
         let dir = store.dir(id).join("session");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir)?;
