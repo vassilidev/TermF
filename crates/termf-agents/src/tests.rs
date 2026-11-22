@@ -11,11 +11,12 @@ use super::*;
 /// It logs its arguments, folder, stdin, and when it starts and ends, next to itself.
 const FAKE: &str = r#"
 [ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
-echo "start $$" >> "$log.events"
-trap 'echo "exit $$" >> "$log.events"' EXIT
 { echo "--- $$"; printf '%s\n' "$@"; } >> "$log.args"
 pwd > "$log.cwd"
 printf '%s' "${TERMF_MCP_TOKEN-}" > "$log.mcptoken"
+# Last, so a test that sees a process start also sees its arguments.
+echo "start $$" >> "$log.events"
+trap 'echo "exit $$" >> "$log.events"' EXIT
 prev=
 for a in "$@"; do
   if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi
