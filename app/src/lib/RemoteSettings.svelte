@@ -44,7 +44,7 @@
 </script>
 
 {#snippet choice(current: RemoteMode, pick: (m: RemoteMode) => void, label: string)}
-  <div class="segmented" role="radiogroup" aria-label={label}>
+  <div class="segmented pick" role="radiogroup" aria-label={label}>
     {#each modes as [mode, word] (mode)}
       <button role="radio" aria-checked={current === mode} onclick={() => pick(mode)}>{t(word)}</button>
     {/each}
@@ -104,6 +104,10 @@
     margin: 4px 0 8px;
   }
 
+  .pick {
+    align-self: flex-start;
+  }
+
   .roles {
     display: flex;
     flex-direction: column;
@@ -125,6 +129,7 @@
   }
 
   .add {
+    align-self: flex-start;
     width: auto;
     margin-bottom: 12px;
   }

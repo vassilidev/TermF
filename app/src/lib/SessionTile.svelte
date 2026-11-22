@@ -70,7 +70,10 @@
   onfocusin={() => activate(session.id)}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions (a shortcut for the zoom button) -->
-  <header ondblclick={(e) => !alone && !(e.target as Element).closest("button, input") && toggleMaximize(session.id)}>
+  <header
+    class:remote={remote && phase(remote) !== "off"}
+    ondblclick={(e) => !alone && !(e.target as Element).closest("button, input") && toggleMaximize(session.id)}
+  >
     {#if grid.broadcast}
       <input
         type="checkbox"
@@ -301,6 +304,11 @@
     position: static;
     padding-left: 0;
     background: none;
+  }
+
+  /* Remote Control stays in sight and in reach while the actions show. */
+  header.remote .actions {
+    right: 36px;
   }
 
   .tick {

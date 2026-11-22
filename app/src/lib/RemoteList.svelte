@@ -46,7 +46,7 @@
     onclick={() => (open = !open)}
   >
     <Smartphone size={14} aria-hidden="true" /><span>{t("remoteCount", { count: tiles.length })}</span>
-    <span class="live" aria-hidden="true"></span>
+    {#if tiles.some((s) => !s.remote || s.remote.url)}<span class="live" aria-hidden="true"></span>{/if}
   </button>
 
   <Popover bind:open {trigger} label={t("remoteListTitle")} width={300}>
@@ -86,7 +86,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--accent-soft);
-    color: var(--accent-text);
+    color: var(--accent-ink);
     font-size: var(--text-sm);
     font-weight: 600;
     text-align: left;

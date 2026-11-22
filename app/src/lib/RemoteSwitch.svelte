@@ -127,7 +127,7 @@
   }
 
   .rc.locked {
-    color: var(--danger-text);
+    color: var(--danger);
   }
 
   .dot {
@@ -173,7 +173,7 @@
   }
 
   .state.locked {
-    color: var(--danger-text);
+    color: var(--danger);
   }
 
   .name {
