@@ -72,9 +72,10 @@
       for (const kind of ["before", "after"] as const) if (s[kind]) image(review.id, version.n, s.id, kind).catch(() => {});
   });
 
-  // A new card starts on its "after" image, whole.
+  // A new card starts on its "after" image, whole; an update of the same card keeps the view.
+  const cardId = $derived(card?.id);
   $effect(() => {
-    void card?.id;
+    void cardId;
     zoomed = false;
     before = false;
   });
@@ -107,7 +108,7 @@
       m.history.push({ id: s.id, kind });
       leaving = kind;
       closeComposer();
-      said = `${t("review5bSkip")} : ${screenTitle(s)}`;
+      said = `${t("review5bSkip")} · ${screenTitle(s)}`;
       return;
     }
     if (kind === "changes" && (!composing || (!draft.comment.trim() && !draft.pins.length))) return openComposer();
@@ -127,7 +128,7 @@
       memory().history.push({ id: s.id, kind });
       closeComposer();
       before = false;
-      said = `${t(decisionLabel[kind])} : ${screenTitle(s)}`;
+      said = `${t(decisionLabel[kind])} · ${screenTitle(s)}`;
     } catch (e) {
       error = String(e);
     } finally {
