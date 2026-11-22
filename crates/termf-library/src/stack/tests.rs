@@ -233,6 +233,41 @@ fn reads_go_rust_java_kotlin_swift_and_dotnet() {
 }
 
 #[test]
+fn reads_react_native_expo_and_flutter_apps() {
+    let dir = repo(
+        "mobile",
+        &[
+            (
+                "app/package.json",
+                r#"{ "dependencies": { "expo": "~54.0.0", "react-native": "0.81.4", "react": "19.1.0" } }"#,
+            ),
+            (
+                "flutter_app/pubspec.yaml",
+                "name: shop\nenvironment:\n  sdk: ^3.9.0\n  flutter: \">=3.35.0\"\ndependencies:\n  flutter:\n    sdk: flutter\n",
+            ),
+            (
+                "dart_cli/pubspec.yaml",
+                "name: cli\ndependencies:\n  args: ^2.7.0\n",
+            ),
+        ],
+    );
+    let tags = detect(&dir).tags;
+    assert_eq!(version(&tags, "expo").as_deref(), Some("54.0.0"));
+    assert_eq!(version(&tags, "react-native").as_deref(), Some("0.81.4"));
+    assert_eq!(version(&tags, "flutter").as_deref(), Some("3.35.0"));
+    assert_eq!(tag(&tags, "flutter").source, "flutter_app/pubspec.yaml");
+
+    let dart = repo(
+        "dart-only",
+        &[("pubspec.yaml", "name: cli\ndependencies:\n  args: ^2.7.0\n")],
+    );
+    assert!(
+        !names(&detect(&dart).tags).contains(&"flutter"),
+        "a Dart package without the Flutter SDK"
+    );
+}
+
+#[test]
 fn reads_php_and_ruby_with_their_lockfiles() {
     let dir = repo(
         "php-ruby",
