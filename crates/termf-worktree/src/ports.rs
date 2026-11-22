@@ -86,6 +86,22 @@ pub(crate) fn allocate(
     Ok(mine)
 }
 
+/// One more port for the worktree, next to the ones its setup gave (the visual review's dev server). A later
+/// setup gives it back; the next call gets one again.
+pub fn reserve(data_dir: &Path, worktree: &Path, name: &str) -> Result<u16> {
+    let mut names: Vec<String> = load(data_dir)
+        .remove(&key(worktree))
+        .map(|ports| ports.into_keys().collect())
+        .unwrap_or_default();
+    if !names.iter().any(|n| n == name) {
+        names.push(name.to_owned());
+    }
+    allocate(data_dir, worktree, &names)?
+        .get(name)
+        .copied()
+        .context("no port given")
+}
+
 /// Gives the worktree's ports back; `None` when it had none.
 pub(crate) fn release(data_dir: &Path, worktree: &Path) -> Result<Option<BTreeMap<String, u16>>> {
     let mut given = load(data_dir);

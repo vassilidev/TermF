@@ -68,6 +68,7 @@ import { showScout } from "$lib/scout.svelte";
 import { exportConfig, importConfig, showSettings } from "$lib/settings.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
 import { launchTicket } from "$lib/tickets.svelte";
+import { showTeamRun, shownRun, team, waitingRuns } from "$lib/team.svelte";
 import { startTour } from "$lib/tour.svelte";
 import { dispatchWorkflow } from "$lib/ci.svelte";
 import { views } from "$lib/views";
@@ -94,18 +95,30 @@ export async function focusSession(id: number) {
     ?.focus({ preventScroll: true });
 }
 
-/** Tiles first, then headless sessions; from the conversation shown, or the active tile. */
+/** Tiles first, then headless sessions, then team runs; from the conversation or team run shown, or the active tile. */
 export function nextWaiting() {
   const tile = (id: number) => `tile:${id}`;
   const agent = (id: number) => `agent:${id}`;
-  const order = [...app.sessions.map((s) => tile(s.id)), ...agents.sessions.map((a) => agent(a.id))];
-  const waiting = [...waitingSessions().map((s) => tile(s.id)), ...waitingAgents().map((a) => agent(a.id))];
+  const run = (id: number) => `team:${id}`;
+  const order = [
+    ...app.sessions.map((s) => tile(s.id)),
+    ...agents.sessions.map((a) => agent(a.id)),
+    ...team.runs.map((r) => run(r.run)),
+  ];
+  const waiting = [
+    ...waitingSessions().map((s) => tile(s.id)),
+    ...waitingAgents().map((a) => agent(a.id)),
+    ...waitingRuns().map((r) => run(r.run)),
+  ];
   const shown = onScreen("conversations") && !agents.creating ? (conversation()?.id ?? null) : null;
+  const shownTeam = onScreen("team") && team.tab === "runs" && !team.launching ? (shownRun()?.run ?? null) : null;
   const active = activeSession();
-  const next = nextAfter(order, waiting, shown !== null ? agent(shown) : active !== null ? tile(active) : null);
+  const from = shown !== null ? agent(shown) : shownTeam !== null ? run(shownTeam) : active !== null ? tile(active) : null;
+  const next = nextAfter(order, waiting, from);
   if (!next) return;
   const id = Number(next.split(":")[1]);
   if (next.startsWith("agent:")) showConversation(id);
+  else if (next.startsWith("team:")) showTeamRun(id);
   else focusSession(id);
 }
 
@@ -265,7 +278,7 @@ export function commands(): Command[] {
     list.push({ id: "project-setup", label: t("obPalette", { project: name }), icon: WandSparkles, group: "projects", run: () => openSetup(id) });
   }
 
-  if (waitingSessions().length || waitingAgents().length) {
+  if (waitingSessions().length || waitingAgents().length || waitingRuns().length) {
     list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, group: "sessions", run: nextWaiting });
   }
   const visible = app.sessions.filter(shown);

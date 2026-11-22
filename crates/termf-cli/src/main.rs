@@ -16,6 +16,7 @@ mod agent;
 mod ci;
 mod claude;
 mod mcp;
+mod review;
 mod schedule;
 mod scout;
 mod ssh;
@@ -142,6 +143,14 @@ usage:
   termf team stop [<run>]               emergency stop of one team, or of every team at work
   termf team squads [<project>]         the squads and staff of a project (by default every project),
                                         each role with its settings and the layers they come from
+  termf review start [--run <run>] [--repo <path> --base <ref> --head <ref>] [--route <path>]...
+                                        capture the screens before and after (a run's worktree, or two
+                                        commits) with the project's dev server and Chrome, then compare
+  termf review show <id> | --run <run>  the screens, what changed, the decisions and the images
+  termf review decide <id> <screen>|all approve|reject|changes [--comment <text>] [--pin x,y,<text>]...
+                                        decide a screen; once none is pending, the team's visual gate
+                                        goes on, stops the run, or sends the changes to the agent
+  termf review pr <id> [--yes]          show, then (with --yes) post the images on the run's pull request
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
   termf claude settings get <key> [--scope <s>] [--repo <path>]
@@ -270,6 +279,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["vault", rest @ ..] => vault::run(rest.to_vec())?,
         ["mcp"] => mcp::serve()?,
+        ["review", rest @ ..] => review::run(rest.to_vec())?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,
