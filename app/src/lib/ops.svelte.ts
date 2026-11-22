@@ -4,6 +4,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { t } from "$lib/i18n";
 import {
   historyRow,
+  shippedTexts,
   streamed,
   type Connection,
   type Plan,
@@ -14,6 +15,10 @@ import {
   type Streamed,
 } from "$lib/ops-logic";
 import { ui } from "$lib/state.svelte";
+
+/** A shipped recipe's English text in the user's language; a recipe's own words show as written. */
+export const said = (text: string) =>
+  Object.hasOwn(shippedTexts, text) ? t(shippedTexts[text] as Parameters<typeof t>[0]) : text;
 
 export type OpsTab = "connections" | "recipes" | "sql" | "live" | "history";
 

@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Copy from "@lucide/svelte/icons/copy";
+  import History from "@lucide/svelte/icons/history";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Play from "@lucide/svelte/icons/play";
@@ -22,7 +23,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
   import { bounded, isSql, runsOn, target, type Check, type Connection, type Kind, type Plan, type Ran } from "$lib/ops-logic";
-  import { loadHistory, loadOps, ops, stopFollow, type OpsTab } from "$lib/ops.svelte";
+  import { loadHistory, loadOps, ops, said, stopFollow, type OpsTab } from "$lib/ops.svelte";
   import { app, onScreen } from "$lib/state.svelte";
   import type { VaultStatus } from "$lib/vault.svelte";
 
@@ -374,7 +375,7 @@
                       <button class="btn sm" onclick={() => openRecipe(r.name, current.name)}>
                         <Play size={13} aria-hidden="true" /><span class="mono">{r.name}</span>
                       </button>
-                      <span class="muted">{r.description}</span>
+                      <span class="muted">{said(r.description)}</span>
                     </li>
                   {/each}
                 </ul>
@@ -398,9 +399,9 @@
               <li class="row" class:current={r === recipe}>
                 <button class="pick" aria-current={r === recipe} onclick={() => openRecipe(r.name)}>
                   <span class="name mono">{r.name}</span>
-                  <span class="desc">{r.description}</span>
+                  <span class="desc">{said(r.description)}</span>
                 </button>
-                {#if r.mode === "write"}<span class="badge write">{t("opsWrite")}</span>{/if}
+                {#if r.mode === "write"}<span class="badge danger">{t("opsWrite")}</span>{/if}
               </li>
             {/each}
           </ul>
@@ -408,7 +409,7 @@
             {#if recipe}
               <header>
                 <h2 class="mono">{recipe.name}</h2>
-                <p class="muted">{recipe.description}</p>
+                <p class="muted">{said(recipe.description)}</p>
               </header>
               {#if recipe.mode === "write"}<p class="notice warn">{t("opsWriteHelp")}</p>{/if}
               {#if proposer}<p class="notice">{t("opsProposedBy", { who: proposer.agent.role === "cto" ? t("ux3t1Cto") : (proposer.agent.role ?? proposer.agent.title) })}</p>{/if}
@@ -429,6 +430,7 @@
                     </select>
                   </label>
                   <OpsParams params={recipe.params} bind:values={ops.form.params} />
+
                   <div class="command">
                     <span class="label">{plan?.remote ? t("opsRemote", { target: plan.target }) : t("opsCommand")}</span>
                     {#if plan}
@@ -451,7 +453,7 @@
                 {@const out = ops.result.output}
                 <section class="result" aria-label={t("opsCommand")}>
                   <div class="result-head">
-                    <span class="badge" class:ok={out.exit === 0} class:bad={out.exit !== 0}>
+                    <span class="badge" class:ok={out.exit === 0} class:danger={out.exit !== 0}>
                       {out.exit === null ? (out.stopped ?? "—") : t("opsExit", { code: out.exit })}
                     </span>
                     <span class="muted">{t("opsDuration", { seconds: (out.millis / 1000).toFixed(1) })}</span>
@@ -507,7 +509,7 @@
       {:else}
         <div class="pane">
           {#if !ops.history.length}
-            <p class="muted empty">{t("opsHistoryEmpty")}</p>
+            <EmptyState icon={History} text={t("opsHistoryEmpty")} />
           {:else}
             <ul class="history">
               {#each ops.history as h (h.id)}
@@ -520,7 +522,7 @@
                       {#if h.env}<span class="badge env" class:prod={h.env === "prod"}>{h.env}</span>{/if}
                       <span class="muted">{h.by === "agent" ? t("opsByAgent", { session: h.session ?? "" }) : t("opsByYou")}</span>
                       {#if h.approval !== "user"}
-                        <span class="badge" class:bad={h.approval === "refused" || h.approval === "expired"}>
+                        <span class="badge" class:danger={h.approval === "refused" || h.approval === "expired"}>
                           {approvalLabels[h.approval] ? t(approvalLabels[h.approval]) : h.approval}
                         </span>
                       {/if}
@@ -582,17 +584,6 @@
     border-color: var(--danger);
     background: var(--danger);
     color: var(--danger-text);
-  }
-
-  .badge.write,
-  .badge.bad {
-    border-color: var(--danger);
-    color: var(--danger);
-  }
-
-  .badge.ok {
-    border-color: var(--done);
-    color: var(--done);
   }
 
   header h2 {
@@ -774,10 +765,6 @@
 
   .confirm-command {
     margin: 8px 0 12px;
-  }
-
-  .empty {
-    padding: 28px;
   }
 
   .history {

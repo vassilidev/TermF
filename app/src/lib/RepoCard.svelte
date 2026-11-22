@@ -43,7 +43,7 @@
     <span class="line meta">
       {#if card.remote}
         <span class="slug">{card.remote.slug}</span>
-      {:else if read}
+      {:else if card.stack}
         <span class="slug">{t("setupNoRemote")}</span>
       {/if}
       {#if card.branch}
