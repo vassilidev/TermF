@@ -2912,7 +2912,7 @@ const fr = {
   sync2S3Access: "Clé d'accès (access key id)",
   sync2S3Secret: "Clé secrète",
   sync2S3Help:
-    "AWS S3, Cloudflare R2, MinIO, Backblaze B2… adressés par chemin : adresse / bucket / dossier. Pour R2, région « auto ». Le service doit refuser une écriture dont la condition If-Match ou If-None-Match échoue : TermF le vérifie avant d'activer. Il faut curl 8.3 ou plus récent.",
+    "AWS S3, Cloudflare R2, MinIO, Backblaze B2… adressés par chemin : adresse / bucket / dossier. Pour R2, la région est auto. Le service doit refuser une écriture dont la condition If-Match ou If-None-Match échoue : TermF le vérifie avant d'activer. Il faut curl 8.3 ou plus récent.",
   sync2WebdavUrl: "Adresse du dossier WebDAV",
   sync2WebdavUser: "Utilisateur",
   sync2WebdavPassword: "Mot de passe",
@@ -5842,7 +5842,7 @@ const en: Record<Key, string> = {
   sync2S3Access: "Access key id",
   sync2S3Secret: "Secret key",
   sync2S3Help:
-    "AWS S3, Cloudflare R2, MinIO, Backblaze B2… addressed by path: address / bucket / folder. For R2, region “auto”. The service must refuse a write whose If-Match or If-None-Match condition fails: TermF checks it before turning sync on. Needs curl 8.3 or newer.",
+    "AWS S3, Cloudflare R2, MinIO, Backblaze B2… addressed by path: address / bucket / folder. For R2, the region is auto. The service must refuse a write whose If-Match or If-None-Match condition fails: TermF checks it before turning sync on. Needs curl 8.3 or newer.",
   sync2WebdavUrl: "WebDAV folder address",
   sync2WebdavUser: "User",
   sync2WebdavPassword: "Password",

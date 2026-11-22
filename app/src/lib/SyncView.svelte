@@ -45,7 +45,7 @@
   } from "$lib/sync.svelte";
 
   const status = $derived(app.sync);
-  const ready = $derived(!!status?.enabled && status.unlocked);
+  const ready = $derived(!!status?.enabled && status.unlocked && !status.forgotten);
   const report = $derived(currentReport());
   const info = $derived(summary(status));
   const syncedAt = $derived(status?.lastSync);
