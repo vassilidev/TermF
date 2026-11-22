@@ -4805,7 +4805,14 @@ fn a_plan_over_two_repositories_works_in_each() {
         std::slice::from_ref(&web),
         "it reads the other repository"
     );
-    assert_eq!(run.repos.len(), 1, "web joins the run with its plan");
+    assert!(
+        run.repos.is_empty(),
+        "web joins the run with its first task"
+    );
+
+    env.team.approve(1, "approve-plan").unwrap();
+    let run = env.until("the delivery gate", delivery);
+    assert_eq!(run.repos.len(), 1);
     let joined = run.repos[0].clone();
     assert_eq!(joined.name, "web");
     let tickets = termf_tickets::Tickets::new(env.config.clone(), env.data.clone());
@@ -4816,9 +4823,7 @@ fn a_plan_over_two_repositories_works_in_each() {
         env.team.check_delivery(joined.run).is_err(),
         "the run of another repository waits for the team, as the run's own does"
     );
-
-    env.team.approve(1, "approve-plan").unwrap();
-    let run = env.until("the delivery gate", delivery);
+    assert!(env.kinds().contains(&"repo".to_owned()));
     assert!(
         joined.worktree.join("web.txt").is_file(),
         "T2 merged into web's run"

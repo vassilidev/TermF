@@ -2267,7 +2267,7 @@ impl Inner {
                 &format!("the plan is not valid:\n- {}", problems.join("\n- ")),
             );
         }
-        if let Err(e) = self.open_repos(store, run, &plan.tasks) {
+        if let Err(e) = self.check_repos(run, &plan.tasks) {
             return self.block(store, run, i, &format!("{e:#}"));
         }
         let tasks: Vec<String> = plan
@@ -2378,7 +2378,11 @@ impl Inner {
             let why = format!("the sub-plan is not valid:\n- {}", problems.join("\n- "));
             return self.retry(store, run, i, &why);
         }
-        let tasks: Vec<String> = plan::graft(&batch, &sub)
+        let grafted = plan::graft(&batch, &sub);
+        if let Err(e) = self.check_repos(run, &grafted) {
+            return self.block(store, run, i, &format!("{e:#}"));
+        }
+        let tasks: Vec<String> = grafted
             .iter()
             .map(|t| format!("{} ({}, {:?})", t.id, t.role, t.size))
             .collect();
@@ -2423,7 +2427,6 @@ impl Inner {
             .clone()
             .context("the batch has no sub-plan")?;
         let tasks = plan::graft(&batch, &sub);
-        self.open_repos(store, run, &tasks)?;
         let source = run.steps[i].clone();
         let each = source
             .key
@@ -2531,10 +2534,8 @@ impl Inner {
         tickets
     }
 
-    /// Opens the run of each repository of `tasks` the run does not work on yet: a worktree on its own branch, where
-    /// the tasks of that repository merge. A run that spans several repositories opens a pull request in each, linked
-    /// together, so each must be on GitHub, the run's own too: refused otherwise, before any opens.
-    fn open_repos(&self, store: &Store, run: &mut TeamRun, tasks: &[Task]) -> Result<()> {
+    /// The project's other repositories `tasks` name that the run does not work on yet.
+    fn joining(&self, run: &TeamRun, tasks: &[Task]) -> Vec<String> {
         let names = self.repo_names(run);
         let mut wanted: Vec<String> = Vec::new();
         for task in tasks {
@@ -2548,15 +2549,29 @@ impl Inner {
                 wanted.push(name.clone());
             }
         }
+        wanted
+    }
+
+    /// A run that spans several repositories opens a pull request in each, linked together: each repository `tasks`
+    /// bring in must be on GitHub, the run's own too. Refused, saying why, before any work starts.
+    fn check_repos(&self, run: &TeamRun, tasks: &[Task]) -> Result<()> {
+        let wanted = self.joining(run, tasks);
         if wanted.is_empty() {
             return Ok(());
         }
         let tickets = self.tickets();
-        let project = &run.target.project;
         for name in std::iter::once(&run.target.repo).chain(&wanted) {
-            tickets.github_repo(project, name)?;
+            tickets.github_repo(&run.target.project, name)?;
         }
-        for name in wanted {
+        Ok(())
+    }
+
+    /// Opens the run of each repository of `tasks` the run does not work on yet, as its first task starts: a
+    /// worktree on its own branch, where the tasks of that repository merge.
+    fn open_repos(&self, store: &Store, run: &mut TeamRun, tasks: &[Task]) -> Result<()> {
+        self.check_repos(run, tasks)?;
+        let tickets = self.tickets();
+        for name in self.joining(run, tasks) {
             let child = tickets.open_repo(run.run, &name)?;
             let worktree = PathBuf::from(child.worktree.clone().unwrap_or_default());
             let message = format!(
@@ -4122,6 +4137,10 @@ impl Inner {
             .cloned();
         // A review gets a throwaway copy of the run's work each time: what it runs never reaches what ships.
         let fresh = step.kind == StepKind::Task && !step.batch && step.worktree.is_none();
+        if let Some(task) = task.as_ref().filter(|_| fresh) {
+            self.open_repos(store, run, std::slice::from_ref(task))?;
+        }
+        let step = &run.steps[i];
         if fresh || step.kind == StepKind::Review {
             let path = self
                 .data_dir
