@@ -1,0 +1,8 @@
+- Version: `pestphp/pest`, `phpunit/phpunit`, `pestphp/pest-plugin-laravel` in `composer.lock`; Pest when `tests/Pest.php` exists.
+- Docs for this version: `https://pestphp.com/llms.txt` (per page `/docs/<page>/llms.txt`), `https://laravel.com/docs/<major>.x/testing.md`; Boost's testing guidelines first when installed.
+- Verify: `php artisan test --compact <file>` or `--filter=...` while iterating, then the whole suite.
+- Pest 5 needs PHP 8.4 and PHPUnit 13; Laravel 13 on PHP 8.3 stays on Pest 4 and PHPUnit 12.
+- PHPUnit 12+: attributes (`#[Test]`, `#[DataProvider]`), no doc-comment annotations; no expectations on stubs.
+- Feature tests over HTTP with `RefreshDatabase`, factories, `actingAs`; fake only outside services (`Http::fake()`, `Mail::fake()`).
+- Pest 5 `--evals` calls a real model: never without being asked; `--tia` is local only.
+- Read the skill `pest` before writing or fixing PHP tests.
