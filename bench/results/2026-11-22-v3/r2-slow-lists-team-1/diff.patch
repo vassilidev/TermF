@@ -1,0 +1,750 @@
+diff --git a/README.md b/README.md
+index 89fbcae..a93c03d 100644
+--- a/README.md
++++ b/README.md
+@@ -55,11 +55,11 @@ A task is:
+ }
+ ```
+ 
+ | Method and path | Body | Answers |
+ |---|---|---|
+-| `GET /api/lists/:id/tasks` | | 200, the tasks of the list (filters and sorts below) |
++| `GET /api/lists/:id/tasks` | | 200, `{ "items": [the tasks], "next_cursor" }`: one page of the tasks of the list (filters, sorts and paging below) |
+ | `POST /api/lists/:id/tasks` | `{ "title", "notes"?, "done"?, "priority"?, "due_date"?, "assignee_id"?, "position"?, "tags"? }` | 201, the task, at the end of the list unless `position` is given |
+ | `GET /api/tasks/:id` | | 200, the task |
+ | `PATCH /api/tasks/:id` | any of the fields above | 200, the task |
+ | `DELETE /api/tasks/:id` | | 204 |
+ | `GET /api/tasks/:id/comments` | | 200, `[{ "id", "task_id", "author", "body", "created_at" }]`, oldest first |
+@@ -75,11 +75,20 @@ comment has 1 to 2,000 characters.
+ - `?done=true` or `?done=false`: only the done, or the open tasks;
+ - `?tag=<name>`: only the tasks with this tag;
+ - `?assignee=<user id>` or `?assignee=none`: only the tasks assigned to this user, or to nobody;
+ - `?sort=`: `position` (the default, ascending), `due_date` (soonest first, tasks without one last), `priority`
+   (highest first) or `created` (newest first). Ties go by id: ascending, except for `created` where the newest
+-  comes first.
++  comes first;
++- `?limit=`: how many tasks in a page, a whole number from 1 to 200 (50 by default);
++- `?cursor=`: the `next_cursor` of the previous page, to get the page after it.
++
++The answer is `{ "items": [...], "next_cursor": "..." }`. `items` holds the tasks of the page, in the order of
++the sort. `next_cursor` is `null` on the last page; otherwise send it back as `cursor`, with the same filters and
++sort, to get the next page. A cursor is an opaque string: do not build or change one. It only works with the list
++and the sort it came from. A `limit` that is not a whole number from 1 to 200, or a `cursor` that is malformed or
++comes from another list or sort, answers 400. Tasks added or removed between two requests can show up in, or be
++missing from, the pages that follow.
+ 
+ ### Activity
+ 
+ Every change to a list or its tasks adds an entry `{ "id", "action", "task_id", "user", "detail", "created_at" }`.
+ Actions: `list.created`, `list.renamed`, `task.created`, `task.updated` (`detail.changes` names the fields that
+diff --git a/public/index.html b/public/index.html
+index f9faf82..4292e87 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -79,10 +79,11 @@
+             </select>
+           </label>
+         </div>
+ 
+         <ul id="tasks"></ul>
++        <button type="button" id="load-more" hidden>Load more</button>
+ 
+         <details id="activity">
+           <summary>Activity</summary>
+           <ol id="activity-items"></ol>
+         </details>
+diff --git a/public/style.css b/public/style.css
+index 4810180..4b15d4c 100644
+--- a/public/style.css
++++ b/public/style.css
+@@ -41,5 +41,7 @@ nav .count { color: var(--muted); font-size: 0.85em; }
+ #activity { margin-top: 1.5rem; color: var(--muted); }
+ 
+ @media (max-width: 40rem) {
+   main { grid-template-columns: 1fr; }
+ }
++#load-more { display: block; width: 100%; min-height: 44px; margin-top: 0.5rem; }
++#load-more[hidden] { display: none; }
+diff --git a/public/tasks.js b/public/tasks.js
+index 78e5d5b..29d279e 100644
+--- a/public/tasks.js
++++ b/public/tasks.js
+@@ -9,15 +9,18 @@ const titleInput = document.querySelector("#task-title");
+ const dueInput = document.querySelector("#task-due");
+ const priorityInput = document.querySelector("#task-priority");
+ const doneFilter = document.querySelector("#filter-done");
+ const tagFilter = document.querySelector("#filter-tag");
+ const sortSelect = document.querySelector("#sort");
++const loadMore = document.querySelector("#load-more");
+ const activityItems = document.querySelector("#activity-items");
+ 
+ const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
+ 
+ let current = null;
++let nextCursor = null;
++let requestId = 0;
+ 
+ export function initTasks() {
+   form.addEventListener("submit", async (event) => {
+     event.preventDefault();
+     const body = { title: titleInput.value, priority: Number(priorityInput.value), due_date: dueInput.value || null };
+@@ -30,10 +33,11 @@ export function initTasks() {
+     }
+   });
+   for (const control of [doneFilter, tagFilter, sortSelect]) {
+     control.addEventListener("change", () => renderTasks().catch(showError));
+   }
++  loadMore.addEventListener("click", () => loadNextPage().catch(showError));
+   document.querySelector("#rename-list").addEventListener("click", () => renameList(current).catch(showError));
+   document.querySelector("#delete-list").addEventListener("click", () => deleteList(current).catch(showError));
+ }
+ 
+ /** Shows a list, or hides the view when `list` is null. */
+@@ -50,16 +54,52 @@ export async function showList(list) {
+ async function refresh() {
+   showError(null);
+   await renderLists();
+ }
+ 
+-async function renderTasks() {
++function tasksQuery() {
+   const query = new URLSearchParams({ sort: sortSelect.value });
+   if (doneFilter.value) query.set("done", doneFilter.value);
+   if (tagFilter.value) query.set("tag", tagFilter.value);
+-  const tasks = await api(`/api/lists/${current.id}/tasks?${query}`);
+-  items.replaceChildren(...tasks.map(taskItem));
++  return query;
++}
++
++function setCursor(cursor) {
++  nextCursor = cursor;
++  loadMore.hidden = !cursor;
++}
++
++/** Shows the first page of the current list; any page still loading is ignored. */
++async function renderTasks() {
++  const id = ++requestId;
++  loadMore.disabled = false;
++  setCursor(null);
++  const page = await api(`/api/lists/${current.id}/tasks?${tasksQuery()}`);
++  if (id !== requestId) return;
++  items.replaceChildren(...page.items.map(taskItem));
++  setCursor(page.next_cursor);
++}
++
++async function loadNextPage() {
++  if (!nextCursor) return;
++  const id = ++requestId;
++  const query = tasksQuery();
++  query.set("cursor", nextCursor);
++  loadMore.disabled = true;
++  try {
++    const page = await api(`/api/lists/${current.id}/tasks?${query}`);
++    if (id !== requestId) return;
++    const added = page.items.map(taskItem);
++    items.append(...added);
++    setCursor(page.next_cursor);
++    if (!page.next_cursor) added[0]?.querySelector("input, button")?.focus();
++  } finally {
++    if (id === requestId) {
++      loadMore.disabled = false;
++      if (!loadMore.hidden) loadMore.focus();
++    }
++  }
+ }
+ 
+ async function renderTags() {
+   const tags = await api(`/api/lists/${current.id}/tags`);
+   const chosen = tagFilter.value;
+diff --git a/src/db.ts b/src/db.ts
+index 203173c..2692172 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -89,10 +89,19 @@ const migrations: string[] = [
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT ${NOW},
+      sent_at TEXT
+    );`,
++
++  // One index per sort of a list's tasks, shaped like its ORDER BY, and the lookups of the tags and comments of a task.
++  `CREATE INDEX tasks_list_position ON tasks(list_id, position, id);
++   CREATE INDEX tasks_list_due_date ON tasks(list_id, due_date IS NULL, due_date, id);
++   CREATE INDEX tasks_list_priority ON tasks(list_id, priority DESC, id);
++   CREATE INDEX tasks_list_created ON tasks(list_id, created_at DESC, id DESC);
++   CREATE INDEX task_tags_task ON task_tags(task_id, tag_id);
++   CREATE INDEX task_tags_tag ON task_tags(tag_id, task_id);
++   CREATE INDEX comments_task ON comments(task_id);`,
+ ];
+ 
+ export function openDb(path = ":memory:"): Db {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA foreign_keys = ON");
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4f36ce6..5a43b7d 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -132,38 +132,63 @@ function setTags(db: Db, listId: number, taskId: number, names: string[]): void
+     const tag = db.prepare("SELECT id FROM tags WHERE list_id = ? AND name = ?").get(listId, name) as { id: number };
+     db.prepare("INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)").run(taskId, tag.id);
+   }
+ }
+ 
+-function toView(db: Db, task: Task): TaskView {
+-  const assignee =
+-    task.assignee_id === null
+-      ? null
+-      : ((db.prepare("SELECT id, username FROM users WHERE id = ?").get(task.assignee_id) as TaskView["assignee"]) ?? null);
+-  const { count } = db.prepare("SELECT COUNT(*) AS count FROM comments WHERE task_id = ?").get(task.id) as { count: number };
+-  return {
++const CHUNK = 200;
++
++/** The views of `tasks`: their tags, comment counts and assignees come from one query each per chunk of 200 tasks. */
++function toViews(db: Db, tasks: Task[]): TaskView[] {
++  const tags = new Map<number, string[]>();
++  const comments = new Map<number, number>();
++  const assignees = new Map<number, { id: number; username: string }>();
++  for (let i = 0; i < tasks.length; i += CHUNK) {
++    const chunk = tasks.slice(i, i + CHUNK);
++    const marks = chunk.map(() => "?").join(", ");
++    const ids = chunk.map((task) => task.id);
++    const tagRows = db
++      .prepare(`SELECT tt.task_id, g.name FROM task_tags tt JOIN tags g ON g.id = tt.tag_id WHERE tt.task_id IN (${marks}) ORDER BY g.name`)
++      .all(...ids) as { task_id: number; name: string }[];
++    for (const row of tagRows) {
++      const names = tags.get(row.task_id);
++      if (names) names.push(row.name);
++      else tags.set(row.task_id, [row.name]);
++    }
++    const countRows = db
++      .prepare(`SELECT task_id, COUNT(*) AS count FROM comments WHERE task_id IN (${marks}) GROUP BY task_id`)
++      .all(...ids) as { task_id: number; count: number }[];
++    for (const row of countRows) comments.set(row.task_id, row.count);
++    const userIds = [...new Set(chunk.flatMap((task) => (task.assignee_id === null ? [] : [task.assignee_id])))];
++    if (userIds.length > 0) {
++      const userRows = db
++        .prepare(`SELECT id, username FROM users WHERE id IN (${userIds.map(() => "?").join(", ")})`)
++        .all(...userIds) as { id: number; username: string }[];
++      for (const row of userRows) assignees.set(row.id, { id: row.id, username: row.username });
++    }
++  }
++  return tasks.map((task) => ({
+     id: task.id,
+     list_id: task.list_id,
+     title: task.title,
+     notes: task.notes,
+     done: task.done === 1,
+     position: task.position,
+     priority: task.priority,
+     due_date: task.due_date,
+-    assignee: assignee && { id: assignee.id, username: assignee.username },
+-    tags: tagsOf(db, task.id),
+-    comment_count: count,
++    assignee: task.assignee_id === null ? null : (assignees.get(task.assignee_id) ?? null),
++    tags: tags.get(task.id) ?? [],
++    comment_count: comments.get(task.id) ?? 0,
+     created_by: task.created_by,
+     created_at: task.created_at,
+     updated_at: task.updated_at,
+-  };
++  }));
+ }
+ 
+ function viewOf(db: Db, id: number): TaskView {
+   const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Task | undefined;
+   if (!task) throw notFound("task not found");
+-  return toView(db, task);
++  return toViews(db, [task])[0];
+ }
+ 
+ /** The task if `user` owns its list. Someone else's task is answered as if it did not exist. */
+ export function loadTask(db: Db, user: User, id: number): Task {
+   const task = db
+@@ -171,11 +196,86 @@ export function loadTask(db: Db, user: User, id: number): Task {
+     .get(id, user.id) as Task | undefined;
+   if (!task) throw notFound("task not found");
+   return task;
+ }
+ 
+-export function listTasks(db: Db, user: User, listId: number, query: URLSearchParams): TaskView[] {
++const DEFAULT_LIMIT = 50;
++const MAX_LIMIT = 200;
++const MAX_CURSOR = 512;
++const DATE = /^\d{4}-\d{2}-\d{2}$/;
++
++type CursorKey = (number | string | null)[];
++
++function isId(value: unknown): value is number {
++  return Number.isSafeInteger(value) && (value as number) > 0;
++}
++
++function encodeCursor(listId: number, sort: string, k: CursorKey): string {
++  return Buffer.from(JSON.stringify({ l: listId, s: sort, k })).toString("base64url");
++}
++
++/** The sort key values in a cursor, checked: a cursor is input, and must be the one this list and sort handed out. */
++function decodeCursor(text: string, listId: number, sort: string): CursorKey {
++  const invalid = badRequest("invalid cursor");
++  if (text.length > MAX_CURSOR || !/^[A-Za-z0-9_-]+$/.test(text)) throw invalid;
++  let data: any;
++  try {
++    data = JSON.parse(Buffer.from(text, "base64url").toString("utf8"));
++  } catch {
++    throw invalid;
++  }
++  if (typeof data !== "object" || data === null || data.l !== listId || data.s !== sort || !Array.isArray(data.k) || data.k.length !== 2) throw invalid;
++  const [key, id] = data.k;
++  if (!isId(id)) throw invalid;
++  switch (sort) {
++    case "position":
++      if (!Number.isSafeInteger(key) || key < 0) throw invalid;
++      break;
++    case "priority":
++      if (![0, 1, 2, 3].includes(key)) throw invalid;
++      break;
++    case "due_date":
++      if (key !== null && !(typeof key === "string" && DATE.test(key))) throw invalid;
++      break;
++    case "created":
++      if (typeof key !== "string" || key.length === 0 || key.length > 40) throw invalid;
++      break;
++    default:
++      throw invalid;
++  }
++  return [key, id];
++}
++
++/** The condition, with its bound values, for the rows after the cursor row in the order of `sort` (see SORTS). */
++function afterCursor(sort: string, [key, id]: CursorKey): [string, (string | number)[]] {
++  switch (sort) {
++    case "position":
++      return ["(t.position, t.id) > (?, ?)", [key as number, id as number]];
++    case "priority":
++      return ["(t.priority < ? OR (t.priority = ? AND t.id > ?))", [key as number, key as number, id as number]];
++    case "created":
++      return ["(t.created_at < ? OR (t.created_at = ? AND t.id < ?))", [key as string, key as string, id as number]];
++    default:
++      if (key === null) return ["(t.due_date IS NULL AND t.id > ?)", [id as number]];
++      return ["(t.due_date > ? OR (t.due_date = ? AND t.id > ?) OR t.due_date IS NULL)", [key as string, key as string, id as number]];
++  }
++}
++
++function sortKey(sort: string, task: Task): CursorKey {
++  switch (sort) {
++    case "position":
++      return [task.position, task.id];
++    case "priority":
++      return [task.priority, task.id];
++    case "created":
++      return [task.created_at, task.id];
++    default:
++      return [task.due_date, task.id];
++  }
++}
++
++export function listTasks(db: Db, user: User, listId: number, query: URLSearchParams): { items: TaskView[]; next_cursor: string | null } {
+   loadList(db, user, listId);
+   const where = ["t.list_id = ?"];
+   const args: (string | number)[] = [listId];
+ 
+   const done = query.get("done");
+@@ -198,16 +298,33 @@ export function listTasks(db: Db, user: User, listId: number, query: URLSearchPa
+     args.push(Number(assignee));
+   }
+   const sort = query.get("sort") ?? "position";
+   if (!Object.hasOwn(SORTS, sort)) throw badRequest(`sort must be one of ${Object.keys(SORTS).join(", ")}`);
+ 
+-  const rows = db.prepare(`SELECT t.* FROM tasks t WHERE ${where.join(" AND ")} ORDER BY ${SORTS[sort]}`).all(...args) as Task[];
+-  return rows.map((row) => toView(db, row));
++  const limitText = query.get("limit");
++  let limit = DEFAULT_LIMIT;
++  if (limitText !== null) {
++    if (!/^[1-9][0-9]*$/.test(limitText) || Number(limitText) > MAX_LIMIT) throw badRequest(`limit must be a whole number from 1 to ${MAX_LIMIT}`);
++    limit = Number(limitText);
++  }
++  const cursor = query.get("cursor");
++  if (cursor !== null) {
++    const [condition, values] = afterCursor(sort, decodeCursor(cursor, listId, sort));
++    where.push(condition);
++    args.push(...values);
++  }
++
++  const rows = db
++    .prepare(`SELECT t.* FROM tasks t WHERE ${where.join(" AND ")} ORDER BY ${SORTS[sort]} LIMIT ?`)
++    .all(...args, limit + 1) as Task[];
++  const more = rows.length > limit;
++  const page = more ? rows.slice(0, limit) : rows;
++  return { items: toViews(db, page), next_cursor: more ? encodeCursor(listId, sort, sortKey(sort, page[page.length - 1])) : null };
+ }
+ 
+ export function getTask(db: Db, user: User, id: number): TaskView {
+-  return toView(db, loadTask(db, user, id));
++  return toViews(db, [loadTask(db, user, id)])[0];
+ }
+ 
+ export async function createTask(db: Db, user: User, listId: number, body: any): Promise<TaskView> {
+   const list = loadList(db, user, listId);
+   const input = readInput(list, body, false);
+@@ -234,11 +351,11 @@ export async function updateTask(db: Db, user: User, id: number, body: any): Pro
+   const input = readInput(loadList(db, user, task.list_id), body, true);
+   const current: Record<string, unknown> = { ...task, tags: input.tags && tagsOf(db, id) };
+   const changes = Object.entries(input)
+     .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
+     .map(([key]) => key);
+-  if (changes.length === 0) return toView(db, task);
++  if (changes.length === 0) return toViews(db, [task])[0];
+ 
+   const next = { ...task, ...input, updated_at: now() };
+   await activity.record(db, { list_id: task.list_id, task_id: id, user_id: user.id, action: "task.updated", detail: { changes } });
+   transaction(db, () => {
+     db.prepare(
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 50f8599..c724f90 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -1,7 +1,8 @@
+ import { after, before, test } from "node:test";
+ import assert from "node:assert/strict";
++import { openDb, migrate } from "../src/db.ts";
+ import { makeList, makeTask, signUp, start, type App, type Auth } from "./helpers.ts";
+ 
+ let app: App;
+ before(async () => (app = await start()));
+ after(() => app.close());
+@@ -10,11 +11,11 @@ let users = 0;
+ async function setUp(): Promise<{ auth: Auth; user: any; list: any }> {
+   const { auth, user } = await signUp(app, `user_${++users}`);
+   return { auth, user, list: await makeList(app, auth) };
+ }
+ 
+-const titles = (res: { body: any[] }) => res.body.map((t) => t.title);
++const titles = (res: { body: any }) => res.body.items.map((t: any) => t.title);
+ 
+ test("creates a task with its defaults, at the end of the list", async () => {
+   const { auth, user, list } = await setUp();
+   const first = await app.call("POST", `/api/lists/${list.id}/tasks`, { title: " Buy milk " }, auth);
+   assert.equal(first.status, 201);
+@@ -141,11 +142,11 @@ test("a task shows how many comments it has", async () => {
+   const { auth, list } = await setUp();
+   const task = await makeTask(app, auth, list.id);
+   await app.call("POST", `/api/tasks/${task.id}/comments`, { body: "First" }, auth);
+   await app.call("POST", `/api/tasks/${task.id}/comments`, { body: "Second" }, auth);
+   assert.equal((await app.call("GET", `/api/tasks/${task.id}`, undefined, auth)).body.comment_count, 2);
+-  const [listed] = (await app.call("GET", `/api/lists/${list.id}/tasks`, undefined, auth)).body;
++  const [listed] = (await app.call("GET", `/api/lists/${list.id}/tasks`, undefined, auth)).body.items;
+   assert.equal(listed.comment_count, 2);
+ });
+ 
+ test("someone else's task is a 404", async () => {
+   const owner = await setUp();
+@@ -179,9 +180,309 @@ test.skip("moving a task renumbers the positions of the others", async () => {
+   const tasks = [];
+   for (const title of ["a", "b", "c"]) tasks.push(await makeTask(app, auth, list.id, { title }));
+   await app.call("PATCH", `/api/tasks/${tasks[2].id}`, { position: 0 }, auth);
+   const res = await app.call("GET", `/api/lists/${list.id}/tasks`, undefined, auth);
+   assert.deepEqual(
+-    res.body.map((t: any) => [t.title, t.position]),
++    res.body.items.map((t: any) => [t.title, t.position]),
+     [["c", 0], ["a", 1], ["b", 2]],
+   );
+ });
++
++// Paging
++
++const SORT_NAMES = ["position", "due_date", "priority", "created"];
++
++/** A list of 130 tasks that shares positions, priorities, creation times and due dates, and has null due dates. */
++async function bigList() {
++  const { auth, user, list } = await setUp();
++  const tag = (i: number) => (i % 3 === 0 ? ["even3"] : []);
++  for (let i = 0; i < 130; i++) {
++    await makeTask(app, auth, list.id, {
++      title: `task ${i}`,
++      position: i % 7,
++      priority: i % 4,
++      due_date: i % 5 === 0 ? null : `2026-06-${String(1 + (i % 6)).padStart(2, "0")}`,
++      done: i % 2 === 0,
++      assignee_id: i % 4 === 0 ? user.id : null,
++      tags: tag(i),
++    });
++  }
++  return { auth, user, list };
++}
++
++async function walk(auth: Auth, listId: number, params: string, limit: number): Promise<{ ids: number[]; pages: number }> {
++  const ids: number[] = [];
++  let cursor: string | null = null;
++  let pages = 0;
++  do {
++    const res: any = await app.call("GET", `/api/lists/${listId}/tasks?${params}&limit=${limit}${cursor ? `&cursor=${cursor}` : ""}`, undefined, auth);
++    assert.equal(res.status, 200, JSON.stringify(res.body));
++    assert.ok(res.body.items.length <= limit);
++    ids.push(...res.body.items.map((t: any) => t.id));
++    cursor = res.body.next_cursor;
++    pages++;
++    assert.ok(pages < 1000);
++  } while (cursor !== null);
++  return { ids, pages };
++}
++
++test("a list is paged: 50 tasks by default, then next_cursor, null on the last page", async () => {
++  const { auth, list } = await bigList();
++  const first = await app.call("GET", `/api/lists/${list.id}/tasks`, undefined, auth);
++  assert.equal(first.status, 200);
++  assert.equal(first.body.items.length, 50);
++  assert.equal(typeof first.body.next_cursor, "string");
++  const second = await app.call("GET", `/api/lists/${list.id}/tasks?cursor=${first.body.next_cursor}`, undefined, auth);
++  assert.equal(second.body.items.length, 50);
++  const third = await app.call("GET", `/api/lists/${list.id}/tasks?cursor=${second.body.next_cursor}`, undefined, auth);
++  assert.equal(third.body.items.length, 30);
++  assert.equal(third.body.next_cursor, null);
++});
++
++test("limit goes from 1 to 200, and an exact fit has no next page", async () => {
++  const { auth, list } = await bigList();
++  const one = await app.call("GET", `/api/lists/${list.id}/tasks?limit=1`, undefined, auth);
++  assert.equal(one.body.items.length, 1);
++  assert.notEqual(one.body.next_cursor, null);
++  const all = await app.call("GET", `/api/lists/${list.id}/tasks?limit=200`, undefined, auth);
++  assert.equal(all.body.items.length, 130);
++  assert.equal(all.body.next_cursor, null);
++  const exact = await app.call("GET", `/api/lists/${list.id}/tasks?limit=130`, undefined, auth);
++  assert.equal(exact.body.items.length, 130);
++  assert.equal(exact.body.next_cursor, null);
++  const almost = await app.call("GET", `/api/lists/${list.id}/tasks?limit=129`, undefined, auth);
++  assert.notEqual(almost.body.next_cursor, null);
++});
++
++test("an empty list has no items and no next page", async () => {
++  const { auth, list } = await setUp();
++  const res = await app.call("GET", `/api/lists/${list.id}/tasks`, undefined, auth);
++  assert.deepEqual(res.body, { items: [], next_cursor: null });
++});
++
++test("a limit that is not a whole number from 1 to 200 is a 400", async () => {
++  const { auth, list } = await setUp();
++  for (const limit of ["0", "-1", "201", "abc", "1.5", "", "1e2", "+5", "050", "%201"]) {
++    const res = await app.call("GET", `/api/lists/${list.id}/tasks?limit=${limit}`, undefined, auth);
++    assert.equal(res.status, 400, `limit=${limit}`);
++    assert.deepEqual(res.body, { error: "limit must be a whole number from 1 to 200" });
++  }
++});
++
++test("walking every page of each sort visits each task once, in the unpaged order", async () => {
++  const { auth, list } = await bigList();
++  for (const sort of SORT_NAMES) {
++    const whole = await app.call("GET", `/api/lists/${list.id}/tasks?sort=${sort}&limit=200`, undefined, auth);
++    const expected = whole.body.items.map((t: any) => t.id);
++    assert.equal(expected.length, 130);
++    assert.equal(new Set(expected).size, 130);
++    for (const limit of [1, 7, 50]) {
++      const { ids } = await walk(auth, list.id, `sort=${sort}`, limit);
++      assert.deepEqual(ids, expected, `${sort} by ${limit}`);
++    }
++  }
++});
++
++test("each sort keeps the documented order across pages", async () => {
++  const { auth, list } = await bigList();
++  const order = async (sort: string) =>
++    (await app.call("GET", `/api/lists/${list.id}/tasks?sort=${sort}&limit=200`, undefined, auth)).body.items as any[];
++  const byPosition = await order("position");
++  for (let i = 1; i < byPosition.length; i++) {
++    const a = byPosition[i - 1], b = byPosition[i];
++    assert.ok(a.position < b.position || (a.position === b.position && a.id < b.id));
++  }
++  const byDue = await order("due_date");
++  const dated = byDue.filter((t) => t.due_date !== null);
++  assert.equal(dated.length, 104);
++  assert.ok(byDue.slice(0, 104).every((t) => t.due_date !== null), "dated tasks come first");
++  assert.ok(byDue.slice(104).every((t) => t.due_date === null), "undated tasks come last");
++  for (let i = 1; i < byDue.length; i++) {
++    const a = byDue[i - 1], b = byDue[i];
++    if (a.due_date === b.due_date) assert.ok(a.id < b.id);
++    else if (a.due_date !== null && b.due_date !== null) assert.ok(a.due_date < b.due_date);
++  }
++  const byPriority = await order("priority");
++  for (let i = 1; i < byPriority.length; i++) {
++    const a = byPriority[i - 1], b = byPriority[i];
++    assert.ok(a.priority > b.priority || (a.priority === b.priority && a.id < b.id));
++  }
++  const byCreated = await order("created");
++  for (let i = 1; i < byCreated.length; i++) {
++    const a = byCreated[i - 1], b = byCreated[i];
++    assert.ok(a.created_at > b.created_at || (a.created_at === b.created_at && a.id > b.id));
++  }
++});
++
++test("paging works with the filters, for every sort", async () => {
++  const { auth, user, list } = await bigList();
++  const filters = ["done=true", "done=false", "tag=even3", "assignee=none", `assignee=${user.id}`, "done=false&tag=even3&assignee=none"];
++  for (const filter of filters) {
++    for (const sort of SORT_NAMES) {
++      const whole = await app.call("GET", `/api/lists/${list.id}/tasks?${filter}&sort=${sort}&limit=200`, undefined, auth);
++      const expected = whole.body.items.map((t: any) => t.id);
++      assert.ok(expected.length > 0 && expected.length < 130, filter);
++      const { ids } = await walk(auth, list.id, `${filter}&sort=${sort}`, 9);
++      assert.deepEqual(ids, expected, `${filter} ${sort}`);
++    }
++  }
++});
++
++test("the tags, comment count and assignee of each task on a page are its own", async () => {
++  const { auth, user, list } = await setUp();
++  const a = await makeTask(app, auth, list.id, { title: "a", tags: ["zeta", "alpha"], assignee_id: user.id });
++  const b = await makeTask(app, auth, list.id, { title: "b" });
++  const c = await makeTask(app, auth, list.id, { title: "c", tags: ["alpha"] });
++  await app.call("POST", `/api/tasks/${a.id}/comments`, { body: "one" }, auth);
++  await app.call("POST", `/api/tasks/${a.id}/comments`, { body: "two" }, auth);
++  await app.call("POST", `/api/tasks/${c.id}/comments`, { body: "three" }, auth);
++  const res = await app.call("GET", `/api/lists/${list.id}/tasks`, undefined, auth);
++  const [ra, rb, rc] = res.body.items;
++  assert.deepEqual([ra.id, rb.id, rc.id], [a.id, b.id, c.id]);
++  assert.deepEqual([ra.tags, rb.tags, rc.tags], [["alpha", "zeta"], [], ["alpha"]]);
++  assert.deepEqual([ra.comment_count, rb.comment_count, rc.comment_count], [2, 0, 1]);
++  assert.deepEqual([ra.assignee, rb.assignee, rc.assignee], [{ id: user.id, username: user.username }, null, null]);
++  assert.deepEqual(ra, (await app.call("GET", `/api/tasks/${a.id}`, undefined, auth)).body);
++});
++
++test("a cursor that is not one handed out for this list and sort is a 400", async () => {
++  const { auth, list } = await bigList();
++  const other = await setUp();
++  await makeTask(app, other.auth, other.list.id);
++  await makeTask(app, other.auth, other.list.id);
++  const page = (id: number, sort: string, auth: Auth) => app.call("GET", `/api/lists/${id}/tasks?sort=${sort}&limit=1`, undefined, auth);
++  const cursors: Record<string, string> = {};
++  for (const sort of SORT_NAMES) cursors[sort] = (await page(list.id, sort, auth)).body.next_cursor;
++  const otherCursor = (await page(other.list.id, "position", other.auth)).body.next_cursor;
++  const forge = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
++  const bad: [string, string, string][] = [
++    ["garbage", "position", "not a cursor"],
++    ["empty", "position", ""],
++    ["base64 of not json", "position", Buffer.from("hello").toString("base64url")],
++    ["another list", "position", otherCursor],
++    ["another sort", "created", cursors.position],
++    ["another sort", "position", cursors.priority],
++    ["a sort that does not exist", "position", forge({ l: list.id, s: "title", k: [1, 1] })],
++    ["a string position", "position", forge({ l: list.id, s: "position", k: ["1", 1] })],
++    ["an SQL text", "position", forge({ l: list.id, s: "position", k: ["1 OR 1=1", 1] })],
++    ["an SQL text as id", "position", forge({ l: list.id, s: "position", k: [1, "1; DROP TABLE tasks"] })],
++    ["a float", "position", forge({ l: list.id, s: "position", k: [1.5, 1] })],
++    ["too short", "position", forge({ l: list.id, s: "position", k: [1] })],
++    ["too long", "position", forge({ l: list.id, s: "position", k: [1, 1, 1] })],
++    ["k not a list", "position", forge({ l: list.id, s: "position", k: "1,1" })],
++    ["a list as a string", "position", forge({ l: String(list.id), s: "position", k: [1, 1] })],
++    ["a null position", "position", forge({ l: list.id, s: "position", k: [null, 1] })],
++    ["a bad priority", "priority", forge({ l: list.id, s: "priority", k: [9, 1] })],
++    ["a bad date", "due_date", forge({ l: list.id, s: "due_date", k: ["tomorrow", 1] })],
++    ["a number as date", "due_date", forge({ l: list.id, s: "due_date", k: [20260101, 1] })],
++    ["a null created_at", "created", forge({ l: list.id, s: "created", k: [null, 1] })],
++    ["a number as created_at", "created", forge({ l: list.id, s: "created", k: [5, 1] })],
++    ["an array", "position", forge([list.id, "position", [1, 1]])],
++    ["null", "position", forge(null)],
++    ["bad characters", "position", `${cursors.position}=`],
++    ["too long text", "position", "A".repeat(5000)],
++  ];
++  for (const [name, sort, cursor] of bad) {
++    const res = await app.call("GET", `/api/lists/${list.id}/tasks?sort=${sort}&cursor=${encodeURIComponent(cursor)}`, undefined, auth);
++    assert.equal(res.status, 400, name);
++    assert.deepEqual(res.body, { error: "invalid cursor" }, name);
++  }
++  // A good cursor of this list and sort is accepted, and a valid one for a null due date too.
++  const ok = await app.call("GET", `/api/lists/${list.id}/tasks?sort=due_date&cursor=${forge({ l: list.id, s: "due_date", k: [null, 1] })}`, undefined, auth);
++  assert.equal(ok.status, 200);
++});
++
++test("a cursor does not open someone else's list", async () => {
++  const owner = await setUp();
++  await makeTask(app, owner.auth, owner.list.id);
++  await makeTask(app, owner.auth, owner.list.id);
++  const cursor = (await app.call("GET", `/api/lists/${owner.list.id}/tasks?limit=1`, undefined, owner.auth)).body.next_cursor;
++  const stranger = await setUp();
++  const res = await app.call("GET", `/api/lists/${owner.list.id}/tasks?cursor=${cursor}`, undefined, stranger.auth);
++  assert.equal(res.status, 404);
++});
++
++test("the migration that adds the paging indexes upgrades a database at the previous version", () => {
++  const db = openDb();
++  db.exec("DROP INDEX tasks_list_position; DROP INDEX tasks_list_due_date; DROP INDEX tasks_list_priority; DROP INDEX tasks_list_created");
++  db.exec("DROP INDEX task_tags_task; DROP INDEX task_tags_tag; DROP INDEX comments_task; PRAGMA user_version = 6");
++  db.exec("INSERT INTO users (username, password_hash) VALUES ('old', 'x'); INSERT INTO lists (owner_id, name) VALUES (1, 'l')");
++  db.exec("INSERT INTO tasks (list_id, title, updated_at) VALUES (1, 'kept', 'x')");
++  migrate(db);
++  const names = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]).map((r) => r.name);
++  for (const name of ["tasks_list_position", "tasks_list_due_date", "tasks_list_priority", "tasks_list_created", "task_tags_task", "task_tags_tag", "comments_task"]) {
++    assert.ok(names.includes(name), name);
++  }
++  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n, 1);
++  assert.equal((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 7);
++});
++
++// QA additions: gaps found against the acceptance criteria
++
++import { readFileSync } from "node:fs";
++import { listTasks } from "../src/tasks.ts";
++
++/** A database with one list of 600 tasks whose created_at, priority, position and due dates take very few values. */
++function tiedDb() {
++  const db = openDb();
++  db.exec("INSERT INTO users (username, password_hash) VALUES ('qa', 'x'); INSERT INTO lists (owner_id, name) VALUES (1, 'Warehouse')");
++  const insert = db.prepare(
++    "INSERT INTO tasks (list_id, title, priority, position, due_date, created_at, updated_at) VALUES (1, ?, ?, ?, ?, ?, 'x')",
++  );
++  for (let i = 0; i < 600; i++) {
++    insert.run(`t${i}`, i % 2, i % 3, i % 4 === 0 ? null : `2026-01-0${1 + (i % 2)}`, `2026-01-01T00:00:0${i % 2}.000Z`);
++  }
++  return db;
++}
++
++test("paging a list whose tasks all share a few created_at, priority, position and due date values loses and repeats nothing", () => {
++  const db = tiedDb();
++  const user: any = { id: 1, username: "qa" };
++  const unpaged: Record<string, string> = {
++    position: "position, id",
++    due_date: "due_date IS NULL, due_date, id",
++    priority: "priority DESC, id",
++    created: "created_at DESC, id DESC",
++  };
++  for (const [sort, order] of Object.entries(unpaged)) {
++    const expected = (db.prepare(`SELECT id FROM tasks WHERE list_id = 1 ORDER BY ${order}`).all() as { id: number }[]).map((r) => r.id);
++    for (const limit of [1, 13, 200]) {
++      const ids: number[] = [];
++      let cursor: string | null = null;
++      do {
++        const query = new URLSearchParams({ sort, limit: String(limit) });
++        if (cursor) query.set("cursor", cursor);
++        const page = listTasks(db, user, 1, query);
++        ids.push(...page.items.map((t) => t.id));
++        cursor = page.next_cursor;
++      } while (cursor !== null && ids.length < 5000);
++      assert.deepEqual(ids, expected, `${sort} by ${limit}`);
++    }
++  }
++});
++
++test("a page costs a fixed number of queries, whatever its size", () => {
++  const db = tiedDb();
++  db.exec("INSERT INTO tags (list_id, name) VALUES (1, 'a'); INSERT INTO task_tags (task_id, tag_id) SELECT id, 1 FROM tasks");
++  db.exec("INSERT INTO comments (task_id, author_id, body) SELECT id, 1, 'x' FROM tasks");
++  const real = db.prepare.bind(db);
++  let prepared = 0;
++  (db as any).prepare = (sql: string) => (prepared++, real(sql));
++  const user: any = { id: 1, username: "qa" };
++  const cost = (limit: number) => {
++    prepared = 0;
++    const page = listTasks(db, user, 1, new URLSearchParams({ limit: String(limit) }));
++    assert.equal(page.items.length, limit);
++    assert.ok(page.items.every((t) => t.tags.length === 1 && t.comment_count === 1));
++    return prepared;
++  };
++  assert.equal(cost(150), cost(2));
++});
++
++test("the Load more button is hidden when there is no next page: its own display rule must not defeat the hidden attribute", () => {
++  const css = readFileSync(new URL("../public/style.css", import.meta.url), "utf8");
++  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
++  const sets = (r: { body: string }) => /(^|;|\s)display\s*:/.test(r.body);
++  const own = rules.filter((r) => r.selector === "#load-more" && sets(r));
++  const guarded = rules.some((r) => /#load-more\[hidden\]/.test(r.selector) && /display\s*:\s*none/.test(r.body));
++  assert.ok(own.length === 0 || guarded, "#load-more sets display, so [hidden] needs its own display:none rule");
++});

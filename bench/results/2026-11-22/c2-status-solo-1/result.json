@@ -1,0 +1,179 @@
+{
+  "ticket": "c2-status",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:14:07.416Z",
+  "state": "done",
+  "wall_s": 41.724,
+  "cost_usd": 0.139866,
+  "sessions": 1,
+  "turns": 5,
+  "tokens": {
+    "input": 10,
+    "output": 6586,
+    "cache_read": 108860,
+    "cache_creation": 15775
+  },
+  "said": "Tasks now have a `status` (`todo`, `doing` or `done`) in place of the `done` flag. All 14 tests pass. I couldn't type-check because `tsc` isn't installed here. I didn't open the page in a browser either.\n\n- **Migration:** a new second migration in `src/db.ts` adds `status`, fills it from `done` (1 becomes `done`, 0 becomes `todo`) and drops `done`. Ids, titles and creation dates are kept. It runs on startup through the existing `user_version` mechanism, and the column has a CHECK on the three values.\n- **API:**\n  - Responses carry `status` plus a derived `done`.\n  - `POST` and `PATCH` accept `status`, and any other value answers 400 with the exact error message.\n  - `GET /api/tasks?status=` filters by status and returns the same 400 for an unknown value.\n- **Compatibility:**\n  - `PATCH` still takes `done: true` (status `done`) and `done: false` (status `todo`).\n  - `?done=true|false` still works, and `false` means `todo` or `doing`.\n  - If a body has both `status` and `done`, `status` wins.\n- **Page:** each task has a status select instead of the checkbox, and the filter offers To do, Doing and Done.\n- **Tests and docs:**\n  - New tests cover the migration of an old-schema database, the default status, 400s on `POST`, `PATCH` and the filter, the status filter, and the `done` compatibility paths.\n  - The README documents `status` and marks `done` as deprecated.\n\n- **Fixed bug:** the old `?done=false` filter returned done tasks, because the string `\"false\"` was treated as truthy. It now returns the open ones.\n- **Beyond the ticket:** `POST` also accepts `status`, and the deprecated `done` too.",
+  "hidden": {
+    "pass": 10,
+    "fail": 0,
+    "tests": 10,
+    "failed": [],
+    "total": 10
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": false,
+    "errors": 1,
+    "first": [
+      "test/tasks.test.ts(92,105): error TS7006: Parameter 'r' implicitly has an 'any' type."
+    ]
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 9,
+      "removed": 5
+    },
+    {
+      "path": "public/app.js",
+      "added": 10,
+      "removed": 8
+    },
+    {
+      "path": "public/index.html",
+      "added": 3,
+      "removed": 2
+    },
+    {
+      "path": "src/app.ts",
+      "added": 18,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 4,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 30,
+      "removed": 12
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 90,
+      "removed": 0
+    }
+  ],
+  "lines_added": 164,
+  "lines_removed": 30,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "toTask always returns status, and the column and createTask both default to 'todo'."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "Migration 2 adds status with a CHECK constraint, fills it from done, then drops done."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The UPDATE maps done=1 to 'done' and everything else to 'todo'. The test checks that ids, titles and created_at are kept and that re-running changes nothing."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "statusOf and isStatus return the exact 400 message on POST and PATCH, and a test covers both."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "GET validates ?status and filters with a parameterised WHERE; an unknown value gets the same 400."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "Responses include a derived done; PATCH and POST map done true to 'done' and false to 'todo'; ?done=false becomes status != 'done'. Tests cover all three."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "app.js uses a per-task select that PATCHes status, and the filter select offers todo, doing and done. There is no UI test."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "The tests cover the migration and the API, and the README documents status and marks done as deprecated."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 7,
+      "edge_cases": 6,
+      "scope": 9
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "statusOf treats any non-undefined done as a boolean, so `done: null` or `done: \"false\"` (a truthy string) gives a surprising result. `null` silently resets the task to 'todo', and `\"false\"` marks it done. There is no type validation of the deprecated flag."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "A body of JSON `null` makes `body.status` throw a TypeError, and malformed JSON throws from readJson. Both existed before this diff, but statusOf adds another place that dereferences body."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "There is no test for `status` winning over `done` when both are sent, which the README promises. There is none for combining ?status with ?done, or for an invalid status sent together with done."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The migration test imports `migrate` from db.ts, but the diff doesn't show that function being exported or the migration running in a transaction. If the second migration fails midway, the database could be left half-migrated and unable to start. The test doesn't cover that case."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "In the deprecated ?done filter, any value other than \"false\" means done, so `?done=banana` quietly lists done tasks. That is lenient but undocumented."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets every acceptance criterion. It has a clean migration with a CHECK constraint, correct status validation and deprecated-`done` compatibility, a UI update, a README update and reasonable tests. Weaknesses are minor: the deprecated `done` input is loosely validated, a few edge cases are untested, and the diff doesn't show whether `migrate` is exported or the migration is atomic.",
+    "cost_usd": 0.06344440000000001
+  }
+}

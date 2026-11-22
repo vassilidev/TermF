@@ -1,0 +1,183 @@
+{
+  "ticket": "c2-status",
+  "arm": "solo",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:23:37.676Z",
+  "state": "done",
+  "wall_s": 43.127,
+  "cost_usd": 0.1464182,
+  "sessions": 1,
+  "turns": 5,
+  "tokens": {
+    "input": 10,
+    "output": 7072,
+    "cache_read": 109462,
+    "cache_creation": 16183
+  },
+  "said": "Tasks now have a three-state `status`, and `done` still works for one release. All 14 tests pass (7 are new), but I didn't run the page in a browser or run a type check.\n\n- **Migration:** `src/db.ts` has three new migrations. They add `status`, fill it (`done = 1` becomes `done`, `done = 0` becomes `todo`) and drop `done`. Ids, titles and creation dates are kept. The migration test starts from a version-1 database and checks all of that, including that ids keep counting up.\n- **API:** `POST` and `PATCH` validate `status` and answer `400 {\"error\": \"status must be todo, doing or done\"}` otherwise. `GET ?status=` filters the same way.\n- **Compatibility:**\n  - Responses still carry `done`.\n  - `PATCH` still accepts `done: true` (status `done`) and `done: false` (status `todo`).\n  - `?done=true|false` works, and `false` means `todo` or `doing`.\n  - If a body has both `status` and `done`, `status` wins.\n- **Page:** each task has a status select instead of the checkbox, and the filter offers To do, Doing and Done.\n- **README:** it documents `status` and marks `done` as deprecated.\n\nThings you might not expect:\n- **Old filter bug:** `?done=false` used to return the done tasks, because the string `\"false\"` was truthy. It now returns the not-done ones, as the ticket describes.\n- **New `400` on `done`:** `?done=` with anything other than `true` or `false` now answers `400 {\"error\": \"done must be true or false\"}`. Before, it was silently accepted. The ticket doesn't cover this case, so say if you'd rather I loosen it.\n- **`PATCH done: false`:** it sets the status to `todo`, so a task that was `doing` goes back to `todo`.\n\nI haven't committed anything.",
+  "hidden": {
+    "pass": 10,
+    "fail": 0,
+    "tests": 10,
+    "failed": [],
+    "total": 10
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 10,
+      "removed": 4
+    },
+    {
+      "path": "public/app.js",
+      "added": 9,
+      "removed": 8
+    },
+    {
+      "path": "public/index.html",
+      "added": 3,
+      "removed": 2
+    },
+    {
+      "path": "src/app.ts",
+      "added": 19,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 5,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 24,
+      "removed": 12
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 98,
+      "removed": 0
+    }
+  ],
+  "lines_added": 168,
+  "lines_removed": 30,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "toTask returns status and done; the column defaults to 'todo' and createTask defaults to 'todo'."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "New migrations add the status column, fill it from done, then drop done."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The migration test checks that ids, titles and created_at are kept, done=1 becomes done and done=0 becomes todo, and that it can be re-run."
+      },
+      {
+        "id": 4,
+        "verdict": "partial",
+        "why": "POST and PATCH validate status and return the exact 400 message. But a non-object JSON body such as null would throw, and this is untested."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "GET ?status= filters, and an unknown value returns the exact 400."
+      },
+      {
+        "id": 6,
+        "verdict": "partial",
+        "why": "Responses carry done, PATCH accepts done, and ?done= works. Beyond the ticket, a bad ?done= value now returns 400 (before, any value was accepted). Also, POST with done:true was added without being asked."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "A select replaces the checkbox, and the filter offers the three statuses."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "Tests cover the migration and the API, and the README documents status and says done is deprecated."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 6,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "GET ?done= now returns 400 'done must be true or false' for other values. The ticket does not ask for this, it changes old behaviour, and no test covers it. It may break clients that still send ?done=1 or similar."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "Combining status and done in a GET (?status=doing&done=true) returns an empty list without explanation. This case is not documented or tested."
+      },
+      {
+        "severity": "low",
+        "category": "error-handling",
+        "file": "src/app.ts",
+        "what": "readJson/JSON.parse failures and bodies that are not objects (such as null) are not handled; body.status on a null body throws. The diff adds more places that read body fields."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "POST also accepts the deprecated done flag. This is reasonable for compatibility, but the ticket only asks for PATCH and no test covers it."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "No test for the new 400 on ?done=, for POST with done, or for a request that sends both status and done (the README says status wins)."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "src/db.ts",
+        "what": "DROP COLUMN needs SQLite 3.35 or later, which node:sqlite provides. The migration steps run as separate statements, and it is not clear they run in a transaction. A crash partway could leave the schema half-migrated."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The change meets the ticket: schema migration, API validation, backward-compatible done, UI select and README are all done, with good tests for the migration and the status flows. Weaknesses are an unrequested stricter 400 on ?done=, a few untested compatibility paths, and no handling of malformed or non-object bodies.",
+    "cost_usd": 0.0564444
+  }
+}

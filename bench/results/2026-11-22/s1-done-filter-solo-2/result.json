@@ -1,0 +1,125 @@
+{
+  "ticket": "s1-done-filter",
+  "arm": "solo",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:16:50.006Z",
+  "state": "done",
+  "wall_s": 13.296,
+  "cost_usd": 0.058228100000000005,
+  "sessions": 1,
+  "turns": 5,
+  "tokens": {
+    "input": 10,
+    "output": 1514,
+    "cache_read": 99961,
+    "cache_creation": 8268
+  },
+  "said": "`GET /api/tasks?done=false` now returns only the open tasks, and \"Show: Open\" on the page works again. The full test suite passes (9 tests), including the two new ones.\n\n**Cause:** the handler passed `done` to `listTasks` as a raw string, and `\"false\"` is truthy in JavaScript. So `?done=false` ran the same query as `?done=true`.\n\n**Changes:**\n- **`src/app.ts`:** the handler now accepts only `true` or `false` for `done`. Any other value, including an empty `?done=`, returns `400` with `{\"error\": \"done must be true or false\"}`. Leaving `done` out still lists every task.\n- **`src/tasks.ts`:** `listTasks` now takes `done` as a boolean instead of a string.\n- **`test/tasks.test.ts`:** one new test reproduces the bug. It creates an open task and a done task, then checks that `?done=false` returns the open one and no done ones. The other new test checks that `yes`, an empty value, `TRUE` and `1` all get the `400`. Only the first test reproduces the bug. I didn't run it against the old code to confirm it fails there.\n\nI didn't change `public/app.js`. The page already leaves `done` out for \"All\" and sends `true` or `false` for the other two options.\n\nI made no commit.",
+  "hidden": {
+    "pass": 6,
+    "fail": 0,
+    "tests": 6,
+    "failed": [],
+    "total": 6
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "src/app.ts",
+      "added": 5,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 18,
+      "removed": 0
+    }
+  ],
+  "lines_added": 24,
+  "lines_removed": 2,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "The handler now parses \"false\" to boolean false, so listTasks queries done = 0 and returns only open tasks."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "\"true\" maps to true and a missing param maps to undefined, which lists everything. The existing done=true test is untouched."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Any non-null value other than \"true\" or \"false\" (including the empty string) returns 400 with the exact error message."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The new done=false test creates an open and a done task and would fail before the fix, because the string \"false\" was truthy and returned the done rows. There is also a new 400 test."
+      }
+    ],
+    "scores": {
+      "correctness": 10,
+      "security": 9,
+      "readability": 9,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The done=false test only checks that every returned task is open and that the open one is present. It never explicitly asserts that the finished task's id is absent. The `every` check covers that implicitly, so this is minor."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "There is no explicit test that omitting `done` still lists every task, including both open and done ones. This was existing behaviour and is only covered if an earlier test checks it."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "Repeated params such as ?done=true&done=false use only the first value (via `get`). This is acceptable but untested."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff fixes the root cause: the string \"false\" was truthy, so the filter returned done tasks. It now parses `done` strictly at the API boundary, returns 400 on invalid values, and types the filter as boolean. The tests cover the regression and the 400 cases, with only minor gaps in assertion explicitness, and the change stays inside the ticket.",
+    "cost_usd": 0.0274344
+  }
+}

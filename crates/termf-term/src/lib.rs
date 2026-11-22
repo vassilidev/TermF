@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, ensure};
-use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtyPair, PtySize, native_pty_system};
 use serde::Serialize;
 
 const SCROLLBACK_BYTES: usize = 1 << 20;
@@ -250,7 +250,7 @@ impl Sessions {
     }
 
     fn start(&self, id: u32, spec: &SpawnSpec, shared: &Arc<Mutex<Shared>>) -> Result<Process> {
-        let pair = native_pty_system().openpty(size(spec.cols, spec.rows))?;
+        let pair = open_pty(spec.cols, spec.rows)?;
 
         let mut cmd = CommandBuilder::new(&spec.program);
         cmd.args(&spec.args);
@@ -467,6 +467,21 @@ fn answers(chunk: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// Opens a terminal, again when it fails: under macOS, one opened at the same time anywhere on the machine sometimes
+/// makes it fail with the kernel's internal EREDRIVEOPEN (-6).
+fn open_pty(cols: u16, rows: u16) -> Result<PtyPair> {
+    let mut tries = 0;
+    loop {
+        match native_pty_system().openpty(size(cols, rows)) {
+            Err(_) if tries < 10 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            pair => return pair,
+        }
+    }
 }
 
 fn size(cols: u16, rows: u16) -> PtySize {

@@ -1,0 +1,342 @@
+{
+  "ticket": "s2-due-date",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:22:54.554Z",
+  "state": "done",
+  "wall_s": 123.683732167,
+  "cost_usd": 0.9826913,
+  "sessions": 7,
+  "turns": 7,
+  "tokens": {
+    "cache_creation": 182250,
+    "cache_read": 575338,
+    "input": 44,
+    "output": 16914
+  },
+  "routing": {
+    "kind": "feature",
+    "size": "S",
+    "reason": "A small feature with testable criteria that touches the API, a migration, the page and the docs, so it is more than one role's area.",
+    "workflow": "default",
+    "skip": [],
+    "add": [],
+    "efforts": [
+      {
+        "step": "frame",
+        "effort": "low"
+      },
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "low"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 1,
+    "rulings": [
+      "Ruling: default workflow, not `direct` — the change spans back-end (migration, API validation, tests) and front-end (page and add form), so it is not in one role's area — cost if wrong: a slightly longer run with a plan gate.",
+      "Ruling: product owner step left on at low effort — the ticket lists testable criteria, but the step is cheap and may surface edge cases (PATCH with null versus a missing field, date validation) — cost if wrong: a few cents spent repeating the criteria.",
+      "Ruling: PM, architect, UX and SEO skipped — the request is a small, well-specified field on an existing page and form, with no new flow, no cross-cutting decision and no public page — cost if wrong: the form's date field may need a small UI polish pass.",
+      "Ruling: security review at low effort — the only new input is a validated date string bound through a prepared statement, with no authentication, payments, personal data or secrets involved — cost if wrong: a missed validation gap, which the tests for criterion 3 should catch.",
+      "Ruling: note for the plan — PATCH must tell a missing `due_date` (keep it) from `null` (clear it); the existing `changes.x ?? task.x` pattern in `src/tasks.ts` would not clear it, so use a presence check (`'due_date' in body`). Validation must reject real-calendar misses such as 2026-02-30 and formats such as 2026-1-5 — cost if wrong: criterion 2 or 3 fails in review.",
+      "Ruling: the migration is a new entry appended to `migrations` in `src/db.ts` (`ALTER TABLE tasks ADD COLUMN due_date TEXT`), never an edit of the shipped one; the dba review runs on it — cost if wrong: existing databases break.",
+      "Ruling: budget $1.00 — covers the framing, a short plan, two small tasks, the checks, a review round, the security review and the dba review on a ~275-line project — cost if wrong: the run stops before its reviews and needs a top-up."
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": null
+  },
+  "plan_tasks": 2,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.0896613,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "frame",
+      "role": "po",
+      "state": "done",
+      "cost": 0.1395882,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.1460596,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.1895249,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.1373126,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1292112,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.1513335,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "security",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 8,
+    "fail": 0,
+    "tests": 8,
+    "failed": [],
+    "total": 8
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 22,
+    "fail": 0,
+    "tests": 22,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 6,
+      "removed": 4
+    },
+    {
+      "path": "public/app.js",
+      "added": 19,
+      "removed": 5
+    },
+    {
+      "path": "public/index.html",
+      "added": 5,
+      "removed": 2
+    },
+    {
+      "path": "src/app.ts",
+      "added": 11,
+      "removed": 2
+    },
+    {
+      "path": "src/db.ts",
+      "added": 2,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 22,
+      "removed": 4
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 86,
+      "removed": 0
+    }
+  ],
+  "lines_added": 151,
+  "lines_removed": 18,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "Task and Row gain due_date (string|null); the column is nullable with no default, so it reads as null and is returned by every read path."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST passes an optional due_date; PATCH uses `\"due_date\" in body` so null clears it and an absent key keeps the value."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "isValidDueDate checks the regex and round-trips the date, which rejects 2026-1-5, tomorrow, 2026-02-30 and non-strings. It answers 400 with the exact message, and validation runs before any write."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "A new migration `ALTER TABLE tasks ADD COLUMN due_date TEXT` is appended, and old rows get NULL. A test covers it, though it relies on `migrate` being exported."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "app.js renders a <time> element with the due date next to the title, and index.html adds an optional date input that is sent only when filled."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The new tests cover create, default, PATCH set, clear and keep, invalid values, and the migration. The README documents the field and the error."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 9,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 8,
+      "edge_cases": 8,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "test/tasks.test.ts",
+        "what": "The test imports `migrate` from ../src/db.ts, but the diff only adds an export for `migrations`. If `migrate` is not already exported, the ESM import fails and the whole test file breaks. I can't confirm either way from the diff."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/app.js",
+        "what": "`const filter =document.querySelector(...)` was reformatted, which is a stray whitespace change on a line the ticket didn't need touched."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/app.js",
+        "what": "The submit handler gains try/catch error display, and index.html gains flex-wrap and min-width CSS. This is reasonable, because a 400 would otherwise be an unhandled rejection, but it goes slightly beyond the ticket."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH validates due_date before checking that the task exists, so an invalid date on an unknown id returns 400 rather than 404. This is defensible and tested. `\"due_date\" in body` would throw on a non-object JSON body and give a 500, though the existing body.title access already behaved that way."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/app.ts",
+        "what": "`Parameters<typeof tasks.updateTask>[2]` is an awkward way to type `changes`. An exported type would be clearer."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets all six criteria. It has solid validation, a clean migration, and thorough tests for set, clear, keep, invalid values and migration. The main risk is that the test imports `migrate`, which the diff doesn't visibly export. There is also a small stray whitespace change in app.js.",
+    "cost_usd": 0.0579404
+  }
+}

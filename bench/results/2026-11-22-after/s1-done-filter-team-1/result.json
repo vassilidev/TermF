@@ -1,0 +1,274 @@
+{
+  "ticket": "s1-done-filter",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:22:21.299Z",
+  "state": "done",
+  "wall_s": 72.514061208,
+  "cost_usd": 0.5077357,
+  "sessions": 5,
+  "turns": 5,
+  "tokens": {
+    "cache_creation": 100349,
+    "cache_read": 391997,
+    "input": 30,
+    "output": 6708
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "S",
+    "reason": "`listTasks` in src/tasks.ts tests `filter.done ? 1 : 0` on a string, so \"false\" is truthy and selects done tasks; src/app.ts also passes any value through unvalidated.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 1.2,
+    "rulings": [
+      "Ruling: default workflow, not hotfix — a small bug with a clear cause, not an urgent outage; the plan gate costs little — cost if wrong: one extra approval step.",
+      "Ruling: skip `frame` (product owner) — the ticket already lists four testable acceptance criteria — cost if wrong: an edge case such as `?done=TRUE` or a repeated `done` parameter is decided by the implementer. The rule is exact `true` or `false`, anything else gives 400.",
+      "Ruling: no architect, UX, PM or SEO — the change is a few lines in src/app.ts and src/tasks.ts, and the page's `<select>` already sends the right values — cost if wrong: none expected.",
+      "Ruling: parse and validate `done` in the HTTP layer (src/app.ts), answering 400 `{\"error\": \"done must be true or false\"}` for `?done=yes` and `?done=` (the empty string must not be treated as absent); `listTasks` takes a boolean — cost if wrong: the string-to-boolean rule would have to move.",
+      "Ruling: the regression test goes in test/tasks.test.ts through the HTTP API, with done and open tasks, covering `done=false`, `done=true`, no filter and the 400 cases — cost if wrong: the bug could return unnoticed.",
+      "Ruling: security review at medium effort — it parses query input but touches no authentication, data or dependencies — cost if wrong: a missed validation edge case.",
+      "Ruling: budget $1.20 — an S change with one task, one review round and the security review — cost if wrong: the run stops before its reviews and the user must raise it."
+    ],
+    "replaces": [],
+    "changed": false
+  },
+  "plan_tasks": 1,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.101088,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.1061295,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.1227682,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.09177090000000002,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.0859791,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 6,
+    "fail": 0,
+    "tests": 6,
+    "failed": [],
+    "total": 6
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 13,
+    "fail": 0,
+    "tests": 13,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "src/app.ts",
+      "added": 5,
+      "removed": 1
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 42,
+      "removed": 0
+    }
+  ],
+  "lines_added": 48,
+  "lines_removed": 2,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": false,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "The query string is now parsed to a real boolean, so `filter.done ? 1 : 0` no longer treats the truthy string \"false\" as true."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "`done=true` maps to true, and a missing `done` gives undefined, which takes the unfiltered branch. Tests cover both."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Any non-null value other than \"true\" or \"false\", including the empty string, returns 400 with the exact error message. Tests cover \"yes\", \"\" and \"TRUE\"."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The new `done=false` test would fail on the old code, because the old code returned the done tasks, and it passes with the fix."
+      }
+    ],
+    "scores": {
+      "correctness": 10,
+      "security": 9,
+      "readability": 9,
+      "tests": 9,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The new `done=true` test largely duplicates the existing \"lists only the done tasks with ?done=true\" test. The assertions are loose (`includes`) because the tests share state, so they would not catch extra unrelated rows."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "Repeated parameters such as `?done=true&done=false` are not rejected. `get` silently uses the first value. The ticket does not require rejecting them."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "This is a minimal, correct fix for the root cause. The string \"false\" was truthy, and the diff now parses it to a boolean at the API boundary, tightens the `listTasks` type, and adds strict 400 validation. The tests cover the bug, the other valid cases and the invalid values, with only minor redundancy and loose assertions.",
+    "cost_usd": 0.028646400000000002
+  }
+}

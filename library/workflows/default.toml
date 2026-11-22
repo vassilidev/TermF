@@ -83,7 +83,7 @@ needs = ["checks"]
 type = "review"
 role = "reviewer"
 needs = ["rules"]
-prompt = "Review the run's changes (git diff of this branch against its base), the tests included. Change nothing: answer with your findings, each with the task that must fix it."
+prompt = "Review the run's changes (git diff of this branch against its base), the tests included. A change the ticket does not need (refactoring, cleanup, a behaviour changed beside it) is a finding to undo, unless an acceptance criterion depends on it; a security control is never one (a permission check, input validation, escaping): name it as welcome. Change nothing: answer with your findings, each with the task that must fix it."
 
 [steps.security]
 type = "agent"

@@ -1,0 +1,340 @@
+{
+  "ticket": "r2-slow-lists",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "realistic",
+  "at": "2026-11-22T18:48:40.210Z",
+  "state": "done",
+  "wall_s": 348.258246417,
+  "cost_usd": 2.5086654,
+  "sessions": 10,
+  "turns": 12,
+  "tokens": {
+    "cache_creation": 333775,
+    "cache_read": 1839420,
+    "input": 100,
+    "output": 44790
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "M",
+    "reason": "Performance bug on large lists: the tasks endpoint returns everything with several queries per task and has no index on tasks, and the fix is keyset pagination across four sorts, a changed response shape, a small page change, a new index migration and docs.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "medium"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 3,
+    "rulings": [
+      "Ruling: default workflow, M — the work crosses API, a DB migration, the page and the README, but it is one well-specified change — cost if wrong: a gate step the work did not need.",
+      "Ruling: skip `frame` (po) — the ticket already lists testable acceptance criteria and the API contract — cost if wrong: an edge case in the cursor rules goes unframed; the plan must cover it.",
+      "Ruling: no architect, no UX, no PM, no SEO — keyset paging fits the existing design in src/tasks.ts, and the page keeps its layout and gets a 'load more' control; the lead should reuse the existing button and element styles — cost if wrong: an inconsistent control to fix in review.",
+      "Ruling: keep `migrations` (dba review) active — the real cause includes no index on tasks(list_id, …) and per-task queries for tags, comments and assignee; an index migration must be a new entry in src/db.ts, never an edit of a shipped one — cost if wrong: a slow query that survives the paging.",
+      "Ruling: the plan should also remove the per-task queries in `toView` (batch the tags, comment counts and assignees of a page) — paging alone leaves up to 200 x 3 queries per page and the ticket asks for speed on every list change — cost if wrong: the list stays slower than needed.",
+      "Ruling: keyset (not offset) cursor bound to list id and sort, tie-broken by id, with the SORTS' null handling for due_date; a malformed, forged or foreign cursor, and `limit` out of 1..200, answer 400 — cost if wrong: duplicated or skipped tasks across pages.",
+      "Ruling: security effort medium — the cursor is user-controlled input parsed server-side (must never reach SQL as text; use bound parameters only) and access control stays through loadList — cost if wrong: a missed injection or cross-list read; low enough since queries are bound.",
+      "Ruling: the response shape change is the ticket's explicit decision, so the page (public/tasks.js) must follow in the same run and `next_cursor` must be consumed by a 'load more' on demand; no other client of `listTasks` exists in the repo — cost if wrong: a broken page between merges.",
+      "Ruling: budget $3 — covers the plan, the implementation (back and page), review rounds, security and dba reviews — cost if wrong: the run stops before the final reviews."
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": null
+  },
+  "plan_tasks": 3,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.12995289999999998,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.2148543,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.9549835,
+      "sessions": 2,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.35599499999999995,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T3",
+      "role": "qa",
+      "state": "done",
+      "cost": 0.3141724000000001,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.2589059,
+      "sessions": 2,
+      "attempt": 1
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.2798014,
+      "sessions": 2,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "implement:T3",
+    "checks",
+    "deliver"
+  ],
+  "answered": [
+    "implement:T1"
+  ],
+  "note": null,
+  "hidden": {
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": [],
+    "total": 14
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 48,
+    "fail": 0,
+    "tests": 49,
+    "failed": []
+  },
+  "original_tests": null,
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 11,
+      "removed": 2
+    },
+    {
+      "path": "public/index.html",
+      "added": 1,
+      "removed": 0
+    },
+    {
+      "path": "public/style.css",
+      "added": 2,
+      "removed": 0
+    },
+    {
+      "path": "public/tasks.js",
+      "added": 43,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 9,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 134,
+      "removed": 17
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 304,
+      "removed": 3
+    }
+  ],
+  "lines_added": 504,
+  "lines_removed": 25,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "Keyset paging with LIMIT, per-sort indexes shaped like each ORDER BY, and batched tag/comment/assignee lookups give a fixed query count per page. Nothing checks that SQLite actually uses the indexes, and the tag filter query isn't visible."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "limit (1 to 200, default 50) and cursor are validated, the response is {items, next_cursor}, and tests walk every sort and filter against the unpaged order, including ties and null due dates. Cursors from another list or sort return 400."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The page loads the first page and a Load more button fetches the next ones. Stale responses are dropped through requestId, and focus is handled. Any action that calls renderTasks resets the list to page 1."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "The README documents the parameters, the response shape, the 400 cases and the consistency caveat. Tests cover paging, limits, cursor rejection, the migration and the query count."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 7,
+      "tests": 8,
+      "error_handling": 8,
+      "edge_cases": 8,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "security",
+        "file": "src/tasks.ts",
+        "what": "Cursors are unsigned base64 JSON. The checks keep them from reaching other lists or sorts, and every query is parameterized, so there is no leak. But any well-formed forged cursor for the same list and sort is accepted, which is looser than 'any other cursor answers 400'."
+      },
+      {
+        "severity": "medium",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "No test checks that the new indexes are used (EXPLAIN QUERY PLAN), and nothing measures a large list. The tag and assignee filter paths are not shown to be fast."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "test/tasks.test.ts",
+        "what": "Imports are placed mid-file under a 'QA additions' comment. The CSS regex test and the monkeypatched db.prepare query counter are brittle and lean towards over-testing."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "public/tasks.js",
+        "what": "Any later call to renderTasks, such as after a task edit or a filter change, drops the loaded pages and resets to page 1. Also, if the first page fails to load, the old items stay on screen while the cursor is cleared."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "decodeCursor rejects position keys below 0 and accepts only priorities 0 to 3. These are hard-coded assumptions that would break valid cursors if the input rules for position or priority ever change."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "The diff doesn't show whether other callers of listTasks or other front-end code use the old array shape. Any that exist would break silently."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "bigList creates 130 tasks through HTTP and is rebuilt in several tests, which slows the suite."
+      }
+    ],
+    "over_engineering": "some",
+    "overall": 8,
+    "summary": "This is a solid keyset-pagination implementation. It has strict cursor validation, batched view loading, indexes with a migration, a front end that handles races, README updates and thorough tests across sorts, filters and ties. It falls short on proof that the indexes are used and that big lists are fast, and on a few minor UI and test-hygiene points, such as paging state lost on re-render and brittle meta-tests.",
+    "cost_usd": 0.11035239999999999
+  }
+}

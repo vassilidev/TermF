@@ -1,0 +1,471 @@
+diff --git a/README.md b/README.md
+index 57803ed..a9a6a34 100644
+--- a/README.md
++++ b/README.md
+@@ -8,24 +8,36 @@ npm start        # http://localhost:3000, data in tasks.db (PORT and DB_PATH cha
+ npm test         # the API tests (node:test)
+ ```
+ 
+ ## API
+ 
+-Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z" }`.
++Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "status": "todo", "done": false, "created_at": "2026-01-31T09:00:00.000Z" }`.
++`status` is `"todo"` (the default), `"doing"` or `"done"`. `done` is deprecated, see below.
+ 
+ | Method and path | What it does | Answers |
+ |---|---|---|
+-| `GET /api/tasks` | Lists the tasks, oldest first; `?done=true` or `?done=false` keeps the done or the open ones | 200, an array of tasks |
+-| `POST /api/tasks` | Creates a task from `{ "title": "…" }` | 201, the task |
++| `GET /api/tasks` | Lists the tasks, oldest first; `?status=todo`, `?status=doing` or `?status=done` keeps the tasks in that status | 200, an array of tasks |
++| `POST /api/tasks` | Creates a task from `{ "title": "…" }` and an optional `"status"` (`todo` if omitted) | 201, the task |
+ | `GET /api/tasks/:id` | Reads a task | 200, or 404 `{ "error": "task not found" }` |
+-| `PATCH /api/tasks/:id` | Changes `title` and / or `done` | 200, the task, or 404 |
++| `PATCH /api/tasks/:id` | Changes `title` and / or `status` | 200, the task, or 404 |
+ | `DELETE /api/tasks/:id` | Deletes a task | 204, or 404 |
+ 
+-Errors answer `{ "error": "<message>" }`.
++Errors answer `{ "error": "<message>" }`. A `status` other than `todo`, `doing` or `done`, on `POST`, `PATCH` or `?status=`, answers
++400 `{ "error": "status must be todo, doing or done" }`.
++
++## Deprecated: `done`
++
++`done` is replaced by `status` and will be removed in a later release. For one release it keeps working:
++
++- every task still has `done`, `true` exactly when its `status` is `done`;
++- `POST` and `PATCH` accept `"done": true` (status `done`) and `"done": false` (status `todo`); any other value answers
++  400 `{ "error": "done must be true or false" }`;
++- `GET /api/tasks?done=true` lists the `done` tasks and `?done=false` the `todo` and `doing` ones (any other value answers 400, same message);
++- if `status` and `done` are both sent, `status` wins.
+ 
+ ## Layout
+ 
+-- `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied).
++- `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied; migration 2 replaced the `done` column by `status`, `done = 1` becoming `done` and `done = 0` `todo`).
+ - `src/tasks.ts`: the queries.
+ - `src/app.ts`: the HTTP server and its routes.
+ - `public/`: the page.
+ - `test/`: the API tests, against a server on a random port with an in-memory database.
+diff --git a/public/app.js b/public/app.js
+index c5c1b09..48b1076 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -14,24 +14,29 @@ async function api(path, options = {}) {
+ function show(err) {
+   error.textContent = err.message;
+ }
+ 
+ async function render() {
+-  const query = filter.value ? `?done=${filter.value}` : "";
++  const query = filter.value ? `?status=${filter.value}` : "";
+   const tasks = await api(`/api/tasks${query}`);
+   error.textContent = "";
+   list.replaceChildren(...tasks.map(taskItem));
+ }
+ 
+ function taskItem(task) {
+   const item = document.createElement("li");
+-  const box = document.createElement("input");
+-  box.type = "checkbox";
+-  box.checked = task.done;
+-  box.setAttribute("aria-label", `Done: ${task.title}`);
++  const box = document.createElement("select");
++  for (const [value, text] of [["todo", "To do"], ["doing", "Doing"], ["done", "Done"]]) {
++    const option = document.createElement("option");
++    option.value = value;
++    option.textContent = text;
++    box.append(option);
++  }
++  box.value = task.status;
++  box.setAttribute("aria-label", `Status: ${task.title}`);
+   box.addEventListener("change", () => {
+-    api(`/api/tasks/${task.id}`, { method: "PATCH", body: JSON.stringify({ done: box.checked }) }).then(render, show);
++    api(`/api/tasks/${task.id}`, { method: "PATCH", body: JSON.stringify({ status: box.value }) }).then(render, show);
+   });
+   const label = document.createElement("span");
+   label.textContent = task.title;
+   const remove = document.createElement("button");
+   remove.textContent = "Delete";
+diff --git a/public/index.html b/public/index.html
+index 3179186..521567e 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -23,12 +23,13 @@
+     </form>
+     <div class="toolbar">
+       <label for="filter">Show</label>
+       <select id="filter">
+         <option value="">All</option>
+-        <option value="false">Open</option>
+-        <option value="true">Done</option>
++        <option value="todo">To do</option>
++        <option value="doing">Doing</option>
++        <option value="done">Done</option>
+       </select>
+     </div>
+     <p id="error" role="alert"></p>
+     <ul id="tasks"></ul>
+     <script type="module" src="/app.js"></script>
+diff --git a/src/app.ts b/src/app.ts
+index 78a93d6..9c2bcbe 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -31,16 +31,21 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+     return;
+   }
+ 
+   if (url.pathname === "/api/tasks") {
+     if (method === "GET") {
++      const rawStatus = url.searchParams.get("status");
+       const done = url.searchParams.get("done") ?? undefined;
+-      return send(res, 200, tasks.listTasks(db, { done }));
++      if (rawStatus !== null && !isStatus(rawStatus)) return send(res, 400, { error: STATUS_ERROR });
++      if (done !== undefined && done !== "true" && done !== "false") return send(res, 400, { error: DONE_ERROR });
++      return send(res, 200, tasks.listTasks(db, { status: rawStatus ?? undefined, done }));
+     }
+     if (method === "POST") {
+       const body = await readJson(req);
+-      return send(res, 201, tasks.createTask(db, body.title));
++      const parsed = statusFromBody(body);
++      if ("error" in parsed) return send(res, 400, { error: parsed.error });
++      return send(res, 201, tasks.createTask(db, body.title, parsed.status));
+     }
+     return send(res, 405, { error: "method not allowed" });
+   }
+ 
+   const match = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);
+@@ -50,11 +55,13 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+       const task = tasks.getTask(db, id);
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "PATCH") {
+       const body = await readJson(req);
+-      const task = tasks.updateTask(db, id, { title: body.title, done: body.done });
++      const parsed = statusFromBody(body);
++      if ("error" in parsed) return send(res, 400, { error: parsed.error });
++      const task = tasks.updateTask(db, id, { title: body.title, status: parsed.status });
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "DELETE") {
+       return tasks.deleteTask(db, id) ? send(res, 204) : send(res, 404, { error: "task not found" });
+     }
+@@ -62,10 +69,26 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+   }
+ 
+   send(res, 404, { error: "not found" });
+ }
+ 
++const STATUS_ERROR = "status must be todo, doing or done";
++const DONE_ERROR = "done must be true or false";
++
++const isStatus = (value: unknown): value is tasks.Status => tasks.STATUSES.includes(value as tasks.Status);
++
++/** The status a body asks for: `status` wins over the deprecated `done` (true is "done", false is "todo"). */
++function statusFromBody(body: any): { status?: tasks.Status } | { error: string } {
++  const hasStatus = Object.hasOwn(body, "status");
++  if (hasStatus && !isStatus(body.status)) return { error: STATUS_ERROR };
++  const hasDone = Object.hasOwn(body, "done");
++  if (hasDone && typeof body.done !== "boolean") return { error: DONE_ERROR };
++  if (hasStatus) return { status: body.status };
++  if (hasDone) return { status: body.done ? "done" : "todo" };
++  return {};
++}
++
+ async function readJson(req: any): Promise<any> {
+   let text = "";
+   for await (const chunk of req) text += chunk;
+   return text ? JSON.parse(text) : {};
+ }
+diff --git a/src/db.ts b/src/db.ts
+index f44186d..fff94c6 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -8,10 +8,14 @@ const migrations: string[] = [
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )`,
++  // Three-state status replaces the done flag: done = 1 becomes 'done', done = 0 becomes 'todo'.
++  `ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'doing', 'done'));
++   UPDATE tasks SET status = CASE WHEN done = 1 THEN 'done' ELSE 'todo' END;
++   ALTER TABLE tasks DROP COLUMN done;`,
+ ];
+ 
+ export function openDb(path = ":memory:"): Db {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA foreign_keys = ON");
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4fd5acb..e11f234 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -1,47 +1,65 @@
+ import type { Db } from "./db.ts";
+ 
++export const STATUSES = ["todo", "doing", "done"] as const;
++export type Status = (typeof STATUSES)[number];
++
+ export interface Task {
+   id: number;
+   title: string;
++  status: Status;
++  /** Deprecated, kept for one release: true exactly when `status` is "done". */
+   done: boolean;
+   created_at: string;
+ }
+ 
+ interface Row {
+   id: number;
+   title: string;
+-  done: number;
++  status: Status;
+   created_at: string;
+ }
+ 
+-const toTask = (row: Row): Task => ({ ...row, done: row.done === 1 });
++const toTask = (row: Row): Task => ({
++  id: row.id,
++  title: row.title,
++  status: row.status,
++  done: row.status === "done",
++  created_at: row.created_at,
++});
+ 
+-export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
+-  if (filter.done === undefined) {
+-    return (db.prepare("SELECT * FROM tasks ORDER BY id").all() as Row[]).map(toTask);
++/** `status` keeps the tasks in that status; `done` ("true" or "false") is the deprecated filter, ignored when `status` is set. */
++export function listTasks(db: Db, filter: { status?: Status; done?: string } = {}): Task[] {
++  let rows: Row[];
++  if (filter.status !== undefined) {
++    rows = db.prepare("SELECT * FROM tasks WHERE status = ? ORDER BY id").all(filter.status) as Row[];
++  } else if (filter.done === "true") {
++    rows = db.prepare("SELECT * FROM tasks WHERE status = 'done' ORDER BY id").all() as Row[];
++  } else if (filter.done === "false") {
++    rows = db.prepare("SELECT * FROM tasks WHERE status != 'done' ORDER BY id").all() as Row[];
++  } else {
++    rows = db.prepare("SELECT * FROM tasks ORDER BY id").all() as Row[];
+   }
+-  const rows = db.prepare("SELECT * FROM tasks WHERE done = ? ORDER BY id").all(filter.done ? 1 : 0) as Row[];
+   return rows.map(toTask);
+ }
+ 
+ export function getTask(db: Db, id: number): Task | undefined {
+   const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Row | undefined;
+   return row && toTask(row);
+ }
+ 
+-export function createTask(db: Db, title: string): Task {
+-  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title) VALUES (?)").run(title);
++export function createTask(db: Db, title: string, status: Status = "todo"): Task {
++  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title, status) VALUES (?, ?)").run(title, status);
+   return getTask(db, Number(lastInsertRowid))!;
+ }
+ 
+-export function updateTask(db: Db, id: number, changes: { title?: string; done?: boolean }): Task | undefined {
++export function updateTask(db: Db, id: number, changes: { title?: string; status?: Status }): Task | undefined {
+   const task = getTask(db, id);
+   if (!task) return undefined;
+   const title = changes.title ?? task.title;
+-  const done = changes.done ?? task.done;
+-  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, done ? 1 : 0, id);
++  const status = changes.status ?? task.status;
++  db.prepare("UPDATE tasks SET title = ?, status = ? WHERE id = ?").run(title, status, id);
+   return getTask(db, id);
+ }
+ 
+ export function deleteTask(db: Db, id: number): boolean {
+   return db.prepare("DELETE FROM tasks WHERE id = ?").run(id).changes > 0;
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 1fa1bd8..d6027c0 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -1,8 +1,10 @@
+ import { after, before, test } from "node:test";
+ import assert from "node:assert/strict";
++import { DatabaseSync } from "node:sqlite";
+ import { createServer } from "../src/app.ts";
++import { migrate } from "../src/db.ts";
+ 
+ let server: any;
+ let base = "";
+ 
+ before(async () => {
+@@ -69,5 +71,178 @@ test("lists only the done tasks with ?done=true", async () => {
+ test("serves the page", async () => {
+   const res = await fetch(base + "/");
+   assert.equal(res.status, 200);
+   assert.match(await res.text(), /<h1>Tasks<\/h1>/);
+ });
++
++const STATUS_ERROR = { error: "status must be todo, doing or done" };
++const DONE_ERROR = { error: "done must be true or false" };
++
++async function make(title: string, status?: string) {
++  const res = await call("POST", "/api/tasks", status === undefined ? { title } : { title, status });
++  return res.body;
++}
++
++test("a new task is todo by default, with done false", async () => {
++  const res = await call("POST", "/api/tasks", { title: "Default status" });
++  assert.equal(res.status, 201);
++  assert.equal(res.body.status, "todo");
++  assert.equal(res.body.done, false);
++});
++
++for (const status of ["todo", "doing", "done"]) {
++  test(`POST accepts status ${status}, and done is true only for done`, async () => {
++    const res = await call("POST", "/api/tasks", { title: `Created ${status}`, status });
++    assert.equal(res.status, 201);
++    assert.equal(res.body.status, status);
++    assert.equal(res.body.done, status === "done");
++  });
++
++  test(`PATCH accepts status ${status}, and done is true only for done`, async () => {
++    const task = await make(`Patched ${status}`, status === "todo" ? "doing" : "todo");
++    const res = await call("PATCH", `/api/tasks/${task.id}`, { status });
++    assert.equal(res.status, 200);
++    assert.equal(res.body.status, status);
++    assert.equal(res.body.done, status === "done");
++    assert.equal((await call("GET", `/api/tasks/${task.id}`)).body.status, status);
++  });
++}
++
++for (const bad of ["blocked", null, 3, ""]) {
++  test(`an invalid status ${JSON.stringify(bad)} answers 400 on POST and PATCH`, async () => {
++    const post = await call("POST", "/api/tasks", { title: "Bad", status: bad });
++    assert.equal(post.status, 400);
++    assert.deepEqual(post.body, STATUS_ERROR);
++    const task = await make("Stays as it is", "doing");
++    const patch = await call("PATCH", `/api/tasks/${task.id}`, { title: "Changed", status: bad });
++    assert.equal(patch.status, 400);
++    assert.deepEqual(patch.body, STATUS_ERROR);
++    assert.deepEqual((await call("GET", `/api/tasks/${task.id}`)).body, task);
++  });
++}
++
++test("an invalid status on PATCH answers 400 before looking the task up", async () => {
++  const res = await call("PATCH", "/api/tasks/9999", { status: "blocked" });
++  assert.equal(res.status, 400);
++  assert.deepEqual(res.body, STATUS_ERROR);
++});
++
++test("an invalid status in the list filter answers 400", async () => {
++  for (const value of ["blocked", ""]) {
++    const res = await call("GET", `/api/tasks?status=${value}`);
++    assert.equal(res.status, 400);
++    assert.deepEqual(res.body, STATUS_ERROR);
++  }
++});
++
++test("GET ?status= lists only the tasks in that status", async () => {
++  const todo = await make("Filter todo");
++  const doing = await make("Filter doing", "doing");
++  const done = await make("Filter done", "done");
++  const ids = async (status: string) => (await call("GET", `/api/tasks?status=${status}`)).body.map((t: any) => t.id);
++  const inDoing = await ids("doing");
++  assert.ok(inDoing.includes(doing.id) && !inDoing.includes(todo.id) && !inDoing.includes(done.id));
++  const inTodo = await ids("todo");
++  assert.ok(inTodo.includes(todo.id) && !inTodo.includes(doing.id) && !inTodo.includes(done.id));
++  const list = await call("GET", "/api/tasks?status=done");
++  assert.ok(list.body.some((t: any) => t.id === done.id));
++  assert.ok(list.body.every((t: any) => t.status === "done"));
++});
++
++test("GET ?done=true lists only done tasks, ?done=false lists todo and doing", async () => {
++  const todo = await make("Compat todo");
++  const doing = await make("Compat doing", "doing");
++  const done = await make("Compat done", "done");
++  const yes = (await call("GET", "/api/tasks?done=true")).body;
++  assert.ok(yes.some((t: any) => t.id === done.id));
++  assert.ok(yes.every((t: any) => t.status === "done" && t.done === true));
++  const no = (await call("GET", "/api/tasks?done=false")).body;
++  assert.ok(no.some((t: any) => t.id === todo.id) && no.some((t: any) => t.id === doing.id));
++  assert.ok(no.every((t: any) => t.status !== "done" && t.done === false));
++});
++
++test("GET ?done= with another value answers 400", async () => {
++  const res = await call("GET", "/api/tasks?done=maybe");
++  assert.equal(res.status, 400);
++  assert.deepEqual(res.body, DONE_ERROR);
++});
++
++test("PATCH done:true sets status done and done:false sets status todo", async () => {
++  const task = await make("Old client", "doing");
++  const closed = await call("PATCH", `/api/tasks/${task.id}`, { done: true });
++  assert.equal(closed.body.status, "done");
++  assert.equal(closed.body.done, true);
++  const reopened = await call("PATCH", `/api/tasks/${task.id}`, { done: false });
++  assert.equal(reopened.body.status, "todo");
++  assert.equal(reopened.body.done, false);
++});
++
++test("POST and PATCH answer 400 when done is not a boolean", async () => {
++  const post = await call("POST", "/api/tasks", { title: "Bad done", done: "yes" });
++  assert.equal(post.status, 400);
++  assert.deepEqual(post.body, DONE_ERROR);
++  const task = await make("Keeps its status");
++  const patch = await call("PATCH", `/api/tasks/${task.id}`, { done: 1 });
++  assert.equal(patch.status, 400);
++  assert.deepEqual(patch.body, DONE_ERROR);
++});
++
++test("POST done:true creates a done task", async () => {
++  const res = await call("POST", "/api/tasks", { title: "Old client creates", done: true });
++  assert.equal(res.body.status, "done");
++  assert.equal(res.body.done, true);
++});
++
++test("status wins over done when both are sent", async () => {
++  const task = await make("Both sent");
++  const patched = await call("PATCH", `/api/tasks/${task.id}`, { status: "doing", done: true });
++  assert.equal(patched.body.status, "doing");
++  assert.equal(patched.body.done, false);
++  const created = await call("POST", "/api/tasks", { title: "Both on POST", status: "done", done: false });
++  assert.equal(created.body.status, "done");
++  assert.equal(created.body.done, true);
++});
++
++test("PATCH of the title alone keeps the status", async () => {
++  const task = await make("Rename me", "doing");
++  const res = await call("PATCH", `/api/tasks/${task.id}`, { title: "Renamed" });
++  assert.equal(res.body.title, "Renamed");
++  assert.equal(res.body.status, "doing");
++});
++
++test("?status= wins over ?done= when both are sent", async () => {
++  const doing = await make("Query both", "doing");
++  const list = (await call("GET", "/api/tasks?status=doing&done=true")).body;
++  assert.ok(list.some((t: any) => t.id === doing.id));
++  assert.ok(list.every((t: any) => t.status === "doing"));
++});
++
++test("the migration turns done into status and keeps ids, titles and creation dates", () => {
++  const db = new DatabaseSync(":memory:");
++  db.exec(`CREATE TABLE tasks (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    title TEXT NOT NULL,
++    done INTEGER NOT NULL DEFAULT 0,
++    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
++  )`);
++  db.exec("PRAGMA user_version = 1");
++  const insert = db.prepare("INSERT INTO tasks (id, title, done, created_at) VALUES (?, ?, ?, ?)");
++  insert.run(3, "Open one", 0, "2025-01-01T08:00:00.000Z");
++  insert.run(7, "Finished one", 1, "2025-02-02T09:30:00.000Z");
++  insert.run(12, "Open two", 0, "2025-03-03T10:45:00.000Z");
++
++  migrate(db);
++
++  const rows = db.prepare("SELECT * FROM tasks ORDER BY id").all();
++  assert.deepEqual(rows.map((r: any) => ({ ...r })), [
++    { id: 3, title: "Open one", status: "todo", created_at: "2025-01-01T08:00:00.000Z" },
++    { id: 7, title: "Finished one", status: "done", created_at: "2025-02-02T09:30:00.000Z" },
++    { id: 12, title: "Open two", status: "todo", created_at: "2025-03-03T10:45:00.000Z" },
++  ]);
++  const columns = db.prepare("PRAGMA table_info(tasks)").all().map((c: any) => c.name);
++  assert.ok(!columns.includes("done"));
++  assert.deepEqual((db.prepare("PRAGMA user_version").get() as any).user_version, 2);
++  assert.throws(() => db.exec("INSERT INTO tasks (title, status) VALUES ('x', 'blocked')"));
++  migrate(db);
++  assert.equal(db.prepare("SELECT count(*) AS n FROM tasks").get()!.n, 3);
++  db.close();
++});

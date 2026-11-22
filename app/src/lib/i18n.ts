@@ -4029,6 +4029,12 @@ const fr = {
   loopsShowSession: "Voir la session",
   loopsTeamFlag:
     "Cet agent a programmé une boucle dans sa session ({what}). Elle ne s'exécutera pas : TermF pilote le run et arrête la session à la fin de l'étape.",
+  proportionateSize: "Taille",
+  proportionateTask: "Tâche",
+  proportionateTaskHelp: "Ce workflow n'a pas de plan : une seule tâche, qui couvre tous les critères du ticket.",
+  proportionateTaskRole: "Rôle",
+  proportionateTaskGoal: "Objectif",
+  proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
 };
 
 type Key = keyof typeof fr;
@@ -8031,6 +8037,12 @@ const en: Record<Key, string> = {
   loopsShowSession: "Show the session",
   loopsTeamFlag:
     "This agent scheduled a loop in its session ({what}). It will not run: TermF drives the run and ends the session with the step.",
+  proportionateSize: "Size",
+  proportionateTask: "Task",
+  proportionateTaskHelp: "This workflow has no plan: one task, which covers every criterion of the ticket.",
+  proportionateTaskRole: "Role",
+  proportionateTaskGoal: "Goal",
+  proportionateTaskMissing: "Give the task's role and goal.",
 };
 
 const messages = { fr, en };
