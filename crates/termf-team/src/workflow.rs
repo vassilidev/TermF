@@ -396,7 +396,7 @@ mod tests {
         assert!(!steps.contains_key("approve-plan"));
         assert_eq!(steps["implement"].needs, ["plan"], "the gate's own needs");
         assert_eq!(steps["review"].rounds, Some(1), "a short review");
-        assert_eq!(steps["security"].needs, ["review"], "after the code review");
+        assert_eq!(steps["security"].needs, ["rules"], "beside the code review");
         assert_eq!(hotfix.description, "Urgent fix: no plan gate");
         assert_eq!(
             (default.approve_route, hotfix.approve_route),
@@ -465,7 +465,7 @@ mod tests {
         let steps: BTreeMap<String, StepDef> = custom.steps().unwrap().into_iter().collect();
         assert_eq!(
             steps["deliver"].needs,
-            ["migrations", "review", "update-base", "visual"],
+            ["migrations", "review", "rules", "update-base", "visual"],
             "security disabled by the repository"
         );
 

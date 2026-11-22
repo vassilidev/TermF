@@ -279,8 +279,9 @@ pub fn questions_schema() -> Value {
     json!({ "type": "array", "items": question_schema() })
 }
 
-pub fn plan_schema() -> Value {
-    let task = object(json!({
+/// A task of a plan, as the plan's schema takes it, and the CTO's routing for the direct workflow.
+pub fn task_schema() -> Value {
+    object(json!({
         "id": { "type": "string" },
         "role": { "type": "string" },
         "squad": { "type": "string" },
@@ -291,7 +292,11 @@ pub fn plan_schema() -> Value {
         "files_hint": strings(),
         "depends_on": strings(),
         "ui_impact": { "type": "boolean" },
-    }));
+    }))
+}
+
+pub fn plan_schema() -> Value {
+    let task = task_schema();
     let criterion = object(json!({ "id": { "type": "string" }, "text": { "type": "string" } }));
     object(json!({
         "summary": { "type": "string" },

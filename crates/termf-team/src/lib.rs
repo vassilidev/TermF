@@ -54,6 +54,10 @@ const READ_ONLY: [&str; 3] = ["Edit", "Write", "NotebookEdit"];
 const CONTINUE: &str = "TermF stopped while you were working on this step. Go on with it from where the worktree is, then end with your report.";
 /// The CTO's first step of every run, and the gate where the user approves its routing.
 pub const TRIAGE: &str = "triage";
+/// The workflow where the CTO gives the one task at the triage: no framing, no lead's plan, one short review.
+pub const DIRECT: &str = "direct";
+/// How many times a failed check sends the tasks back before the user decides.
+const CHECKS_BACK: usize = 2;
 pub const ROUTE: &str = "approve-route";
 
 /// The ticket run a team works on.
@@ -226,6 +230,9 @@ pub struct Step {
     pub attempt: u32,
     /// What the next attempt must address: the check that failed, or the user's answer.
     pub feedback: Option<String>,
+    /// A task the code review or the project's checks sent back: its last session goes on with the feedback.
+    #[serde(default)]
+    pub goes_on: bool,
     /// A task's own worktree, the commit it started from, and whether its work is merged into the run's.
     pub worktree: Option<PathBuf>,
     pub base: Option<String>,
@@ -274,6 +281,7 @@ impl Step {
             after: 0,
             attempt: 0,
             feedback: None,
+            goes_on: false,
             worktree: None,
             base: None,
             integrated: false,
@@ -2071,7 +2079,12 @@ impl Inner {
                         "step_done",
                         "the command passed",
                     );
+                } else if let Some(sent) = self.checks_back(&store, &mut run, i) {
+                    let key = run.steps[i].key.clone();
+                    let message = format!("the command failed: sent back to {sent}");
+                    self.event(&store, &run, Some(&key), "retry", &message);
                 } else {
+                    let step = &mut run.steps[i];
                     step.state = StepState::Blocked;
                     let message =
                         "the command failed: approve to go on anyway, or revise to run it again";
@@ -2087,6 +2100,65 @@ impl Inner {
             }
         }
         Ok(())
+    }
+
+    /// Sends the tasks back with the output of the failed `shell` step `i`: those whose files it names, else the only
+    /// task there is; the names of those sent back. `None` once it sent them back `CHECKS_BACK` times, or when it
+    /// cannot tell which task: the user decides.
+    fn checks_back(&self, store: &Store, run: &mut TeamRun, i: usize) -> Option<String> {
+        let key = run.steps[i].key.clone();
+        let output = run.steps[i].note.clone().unwrap_or_default();
+        let marker = format!("again, with the failed {key}");
+        // One event a task each time: the times are the distinct messages.
+        let sent = store
+            .events(run.run, 0)
+            .ok()?
+            .into_iter()
+            .filter(|e| e.kind == "revised" && e.message.starts_with(&marker))
+            .map(|e| e.message)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        if sent >= CHECKS_BACK {
+            return None;
+        }
+        let tasks: Vec<usize> = (0..run.steps.len())
+            .filter(|&j| run.steps[j].kind == StepKind::Task && !run.steps[j].batch)
+            .collect();
+        let named: Vec<usize> = tasks
+            .iter()
+            .copied()
+            .filter(|&j| {
+                run.steps[j]
+                    .files
+                    .iter()
+                    .any(|f| output.contains(f.as_str()))
+            })
+            .collect();
+        let targets = match (named.is_empty(), tasks.len()) {
+            (false, _) => named,
+            (true, 1) => tasks,
+            _ => return None,
+        };
+        let feedback = format!(
+            "The project's checks (`{key}`) failed once the tasks were merged:\n\n{output}\n\nFix the cause in your \
+             code, never by changing a test or a check to make it pass; if the failure was there before your change, \
+             say so in your report."
+        );
+        let mut names = Vec::new();
+        for j in targets {
+            self.reopen_after(run, j);
+            let step = &mut run.steps[j];
+            step.state = StepState::Pending;
+            step.attempt = 0;
+            step.note = None;
+            step.feedback = Some(feedback.clone());
+            step.goes_on = true;
+            let task_key = step.key.clone();
+            names.push(step.task.clone().unwrap_or_else(|| task_key.clone()));
+            let message = format!("{marker}, time {}", sent + 1);
+            self.event(store, run, Some(&task_key), "revised", &message);
+        }
+        Some(names.join(", "))
     }
 
     /// The cost of each step's sessions, and the run's.
@@ -2955,6 +3027,7 @@ impl Inner {
             step.attempt = 0;
             step.note = None;
             step.feedback = Some(review::feedback(&key, round, &found));
+            step.goes_on = true;
             let task_key = step.key.clone();
             self.event(
                 store,
@@ -3905,15 +3978,98 @@ impl Inner {
                         return Ok(false);
                     }
                 }
+                // The direct workflow: the CTO gave the one task at the triage, no lead plans it. A task it
+                // gave that does not pass the plan's checks sends the step to its lead, with the reason.
+                if run.steps[i].plan
+                    && run.workflow == DIRECT
+                    && run.steps[i].attempt == 0
+                    && run.steps[i].feedback.is_none()
+                    && let Some(task) = run.routing.as_ref().and_then(|r| r.task.clone())
+                {
+                    let summary = run.routing.as_ref().map(|r| r.reason.clone());
+                    // The criteria are the ticket's own: the task names those it covers.
+                    let acceptance: Vec<serde_json::Value> = task
+                        .covers
+                        .iter()
+                        .map(|c| serde_json::json!({ "id": c, "text": format!("{c} of the ticket") }))
+                        .collect();
+                    let plan = serde_json::json!({
+                        "summary": summary.unwrap_or_default(),
+                        "acceptance": acceptance,
+                        "out_of_scope": [],
+                        "questions": [],
+                        "tasks": [task],
+                    });
+                    self.take_plan(store, run, i, Some(&plan), None);
+                    return Ok(true);
+                }
                 let Some(budget) = self.room(run, i) else {
                     return Ok(false);
                 };
+                // A task sent back goes on in its own conversation: it knows the code it wrote and why.
+                if std::mem::take(&mut run.steps[i].goes_on)
+                    && let (Some(session), Some(feedback)) =
+                        (run.steps[i].session, run.steps[i].feedback.clone())
+                    && self.reopen(store, run, i, session, &feedback).is_ok()
+                {
+                    return Ok(true);
+                }
                 if let Err(e) = self.launch(store, run, i, budget) {
                     self.block(store, run, i, &format!("its agent cannot start: {e:#}"));
                 }
             }
         }
         Ok(true)
+    }
+
+    /// Sends the task `i` back to its last session with `feedback`, in a fresh copy of the run's work at the same
+    /// place: the agent fixes what it wrote instead of a new agent reading it all again.
+    fn reopen(
+        &self,
+        store: &Store,
+        run: &mut TeamRun,
+        i: usize,
+        session: i64,
+        feedback: &str,
+    ) -> Result<()> {
+        let path = self.run_dir(run.run, run.steps[i].task.as_deref().unwrap_or_default())?;
+        let spec = self.agents.session(session)?.spec;
+        ensure!(spec.cwd == path, "its session worked elsewhere");
+        let _ = fs::remove_dir_all(&path);
+        let base = Git(&self.env).add_worktree(&run.home(i), &path)?;
+        let last = self
+            .agents
+            .events(session, 0)?
+            .last()
+            .map(|e| e.id)
+            .unwrap_or_default();
+        let message = format!(
+            "{feedback}\n\nThe run's work, yours included, is checked out again in this folder: fix it here, run \
+             the project's checks again, then answer with your report as before."
+        );
+        self.agents.send(session, &message)?;
+        let step = &mut run.steps[i];
+        step.worktree = Some(path);
+        step.base = Some(base);
+        step.integrated = false;
+        step.attempt += 1;
+        step.state = StepState::Running;
+        step.accepted = false;
+        step.after = last;
+        step.note = None;
+        step.started = Some(now());
+        let key = step.key.clone();
+        self.event(
+            store,
+            run,
+            Some(&key),
+            "step_started",
+            &format!(
+                "session {session} goes on, attempt {}",
+                run.steps[i].attempt
+            ),
+        );
+        Ok(())
     }
 
     /// The budget an agent of step `i` starts with now, or `None` while it waits: `max_parallel` sessions at
@@ -4096,6 +4252,13 @@ impl Inner {
         };
         let homes = std::iter::once((&run.target.repo_path, &run.target.worktree))
             .chain(run.repos.iter().map(|r| (&r.path, &r.worktree)));
+        // The typecheck and the lint a repository configures run with its checks, scripted or not, unless
+        // `[team] auto_checks = false`.
+        let auto = route::flag(&file, "auto_checks")?.unwrap_or(true);
+        let path = termf_core::shell::login_path()
+            .map(|p| p.to_os_string())
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default();
         let mut commands = Vec::new();
         for (repo, worktree) in homes {
             let checks = checks(repo);
@@ -4107,7 +4270,20 @@ impl Inner {
                 "unknown placeholder in {command:?}"
             );
             if !command.trim().is_empty() {
-                commands.push((command, worktree.clone()));
+                commands.push((command.clone(), worktree.clone()));
+            }
+            if !auto {
+                continue;
+            }
+            for extra in termf_library::stack::checks(worktree, &path) {
+                let tool = extra.split_whitespace().next().unwrap_or_default();
+                let name = Path::new(tool)
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                if !command.contains(name.as_ref()) {
+                    commands.push((extra, worktree.clone()));
+                }
             }
         }
         Ok(commands)
@@ -4669,6 +4845,20 @@ impl Inner {
                     false => task.files_hint.join(", "),
                 }
             ));
+            if step.kind == StepKind::Task && !step.batch {
+                text.push_str(
+                    "\nChange only what the ticket and your task ask. Hardening, refactoring or cleanup beyond them, \
+                     however sound, goes in out_of_scope_findings as a proposal, not in the code: the reviewer sends \
+                     back any change the ticket does not need.\n",
+                );
+            }
+            if run.workflow == DIRECT {
+                text.push_str(
+                    "\nYou are this ticket's only developer: write the code and the tests its criteria call for, \
+                     then run the project's checks (its tests, and its typecheck and lint when it has them) and fix \
+                     what fails before you report.\n",
+                );
+            }
         }
         let squad = match task {
             Some(task) => self.squad_of(run, task)?,

@@ -66,6 +66,9 @@ pub struct Routing {
     /// The user changed the CTO's routing, or set it.
     #[serde(default)]
     pub changed: bool,
+    /// The direct workflow's one task, which the CTO gives instead of a lead's plan.
+    #[serde(default)]
+    pub task: Option<crate::plan::Task>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -124,6 +127,7 @@ pub fn schema() -> Value {
         "questions": questions_schema(),
         "budget_usd": { "type": "number" },
         "rulings": strings(),
+        "task": { "anyOf": [crate::plan::task_schema(), { "type": "null" }] },
         "replaces": {
             "type": "array",
             "items": object(json!({ "decision": { "type": "string" }, "ruling": { "type": "string" } })),
@@ -305,6 +309,11 @@ fn check_steps(
             ));
         }
     }
+    if name == crate::DIRECT && routing.task.is_none() {
+        problems.push(format!(
+            "workflow {name} needs its one task in task: the role, the goal, the files, the criteria it covers"
+        ));
+    }
     let mut routed = workflow.clone();
     if routed.route(&routing.skip, &routing.add).is_err() {
         return;
@@ -411,6 +420,7 @@ mod tests {
             rulings: vec![],
             replaces: vec![],
             changed: false,
+            task: None,
         }
     }
 
@@ -547,7 +557,7 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
-        assert!(schema()["required"].as_array().unwrap().len() == 12);
+        assert!(schema()["required"].as_array().unwrap().len() == 13);
     }
 
     #[test]

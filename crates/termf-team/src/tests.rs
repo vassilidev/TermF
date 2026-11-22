@@ -2206,6 +2206,85 @@ fn blocked_review(r: &TeamRun) -> bool {
 }
 
 #[test]
+fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
+    let env = Env::new("direct");
+    triage_project(&env);
+    let mut direct = routing("direct", &["api"]);
+    direct["size"] = "S".into();
+    // The direct workflow needs its one task.
+    env.answer("triage.1.json", direct.clone());
+    let mut t1 = task("T1", "back", &["src/api/a.txt"], &[]);
+    t1["squad"] = "".into();
+    direct["task"] = t1;
+    direct["rulings"] =
+        json!(["Ruling: direct — an S ticket with its criteria — a review catches a miss"]);
+    env.answer("triage.2.json", direct);
+    // The first attempt misses what the project's checks test; told so, the same session fixes it.
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; if [ \"$1\" = 1 ]; then echo T1 > src/api/b.txt; else echo T1 > src/api/a.txt; fi\n",
+    );
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    let run = env.until("the routing gate", |r| {
+        r.steps
+            .get(1)
+            .is_some_and(|s| s.state == StepState::Waiting)
+    });
+    assert!(
+        env.message("triage", 2)
+            .contains("workflow direct needs its one task in task"),
+        "asked again"
+    );
+    assert_eq!(run.routing.as_ref().unwrap().workflow, "direct");
+    env.team.approve(1, ROUTE).unwrap();
+    let run = env.until("the delivery", delivery);
+
+    let plan = env.step(&run, "plan");
+    assert_eq!(plan.state, StepState::Done);
+    assert!(plan.sessions.is_empty(), "no lead: the CTO gave the task");
+    assert_eq!(run.plan.as_ref().unwrap().tasks.len(), 1);
+    for (key, state) in [
+        ("frame", StepState::Skipped),
+        ("approve-plan", StepState::Skipped),
+        ("security", StepState::Skipped),
+        ("checks", StepState::Done),
+        ("review", StepState::Done),
+    ] {
+        if let Some(step) = run.steps.iter().find(|s| s.key == key) {
+            assert_eq!((key, step.state), (key, state));
+        }
+    }
+    assert!(
+        !run.steps
+            .iter()
+            .any(|s| s.key == "security" && !s.sessions.is_empty()),
+        "no security review in the direct workflow"
+    );
+    let t1 = env.step(&run, "implement:T1");
+    assert_eq!(
+        (t1.sessions.len(), t1.attempt),
+        (1, 1),
+        "the check's failure goes back to the same conversation"
+    );
+    let fix = env.message("implement:T1", 2);
+    assert!(
+        fix.contains("The project's checks (`checks`) failed once the tasks were merged"),
+        "{fix}"
+    );
+    let first = env.message("implement:T1", 1);
+    assert!(
+        first.contains("You are this ticket's only developer")
+            && first.contains("Change only what the ticket and your task ask"),
+        "{first}"
+    );
+    assert!(env.target.worktree.join("src/api/a.txt").is_file());
+    let log = env.steps_log();
+    assert!(!log.iter().any(|l| l.starts_with("plan ")), "{log:?}");
+}
+
+#[test]
 fn the_review_sends_each_finding_to_its_task_then_looks_again() {
     let env = Env::new("review-loop");
     env.answer(
@@ -2272,6 +2351,12 @@ fn the_review_sends_each_finding_to_its_task_then_looks_again() {
         fix.contains("The code review (round 1) found what to fix")
             && fix.contains("src/api/a.txt:1 (important): src/api/a.txt breaks on an empty list"),
         "{fix}"
+    );
+    let t1 = env.step(&run, "implement:T1");
+    assert_eq!(
+        (t1.sessions.len(), t1.attempt),
+        (1, 1),
+        "the fix goes on in the task's own conversation"
     );
     let first_look = env.message("review", 1);
     assert!(
