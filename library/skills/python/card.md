@@ -1,0 +1,8 @@
+- Version: floor in `requires-python` of `pyproject.toml`, interpreter in `.python-version`; tools from the lockfile (`uv.lock`, `poetry.lock`, `requirements*.txt`).
+- Docs for this version: `https://docs.python.org/3.<minor>/`; `https://docs.astral.sh/uv/llms.txt`, `.../ruff/llms.txt`, `.../ty/llms.txt`; official Astral skills in `astral-sh/agent-plugins`.
+- Verify: the project's Makefile, nox or CI steps, else `uv sync --locked`, `uv run ruff check`, `uv run ruff format --check`, the configured type checker, `uv run pytest`.
+- Write for the floor, not the local interpreter: no 3.14 t-strings or 3.15 `lazy import` below those versions.
+- Dependencies only through the manager (`uv add`, `uv add --dev`, `poetry add`); never edit a lockfile or `pip install` into a uv environment.
+- Python 3.15: UTF-8 default for `open()`, `frozendict`, `sentinel()`, `profiling`; asyncio policies deprecated (`asyncio.run(..., loop_factory=...)`).
+- Ruff 0.16+ enables 413 rules by default: fix findings in the lines you touch only.
+- Read the skill `python` before changing Python code or its dependencies.
