@@ -26,7 +26,7 @@
   import Popover from "$lib/ui/Popover.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
-  import { showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import { runtimes, showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
   import { focusSession } from "$lib/commands";
   import {
     addressed,
@@ -141,8 +141,6 @@
   const model = $derived(session.model || (init?.kind === "init" ? init.model : ""));
   const mode = $derived(session.permissionMode || (init?.kind === "init" ? init.permissionMode : ""));
   const left = $derived(session.budget === null ? null : Math.max(0, session.budget - session.cost));
-  // Codex CLI and Gemini CLI say how many tokens a turn used, not what it cost.
-  const runtimes: Record<string, Parameters<typeof t>[0]> = { codex: "adaptersCodex", gemini: "adaptersGemini" };
   const runtime = $derived(runtimes[session.runtime]);
 
   const atBottom = () => !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;

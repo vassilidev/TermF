@@ -1831,11 +1831,26 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
             matches!(u, Update::Event(StoredEvent { event: AgentEvent::Delta { text }, .. }) if text == "Counting")
         })
     });
+    assert!(
+        env.agents.send_or_queue(id, "then this").unwrap(),
+        "kept for the end of the turn"
+    );
     env.agents.interrupt(id).unwrap();
-    env.until("the interrupted turn", || {
-        env.turns(id) == 3 && env.exits(id) == 3
+    env.until("the interrupted turn, then the one it kept", || {
+        env.turns(id) == 4 && env.exits(id) == 4
     });
-    assert_eq!(turn_end(&env.events(id)).0, Outcome::Interrupted);
+    let ends: Vec<Outcome> = env
+        .events(id)
+        .into_iter()
+        .filter_map(|e| match e {
+            AgentEvent::TurnEnd { outcome, .. } => Some(outcome),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ends[2..], [Outcome::Interrupted, Outcome::Done]);
+    let stdin = fs::read_to_string(format!("{}.stdin", gemini.display())).unwrap();
+    assert!(stdin.ends_with("then this\n--- end\n"), "{stdin}");
+    assert_eq!(env.session(id).state, State::Idle);
 }
 
 #[test]

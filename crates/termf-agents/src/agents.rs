@@ -69,6 +69,9 @@ struct Live {
     queued: Vec<String>,
     /// The library's instructions, for the first message of a runtime that reads them there.
     instructions: Option<String>,
+    /// A process that runs one turn: the state its end of turn sets, once it has exited (a message sent sooner
+    /// would find it still there).
+    after_exit: Option<State>,
     /// Permission requests waiting for an answer, with the tool input each asks about.
     pending: HashMap<String, Value>,
     interrupting: bool,
@@ -861,7 +864,7 @@ impl Inner {
             for event in parser.parse(&line) {
                 let handled = self
                     .opened(&mut store)
-                    .and_then(|s| self.handle(s, id, generation, event));
+                    .and_then(|s| self.handle(s, id, generation, event, runtime));
                 if let Err(e) = handled {
                     eprintln!("termf: agent session {id}: {e:#}");
                 }
@@ -889,6 +892,7 @@ impl Inner {
         id: i64,
         generation: u64,
         mut event: AgentEvent,
+        runtime: &dyn AgentRuntime,
     ) -> Result<()> {
         let mut live = self.live.lock().unwrap();
         let entry = live.entry(id).or_default();
@@ -951,6 +955,10 @@ impl Inner {
                     Outcome::Error => State::Error,
                     _ => State::Idle,
                 };
+                if runtime.per_turn() && current {
+                    entry.after_exit = Some(state);
+                    state = session.state;
+                }
             }
             _ => {}
         }
@@ -1031,7 +1039,7 @@ impl Inner {
 
     #[allow(clippy::too_many_arguments)]
     fn exited(
-        &self,
+        self: &Arc<Self>,
         store: &mut Option<Store>,
         id: i64,
         generation: u64,
@@ -1047,6 +1055,7 @@ impl Inner {
             .as_ref()
             .is_some_and(|p| p.generation == generation);
         let interrupted = current && entry.interrupting;
+        let ended = current.then(|| entry.after_exit.take()).flatten();
         if current {
             entry.process = None;
             entry.pending.clear();
@@ -1066,7 +1075,9 @@ impl Inner {
         let mut session = store.session(id)?;
         let working = matches!(session.state, State::Working | State::Waiting);
         let failed = working || (session.state == State::Idle && code != Some(0));
-        if working && interrupted && runtime.per_turn() {
+        if let Some(state) = ended.filter(|_| working) {
+            session.state = state;
+        } else if working && interrupted && runtime.per_turn() {
             // An interrupt signal ends the process without an end of turn: the conversation goes on.
             let end = AgentEvent::TurnEnd {
                 outcome: Outcome::Interrupted,
@@ -1090,7 +1101,13 @@ impl Inner {
         } else if session.state == State::Idle && !runtime.per_turn() {
             session.state = State::Stopped;
         }
-        self.save(store, &mut session, entry)
+        self.save(store, &mut session, entry)?;
+        // What waited for the end of the turn: a message written meanwhile, a notice that wakes the agent.
+        let due = entry.wake || !entry.queued.is_empty();
+        if runtime.per_turn() && due && !entry.busy && session.state == State::Idle {
+            self.deliver(store, id, entry, None)?;
+        }
+        Ok(())
     }
 
     /// Waits for the session's process to end, and kills it when it takes too long.
