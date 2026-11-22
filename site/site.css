@@ -488,7 +488,8 @@ footer{margin-top:120px;border-top:1px solid var(--line);overflow:hidden}
   .cat .st{text-align:right}
   .feat .strip>:nth-child(3){border-left:0;border-top:1px solid var(--paper-rule);text-align:left}
   .files .strip>:nth-child(3){text-align:left;flex-direction:row;align-items:center;justify-content:space-between}
-  .run{--slot:96px}
+  .run{--slot:112px}
+  .run .what small{display:none}
   .run .say span:last-child{min-height:4.35em}
   .dl-card .alts{min-height:3.4em}
   .dl-card{padding:22px}
