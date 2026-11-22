@@ -47,6 +47,9 @@ pub struct Routing {
     pub questions: Vec<Question>,
     /// The most the run should cost, in US dollars; 0: no advice.
     pub budget_usd: f64,
+    /// The CTO's decision journal: `Ruling: what — why — cost if wrong`, one a decision.
+    #[serde(default)]
+    pub rulings: Vec<String>,
     /// The user changed the CTO's routing, or set it.
     #[serde(default)]
     pub changed: bool,
@@ -93,6 +96,7 @@ pub fn schema() -> Value {
         "squads": strings(),
         "questions": questions_schema(),
         "budget_usd": { "type": "number" },
+        "rulings": strings(),
     }))
 }
 
@@ -325,6 +329,7 @@ mod tests {
             squads: vec!["web".into()],
             questions: vec![],
             budget_usd: 4.0,
+            rulings: vec![],
             changed: false,
         }
     }
@@ -425,7 +430,7 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
-        assert!(schema()["required"].as_array().unwrap().len() == 10);
+        assert!(schema()["required"].as_array().unwrap().len() == 11);
     }
 
     #[test]

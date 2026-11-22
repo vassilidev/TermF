@@ -125,6 +125,18 @@ mod tests {
             let path = dir.join(name);
             fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            // A process another test forks while the file is open for writing keeps it busy (ETXTBSY on Linux)
+            // until it execs: wait for one run to start before the calls under test.
+            for _ in 0..100 {
+                let started = Command::new(&path)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                if !matches!(started, Err(e) if e.raw_os_error() == Some(26)) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
             path
         };
         let fish = shell(
