@@ -1,6 +1,5 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
   import Eraser from "@lucide/svelte/icons/eraser";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pause from "@lucide/svelte/icons/pause";
@@ -10,7 +9,7 @@
   import OpsParams from "$lib/OpsParams.svelte";
   import { t } from "$lib/i18n";
   import { level, runsOn, shows, type Level, type Plan } from "$lib/ops-logic";
-  import { ops, resumeFollow, stopFollow } from "$lib/ops.svelte";
+  import { ops, resumeFollow, startFollow, stopFollow } from "$lib/ops.svelte";
 
   let { project, ask }: { project: string; ask: (e: unknown, retry: () => Promise<void>) => boolean } = $props();
 
@@ -39,18 +38,7 @@
     error = "";
     try {
       const given = Object.fromEntries(Object.entries(ops.live.params).filter(([, v]) => String(v).trim() !== ""));
-      const started = await invoke<{ id: number; plan: Plan }>("ops_follow_start", {
-        project,
-        recipe: recipe.name,
-        connection: ops.live.connection,
-        params: given,
-      });
-      ops.live.lines = [];
-      ops.live.held = [];
-      ops.live.paused = false;
-      ops.live.ended = null;
-      ops.live.id = started.id;
-      plan = started.plan;
+      plan = await startFollow(project, recipe.name, ops.live.connection, given);
     } catch (e) {
       if (!ask(e, start)) error = String(e);
     } finally {

@@ -7,9 +7,11 @@ import {
   level,
   missing,
   pastQueries,
+  refusal,
   runsOn,
   secondsLeft,
   shows,
+  streamed,
   sortRows,
   target,
   tsv,
@@ -118,13 +120,45 @@ test("the console's history lists each past query once, newest first", () => {
       run(4, null),
       run(5, "SELECT 3", { recipe: "logs-tail" }),
       run(6, "SELECT 4", { event: "reveal" }),
+      // A project's own recipe names its query parameter otherwise.
+      run(7, null, { recipe: "pg-stats", params: { sql: "SELECT 5 LIMIT 500", query: "not this" } }),
     ],
-    ["sql-readonly"],
+    [
+      { name: "sql-readonly", params: [{ name: "query", type: "sql" }] },
+      { name: "pg-stats", params: [{ name: "db", type: "name" }, { name: "sql", type: "sql" }] },
+      { name: "logs-tail", params: [{ name: "query", type: "text" }] },
+    ],
   );
   assert.deepEqual(
     queries.map((q) => q.query),
-    ["SELECT 2 LIMIT 500", "SELECT 1 LIMIT 500"],
+    ["SELECT 2 LIMIT 500", "SELECT 1 LIMIT 500", "SELECT 5 LIMIT 500"],
   );
+});
+
+test("a refused query reads as its code, any other error stays as it came", () => {
+  const sent = JSON.stringify({ refused: { code: "notRead", subject: "DELETE" }, message: "DELETE is not a read: …" });
+  assert.deepEqual(refusal(sent), { code: "notRead", subject: "DELETE", message: "DELETE is not a read: …" });
+  assert.deepEqual(refusal(new String(sent)), refusal(sent));
+  assert.equal(refusal("the vault is locked"), null);
+  assert.equal(refusal('{"other": 1}'), null);
+});
+
+test("a stream's first lines count even before its start answers, and its end stops it", () => {
+  const live = { id: 7, paused: false, lines: [], held: [], ended: null };
+  const lines = (id, ...l) => ({ id, kind: "lines", lines: l, masks: 0 });
+  // The front end set the id before starting: the event that comes first is kept.
+  let change = streamed(live, lines(7, "a", "b"));
+  assert.deepEqual(change, { lines: ["a", "b"] });
+  Object.assign(live, change);
+  assert.equal(streamed(live, lines(8, "other")), null, "another stream's events");
+  Object.assign(live, { paused: true });
+  Object.assign(live, streamed(live, lines(7, "c")));
+  assert.deepEqual([live.lines, live.held], [["a", "b"], ["c"]], "held while paused");
+  Object.assign(live, { paused: false });
+  assert.deepEqual(streamed(live, lines(7, "d", "e", "f"), 3), { lines: ["d", "e", "f"] }, "the last ones kept");
+  Object.assign(live, streamed(live, { id: 7, kind: "end", exit: 0, errors: "" }));
+  assert.deepEqual([live.id, live.ended], [null, { exit: 0, errors: "" }]);
+  assert.equal(streamed(live, lines(7, "late")), null, "nothing after its end");
 });
 
 test("a log line's level and the live filter", () => {

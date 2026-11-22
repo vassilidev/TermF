@@ -2,7 +2,17 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { t } from "$lib/i18n";
-import { historyRow, type Connection, type Ran, type Recipe, type Request, type Run, type Streamed } from "$lib/ops-logic";
+import {
+  historyRow,
+  streamed,
+  type Connection,
+  type Plan,
+  type Ran,
+  type Recipe,
+  type Request,
+  type Run,
+  type Streamed,
+} from "$lib/ops-logic";
 import { ui } from "$lib/state.svelte";
 
 export type OpsTab = "connections" | "recipes" | "sql" | "live" | "history";
@@ -49,6 +59,19 @@ export const ops = $state({
 /** The live lines kept: the oldest go first. */
 const LIVE_LINES = 5000;
 const last = (lines: string[]) => (lines.length > LIVE_LINES ? lines.slice(-LIVE_LINES) : lines);
+let nextFollow = Date.now() * 1000;
+
+/** Follows a recipe: its id is chosen here, before the start, so that no event of it comes unknown. */
+export async function startFollow(project: string, recipe: string, connection: string, params: Record<string, string>) {
+  const id = ++nextFollow;
+  Object.assign(ops.live, { id, lines: [], held: [], paused: false, ended: null });
+  try {
+    return (await invoke<{ id: number; plan: Plan }>("ops_follow_start", { id, project, recipe, connection, params })).plan;
+  } catch (e) {
+    if (ops.live.id === id) ops.live.id = null;
+    throw e;
+  }
+}
 
 /** Stops the followed stream, its client with it. */
 export async function stopFollow() {
@@ -129,12 +152,8 @@ export function watchOps(): () => void {
       if (ops.project === payload.project) loadHistory(payload.project);
     }),
     listen<Streamed>("ops-follow", ({ payload }) => {
-      if (payload.id !== ops.live.id) return;
-      if (payload.kind === "end") {
-        ops.live.ended = { exit: payload.exit, errors: payload.errors };
-        ops.live.id = null;
-      } else if (ops.live.paused) ops.live.held = last([...ops.live.held, ...payload.lines]);
-      else ops.live.lines = last([...ops.live.lines, ...payload.lines]);
+      const change = streamed(ops.live, payload, LIVE_LINES);
+      if (change) Object.assign(ops.live, change);
     }),
   ]);
   stops

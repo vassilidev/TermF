@@ -26,6 +26,7 @@
   import {
     isSql,
     pastQueries,
+    refusal,
     runsOn,
     sortRows,
     tsv,
@@ -44,7 +45,29 @@
   const recipe = $derived(recipeFor(conn));
   const param = $derived(recipe?.params.find((p) => p.type === "sql")?.name ?? "query");
   const rows = $derived(recipe?.limits.rows ?? 500);
-  const past = $derived(pastQueries(ops.history, ops.recipes.filter(isSql).map((r) => r.name)));
+  const past = $derived(pastQueries(ops.history, ops.recipes.filter(isSql)));
+
+  const reasons: Record<string, Parameters<typeof t>[0]> = {
+    database: "opssqlWhyDatabase",
+    empty: "opssqlWhyEmpty",
+    control: "opssqlWhyControl",
+    backslash: "opssqlWhyBackslash",
+    executable: "opssqlWhyExecutable",
+    unreadable: "opssqlWhyUnreadable",
+    several: "opssqlWhySeveral",
+    notRead: "opssqlWhyNotRead",
+    explainAnalyze: "opssqlWhyExplainAnalyze",
+    explainOnly: "opssqlWhyExplainOnly",
+    into: "opssqlWhyInto",
+    locks: "opssqlWhyLocks",
+    function: "opssqlWhyFunction",
+  };
+  /** A refusal in the interface's language, from its code; any other error as it came. */
+  function reason(e: unknown): string {
+    const r = refusal(e);
+    if (!r) return String(e);
+    return reasons[r.code] ? t(reasons[r.code], { subject: r.subject }) : r.message;
+  }
 
   $effect(() => {
     if (conn && ops.sql.connection !== conn.name) untrack(() => (ops.sql.connection = conn.name));
@@ -136,7 +159,7 @@
     timer = setTimeout(() => {
       invoke<Plan>("ops_plan", askFor).then(
         (p) => ((plan = p), (refused = "")),
-        (e) => ((plan = null), (refused = String(e))),
+        (e) => ((plan = null), (refused = reason(e))),
       );
     }, 300);
   });
@@ -184,7 +207,7 @@
       sort = null;
       loadHistory(project);
     } catch (e) {
-      if (!ask(e, run)) error = String(e);
+      if (!ask(e, run)) error = reason(e);
     } finally {
       running = false;
     }
@@ -262,15 +285,17 @@
             {#if table}<span>{t("opssqlRows", { count: table.rows.length })}</span>{/if}
             <span class="muted">{t("opsDuration", { seconds: (out.millis / 1000).toFixed(1) })}</span>
             <span class="muted">{t("opsMasked", { count: out.masks })}</span>
-            {#if out.truncated}<span class="muted">{t("opssqlCut", { count: rows })}</span>{/if}
-            {#if table}
+            {#if out.truncated}<span class="muted">{t("opsTruncated")}</span>{/if}
+            {#if table?.columns.length}
               <span class="end"></span>
               <button class="btn sm" onclick={copyTable}><Copy size={13} aria-hidden="true" />{t("opssqlCopy")}</button>
               <button class="btn sm" onclick={exportCsv}><Download size={13} aria-hidden="true" />{t("opssqlExport")}</button>
             {/if}
           </div>
           {#if notice}<p class="muted small" role="status">{notice}</p>{/if}
-          {#if table}
+          {#if table && !table.columns.length}
+            <p class="muted">{t("opssqlNoRows")}</p>
+          {:else if table}
             <div class="grid">
               <table>
                 <thead>

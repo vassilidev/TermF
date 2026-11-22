@@ -278,16 +278,57 @@ export function tsv(table: Table): string {
 }
 
 /** The past queries of the SQL console, the most recent first, each once. */
-export function pastQueries(history: Run[], recipes: string[]): { query: string; connection: string; at: number }[] {
+export function pastQueries(
+  history: Run[],
+  recipes: Pick<Recipe, "name" | "params">[],
+): { query: string; connection: string; at: number }[] {
+  // Each recipe names its query parameter as it likes.
+  const param = new Map(
+    recipes.flatMap((r) => {
+      const p = r.params.find((x) => x.type === "sql");
+      return p ? [[r.name, p.name] as const] : [];
+    }),
+  );
   const seen = new Set<string>();
   const out: { query: string; connection: string; at: number }[] = [];
   for (const h of history) {
-    const query = h.params.query;
-    if (!recipes.includes(h.recipe) || h.event || !query || seen.has(query)) continue;
+    const name = param.get(h.recipe);
+    const query = name === undefined ? undefined : h.params[name];
+    if (h.event || !query || seen.has(query)) continue;
     seen.add(query);
     out.push({ query, connection: h.connection, at: h.at });
   }
   return out;
+}
+
+/** A query the SQL console refused, as the backend sends it (`{refused: {code, subject}, message}`); `null` for
+ * any other error. */
+export function refusal(e: unknown): { code: string; subject: string; message: string } | null {
+  try {
+    const sent = JSON.parse(String(e));
+    if (typeof sent?.refused?.code !== "string") return null;
+    return { code: sent.refused.code, subject: String(sent.refused.subject ?? ""), message: String(sent.message ?? "") };
+  } catch {
+    return null;
+  }
+}
+
+/** The live logs' state that its events change. */
+export type Live = {
+  id: number | null;
+  paused: boolean;
+  lines: string[];
+  held: string[];
+  ended: { exit: number | null; errors: string } | null;
+};
+
+/** What an `ops-follow` event changes, or `null` when it is not of the stream followed. The front end picks the
+ * stream's id before starting it, so its first lines, which may come before the start answers, are kept. */
+export function streamed(live: Live, e: Streamed, max = 5000): Partial<Live> | null {
+  if (e.id !== live.id) return null;
+  if (e.kind === "end") return { id: null, ended: { exit: e.exit, errors: e.errors } };
+  const last = (lines: string[]) => (lines.length > max ? lines.slice(-max) : lines);
+  return live.paused ? { held: last([...live.held, ...e.lines]) } : { lines: last([...live.lines, ...e.lines]) };
 }
 
 export type Level = "error" | "warn" | "info" | "debug";
