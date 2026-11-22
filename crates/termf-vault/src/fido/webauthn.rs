@@ -1,6 +1,6 @@
 //! Windows lets only its WebAuthn API (webauthn.dll) reach a security key without administrator rights: it asks
 //! for the PIN and the touch in its own window, and turns the PRF input into the `hmac-secret` salt as
-//! [`super::ctap::prf_salt`] does.
+//! `ctap::prf_salt` does on macOS and Linux.
 
 use std::ptr;
 

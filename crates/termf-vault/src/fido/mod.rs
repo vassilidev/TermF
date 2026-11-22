@@ -49,14 +49,18 @@ pub trait SecurityKeys: Send + Sync {
 /// The keys this machine reaches: webauthn.dll on Windows, USB HID elsewhere.
 pub fn system() -> Box<dyn SecurityKeys> {
     #[cfg(windows)]
-    return Box::new(webauthn::WebAuthn);
+    {
+        Box::new(webauthn::WebAuthn)
+    }
     #[cfg(not(windows))]
-    Box::new(Ctap(|| {
-        Ok(hid::usb::devices()?
-            .into_iter()
-            .map(|d| Box::new(d) as Box<dyn Device>)
-            .collect())
-    }))
+    {
+        Box::new(Ctap(|| {
+            Ok(hid::usb::devices()?
+                .into_iter()
+                .map(|d| Box::new(d) as Box<dyn Device>)
+                .collect())
+        }))
+    }
 }
 
 /// No key at all: what a vault has until the app or the CLI gives it the system's.
