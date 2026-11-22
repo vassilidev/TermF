@@ -2015,6 +2015,21 @@ impl Inner {
             .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()))
             .cloned()
             .context("the task is not in the plan")?;
+        let asked = |name: &str| {
+            let name = name.to_lowercase();
+            [&run.target.brief, &task.goal]
+                .iter()
+                .any(|t| t.to_lowercase().contains(&name))
+        };
+        let kept = git.set_aside_managed(&worktree, asked)?;
+        if let Some(report) = run.steps[i].report.as_mut() {
+            for file in kept {
+                report.out_of_scope_findings.push(format!(
+                    "{file}: TermF left out of this task's commit the block a tool such as `next dev` writes there \
+                     on its own, as the ticket does not ask for it"
+                ));
+            }
+        }
         self.commit(run, i)?;
         let (files, diff, lines) = git.changes(&worktree, &base)?;
         let report = run.steps[i]

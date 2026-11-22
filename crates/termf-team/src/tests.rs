@@ -1166,6 +1166,125 @@ fn leaves_a_merge_conflict_to_the_task_agent() {
 }
 
 #[test]
+fn leaves_the_block_next_dev_writes_out_of_a_task_commit() {
+    let env = Env::new("managed");
+    let run_dir = &env.target.worktree;
+    fs::write(run_dir.join("CLAUDE.md"), "# Acme\n\nUse pnpm.\n").unwrap();
+    git(run_dir, &env.env, &["add", "-A"]);
+    git(run_dir, &env.env, &["commit", "-q", "-m", "claude"]);
+    let mut t2 = task("T2", "front", &["web"], &[]);
+    t2["goal"] = json!("Point the agents at the Next.js docs in web/AGENTS.md");
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api"], &[]), t2])),
+    );
+    let block = "<!-- BEGIN:nextjs-agent-rules -->\\n\\n## This is NOT the Next.js you know\\n\\n<!-- END:nextjs-agent-rules -->\\n";
+    env.script(
+        "implement:T1",
+        &format!(
+            "mkdir -p src/api; echo a > src/api/a.txt\nprintf '{block}' > AGENTS.md\n\
+             printf '\\n{block}' >> CLAUDE.md\nmkdir -p app; printf '# App\\n\\n{block}' > app/AGENTS.md\n"
+        ),
+    );
+    env.script(
+        "implement:T2",
+        &format!("sleep 1; mkdir -p web; printf '{block}' > web/AGENTS.md\n"),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Done);
+    let t1 = env.step(&run, "implement:T1");
+    assert_eq!(
+        t1.files,
+        ["app/AGENTS.md", "src/api/a.txt"],
+        "a new file with text of its own stays, for the rules to judge"
+    );
+    let said = t1.report.as_ref().unwrap().out_of_scope_findings.join("\n");
+    for file in ["AGENTS.md", "CLAUDE.md"] {
+        assert!(said.contains(&format!("{file}: TermF left out")), "{said}");
+    }
+    assert!(!said.contains("app/AGENTS.md"), "it has text of its own: {said}");
+    assert_eq!(
+        fs::read_to_string(run_dir.join("CLAUDE.md")).unwrap(),
+        "# Acme\n\nUse pnpm.\n"
+    );
+    assert!(!run_dir.join("AGENTS.md").exists());
+    assert_eq!(
+        env.step(&run, "implement:T2").files,
+        ["web/AGENTS.md"],
+        "the task asks for it"
+    );
+}
+
+#[test]
+fn the_brief_puts_the_documents_first_and_caps_the_turns() {
+    let env = Env::new("brief");
+    let plan = env.plan(json!([
+        task("T1", "back", &["src/api"], &[]),
+        task("T2", "back", &["src/api/b.txt"], &["T1"])
+    ]));
+    env.answer("plan.json", plan);
+    env.script("implement:T1", "mkdir -p src/api; echo a > src/api/a.txt\n");
+    fs::write(
+        env.config.join("projects/acme.toml"),
+        format!(
+            "{}[team]\nmax_turns = {{ M = 0, S = 7 }}\n",
+            fs::read_to_string(env.config.join("projects/acme.toml")).unwrap()
+        ),
+    )
+    .unwrap();
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Done);
+    let brief = env.message("implement:T2", 1);
+    let at = |text: &str| {
+        brief
+            .find(text)
+            .unwrap_or_else(|| panic!("no {text:?} in {brief}"))
+    };
+    assert!(brief.starts_with("Step `implement:T2` of TermF run 1"));
+    assert!(at("<ticket source=") < at("## The plan"));
+    assert!(at("## The plan") < at("<reports>\n- implement:T1 (back)"));
+    assert!(at("claims nobody has checked") < at("<reports>"));
+    assert!(at("<reports>") < at("## Your task T2"));
+    assert!(at("## Your task T2") < at("## How to work"));
+    assert!(at("## How to work") < at("is a boundary: stop there"));
+    assert!(at("is a boundary: stop there") < at("about 300"));
+    assert!(brief.contains("Do not commit, push or open a pull request"));
+    let plan = env.message("plan", 1);
+    let (roles, answer) = (plan.find("## The roles you may use"), plan.find("## What to answer"));
+    assert!(roles.is_some() && roles < answer, "{plan}");
+    assert!(plan.contains("no task commits, pushes or opens a pull request"));
+
+    let turns = |key: &str| {
+        let id = env.step(&run, key).session.unwrap();
+        env.agents.session(id).unwrap().spec.max_turns
+    };
+    assert_eq!(turns("implement:T1"), Some(7), "an S task, as the project says");
+    assert_eq!(turns("plan"), None, "no size: M, which the project uncaps");
+    let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
+    assert!(args.contains("--max-turns 7"), "{args}");
+
+    fs::write(
+        env.config.join("projects/acme.toml"),
+        fs::read_to_string(env.config.join("projects/acme.toml"))
+            .unwrap()
+            .replace("M = 0", "M = -1"),
+    )
+    .unwrap();
+    let inner = &env.team.inner;
+    let error = format!("{:#}", inner.max_turns(&run, plan::Size::M).unwrap_err());
+    assert!(error.contains("`[team] max_turns.M`"), "{error}");
+    assert_eq!(inner.max_turns(&run, plan::Size::L).unwrap(), Some(240));
+}
+
+#[test]
 fn reads_the_target_of_a_ticket_run() {
     let env = Env::new("target");
     let brief = "You are working on the ticket below.\n\n<ticket source=\"u\">\n# T\n\n</ticket>\n";
@@ -1444,6 +1563,9 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
     good["skip"] = json!(["frame", "prd"]);
     good["add"] = json!(["ux"]);
     good["efforts"] = json!([{"step": "security", "effort": "low"}]);
+    good["rulings"] = json!([
+        "Ruling: no product owner — the ticket is testable as written — a missed criterion found in review"
+    ]);
     env.answer("triage.3.json", good);
     let mut t1 = task("T1", "back", &["src/api/a.txt"], &[]);
     t1["squad"] = "".into();
@@ -1487,6 +1609,7 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         "- cto: CTO, the user's one point of contact",
         "The routing, as JSON: kind (urgent-bug, bug,",
         "what the whole run should cost in US dollars, at most $15.00",
+        "rulings (each decision you took, one a line: `Ruling: what — why — cost if wrong`)",
         "Each question you ask is an item of a questionnaire",
         "The ticket comes from an issue tracker",
     ] {
@@ -1520,6 +1643,11 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         ("default", false)
     );
     assert_eq!(run.steps.len(), 2, "nothing runs before you approve");
+    let journal = &run.steps[0].report.as_ref().unwrap().summary;
+    assert!(
+        journal.starts_with("Ruling: no product owner"),
+        "the run's detail shows it: {journal}"
+    );
     assert!(
         env.kinds().contains(&"step_done".to_owned()),
         "{:?}",
@@ -1553,7 +1681,8 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         plan.contains("The request was routed as feature, size M: a new export for the API")
             && plan.contains("- api: roles back; paths src/**")
             && !plan.contains("- web:")
-            && plan.contains("- audience? → clients"),
+            && plan.contains("- audience? → clients")
+            && plan.contains("- triage (cto): Ruling: no product owner"),
         "{plan}"
     );
     assert!(
