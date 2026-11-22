@@ -1,0 +1,3 @@
+"Group","Title","Username","Password","URL","Notes","TOTP","Icon","Last Modified","Created"
+"Passwords/Acme","Sentry","alex","kpx-sentry-Hunter2!","https://sentry.io","","otpauth://totp/Sentry:alex?secret=JBSWY3DPEHPK3PXP&period=30&digits=6&issuer=Sentry","0","2026-01-01T00:00:00Z","2026-01-01T00:00:00Z"
+"Passwords/Recycle Bin","Old","alex","kpx-old-Hunter2!","https://old.acme.test","","","0","2026-01-01T00:00:00Z","2026-01-01T00:00:00Z"

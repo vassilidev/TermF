@@ -1,0 +1,76 @@
+{
+  "encrypted": false,
+  "folders": [
+    {
+      "id": "f1a2b3c4-0000-4000-8000-000000000001",
+      "name": "Acme"
+    }
+  ],
+  "items": [
+    {
+      "id": "b0000000-0000-4000-8000-000000000001",
+      "organizationId": null,
+      "folderId": "f1a2b3c4-0000-4000-8000-000000000001",
+      "type": 1,
+      "reprompt": 0,
+      "name": "GitHub",
+      "notes": "Recovery codes in the safe.",
+      "favorite": false,
+      "fields": [
+        { "name": "PIN", "value": "4321", "type": 1, "linkedId": null },
+        { "name": "Linked", "value": null, "type": 3, "linkedId": 100 }
+      ],
+      "login": {
+        "uris": [
+          { "match": null, "uri": "https://github.com/login" },
+          { "match": null, "uri": "https://gist.github.com" }
+        ],
+        "username": "alex",
+        "password": "bw-github-Hunter2!",
+        "totp": "otpauth://totp/GitHub:alex?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
+      },
+      "collectionIds": null
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000002",
+      "organizationId": null,
+      "folderId": null,
+      "type": 1,
+      "reprompt": 0,
+      "name": "AWS console",
+      "notes": null,
+      "favorite": true,
+      "login": {
+        "uris": [{ "match": null, "uri": "https://acme.signin.aws.amazon.com/console" }],
+        "username": "alex@acme.test",
+        "password": "bw-aws-Hunter2!",
+        "totp": "not a totp secret"
+      },
+      "collectionIds": null
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000003",
+      "organizationId": null,
+      "folderId": "f1a2b3c4-0000-4000-8000-000000000001",
+      "type": 2,
+      "reprompt": 0,
+      "name": "Wi-Fi office",
+      "notes": "SSID acme-guest\npassword bw-wifi-Hunter2!",
+      "favorite": false,
+      "secureNote": { "type": 0 },
+      "collectionIds": null
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000004",
+      "organizationId": null,
+      "folderId": null,
+      "type": 3,
+      "reprompt": 0,
+      "name": "Company card",
+      "notes": null,
+      "favorite": false,
+      "card": { "cardholderName": "Alex", "brand": "Visa", "number": "4111111111111111", "expMonth": "1", "expYear": "2030", "code": "123" },
+      "collectionIds": null
+    }
+  ]
+}
