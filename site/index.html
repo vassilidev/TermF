@@ -102,7 +102,7 @@
   <div class="pitch">
     <div class="lines" aria-hidden="true"><span class="box t"></span><span class="box b"></span></div>
     <figure class="stage">
-      <div class="frame" id="reel">
+      <div class="frame" id="reel" data-video>
         <picture>
           <source media="(prefers-color-scheme: dark)" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="(max-width: 1240px) 100vw, 1180px">
           <img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="(max-width: 1240px) 100vw, 1180px" width="1600" height="1000" fetchpriority="high" alt="TermF's project Home: the conversation with the CTO, with a plan waiting for approval, and on the right what waits for you and the agents at work">
@@ -258,22 +258,27 @@ if (desktop) fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_p
   })
   .catch(() => {});
 
-// The launch video, once site/media/ has it (the build then marks the frame): muted and looping over the screenshot,
-// or only its poster when motion is reduced; without it, the screenshot stays
+// The launch video, once site/media/ has it (the build then marks the frame): a silent loop over the screenshot, with
+// a pause button, or only its poster when motion is reduced; without it, the screenshot stays
 addEventListener('load', () => {
   const frame = document.getElementById('reel');
   if (!('video' in frame.dataset)) return;
   const v = document.createElement('video');
   Object.assign(v, {muted: true, loop: true, playsInline: true, preload: reduce ? 'metadata' : 'auto', poster: 'media/launch-poster.webp'});
-  v.setAttribute('aria-label', 'TermF launch video');
+  v.setAttribute('aria-label', 'A team run in TermF, from the request to the pull request. Sample data, no sound.');
   v.innerHTML = '<source src="media/launch.webm" type="video/webm"><source src="media/launch.mp4" type="video/mp4">';
   v.lastChild.addEventListener('error', () => v.remove());
-  v.addEventListener('loadeddata', () => {
+  v.addEventListener(reduce ? 'loadedmetadata' : 'loadeddata', () => {
     frame.classList.add('playing');
-    if (!reduce) v.play().catch(() => {});
-    const b = Object.assign(document.createElement('button'), {type: 'button', className: 'watch', innerHTML: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>Watch with sound'});
-    b.onclick = () => { v.muted = false; v.loop = false; v.controls = true; v.currentTime = 0; v.play(); b.remove(); };
+    frame.nextElementSibling.textContent = 'A team run, from your request to the pull request, in 12 seconds. Sample data.';
+    const b = Object.assign(document.createElement('button'), {type: 'button', className: 'watch'});
+    const show = () => { b.innerHTML = v.paused ? '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>Play' : '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>Pause'; };
+    b.onclick = () => v.paused ? v.play() : v.pause();
+    v.addEventListener('play', show);
+    v.addEventListener('pause', show);
+    show();
     frame.append(b);
+    if (!reduce) v.play().catch(() => {});
   }, {once: true});
   frame.append(v);
 });
