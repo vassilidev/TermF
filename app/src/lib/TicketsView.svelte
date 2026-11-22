@@ -19,6 +19,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
@@ -475,9 +476,7 @@
             <button class="btn" onclick={loadInbox}><RefreshCw size={14} aria-hidden="true" />{t("ticketsRetry")}</button>
           </EmptyState>
         {:else if !tickets.inbox}
-          <p class="loading muted" role="status">
-            <LoaderCircle size={16} aria-hidden="true" class="spin" />{t("ticketsLoading")}
-          </p>
+          <div class="loading"><Skeleton shape="list" rows={6} label={t("ticketsLoading")} /></div>
         {:else if !tickets.inbox.length}
           {@const unset = tickets.configured === false && project}
           <EmptyState
@@ -735,11 +734,8 @@
   }
 
   .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin: 40px auto;
+    max-width: 1100px;
+    padding: 12px;
   }
 
   .inbox {

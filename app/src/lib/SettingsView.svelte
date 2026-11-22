@@ -30,6 +30,7 @@
   import UpdateSettings from "$lib/UpdateSettings.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ci, type CiNotify } from "$lib/ci.svelte";
   import { claudeView, loadArtifacts, showClaude, type Artifacts, type ClaudeBinary as Binary } from "$lib/claude.svelte";
@@ -241,7 +242,7 @@
             </button>
             <section class="group" aria-label={t("claudebinTitle")}>
               <h3>{t("claudebinTitle")}</h3>
-              {#if binary}<ClaudeBinary b={binary} summary />{/if}
+              {#if binary}<ClaudeBinary b={binary} summary />{:else if !error}<Skeleton rows={2} />{/if}
               <p class="help">{t("claudebinHelp")}</p>
             </section>
             <h3>{t("claudeViewTabArtifacts")}</h3>

@@ -24,6 +24,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { app, type ViewId } from "$lib/state.svelte";
@@ -222,8 +223,8 @@
   {#if vault.recoveryKey}
     <div class="pane"><VaultRecoveryKey /></div>
   {:else if !status}
-    <div class="pane">
-      <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" />{t("vaultLoading")}</p>
+    <div class="pane loading">
+      <Skeleton shape="list" rows={6} label={t("vaultLoading")} />
     </div>
   {:else if !status.unlocked}
     <div class="pane">
@@ -474,11 +475,7 @@
   }
 
   .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin: 40px auto;
+    padding: 16px 14px;
   }
 
   .unlock {

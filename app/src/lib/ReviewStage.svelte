@@ -4,6 +4,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Maximize from "@lucide/svelte/icons/maximize";
   import Scan from "@lucide/svelte/icons/scan";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { image } from "$lib/visual.svelte";
   import { clamp, fit, focus, toImage, zoomAt, type Mode, type Pin, type Review, type Screen, type Version, type View } from "$lib/visual-logic";
@@ -206,7 +207,11 @@
     />
   {:else}
     {@const issue = missing(kind)}
-    <p class="wait" class:issue={!!issue}>{issue ?? t("review5bLoading")}</p>
+    {#if issue}
+      <p class="wait issue">{issue}</p>
+    {:else}
+      <div class="wait"><Skeleton shape="block" height="{Math.max(frameH - 32, 0)}px" label={t("review5bLoading")} /></div>
+    {/if}
   {/if}
 {/snippet}
 

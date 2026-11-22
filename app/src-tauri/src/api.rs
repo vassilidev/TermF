@@ -389,6 +389,9 @@ impl Api {
             }
         }
         self.remote_seen(app, id, event, payload);
+        if event == "PreToolUse" {
+            let _ = app.emit("session-tool", tool_seen(id, payload));
+        }
         if event == "StatusLine" && current {
             crate::claude_native::status_line(app, id, payload);
         }
@@ -1788,9 +1791,73 @@ fn type_later(app: AppHandle, id: u32, step: u64, line: String) {
     });
 }
 
+/// The fields of a tool call that say what it is about, short and masked: what a tile shows of its agent's last
+/// action. Never a whole input: `Write` carries a file's content.
+fn tool_seen(id: u32, payload: &Value) -> Value {
+    const TELLING: &[&str] = &[
+        "command",
+        "file_path",
+        "notebook_path",
+        "path",
+        "pattern",
+        "url",
+        "query",
+        "description",
+        "skill",
+    ];
+    let input = &payload["tool_input"];
+    let mut kept = Value::Object(
+        TELLING
+            .iter()
+            .filter_map(|&key| {
+                let text = input.get(key)?.as_str()?.lines().next()?;
+                Some((key.to_owned(), text.into()))
+            })
+            .collect(),
+    );
+    // Masked whole, then cut: a secret cut in two no longer looks like one.
+    termf_claude::mask::mask(&mut kept);
+    if let Value::Object(map) = &mut kept {
+        for value in map.values_mut() {
+            if let Some(text) = value.as_str() {
+                *value = text.chars().take(200).collect::<String>().into();
+            }
+        }
+    }
+    serde_json::json!({ "id": id, "name": payload["tool_name"], "input": kept })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tile_shows_what_its_tool_is_about_never_a_secret_or_a_file() {
+        let payload = serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": {"command": "curl -H 'Authorization: Bearer sk-ant-api03-abcdefghijklmnop' x\nsecond line", "content": "whole file"},
+        });
+        let seen = tool_seen(7, &payload);
+        assert_eq!(seen["id"], 7);
+        assert_eq!(seen["name"], "Bash");
+        let command = seen["input"]["command"].as_str().unwrap();
+        assert!(!command.contains("sk-ant-api03"), "{command}");
+        assert!(!command.contains("second line"));
+        assert!(seen["input"].get("content").is_none());
+
+        // A key that starts near the cut: whole, it is masked; cut to its first characters, it would not be.
+        let late = format!(
+            "echo {} sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+            "a".repeat(180)
+        );
+        let payload = serde_json::json!({"tool_name": "Bash", "tool_input": {"command": late}});
+        let command = tool_seen(7, &payload)["input"]["command"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(!command.contains("sk-ant"), "{command}");
+        assert!(command.chars().count() <= 200);
+    }
 
     #[test]
     fn a_step_taken_over_keeps_its_project_whatever_its_folder() {

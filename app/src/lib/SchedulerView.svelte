@@ -20,6 +20,7 @@
   import { clip, detail, kindLabel, toTask } from "$lib/SessionLoops.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
@@ -204,7 +205,7 @@
             <h2><Monitor size={16} aria-hidden="true" />{t("schedulerDesktopTitle")}</h2>
             <p class="muted">{t("schedulerDesktopHelp")}</p>
             {#if !schedule.desktop}
-              <p class="loading muted" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" /></p>
+              <Skeleton shape="list" />
             {:else if !schedule.desktop.length}
               <p class="notice">{t("schedulerDesktopEmpty")}</p>
             {:else}
@@ -277,10 +278,8 @@
         </EmptyState>
       </div>
     {:else if !schedule.tasks}
-      <div class="pane">
-        <p class="loading muted" role="status">
-          <LoaderCircle size={16} aria-hidden="true" class="spin" />{t("schedulerLoading")}
-        </p>
+      <div class="split">
+        <div class="list"><Skeleton shape="list" rows={6} label={t("schedulerLoading")} /></div>
       </div>
     {:else if !tasks.length && editing === undefined}
       <div class="pane">
@@ -466,14 +465,6 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin: 40px auto;
   }
 
   .row.elsewhere .pick {
@@ -691,11 +682,6 @@
     margin: 0 0 10px;
     font-size: var(--text-sm);
     line-height: 1.5;
-  }
-
-  .others .loading {
-    margin: 12px 0;
-    justify-content: flex-start;
   }
 
   .desktop {

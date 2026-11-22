@@ -24,6 +24,7 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Unplug from "@lucide/svelte/icons/unplug";
   import SyncConflict from "$lib/SyncConflict.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { ago, t } from "$lib/i18n";
   import { app, load } from "$lib/state.svelte";
   import { cloneTarget, expandHome, inside } from "$lib/sync-logic";
@@ -398,7 +399,7 @@
   {/if}
 
   {#if !status}
-    <p class="muted">{t("syncLoading")}</p>
+    <Skeleton shape="list" rows={4} label={t("syncLoading")} />
   {:else if sync.recoveryKey}
     {@const { key, reason } = sync.recoveryKey}
     <div class="recovery">
@@ -761,7 +762,7 @@
         {#if devicesError}
           <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{devicesError}</p>
         {:else if !devices}
-          <p class="muted loading"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("syncDevicesLoading")}</p>
+          <Skeleton shape="list" rows={2} label={t("syncDevicesLoading")} />
         {:else if !devices.length}
           <p class="muted">{t("syncDevicesEmpty")}</p>
         {:else}
@@ -1178,13 +1179,6 @@
     border-color: transparent;
     background: var(--accent-soft);
     color: var(--accent-ink);
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0;
   }
 
   .confirm {

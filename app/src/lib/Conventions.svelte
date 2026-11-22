@@ -20,6 +20,7 @@
   import { lang, t } from "$lib/i18n";
   import { library, lineDiff, slugify } from "$lib/library.svelte";
   import type { Project } from "$lib/state.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
 
   type ItemKind = "rule" | "hook" | "preference" | "skill" | "command" | "role" | "repo";
@@ -75,6 +76,7 @@
   let model = $state("");
   let effort = $state("");
   let list = $state<Convention[]>([]);
+  let loaded = $state(false);
   let slug = $state("");
   let text = $state("");
   let newName = $state("");
@@ -122,6 +124,7 @@
         project: project.id,
       });
       ({ model, effort, list } = data);
+      loaded = true;
       if (only) {
         select(only);
         // Nothing proposed yet, or proposed from a text the assistant has rewritten since.
@@ -301,7 +304,9 @@
       <p class="notice error" role="alert">{error}</p>
     {/if}
 
-    {#if creating || !current}
+    {#if !loaded && !error}
+      <Skeleton rows={6} />
+    {:else if creating || !current}
       <div class="intro">
         <Sparkles size={20} aria-hidden="true" />
         <h2>{t("convIntroTitle")}</h2>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import { ago, t } from "$lib/i18n";
   import type { Blame, FileHistory } from "$lib/git.svelte";
@@ -67,7 +67,7 @@
       <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{error}</span></p>
     {:else if tab === "history"}
       {#if !history}
-        <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
+        <Skeleton rows={6} label={t("gitLoading")} />
       {:else if !history.commits.length}
         <p class="muted small">{t("git2NoHistory")}</p>
       {:else}
@@ -86,7 +86,7 @@
         {#if history.more}<button class="btn sm more" onclick={() => (limit += STEP)}>{t("gitMore")}</button>{/if}
       {/if}
     {:else if !blame}
-      <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
+      <Skeleton shape="block" height="240px" label={t("gitLoading")} />
     {:else}
       <div class="blame">
         {#each groups as g (g.start)}

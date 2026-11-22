@@ -11,6 +11,7 @@
   import ScanText from "@lucide/svelte/icons/scan-text";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import GitDiff from "$lib/GitDiff.svelte";
   import { t } from "$lib/i18n";
   import { openAt } from "$lib/design.svelte";
@@ -233,7 +234,7 @@
       {#if diffError}
         <p class="notice error">{diffError}</p>
       {:else if !diff}
-        <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("git2ReadingDiff")}</p>
+        <Skeleton shape="block" height="120px" label={t("git2ReadingDiff")} />
       {:else}
         {@const d = diff}
         <div class="diff-tools">

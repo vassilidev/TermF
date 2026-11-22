@@ -16,6 +16,7 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Terminal from "@lucide/svelte/icons/terminal";
   import X from "@lucide/svelte/icons/x";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import { library } from "$lib/library.svelte";
   import { shortPath, type Project } from "$lib/state.svelte";
@@ -469,7 +470,7 @@
         {/each}
       </section>
     {:else if !error}
-      <p class="muted loading"><LoaderCircle size={14} aria-hidden="true" class="spin" /></p>
+      <Skeleton shape="list" rows={4} />
     {/if}
   </div>
 </div>
@@ -860,10 +861,5 @@
 
   .steps li.bad .detail {
     color: var(--danger);
-  }
-
-  .loading {
-    margin-top: 40px;
-    text-align: center;
   }
 </style>

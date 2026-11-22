@@ -19,6 +19,7 @@
   import X from "@lucide/svelte/icons/x";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { focusSession } from "$lib/commands";
   import { ago, lang, t } from "$lib/i18n";
   import { projectsOf } from "$lib/nav-logic";
@@ -243,7 +244,7 @@
   </div>
 
   {#if !data}
-    <p class="loading" role="status"><LoaderCircle size={16} aria-hidden="true" class="spin" /></p>
+    <Skeleton shape="list" rows={6} />
   {:else if !data.artifacts.length}
     <EmptyState icon={Images} title={t("claudeViewNoArtifacts")} text={t("claudeViewNoArtifactsHelp")} />
   {:else}
@@ -462,13 +463,6 @@
     margin: 0;
     color: var(--muted);
     font-size: var(--text-sm);
-  }
-
-  .loading {
-    display: flex;
-    justify-content: center;
-    margin: 40px auto;
-    color: var(--muted);
   }
 
   .toolbar {

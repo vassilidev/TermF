@@ -324,7 +324,7 @@ export function helpers(box, port, signal) {
     },
 
     settled(view) {
-      const css = `${t.shown(view)} .spin`;
+      const css = `${t.shown(view)} .spin, ${t.shown(view)} [data-skeleton]`;
       return t.s.wait(() => t.s.exec((c) => ![...document.querySelectorAll(c)].some((e) => e.getClientRects().length), css), {
         what: `${view} to finish loading`,
         timeout: 30_000,

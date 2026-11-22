@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import LibraryBig from "@lucide/svelte/icons/library-big";
   import Banner from "$lib/ui/Banner.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { library, showLibrary, type Item, type Layer } from "$lib/library.svelte";
   import { access, initials } from "$lib/team-logic";
@@ -134,6 +135,8 @@
     </table>
   {:else if roles}
     <p class="muted">{t("libraryEmpty")}</p>
+  {:else}
+    <Skeleton shape="list" rows={4} />
   {/if}
 </section>
 
