@@ -319,6 +319,8 @@ fn transcript(file: &Path) -> Option<Doc> {
 
 fn git(repo: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     let mut cmd = Command::new("git");
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
     cmd.arg("-C")
         .arg(repo)
         .args(args)
