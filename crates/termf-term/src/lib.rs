@@ -434,7 +434,10 @@ mod tests {
     fn detached_output_waits_in_the_scrollback() {
         let sessions = Sessions::default();
         let id = sessions
-            .spawn(spec("/bin/sh", &["-c", "read x; printf 'after %s' \"$x\"; exit 4"]))
+            .spawn(spec(
+                "/bin/sh",
+                &["-c", "read x; printf 'after %s' \"$x\"; exit 4"],
+            ))
             .unwrap();
         let (seen, data) = mpsc::channel();
         sessions

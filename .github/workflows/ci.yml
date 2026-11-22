@@ -92,6 +92,7 @@ jobs:
 
   # The performance budgets on the product itself: the release build, measured like the debug one in the e2e job.
   perf-release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:

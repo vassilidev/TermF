@@ -360,6 +360,9 @@ pub fn run() {
             let config = app.state::<AppState>().config_dir.clone();
             let sync = sync::start(app.handle(), config, vault_dir);
             app.manage(sync);
+            // Looking for Codex CLI and Gemini CLI runs the user's shell: begun while the page loads, the first
+            // `workspace` finds the answer kept instead of waiting for it.
+            std::thread::spawn(move || drop(settings.agents_found()));
             Ok(())
         })
         .on_window_event(|window, event| {
