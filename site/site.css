@@ -100,16 +100,17 @@ footer{margin-top:128px;border-top:1px solid var(--line);overflow:hidden;backgro
 .foot-bottom a{color:var(--soft)}
 
 /* Hero */
-.hero{padding:132px 0 0}
-.hero .wrap{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7.4fr);gap:48px;align-items:center}
-.hero h1{max-width:9.5em}
+.hero{padding:122px 0 0}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,5.7fr) minmax(0,6.8fr);gap:44px;align-items:center}
+.hero h1{max-width:11em;font-size:clamp(2.45rem,4.6vw,3.7rem)}
+.hero .lead{font-size:clamp(1.08rem,1.4vw,1.2rem)}
 .hero .lead{margin:22px 0 0}
-.points{list-style:none;margin:26px 0 0;padding:0;display:grid;gap:12px;max-width:34rem}
+.points{list-style:none;margin:22px 0 0;padding:0;display:grid;gap:10px;max-width:36rem;font-size:1rem}
 .points li{position:relative;padding-left:30px;color:var(--soft);line-height:1.5}
 .points li::before{content:"";position:absolute;left:2px;top:.42em;width:14px;height:14px;border-radius:4px;background:var(--dot,var(--working))}
 .points b{color:var(--ink);font-weight:650}
-.cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;margin:32px 0 0}
-.trust{list-style:none;margin:26px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:8px 20px;color:var(--soft);font-size:.95rem}
+.cta{display:flex;flex-wrap:wrap;align-items:center;gap:12px 14px;margin:28px 0 0}
+.trust{list-style:none;margin:22px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:8px 20px;color:var(--soft);font-size:.95rem}
 .trust li{display:inline-flex;align-items:center;gap:8px}
 .trust svg{width:18px;height:18px;color:var(--done)}
 .note{margin:16px 0 0;color:var(--mute);font-size:.92rem;max-width:36rem}
