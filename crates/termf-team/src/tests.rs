@@ -1640,7 +1640,10 @@ fn a_hotfix_routing_skips_its_gate_and_a_stopped_gate_waits_again() {
     triage_project(&env);
     env.target.ticket = termf_tickets::REQUEST.into();
     env.answer("triage.json", routing("default", &["api"]));
-    env.answer("plan.json", env.plan(json!([task("T1", "back", &["src"], &[])])));
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src"], &[])])),
+    );
     let options = Options {
         workflow: Some("hotfix".into()),
         plan_only: true,
@@ -1701,7 +1704,7 @@ fn a_hotfix_routing_skips_its_gate_and_a_stopped_gate_waits_again() {
 }
 
 /// The team against the real Claude Code, for a few cents: the shipped roles put on Haiku by `[roles.*]`, the
-/// `squads` workflow on a project of two squads (the PO's framing, the CTO's plan, one task per squad, the
+/// `squads` workflow on a project of two squads (the CTO's triage, the PO's framing, the CTO's plan, one task per squad, the
 /// security review), each answer through `--json-schema` on a stream-json session. Permission requests are
 /// allowed. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
 /// `cargo test -p termf-team -- --ignored --nocapture real_team`
@@ -1742,7 +1745,18 @@ fn real_team() {
         fs::write(path, text).unwrap();
     };
     let mut settings = "[agents]\nclaude = \"claude\"\n".to_owned();
-    for role in ["po", "cto", "back", "front", "secops"] {
+    for role in [
+        "po",
+        "pm",
+        "cto",
+        "lead",
+        "architect",
+        "ux",
+        "seo",
+        "back",
+        "front",
+        "secops",
+    ] {
         settings.push_str(&format!(
             "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
         ));
@@ -1759,7 +1773,7 @@ fn real_team() {
     );
     put(
         config.join("library/workflows/real.toml"),
-        "extends = \"squads\"\nbudget_usd = 1.5\n[steps.approve-plan]\nenabled = false\n[steps.visual]\nenabled = false\n[steps.deliver]\nenabled = false\n".into(),
+        "extends = \"squads\"\nbudget_usd = 1.5\napprove_route = false\n[steps.approve-plan]\nenabled = false\n[steps.visual]\nenabled = false\n[steps.deliver]\nenabled = false\n".into(),
     );
     let target = Target {
         run: 1,
@@ -1847,7 +1861,13 @@ fn real_team() {
     let hello = ["api/hello.txt", "web/hello.txt"].map(|f| fs::read_to_string(worktree.join(f)));
     let _ = fs::remove_dir_all(&root);
 
-    eprintln!("real_team: ${:.4}, {} sessions", run.cost, specs.len());
+    eprintln!(
+        "real_team: ${:.4}, {} sessions, triage ${:.4}, routing {:?}",
+        run.cost,
+        specs.len(),
+        run.steps[0].cost,
+        run.routing
+    );
     assert_eq!(run.state, RunState::Done, "{events:#?}");
     assert!(structured, "each answer came through --json-schema");
     for file in hello {
@@ -1856,6 +1876,20 @@ fn real_team() {
     assert!(
         specs.iter().all(|s| s.model.as_deref() == Some("haiku")),
         "[roles.*] put every role on Haiku"
+    );
+    let routing = run.routing.clone().expect("the CTO routed the run");
+    assert_eq!(run.steps[0].key, TRIAGE);
+    assert_eq!(routing.workflow, "real", "the workflow you chose");
+    let mut routed = routing.squads.clone();
+    routed.sort();
+    assert_eq!(routed, ["client", "server"], "{routing:?}");
+    assert_eq!(
+        run.steps
+            .iter()
+            .find(|s| s.plan)
+            .and_then(|s| s.role.as_deref()),
+        Some("cto"),
+        "two squads: the CTO plans"
     );
     let plan = run.plan.unwrap();
     let mut squads: Vec<&str> = plan.tasks.iter().map(|t| t.squad.as_str()).collect();
