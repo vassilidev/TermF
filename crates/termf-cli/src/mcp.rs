@@ -91,9 +91,18 @@ fn tools() -> Value {
         act(
             "answer",
             "Answer a run's questions",
-            "Answers the questions of a step (the plan's, or a blocked step's): the step starts again with the answers.",
+            "Answers the questions of a step (the triage's, the plan's, or a blocked step's) all at once: the step starts again with the answers.",
             object(
-                json!({ "run": run, "step": step, "answers": { "type": "string" } }),
+                json!({
+                    "run": run,
+                    "step": step,
+                    "answers": {
+                        "type": ["object", "string"],
+                        "description": "Each question's id → its answer, as team_run lists them: an option, yes or no, a text, or a list for a multiple choice; an answer of the user's own may stand for an option. A text when the questions have no id.",
+                        "additionalProperties": { "type": ["string", "array", "boolean"], "items": { "type": "string" } }
+                    },
+                    "note": { "type": "string", "description": "Anything else the user wants the step to know." }
+                }),
                 &["run", "step", "answers"]
             ),
             false
@@ -241,5 +250,52 @@ mod tests {
             let read = MCP_READ.contains(&tool["name"].as_str().unwrap());
             assert_eq!(tool["annotations"]["readOnlyHint"], json!(read), "{tool}");
         }
+    }
+
+    #[test]
+    fn a_request_and_a_questionnaire_reach_termf_as_given() {
+        let seen = std::cell::RefCell::new(Vec::new());
+        let call = |tool: McpCall| {
+            seen.borrow_mut().push(tool);
+            Ok(json!({"run": 12}))
+        };
+        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "start_team_run",
+            "arguments": {"request": "Add an Excel export", "repo": "api", "budget": 4}}});
+        let reply = answer(&request.to_string(), &call).unwrap();
+        assert_eq!(reply["result"]["isError"], json!(false), "{reply}");
+        let answers = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "answer",
+            "arguments": {"run": 12, "step": "triage", "answers": {"period": "shown", "columns": ["date", "vat"]},
+                          "note": "monthly"}}});
+        answer(&answers.to_string(), &call).unwrap();
+        let free = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "answer",
+            "arguments": {"run": 12, "step": "plan", "answers": "CSV"}}});
+        answer(&free.to_string(), &call).unwrap();
+        assert_eq!(
+            *seen.borrow(),
+            [
+                McpCall::StartTeamRun {
+                    run: None,
+                    ticket: None,
+                    request: Some("Add an Excel export".into()),
+                    repo: Some("api".into()),
+                    workflow: None,
+                    budget: Some(4.0),
+                },
+                McpCall::Answer {
+                    run: 12,
+                    step: "triage".into(),
+                    answers: json!({"period": "shown", "columns": ["date", "vat"]}),
+                    note: Some("monthly".into()),
+                },
+                McpCall::Answer {
+                    run: 12,
+                    step: "plan".into(),
+                    answers: json!("CSV"),
+                    note: None,
+                },
+            ]
+        );
+        let schema = &tools()[7]["inputSchema"]["properties"]["answers"];
+        assert_eq!(schema["type"], json!(["object", "string"]), "{schema}");
     }
 }

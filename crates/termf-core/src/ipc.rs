@@ -137,10 +137,14 @@ pub enum McpCall {
         #[serde(default)]
         budget: Option<f64>,
     },
+    /// `answers`: question id → answer (a text, or a list for a multiple choice) for a step's questionnaire, or
+    /// a text for questions that have no id; `note`: anything else.
     Answer {
         run: i64,
         step: String,
-        answers: String,
+        answers: Value,
+        #[serde(default)]
+        note: Option<String>,
     },
     Approve {
         run: i64,
@@ -211,10 +215,23 @@ pub enum ReviewCall {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum TeamCall {
-    /// Starts the team, or goes on with it; `options`: a `termf_team::Options`.
+    /// Starts the team, or goes on with it; `options`: a `termf_team::Options`. Without `run`, `request` (a
+    /// `termf_team::Request`) starts it in a new run of its own.
     Start {
-        run: i64,
+        #[serde(default)]
+        run: Option<i64>,
+        #[serde(default)]
+        request: Option<Value>,
         options: Value,
+    },
+    /// Answers the questionnaire of a blocked step: question id → answer (one value, or several for a multiple
+    /// choice); `note`: anything else.
+    Answer {
+        run: i64,
+        step: String,
+        answers: HashMap<String, Vec<String>>,
+        #[serde(default)]
+        note: String,
     },
     Approve {
         run: i64,

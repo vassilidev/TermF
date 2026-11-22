@@ -16,6 +16,7 @@
   import OnboardingTeam from "$lib/OnboardingTeam.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import QuestionInput from "$lib/ui/QuestionInput.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, lang, t } from "$lib/i18n";
@@ -24,7 +25,6 @@
   import {
     byTheme,
     githubIssues,
-    pick,
     reachable,
     recipeLines,
     steps,
@@ -354,38 +354,14 @@
 {/snippet}
 
 {#snippet answer(q: Question)}
-  {@const value = answers[q.id] ?? q.default}
-  {#if q.kind === "text"}
-    <input
-      class="field"
-      value={value[0] ?? ""}
-      aria-label={qText(q)}
-      oninput={(e) => (answers[q.id] = [e.currentTarget.value])}
-    />
-  {:else if q.kind === "multi"}
-    <div class="chips" role="group" aria-label={qText(q)}>
-      {#each q.options as option (option)}
-        <label class="chip" class:on={value.includes(option)}>
-          <input type="checkbox" checked={value.includes(option)} onchange={() => (answers[q.id] = pick(q, value, option))} />
-          {option}
-        </label>
-      {/each}
-    </div>
-  {:else}
-    {@const options = q.kind === "bool" ? ["yes", "no"] : q.options}
-    <div class="segmented" role="radiogroup" aria-label={qText(q)}>
-      {#each options as option (option)}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={value[0] === option}
-          onclick={() => (answers[q.id] = pick(q, value, option))}
-        >
-          {q.kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : optionText(q, option)}
-        </button>
-      {/each}
-    </div>
-  {/if}
+  <QuestionInput
+    kind={q.kind}
+    options={q.options}
+    label={qText(q)}
+    optionLabel={(o) => optionText(q, o)}
+    value={answers[q.id] ?? q.default}
+    onchange={(v) => (answers[q.id] = v)}
+  />
 {/snippet}
 
 <div class="onboarding">
@@ -859,40 +835,8 @@
     font-weight: 500;
   }
 
-  .question .field {
-    width: min(100%, 480px);
-  }
-
   .segmented {
     flex-wrap: wrap;
-  }
-
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 26px;
-    padding: 0 10px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-pill);
-    font-size: var(--text-sm);
-    cursor: pointer;
-  }
-
-  .chip input {
-    margin: 0;
-  }
-
-  .chip.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--accent-ink);
   }
 
   .proposal {

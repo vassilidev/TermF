@@ -2,6 +2,7 @@
 //! TermF's tools (`termf mcp`) and the read tools of the project's repositories. What the project's team runs
 //! wait for reaches it as TermF's notices; `@role` hands a message to another agent instead.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -14,7 +15,7 @@ use termf_claude::mask::{mask, mask_text};
 use termf_core::Project;
 use termf_core::ipc::{McpCall, Status};
 use termf_library::{Kind, Layer, Scope};
-use termf_team::{Options, RunState, StepState, TeamEvent, TeamRun};
+use termf_team::{Options, Request, RunState, StepState, TeamEvent, TeamRun};
 
 use crate::agents::AgentsState;
 use crate::tickets::{blocking, tickets};
@@ -366,21 +367,43 @@ fn run_tool(app: &AppHandle, agents: &Agents, id: &str, tool: McpCall) -> Result
             let started = match (run, ticket, request) {
                 (Some(run), None, None) => {
                     ticket_run(run)?;
-                    team::start(app, run, options)?
+                    team::start(app, Some(run), None, options)?
                 }
                 (None, Some(ticket), None) => {
                     from_ticket(app, id, &ticket, repo.as_deref(), options)?
                 }
-                (None, None, Some(_)) => bail!(
-                    "a request without a ticket cannot start a team run yet: give a ticket, or a ticket run"
-                ),
+                // A run of its own, closed again when its team does not start.
+                (None, None, Some(text)) => {
+                    let request = Request {
+                        text,
+                        project: id.to_owned(),
+                        repo,
+                    };
+                    team::start(app, None, Some(request), options)?
+                }
                 _ => bail!("give one of run, ticket or request"),
             };
             summary(&started)
         }
-        McpCall::Answer { run, step, answers } => {
+        McpCall::Answer {
+            run,
+            step,
+            answers,
+            note,
+        } => {
             owned(run)?;
-            summary(&team.revise(run, &step, &answers)?)
+            let note = note.unwrap_or_default();
+            let answered = match answers {
+                Value::String(text) => {
+                    let text = format!("{text}\n{note}");
+                    team.revise(run, &step, text.trim())?
+                }
+                Value::Object(answers) => {
+                    team.answer(run, &step, questionnaire(answers)?, &note)?
+                }
+                _ => bail!("answers: each question's id with its answer, or a text"),
+            };
+            summary(&answered)
         }
         McpCall::Approve { run, step } => {
             owned(run)?;
@@ -442,7 +465,7 @@ fn from_ticket(
     crate::api::run_guard(&app.state::<AppState>())?;
     let run = tickets(app).start_without_session(ticket, Some(id), repo)?;
     crate::tickets::updated(app, &run);
-    team::start(app, run.id, options).inspect_err(|_| {
+    team::start(app, Some(run.id), None, options).inspect_err(|_| {
         if let Ok(closed) = crate::tickets::close(app, run.id, false) {
             crate::tickets::updated(app, &closed);
         }
@@ -467,6 +490,26 @@ fn described(app: &AppHandle, id: &str) -> Result<Value> {
     Ok(json!({ "id": project.id, "name": project.name, "repos": repos, "roles": roles }))
 }
 
+/// The answers of a questionnaire as `team_answer` takes them: a text, yes or no, or a list for a multiple choice.
+fn questionnaire(answers: serde_json::Map<String, Value>) -> Result<BTreeMap<String, Vec<String>>> {
+    answers
+        .into_iter()
+        .map(|(id, answer)| {
+            let values = match answer {
+                Value::String(text) => vec![text],
+                Value::Bool(yes) => vec![if yes { "yes" } else { "no" }.to_owned()],
+                Value::Array(items) => items
+                    .into_iter()
+                    .map(|v| v.as_str().map(str::to_owned))
+                    .collect::<Option<Vec<_>>>()
+                    .with_context(|| format!("question {id}: a list of texts"))?,
+                _ => bail!("question {id}: a text, yes or no, or a list of texts"),
+            };
+            Ok((id, values))
+        })
+        .collect()
+}
+
 fn summary(run: &TeamRun) -> Value {
     let at_work: Vec<&str> = run
         .steps
@@ -484,27 +527,21 @@ fn summary(run: &TeamRun) -> Value {
         "note": run.note,
         "cost": run.cost,
         "budget": run.budget,
+        "routing": run.routing,
         "atWork": at_work,
         "waits": waits(run),
     })
 }
 
-/// The gates and blocked steps that wait for the user, with their questions.
+/// The gates and blocked steps that wait for the user, with their questions: the triage's, the plan's or a
+/// report's.
 fn waits(run: &TeamRun) -> Vec<Value> {
-    let plan = run
-        .plan
-        .as_ref()
-        .map(|p| p.questions.clone())
-        .unwrap_or_default();
     run.steps
         .iter()
-        .filter(|s| matches!(s.state, StepState::Waiting | StepState::Blocked))
-        .map(|s| {
-            let mut questions = s.report.as_ref().map(|r| r.questions.clone()).unwrap_or_default();
-            if s.plan && questions.is_empty() {
-                questions = plan.clone();
-            }
-            json!({ "step": s.key, "state": s.state, "role": s.role, "task": s.task, "note": s.note, "questions": questions })
+        .enumerate()
+        .filter(|(_, s)| matches!(s.state, StepState::Waiting | StepState::Blocked))
+        .map(|(i, s)| {
+            json!({ "step": s.key, "state": s.state, "role": s.role, "task": s.task, "note": s.note, "questions": run.questions(i) })
         })
         .collect()
 }
@@ -592,6 +629,37 @@ mod tests {
             .unwrap()
             .extend(extra.as_object().unwrap().clone());
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn the_cto_s_questions_wait_with_their_ids_and_answers_come_back_structured() {
+        let mut triage = step("triage", "cto", "blocked", Some(3));
+        triage["kind"] = json!("agent");
+        let mut asking = run(9, "acme", "waiting", json!([triage]));
+        asking.routing = Some(
+            serde_json::from_value(json!({"kind": "feature", "size": "M", "reason": "r", "workflow": "default",
+                "skip": [], "add": [], "efforts": [], "squads": [], "budget_usd": 0.0,
+                "questions": [{"id": "period", "theme": "product", "question": "Which period?", "why": "volume",
+                    "kind": "choice", "options": ["shown", "all"], "proposed": ["shown"], "implications": []}]}))
+            .unwrap(),
+        );
+        let waits = waits(&asking);
+        assert_eq!(waits[0]["questions"][0]["id"], "period");
+        assert_eq!(summary(&asking)["routing"]["workflow"], "default");
+
+        let answers =
+            json!({"period": "all of it, monthly", "public": false, "columns": ["date", "vat"]});
+        let Value::Object(answers) = answers else {
+            unreachable!()
+        };
+        let read = questionnaire(answers).unwrap();
+        assert_eq!(read["period"], ["all of it, monthly"]);
+        assert_eq!(read["public"], ["no"]);
+        assert_eq!(read["columns"], ["date", "vat"]);
+        let Value::Object(bad) = json!({"columns": [1]}) else {
+            unreachable!()
+        };
+        assert!(questionnaire(bad).is_err());
     }
 
     #[test]
