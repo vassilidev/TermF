@@ -10,7 +10,7 @@ intro = "You talk to one agent, the CTO. A team of agents with one job each does
 icon = "users"
 article = "team.html"
 article_title = "The CTO and the team"
-not_yet = ["Runs across several repositories (one repository per run today)", "A squad editor outside the setup assistant, and the leads' sub-plans", "Re-planning after repeated failures, a daily budget, one scheduler for every team at work"]
+not_yet = ["Re-planning after repeated failures, a daily budget, one scheduler for every team at work"]
 
 [[groups]]
 id = "projects"
@@ -80,8 +80,8 @@ article_title = "Security, and its limits"
 
 [[groups]]
 id = "cli"
-name = "The termf command line"
-intro = "Everything the app does, from any terminal. It ships inside the app."
+name = "Install, updates and the command line"
+intro = "One command to install, updates inside the app, and everything the app does from any terminal."
 icon = "square-terminal"
 
 # ---------------------------------------------------------------------------------------------------------------- team
@@ -217,8 +217,8 @@ tagline = "Split a bigger project into teams with their own scope."
 keywords = "squads teams staff lead parallel repositories paths domains"
 problem = '''<p>On a project with several repositories or areas, one flat team steps on its own toes. Squads give each area its lead, its members and how many of each, its repositories, its paths and how many tasks it runs at once. The roles that serve every squad form the staff.</p>'''
 how = [
-  "Declare squads in the project's file, or accept the ones the setup assistant proposes.",
-  "A run that spans one squad is planned by its lead; one that spans several is planned by the CTO, squad by squad.",
+  "Create squads in the project's Configuration, Team tab, or accept the ones the setup assistant proposes.",
+  "A run that spans one squad is planned by its lead; one that spans several is planned by the CTO in batches, and each squad's lead splits its batch into tasks, grafted into the run.",
   "Each task stays inside its squad's repositories and paths, and the scheduler respects each squad's limits.",
 ]
 visual = "squads"
@@ -231,7 +231,7 @@ tune = [
   "Role settings per squad: <code>[squads.roles.&lt;role&gt;]</code>.",
 ]
 commands = [["termf team squads [<project>]", "the squads, the staff and each member's settings"]]
-limits = ["Squads are read-only in the app outside the setup assistant.", "Squads per repository only really pay off with runs across repositories, which are not built yet."]
+limits = ["A large batch's sub-plan waits for your approval by default (<code>[team] subplan_gate</code>).", "Not yet tried in the app's real window."]
 tried = "Tested with automated tests; the squads view was checked with a simulated backend."
 related = ["roles", "projects", "triage"]
 read = "team.html#squads"
@@ -528,6 +528,26 @@ limits = ["Resume and cleanup have not yet run with a real Claude Code or a real
 tried = "Tested with a fake Claude Code and a fake gh; the page was checked with a simulated backend."
 related = ["delivery", "workflows", "worktrees"]
 read = "how-it-works.html#after"
+
+[[features]]
+slug = "multi-repo"
+group = "projects"
+name = "Runs across repositories"
+tagline = "One ticket that touches several repositories, one pull request in each."
+keywords = "multi repository monorepo several repositories pull requests linked front back"
+problem = '''<p>A feature often spans the API and the front end, in two repositories. A run's plan can name any repository of the project: each one joins the run at its first task, with its own worktree and branch, its own checks and its own base update. At the delivery, each repository gets its pull request, linked to the others.</p>'''
+how = [
+  "Start the team on a ticket as usual; the plan says which repository each task touches.",
+  "Each repository joins the run at its first task, in its own worktree.",
+  "Checks, the base update and the review run for each repository.",
+  "Deliver: one pull request per repository, linked together.",
+]
+default = ["Every repository a run touches needs an <code>origin</code> on GitHub; otherwise the plan step stops and says why."]
+tune = ["The project's repositories, in its Configuration."]
+commands = []
+limits = ["GitHub only for the linked pull requests.", "Not yet tried in the app's real window."]
+tried = "Covered by automated tests with a fake Claude Code and a fake GitHub CLI."
+related = ["runs", "squads", "delivery"]
 
 [[features]]
 slug = "workflows"
@@ -1165,6 +1185,30 @@ related = ["vault", "guard", "security-input"]
 # ----------------------------------------------------------------------------------------------------------------- cli
 
 [[features]]
+slug = "updates"
+group = "cli"
+name = "Install and updates"
+tagline = "One command to install, then TermF keeps itself up to date."
+keywords = "install script curl powershell update auto-update channel beta stable checksum first launch requirements path"
+problem = '''<p>Installing an app that is not signed yet should not take a tutorial. One command downloads the latest release for your system and processor, checks it against the release's checksums and installs it, with no warning to click through. Then the app checks for updates by itself, verifies their signature and installs them when you say so. On first launch, it lists the tools it needs, git, Claude Code, the GitHub CLI, Chrome, with the official command to install each missing one.</p>'''
+how = [
+  "macOS and Linux: <code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code>. Windows: <code>irm https://vassilidev.github.io/TermF/install.ps1 | iex</code>.",
+  "Open TermF: the Home lists what is missing, with the command to copy and the official page.",
+  "In Settings, put <code>termf</code> on your <code>PATH</code> in one click.",
+  "When an update is out, a banner offers it; the app restarts on the new version.",
+]
+default = [
+  "The script checks the SHA-256 of what it downloads and refuses a release without checksums.",
+  "Stable channel; the newest pre-release while there is no stable release.",
+  "Updates are checked at start and once a day, and installed only when you click.",
+]
+tune = ["<code>[updates] channel = \"stable\" | \"beta\"</code> and <code>check</code> in <code>termf.toml</code>.", "<code>--beta</code>, <code>--format appimage|deb|rpm</code> and <code>--dry-run</code> for the script."]
+commands = [["curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh", "install or update from a terminal"]]
+limits = ["The builds are not signed by Apple or Microsoft yet: a file downloaded with a browser still asks for one extra step on first launch.", "The update banner and the first-launch checks were checked with a simulated backend."]
+tried = "The script ran in CI on the three systems against a local stand-in for GitHub's API, including a real AppImage install and the refusal of an altered file."
+related = ["cli", "claude-view", "local-api"]
+
+[[features]]
 slug = "cli"
 group = "cli"
 name = "The termf command line"
@@ -1183,7 +1227,7 @@ tune = ["<code>[api] confirm_cli</code>."]
 commands = [["termf ls | open | say | watch", "sessions"], ["termf inbox | run | runs | deliver | close", "tickets and runs"], ["termf team … | agent … | ask", "the team, the agents, the expert"]]
 limits = ["<code>termf team answer</code> and a few others do not wait for confirmation: see the security page."]
 tried = "The command line is covered by automated tests."
-related = ["local-api", "runs", "budgets"]
+related = ["updates", "local-api", "runs"]
 read = "download.html#cli"
 
 # -------------------------------------------------------------------------------------------------------- the visuals

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   asks,
+  batchTasks,
   budgetError,
   byTheme,
   current,
@@ -12,6 +13,7 @@ import {
   levels,
   notices,
   passes,
+  planned,
   progress,
   proposed,
   runs,
@@ -352,4 +354,56 @@ test("a step's escalations are the CTO's steps that decide on it", () => {
   const r = run([t1, step("implement:T2", "done", { kind: "task" }), cto]);
   assert.deepEqual(escalations(r, t1), [cto]);
   assert.deepEqual(escalations(r, r.steps[1]), []);
+});
+
+test("batches: a sub-plan waits as its own ask, its tasks show under their batch with the ids they take", () => {
+  const plan = { summary: "", acceptance: [], out_of_scope: [], questions: [], tasks: [task("T1"), task("T2", ["T1"])] };
+  const sub = { ...plan, tasks: [task("T1"), task("T2", ["T1"]), task("QA", ["T2"])] };
+  const proposed = run(
+    [
+      step("implement:T1", "done", { kind: "task", task: "T1" }),
+      step("implement:T2", "waiting", { kind: "task", task: "T2", batch: true, subplan: sub }),
+    ],
+    { plan },
+  );
+  assert.deepEqual(
+    asks(proposed).map((a) => [a.kind, a.step.key, a.accept]),
+    [["subplan", "implement:T2", true]],
+  );
+  assert.deepEqual(
+    planned(proposed).map((t) => t.id),
+    ["T1", "T2"],
+  );
+  const shown = batchTasks(proposed, "T2");
+  assert.equal(shown.grafted, false);
+  assert.deepEqual(
+    shown.tasks.map((t) => [t.id, t.depends_on]),
+    [
+      ["T2.1", ["T1"]],
+      ["T2.2", ["T1", "T2.1"]],
+      ["T2.QA", ["T1", "T2.2"]],
+    ],
+  );
+  assert.equal(batchTasks(proposed, "T1"), null, "not a batch");
+
+  const grafted = run(
+    [
+      step("implement:T2", "done", { kind: "task", task: "T2", batch: true, subplan: sub }),
+      step("implement:T2.1", "running", { kind: "task", task: "T2.1" }),
+    ],
+    { plan: { ...plan, tasks: [...plan.tasks, task("T2.1", ["T1"])] } },
+  );
+  assert.deepEqual(
+    planned(grafted).map((t) => t.id),
+    ["T1", "T2"],
+    "grafted tasks show under their batch",
+  );
+  assert.deepEqual(batchTasks(grafted, "T2"), { tasks: [task("T2.1", ["T1"])], grafted: true });
+
+  const blocked = { kind: "task", task: "T2", batch: true, subplan: { ...sub, questions: [{ id: "Q1" }] } };
+  assert.deepEqual(
+    asks(run([step("implement:T2", "blocked", blocked)], { plan })).map((a) => [a.kind, a.questions.length, a.accept]),
+    [["questions", 1, false]],
+    "a batch without a valid sub-plan is never accepted as it is",
+  );
 });

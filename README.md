@@ -40,7 +40,16 @@ Around that: Git, CI/CD, a password vault, servers and logs, a design system vie
 
 ## Install
 
-Download TermF for your system from the [download page](https://vassilidev.github.io/TermF/download.html), which picks the right file and gives a one-line command, or from the [releases](https://github.com/vassilidev/TermF/releases):
+One command installs the latest release for your system and processor, checked against the release's checksums, with no extra step for the unsigned builds:
+
+```sh
+curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh                # macOS, Linux
+irm https://vassilidev.github.io/TermF/install.ps1 | iex                     # Windows (PowerShell)
+```
+
+Add `-s -- --beta` (or `TERMF_BETA=1` on Windows) to take the pre-releases too. Then TermF keeps itself up to date: it checks for updates, verifies their signature and installs them when you click.
+
+Or download the file for your system from the [download page](https://vassilidev.github.io/TermF/download.html) or the [releases](https://github.com/vassilidev/TermF/releases):
 
 | System | File |
 |---|---|
@@ -49,7 +58,7 @@ Download TermF for your system from the [download page](https://vassilidev.githu
 | Windows | `TermF_<version>_x64-setup.exe`, or the `.msi` |
 | Linux x86_64 | `.AppImage`, `.deb` or `.rpm` (needs WebKitGTK 4.1) |
 
-The builds are early pre-releases and **not signed yet**, so the first launch takes one extra step:
+Downloaded with a browser, the builds are **not signed by Apple or Microsoft yet**, so the first launch takes one extra step:
 
 - **macOS**: drag TermF to Applications, then clear the quarantine once: `xattr -dr com.apple.quarantine /Applications/TermF.app`. Or open it once, then click Open Anyway in System Settings, Privacy & Security.
 - **Windows**: on the SmartScreen warning, click More info, then Run anyway.
@@ -58,6 +67,8 @@ The builds are early pre-releases and **not signed yet**, so the first launch ta
 **You need** [Claude Code](https://code.claude.com) 2.1.288 or later, signed in, and `git`. The [GitHub CLI](https://cli.github.com), signed in, is needed for GitHub tickets, pull requests and CI. TermF finds Claude Code's native install by itself and tells you how to update an older one.
 
 ## Start in two minutes
+
+On first launch, the Home lists the tools TermF needs that are missing, with the official command to install each one. In Settings, one click puts `termf` on your `PATH`.
 
 1. **Create a project.** Press <kbd>+</kbd> next to Projects. Pick your repositories in the list (sorted by activity, with their remote, branch and stack). TermF shows what it detects in each one, then proposes the team, the ticket sources, the worktree setup, CI and the skills for your stack. Accept them in one click, or set one aside to adjust later. Nothing is written before you click Create.
 2. **Open your first agent.** <kbd>⌘T</kbd> opens Claude Code, or a shell, in any repository, in a tab. <kbd>⌘D</kbd> splits the view. A badge and a notification tell you when a session waits for you.
@@ -84,7 +95,7 @@ Every feature has its own page on the website, with what works out of the box, w
 - **Triage.** The CTO picks how the team takes a ticket: the steps, the agents, the budget. That route is the first thing you approve.
 - **Questions with proposed answers.** Open questions arrive in one form, each with a reason and a proposed answer: you only change what is wrong.
 - **26 roles.** Each role is a Markdown file you can override per project, squad or repository (model, effort, permissions, skills, paths it may not touch).
-- **Squads.** A bigger project can split into squads, each with its lead, members, repositories and paths.
+- **Squads.** A bigger project can split into squads, each with its lead, members, repositories and paths, edited in the project's Configuration; each lead splits its share of the work into tasks.
 - **Code review and security review.** After the tasks and your checks, a reviewer reads the whole diff, then a security reviewer in two passes; each finding goes back to the task that made it.
 - **The base kept up to date.** Before the delivery, TermF merges the latest main into the run; on a conflict, the merge integrator resolves it and the checks run again.
 - **The project expert.** Answers questions about the project from a local memory of its conversations and runs, with sources.
@@ -97,6 +108,7 @@ Every feature has its own page on the website, with what works out of the box, w
 - **The project's Home.** The CTO's conversation, what waits for you, the agents at work and the runs, on one screen.
 - **Ticket sources.** GitHub Issues, GitHub Projects, Jira Cloud, or any MCP server; several per project.
 - **The run page.** One page per ticket, from launch to merge: steps, plan, questions, budget, log.
+- **Runs across repositories.** A ticket that touches the API and the front end gets one pull request in each repository, linked together.
 - **Workflows and rules.** Workflows are files; rules like "do only what the ticket asks" or "no unrequested text changes" go from advice to blocking.
 - **Delivery in two steps.** A preview of exactly what will be sent, then your confirmation; agents can never push.
 - **Git in the project.** Branch graph, branches and worktrees, stage by file, hunk or line, commit, stash, merge, rebase with conflicts, tags, history and blame.

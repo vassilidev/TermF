@@ -124,7 +124,7 @@
   <div class="wrap">
     <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><span>Download</span></p>
     <h1>Download TermF</h1>
-    <p class="lead">Free and open source, for macOS, Windows and Linux. Every file comes from the <a href="https://github.com/vassilidev/TermF/releases">GitHub releases</a>, built by CI from the public source. Early version: the builds are pre-releases and not signed yet.</p>
+    <p class="lead">Free and open source, for macOS, Windows and Linux. Every file comes from the <a href="https://github.com/vassilidev/TermF/releases">GitHub releases</a>, built by CI from the public source. Early version: the builds are not signed by Apple or Microsoft yet; the one-line install avoids the extra step their warning asks for.</p>
   </div>
 </header>
 <div class="wrap">
@@ -138,15 +138,17 @@
       <p class="alts" id="dl-alts"><a href="#all">Every platform and file</a><a href="#source">Build it from source</a></p>
       <p class="sha" id="dl-sha"><span>SHA-256</span><code>shown once the release is read</code></p>
     </section>
-    <dl class="reqs" aria-labelledby="req">
+    <section class="reqs" aria-labelledby="req">
       <h2 id="req">What you need</h2>
+      <dl>
       <div><dt>Claude Code</dt><dd>2.1.288 or later, signed in. The CTO and the team run on it.</dd></div>
       <div><dt>git</dt><dd>For worktrees, branches and deliveries.</dd></div>
       <div><dt>GitHub CLI</dt><dd>Signed in, for GitHub tickets, pull requests and CI. Optional otherwise.</dd></div>
       <div><dt>macOS</dt><dd>Apple Silicon or Intel.</dd></div>
       <div><dt>Windows</dt><dd>64-bit.</dd></div>
       <div><dt>Linux</dt><dd>x86_64, with WebKitGTK 4.1.</dd></div>
-    </dl>
+      </dl>
+    </section>
   </div>
 
   <section class="section" id="all" aria-labelledby="all-h">
@@ -286,9 +288,11 @@ function item(f) {
   return `<li><span class="fname">${esc(f.what)} · ${name}</span>${get}<small>${a ? mb(a.size) : ''}${state ? (a ? ' · ' : '') + state : ''}</small>${hash}</li>`;
 }
 
-// One command that downloads the visitor's file from the release and opens or installs it
+// One command: the install script once the release carries its checksums (SHA256SUMS), else the visitor's file
 function oneLine(a) {
   if (!a) return '';
+  if (release.assets.some(x => x.name === 'SHA256SUMS'))
+    return os === 'windows' ? 'irm https://vassilidev.github.io/TermF/install.ps1 | iex' : 'curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh';
   const u = a.browser_download_url, n = a.name;
   if (os === 'windows') return `iwr ${u} -OutFile ${n}; .\\${n}`;
   if (os === 'linux') return /\.deb$/.test(n) ? `curl -fLO ${u} && sudo apt install ./${n}` : `curl -fLO ${u} && chmod +x ${n} && ./${n}`;

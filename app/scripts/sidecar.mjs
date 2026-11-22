@@ -1,5 +1,6 @@
 // Builds the termf CLI for the bundle: Tauri's externalBin wants it at src-tauri/binaries/termf-<target triple>.
-// shortcut: no universal-apple-darwin (it needs both arches and lipo), add it with the release CI.
+// A universal macOS build gets both architectures joined by lipo, and each one apart: Tauri compiles the app once
+// per architecture, and each compilation checks its own.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -10,15 +11,19 @@ const triple =
   execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(/host: (\S+)/)[1];
 const profile = process.env.TAURI_ENV_DEBUG === "true" ? "debug" : "release";
 const exe = triple.includes("windows") ? ".exe" : "";
-
-execFileSync(
-  "cargo",
-  ["build", "-p", "termf-cli", "--target", triple, ...(profile === "release" ? ["--release"] : [])],
-  { stdio: "inherit", cwd: app },
-);
+const triples = triple === "universal-apple-darwin" ? ["aarch64-apple-darwin", "x86_64-apple-darwin"] : [triple];
 const target = process.env.CARGO_TARGET_DIR ?? join(app, "..", "target");
-mkdirSync(join(app, "src-tauri", "binaries"), { recursive: true });
-copyFileSync(
-  join(target, triple, profile, `termf${exe}`),
-  join(app, "src-tauri", "binaries", `termf-${triple}${exe}`),
-);
+
+for (const t of triples) {
+  execFileSync("cargo", ["build", "-p", "termf-cli", "--target", t, ...(profile === "release" ? ["--release"] : [])], {
+    stdio: "inherit",
+    cwd: app,
+  });
+}
+const binaries = join(app, "src-tauri", "binaries");
+mkdirSync(binaries, { recursive: true });
+const built = triples.map((t) => join(target, t, profile, `termf${exe}`));
+triples.forEach((t, i) => copyFileSync(built[i], join(binaries, `termf-${t}${exe}`)));
+if (built.length > 1) {
+  execFileSync("lipo", ["-create", "-output", join(binaries, `termf-${triple}${exe}`), ...built], { stdio: "inherit" });
+}

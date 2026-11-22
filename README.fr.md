@@ -40,7 +40,16 @@ Autour : Git, CI/CD, un coffre de mots de passe, serveurs et journaux, une vue d
 
 ## Installer
 
-Télécharge TermF pour ton système depuis [la page de téléchargement](https://vassilidev.github.io/TermF/download.html), qui choisit le bon fichier et donne une commande en une ligne, ou depuis les [releases](https://github.com/vassilidev/TermF/releases) :
+Une commande installe la dernière version pour ton système et ton processeur, vérifiée avec les sommes de contrôle de la release, sans étape de plus pour les builds non signés :
+
+```sh
+curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh                # macOS, Linux
+irm https://vassilidev.github.io/TermF/install.ps1 | iex                     # Windows (PowerShell)
+```
+
+Ajoute `-s -- --beta` (ou `TERMF_BETA=1` sous Windows) pour prendre aussi les pré-versions. Ensuite TermF se met à jour seul : il cherche les mises à jour, vérifie leur signature et les installe quand tu cliques.
+
+Ou télécharge le fichier de ton système depuis [la page de téléchargement](https://vassilidev.github.io/TermF/download.html) ou les [releases](https://github.com/vassilidev/TermF/releases) :
 
 | Système | Fichier |
 |---|---|
@@ -49,7 +58,7 @@ Télécharge TermF pour ton système depuis [la page de téléchargement](https:
 | Windows | `TermF_<version>_x64-setup.exe`, ou le `.msi` |
 | Linux x86_64 | `.AppImage`, `.deb` ou `.rpm` (WebKitGTK 4.1 requis) |
 
-Ce sont des pré-versions **pas encore signées** : le premier lancement demande une étape de plus.
+Téléchargés avec un navigateur, les builds ne sont **pas encore signés par Apple ni Microsoft** : le premier lancement demande une étape de plus.
 
 - **macOS** : glisse TermF dans Applications, puis lève la quarantaine une fois : `xattr -dr com.apple.quarantine /Applications/TermF.app`. Ou ouvre-la une fois, puis clique sur « Ouvrir quand même » dans Réglages Système, Confidentialité et sécurité.
 - **Windows** : sur l'avertissement SmartScreen, clique sur « Informations complémentaires », puis « Exécuter quand même ».
@@ -58,6 +67,8 @@ Ce sont des pré-versions **pas encore signées** : le premier lancement demande
 **Il te faut** [Claude Code](https://code.claude.com) 2.1.288 ou plus récent, connecté, et `git`. La [CLI GitHub](https://cli.github.com), connectée, sert aux tickets GitHub, aux pull requests et à la CI. TermF trouve seul l'installation native de Claude Code et te dit comment mettre à jour une version trop ancienne.
 
 ## Démarrer en deux minutes
+
+Au premier lancement, l'Accueil liste les outils qui manquent à TermF, avec la commande officielle pour installer chacun. Dans les Réglages, un clic met `termf` dans ton `PATH`.
 
 1. **Crée un projet.** Clique sur <kbd>+</kbd> à côté de Projets. Choisis tes dépôts dans la liste (triés par activité, avec leur remote, leur branche et leur stack). TermF montre ce qu'il détecte dans chacun, puis propose l'équipe, les sources de tickets, la préparation des worktrees, la CI et les skills de ta stack. Accepte en un clic, ou mets un bloc de côté pour l'ajuster plus tard. Rien n'est écrit avant « Créer ».
 2. **Ouvre ton premier agent.** <kbd>⌘T</kbd> ouvre Claude Code, ou un shell, dans n'importe quel dépôt, dans un onglet. <kbd>⌘D</kbd> partage la vue. Un badge et une notification te disent quand une session t'attend.
@@ -84,7 +95,7 @@ Chaque fonctionnalité a sa page sur le site, avec ce qui marche par défaut, ce
 - **Le tri.** Le CTO choisit comment l'équipe prend un ticket : les étapes, les agents, le budget. Ce parcours est la première chose que tu valides.
 - **Des questions avec réponses proposées.** Les questions ouvertes arrivent dans un seul formulaire, chacune avec sa raison et une réponse proposée : tu ne changes que ce qui ne va pas.
 - **26 rôles.** Chaque rôle est un fichier Markdown que tu peux surcharger par projet, squad ou dépôt (modèle, effort, permissions, skills, chemins interdits).
-- **Les squads.** Un gros projet peut se découper en squads, chacune avec son lead, ses membres, ses dépôts et ses chemins.
+- **Les squads.** Un gros projet peut se découper en squads, chacune avec son lead, ses membres, ses dépôts et ses chemins, modifiées dans la Configuration du projet ; chaque lead découpe sa part du travail en tâches.
 - **Revue de code et revue de sécurité.** Après les tâches et tes contrôles, un relecteur lit tout le diff, puis un relecteur sécurité en deux passes ; chaque remarque retourne à la tâche qui l'a causée.
 - **La base tenue à jour.** Avant la livraison, TermF fusionne le dernier main dans le run ; en cas de conflit, l'intégrateur le résout et les contrôles repassent.
 - **L'expert du projet.** Répond aux questions sur le projet depuis une mémoire locale de ses conversations et de ses runs, avec ses sources.
@@ -97,6 +108,7 @@ Chaque fonctionnalité a sa page sur le site, avec ce qui marche par défaut, ce
 - **L'Accueil du projet.** La conversation du CTO, ce qui t'attend, les agents au travail et les runs, sur un seul écran.
 - **Sources de tickets.** GitHub Issues, GitHub Projects, Jira Cloud ou n'importe quel serveur MCP ; plusieurs par projet.
 - **La page Run.** Une page par ticket, du lancement au merge : étapes, plan, questions, budget, journal.
+- **Des runs sur plusieurs dépôts.** Un ticket qui touche l'API et le front reçoit une pull request dans chaque dépôt, liées entre elles.
 - **Workflows et règles.** Les workflows sont des fichiers ; des règles comme « ne faire que ce que demande le ticket » ou « aucun texte non demandé » vont du conseil au blocage.
 - **Livraison en deux temps.** Un aperçu exact de ce qui sera envoyé, puis ta confirmation ; les agents ne peuvent jamais pousser.
 - **Git dans le projet.** Graphe des branches, branches et worktrees, indexer par fichier, bloc ou ligne, commit, stash, merge, rebase avec conflits, tags, historique et blame.

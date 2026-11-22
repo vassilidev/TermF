@@ -81,4 +81,6 @@ test("openRuns: open ticket runs with their team, a team without its ticket run 
     ],
   );
   assert.equal(openRuns(runs, teams, null).length, 4, "every project's");
+  const other = { id: 9, project: "acme", status: "running", updated: 99, parent: 1 };
+  assert.equal(openRuns([...runs, other], teams, "acme").length, 3, "the run of another repository shows on its change's page");
 });

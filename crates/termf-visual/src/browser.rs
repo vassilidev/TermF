@@ -53,7 +53,8 @@ const TEXTS: &str = r#"(() => {
 
 const SIZE: &str = "[document.documentElement.scrollWidth, Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)]";
 
-/// On macOS and Windows, browsers are seldom on the `PATH`: where their installers put them comes next.
+/// On macOS and Windows, browsers are seldom on the `PATH`: where their installers put them comes next, then
+/// Chrome for Testing in TermF's data folder.
 pub fn find() -> Result<PathBuf> {
     const NAMES: [&str; 7] = [
         "google-chrome",
@@ -100,7 +101,15 @@ pub fn find() -> Result<PathBuf> {
             }
         }
     }
-    known.into_iter().find(|p| p.is_file()).context(
+    known
+        .into_iter()
+        .find(|p| p.is_file())
+        // Chrome for Testing, once downloaded from the settings: never preferred to the user's own browser.
+        .or_else(|| {
+            let data = termf_core::default_data_dir().ok()?;
+            crate::cft::installed(&data).map(|(_, exe)| exe)
+        })
+        .context(
         "no Chrome, Chromium or Edge found: install Google Chrome (or Chromium), or put it on your PATH",
     )
 }
