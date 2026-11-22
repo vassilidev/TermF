@@ -187,6 +187,8 @@ usage:
   termf vault init                     create the vault, protected by a master password
   termf vault unlock | lock | status    TermF's vault: open it with the master password, close it, or see
                                         whether it is open (locks itself after some idle minutes)
+                                        with security keys enrolled: a key's PIN, then a touch (Windows
+                                        asks for both itself)
   termf vault ls [--scope dev|staging|prod] [--project <id>]
                                         names of the secrets, never their values; a project also sees the
                                         global ones

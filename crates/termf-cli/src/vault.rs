@@ -1,6 +1,7 @@
 //! `termf vault …`: the vault from a terminal. A command that reads or writes secrets asks for the master
 //! password on the terminal (never in argv nor on stdin) and opens the vault file itself: it never gets a value
-//! from TermF, whose local API gives none. `unlock`, `lock` and `status` act on TermF's own vault session.
+//! from TermF, whose local API gives none. `unlock`, `lock` and `status` act on TermF's own vault session. With
+//! security keys enrolled, a key is touched too, after its PIN (Windows asks for it in its own window).
 
 use std::io::{IsTerminal, Read};
 
@@ -21,7 +22,8 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
         Box::new(OsKeyStore(KEYCHAIN)),
         Box::new(SystemClock::default()),
     )
-    .with_path(std::env::var_os("PATH"));
+    .with_path(std::env::var_os("PATH"))
+    .with_keys(termf_vault::fido::system());
     let actor = Actor {
         session: std::env::var(ipc::ENV_SESSION).ok(),
         ..Actor::human()
@@ -44,8 +46,10 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
         ["unlock"] => {
             let mut client = app()?;
             let password = prompt("Master password: ")?;
+            let pin = pin(&vault)?;
             print_status(&client.call(Call::Vault(VaultCall::Unlock {
                 password: password.expose().into(),
+                pin: pin.map(|p| p.expose().into()),
             }))?);
         }
         ["lock"] => print_status(&app()?.call(Call::Vault(VaultCall::Lock))?),
@@ -141,10 +145,30 @@ fn prompt(text: &str) -> Result<Secret> {
     Ok(Secret::new(rpassword::prompt_password(text)?))
 }
 
+/// With security keys enrolled: the key's PIN unless Windows asks for it, then a word to touch the key.
+fn pin(vault: &Vault) -> Result<Option<Secret>> {
+    if vault.status()?.keys == 0 {
+        return Ok(None);
+    }
+    let pin = if vault.asks_pin() {
+        Some(prompt("Security key PIN: ")?)
+    } else {
+        None
+    };
+    eprintln!("Touch your security key when it blinks.");
+    Ok(pin)
+}
+
 /// This process's own session, which ends with it: the password typed now also opens prod.
 fn open(vault: &Vault, actor: &Actor) -> Result<()> {
     let password = prompt("Master password: ")?;
-    vault.unlock(actor, Some(password.expose()), None)?;
+    let pin = pin(vault)?;
+    vault.unlock(
+        actor,
+        Some(password.expose()),
+        None,
+        pin.as_ref().map(Secret::expose),
+    )?;
     Ok(())
 }
 
@@ -167,6 +191,9 @@ fn print_status(status: &Value) {
     );
     if status["remembered"] == true {
         println!("keychain    keeps the key: TermF unlocks without the password");
+    }
+    if let Some(keys) = status["keys"].as_u64().filter(|k| *k > 0) {
+        println!("2nd factor  {keys} security key(s): the password alone does not open the vault");
     }
     println!(
         "auto-lock   after {} min without use, and when the computer sleeps",
