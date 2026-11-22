@@ -50,13 +50,14 @@ export function place(notices: NoticeRef[], asks: { run: number; step: string }[
 }
 
 /**
- * The card whose action is the screen's primary one: the most recent decision told in the thread, else the last of
- * those at its head. None while the CTO itself waits for an answer, its permission being the last thing it said.
+ * The card whose action is the screen's primary one: the most recent open decision told in the thread, else the last
+ * of those at its head. `done`: cards still shown that no longer ask anything (a delivery made). None while the CTO
+ * itself waits for an answer, its permission being the last thing it said.
  */
-export function primary(placed: { at: Map<number, string>; rest: string[] }, ctoAsks: boolean): string | null {
+export function primary(placed: { at: Map<number, string>; rest: string[] }, ctoAsks: boolean, done: string[] = []): string | null {
   if (ctoAsks) return null;
-  const last = Math.max(-1, ...placed.at.keys());
-  return placed.at.get(last) ?? placed.rest.at(-1) ?? null;
+  const told = [...placed.at].filter(([, key]) => !done.includes(key)).sort((a, b) => a[0] - b[0]);
+  return told.at(-1)?.[1] ?? placed.rest.filter((key) => !done.includes(key)).at(-1) ?? null;
 }
 
 type RunIn = { id: number; project: string; status: string; updated: number };

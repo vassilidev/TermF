@@ -2310,6 +2310,7 @@ const fr = {
   ux3t1SetupQuestions: "{count} questions, les réponses proposées sont déjà remplies",
   ux3t1SetupProposals: "bibliothèque, sources de tickets, préparation des worktrees, équipe",
   ux3t1SetupTrust: "Claude Code dans le dépôt du projet",
+  ux3t1Ci: "CI : {list}",
 };
 
 type Key = keyof typeof fr;
@@ -4608,6 +4609,7 @@ const en: Record<Key, string> = {
   ux3t1SetupQuestions: "{count} questions, the proposed answers already filled in",
   ux3t1SetupProposals: "library, ticket sources, worktree setup, team",
   ux3t1SetupTrust: "Claude Code in the project's repositories",
+  ux3t1Ci: "CI: {list}",
 };
 
 const messages = { fr, en };

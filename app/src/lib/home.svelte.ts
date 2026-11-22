@@ -68,18 +68,23 @@ export function waitProject(w: Wait): string | null {
 }
 
 const read = new Map<number, number>();
+const reading = new Set<string>();
 
-/** Reads once per change what a waiting session asks: the request it has not had an answer to. */
+/** Reads once per change what a waiting session asks: the request it has not had an answer to; a failed read is tried again. */
 export async function learn(session: AgentSession) {
-  if (read.get(session.id) === session.updated) return;
-  read.set(session.id, session.updated);
+  const at = `${session.id}:${session.updated}`;
+  if (read.get(session.id) === session.updated || reading.has(at)) return;
+  reading.add(at);
   try {
     const events = await invoke<StoredEvent[]>("agent_events", { id: session.id });
     const request = pending(events);
     const e = events.findLast((e) => e.kind === "permission" && e.request === request);
     home.asked[session.id] = e?.kind === "permission" ? { tool: e.tool, description: e.description, input: e.input } : null;
+    read.set(session.id, session.updated);
   } catch {
     home.asked[session.id] = null;
+  } finally {
+    reading.delete(at);
   }
 }
 

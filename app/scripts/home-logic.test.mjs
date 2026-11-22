@@ -53,6 +53,10 @@ test("primary: the last decision told in the thread, else the last at its head, 
   assert.equal(primary({ at: new Map(), rest: ["ask:6:t", "ask:5:d"] }, false), "ask:5:d");
   assert.equal(primary({ at: new Map([[30, "ask:8:b"]]), rest: [] }, true), null);
   assert.equal(primary({ at: new Map(), rest: [] }, false), null);
+  const delivered = { at: new Map([[20, "ask:7:a"], [30, "ask:8:deliver"]]), rest: ["ask:5:d"] };
+  assert.equal(primary(delivered, false, ["ask:8:deliver"]), "ask:7:a", "a delivery made never takes it from an open decision");
+  assert.equal(primary({ at: new Map([[30, "ask:8:deliver"]]), rest: ["ask:5:d"] }, false, ["ask:8:deliver"]), "ask:5:d");
+  assert.equal(primary({ at: new Map([[30, "ask:8:deliver"]]), rest: [] }, false, ["ask:8:deliver"]), null);
 });
 
 test("openRuns: open ticket runs with their team, a team without its ticket run yet, most recent first", () => {

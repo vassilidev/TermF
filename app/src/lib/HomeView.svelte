@@ -18,7 +18,7 @@
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
   import Conversation from "$lib/Conversation.svelte";
   import { initial } from "$lib/ProjectSwitcher.svelte";
-  import { stepName, ticketKey } from "$lib/TeamRunDetail.svelte";
+  import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
@@ -35,8 +35,8 @@
   import { awaitsDelivery, shown } from "$lib/run-logic";
   import { app, onScreen, repoName, setProject, shortPath } from "$lib/state.svelte";
   import { initials } from "$lib/team-logic";
-  import { TRIAGE, asks, current, progress, type Ask, type AskKind, type TeamRun } from "$lib/team-run-logic";
-  import { team, upsertRun } from "$lib/team.svelte";
+  import { TRIAGE, asks, current, progress, type AskKind, type TeamRun } from "$lib/team-run-logic";
+  import { team, upsertRun, waitTitle } from "$lib/team.svelte";
   import { loadInbox, openUrl, showTickets, tickets, upsert, type Resolution, type Run, type TicketSummary } from "$lib/tickets.svelte";
 
   type Notice = Extract<Item, { type: "notice" }>;
@@ -72,23 +72,38 @@
 
   // The cards of the CTO's thread: each step of the project's runs that waits for the user.
   let notices = $state<Notice[]>([]);
-  // A delivery's card stays once done, to say so with the pull request, until it is dismissed.
+  // A delivery's card stays once made, to say so with the pull request, as long as it shows something: "Hide" empties it.
   let delivering = $state<Record<string, Decision>>({});
+  /** Whether each card of the thread shows anything, by its key: one with nothing left to say has no height. */
+  let showing = $state<Record<string, boolean>>({});
   $effect(() => {
     void project?.id;
     untrack(() => (delivering = {}));
   });
+  const open = $derived(project ? decisionsOf(project.id) : []);
   $effect(() => {
-    for (const d of decisionsOf(project?.id ?? null)) if (!d.ask || d.ask.kind === "deliver") untrack(() => (delivering[d.key] = d));
+    for (const d of open) if (!d.ask || d.ask.kind === "deliver") untrack(() => (delivering[d.key] = d));
   });
-  const decisions = $derived.by(() => {
-    const open = project ? decisionsOf(project.id) : [];
-    const done = Object.values(delivering).filter((d) => !open.some((o) => o.key === d.key));
-    return [...open, ...done.map((d) => ({ ...d, run: team.runs.find((r) => r.run === d.run.run) ?? d.run }))];
+  const finished = $derived(Object.values(delivering).filter((d) => !open.some((o) => o.key === d.key)));
+  // Made from the Run page, or its card hidden: nothing left to show here.
+  $effect(() => {
+    for (const d of finished) if (showing[d.key] === false) untrack(() => delete delivering[d.key]);
   });
+  const decisions = $derived([...open, ...finished.map((d) => ({ ...d, run: team.runs.find((r) => r.run === d.run.run) ?? d.run }))]);
   const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.step }))));
-  const main = $derived(primary(placed, cto?.state === "waiting"));
+  const main = $derived(primary(placed, cto?.state === "waiting", finished.map((d) => d.key)));
   const decision = (key: string | undefined) => decisions.find((d) => d.key === key);
+
+  function measured(node: HTMLElement, key: string) {
+    const watch = new ResizeObserver(() => (showing[key] = node.offsetHeight > 0));
+    watch.observe(node);
+    return {
+      destroy() {
+        watch.disconnect();
+        delete showing[key];
+      },
+    };
+  }
 
   // A new project's setup, until it is done.
   let onboarding = $state<Record<string, Onboarding>>({});
@@ -111,7 +126,7 @@
       if (!a) return "";
       const repos = a.repos.map((r) => [r.name, r.stack.join(", ")].filter(Boolean).join(" · "));
       const ci = [...new Set(a.repos.flatMap((r) => r.workflows))];
-      return [...repos, ci.length ? `${t("obCi")} : ${ci.join(", ")}` : ""].filter(Boolean).join(" · ");
+      return [...repos, ci.length ? t("ux3t1Ci", { list: ci.join(", ") }) : ""].filter(Boolean).join(" · ");
     }
     if (step === "questions") {
       if (!a) return "";
@@ -121,12 +136,18 @@
   }
 
   // The rail's inbox follows the project, until the Tickets view is there to keep it.
+  // A failed load is tried again on the next visit.
   let inboxFor: string | undefined;
+  let inboxAsked: string | undefined;
   $effect(() => {
     const scope = tickets.scope;
-    if (!visible || tickets.loaded || inboxFor === scope) return;
-    inboxFor = scope;
-    untrack(loadInbox);
+    if (!visible || tickets.loaded || inboxFor === scope || inboxAsked === scope) return;
+    inboxAsked = scope;
+    untrack(loadInbox).then(() => {
+      if (inboxAsked !== scope) return;
+      if (!tickets.inboxError) inboxFor = scope;
+      inboxAsked = undefined;
+    });
   });
   const inbox = $derived(tickets.inbox ?? []);
 
@@ -211,7 +232,7 @@
       ? t("teamRunsAskDeliver")
       : d.ask.kind === "questions" && d.step === TRIAGE
         ? t("ux3t1CtoQuestions", { count: d.ask.questions.length })
-        : askTitle(d.ask);
+        : waitTitle(d.ask);
     return { icon: askIcons[d.ask?.kind ?? "deliver"], title, context: `${short(d.run.target.ticket)} ${d.run.target.title}` };
   }
 
@@ -228,20 +249,6 @@
     blocked: TriangleAlert,
   };
 
-  /** What a step waiting for the user asks, as its card says it. */
-  function askTitle(ask: Ask): string {
-    const name = stepName(ask.step);
-    if (ask.kind === "route") return t("ctoEntryAskRoute");
-    if (ask.kind === "plan") return t("teamRunsAskPlan");
-    if (ask.kind === "visual") return t("teamRunsAskVisual");
-    if (ask.kind === "deliver") return t("teamRunsAskDeliver");
-    if (ask.kind === "blocked") return t("teamRunsAskBlocked", { step: name });
-    if (ask.kind === "gate") return t("teamRunsAskGate", { step: name });
-    if (ask.step.key === TRIAGE) return t("ctoEntryAskQuestions");
-    if (ask.step.plan) return t("teamRunsAskPlanQuestions");
-    return ask.step.kind === "review" ? t("reviewLoopAsk") : t("teamRunsAskQuestions", { step: name });
-  }
-
   /** What a run is at, under its title, and its state: the one the Run page shows. */
   function runLine(o: { run?: Run; team?: TeamRun }): { text: string; pill: [Status, string | undefined] } {
     const team = o.team;
@@ -255,7 +262,7 @@
       const steps = t("teamRunsProgress", { over: done.over, total: done.total });
       const waiting = asks(team)[0];
       const working = current(team)[0];
-      const what = waiting ? askTitle(waiting) : team.state === "running" && working ? t("ux3t1RoleWorks", { role: working.role ?? working.key }) : "";
+      const what = waiting ? waitTitle(waiting) : team.state === "running" && working ? t("ux3t1RoleWorks", { role: working.role ?? working.key }) : "";
       return { text: [what, steps].filter(Boolean).join(" · "), pill: pill() };
     }
     const run = o.run;
@@ -279,6 +286,17 @@
 
   function openProject(id: string) {
     setProject(id);
+  }
+
+  /**
+   * A run's page once its ticket run is known; until then a team that waits goes to its card in the thread, and one
+   * that does not is only listed.
+   */
+  function openRun(o: { run?: Run; team?: TeamRun }): (() => void) | undefined {
+    const run = o.run;
+    if (run) return () => showRun(run.id);
+    const w = o.team && projectWaits(null).find((x) => "run" in x && x.run === o.team?.run);
+    return w ? () => goFrom(w) : undefined;
   }
 
   async function goFrom(w: Wait) {
@@ -308,14 +326,20 @@
   {@const key = o.team?.target.ticket ?? o.run?.ticket.key ?? ""}
   {@const id = o.team?.target.project ?? o.run?.project}
   {@const p = everywhere ? projects.find((x) => x.id === id) : undefined}
-  <button class="rrow" onclick={() => showRun(o.run?.id ?? o.team?.run ?? 0)}>
+  {@const go = openRun(o)}
+  {#snippet content()}
     <span class="t">
       <b><span class="key mono">{short(key)}</span> {o.team?.target.title ?? o.run?.title}</b>
       {#if line.text}<span>{line.text}</span>{/if}
     </span>
     {#if p}<span class="pm"><span class="mark" aria-hidden="true">{initial(p.name)}</span>{p.name}</span>{/if}
     <span class="state"><StatusPill status={line.pill[0]} label={line.pill[1]} /></span>
-  </button>
+  {/snippet}
+  {#if go}
+    <button class="rrow" onclick={go}>{@render content()}</button>
+  {:else}
+    <div class="rrow still">{@render content()}</div>
+  {/if}
 {/snippet}
 
 {#snippet lead()}
@@ -338,9 +362,9 @@
 {#snippet cards(key: string)}
   {@const d = decision(key)}
   {#if d}
-    <!-- Only the latest decision keeps its primary button: one main action on the Home. -->
-    <div class="decision" class:main={key === main} data-wait={key} tabindex="-1">
-      <WaitCards run={d.run} step={d.step} context />
+    <!-- Only the latest open decision keeps its primary button: one main action on the Home. -->
+    <div class="decision" data-wait={key} tabindex="-1" use:measured={key}>
+      <WaitCards run={d.run} step={d.step} context compact primary={key === main} />
     </div>
   {/if}
 {/snippet}
@@ -770,6 +794,14 @@
     color: var(--waiting-text);
   }
 
+  .rrow.still {
+    cursor: default;
+  }
+
+  .rrow.still:hover {
+    background: none;
+  }
+
   .rrow :global(.chev) {
     flex-shrink: 0;
     color: var(--muted);
@@ -826,19 +858,6 @@
   .decision:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-  }
-
-  /* An older decision's buttons stay plain: the latest one is the Home's main action. */
-  .decision:not(.main) :global(.btn.primary) {
-    border-color: var(--border);
-    background: var(--panel);
-    color: var(--text);
-    font-weight: 500;
-  }
-
-  .decision:not(.main) :global(.btn.primary:hover:not(:disabled)) {
-    border-color: var(--border);
-    background: var(--hover);
   }
 
   /* A notice whose step was answered no longer asks: amber stays for what waits. */
