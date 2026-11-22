@@ -764,8 +764,8 @@ impl Visual {
                 .with_context(|| format!("{side} ({})", wt.display()))?;
             Ok((server, tracked))
         };
-        let (server, _tracked) = start("visual", dev)?;
-        let story = match list.iter().any(|s| s.source == Source::Storybook) {
+        let (mut server, _tracked) = start("visual", dev)?;
+        let mut story = match list.iter().any(|s| s.source == Source::Storybook) {
             true => config
                 .storybook
                 .as_deref()
@@ -808,6 +808,15 @@ impl Visual {
             };
             shots.push(shot);
             step(i + 1, &screen.id);
+        }
+        // Ours ended (its port taken, say) while another program answered there: the screens are not this worktree's.
+        for s in std::iter::once(&mut server).chain(story.as_mut().map(|(s, _)| s)) {
+            ensure!(
+                s.running(),
+                "{side}: the dev server ended during the capture, and another server answered on its port {}: {}",
+                s.port,
+                s.tail()
+            );
         }
         Ok(shots)
     }

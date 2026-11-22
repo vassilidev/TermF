@@ -287,6 +287,15 @@ pub enum AgentEvent {
         tool: String,
         message: String,
     },
+    /// The account nears a usage limit (`allowed_warning`) or hit it (`rejected`): Claude Code's
+    /// `rate_limit_event`. `window`: `five_hour`, `seven_day`… when it says; `resets_at` in seconds since the
+    /// epoch; `used` from 0 to 100.
+    Limit {
+        status: String,
+        window: Option<String>,
+        resets_at: Option<u64>,
+        used: Option<f64>,
+    },
     TurnEnd {
         outcome: Outcome,
         /// The agent's last answer.
@@ -370,6 +379,18 @@ impl AgentEvent {
                 if *allow { "allowed" } else { "denied" }.into()
             }
             AgentEvent::Denied { tool, message } => format!("{tool} refused: {message}"),
+            AgentEvent::Limit {
+                status,
+                window,
+                resets_at,
+                ..
+            } => format!(
+                "usage limit {}: {status}{}",
+                window.as_deref().unwrap_or("?"),
+                resets_at
+                    .map(|r| format!(", resets at {r}"))
+                    .unwrap_or_default()
+            ),
             AgentEvent::TurnEnd {
                 outcome,
                 error,

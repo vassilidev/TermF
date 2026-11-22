@@ -50,6 +50,8 @@ The first public release: TermF installs in one command and keeps itself up to d
 - **The Design system view** and the **visual review page** (side by side, slider, overlay, heatmap, pins, swipe).
 - **Remote Control** from any Claude Code session, with its link and QR code; a menu bar icon and a dock badge for
   what waits for you.
+- **Usage and limits.** With a Claude subscription, amounts read as an API equivalent, the 5-hour and weekly limits
+  are in view, and the CTO checks them before it starts a team.
 - **Language servers** for the agents, and evals for the shipped skills and roles.
 - **Skills for command-line tools**: git, gh, curl, jq, sed and awk, make, lsof.
 

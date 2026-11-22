@@ -378,6 +378,7 @@ problem = '''<p>Agents left alone can loop and spend. Each run has a budget spli
 how = [
   "The run starts with its budget; each step gets the smaller of its own budget and its share of what is left.",
   "When it is spent, the agents stop and the run waits for you.",
+  "With a Claude subscription, the dollars are an API equivalent: nothing extra is billed, a run draws on your 5-hour and weekly usage limits, shown at the foot of the navigation.",
   "Emergency stop interrupts the agents, stops them and kills their commands.",
   "Between two turns, Take over opens a step's conversation in a terminal with the same model and settings; Hand back returns it.",
 ]
@@ -978,6 +979,28 @@ limits = ["The expert indexes artifacts by title and link only."]
 tried = "Checked with a simulated backend."
 related = ["claude-view", "expert", "scheduler"]
 
+[[features]]
+slug = "usage"
+group = "claude"
+name = "Usage and limits"
+tagline = "With a subscription, what counts is your 5-hour and weekly limits: TermF shows them, and so does the CTO."
+keywords = "usage limits quota subscription pro max api equivalent cost 5-hour weekly window gauge rate limit billing"
+problem = '''<p>A dollar amount means two different things depending on how Claude Code is paid. With an API key, it is billed. With a Claude subscription, nothing extra is billed: a run draws on your 5-hour and weekly usage limits. TermF reads how your Claude Code is paid, writes the amounts of a subscriber as an API equivalent, and keeps the limits in view.</p>'''
+how = [
+  "TermF reads the billing mode from Claude Code: a subscription, an API key, or a cloud provider.",
+  "For a subscriber, every amount reads “≈ x API equivalent”, and a budget is a usage cap, still in dollars.",
+  "A gauge at the foot of the navigation shows the fullest window; a click shows both, when they reset, and Claude, Usage.",
+  "The CTO reads the same limits before it starts a team: when one is nearly used up, it answers directly or picks a lighter role, and says so.",
+]
+default = [
+  "A warning from 80 % of a window, in the gauge and in the conversation; a session that hits its limit says when it resumes.",
+  "The limits come from the sessions TermF starts: no reading until the first answer of one.",
+]
+tune = ["Read the billing mode again from Claude, Usage."]
+commands = []
+limits = ["The plan's name comes from a field Claude Code does not document.", "Checked with automated tests and a simulated backend."]
+tried = "The billing mode and the limit events follow Claude Code's and the Agent SDK's documentation, covered by automated tests."
+related = ["budgets", "claude-view", "cto"]
 
 [[features]]
 slug = "other-agents"

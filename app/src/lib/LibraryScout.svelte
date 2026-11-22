@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { approxUsd } from "$lib/usage.svelte";
   import { onDestroy, type Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import BookOpen from "@lucide/svelte/icons/book-open";
@@ -255,7 +256,7 @@
         <h3>{t("scoutResults")}</h3>
         <span class="muted small">
           {t("scoutResultsMeta", { when: ago(draft.at), pending, total: draft.entries.length })}
-          {#if draft.cost !== undefined}· {t("scoutCost", { cost: money.format(draft.cost) })}{/if}
+          {#if draft.cost !== undefined}· {t("scoutCost", { cost: approxUsd(money.format(draft.cost)) })}{/if}
         </span>
       </div>
       <p class="notice untrusted"><ShieldAlert size={14} aria-hidden="true" />{t("scoutUntrusted")}</p>

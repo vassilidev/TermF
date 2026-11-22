@@ -150,6 +150,7 @@ Every feature has its own page on the website, with what works out of the box, w
 ### Claude Code, other agents and the scheduler
 
 - **The Claude Code view**: settings by scope, MCP servers, plugins, skills, agents, hooks, memory, sessions, usage and account on this machine.
+- **Usage and limits**: with a Claude subscription, amounts read as an API equivalent and the 5-hour and weekly limits stay in view; the CTO checks them before it starts a team.
 - **claude.ai artifacts**, listed and managed from the app.
 - **Codex and Gemini**: found when installed, in terminals and conversations; a team role can run on one of them. New, and not tried with the real tools yet.
 - **The scheduler**: Claude tasks on a schedule, even when the app is closed.

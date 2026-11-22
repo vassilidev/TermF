@@ -17,6 +17,7 @@ export type StoredEvent = { id: number; session: number; at: number } & (
   | { kind: "permission"; request: string; tool: string; input: unknown; description: string | null }
   | { kind: "permission_answer"; request: string; allow: boolean; message: string | null }
   | { kind: "denied"; tool: string; message: string }
+  | { kind: "limit"; status: string; window: string | null; resetsAt: number | null; used: number | null }
   | {
       kind: "turn_end";
       outcome: Outcome;
@@ -69,6 +70,7 @@ export type Item =
   | Tool
   | Permission
   | { type: "denied"; key: number; tool: string; message: string }
+  | { type: "limit"; key: number; reached: boolean; window: string | null; resetsAt: number | null }
   | { type: "error"; key: number; message: string }
   | { type: "taken_over"; key: number; tile: number }
   | { type: "handed_back"; key: number }
@@ -98,6 +100,8 @@ export function merge(events: StoredEvent[], incoming: StoredEvent[]): StoredEve
  */
 export function stream(live: string | null, e: StoredEvent): string | null {
   if (e.kind === "delta") return live === null ? null : live + e.text;
+  // A usage reading can arrive mid-answer: it is no message.
+  if (e.kind === "limit") return live;
   return "parent" in e && e.parent ? (live ?? "") : "";
 }
 
@@ -157,6 +161,9 @@ export function thread(events: StoredEvent[]): Turn[] {
       }
       case "denied":
         place({ type: "denied", key: e.id, tool: e.tool, message: e.message });
+        break;
+      case "limit":
+        place({ type: "limit", key: e.id, reached: e.status === "rejected", window: e.window, resetsAt: e.resetsAt });
         break;
       case "error":
         place({ type: "error", key: e.id, message: e.message });

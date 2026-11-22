@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { approxUsd } from "$lib/usage.svelte";
   import { onMount, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Check from "@lucide/svelte/icons/check";
@@ -347,7 +348,7 @@
       <p class="meta">
         <Sparkles size={12} aria-hidden="true" />
         {t("obFound", { model: a.model })}
-        {#if a.cost !== null}· {t("convCost", { cost: money.format(a.cost) })}{/if}
+        {#if a.cost !== null}· {t("convCost", { cost: approxUsd(money.format(a.cost)) })}{/if}
       </p>
     {/if}
     {#if a.dropped.length}

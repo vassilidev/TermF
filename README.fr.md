@@ -150,6 +150,7 @@ Chaque fonctionnalité a sa page sur le site, avec ce qui marche par défaut, ce
 ### Claude Code, autres agents et planificateur
 
 - **La vue Claude Code** : réglages par portée, serveurs MCP, plugins, skills, agents, hooks, mémoire, sessions, usage et compte de cette machine.
+- **L'usage et ses limites** : avec un abonnement Claude, les montants se lisent en équivalent API et les fenêtres de 5 h et de 7 jours restent en vue ; le CTO les consulte avant de lancer une équipe.
 - **Les artifacts claude.ai**, listés et gérés depuis l'app.
 - **Codex et Gemini** : trouvés quand ils sont installés, dans les terminaux et les conversations ; un rôle de l'équipe peut tourner sur l'un d'eux. Nouveau, pas encore essayé avec les vrais outils.
 - **Le planificateur** : des tâches Claude à heure fixe, même app fermée.

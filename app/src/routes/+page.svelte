@@ -14,6 +14,7 @@
   import { app, init, onScreen, panes, ui } from "$lib/state.svelte";
   import { tour, watchTour } from "$lib/tour.svelte";
   import { watchAgents } from "$lib/agents.svelte";
+  import { watchUsage } from "$lib/usage.svelte";
   import { watchCi } from "$lib/ci.svelte";
   import { watchOps } from "$lib/ops.svelte";
   import { watchAgentEnv } from "$lib/agentenv.svelte";
@@ -49,7 +50,8 @@
     const stopTray = watchTray();
     const stopUpdates = watchUpdates();
     const stopMenu = watchMenu();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu());
+    const stopUsage = watchUsage();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu(), stopUsage());
   });
 
   function drag(e: PointerEvent) {

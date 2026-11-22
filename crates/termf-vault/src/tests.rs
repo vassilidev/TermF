@@ -611,6 +611,10 @@ fn resolves_references_with_the_managers_cli_and_never_keeps_the_value() {
     )
     .unwrap();
     fs::set_permissions(&op, fs::Permissions::from_mode(0o755)).unwrap();
+    // Run once, as an installed CLI has been: macOS checks a new program on its first run, one at a time across
+    // the machine, which takes seconds under load and would count in the 3 s it is given.
+    let _ = std::process::Command::new(&op).output();
+    let _ = fs::remove_file(&log);
     let vault = env.vault().with_path(Some(bin.clone().into()));
     vault.init(&human(), PASSWORD, false).unwrap();
 
