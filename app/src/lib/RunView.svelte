@@ -31,7 +31,6 @@
   import CircleDashed from "@lucide/svelte/icons/circle-dashed";
   import CircleStop from "@lucide/svelte/icons/circle-stop";
   import CircleX from "@lucide/svelte/icons/circle-x";
-  import Copy from "@lucide/svelte/icons/copy";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import FolderInput from "@lucide/svelte/icons/folder-input";
@@ -57,7 +56,7 @@
   import { usd } from "$lib/agents.svelte";
   import { closeRun } from "$lib/commands";
   import { ago, lang, t } from "$lib/i18n";
-  import { expected, prName, shown, soloNames, stageNames, stages, type StageState } from "$lib/run-logic";
+  import { expected, named, prName, shown, soloNames, stageNames, stages, type StageState } from "$lib/run-logic";
   import { repoName, shortPath } from "$lib/state.svelte";
   import { TRIAGE, budgetError, progress, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun } from "$lib/team.svelte";
@@ -101,12 +100,12 @@
   const triaging = $derived(active && teamRun?.steps.some((s) => s.key === TRIAGE && s.state === "running"));
   /** The team's own delivery card offers it while the team waits on it, or once it is done. */
   const canDeliver = $derived(open && !active && wants !== "deliver" && !delivering);
-  const canResumeTeam = $derived(!!teamRun && open && !active && teamRun.state !== "done");
+  const canResumeTeam = $derived(!!teamRun && !active && teamRun.state !== "done");
   const canResume = $derived(!!run && !teamRun && resumable(run) && !session);
   const canTeam = $derived(!!run && !teamRun && run.status === "running" && !!run.worktree);
   const canCopy = $derived(!!run?.worktree && run.status !== "closed");
-  /** Every entry needs a run not closed yet. */
-  const hasMenu = $derived(!!run && run.status !== "closed");
+  /** Every entry but the team's resumption needs a run not closed yet. */
+  const hasMenu = $derived(!!run && (run.status !== "closed" || canResumeTeam));
 
   /** How long a run's session may stay "starting" before the trust question is the likely reason. */
   const TRUST_DELAY = 6000;
@@ -178,12 +177,12 @@
   function when(at: number): [string, string] {
     const date = new Date(at * 1000);
     const today = date.toDateString() === new Date().toDateString();
-    const compact = date.toLocaleString(lang, today ? { timeStyle: "short" } : { dateStyle: "short" });
+    const compact = date.toLocaleString(lang, today ? { timeStyle: "short" } : { day: "numeric", month: "short" });
     return [compact, date.toLocaleString(lang, { dateStyle: "short", timeStyle: "short" })];
   }
 
   const stageLabel = (stage: string) => {
-    const key = stageNames[stage] ?? soloNames[stage];
+    const key = named(stageNames, stage) ?? named(soloNames, stage);
     return key ? t(key) : stage;
   };
   const stageStatus: Record<StageState, [typeof CircleCheck, Parameters<typeof t>[0]]> = {
@@ -207,7 +206,10 @@
     }
   }
 
-  /** Closing and cleaning up refuse alike while work is not pushed. */
+  /**
+   * Closing and cleaning up refuse alike while work is not pushed. `tickets_cleanup` takes no force: it checks the
+   * pull request, then closes as `tickets_close` does without force, so a cleanup forced is a close forced.
+   */
   const close = (force: boolean, cleanup = false) =>
     act(cleanup ? "cleanup" : "close", async () => {
       if (!run) return;
@@ -320,9 +322,10 @@
           <ol class="timeline" aria-label={t("ux3t2Stages")}>
             {#each timeline as stage (stage.id)}
               {@const [Icon, said] = stageStatus[stage.state]}
-              <li class={stage.state} aria-current={stage.state === "waiting" || stage.state === "working" ? "step" : undefined}>
+              {@const label = stageLabel(stage.id)}
+              <li class={stage.state} aria-current={stage.state === "waiting" || stage.state === "working" ? "step" : undefined} title={label}>
                 <span class="st">
-                  <Icon size={14} aria-hidden="true" />{stageLabel(stage.id)}<span class="sr-only">, {t(said)}</span>
+                  <Icon size={14} aria-hidden="true" /><span class="label">{label}</span><span class="sr-only">, {t(said)}</span>
                 </span>
               </li>
             {/each}
@@ -379,7 +382,7 @@
               <p class="mono muted">{step.detail}</p>
               <div class="buttons">
                 <button class="btn sm" onclick={() => (step = null)}>{t("cancel")}</button>
-                {#if open}<button class="btn sm" onclick={() => ((step = null), (delivering = true))}>{t("runDeliver")}</button>{/if}
+                {#if canDeliver}<button class="btn sm" onclick={() => ((step = null), (delivering = true))}>{t("runDeliver")}</button>{/if}
                 <button class="btn sm" onclick={() => (step = { kind: "force" })}>{t("closeForce")}</button>
               </div>
             </section>
@@ -631,6 +634,7 @@
   }
 
   .timeline {
+    container: stages / inline-size;
     display: flex;
     align-items: center;
     margin: 0;
@@ -671,6 +675,18 @@
     gap: 6px;
     height: 26px;
     white-space: nowrap;
+  }
+
+  /* Too narrow for every name: the stages done or to come keep their icon, the current one its name. */
+  @container stages (max-width: 640px) {
+    li:not([aria-current]) .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
   }
 
   .done .st {

@@ -46,7 +46,7 @@
   import { t } from "$lib/i18n";
   import type { Item as LibraryItem } from "$lib/library.svelte";
   import { app, onScreen, shortPath, type Session } from "$lib/state.svelte";
-  import { showTeamRun } from "$lib/team.svelte";
+  import { showTeamRun, stepTitle } from "$lib/team.svelte";
 
   type Notice = Extract<Item, { type: "notice" }>;
 
@@ -187,7 +187,7 @@
     termfTools[tool] ? t("ctoAsks", { action: t(termfTools[tool]) }) : t("chatPermission", { tool });
 
   function said(n: NoticeFields): string {
-    const vars = { run: n.run ?? "", step: n.step ?? "", role: n.role ?? "" };
+    const vars = { run: n.run ?? "", step: n.step ? stepTitle(n.step) : "", role: n.role ?? "" };
     const keys = {
       waiting: "ctoNoticeWaiting",
       blocked: "ctoNoticeBlocked",

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { awaitsDelivery, expected, prName, shown, stageOf, stages } from "../src/lib/run-logic.ts";
+import { askTitle, awaitsDelivery, expected, named, prName, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
 
 const ticket = (o = {}) => ({ status: "running", prUrl: null, prState: null, ...o });
 const step = (key, state, kind = "agent") => ({ key, kind, state });
@@ -54,6 +54,14 @@ test("a blocked step waits for the user while the team works, and shows failed o
   assert.equal(flat(stages(ticket(), team(steps, "budget"))), "frame:done plan:failed deliver:pending");
 });
 
+test("a team out of budget or stopped failed where it worked; a paused one only waits", () => {
+  const steps = [step("plan", "done"), step("implement", "running", "foreach"), step("implement:T1", "running", "task")];
+  assert.equal(flat(stages(ticket(), team(steps))), "plan:done tasks:working deliver:pending");
+  assert.equal(flat(stages(ticket(), team(steps, "budget"))), "plan:done tasks:failed deliver:pending");
+  assert.equal(flat(stages(ticket(), team(steps, "stopped"))), "plan:done tasks:failed deliver:pending");
+  assert.equal(flat(stages(ticket(), team(steps, "paused"))), "plan:done tasks:pending deliver:pending");
+});
+
 test("delivery is done only once the ticket has a pull request; a finished team waits for it", () => {
   const steps = [step("plan", "done"), step("deliver", "done", "connector")];
   assert.equal(flat(stages(ticket(), team(steps, "done"))), "plan:done deliver:waiting");
@@ -93,6 +101,36 @@ test("what the run expects: answers, the delivery, or the cleanup", () => {
   assert.equal(expected(ticket({ status: "delivered", prUrl: "u", prState: "merged" })), "clean");
   assert.equal(expected(ticket({ status: "closed" }), team(plan, "waiting")), null);
   assert.equal(awaitsDelivery(ticket({ status: "delivered" }), team([], "done")), false);
+});
+
+test("without its ticket run, a team run shows its own state", () => {
+  assert.deepEqual(shown(null, team(plan, "waiting")), { status: "waiting", label: null });
+  assert.deepEqual(shown(undefined, team([], "done")), { status: "done", label: null });
+  assert.deepEqual(shown(null, team([], "budget")), { status: "budget", label: null });
+});
+
+test("a step reads as a task's id, a shipped step's name, or any other step's id", () => {
+  assert.deepEqual(stepLabel("approve-plan"), { name: "ux3t2StepApprovePlan" });
+  assert.deepEqual(stepLabel("review"), { name: "ux3t2StepCodeReview" });
+  assert.deepEqual(stepLabel("implement:T2", "T2"), { text: "T2" });
+  assert.deepEqual(stepLabel("implement:T2"), { text: "T2" });
+  assert.deepEqual(stepLabel("migrate-db"), { text: "migrate-db" });
+  assert.deepEqual(stepLabel("constructor"), { text: "constructor" });
+  assert.equal(named(stepNames, "toString"), null);
+});
+
+test("a wait's title, naming its step only where the title says it", () => {
+  const ask = (kind, key = "x", more = {}) => ({ kind, step: { key, kind: "agent", plan: false, ...more } });
+  assert.deepEqual(askTitle(ask("route", "approve-route")), { key: "ctoEntryAskRoute", step: false });
+  assert.deepEqual(askTitle(ask("plan", "approve-plan")), { key: "teamRunsAskPlan", step: false });
+  assert.deepEqual(askTitle(ask("visual", "visual")), { key: "teamRunsAskVisual", step: false });
+  assert.deepEqual(askTitle(ask("deliver", "deliver")), { key: "teamRunsAskDeliver", step: false });
+  assert.deepEqual(askTitle(ask("blocked", "implement:T3")), { key: "teamRunsAskBlocked", step: true });
+  assert.deepEqual(askTitle(ask("gate", "sign-off")), { key: "teamRunsAskGate", step: true });
+  assert.deepEqual(askTitle(ask("questions", "triage")), { key: "ctoEntryAskQuestions", step: false });
+  assert.deepEqual(askTitle(ask("questions", "plan", { plan: true })), { key: "teamRunsAskPlanQuestions", step: false });
+  assert.deepEqual(askTitle(ask("questions", "review", { kind: "review" })), { key: "reviewLoopAsk", step: false });
+  assert.deepEqual(askTitle(ask("questions", "frame")), { key: "teamRunsAskQuestions", step: true });
 });
 
 test("a GitHub pull request is named owner/repo#n", () => {

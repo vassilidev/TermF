@@ -49,6 +49,7 @@ import { nextAfter } from "$lib/conversation-logic";
 import { type Command } from "$lib/nav-logic";
 import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { openSetup, usable } from "$lib/onboarding.svelte";
+import { leave } from "$lib/panes-logic";
 import { closePanel, openBeside, otherPanel, toggleSplit } from "$lib/panes.svelte";
 import type { Side } from "$lib/split-logic";
 import * as tabs from "$lib/tabs.svelte";
@@ -150,10 +151,12 @@ export function showRun(id: number) {
   ui.view = "run";
 }
 
+/** Back where the run was opened from, in the run's own panel; beside that view already, its panel closes. */
 export function closeRun() {
-  // Beside another view, its panel closes.
-  if (panes.other !== null && onScreen("run")) closePanel("run");
-  else if (ui.view === "run") ui.view = usable(runBack);
+  const back = usable(runBack);
+  const how = leave({ ...panes, view: ui.view }, "run", back);
+  if (how === "close") closePanel("run");
+  else if (how === "back") ui.view = back;
 }
 
 export function toggleMaximize(id = activeSession()) {

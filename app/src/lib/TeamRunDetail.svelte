@@ -1,8 +1,8 @@
 <script module lang="ts">
   import type { Status } from "$lib/ui/StatusPill.svelte";
   import { t } from "$lib/i18n";
-  import { stageNames } from "$lib/run-logic";
   import type { Step } from "$lib/team-run-logic";
+  import { stepTitle } from "$lib/team.svelte";
 
   export function stepPill(step: Step): [Status, string] {
     switch (step.state) {
@@ -21,8 +21,7 @@
     }
   }
 
-  /** A task by its id, a shipped workflow step by its name, any other by its id. */
-  export const stepName = (step: Step) => step.task ?? (step.key in stageNames ? t(stageNames[step.key]) : step.key);
+  export const stepName = (step: Step) => stepTitle(step.key, step.task);
 
   /** A run's ticket key, or what a request written in TermF is. */
   export const ticketKey = (ticket: string) => (ticket === "request" ? t("ctoEntryRequest") : ticket);
@@ -210,6 +209,15 @@
   </section>
 {/snippet}
 
+<!-- Until a task starts, the plan is what to read; then the steps at work are. Why this path comes after. -->
+{#if planFirst}
+  {@render planSection()}
+  {@render stepsSection()}
+{:else}
+  {@render stepsSection()}
+  {@render planSection()}
+{/if}
+
 {#if routed || run.answers?.length}
   <section class="panel" aria-labelledby="team-routing">
     {#if routed}
@@ -231,15 +239,6 @@
       </dl>
     {/if}
   </section>
-{/if}
-
-<!-- Until a task starts, the plan is what to read; then the steps at work are. -->
-{#if planFirst}
-  {@render planSection()}
-  {@render stepsSection()}
-{:else}
-  {@render stepsSection()}
-  {@render planSection()}
 {/if}
 
 <style>

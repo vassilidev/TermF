@@ -171,7 +171,7 @@
     <ul class="runs" aria-label={t("teamRunsTab")}>
       {#each runs as run (run.run)}
         {@const ticket = tickets.runs.find((r) => r.id === run.run)}
-        {@const pill = ticket ? shown(ticket, run) : null}
+        {@const pill = shown(ticket, run)}
         {@const now = steps(run)}
         <li>
           <button class="pick" onclick={() => showRun(run.run)}>
@@ -180,7 +180,7 @@
               {run.workflow} · {usd(run.cost)}{run.budget !== null ? ` / ${usd(run.budget)}` : ""}{now ? ` · ${now}` : ""}
             </span>
           </button>
-          {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />{/if}
+          <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />
         </li>
       {/each}
     </ul>
