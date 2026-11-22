@@ -7,6 +7,7 @@ use crate::artifacts::{
     self, Deletion, Failure, Listed, ListingError, Outcome, Owner, Policy, Refresh, Step,
 };
 use crate::cli::{self, Health};
+#[cfg(unix)]
 use crate::manage::{self, McpAction, PluginAction};
 use crate::settings::{self, Edit, Scope};
 use crate::{Env, State, mask};
