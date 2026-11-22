@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 mod tests;
+mod work;
+
+pub use work::*;
 
 /// The most commits one graph reads.
 pub const MAX_COMMITS: usize = 5000;
@@ -101,6 +104,8 @@ pub struct Worktree {
     pub more: usize,
     /// Why its status could not be read.
     pub error: Option<String>,
+    /// A merge, rebase, cherry-pick or revert stopped in it, waiting to be continued or aborted.
+    pub operation: Option<Operation>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -117,6 +122,10 @@ pub struct State {
     /// Local branches, then remote ones.
     pub branches: Vec<Branch>,
     pub worktrees: Vec<Worktree>,
+    /// Newest first.
+    pub tags: Vec<Tag>,
+    /// Newest first: `stash@{0}` first.
+    pub stashes: Vec<Stash>,
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq)]
@@ -422,7 +431,12 @@ impl Git {
         {
             cmd.env("PATH", path);
         }
+        // No editor ever opens: git keeps the message it prepared (a merge, a rebase step, a revert).
         cmd.envs(self.env.iter().map(|(k, v)| (k, v)))
+            .env("GIT_EDITOR", ":")
+            .env("GIT_SEQUENCE_EDITOR", ":")
+            .env("GIT_MERGE_AUTOEDIT", "no")
+            .env("GIT_LITERAL_PATHSPECS", "1")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GCM_INTERACTIVE", "never")
             .env("GH_PROMPT_DISABLED", "1")
@@ -434,18 +448,19 @@ impl Git {
         self.output_with(dir, args, None)
     }
 
-    fn output_with(&self, dir: &Path, args: &[&str], ssh: Option<&str>) -> Result<Output> {
+    fn git(&self, dir: &Path, args: &[&str]) -> Command {
         let mut cmd = self.command(Path::new("git"));
+        // No optional locks: a refresh must never make an agent's concurrent git command fail on index.lock.
+        cmd.arg("--no-optional-locks").arg("-C").arg(dir).args(args);
+        cmd
+    }
+
+    fn output_with(&self, dir: &Path, args: &[&str], ssh: Option<&str>) -> Result<Output> {
+        let mut cmd = self.git(dir, args);
         if let Some(ssh) = ssh {
             cmd.env("GIT_SSH_COMMAND", ssh);
         }
-        // No optional locks: a refresh must never make an agent's concurrent git command fail on index.lock.
-        cmd.arg("--no-optional-locks")
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .context("cannot run git: is it installed?")
+        cmd.output().context("cannot run git: is it installed?")
     }
 
     /// The output, or git's own error.
@@ -588,13 +603,15 @@ impl Git {
         }
         let mut worktrees = parse_worktrees(&self.run(repo, &["worktree", "list", "--porcelain"])?);
         for wt in worktrees.iter_mut().filter(|w| !w.bare && !w.prunable) {
+            let dir = Path::new(&wt.path);
             match self.run(
-                Path::new(&wt.path),
+                dir,
                 &["status", "--porcelain=v2", "-z", "--untracked-files=normal"],
             ) {
                 Ok(out) => (wt.changes, wt.more) = parse_status(&out),
                 Err(e) => wt.error = Some(format!("{e:#}")),
             }
+            wt.operation = self.operation(dir).ok().flatten();
         }
         Ok(State {
             current: self.lookup(repo, &["symbolic-ref", "-q", "--short", "HEAD"])?,
@@ -603,6 +620,8 @@ impl Git {
             remotes,
             branches,
             worktrees,
+            tags: self.tags(repo)?,
+            stashes: self.stashes(repo)?,
         })
     }
 
@@ -690,23 +709,30 @@ impl Git {
         let full = format!("refs/heads/{}", checked_name(name)?);
         // `--exclude` applies to the `--branches` right after it, whose names start after `refs/heads/`.
         let exclude = format!("--exclude={name}");
-        let others = [
-            full.as_str(),
-            "--not",
-            &exclude,
-            "--branches",
-            "--remotes",
-            "--tags",
-        ];
+        self.only_in(
+            repo,
+            &[
+                full.as_str(),
+                "--not",
+                &exclude,
+                "--branches",
+                "--remotes",
+                "--tags",
+            ],
+        )
+    }
+
+    /// The commits `revs` (`<ref> --not <others>`) selects: the newest ones, and how many.
+    fn only_in(&self, repo: &Path, revs: &[&str]) -> Result<Unique> {
         let total = self
-            .run(repo, &[&["rev-list", "--count"][..], &others].concat())?
+            .run(repo, &[&["rev-list", "--count"][..], revs].concat())?
             .trim()
             .parse()
             .unwrap_or(0);
         let max = format!("-n{MAX_UNIQUE}");
         let commits = parse_log(&self.run(
             repo,
-            &[&["log", "-z", LOG_FORMAT, &max][..], &others, &["--"]].concat(),
+            &[&["log", "-z", LOG_FORMAT, &max][..], revs, &["--"]].concat(),
         )?);
         Ok(Unique { commits, total })
     }
@@ -858,14 +884,8 @@ impl Git {
     /// target of `<remote>/HEAD`, or `main` and `master` when it is unknown.
     pub fn delete_remote(&self, repo: &Path, remote: &str, branch: &str) -> Result<()> {
         let (remote, branch) = (checked_name(remote)?, checked_name(branch)?);
-        let prefix = format!("refs/remotes/{remote}/");
-        let head = self.lookup(repo, &["symbolic-ref", "-q", &format!("{prefix}HEAD")])?;
-        let default = match head.as_deref().and_then(|h| h.strip_prefix(&prefix)) {
-            Some(default) => default == branch,
-            None => matches!(branch, "main" | "master"),
-        };
         ensure!(
-            !default,
+            !self.remote_default(repo, remote, branch)?,
             "{branch} is the default branch of {remote}: TermF does not delete it"
         );
         self.run_remote(
@@ -873,5 +893,15 @@ impl Git {
             &["push", remote, "--delete", &format!("refs/heads/{branch}")],
         )?;
         Ok(())
+    }
+
+    /// Whether `branch` is `remote`'s default branch: the target of `<remote>/HEAD`, else `main` or `master`.
+    fn remote_default(&self, repo: &Path, remote: &str, branch: &str) -> Result<bool> {
+        let prefix = format!("refs/remotes/{remote}/");
+        let head = self.lookup(repo, &["symbolic-ref", "-q", &format!("{prefix}HEAD")])?;
+        Ok(match head.as_deref().and_then(|h| h.strip_prefix(&prefix)) {
+            Some(default) => default == branch,
+            None => matches!(branch, "main" | "master"),
+        })
     }
 }
