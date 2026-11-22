@@ -144,7 +144,11 @@ pub fn stack_card(items: &[Item], scope: &Scope) -> String {
         .filter(|i| i.kind == Kind::Skill && i.active && i.layer != Layer::Package)
         .collect();
     skills.sort_by(|a, b| a.name.cmp(&b.name));
-    let any = |item: &Item| crate::metadata_list(item, "termf-stacks").iter().any(|t| t == crate::ANY);
+    let any = |item: &Item| {
+        crate::metadata_list(item, "termf-stacks")
+            .iter()
+            .any(|t| t == crate::ANY)
+    };
     for repo in stack.iter().filter(|r| !r.tags.is_empty()) {
         if stack.len() > 1 {
             text += &format!("### {}\n\n", repo.name);
@@ -153,12 +157,19 @@ pub fn stack_card(items: &[Item], scope: &Scope) -> String {
             Some(v) => format!("{name} {v}"),
             None => name.to_owned(),
         };
-        let detected: Vec<String> = repo.tags.iter().map(|t| named(&t.name, &t.version)).collect();
+        let detected: Vec<String> = repo
+            .tags
+            .iter()
+            .map(|t| named(&t.name, &t.version))
+            .collect();
         text += &format!("Detected: {}.\n", detected.join(", "));
         if repo.trusted {
             for skill in &repo.skills {
                 let loaded = items.iter().any(|i| {
-                    i.kind == Kind::Skill && i.layer == Layer::Package && i.name == skill.name && i.active
+                    i.kind == Kind::Skill
+                        && i.layer == Layer::Package
+                        && i.name == skill.name
+                        && i.active
                 });
                 if loaded {
                     text += &format!(
@@ -178,13 +189,18 @@ pub fn stack_card(items: &[Item], scope: &Scope) -> String {
         }
         for item in skills.iter().filter(|i| !any(i)) {
             let wanted = crate::metadata_list(item, "termf-stacks");
-            if !wanted.iter().any(|n| repo.tags.iter().any(|t| &t.name == n)) {
+            if !wanted
+                .iter()
+                .any(|n| repo.tags.iter().any(|t| &t.name == n))
+            {
                 continue;
             }
             text += &skill_card(item);
             // The range of `termf-versions` is that of the first tag of `termf-stacks`.
             let range = crate::metadata_list(item, "termf-versions").join(" ");
-            if let Some(tag) = wanted.first().and_then(|n| repo.tags.iter().find(|t| &t.name == n))
+            if let Some(tag) = wanted
+                .first()
+                .and_then(|n| repo.tags.iter().find(|t| &t.name == n))
                 && let Some(version) = &tag.version
                 && !range.is_empty()
                 && range != crate::ANY
@@ -668,22 +684,37 @@ mod tests {
             ),
             "{prompt}"
         );
-        assert!(prompt.contains("next 16.4.6 ships docs for agents in `node_modules/next/dist/docs`"));
+        assert!(
+            prompt.contains("next 16.4.6 ships docs for agents in `node_modules/next/dist/docs`")
+        );
         assert!(prompt.contains("#### react-app\n\n- line 1\n"));
-        assert!(prompt.contains("- line 25\n") && !prompt.contains("- line 26"), "25 lines a card");
+        assert!(
+            prompt.contains("- line 25\n") && !prompt.contains("- line 26"),
+            "25 lines a card"
+        );
         assert!(prompt.contains(
             "The skill `react-app` is verified for react >=19; this repository has 18.3.1"
         ));
-        assert!(!prompt.contains("#### vue-app"), "not this repository's stack");
+        assert!(
+            !prompt.contains("#### vue-app"),
+            "not this repository's stack"
+        );
         assert!(!prompt.contains("#### tests-first"), "not for front");
 
         let (prompt, skills) = session_for(Some("back"), true);
         assert_eq!(skills, ["ai-sdk", "tests-first", "vue-app"]);
-        assert!(prompt.contains("#### react-app"), "every role gets the card");
+        assert!(
+            prompt.contains("#### react-app"),
+            "every role gets the card"
+        );
         assert!(prompt.contains("#### tests-first\n\n- Write each test from a criterion."));
 
         let (prompt, skills) = session_for(Some("lead"), true);
-        assert_eq!(skills, ["ai-sdk", "vue-app"], "the planners get the card only");
+        assert_eq!(
+            skills,
+            ["ai-sdk", "vue-app"],
+            "the planners get the card only"
+        );
         assert!(prompt.contains("#### react-app") && !prompt.contains("#### tests-first"));
 
         let (prompt, skills) = session_for(None, false);

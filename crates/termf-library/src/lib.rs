@@ -14,6 +14,8 @@ use toml_edit::{Array, DocumentMut, Table};
 use yaml_rust2::{Yaml, YamlLoader};
 
 pub mod archive;
+#[cfg(test)]
+mod catalog;
 mod claude;
 pub mod conventions;
 mod roles;
@@ -214,7 +216,12 @@ impl Scope {
             .flat_map(|p| &p.repos)
             .find(|r| path.starts_with(&r.path))
             .map(|r| r.name.clone())
-            .unwrap_or_else(|| repo.file_name().unwrap_or_default().to_string_lossy().into_owned());
+            .unwrap_or_else(|| {
+                repo.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            });
         Ok(Scope {
             project,
             repo: Some(repo.to_path_buf()),
@@ -325,9 +332,10 @@ fn starts_on(item: &mut Item, scope: &Scope) -> bool {
             item.activated_by.dedup();
             !item.activated_by.is_empty()
         }
-        Layer::Package => scope.stack.iter().any(|r| {
-            r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path))
-        }),
+        Layer::Package => scope
+            .stack
+            .iter()
+            .any(|r| r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path))),
         Layer::Repo | Layer::Run => false,
     }
 }
@@ -1090,14 +1098,24 @@ mod tests {
     fn the_stack_switches_on_the_shipped_skills_it_names() {
         let skill = "---\nname: nextjs\nmetadata:\n  termf-stacks: \"nextjs react\"\n---\n";
         let shipped = |stack_tags: &[&str], layer: Layer| {
-            let mut item = parse(Kind::Skill, "nextjs".into(), skill, layer, None, String::new());
+            let mut item = parse(
+                Kind::Skill,
+                "nextjs".into(),
+                skill,
+                layer,
+                None,
+                String::new(),
+            );
             let scope = Scope {
                 stack: vec![stack(Path::new("/r"), stack_tags, false)],
                 ..Scope::default()
             };
             (starts_on(&mut item, &scope), item.activated_by)
         };
-        assert_eq!(shipped(&["react", "web"], Layer::Shipped), (true, vec!["react".into()]));
+        assert_eq!(
+            shipped(&["react", "web"], Layer::Shipped),
+            (true, vec!["react".into()])
+        );
         assert_eq!(
             shipped(&["nextjs", "react"], Layer::Shipped),
             (true, vec!["nextjs".into(), "react".into()])
@@ -1121,7 +1139,10 @@ mod tests {
             (false, vec![]),
             "a repository's skill waits to be switched on"
         );
-        assert!(shipped(&[], Layer::Global).0, "the user's own skills start on");
+        assert!(
+            shipped(&[], Layer::Global).0,
+            "the user's own skills start on"
+        );
     }
 
     #[test]
@@ -1165,7 +1186,10 @@ mod tests {
         assert_eq!(ai.layer, Layer::Package);
         assert!(!ai.active, "offered, off until the repository is trusted");
         assert_eq!(ai.description.as_deref(), Some("Builds with the AI SDK."));
-        assert_eq!(ai.package.as_ref().unwrap().version.as_deref(), Some("7.0.177"));
+        assert_eq!(
+            ai.package.as_ref().unwrap().version.as_deref(),
+            Some("7.0.177")
+        );
         let mine = find(&items, Kind::Skill, "mine");
         assert_eq!(
             (mine.layer, mine.description.as_deref()),
@@ -1174,12 +1198,22 @@ mod tests {
         );
         assert_eq!(mine.shadows, [Layer::Package]);
 
-        assert!(explain(&dir, &scope(true), Kind::Skill, "ai-sdk").unwrap().active);
+        assert!(
+            explain(&dir, &scope(true), Kind::Skill, "ai-sdk")
+                .unwrap()
+                .active
+        );
         set_toggle(&dir, None, Kind::Skill, "ai-sdk", Some(false)).unwrap();
-        assert!(!explain(&dir, &scope(true), Kind::Skill, "ai-sdk").unwrap().active);
+        assert!(
+            !explain(&dir, &scope(true), Kind::Skill, "ai-sdk")
+                .unwrap()
+                .active
+        );
         set_toggle(&dir, None, Kind::Skill, "ai-sdk", Some(true)).unwrap();
         assert!(
-            explain(&dir, &scope(false), Kind::Skill, "ai-sdk").unwrap().active,
+            explain(&dir, &scope(false), Kind::Skill, "ai-sdk")
+                .unwrap()
+                .active,
             "switched on in one click"
         );
     }
@@ -1188,7 +1222,10 @@ mod tests {
     fn a_scope_reads_the_stack_of_its_repository_or_of_its_project() {
         let dir = temp_dir("scope-stack");
         let (web, api) = (dir.join("web"), dir.join("api"));
-        put(&web.join("package.json"), r#"{"dependencies": {"react": "19.3.1"}}"#);
+        put(
+            &web.join("package.json"),
+            r#"{"dependencies": {"react": "19.3.1"}}"#,
+        );
         put(&api.join("go.mod"), "module api\n\ngo 1.27\n");
         fs::create_dir_all(web.join(".git")).unwrap();
         put(

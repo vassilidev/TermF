@@ -265,8 +265,9 @@ impl Found {
             return value.clone();
         }
         let name = rel.rsplit('/').next().unwrap_or(rel);
-        let value = fs::read_to_string(repo.join(rel)).ok().and_then(|text| {
-            match name {
+        let value = fs::read_to_string(repo.join(rel))
+            .ok()
+            .and_then(|text| match name {
                 _ if name.ends_with(".json") || name == "composer.lock" => {
                     serde_json::from_str(&text).ok()
                 }
@@ -280,8 +281,7 @@ impl Found {
                     .into_iter()
                     .next()
                     .map(crate::json),
-            }
-        });
+            });
         self.locks.insert(rel.into(), value.clone());
         value
     }
@@ -393,7 +393,11 @@ fn detect(repo: &Path) -> Survey {
                 found.add("github-actions", None, &rel)
             }
             _ if ext == "tf" || ext == "tofu" => {
-                found.add(if ext == "tf" { "terraform" } else { "opentofu" }, None, &rel);
+                found.add(
+                    if ext == "tf" { "terraform" } else { "opentofu" },
+                    None,
+                    &rel,
+                );
                 if reads < MAX_READS {
                     reads += 1;
                     terraform(repo, &rel, ext, &mut found);
@@ -446,7 +450,10 @@ pub fn clean(spec: &str) -> Option<String> {
         .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
         .collect();
     let mut version = version.as_str();
-    while let Some(v) = version.strip_suffix(".x").or_else(|| version.strip_suffix(['.', '-'])) {
+    while let Some(v) = version
+        .strip_suffix(".x")
+        .or_else(|| version.strip_suffix(['.', '-']))
+    {
         version = v;
     }
     (!version.is_empty()).then(|| version.to_owned())
@@ -478,7 +485,12 @@ fn node(repo: &Path, dir: &str, found: &mut Found) {
     } else if NODE_SERVERS.iter().any(|s| deps.contains_key(s)) {
         found.add("node", None, &rel);
     }
-    for (prefix, tag) in [("@aws-sdk/", "aws"), ("aws-cdk-lib", "aws"), ("@google-cloud/", "gcp"), ("@azure/", "azure")] {
+    for (prefix, tag) in [
+        ("@aws-sdk/", "aws"),
+        ("aws-cdk-lib", "aws"),
+        ("@google-cloud/", "gcp"),
+        ("@azure/", "azure"),
+    ] {
         if deps.keys().any(|d| d.starts_with(prefix)) {
             found.add(tag, None, &rel);
         }
@@ -504,7 +516,10 @@ fn node_version(repo: &Path, dir: &str, dep: &str, found: &mut Found) -> Option<
             continue;
         };
         // A workspace's lockfile is at its root, with a package's own copy under its folder.
-        let nested = join(&dir[base.len()..].trim_start_matches('/'), &format!("node_modules/{dep}"));
+        let nested = join(
+            dir[base.len()..].trim_start_matches('/'),
+            &format!("node_modules/{dep}"),
+        );
         for key in [nested, format!("node_modules/{dep}")] {
             if let Some(v) = lock["packages"][&key]["version"].as_str() {
                 return Some((v.into(), rel));
@@ -563,10 +578,25 @@ fn python_deps(text: &str, rel: &str) -> (Vec<(String, String)>, Option<String>)
         let project = &doc["project"];
         python = project["requires-python"].as_str().map(str::to_owned);
         let mut lists = vec![&project["dependencies"]];
-        lists.extend(project["optional-dependencies"].as_object().into_iter().flat_map(|o| o.values()));
-        lists.extend(doc["dependency-groups"].as_object().into_iter().flat_map(|o| o.values()));
+        lists.extend(
+            project["optional-dependencies"]
+                .as_object()
+                .into_iter()
+                .flat_map(|o| o.values()),
+        );
+        lists.extend(
+            doc["dependency-groups"]
+                .as_object()
+                .into_iter()
+                .flat_map(|o| o.values()),
+        );
         for list in lists {
-            deps.extend(list.as_array().into_iter().flatten().filter_map(|d| requirement(d.as_str()?)));
+            deps.extend(
+                list.as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|d| requirement(d.as_str()?)),
+            );
         }
         let poetry = &doc["tool"]["poetry"];
         let mut tables = vec![&poetry["dependencies"], &poetry["dev-dependencies"]];
@@ -578,11 +608,17 @@ fn python_deps(text: &str, rel: &str) -> (Vec<(String, String)>, Option<String>)
         );
         for table in tables {
             for (name, spec) in table.as_object().into_iter().flatten() {
-                let spec = spec.as_str().or(spec["version"].as_str()).unwrap_or_default();
+                let spec = spec
+                    .as_str()
+                    .or(spec["version"].as_str())
+                    .unwrap_or_default();
                 if name == "python" {
                     python = python.or(Some(spec.to_owned()));
                 } else {
-                    deps.push((name.to_ascii_lowercase().replace(['_', '.'], "-"), spec.into()));
+                    deps.push((
+                        name.to_ascii_lowercase().replace(['_', '.'], "-"),
+                        spec.into(),
+                    ));
                 }
             }
         }
@@ -602,7 +638,11 @@ fn python(repo: &Path, dir: &str, rel: &str, found: &mut Found) {
     let (deps, python) = python_deps(&text, rel);
     let pinned = [join(dir, ".python-version"), ".python-version".into()]
         .iter()
-        .find_map(|f| found.text(repo, f).map(|t| (t.trim().to_owned(), f.clone())));
+        .find_map(|f| {
+            found
+                .text(repo, f)
+                .map(|t| (t.trim().to_owned(), f.clone()))
+        });
     match (python.as_deref().and_then(clean), pinned) {
         (_, Some((v, file))) if clean(&v).is_some() => found.add("python", clean(&v), &file),
         (version, _) => found.add("python", version, rel),
@@ -617,16 +657,24 @@ fn python(repo: &Path, dir: &str, rel: &str, found: &mut Found) {
         else {
             continue;
         };
-        let locked = [join(dir, "uv.lock"), join(dir, "poetry.lock"), "uv.lock".into(), "poetry.lock".into()]
-            .into_iter()
-            .find_map(|lock| {
-                let value = found.lock(repo, &lock)?;
-                let v = value["package"].as_array()?.iter().find_map(|p| {
-                    let n = p["name"].as_str()?.to_ascii_lowercase().replace(['_', '.'], "-");
-                    (n == name).then(|| p["version"].as_str().map(str::to_owned))?
-                })?;
-                Some((v, lock))
-            });
+        let locked = [
+            join(dir, "uv.lock"),
+            join(dir, "poetry.lock"),
+            "uv.lock".into(),
+            "poetry.lock".into(),
+        ]
+        .into_iter()
+        .find_map(|lock| {
+            let value = found.lock(repo, &lock)?;
+            let v = value["package"].as_array()?.iter().find_map(|p| {
+                let n = p["name"]
+                    .as_str()?
+                    .to_ascii_lowercase()
+                    .replace(['_', '.'], "-");
+                (n == name).then(|| p["version"].as_str().map(str::to_owned))?
+            })?;
+            Some((v, lock))
+        });
         match locked {
             Some((v, lock)) => found.add(tag, Some(v), &lock),
             None => found.add(tag, clean(&spec), rel),
@@ -637,7 +685,10 @@ fn python(repo: &Path, dir: &str, rel: &str, found: &mut Found) {
 fn go(repo: &Path, rel: &str, found: &mut Found) {
     let text = found.text(repo, rel).unwrap_or_default();
     let mut version = None;
-    for line in text.lines().map(|l| l.split("//").next().unwrap_or_default().trim()) {
+    for line in text
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or_default().trim())
+    {
         if let Some(v) = line.strip_prefix("go ") {
             version = clean(v);
             continue;
@@ -665,7 +716,12 @@ fn rust(repo: &Path, rel: &str, found: &mut Found) {
         .or(doc["workspace"]["package"]["rust-version"].as_str())
         .map(str::to_owned);
     found.add("rust", version, rel);
-    for (dep, tag) in [("tokio-postgres", "postgres"), ("postgres", "postgres"), ("redis", "redis"), ("mongodb", "mongodb")] {
+    for (dep, tag) in [
+        ("tokio-postgres", "postgres"),
+        ("postgres", "postgres"),
+        ("redis", "redis"),
+        ("mongodb", "mongodb"),
+    ] {
         if doc["dependencies"].get(dep).is_some() {
             found.add(tag, None, rel);
         }
@@ -681,13 +737,23 @@ fn after<'a>(text: &'a str, marker: &str, open: &str, close: &str) -> Option<&'a
 
 fn maven(repo: &Path, rel: &str, found: &mut Found) {
     let text = found.text(repo, rel).unwrap_or_default();
-    let java = ["<java.version>", "<maven.compiler.release>", "<maven.compiler.target>"]
-        .iter()
-        .find_map(|tag| after(&text, tag, "", "<"))
-        .and_then(clean);
+    let java = [
+        "<java.version>",
+        "<maven.compiler.release>",
+        "<maven.compiler.target>",
+    ]
+    .iter()
+    .find_map(|tag| after(&text, tag, "", "<"))
+    .and_then(clean);
     found.add("java", java, rel);
     if text.contains("spring-boot") {
-        let version = after(&text, "spring-boot-starter-parent</artifactId>", "<version>", "<").and_then(clean);
+        let version = after(
+            &text,
+            "spring-boot-starter-parent</artifactId>",
+            "<version>",
+            "<",
+        )
+        .and_then(clean);
         found.add("spring-boot", version, rel);
     }
     if text.contains("kotlin-maven-plugin") || text.contains("kotlin-stdlib") {
@@ -697,16 +763,23 @@ fn maven(repo: &Path, rel: &str, found: &mut Found) {
 
 /// The version a Gradle plugin is applied with: `id("x") version "1.2"` or `id 'x' version '1.2'`.
 fn plugin_version(text: &str, id: &str) -> Option<String> {
-    let line = text.lines().find(|l| l.contains(id) && l.contains("version"))?;
+    let line = text
+        .lines()
+        .find(|l| l.contains(id) && l.contains("version"))?;
     let rest = &line[line.find("version")? + "version".len()..];
     clean(rest.trim().trim_matches(['"', '\'', ' ', '(', ')']))
 }
 
 fn gradle(repo: &Path, rel: &str, found: &mut Found) {
     let text = found.text(repo, rel).unwrap_or_default();
-    let android = ["com.android.application", "com.android.library", "android.application", "android.library"]
-        .iter()
-        .any(|p| text.contains(p));
+    let android = [
+        "com.android.application",
+        "com.android.library",
+        "android.application",
+        "android.library",
+    ]
+    .iter()
+    .any(|p| text.contains(p));
     let spring = text.contains("org.springframework.boot");
     if android {
         found.add("android", plugin_version(&text, "com.android."), rel);
@@ -715,9 +788,16 @@ fn gradle(repo: &Path, rel: &str, found: &mut Found) {
         found.add("java", None, rel);
     }
     if spring {
-        found.add("spring-boot", plugin_version(&text, "org.springframework.boot"), rel);
+        found.add(
+            "spring-boot",
+            plugin_version(&text, "org.springframework.boot"),
+            rel,
+        );
     }
-    if text.contains("org.jetbrains.kotlin") || text.contains("kotlin(\"") || text.contains("plugins.kotlin") {
+    if text.contains("org.jetbrains.kotlin")
+        || text.contains("kotlin(\"")
+        || text.contains("plugins.kotlin")
+    {
         found.add("kotlin", plugin_version(&text, "kotlin"), rel);
     }
 }
@@ -783,12 +863,16 @@ fn php(repo: &Path, dir: &str, rel: &str, found: &mut Found) {
             None => (deps.get(name).and_then(|s| clean(s)), rel.to_owned()),
         }
     };
-    let laravel = deps.contains_key("laravel/framework").then(|| version("laravel/framework"));
+    let laravel = deps
+        .contains_key("laravel/framework")
+        .then(|| version("laravel/framework"));
     let symfony = ["symfony/framework-bundle", "symfony/symfony"]
         .iter()
         .find(|d| deps.contains_key(**d))
         .map(|d| version(d));
-    let redis = deps.contains_key("predis/predis").then(|| version("predis/predis"));
+    let redis = deps
+        .contains_key("predis/predis")
+        .then(|| version("predis/predis"));
     if let Some((v, source)) = laravel {
         found.add("laravel", v, &source);
     }
@@ -823,7 +907,12 @@ fn ruby(repo: &Path, dir: &str, rel: &str, found: &mut Found) {
         .text(repo, &join(dir, ".ruby-version"))
         .and_then(|v| clean(v.trim()));
     found.add("ruby", ruby.or(pinned), rel);
-    for (gem, tag) in [("rails", "rails"), ("pg", "postgres"), ("mysql2", "mysql"), ("redis", "redis")] {
+    for (gem, tag) in [
+        ("rails", "rails"),
+        ("pg", "postgres"),
+        ("mysql2", "mysql"),
+        ("redis", "redis"),
+    ] {
         if gems.iter().any(|g| g == gem) {
             match locked(gem) {
                 Some(v) => found.add(tag, Some(v), &lock_rel),
@@ -839,7 +928,11 @@ fn compose_file(repo: &Path, rel: &str, found: &mut Found) {
     let Some(doc) = found.lock(repo, rel) else {
         return;
     };
-    for service in doc["services"].as_object().into_iter().flat_map(|s| s.values()) {
+    for service in doc["services"]
+        .as_object()
+        .into_iter()
+        .flat_map(|s| s.values())
+    {
         let Some(image) = service["image"].as_str() else {
             continue;
         };
@@ -855,11 +948,22 @@ fn compose_file(repo: &Path, rel: &str, found: &mut Found) {
 fn terraform(repo: &Path, rel: &str, ext: &str, found: &mut Found) {
     let text = fs::read_to_string(repo.join(rel)).unwrap_or_default();
     let tool = if ext == "tf" { "terraform" } else { "opentofu" };
-    if let Some(line) = text.lines().find(|l| l.trim_start().starts_with("required_version")) {
-        let value = line.split_once('=').map_or("", |(_, v)| v).trim().trim_matches('"');
+    if let Some(line) = text
+        .lines()
+        .find(|l| l.trim_start().starts_with("required_version"))
+    {
+        let value = line
+            .split_once('=')
+            .map_or("", |(_, v)| v)
+            .trim()
+            .trim_matches('"');
         found.add(tool, clean(value), rel);
     }
-    for (provider, tag) in [("hashicorp/aws", "aws"), ("hashicorp/google", "gcp"), ("hashicorp/azurerm", "azure")] {
+    for (provider, tag) in [
+        ("hashicorp/aws", "aws"),
+        ("hashicorp/google", "gcp"),
+        ("hashicorp/azurerm", "azure"),
+    ] {
         if text.contains(provider) {
             found.add(tag, None, rel);
         }
@@ -991,7 +1095,12 @@ fn skill_dirs(dir: &Path, sub: &str) -> Vec<PathBuf> {
 }
 
 /// Where npm, Composer or a virtualenv put the direct dependency `name` of the manifest in `dir`, and its version.
-fn package_root(repo: &Path, dir: &str, manager: &str, name: &str) -> Option<(PathBuf, Option<String>)> {
+fn package_root(
+    repo: &Path,
+    dir: &str,
+    manager: &str,
+    name: &str,
+) -> Option<(PathBuf, Option<String>)> {
     let bases: &[&str] = if dir.is_empty() { &[""] } else { &[dir, ""] };
     for base in bases {
         let root = repo.join(base);
@@ -1015,7 +1124,8 @@ fn package_root(repo: &Path, dir: &str, manager: &str, name: &str) -> Option<(Pa
                         .unwrap_or_default();
                     let version = ["packages", "packages-dev"].iter().find_map(|key| {
                         lock[*key].as_array()?.iter().find_map(|p| {
-                            (p["name"].as_str()? == name).then(|| p["version"].as_str().and_then(clean))?
+                            (p["name"].as_str()? == name)
+                                .then(|| p["version"].as_str().and_then(clean))?
                         })
                     });
                     return Some((path, version));
@@ -1027,11 +1137,16 @@ fn package_root(repo: &Path, dir: &str, manager: &str, name: &str) -> Option<(Pa
                     let path = site.join(&module);
                     if path.is_dir() {
                         let prefix = format!("{module}-");
-                        let version = fs::read_dir(&site).into_iter().flatten().flatten().find_map(|e| {
-                            let file = e.file_name().to_string_lossy().to_ascii_lowercase();
-                            let rest = file.strip_prefix(&prefix)?.strip_suffix(".dist-info")?;
-                            Some(rest.to_owned())
-                        });
+                        let version = fs::read_dir(&site)
+                            .into_iter()
+                            .flatten()
+                            .flatten()
+                            .find_map(|e| {
+                                let file = e.file_name().to_string_lossy().to_ascii_lowercase();
+                                let rest =
+                                    file.strip_prefix(&prefix)?.strip_suffix(".dist-info")?;
+                                Some(rest.to_owned())
+                            });
                         return Some((path, version));
                     }
                 }
@@ -1078,22 +1193,49 @@ fn installed(repo: &Path, manifests: &[String]) -> (Vec<PackageSkill>, Vec<Guide
             "package.json" | "composer.json" => {
                 let doc: Value = serde_json::from_str(&text).unwrap_or_default();
                 let keys: &[&str] = if file == "package.json" {
-                    &["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+                    &[
+                        "dependencies",
+                        "devDependencies",
+                        "optionalDependencies",
+                        "peerDependencies",
+                    ]
                 } else {
                     &["require", "require-dev"]
                 };
                 let deps = keys
                     .iter()
-                    .flat_map(|k| doc[*k].as_object().into_iter().flatten().map(|(n, _)| n.clone()))
+                    .flat_map(|k| {
+                        doc[*k]
+                            .as_object()
+                            .into_iter()
+                            .flatten()
+                            .map(|(n, _)| n.clone())
+                    })
                     .collect();
-                (if file == "package.json" { "npm" } else { "composer" }, deps)
+                (
+                    if file == "package.json" {
+                        "npm"
+                    } else {
+                        "composer"
+                    },
+                    deps,
+                )
             }
-            _ => ("python", python_deps(&text, manifest).0.into_iter().map(|(n, _)| n).collect()),
+            _ => (
+                "python",
+                python_deps(&text, manifest)
+                    .0
+                    .into_iter()
+                    .map(|(n, _)| n)
+                    .collect(),
+            ),
         };
         for dep in deps {
             // Playwright's skills come with playwright-core, which its packages depend on.
             let (name, subs): (&str, &[&str]) = match (manager, dep.as_str()) {
-                ("npm", "playwright" | "@playwright/test") => ("playwright-core", &["lib/tools/skills"]),
+                ("npm", "playwright" | "@playwright/test") => {
+                    ("playwright-core", &["lib/tools/skills"])
+                }
                 ("npm", _) => (&dep, &["skills", "dist/skills"]),
                 ("composer", _) => (&dep, &["resources/boost/skills"]),
                 _ => (&dep, &[".agents/skills"]),
@@ -1107,7 +1249,11 @@ fn installed(repo: &Path, manifests: &[String]) -> (Vec<PackageSkill>, Vec<Guide
             };
             for sub in subs {
                 for path in skill_dirs(&root, sub) {
-                    let skill = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                    let skill = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned();
                     if !skills.iter().any(|s| s.name == skill) {
                         skills.push(PackageSkill {
                             name: skill,
@@ -1166,15 +1312,69 @@ pub struct SkillSource {
 
 /// Servers by tag, from each vendor's docs (checked 2026-11-22).
 const MCP: [(&str, &str, &str, &str, bool); 9] = [
-    ("nextjs", "next-devtools", "npx -y next-devtools-mcp@latest", "https://nextjs.org/docs/app/guides/mcp", false),
-    ("angular", "angular-cli", "npx -y @angular/cli mcp", "https://angular.dev/ai/mcp", true),
-    ("svelte", "svelte", "https://mcp.svelte.dev/mcp", "https://svelte.dev/docs/mcp", false),
-    ("nuxt", "nuxt", "https://nuxt.com/mcp", "https://nuxt.com/docs/4.x/guide/ai/mcp", false),
-    ("go", "gopls", "gopls mcp", "https://go.dev/gopls/features/mcp", false),
-    ("playwright", "playwright", "npx @playwright/mcp@latest", "https://github.com/microsoft/playwright-mcp", false),
-    ("ios", "xcode", "xcrun mcpbridge", "https://developer.apple.com/documentation/xcode/giving-external-agents-access-to-xcode", true),
-    ("dotnet", "microsoft-learn", "https://learn.microsoft.com/api/mcp", "https://learn.microsoft.com/en-us/training/support/mcp", false),
-    ("terraform", "terraform", "docker run -i --rm hashicorp/terraform-mcp-server", "https://github.com/hashicorp/terraform-mcp-server", false),
+    (
+        "nextjs",
+        "next-devtools",
+        "npx -y next-devtools-mcp@latest",
+        "https://nextjs.org/docs/app/guides/mcp",
+        false,
+    ),
+    (
+        "angular",
+        "angular-cli",
+        "npx -y @angular/cli mcp",
+        "https://angular.dev/ai/mcp",
+        true,
+    ),
+    (
+        "svelte",
+        "svelte",
+        "https://mcp.svelte.dev/mcp",
+        "https://svelte.dev/docs/mcp",
+        false,
+    ),
+    (
+        "nuxt",
+        "nuxt",
+        "https://nuxt.com/mcp",
+        "https://nuxt.com/docs/4.x/guide/ai/mcp",
+        false,
+    ),
+    (
+        "go",
+        "gopls",
+        "gopls mcp",
+        "https://go.dev/gopls/features/mcp",
+        false,
+    ),
+    (
+        "playwright",
+        "playwright",
+        "npx @playwright/mcp@latest",
+        "https://github.com/microsoft/playwright-mcp",
+        false,
+    ),
+    (
+        "ios",
+        "xcode",
+        "xcrun mcpbridge",
+        "https://developer.apple.com/documentation/xcode/giving-external-agents-access-to-xcode",
+        true,
+    ),
+    (
+        "dotnet",
+        "microsoft-learn",
+        "https://learn.microsoft.com/api/mcp",
+        "https://learn.microsoft.com/en-us/training/support/mcp",
+        false,
+    ),
+    (
+        "terraform",
+        "terraform",
+        "docker run -i --rm hashicorp/terraform-mcp-server",
+        "https://github.com/hashicorp/terraform-mcp-server",
+        false,
+    ),
 ];
 
 /// Vendor repositories by tag: a Claude Code marketplace when they have one, else the `skills` CLI.
@@ -1187,7 +1387,12 @@ const SOURCES: [(&str, &str, bool, &str); 16] = [
     ("redis", "redis/agent-skills", true, "MIT"),
     ("mongodb", "mongodb/agent-skills", true, "Apache-2.0"),
     ("postgres", "supabase/agent-skills", true, "MIT"),
-    ("react", "vercel-labs/agent-skills", false, "MIT (frontmatter)"),
+    (
+        "react",
+        "vercel-labs/agent-skills",
+        false,
+        "MIT (frontmatter)",
+    ),
     ("nextjs", "vercel/next.js", true, "MIT"),
     ("docker", "docker/skills", true, "Apache-2.0"),
     ("gcp", "google/skills", true, "Apache-2.0"),

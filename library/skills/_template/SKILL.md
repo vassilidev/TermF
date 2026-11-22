@@ -7,11 +7,17 @@ description: >-
 paths: "<glob>, <glob>"
 license: MIT
 metadata:
+  # Tags of TermF's stack detection that switch the skill on (TAGS in crates/termf-library/src/stack.rs), or "*"
+  # alone for a skill of every stack.
   termf-stacks: "web"
+  # The roles that get the skill; a session without a role gets every skill. The others get its card only.
   termf-roles: "front back qa"
+  # The versions of the FIRST tag of termf-stacks the skill is written for, such as ">=15 <17", or "*" for any.
   termf-versions: ">=1"
   termf-verified: "2026-11-22 <package>@<version>"
   termf-sources: "https://example.org/docs/llms.txt https://example.org/blog"
+  # Only when a passage is taken word for word, also listed in library/THIRD_PARTY_NOTICES.md:
+  # credits: "owner/repo@<commit> (MIT): path/of/the/file.md"
 ---
 # <Technology>
 
