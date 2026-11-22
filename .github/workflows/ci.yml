@@ -40,14 +40,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
-  # The real app (debug build) driven by tauri-driver, and the performance budgets of ARCHITECTURE §2.4.
-  # macOS has no WebDriver for its webview.
+  # The real app (debug build) driven by tauri-driver under xvfb, and the performance budgets of ARCHITECTURE §2.4.
+  # Not on macOS (no WebDriver for its webview), not yet on Windows (docs/STATUS.md §4).
   e2e:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -64,24 +60,12 @@ jobs:
         with:
           key: e2e
       - name: Linux system dependencies
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
           sudo locale-gen en_US.UTF-8 fr_FR.UTF-8
       - name: tauri-driver
-        if: runner.os == 'Linux'
         run: cargo install tauri-driver --locked
-      # The driver must match the WebView2 runtime, or the session hangs; the tool downloads that version.
-      - name: Edge WebDriver matching WebView2
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cargo install --git https://github.com/chippers/msedgedriver-tool --locked
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\msedgedriver" | Out-Null
-          Set-Location "$env:RUNNER_TEMP\msedgedriver"
-          msedgedriver-tool
-          $PWD.Path >> $env:GITHUB_PATH
       - name: Build the app and the CLI (debug)
         working-directory: app
         run: |
@@ -90,12 +74,11 @@ jobs:
           cargo build -p termf-cli
       - name: End-to-end scenarios and performance
         working-directory: app
-        shell: bash
-        run: ${{ runner.os == 'Linux' && 'xvfb-run -a --server-args="-screen 0 1920x1080x24"' || '' }} pnpm e2e
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" pnpm e2e
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: e2e-${{ matrix.os }}
+          name: e2e-linux
           path: app/e2e/out/
           if-no-files-found: ignore
 

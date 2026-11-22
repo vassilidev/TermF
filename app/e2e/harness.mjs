@@ -101,7 +101,7 @@ function watch(child) {
  * Linux: tauri-driver on `port`, WebKitWebDriver on `port + 1`, `args` to the app. Windows: Edge WebDriver launching
  * the app leaves its session hanging (the app does start), so the app is started here with WebView2's debugging
  * port open (`port + 1`, `args` added to WebView2's), and Edge WebDriver on `port` attaches to it, as Microsoft
- * documents for WebView2 apps.
+ * documents for WebView2 apps; that port does not open yet (docs/STATUS.md §4).
  */
 export async function launch(box, port, { args = [] } = {}, signal) {
   const log = join(box.root, "app.log");
