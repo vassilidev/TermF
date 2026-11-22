@@ -166,6 +166,11 @@
     );
   });
 
+  // Every repository removed: back to picking them.
+  $effect(() => {
+    if (!chosen.length && index > 0) step = "repos";
+  });
+
   function go(to: Step) {
     const i = steps.findIndex((s) => s.id === to);
     if (i > 0 && !chosen.length) return;
@@ -237,7 +242,7 @@
     if (ui.view !== "newProject" || ui.palette || ui.help || e.isComposing) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (!busy && (chosen.length || index === 0) && chosen.length) next();
+      if (!busy && chosen.length && name) next();
     } else if (e.key === "Escape" && !e.defaultPrevented && !editing) {
       if ((e.target as Element | null)?.closest?.(".xterm")) return;
       e.preventDefault();
