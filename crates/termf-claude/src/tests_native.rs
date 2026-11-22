@@ -183,8 +183,8 @@ fn deletes_into_the_trash_with_a_skills_folder_and_a_memorys_index_line() {
     );
     let gone = native::delete(&env, &memory.join("user.md"), &trash).unwrap();
     assert_eq!(
-        gone.index.as_deref(),
-        Some(memory.join("MEMORY.md").to_str().unwrap())
+        gone.index.as_deref().map(Path::new),
+        Some(memory.join("MEMORY.md").as_path())
     );
     assert_eq!(
         fs::read_to_string(memory.join("MEMORY.md")).unwrap(),
@@ -272,7 +272,9 @@ fn lists_a_repositorys_sessions_and_its_worktrees_only() {
     );
     // Not Claude Code's: a long name that is not ASCII must not stop the listing.
     write(
-        &projects.join("é".repeat(150)).join(format!("{id}.jsonl")),
+        &projects
+            .join(format!("a{}", "é".repeat(110)))
+            .join(format!("{id}.jsonl")),
         "{}\n",
     );
 
@@ -288,7 +290,10 @@ fn lists_a_repositorys_sessions_and_its_worktrees_only() {
     assert_eq!(own.sessions[0].prompt.as_deref(), Some("hello"));
     assert!(own.sessions[0].size > 0);
     assert_eq!(sessions::list(&env, None).len(), 4);
-    assert!(!sessions::belongs(&"é".repeat(150), "-repo"));
+    assert!(!sessions::belongs(
+        &format!("a{}", "é".repeat(110)),
+        "-repo"
+    ));
     let long = "-".to_owned() + &"a".repeat(230);
     assert!(sessions::belongs(&long[..201], &long));
 
