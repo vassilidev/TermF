@@ -250,6 +250,12 @@
     align-self: flex-start;
   }
 
+  .segmented button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .where {
     display: flex;
     flex-wrap: wrap;

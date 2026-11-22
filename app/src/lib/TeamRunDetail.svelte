@@ -297,6 +297,9 @@
   {/if}
 </section>
 
+{#if active && run.steps.some((s) => s.key === TRIAGE && s.state === "running")}
+  <p class="notice triaging" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ctoEntryTriage")}</p>
+{/if}
 {#if waits.length}
   <section class="waits" aria-labelledby="team-waits">
     <h3 id="team-waits">{t("teamRunsWaits")} <small>{waits.length}</small></h3>
@@ -415,7 +418,11 @@
     <dl class="pairs answers">
       {#each run.answers as a, i (i)}
         <dt>{a.question.question}</dt>
-        <dd>{a.answer.length ? a.answer.join(", ") : "—"}</dd>
+        <dd>
+          {a.answer.length
+            ? a.answer.map((v) => (a.question.kind === "bool" ? t(v === "yes" ? "obYes" : "obNo") : v)).join(", ")
+            : "—"}
+        </dd>
       {/each}
     </dl>
   </section>
@@ -970,6 +977,10 @@
 
   .gate {
     margin: 8px 0 0;
+  }
+
+  .triaging {
+    margin-top: 16px;
   }
 
   .violations {

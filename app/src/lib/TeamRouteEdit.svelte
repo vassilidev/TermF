@@ -92,7 +92,7 @@
         {#each optional as step (step.id)}
           <label class="chip" class:on={running.includes(step.id)}>
             <input type="checkbox" checked={running.includes(step.id)} onchange={() => (running = toggle(running, step.id))} />
-            <span class="mono">{step.id}</span>{#if step.role}<span class="muted">{step.role}</span>{/if}
+            <span class="mono">{step.id}</span>{#if step.role && step.role !== step.id}<span class="muted">{step.role}</span>{/if}
           </label>
         {/each}
       </div>
