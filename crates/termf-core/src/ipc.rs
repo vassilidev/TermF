@@ -230,7 +230,12 @@ pub enum McpCall {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum VaultCall {
     Status,
-    Unlock { password: String },
+    /// `pin`: the security key's PIN, when security keys are enrolled and TermF asks for it (macOS, Linux).
+    Unlock {
+        password: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pin: Option<String>,
+    },
     Lock,
 }
 

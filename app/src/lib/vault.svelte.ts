@@ -11,8 +11,17 @@ export type VaultStatus = {
   remembered: boolean;
   autoLockMinutes: number;
   prodUntil: number | null;
+  keys: number;
+  recovery: boolean;
+  quickDays: number | null;
+  quickUntil: number | null;
+  confirmedUntil: number | null;
 };
 export type VaultView = "vault" | "vaultAll";
+export type KeyInfo = { id: string; name: string; created: number };
+/** What this machine offers besides the password: TermF asks for a key's PIN (not on Windows), Touch ID, Windows Hello. */
+export type VaultMethods = { keyPin: boolean; biometry: "touchId" | "windowsHello" | null };
+export type RecoveryReason = "first" | "renewed" | "recovered";
 
 /** Names and descriptions only: a value reaches the webview when the user reveals or copies it, and is dropped after. */
 export const vault = $state({
@@ -25,7 +34,19 @@ export const vault = $state({
   notice: "",
   /** Here rather than in the view: the palette sets it too. */
   selected: { vault: null, vaultAll: null } as Record<VaultView, string | null>,
+  methods: null as VaultMethods | null,
+  /** Shown once, until the user says it is stored; never kept past that. */
+  recoveryKey: null as { key: string; reason: RecoveryReason } | null,
 });
+
+/** Touch ID or Windows Hello by its name, when this machine has one. */
+export const biometryName = () =>
+  vault.methods?.biometry === "touchId" ? t("vault2TouchId") : vault.methods?.biometry === "windowsHello" ? t("vault2WindowsHello") : "";
+
+/** Whether Touch ID or Windows Hello can reopen the vault, or confirm prod, right now. */
+export const quickReady = () => !!vault.methods?.biometry && (vault.status?.quickUntil ?? 0) > Date.now() / 1000;
+
+export const needsConfirm = (e: unknown) => /needs the master password again/.test(String(e));
 
 let watching = false;
 
@@ -50,6 +71,7 @@ export function setStatus(status: VaultStatus) {
 
 export async function refreshVault() {
   try {
+    vault.methods ??= await invoke<VaultMethods>("vault_methods");
     setStatus(await invoke<VaultStatus>("vault_status"));
     if (!vault.status?.unlocked) return;
     const [items, secrets] = await Promise.all([
@@ -78,6 +100,7 @@ export function failed(e: unknown): string {
     return "";
   }
   if (/wrong master password/.test(text)) return t("vaultWrongPassword");
+  if (/wrong recovery key/.test(text)) return t("vault2WrongRecovery");
   return text;
 }
 
@@ -104,7 +127,7 @@ export function openEntry(key: string, project: string | null) {
 
 let quiet: ReturnType<typeof setTimeout> | undefined;
 
-function say(text: string) {
+export function say(text: string) {
   vault.notice = text;
   clearTimeout(quiet);
   quiet = setTimeout(() => (vault.notice = ""), 5000);

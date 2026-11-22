@@ -10,7 +10,7 @@
   import VaultField from "$lib/VaultField.svelte";
   import VaultTotp from "$lib/VaultTotp.svelte";
   import { ago, t } from "$lib/i18n";
-  import { copy, failed, setStatus, vault, type VaultStatus } from "$lib/vault.svelte";
+  import { biometryName, copy, failed, quickReady, setStatus, vault, type VaultStatus } from "$lib/vault.svelte";
   import { openable, type Entry } from "$lib/vault-logic";
 
   let {
@@ -26,6 +26,9 @@
   let reauth = $state(false);
   let password = $state("");
   let busy = $state(false);
+  /** Proving it with the security key: the field takes its PIN. */
+  let withKey = $state(false);
+  let touching = $state(false);
 
   const reveal = (field: "password" | "seed" | "notes") => () =>
     invoke<string>("vault_item_reveal", { id: item?.id, field });
@@ -39,19 +42,38 @@
     }
   }
 
-  async function confirm(e: SubmitEvent) {
-    e.preventDefault();
+  async function prove(command: string, args: Record<string, unknown>) {
     busy = true;
+    touching = command === "vault_reauth_key";
     try {
-      setStatus(await invoke<VaultStatus>("vault_reauth", { password }));
-      reauth = false;
+      setStatus(await invoke<VaultStatus>(command, args));
+      reauth = withKey = false;
       vault.error = "";
     } catch (e) {
       vault.error = failed(e);
     } finally {
       password = "";
-      busy = false;
+      busy = touching = false;
     }
+  }
+
+  function confirm(e: SubmitEvent) {
+    e.preventDefault();
+    if (withKey) prove("vault_reauth_key", { pin: password });
+    else prove("vault_reauth", { password });
+  }
+
+  function byKey() {
+    // Windows asks for the PIN in its own window.
+    // What was typed so far is the master password, not a PIN: it would spend one of the key's tries.
+    password = "";
+    if (vault.methods?.keyPin) withKey = true;
+    else prove("vault_reauth_key", { pin: null });
+  }
+
+  function byPassword() {
+    password = "";
+    withKey = false;
   }
 
   function open(url: string) {
@@ -141,12 +163,37 @@
   {#if reauth}
     <form class="reauth" onsubmit={confirm}>
       <label class="labelled">
-        {t("vaultProdAgain")}
+        {withKey ? t("vault2Pin") : t("vaultProdAgain")}
         <!-- svelte-ignore a11y_autofocus (asked for right after the reveal) -->
-        <input class="field" type="password" autocomplete="current-password" bind:value={password} required autofocus />
+        <input
+          class="field"
+          type="password"
+          autocomplete={withKey ? "off" : "current-password"}
+          bind:value={password}
+          required
+          autofocus
+        />
       </label>
       <button type="submit" class="btn primary" disabled={busy || !password}>{t("vaultConfirm")}</button>
     </form>
+    {#if vault.status?.keys || quickReady()}
+      <div class="reauth-other">
+        <span class="muted">{t("vault2Or")}</span>
+        {#if withKey}
+          <button class="btn sm" disabled={busy} onclick={byPassword}>{t("vault2BackToPassword")}</button>
+        {:else if vault.status?.keys}
+          <button class="btn sm" disabled={busy} onclick={byKey}>{t("vault2ProdKey")}</button>
+        {/if}
+        {#if quickReady()}
+          <button class="btn sm" disabled={busy} onclick={() => prove("vault_reauth_biometry", { reason: t("vault2ReasonProd") })}>
+            {t("vault2ProdBiometry", { name: biometryName() })}
+          </button>
+        {/if}
+      </div>
+    {/if}
+    {#if touching}
+      <p class="touch muted" role="status">{vault.methods?.keyPin ? t("vault2Touch") : t("vault2WindowsAsks")}</p>
+    {/if}
   {/if}
 
   <p class="meta muted">
@@ -302,6 +349,20 @@
 
   .reauth .labelled {
     flex: 1;
+  }
+
+  .reauth-other {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: -8px;
+    font-size: var(--text-sm);
+  }
+
+  .touch {
+    margin: -8px 0 0;
+    font-size: var(--text-sm);
   }
 
   .meta {
