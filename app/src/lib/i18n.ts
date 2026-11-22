@@ -1551,6 +1551,8 @@ const fr = {
   chatThread: "Conversation",
   chatMessage: "Message à l'agent… (Entrée envoie, Maj+Entrée va à la ligne)",
   chatSend: "Envoyer",
+  chatLoadError: "Impossible de lire la conversation : {error}",
+  chatRetry: "Réessayer",
 };
 
 type Key = keyof typeof fr;
@@ -3092,6 +3094,8 @@ const en: Record<Key, string> = {
   chatThread: "Conversation",
   chatMessage: "Message to the agent… (Enter sends, Shift+Enter adds a line)",
   chatSend: "Send",
+  chatLoadError: "Cannot read the conversation: {error}",
+  chatRetry: "Retry",
 };
 
 const messages = { fr, en };

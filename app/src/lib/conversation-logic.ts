@@ -79,11 +79,13 @@ export function merge(events: StoredEvent[], incoming: StoredEvent[]): StoredEve
   return out;
 }
 
-/** The agent's text as it streams: deltas add up until the stored text that holds them all. */
-export function stream(live: string, e: StoredEvent): string {
-  if (e.kind === "delta") return live + e.text;
-  const over = (e.kind === "text" && !e.parent) || e.kind === "user" || e.kind === "turn_end" || e.kind === "error";
-  return over ? "" : live;
+/**
+ * The agent's text as it streams: deltas add up until the stored text that holds them all. Null until a stored event
+ * shows where a message starts: opened in the middle of an answer, its end alone would show.
+ */
+export function stream(live: string | null, e: StoredEvent): string | null {
+  if (e.kind === "delta") return live === null ? null : live + e.text;
+  return "parent" in e && e.parent ? (live ?? "") : "";
 }
 
 /** The conversation by turns, a subagent's text and tool calls under the call that started it. */
@@ -171,6 +173,17 @@ export function summary(input: unknown): string {
   const key = telling.find(text) ?? Object.keys(o).find(text);
   if (key) return (o[key] as string).trim().split("\n")[0];
   return Object.keys(o).length ? JSON.stringify(o) : "";
+}
+
+/** The request still waiting for an answer: the last unanswered one since the process or the turn began. */
+export function pending(events: StoredEvent[]): string | null {
+  let open: string[] = [];
+  for (const e of events) {
+    if (e.kind === "started" || e.kind === "turn_end") open = [];
+    else if (e.kind === "permission") open.push(e.request);
+    else if (e.kind === "permission_answer") open = open.filter((r) => r !== e.request);
+  }
+  return open.at(-1) ?? null;
 }
 
 /** Why a message cannot be sent now; null between turns, when it can. */

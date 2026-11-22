@@ -27,7 +27,7 @@ import Telescope from "@lucide/svelte/icons/telescope";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
-import { agents, showConversation, waitingAgents } from "$lib/agents.svelte";
+import { agents, conversation, showConversation, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
@@ -90,7 +90,7 @@ export function nextWaiting() {
   const agent = (id: number) => `agent:${id}`;
   const order = [...app.sessions.map((s) => tile(s.id)), ...agents.sessions.map((a) => agent(a.id))];
   const waiting = [...waitingSessions().map((s) => tile(s.id)), ...waitingAgents().map((a) => agent(a.id))];
-  const shown = ui.view === "conversations" && !agents.creating ? agents.selected : null;
+  const shown = ui.view === "conversations" && !agents.creating ? (conversation()?.id ?? null) : null;
   const active = activeSession();
   const next = nextAfter(order, waiting, shown !== null ? agent(shown) : active !== null ? tile(active) : null);
   if (!next) return;

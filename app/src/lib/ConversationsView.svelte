@@ -7,15 +7,15 @@
   import Conversation from "$lib/Conversation.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { agents, inScope, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import { agents, conversation, listed, upsert, usd, type AgentSession } from "$lib/agents.svelte";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
   import { ago, t } from "$lib/i18n";
   import type { Item } from "$lib/library.svelte";
   import { mostRecent } from "$lib/nav-logic";
   import { app, shortPath } from "$lib/state.svelte";
 
-  const sessions = $derived(agents.sessions.filter(inScope).sort((a, b) => b.id - a.id));
-  const current = $derived(sessions.find((a) => a.id === agents.selected) ?? sessions[0]);
+  const sessions = $derived(listed());
+  const current = $derived(conversation());
   const creating = $derived(agents.creating || !current);
   const repos = $derived([...scopeRepos()].sort((a, b) => a.name.localeCompare(b.name)));
 
@@ -43,6 +43,11 @@
   let starting = $state(false);
   let error = $state("");
 
+  // The conversation shown stays: a newer session (a team step, the CLI) must not take its place.
+  $effect(() => {
+    if (current && agents.selected !== current.id) agents.selected = current.id;
+  });
+
   // The folder follows the current project: its most recent repository until one is picked.
   $effect(() => {
     if (!repos.some((r) => r.path === dir)) dir = mostRecent(repos)?.path ?? "";
@@ -58,7 +63,11 @@
         roles = items.filter((i) => i.active);
         if (!roles.some((r) => r.name === role)) role = "";
       },
-      () => (roles = []),
+      () => {
+        if (project !== app.project) return;
+        roles = [];
+        role = "";
+      },
     );
   });
 

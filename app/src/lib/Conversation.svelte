@@ -25,6 +25,7 @@
   import {
     blocked,
     merge,
+    pending,
     stream,
     summary,
     thread,
@@ -40,11 +41,12 @@
   let { session }: { session: AgentSession } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
-  let live = $state("");
+  let live = $state<string | null>(null);
   let draft = $state("");
   let reasons = $state<Record<string, string>>({});
   let busy = $state("");
   let error = $state("");
+  let loadError = $state("");
   let scroller = $state<HTMLElement>();
   let form = $state<HTMLFormElement>();
 
@@ -52,6 +54,7 @@
   const init = $derived(events.findLast((e) => e.kind === "init"));
   const why = $derived(blocked(session.state));
   const turning = $derived(session.state === "working" || session.state === "waiting");
+  const asking = $derived(session.state === "waiting" ? pending(events) : null);
 
   const efforts: Record<string, Parameters<typeof t>[0]> = {
     low: "schedulerEffortLow",
@@ -97,35 +100,34 @@
     if (ui.view === "conversations") follow(true);
   });
 
+  // Heard while what is stored loads, or failed to load: `merge` drops what both give.
+  let buffer: StoredEvent[] | null = [];
+
+  async function load() {
+    loadError = "";
+    try {
+      const stored = await invoke<StoredEvent[]>("agent_events", { id: session.id });
+      events = merge(stored, buffer ?? []);
+      live = (buffer ?? []).reduce(stream, null);
+      buffer = null;
+      follow(true);
+    } catch (e) {
+      loadError = String(e);
+    }
+  }
+
   onMount(() => {
     const id = session.id;
-    let buffer: StoredEvent[] | null = [];
-    const take = (e: StoredEvent) => {
-      const stick = atBottom();
-      live = stream(live, e);
-      if (e.id) events = merge(events, [e]);
-      follow(stick);
-    };
-    // Listening first, then reading what is stored: nothing falls in between, and `merge` drops what both give.
     const off = listen<StoredEvent>("agent-event", ({ payload }) => {
       if (payload.session !== id) return;
-      if (buffer) buffer.push(payload);
-      else take(payload);
+      if (buffer) return void buffer.push(payload);
+      const stick = atBottom();
+      live = stream(live, payload);
+      if (payload.id) events = merge(events, [payload]);
+      follow(stick);
     });
-    off
-      .then(() => invoke<StoredEvent[]>("agent_events", { id }))
-      .then(
-        (stored) => {
-          events = merge(stored, buffer ?? []);
-          live = (buffer ?? []).reduce(stream, "");
-          buffer = null;
-          follow(true);
-        },
-        (e) => {
-          buffer = null;
-          error = String(e);
-        },
-      );
+    // Listening first, then reading what is stored: nothing falls in between.
+    off.then(load);
     return () => off.then((stop) => stop());
   });
 
@@ -183,11 +185,11 @@
   const firstLine = (text: string) => text.trim().split("\n")[0];
 </script>
 
-{#snippet entry(item: Item)}
+{#snippet entry(item: Item, now: boolean)}
   {#if item.type === "text"}
     <p class="text">{item.text}</p>
   {:else if item.type === "tool"}
-    {@render tool(item)}
+    {@render tool(item, now)}
   {:else if item.type === "permission"}
     {@render ask(item)}
   {:else if item.type === "denied"}
@@ -204,14 +206,14 @@
   {/if}
 {/snippet}
 
-{#snippet tool(item: Tool)}
+{#snippet tool(item: Tool, now: boolean)}
   {@const failed = item.result?.isError}
   <details class="tool" class:failed>
     <summary>
       <span class="call">
         <ChevronRight size={14} aria-hidden="true" class="chevron" />
         {#if item.result === null}
-          {#if turning}
+          {#if now}
             <LoaderCircle size={14} aria-label={t("chatToolRunning")} class="spin" />
           {:else}
             <CircleDashed size={14} aria-label={t("chatToolNoResult")} />
@@ -232,7 +234,7 @@
       <pre class="mono code">{pretty(item.input)}</pre>
       {#if item.children.length}
         <div class="nested">
-          {#each item.children as child (child.key)}{@render entry(child)}{/each}
+          {#each item.children as child (child.key)}{@render entry(child, now)}{/each}
         </div>
       {/if}
       {#if item.result}
@@ -245,7 +247,7 @@
 {/snippet}
 
 {#snippet ask(item: Permission)}
-  {#if item.answer || session.state !== "waiting"}
+  {#if item.request !== asking}
     <p class="sys" class:failed={item.answer && !item.answer.allow}>
       {#if item.answer?.allow}<ShieldCheck size={14} aria-hidden="true" />{:else if item.answer}<ShieldX
           size={14}
@@ -357,9 +359,16 @@
 
 <div class="thread" bind:this={scroller} aria-label={t("chatThread")} role="log">
   <div class="turns">
+    {#if loadError}
+      <p class="notice error">
+        <CircleAlert size={14} aria-hidden="true" /><span>{t("chatLoadError", { error: loadError })}</span>
+        <button class="btn sm" onclick={load}>{t("chatRetry")}</button>
+      </p>
+    {/if}
     {#each turns as turn (turn.key)}
+      {@const now = turning && turn === turns.at(-1) && !turn.end}
       {#if turn.user !== null}<p class="user">{turn.user}</p>{/if}
-      {#each turn.items as item (item.key)}{@render entry(item)}{/each}
+      {#each turn.items as item (item.key)}{@render entry(item, now)}{/each}
       {#if turn.end}{@render ending(turn.end)}{/if}
     {/each}
     {#if live}<p class="text live">{live}</p>{/if}

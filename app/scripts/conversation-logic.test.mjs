@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blocked, merge, nextAfter, stream, summary, thread } from "../src/lib/conversation-logic.ts";
+import { blocked, merge, nextAfter, pending, stream, summary, thread } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -17,15 +17,25 @@ test("events come once, in id order, without deltas", () => {
   assert.deepEqual(merge([], [c, a, b, a]).map((e) => e.id), [1, 2, 3]);
 });
 
-test("streamed text adds up until the stored text that holds it", () => {
+test("streamed text adds up until the stored text that holds it, from the start of a message", () => {
   const delta = (text) => ({ id: 0, kind: "delta", text });
-  let live = ["Hel", "lo"].map(delta).reduce(stream, "");
+  assert.equal(["ing.", " Done"].map(delta).reduce(stream, null), null, "opened mid-answer: nothing until a stored event");
+  let live = stream(null, { id: 3, kind: "user", text: "go" });
+  live = ["Hel", "lo"].map(delta).reduce(stream, live);
   assert.equal(live, "Hello");
-  assert.equal(stream(live, { id: 4, kind: "tool_use", call: "t", name: "Bash", input: {} }), "Hello");
   assert.equal(stream(live, { id: 4, kind: "text", text: "sub", parent: "t" }), "Hello", "a subagent's text is not the agent's");
+  assert.equal(stream(null, { id: 4, kind: "text", text: "sub", parent: "t" }), "");
   assert.equal(stream(live, { id: 4, kind: "text", text: "Hello" }), "");
-  live = stream("Hel", { id: 5, kind: "turn_end" });
-  assert.equal(live, "", "an interrupted turn drops what streamed");
+  assert.equal(stream("Hel", { id: 5, kind: "turn_end" }), "", "an interrupted turn drops what streamed");
+});
+
+test("only the last request since the turn or the process began waits", () => {
+  n = 0;
+  const ask = (request) => ev("permission", { request, tool: "Bash", input: {}, description: null });
+  assert.equal(pending([ask("a"), ev("permission_answer", { request: "a", allow: true, message: null })]), null);
+  assert.equal(pending([ask("old"), ev("started", { resumed: true }), ev("user", { text: "go" }), ask("new")]), "new");
+  assert.equal(pending([ask("old"), end("interrupted")]), null);
+  assert.equal(pending([ask("a"), ask("b"), ev("permission_answer", { request: "b", allow: false, message: null })]), "a");
 });
 
 test("a thread groups turns, tool results and a subagent's calls under its parent", () => {
