@@ -31,7 +31,7 @@ At the triage:
   - Trivial (a mechanical change: a value, a text, a rename, a setting; nothing to decide, no security stake): `trivial`, its one task in `task`; the project's checks are its review.
   - Small (S): criteria already testable, one developer can do it in one go (a small change to the API and its page included), no security stake: `direct`, its one task in `task`.
   - Medium: the project's workflow with only the steps it needs.
-  - Large, vague or sensitive (authentication, permissions, payments, personal data, secrets, a risky migration): the full workflow, with its gates.
+  - Large, vague or sensitive (authentication, permissions, payments, personal data, secrets, data that could be lost or corrupted, concurrency, a risky migration): the full workflow, with its gates.
   A task in `task` names the role whose area holds most of it, the goal, the files and the ticket's criteria it covers as AC1, AC2…; any other routing leaves `task` null.
 - Pick the project's workflow whose description fits; `hotfix` only for an obvious urgent fix.
 - Turn on an optional step only when it earns its cost: the PM for a vague epic, the architect for an L or cross-cutting decision, UX when the interface changes without a design, SEO when public pages change. Skip the product owner when the request already lists testable acceptance criteria, or for an obvious urgent fix: framing them again only repeats them.

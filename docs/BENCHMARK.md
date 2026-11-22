@@ -8,12 +8,12 @@ Realistic tickets on two small projects (a task tracker, and a shared task-list 
 
 - **First pass (24 trials): quality was a tie, the team cost 7.3 times more and took 4.3 times longer.** Both arms passed 100 % of the hidden tests; the judge gave 8.4 to the team and 8.3 to the plain session; on small tickets the core change was often the same line for line.
 - **Second pass: the team was made proportionate** (the CTO sizes each ticket: trivial, `direct` with one developer and one short review, a lean workflow for medium work, the full team only for large, vague or sensitive work; gates only for large runs; unscripted typecheck and lint run with the tests and send failures back to the task's own session; scope discipline; lighter role prompts). On small tickets: **0.72 → 0.34 USD (−53 %), 101 → 69 s, 6.2 → 3 sessions, no question asked, no type error left**, same quality. It is still **3.4 times the cost and 2.7 times the time of a plain session**: the floor is ~20 k tokens of prompt and tools each session writes to the cache, which roles do not share.
-- **Complex, realistic tickets (sharing with roles and expiring invitations, "the app is slow on big lists", a lost update under concurrency): here the team wins on quality.** Both pass the hidden tests, but the judge, told to weigh security, robustness and edge cases, finds **93 % of the implicit criteria met by the team against 72 %** (100 % against 38 % on the slow lists ticket), an overall **8.0 against 7.4**, more tests (69 against 45) and no type error; **for 6.5 times the cost and 5 times the time** (2.91 against 0.45 USD, 11 against 2 minutes).
+- **Complex, realistic tickets (sharing with roles and expiring invitations, "the app is slow on big lists", a lost update under concurrency): here the team wins on quality.** Both pass the hidden tests, but the judge, told to weigh security, robustness and edge cases, finds **90 % of the implicit criteria met by the team against 72 %** (100 % against 38 % on the slow lists ticket), an overall **7.7 against 7.4**, more tests (60 against 45) and no type error; **for 4.8 times the cost and 3.7 times the time** (2.14 against 0.45 USD, 8 against 2 minutes). The CTO sent the lost-update ticket to `direct`: there the team was no better than one session.
 - **Limits**: small samples (1 to 2 trials per ticket and arm on the later series), one model, an LLM judge that only sees the diff, hidden tests that never separate the arms.
 
 ## En bref
 
-**Sur un petit ticket bien écrit, une session seule suffit et l'équipe coûte encore 3,4 fois plus (contre 7 fois avant cette PR), à qualité égale. Sur un ticket complexe, flou ou sensible, l'équipe fait mieux : les critères implicites qu'un bon ingénieur doit deviner (sécurité, robustesse, cas limites) sont remplis à 93 % contre 72 %, avec plus de tests et aucune erreur de type, pour 6,5 fois le coût et 5 fois le temps.** La seconde passe a rendu l'équipe proportionnée : un petit ticket va de la demande à la livraison en trois sessions et sans aucune question ; le reste de l'écart tient au coût fixe de chaque session.
+**Sur un petit ticket bien écrit, une session seule suffit et l'équipe coûte encore 3,4 fois plus (contre 7 fois avant cette PR), à qualité égale. Sur un ticket complexe, flou ou sensible, l'équipe fait mieux : les critères implicites qu'un bon ingénieur doit deviner (sécurité, robustesse, cas limites) sont remplis à 90 % contre 72 %, avec plus de tests et aucune erreur de type, pour 4,8 fois le coût et 3,7 fois le temps.** La seconde passe a rendu l'équipe proportionnée : un petit ticket va de la demande à la livraison en trois sessions et sans aucune question ; le reste de l'écart tient au coût fixe de chaque session.
 
 ## Seconde passe : une équipe proportionnée
 
@@ -53,15 +53,15 @@ Trois tickets sur `bench/fixture-lists/`, une appli de listes de tâches partag�
 | R2 « l'appli est lente sur les grosses listes » | à l'ancienne | 2 | 103 | 0,35 | 1 | 14/14 | 38 % | 7,0 | 8,0 | 50 % | 40 |
 | | équipe | 1 | 348 | 2,51 | 10 | 14/14 | 100 % | 8,0 | 8,0 | 100 % | 49 |
 | R3 « des modifications disparaissent » | à l'ancienne | 1 | 49 | 0,22 | 1 | 12/12 | 67 % | 7,0 | 8,0 | 100 % | 39 |
-| | équipe | R3_TEAM |
+| | équipe (`direct`) | 1 | 173 | 0,61 | 3 | 12/12 | 83 % | 7,0 | 8,0 | 100 % | 42 |
 | **moyenne** | à l'ancienne | 5 | 132 | 0,45 | 1 | 100 % | 72 % | 7,4 | 8,0 | 80 % | 45 |
-| | équipe | REAL_TEAM_MEAN |
+| | équipe | 3 | 492 | 2,14 | 6,7 | 100 % | 90 % | 7,7 | 8,3 | 100 % | 60 |
 
 Ce que le juge dit, concrètement :
 
 - **R2, la session seule** fait une pagination par curseur propre mais laisse des trous qu'un bon ingénieur aurait vus : aucun index pour les filtres `done` et `assignee`, une condition `OR` sur la date d'échéance qui empêche SQLite d'utiliser l'index, des colonnes internes qui fuient dans les réponses, aucun test d'écriture entre deux pages (« partiel » sur 4 critères sur 4 au premier essai). **L'équipe** charge les vues par lots, couvre tris, filtres et égalités, ajoute les index par une migration, et le juge ne trouve rien de grave : 4 critères sur 4.
 - **R1** : les deux bras sont sérieux (jetons hachés, 404 pour un inconnu, 403 pour un membre sans droit) ; la session seule laisse des défauts sur la page (lien d'invitation servi sur un chemin imbriqué, liste des membres pas rafraîchie), l'équipe ne teste pas sa page (« partiel »). L'équipe y a passé 16 minutes, dont 1,32 $ pour la seule tâche du back.
-- **R3, la session seule** corrige la course par une transaction synchrone mais sort l'écriture du journal d'activité de la transaction (un changement sans trace si le processus tombe) et ne montre pas que les autres écritures incrémentent la version.
+- **R3** : le CTO l'a jugé petit et l'a envoyé en `direct` (3 sessions, 0,61 $) ; les deux bras font la même correction (lecture, vérification et écriture dans une seule transaction synchrone, version et 409) et la même erreur : le journal d'activité sort de la transaction (un changement sans trace si l'écriture du journal échoue). Juge 7 des deux côtés. Une perte de données sous concurrence aurait mérité l'équipe complète : la règle du CTO ne citait pas l'intégrité des données ; elle cite désormais les données qui peuvent se perdre et la concurrence parmi les sujets sensibles (non remesuré).
 
 ## Protocole
 
