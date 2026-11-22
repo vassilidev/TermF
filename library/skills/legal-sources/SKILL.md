@@ -65,7 +65,8 @@ force and cites it; what it cannot source stays "to check".
    the court, chamber, date, number and ECLI. CNIL and regulators: cite the page and its date. Label both as
    interpretation, after the text they interpret. Done when no obligation rests on case law or guidance alone.
 8. **Mark the rest "to check".** A mandatory notice, a deadline or an amount you could not source goes in a
-   "to check" list with what you searched and where; it is never written as fact. Done when every statement is
+   "to check" list with what you searched and where; it is never written as fact, not even when the user asks
+   for a quick figure without a lookup: then it only appears under "to check". Done when every statement is
    either cited or listed as "to check".
 9. **Close the deliverable.** Draft each notice or clause for copy or docs with its source, then end with the
    line `To be validated by a legal professional before use.` Done when that line is the last one.
