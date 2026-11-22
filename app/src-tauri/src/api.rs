@@ -2015,6 +2015,7 @@ mod tests {
             policy: None,
             remote,
             typed: None,
+            loops: Loops::default(),
         }
     }
 

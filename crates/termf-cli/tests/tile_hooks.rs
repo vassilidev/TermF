@@ -16,6 +16,7 @@ use interprocess::local_socket::{GenericFilePath, ListenerOptions, prelude::*};
 use serde_json::{Value, json};
 use termf_core::agent_env::{self, AgentEnv};
 use termf_core::claude::{self, Tool};
+use termf_core::loops::{Kind, Loops, now_ms};
 use termf_term::{Sessions, SpawnSpec, shell_command, shell_quote};
 
 const TOKEN: &str = "tile-token";
@@ -131,6 +132,68 @@ fn events(got: &Mutex<Vec<Value>>, session: u32) -> Vec<String> {
             r["method"] == "hook" && r["token"] == TOKEN && r["params"]["session"] == session
         })
         .filter_map(|r| r["params"]["event"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Shows the tile's screen to the test, says yes to trusting the throwaway folder, and waits for the session.
+fn started(sessions: &Sessions, id: u32, got: &Mutex<Vec<Value>>) -> Arc<Mutex<String>> {
+    let screen = Arc::new(Mutex::new(String::new()));
+    let seen = screen.clone();
+    sessions
+        .attach(
+            id,
+            1,
+            Box::new(move |out| {
+                if let termf_term::Output::Data(d) = out {
+                    seen.lock().unwrap().push_str(&String::from_utf8_lossy(&d));
+                }
+            }),
+        )
+        .unwrap();
+    let mut trusted = false;
+    wait_for(
+        || report(got, id, &screen),
+        Duration::from_secs(60),
+        || {
+            // A new folder: Claude Code asks whether to trust it ("No, exit" first) before it loads any hook.
+            if !trusted && screen.lock().unwrap().contains("trust") {
+                trusted = true;
+                std::thread::sleep(Duration::from_secs(2));
+                let _ = sessions.write(id, b"\x1b[B");
+                std::thread::sleep(Duration::from_millis(300));
+                let _ = sessions.write(id, b"\r");
+            }
+            events(got, id).iter().any(|e| e == "SessionStart")
+        },
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    screen
+}
+
+fn report(got: &Mutex<Vec<Value>>, id: u32, screen: &Mutex<String>) -> String {
+    let text = screen.lock().unwrap().clone();
+    let tail = text.chars().rev().take(4000).collect::<String>();
+    format!(
+        "hooks {:?}, screen:\n{}",
+        events(got, id),
+        tail.chars().rev().collect::<String>()
+    )
+}
+
+/// What TermF reads from each hook of `session`.
+fn payloads(got: &Mutex<Vec<Value>>, session: u32) -> Vec<(String, Value)> {
+    got.lock()
+        .unwrap()
+        .iter()
+        .filter(|r| {
+            r["method"] == "hook" && r["token"] == TOKEN && r["params"]["session"] == session
+        })
+        .filter_map(|r| {
+            Some((
+                r["params"]["event"].as_str()?.to_owned(),
+                r["params"]["payload"].clone(),
+            ))
+        })
         .collect()
 }
 
@@ -260,42 +323,9 @@ fn the_real_claude_code_reports_through_its_hooks() {
         repo: fs::canonicalize(&repo).unwrap(),
         root: root.clone(),
     };
-    let screen = Arc::new(Mutex::new(String::new()));
-    let seen = screen.clone();
-    sessions
-        .attach(
-            id,
-            1,
-            Box::new(move |out| {
-                if let termf_term::Output::Data(d) = out {
-                    seen.lock().unwrap().push_str(&String::from_utf8_lossy(&d));
-                }
-            }),
-        )
-        .unwrap();
-    let what = || {
-        let text = screen.lock().unwrap().clone();
-        let tail = text.chars().rev().take(4000).collect::<String>();
-        format!(
-            "hooks {:?}, screen:\n{}",
-            events(&got, id),
-            tail.chars().rev().collect::<String>()
-        )
-    };
+    let screen = started(&sessions, id, &got);
+    let what = || report(&got, id, &screen);
     let has = |e: &str| events(&got, id).iter().any(|x| x == e);
-    let mut trusted = false;
-    wait_for(what, Duration::from_secs(60), || {
-        // A new folder: Claude Code asks whether to trust it ("No, exit" first) before it loads any hook.
-        if !trusted && screen.lock().unwrap().contains("trust") {
-            trusted = true;
-            std::thread::sleep(Duration::from_secs(2));
-            let _ = sessions.write(id, b"\x1b[B");
-            std::thread::sleep(Duration::from_millis(300));
-            let _ = sessions.write(id, b"\r");
-        }
-        has("SessionStart")
-    });
-    std::thread::sleep(Duration::from_secs(2));
     sessions
         .type_line(id, "Reply with the single word ok")
         .unwrap();
@@ -311,6 +341,63 @@ fn the_real_claude_code_reports_through_its_hooks() {
             .unwrap_or_else(|| panic!("no {e}: {events:?}"))
     };
     assert!(at("SessionStart") < at("UserPromptSubmit") && at("UserPromptSubmit") < at("Stop"));
+}
+
+/// The real Claude Code (haiku) runs `/loop 1m …` in a tile: what its hooks tell TermF shows the loop, until the
+/// session ends. `TERMF_TEST_REAL_CLAUDE=1 cargo test -p termf-cli --test tile_hooks -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn the_real_claude_code_shows_its_loop_to_termf() {
+    assert!(std::env::var_os("TERMF_TEST_REAL_CLAUDE").is_some());
+    let root = std::env::temp_dir().join(format!("termf-tile-loop-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let (repo, dir) = (root.join("repo"), root.join("session"));
+    for d in [&repo, &dir] {
+        fs::create_dir_all(d).unwrap();
+    }
+    let got = fake_termf(&root.join("termf.sock"));
+    let sessions = sessions(&root.join("termf.sock"));
+    let id = tile(
+        &sessions,
+        "claude",
+        "--model haiku --max-budget-usd 0.10",
+        &repo,
+        &dir,
+        app_env(),
+    );
+    let _cleanup = Cleanup {
+        sessions: &sessions,
+        id,
+        repo: fs::canonicalize(&repo).unwrap(),
+        root: root.clone(),
+    };
+    let screen = started(&sessions, id, &got);
+    let what = || report(&got, id, &screen);
+    let has = |e: &str| events(&got, id).iter().any(|x| x == e);
+    sessions
+        .type_line(id, "/loop 1m reply with the single word hi")
+        .unwrap();
+    wait_for(what, Duration::from_secs(120), || has("Stop"));
+    let mut loops = Loops::default();
+    for (event, payload) in payloads(&got, id) {
+        loops.hook(&event, &payload, now_ms());
+    }
+    let active = loops.active(now_ms());
+    eprintln!("loops: {active:?}");
+    assert!(
+        active.iter().any(|l| l.kind == Kind::Cron
+            && l.from_loop
+            && l.recurring
+            && matches!(l.cron.as_deref(), Some("* * * * *" | "*/1 * * * *"))),
+        "{active:?}\n{}",
+        what()
+    );
+    sessions.type_line(id, "/exit").unwrap();
+    wait_for(what, Duration::from_secs(30), || has("SessionEnd"));
+    for (event, payload) in payloads(&got, id) {
+        loops.hook(&event, &payload, now_ms());
+    }
+    assert!(loops.active(now_ms()).is_empty());
 }
 
 /// Leaves nothing in your Claude Code data, even when the test fails: `claude purge` takes the throwaway folder's
