@@ -16,11 +16,13 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use termf_agents::{AgentEvent, Agents, Outcome, SessionSpec, State};
+use termf_core::squads::{Membership, Squad, Team as Squads, canonical_role, same_role};
 use termf_library::{Kind, Layer, Scope};
 
 mod git;
 pub mod plan;
 pub mod rules;
+pub mod squads;
 mod store;
 #[cfg(all(test, unix))]
 mod tests;
@@ -1050,9 +1052,13 @@ impl Inner {
                 );
             }
         };
-        let roles = self.roles(run).unwrap_or_default();
+        let squads = match self.squads(run) {
+            Ok(squads) => squads,
+            Err(e) => return self.block(store, run, i, &format!("{e:#}")),
+        };
+        let roles = self.roles(run, &squads).unwrap_or_default();
         let names: Vec<String> = roles.into_iter().map(|(n, _)| n).collect();
-        let problems = plan::check_plan(&plan, &names, &run.target.repo);
+        let problems = plan::check_plan(&plan, &names, &run.target.repo, &squads);
         if !problems.is_empty() {
             return self.retry(
                 store,
@@ -1074,6 +1080,9 @@ impl Inner {
             "plan",
             &format!("{}: {}", plan.summary, tasks.join(", ")),
         );
+        for stray in plan::stray_hints(&plan, &squads) {
+            self.event(store, run, Some(&key), "violation", &stray);
+        }
         let questions = plan.questions.clone();
         run.plan = Some(plan);
         if !questions.is_empty() {
@@ -1208,16 +1217,23 @@ impl Inner {
             .context("the task has no report")?;
         let mut violations = Vec::new();
         let rules = self.rules(run, Some(&task.id), &worktree)?;
-        let role = self
-            .scope(run, &worktree)
-            .and_then(|s| termf_library::role(&self.config_dir, &s, &task.role));
+        let squad = self.squad_of(run, &task)?;
+        let squad_id = squad.as_ref().map(|s| s.id.clone());
+        let role = self.scope(run, &worktree).and_then(|s| {
+            let s = Scope {
+                squad: squad_id.clone(),
+                ..s
+            };
+            termf_library::role(&self.config_dir, &s, &task.role)
+        });
         let writes = role.map(|r| list(r.meta.get("writes"))).unwrap_or_default();
+        let paths = squad.map(|s| s.paths).unwrap_or_default();
         for rule in rules
             .iter()
-            .filter(|r| r.level >= Level::Warn && r.applies(&task.role))
+            .filter(|r| r.level >= Level::Warn && r.applies(&task.role, squad_id.as_deref()))
         {
             let found = match rule.check.as_deref() {
-                Some("scope") => rules::check_scope(&task, &writes, &report, &files, lines),
+                Some("scope") => rules::check_scope(&task, &writes, &paths, &report, &files, lines),
                 Some("text-changes") => rules::check_texts(&diff, &run.target.brief, &report),
                 Some("ui-changed") => {
                     run.ui_changed |= task.ui_impact
@@ -1546,6 +1562,9 @@ impl Inner {
                     if running(Some(StepKind::Task)).any(|s| rules::overlap(&mine, &hints(s))) {
                         return Ok(false);
                     }
+                    if self.squad_full(run, i) {
+                        return Ok(false);
+                    }
                 }
                 let running = running(None).count();
                 let budget = self.share(run, i);
@@ -1745,14 +1764,66 @@ impl Inner {
         });
     }
 
-    /// The library's roles, with their description, for the plan.
-    fn roles(&self, run: &TeamRun) -> Result<Vec<(String, String)>> {
+    /// The roles a task may have, with their description: the library's, but neither those that say
+    /// `plannable: false` nor `orchestrator`, the former name of the lead who plans; when the project declares
+    /// squads, only the roles of its squads and of its staff.
+    fn roles(&self, run: &TeamRun, squads: &Squads) -> Result<Vec<(String, String)>> {
         let scope = self.scope(run, &run.target.worktree)?;
+        let staffed = |name: &str| {
+            !squads.declared
+                || squads.staff.iter().any(|r| same_role(r, name))
+                || squads.squads.iter().any(|s| s.has(name))
+        };
         Ok(termf_library::resolve(&self.config_dir, &scope)?
             .into_iter()
             .filter(|i| i.kind == Kind::Role && (i.layer != Layer::Repo || i.active))
+            .filter(|i| {
+                termf_library::plannable(i) && canonical_role(&i.name) == i.name && staffed(&i.name)
+            })
             .map(|i| (i.name, i.description.unwrap_or_default()))
             .collect())
+    }
+
+    fn squads(&self, run: &TeamRun) -> Result<Squads> {
+        termf_core::squads::load_team(&self.config_dir, &run.target.project)
+    }
+
+    /// The squad a task works in; `None` for a staff role. A project's file that cannot be read is an error:
+    /// the task would lose its squad's paths and settings.
+    fn squad_of(&self, run: &TeamRun, task: &Task) -> Result<Option<Squad>> {
+        Ok(squad_in(&self.squads(run)?, task))
+    }
+
+    /// Whether the task step `i` must wait for its squad: as many of its tasks at work as it allows, or of its
+    /// role.
+    fn squad_full(&self, run: &TeamRun, i: usize) -> bool {
+        let task_of = |s: &Step| {
+            run.plan
+                .as_ref()?
+                .tasks
+                .iter()
+                .find(|t| Some(&t.id) == s.task.as_ref())
+                .cloned()
+        };
+        let (Some(task), Ok(squads)) = (task_of(&run.steps[i]), self.squads(run)) else {
+            return false;
+        };
+        let Some(squad) = squad_in(&squads, &task) else {
+            return false;
+        };
+        let mates: Vec<Task> = run
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Task && s.state == StepState::Running)
+            .filter_map(task_of)
+            .filter(|t| squad_in(&squads, t).is_some_and(|s| s.id == squad.id))
+            .collect();
+        let peers = mates
+            .iter()
+            .filter(|t| same_role(&t.role, &task.role))
+            .count();
+        squad.max_parallel.is_some_and(|m| mates.len() >= m)
+            || squad.count(&task.role).is_some_and(|n| peers >= n)
     }
 
     /// The rules for a step of `task`, at their levels: `termf.toml`'s `[rules]`, then the workflow's, the
@@ -1807,7 +1878,14 @@ impl Inner {
             .clone()
             .unwrap_or_else(|| run.target.worktree.clone());
         let role_name = step.role.clone().context("the step has no role")?;
-        let scope = self.scope(run, &cwd)?;
+        let squad = match &task {
+            Some(task) => self.squad_of(run, task)?.map(|s| s.id),
+            None => None,
+        };
+        let scope = Scope {
+            squad: squad.clone(),
+            ..self.scope(run, &cwd)?
+        };
         let role = termf_library::role(&self.config_dir, &scope, &role_name)?;
         let levels = self
             .rules(run, step.task.as_deref(), &cwd)?
@@ -1823,6 +1901,7 @@ impl Inner {
             title: format!("{} · {} · {role_name}", run.target.ticket, step.key),
             project: Some(run.target.project.clone()),
             role: Some(role_name.clone()),
+            squad,
             effort,
             // Nobody watches a step to approve each edit; the role says otherwise when it must.
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
@@ -1885,6 +1964,18 @@ impl Inner {
                 }
             ));
         }
+        let squad = match task {
+            Some(task) => self.squad_of(run, task)?,
+            None => None,
+        };
+        if let Some(squad) = squad.filter(|s| !s.paths.is_empty() || !s.domains.is_empty()) {
+            text.push_str(&format!(
+                "\nYou work in squad {}{}{}. Stay within its paths; report what lies outside instead of changing it.\n",
+                squad.id,
+                labelled("; its paths: ", &squad.paths),
+                labelled("; its domains: ", &squad.domains),
+            ));
+        }
         if let Some(prompt) = &step.prompt {
             text.push_str(&format!("\n{prompt}\n"));
         }
@@ -1927,15 +2018,31 @@ impl Inner {
             text.push_str(&format!("\n## To address in this attempt\n\n{feedback}\n"));
         }
         if step.plan {
-            let roles = self.roles(run)?;
+            let squads = self.squads(run)?;
+            let roles = self.roles(run, &squads)?;
             let roles: Vec<String> = roles.iter().map(|(n, d)| format!("- {n}: {d}")).collect();
+            let squad = match squads.declared {
+                false => "the squad `\"\"`",
+                true => {
+                    let mut list: Vec<String> = squads.squads.iter().map(describe).collect();
+                    if !squads.staff.is_empty() {
+                        list.push(format!(
+                            "- staff, squad `\"\"`: {}",
+                            squads.staff.join(", ")
+                        ));
+                    }
+                    text.push_str(&format!("\n## The squads\n\n{}\n", list.join("\n")));
+                    "its squad (one above that has the task's role and whose paths hold its files; `\"\"` for a \
+                     staff role)"
+                }
+            };
             text.push_str(&format!(
                 "\n## What to answer\n\nThe plan, as JSON: summary, acceptance criteria (id, text), out of scope, \
                  questions (anything you must know before work starts; empty when nothing blocks), and tasks, each \
-                 with an id (T1, T2…), a role, the repository `{}`, a size (S, M or L), the criteria it covers, its \
-                 goal, the files it should touch (paths relative to the repository), the tasks it depends on and \
-                 whether it changes the interface. Tasks that touch the same files run one after the other; the \
-                 others in parallel, each in its own worktree. The roles you may use:\n{}\n",
+                 with an id (T1, T2…), a role, {squad}, the repository `{}`, a size (S, M or L), the criteria it \
+                 covers, its goal, the files it should touch (paths relative to the repository), the tasks it \
+                 depends on and whether it changes the interface. Tasks that touch the same files run one after \
+                 the other; the others in parallel, each in its own worktree. The roles you may use:\n{}\n",
                 t.repo,
                 roles.join("\n")
             ));
@@ -1944,9 +2051,10 @@ impl Inner {
                 "\n## How to work\n\nWork in this folder only. Do not commit, push or open a pull request: TermF \
                  commits, merges and delivers once the user agrees. When you are done, answer with your report as \
                  JSON: status (done, blocked when you cannot go on without an answer, with your questions; failed), \
-                 summary, the criteria it covers, each visible text you added or changed (text_changes, with the \
-                 criterion that justifies it), the screens and states you touched (affected_views), and the problems \
-                 you saw out of scope (out_of_scope_findings), which you never fix.\n",
+                 summary, the ids of the criteria it covers (covers: AC1…, never prose), each visible text you \
+                 added or changed (text_changes, with the criterion that justifies it), the screens and states you \
+                 touched (affected_views), and the problems you saw out of scope (out_of_scope_findings), which you \
+                 never fix.\n",
             );
         }
         text.push_str(&format!(
@@ -1955,6 +2063,44 @@ impl Inner {
             t.brief
         ));
         Ok(text)
+    }
+}
+
+fn squad_in(squads: &Squads, task: &Task) -> Option<Squad> {
+    match squads.place(&task.squad, &task.role) {
+        Ok(Membership::Squad(squad)) => Some(squad.clone()),
+        _ => None,
+    }
+}
+
+/// A squad for the planner: its roles with their count, repositories, paths and domains.
+fn describe(squad: &Squad) -> String {
+    let roles: Vec<String> = squad
+        .roles
+        .iter()
+        .map(|(r, n)| match n {
+            1 => r.clone(),
+            n => format!("{r} ×{n}"),
+        })
+        .collect();
+    format!(
+        "- {}: roles {}{}{}{}",
+        squad.id,
+        match roles.is_empty() {
+            true => "any".to_owned(),
+            false => roles.join(", "),
+        },
+        labelled("; repositories ", &squad.repos),
+        labelled("; paths ", &squad.paths),
+        labelled("; domains ", &squad.domains),
+    )
+}
+
+/// `label` then the items, or nothing without items.
+fn labelled(label: &str, items: &[String]) -> String {
+    match items.is_empty() {
+        true => String::new(),
+        false => format!("{label}{}", items.join(", ")),
     }
 }
 
@@ -1973,7 +2119,7 @@ fn bounded(effort: &str, range: Option<&serde_json::Value>) -> String {
 }
 
 /// A frontmatter list: a YAML list, or a comma-separated string.
-fn list(value: Option<&serde_json::Value>) -> Vec<String> {
+pub(crate) fn list(value: Option<&serde_json::Value>) -> Vec<String> {
     match value {
         Some(serde_json::Value::String(s)) => s
             .split(',')

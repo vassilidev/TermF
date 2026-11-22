@@ -153,3 +153,11 @@ pub async fn team_events(
     })
     .await
 }
+
+#[tauri::command]
+pub async fn team_squads(app: AppHandle, project: String) -> CmdResult<termf_team::squads::View> {
+    blocking(app, move |app| {
+        termf_team::squads::view(&state_of(app).config_dir, &project)
+    })
+    .await
+}

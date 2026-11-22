@@ -80,6 +80,9 @@ pub struct SessionSpec {
     /// The library role it plays (ARCHITECTURE §7.3): its prompt, and its model, effort, permission mode and
     /// tools unless set here; then only the preferences and rules that apply to it.
     pub role: Option<String>,
+    /// The squad of the project it works in: its settings for the role, and the preferences and rules for it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub squad: Option<String>,
     /// `--allowedTools` and `--disallowedTools`, the role's included.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed_tools: Vec<String>,

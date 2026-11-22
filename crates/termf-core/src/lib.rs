@@ -12,6 +12,7 @@ pub mod context;
 pub mod ipc;
 pub mod process;
 pub mod shell;
+pub mod squads;
 
 const DEFAULT_SETTINGS: &str = r#"# TermF — global settings
 # Folders scanned for git repositories. Hidden, system, media and dependency folders are skipped.
