@@ -5,7 +5,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { onDestroy } from "svelte";
-  import { ui } from "$lib/state.svelte";
+  import { onScreen } from "$lib/state.svelte";
   import { t } from "$lib/i18n";
   import { copySecret } from "$lib/ssh.svelte";
 
@@ -40,7 +40,7 @@
     error = "";
     try {
       const key = await load(encrypted ? passphrase : null);
-      if (asked !== request || gone || ui.view !== "ssh") return;
+      if (asked !== request || gone || !onScreen("ssh")) return;
       text = key;
       left = SHOW_FOR;
       clearInterval(timer);
@@ -58,7 +58,7 @@
 
   // The SSH view stays mounted behind the others: leaving it hides the key.
   $effect(() => {
-    if (ui.view !== "ssh") hide();
+    if (!onScreen("ssh")) hide();
   });
   onDestroy(() => {
     gone = true;

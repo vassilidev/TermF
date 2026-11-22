@@ -5,13 +5,14 @@
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import TeamSquads from "$lib/TeamSquads.svelte";
   import { agents, inScope, showConversation } from "$lib/agents.svelte";
   import { focusSession } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { currentProject } from "$lib/files.svelte";
   import { library, showLibrary, type Item, type Layer } from "$lib/library.svelte";
   import { sessionProjects } from "$lib/project.svelte";
-  import { app, shortPath, ui } from "$lib/state.svelte";
+  import { app, onScreen, shortPath } from "$lib/state.svelte";
   import { access, initials } from "$lib/team-logic";
   import { team } from "$lib/team.svelte";
 
@@ -21,7 +22,7 @@
   const project = $derived(currentProject());
   const scope = $derived(app.project ?? "");
   const here = $derived<Layer>(scope ? "project" : "global");
-  const visible = $derived(ui.view === "team");
+  const visible = $derived(onScreen("team"));
 
   // A session in a tile is listed once, as its tile; a headless one only while its process lives.
   // The current project's own, whatever the Terminals view shows (its "every project" toggle).
@@ -143,6 +144,8 @@
         </ul>
       </section>
     {/if}
+
+    <TeamSquads />
 
     <section aria-labelledby="team-roles">
       <h2 id="team-roles">{t("metaRoles")}</h2>

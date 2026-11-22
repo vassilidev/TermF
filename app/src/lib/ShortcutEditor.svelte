@@ -11,6 +11,7 @@
     conflict,
     display,
     format,
+    groups,
     parse,
     pressedCombo,
     refusal,
@@ -19,16 +20,9 @@
     tokens,
     type KeyAction,
     type Combo,
-    type KeyGroup,
   } from "$lib/keymap-logic";
   import { current, keymap, placeLabel, saveKeys } from "$lib/keymap.svelte";
 
-  const groups: [KeyGroup, Parameters<typeof t>[0]][] = [
-    ["general", "settingsKeysGeneral"],
-    ["terminals", "viewTerminals"],
-    ["files", "viewFiles"],
-    ["tickets", "viewTickets"],
-  ];
   const DIGITS = "1…9";
 
   /** The search of the Settings view. */

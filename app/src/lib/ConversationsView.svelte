@@ -5,10 +5,14 @@
   import Plus from "@lucide/svelte/icons/plus";
   import UserRound from "@lucide/svelte/icons/user-round";
   import Conversation from "$lib/Conversation.svelte";
+  import Square from "@lucide/svelte/icons/square";
+  import Banner from "$lib/ui/Banner.svelte";
+  import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { agents, conversation, listed, upsert, usd, type AgentSession } from "$lib/agents.svelte";
-  import { currentProject, scopeRepos } from "$lib/files.svelte";
+  import { currentProject, isMac, scopeRepos } from "$lib/files.svelte";
+  import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
   import { ago, t } from "$lib/i18n";
   import type { Item } from "$lib/library.svelte";
   import { mostRecent } from "$lib/nav-logic";
@@ -71,6 +75,38 @@
     );
   });
 
+  let picked = $state(none<number>());
+  let asking = $state(false);
+  /** Kept apart from `error`, which belongs to the new session form. */
+  let stopError = $state("");
+  const ids = $derived(sessions.map((s) => s.id));
+  const chosen = $derived(sessions.filter((s) => within(picked.keys, ids).includes(s.id)));
+  const stoppable = $derived(chosen.filter((s) => s.state === "working" || s.state === "waiting" || s.state === "idle"));
+
+  function pickOne(e: MouseEvent, id: number) {
+    e.preventDefault();
+    asking = false;
+    stopError = "";
+    picked = pick(picked, ids, id, e.shiftKey);
+  }
+
+  /** Each one as its own Stop button would; one that fails stays picked. */
+  async function stopPicked() {
+    asking = false;
+    const results: [number, Outcome][] = [];
+    for (const s of stoppable) {
+      try {
+        upsert(await invoke<AgentSession>("agent_stop", { id: s.id }));
+        results.push([s.id, "done"]);
+      } catch (e) {
+        results.push([s.id, { error: String(e) }]);
+      }
+    }
+    const out = settle(results);
+    stopError = out.errors.join(" · ");
+    picked = { keys: out.failed, anchor: null };
+  }
+
   function select(id: number) {
     agents.selected = id;
     agents.creating = false;
@@ -116,11 +152,46 @@
     {/snippet}
   </ViewHeader>
 
+  {#if chosen.length}
+    <SelectionBar
+      count={chosen.length}
+      total={sessions.length}
+      label={t("chatList")}
+      onall={() => ((asking = false), (stopError = ""), (picked = all(picked, ids)))}
+      onclear={() => ((asking = false), (stopError = ""), (picked = none()))}
+    >
+      {#if asking}
+        <span class="ask" role="alert">{t("t6bStopAsk", { count: stoppable.length })}</span>
+        <button class="btn sm" onclick={() => (asking = false)}>{t("cancel")}</button>
+        <button class="btn sm danger" onclick={stopPicked}>{t("chatStop")} · {stoppable.length}</button>
+      {:else}
+        <button class="btn sm" disabled={!stoppable.length} onclick={() => (asking = true)}>
+          <Square size={13} aria-hidden="true" />{t("chatStop")} · {stoppable.length}
+        </button>
+      {/if}
+    </SelectionBar>
+  {/if}
+  {#if stopError}
+    <div class="banners">
+      <Banner kind="error" ondismiss={() => (stopError = "")}>{stopError}</Banner>
+    </div>
+  {/if}
   <div class="split">
-    <ul class="list" aria-label={t("chatList")}>
+    <ul class="list" class:picking={chosen.length > 0} aria-label={t("chatList")}>
       {#each sessions as session (session.id)}
-        <li class="row" class:current={session === current && !creating}>
-          <button class="pick" aria-current={session === current && !creating} onclick={() => select(session.id)}>
+        <li class="row" class:current={session === current && !creating} class:picked={chosen.includes(session)}>
+          <input
+            class="box"
+            type="checkbox"
+            checked={chosen.includes(session)}
+            aria-label={t("t6bPick", { name: session.title })}
+            onclick={(e) => pickOne(e, session.id)}
+          />
+          <button
+            class="pick"
+            aria-current={session === current && !creating}
+            onclick={(e) => ((isMac ? e.metaKey : e.ctrlKey) || e.shiftKey ? pickOne(e, session.id) : select(session.id))}
+          >
             <span class="name">
               <span class="title">{session.title}</span>
               {#if session.role}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}

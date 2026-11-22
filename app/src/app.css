@@ -490,6 +490,24 @@ kbd {
   max-width: 820px;
 }
 
+/* Rows picked several at a time (ui/SelectionBar): each box shows on hover, and all of them once one is picked. */
+:where(input.box) {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease-out;
+}
+
+:where(:hover > input.box, .picking input.box, input.box:focus-visible) {
+  opacity: 1;
+}
+
+:where(.picked) {
+  background: var(--accent-soft);
+}
+
 /* An on/off switch: <input type="checkbox" role="switch" class="switch">. */
 input.switch {
   appearance: none;

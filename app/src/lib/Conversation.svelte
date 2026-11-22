@@ -36,7 +36,7 @@
     type Tool,
   } from "$lib/conversation-logic";
   import { t } from "$lib/i18n";
-  import { app, shortPath, ui, type Session } from "$lib/state.svelte";
+  import { app, onScreen, shortPath, type Session } from "$lib/state.svelte";
 
   let { session }: { session: AgentSession } = $props();
 
@@ -97,7 +97,7 @@
 
   // Back on the view: what came meanwhile is at the bottom.
   $effect(() => {
-    if (ui.view === "conversations") follow(true);
+    if (onScreen("conversations")) follow(true);
   });
 
   // Heard while what is stored loads, or failed to load: `merge` drops what both give.
