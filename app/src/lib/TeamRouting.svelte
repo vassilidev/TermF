@@ -14,6 +14,13 @@
     brand: "rolesKindBrand",
     copy: "rolesKindCopy",
     motion: "rolesKindMotion",
+    database: "roles2KindDatabase",
+    integration: "roles2KindIntegration",
+    reliability: "roles2KindReliability",
+    accessibility: "roles2KindAccessibility",
+    ai: "roles2KindAi",
+    analytics: "roles2KindAnalytics",
+    legal: "roles2KindLegal",
     other: "ctoEntryKindOther",
   };
 

@@ -1,0 +1,9 @@
+- Tool: the project's own (`.maestro/` flows, `.detoxrc.js`, `integration_test/` or Patrol, `*UITests`, `src/androidTest/`); none: Maestro when installed, else report the gap.
+- Docs: `https://docs.maestro.dev` (commands, CLI options), Detox CLI pages, Flutter integration tests page, `xcrun simctl help <subcommand>`, `adb help`, Android CLI reference.
+- Verify: the project's end-to-end command on a booted simulator or emulator; screenshots listed in the report per criterion.
+- Devices by id: `xcrun simctl … <udid>`, `adb -s <serial> …` (`booted` picks any one).
+- Android CLI `android emulator start --headless <avd>` waits for boot; the `emulator` command is deprecated.
+- Maestro: Java 17+, `maestro --device <id> test …` (global option first), `-e` for credentials; `maestro cloud` uploads the app.
+- Reset the app, never the device: no `xcrun simctl erase all`, no `-wipe-data` on the user's AVDs.
+- TermF's visual review does not capture simulators: the screenshot paths in the report are the evidence.
+- Read the skill `mobile-testing` before running or writing a flow on a simulator, an emulator or a device.

@@ -1,0 +1,10 @@
+- Version: `expo` in the lockfile (its major is the SDK); the SDK pins React Native and React (SDK 58: React Native 0.88, React 19.3.0; SDK 57: 0.86, 19.2.3). No `expo`: React Native alone, read `react-native`.
+- Docs for this version: `https://docs.expo.dev/llms.txt` (pages as `.md`), `https://docs.expo.dev/versions/v<SDK>.0.0/`, `https://reactnative.dev/llms.txt`; official skills `expo/skills` (MIT).
+- Verify: the project's scripts, else `npx expo install --check`, `npx expo-doctor@latest`, `npx tsc --noEmit`, `npx expo lint`.
+- Packages through `npx expo install` (SDK-matched versions); `react-native` and `react` move only with the SDK.
+- Continuous Native Generation (`ios/` and `android/` gitignored): native changes go in the app config or a config plugin, then `npx expo prebuild --clean`.
+- New Architecture only since SDK 55: `newArchEnabled` is ignored; libraries without support are out.
+- SDK 58: Node 22.13+/24.3+/26+, iOS scene lifecycle, no deep imports from `react-native/Libraries/*`, R8 in Android release builds.
+- EAS Update cannot ship native changes: new build and new `runtimeVersion`; `eas update` needs `--environment` since SDK 55.
+- Expo Router: every file in `src/app/` (or `app/`) is a route; components live outside it.
+- Read the skill `react-native-expo` before adding a package, changing native config or routes, or upgrading the SDK.

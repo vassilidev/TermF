@@ -115,6 +115,134 @@ const INFRA_FILES: [&str; 13] = [
     "Procfile",
 ];
 const MAX_INFRA: usize = 12;
+/// The dependencies that call for a specialist, by kind of signal, in npm, PyPI, Composer, RubyGems, Go and
+/// crates.io names.
+const DEPS: [(&str, &[&str]); 4] = [
+    (
+        "data",
+        &[
+            "prisma",
+            "@prisma/client",
+            "drizzle-orm",
+            "typeorm",
+            "sequelize",
+            "knex",
+            "@mikro-orm/core",
+            "mongoose",
+            "sqlalchemy",
+            "alembic",
+            "django",
+            "peewee",
+            "tortoise-orm",
+            "rails",
+            "activerecord",
+            "laravel/framework",
+            "doctrine/orm",
+            "doctrine/migrations",
+            "gorm.io/gorm",
+            "entgo.io/ent",
+            "github.com/golang-migrate/migrate",
+            "github.com/pressly/goose",
+            "diesel",
+            "sqlx",
+            "sea-orm",
+        ],
+    ),
+    (
+        "llm",
+        &[
+            "openai",
+            "@anthropic-ai/sdk",
+            "anthropic",
+            "@ai-sdk/openai",
+            "@ai-sdk/anthropic",
+            "@ai-sdk/google",
+            "@google/genai",
+            "google-genai",
+            "google-generativeai",
+            "@mistralai/mistralai",
+            "mistralai",
+            "cohere-ai",
+            "cohere",
+            "langchain",
+            "@langchain/core",
+            "llamaindex",
+            "llama-index",
+            "litellm",
+            "ollama",
+            "groq-sdk",
+            "async-openai",
+            "github.com/openai/openai-go",
+            "github.com/anthropics/anthropic-sdk-go",
+            "github.com/sashabaranov/go-openai",
+            "openai-php/client",
+            "ruby-openai",
+        ],
+    ),
+    (
+        "analytics",
+        &[
+            "posthog-js",
+            "posthog-node",
+            "posthog",
+            "@segment/analytics-next",
+            "@segment/analytics-node",
+            "analytics-node",
+            "segment-analytics-python",
+            "@amplitude/analytics-browser",
+            "@amplitude/analytics-node",
+            "amplitude-analytics",
+            "mixpanel-browser",
+            "mixpanel",
+            "@vercel/analytics",
+            "plausible-tracker",
+            "react-ga4",
+            "@rudderstack/analytics-js",
+            "@snowplow/browser-tracker",
+        ],
+    ),
+    (
+        "integrations",
+        &[
+            "stripe",
+            "@stripe/stripe-js",
+            "stripe/stripe-php",
+            "github.com/stripe/stripe-go",
+            "async-stripe",
+            "@paypal/paypal-js",
+            "braintree",
+            "@adyen/api-library",
+            "@mollie/api-client",
+            "mollie/mollie-api-php",
+            "@paddle/paddle-node-sdk",
+            "openid-client",
+            "next-auth",
+            "@auth/core",
+            "@node-saml/passport-saml",
+            "@node-saml/node-saml",
+            "passport-saml",
+            "samlify",
+            "python3-saml",
+            "pysaml2",
+            "authlib",
+            "omniauth-saml",
+            "omniauth_openid_connect",
+            "ruby-saml",
+            "onelogin/php-saml",
+            "laravel/socialite",
+            "github.com/coreos/go-oidc",
+            "github.com/crewjam/saml",
+            "openidconnect",
+            "@workos-inc/node",
+            "svix",
+            "@octokit/webhooks",
+            "standardwebhooks",
+        ],
+    ),
+];
+/// Manifests read for those dependencies, and the most markers kept of one kind.
+const MAX_MANIFEST_READS: usize = 50;
+const MAX_SIGNALS: usize = 6;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -137,6 +265,167 @@ pub(crate) fn survey(repo: &Path, facts: &mut Facts, tests: &[String]) {
         .cloned()
         .collect();
     facts.infra = infra(&files);
+    facts.signals = signals(repo, &files);
+}
+
+/// What calls for a specialist: the dependencies of `DEPS` its manifests list, its migrations and schema files
+/// (`data`), its docs folder, API specs and changelog (`docs`).
+fn signals(repo: &Path, files: &[String]) -> BTreeMap<String, Vec<String>> {
+    let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let manifests = files.iter().filter(|f| {
+        let (dir, name) = f.rsplit_once('/').unwrap_or(("", f));
+        let requirements = name.ends_with(".txt")
+            && (name.starts_with("requirements") || dir.rsplit('/').next() == Some("requirements"));
+        MANIFESTS.contains(&name) || requirements
+    });
+    for file in manifests.take(MAX_MANIFEST_READS) {
+        let Ok(text) = fs::read_to_string(repo.join(file)) else {
+            continue;
+        };
+        let listed = normal(&dependencies(file, &text));
+        for (kind, deps) in DEPS {
+            for dep in deps.iter().filter(|d| names(&listed, d)) {
+                found
+                    .entry(kind.into())
+                    .or_default()
+                    .insert(dep.to_string());
+            }
+        }
+    }
+    for f in files {
+        let dirs: Vec<&str> = f.split('/').collect();
+        let (name, folders) = dirs.split_last().unwrap_or((&"", &[]));
+        // Folder names in any case: Entity Framework writes `Migrations/`.
+        let lower: Vec<String> = folders.iter().map(|d| d.to_lowercase()).collect();
+        let upto = |i: usize| format!("{}/", folders[..=i].join("/"));
+        let at = |dir: &[&str]| lower.windows(dir.len()).position(|w| w == dir);
+        let data = at(&["migrations"])
+            .map(upto)
+            .or_else(|| at(&["db", "migrate"]).map(|i| upto(i + 1)))
+            .or_else(|| at(&["alembic", "versions"]).map(|i| upto(i + 1)))
+            .or_else(|| name.ends_with(".prisma").then(|| f.clone()));
+        if let Some(marker) = data {
+            found.entry("data".into()).or_default().insert(marker);
+        }
+        let spec = ["openapi.", "swagger."].iter().any(|p| name.starts_with(p))
+            && [".yaml", ".yml", ".json"].iter().any(|e| name.ends_with(e));
+        let docs = if lower.first().is_some_and(|d| d == "docs") {
+            Some(format!("{}/", folders[0]))
+        } else if spec || (folders.is_empty() && *name == "CHANGELOG.md") {
+            Some(f.clone())
+        } else {
+            None
+        };
+        if let Some(marker) = docs {
+            found.entry("docs".into()).or_default().insert(marker);
+        }
+    }
+    found
+        .into_iter()
+        .map(|(kind, set)| (kind, set.into_iter().take(MAX_SIGNALS).collect()))
+        .collect()
+}
+
+/// The dependencies a manifest lists, one a line: the keys of a JSON manifest's dependency tables, the packages of
+/// a TOML one's, a Gemfile's `gem` lines, a `go.mod` or a requirements file without comments. A name or a
+/// description is no dependency.
+fn dependencies(file: &str, text: &str) -> String {
+    let name = file.rsplit('/').next().unwrap_or(file);
+    let uncommented = |mark: &str| -> Vec<String> {
+        text.lines()
+            .map(|l| l.split(mark).next().unwrap_or_default().trim().to_owned())
+            .filter(|l| !l.is_empty())
+            .collect()
+    };
+    let list: Vec<String> = match name {
+        _ if name.ends_with(".json") => {
+            let Ok(json) = serde_json::from_str::<Value>(text) else {
+                return String::new();
+            };
+            [
+                "dependencies",
+                "devDependencies",
+                "peerDependencies",
+                "optionalDependencies",
+                "require",
+                "require-dev",
+            ]
+            .iter()
+            .filter_map(|k| json[*k].as_object())
+            .flat_map(|o| o.keys().cloned())
+            .collect()
+        }
+        "pyproject.toml" | "Cargo.toml" => {
+            let mut list = Vec::new();
+            if let Ok(table) = toml::from_str::<toml::Table>(text) {
+                toml_dependencies(&table, &mut list);
+            }
+            list
+        }
+        "Gemfile" => uncommented("#")
+            .into_iter()
+            .filter(|l| l.starts_with("gem ") || l.starts_with("gem("))
+            .collect(),
+        "go.mod" => uncommented("//")
+            .into_iter()
+            .filter(|l| !l.starts_with("module "))
+            .collect(),
+        _ => uncommented("#"),
+    };
+    list.join("\n")
+}
+
+/// The packages of the dependency tables of a Cargo or Poetry manifest (renamed ones by their `package` too),
+/// and the requirements of PEP 621 and PEP 735 lists, at any depth (`[workspace.dependencies]`,
+/// `[tool.poetry.group.dev.dependencies]`, `[target.'cfg(…)'.dependencies]`).
+fn toml_dependencies(table: &toml::Table, list: &mut Vec<String>) {
+    let strings = |items: &[toml::Value]| -> Vec<String> {
+        items
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect()
+    };
+    for (key, value) in table {
+        let deps = key.ends_with("dependencies") || key == "dependency-groups";
+        match value {
+            toml::Value::Array(items) if deps => list.extend(strings(items)),
+            toml::Value::Table(packages) if deps => {
+                for (package, spec) in packages {
+                    match spec {
+                        // An extra or a group: its requirements.
+                        toml::Value::Array(items) => list.extend(strings(items)),
+                        spec => {
+                            list.push(package.clone());
+                            if let Some(real) = spec.get("package").and_then(|p| p.as_str()) {
+                                list.push(real.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+            toml::Value::Table(inner) => toml_dependencies(inner, list),
+            _ => {}
+        }
+    }
+}
+
+/// A package name as registries compare them: PyPI and Composer ignore case, and PyPI takes `_`, `-` and `.` for
+/// one another (`llama_index` is `llama-index`).
+fn normal(name: &str) -> String {
+    name.to_lowercase().replace(['_', '.'], "-")
+}
+
+/// Whether `text`, made `normal`, names the package `name` whole: `stripe` in `gem "stripe"` or `stripe==9`, not
+/// in `stripe-mock`; a Go module also before its major version (`github.com/stripe/stripe-go/v82`).
+fn names(text: &str, name: &str) -> bool {
+    let edge =
+        |c: Option<char>| c.is_none_or(|c| c.is_whitespace() || "\"'=<>~!^,[](){}:;#".contains(c));
+    let go = name.contains('.') && name.contains('/');
+    let name = normal(name);
+    text.match_indices(&name).any(|(i, _)| {
+        let after = text[i + name.len()..].chars().next();
+        edge(text[..i].chars().next_back()) && (edge(after) || (go && after == Some('/')))
+    })
 }
 
 fn files(repo: &Path) -> Vec<String> {
@@ -706,6 +995,28 @@ fn propose(
     };
     let tests = unique(repos.iter().flat_map(|r| r.tests.clone()).collect());
     let infra = unique(repos.iter().flat_map(|r| r.infra.clone()).collect());
+    // A file or a folder, as `labels` names a part: with its repository's name when there are several.
+    let found = |kind: &str| -> Vec<String> {
+        let dependency = |m: &str| DEPS.iter().any(|(_, list)| list.contains(&m));
+        unique(
+            repos
+                .iter()
+                .flat_map(|r| {
+                    let markers = r.signals.get(kind).cloned().unwrap_or_default();
+                    markers.into_iter().map(|m| match many && !dependency(&m) {
+                        true => format!("{}/{m}", r.name),
+                        false => m,
+                    })
+                })
+                .collect(),
+        )
+    };
+    let signal = |kind: &'static str, none: &'static str| match found(kind) {
+        list if list.is_empty() => (false, none, list),
+        list => (true, kind, list),
+    };
+    // Payments, sign-in and analytics handle personal data, which the law frames even without a public site.
+    let personal = unique([found("integrations"), found("analytics")].concat());
 
     let mut choices = Vec::new();
     for role in roles.iter().filter(|r| r.plannable) {
@@ -722,6 +1033,18 @@ fn propose(
             "ux" | "brand" | "copy" => (false, "no-ui", Vec::new()),
             "seo" | "motion" if !web.is_empty() => (true, "web", labels(&web)),
             "seo" | "motion" => (false, "no-web", Vec::new()),
+            "a11y" if !front.is_empty() => (true, "ui", labels(&front)),
+            "a11y" => (false, "no-ui", Vec::new()),
+            "dba" => signal("data", "no-data"),
+            "ai" => signal("llm", "no-llm"),
+            "analytics" => signal("analytics", "no-analytics"),
+            "integrations" => signal("integrations", "no-integrations"),
+            "docs" => signal("docs", "no-docs"),
+            "sre" if !back.is_empty() && !infra.is_empty() => (true, "service", infra.clone()),
+            "sre" => (false, "no-service", Vec::new()),
+            "legal" if !web.is_empty() => (true, "web", labels(&web)),
+            "legal" if !personal.is_empty() => (true, "personal", personal.clone()),
+            "legal" => (false, "no-public", Vec::new()),
             "architect" => (true, "design", Vec::new()),
             _ => (true, "own", Vec::new()),
         };
