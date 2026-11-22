@@ -135,6 +135,11 @@ impl AgentRuntime for ClaudeCode {
                 prompt.to_string_lossy().into_owned(),
             ]);
         }
+        // Both in one `--settings`: several are not known to add up.
+        let mut settings = json!({});
+        if let Some(termf) = launch.guard {
+            settings = termf_core::claude::guard_settings(termf);
+        }
         if spec.mcp {
             // Trifecta (ARCHITECTURE §12.4): no command, no web, no MCP server but TermF's, none of the
             // user's or the repository's settings files, the file tools kept to the repositories.
@@ -146,13 +151,16 @@ impl AgentRuntime for ClaudeCode {
             args.extend(
                 ["--restricted", "--tools", built_in, "--strict-mcp-config"].map(Into::into),
             );
-            args.extend(["--settings".into(), mcp_settings(spec).to_string()]);
+            settings["permissions"] = mcp_settings(spec)["permissions"].take();
             for dir in launch.dirs {
                 args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
             }
         }
         if let Some(config) = launch.mcp {
             args.extend(["--mcp-config".into(), config.to_string_lossy().into_owned()]);
+        }
+        if settings != json!({}) {
+            args.extend(["--settings".into(), settings.to_string()]);
         }
         args
     }

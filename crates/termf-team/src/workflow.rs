@@ -30,6 +30,9 @@ pub enum StepKind {
     Connector,
     /// A task of the plan, added by its `foreach`.
     Task,
+    /// The code review of the run's changes: a session of a role whose important findings go back to the tasks
+    /// that must fix them, then the review again.
+    Review,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -83,6 +86,8 @@ pub struct StepDef {
     /// A `foreach`'s template, read for its budget only: each task runs its own role.
     pub step: Option<toml::Value>,
     pub actions: Vec<String>,
+    /// A `review` step's most rounds, below `[team] review_rounds`.
+    pub rounds: Option<u32>,
 }
 
 impl Default for StepDef {
@@ -99,6 +104,7 @@ impl Default for StepDef {
             budget_usd: None,
             step: None,
             actions: Vec::new(),
+            rounds: None,
         }
     }
 }
@@ -301,7 +307,9 @@ impl Workflow {
             let mut step = self.steps[id].clone();
             step.needs = needs[id].iter().cloned().collect();
             match step.kind {
-                StepKind::Agent => ensure!(step.role.is_some(), "agent step {id} has no role"),
+                StepKind::Agent | StepKind::Review => {
+                    ensure!(step.role.is_some(), "agent step {id} has no role")
+                }
                 StepKind::Foreach => {
                     let over = step.over.as_deref().unwrap_or_default();
                     let source = over.strip_suffix(".tasks").unwrap_or_default();
@@ -365,6 +373,8 @@ mod tests {
         let steps: BTreeMap<String, StepDef> = hotfix.steps().unwrap().into_iter().collect();
         assert!(!steps.contains_key("approve-plan"));
         assert_eq!(steps["implement"].needs, ["plan"], "the gate's own needs");
+        assert_eq!(steps["review"].rounds, Some(1), "a short review");
+        assert_eq!(steps["security"].needs, ["review"], "after the code review");
         assert_eq!(hotfix.description, "Urgent fix: no plan gate");
         assert_eq!(
             (default.approve_route, hotfix.approve_route),
@@ -416,7 +426,7 @@ mod tests {
         let steps: BTreeMap<String, StepDef> = custom.steps().unwrap().into_iter().collect();
         assert_eq!(
             steps["deliver"].needs,
-            ["rules", "visual"],
+            ["review", "visual"],
             "security disabled by the repository"
         );
 

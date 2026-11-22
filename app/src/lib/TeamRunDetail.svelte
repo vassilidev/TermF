@@ -61,7 +61,24 @@
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { showConversation, usd } from "$lib/agents.svelte";
   import { app } from "$lib/state.svelte";
-  import { ROUTE, TRIAGE, asks, budgetError, isForm, levels, progress, type Ask, type TeamRun } from "$lib/team-run-logic";
+  import {
+    ROUTE,
+    TRIAGE,
+    asks,
+    budgetError,
+    held,
+    isForm,
+    levels,
+    progress,
+    rounds,
+    tally,
+    LEAVE,
+    type Ask,
+    type Finding,
+    type Question,
+    type Review,
+    type TeamRun,
+  } from "$lib/team-run-logic";
   import { upsertRun } from "$lib/team.svelte";
   import { showTickets, tickets } from "$lib/tickets.svelte";
 
@@ -131,6 +148,55 @@
   }
 
   const spinning = (name: string) => busy === name;
+
+  /** `waiting`: the round waits for the user, so nothing of it was sent yet. */
+  function fate(f: Finding, waiting: boolean): string {
+    if (f.fate === "sent") return t(waiting ? "reviewLoopWillSend" : "reviewLoopSent", { task: f.to ?? "" });
+    const keys = { asked: "reviewLoopAsked", reported: "reviewLoopReported", left: "reviewLoopLeft", superseded: "reviewLoopSuperseded" } as const;
+    return t(keys[f.fate]);
+  }
+
+  const optionLabel = (option: string) => (option === LEAVE ? t("reviewLoopLeaveOption") : option);
+  /** The review step whose acceptance as it is waits for confirmation. */
+  let accepting = $state("");
+  let confirmAccept = $state(false);
+
+  /** The questions TermF asks about the findings of its review, said in the user's language from the findings. */
+  function questionsOf(ask: Ask): Question[] {
+    const last = ask.step.kind === "review" ? rounds(run, ask.step.key).at(-1) : undefined;
+    if (!last) return ask.questions;
+    const role = (task: string) => run.plan?.tasks.find((x) => x.id === task)?.role ?? "";
+    return ask.questions.map((q) => {
+      const f = last.findings.find((x) => x.id === q.id);
+      if (!f) return q;
+      const severity = t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit").toLowerCase();
+      if (q.kind === "text") {
+        const question = t("reviewLoopNoTask", { id: f.id, severity, where: `${f.file}:${f.line}`, scenario: f.scenario });
+        return { ...q, question, why: t("reviewLoopFix", { fix: f.fix }) };
+      }
+      return {
+        ...q,
+        question: t("reviewLoopWho", { id: f.id, severity, where: `${f.file}:${f.line}`, scenario: f.scenario }),
+        why: t(f.to ? "reviewLoopWhyLast" : "reviewLoopWhyNoTask", { fix: f.fix }),
+        implications: q.options.map((o) => (o === LEAVE ? t("reviewLoopLeaveImplies") : t("reviewLoopFixedBy", { task: o, role: role(o) }))),
+      };
+    });
+  }
+
+  function roundLine(review: Review, waiting: boolean): string {
+    const n = tally(review);
+    if (!n.count) return t("reviewLoopClean");
+    return [
+      t("reviewLoopFindings", { count: n.count }),
+      n.to.length ? t(waiting ? "reviewLoopWillBackTo" : "reviewLoopBackTo", { tasks: n.to.join(", ") }) : "",
+      n.asked ? t("reviewLoopAskedCount", { count: n.asked }) : "",
+      n.reported ? t("reviewLoopReportedCount", { count: n.reported }) : "",
+      n.left ? t("reviewLoopLeftCount", { count: n.left }) : "",
+      n.superseded ? t("reviewLoopSupersededCount", { count: n.superseded }) : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
 </script>
 
 {#snippet spinner(name: string)}
@@ -203,7 +269,8 @@
     <span class="open">{@render conversation(step)}</span>
   </div>
   {#if step.note && step.state !== "done"}<p class="note mono">{step.note}</p>{/if}
-  {#if report}
+  <!-- A review's report is its last round, shown with the others. -->
+  {#if report && step.kind !== "review"}
     {#if report.summary}<p class="summary">{report.summary}</p>{/if}
     {#if step.files.length || report.covers.length || report.text_changes.length || report.out_of_scope_findings.length || step.feedback}
       <details>
@@ -238,6 +305,34 @@
     {/if}
   {/if}
   {@render violations(step)}
+  {#if step.kind === "review"}{@render reviewRounds(step)}{/if}
+{/snippet}
+
+{#snippet reviewRounds(step: Step)}
+  {@const all = rounds(run, step.key)}
+  {#each all as round, i (round.round)}
+    {@const waiting = held(run, step, round)}
+    <details class="round" open={i === all.length - 1}>
+      <summary><b>{t("reviewLoopRound", { round: round.round })}</b> · {roundLine(round, waiting)}</summary>
+      <p class="summary">{round.summary}</p>
+      {#if round.findings.length}
+        <ul class="findings">
+          {#each round.findings as f (f.id)}
+            <li class:nit={f.severity === "nit"}>
+              <div class="finding-head">
+                <span class="badge severity">{t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit")}</span>
+                <span class="mono where">{f.file}:{f.line}</span>
+                <span class="badge" class:asked={f.fate === "asked"}>{fate(f, waiting)}</span>
+              </div>
+              <p>{f.scenario}</p>
+              <p class="muted">{t("reviewLoopFix", { fix: f.fix })}</p>
+              {#if f.reason}<p class="muted">{t("reviewLoopWhy", { reason: f.reason })}</p>{/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </details>
+  {/each}
 {/snippet}
 
 <header>
@@ -317,7 +412,9 @@
                 ? t("ctoEntryAskQuestions")
                 : ask.step.plan
                   ? t("teamRunsAskPlanQuestions")
-                  : t("teamRunsAskQuestions", { step: name })}
+                  : ask.step.kind === "review"
+                    ? t("reviewLoopAsk")
+                    : t("teamRunsAskQuestions", { step: name })}
             {:else if ask.kind === "blocked"}{t("teamRunsAskBlocked", { step: name })}
             {:else}{t("teamRunsAskGate", { step: name })}{/if}
           </b>
@@ -337,9 +434,13 @@
             {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
           {:else}
             <!-- Never stuck in the form: accept as it is, answer in free text, or set the path yourself. -->
-            <TeamQuestionnaire {run} step={key} questions={ask.questions}>
+            <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)} {optionLabel}>
               {#if ask.accept}
-                <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
+                <button
+                  class="btn sm"
+                  disabled={!!busy}
+                  onclick={() => (ask.step.kind === "review" ? ((accepting = key), (confirmAccept = true)) : approve(key))}
+                >
                   {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
                 </button>
               {/if}
@@ -551,6 +652,14 @@
   {@render planSection()}
 {/if}
 
+<ConfirmDialog
+  bind:open={confirmAccept}
+  title={t("reviewLoopAcceptTitle")}
+  confirm={t("teamRunsAccept")}
+  onconfirm={() => approve(accepting)}
+>
+  <p>{t("reviewLoopAcceptText")}</p>
+</ConfirmDialog>
 <ConfirmDialog
   bind:open={stopping}
   title={t("teamRunsStopTitle", { ticket: run.target.ticket })}
@@ -1028,5 +1137,59 @@
 
   .violations li span:last-child {
     color: var(--text);
+  }
+
+  .round {
+    margin-top: 6px;
+  }
+
+  .findings {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .findings li {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--danger);
+    border-radius: var(--radius);
+  }
+
+  .findings li.nit {
+    border-left-color: var(--border);
+  }
+
+  .findings p {
+    margin: 4px 0 0;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .finding-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .where {
+    overflow-wrap: anywhere;
+  }
+
+  .severity {
+    color: var(--danger);
+  }
+
+  .nit .severity {
+    color: var(--muted);
+  }
+
+  .badge.asked {
+    border-color: var(--warning);
+    color: var(--warning);
   }
 </style>

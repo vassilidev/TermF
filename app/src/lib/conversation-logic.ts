@@ -34,7 +34,7 @@ export type StoredEvent = { id: number; session: number; at: number } & (
   | ({ kind: "notice" } & NoticeFields)
 );
 
-/** A message from TermF, not from the user: `waiting` (a gate), `blocked`, `step` or `direct` (sent to another agent). */
+/** A message from TermF, not from the user: `waiting` (a gate), `blocked`, `step` or `direct` (sent to another agent), `review` (a round of the code review). */
 export type NoticeFields = {
   about: string;
   run?: number;

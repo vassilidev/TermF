@@ -159,7 +159,13 @@
 
   function said(n: NoticeFields): string {
     const vars = { run: n.run ?? "", step: n.step ?? "", role: n.role ?? "" };
-    const keys = { waiting: "ctoNoticeWaiting", blocked: "ctoNoticeBlocked", step: "ctoNoticeStep", direct: "ctoNoticeDirect" } as const;
+    const keys = {
+      waiting: "ctoNoticeWaiting",
+      blocked: "ctoNoticeBlocked",
+      step: "ctoNoticeStep",
+      direct: "ctoNoticeDirect",
+      review: "reviewLoopNotice",
+    } as const;
     if (n.about === "direct" && n.run) return t("ctoNoticeBusy", vars);
     if (n.about === "queued") return t("expertNoticeQueued", vars);
     return n.about in keys ? t(keys[n.about as keyof typeof keys], vars) : n.text;
@@ -304,7 +310,7 @@
       </p>
       {#if opens}
         <button class="btn sm" onclick={() => showConversation(opens)}>{t("ctoOpen")}</button>
-      {:else if item.run && (item.about === "waiting" || item.about === "blocked")}
+      {:else if item.run && ["waiting", "blocked", "review"].includes(item.about)}
         <button class="btn sm" onclick={() => showTeamRun(item.run!)}>{t("ctoOpen")}</button>
       {/if}
     </div>
