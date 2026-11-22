@@ -116,3 +116,4 @@ L'effet est réel mais petit : une session de moins sur les tickets où le cadra
 - **Les tests cachés ne départagent pas** : 100 % partout. Ils ont été corrigés trois fois pendant le banc pour être justes (vérifications de la page trop liées à une écriture, `authorization` en minuscules, comparaison de lignes SQLite), puis tous les essais remesurés depuis leur diff (`--remeasure`).
 - **Le temps de l'utilisateur n'est pas compté** : le banc approuve chaque gate à l'instant ; un vrai utilisateur ajoute ses attentes à chaque gate de l'équipe.
 - Les essais tournaient 4 par 4 en parallèle : le temps mur peut en souffrir un peu, des deux côtés.
+- Mesuré sur `main` avant la PR #100 (QA de l'équipe) : son correctif des questionnaires aurait évité 3 nouvelles tentatives d'étape sur 2 runs de C2 (« give one implication per option »), quelques centimes et secondes de l'équipe sur ce ticket.
