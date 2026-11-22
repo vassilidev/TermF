@@ -1,0 +1,7 @@
+- Verified for gh 2.105 (2026-11-22); `gh --version` gives yours. Manual: https://cli.github.com/manual/
+- `GH_PROMPT_DISABLED=1`; read with `--json <fields> --jq <filter>`; `-R owner/repo` when the clone has several remotes.
+- `gh api` turns into POST as soon as it has `-f`/`-F` fields: add `--method GET` for a filtered read; `--paginate` or you get one page.
+- `gh pr checks` exits 8 while checks are pending; failed steps' logs: `gh run view <id> --log-failed`.
+- In a TermF run, every `gh pr` command and every non-GET `gh api` (`gh api graphql` included) is refused: read through REST GET, a PR with `gh api repos/{owner}/{repo}/pulls/<n>`.
+- Write to GitHub (PR, issue, comment, release, workflow run) only for an action the user asked for.
+- Read the skill `gh` before reading a pull request, its checks or an issue, or before any write to GitHub.
