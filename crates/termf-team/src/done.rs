@@ -127,12 +127,13 @@ fn sentences(ids: &[String]) -> String {
         .join("; ")
 }
 
-/// Each criterion of `ids`, as the run stands.
-pub fn evaluate(run: &TeamRun, ids: &[(String, bool)]) -> Done {
+/// Each criterion of `ids`, as the run stands. `named`: the project lists its criteria (`[team] done`), so a
+/// workflow without a code review does not meet `review` by its checks.
+pub fn evaluate(run: &TeamRun, ids: &[(String, bool)], named: bool) -> Done {
     let criteria = ids
         .iter()
         .map(|(id, warn)| {
-            let (met, note) = match check(run, id) {
+            let (met, note) = match check(run, id, named) {
                 Ok(note) => (true, note),
                 Err(note) => (false, note),
             };
@@ -150,7 +151,7 @@ pub fn evaluate(run: &TeamRun, ids: &[(String, bool)]) -> Done {
     }
 }
 
-fn check(run: &TeamRun, id: &str) -> Result<String, String> {
+fn check(run: &TeamRun, id: &str, named: bool) -> Result<String, String> {
     let of = |kind: StepKind| run.steps.iter().filter(move |s| s.kind == kind);
     match id {
         "checks" => {
@@ -163,9 +164,26 @@ fn check(run: &TeamRun, id: &str) -> Result<String, String> {
         }
         "review" => {
             // A review that watches paths no task changed had nothing to review.
-            let reviews = of(StepKind::Review)
-                .filter(|s| !(s.state == StepState::Skipped && !s.paths.is_empty()));
-            let steps = over(reviews, false, "the workflow has no code review")?;
+            let reviews: Vec<&Step> = of(StepKind::Review)
+                .filter(|s| !(s.state == StepState::Skipped && !s.paths.is_empty()))
+                .collect();
+            // A workflow without a code review (`trivial`) leaves it to the project's checks, unless the project
+            // asks for the review by name.
+            if reviews.is_empty() && !named {
+                over(
+                    of(StepKind::Shell),
+                    true,
+                    "the workflow has no code review, nor checks to stand for it",
+                )?;
+                return Ok(
+                    "no code review in this workflow: its checks passed and stand for it".into(),
+                );
+            }
+            let steps = over(
+                reviews.into_iter(),
+                false,
+                "the workflow has no code review",
+            )?;
             let mut open = 0;
             let mut left = 0;
             for step in steps {

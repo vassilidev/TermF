@@ -933,3 +933,45 @@ fn probes_rust_analyzer_in_the_repository_once_a_minute_and_never_waits_long() {
         "stopped after its delay"
     );
 }
+
+#[test]
+fn finds_the_checks_a_repository_configures_and_has_the_tool_for() {
+    let exe = |name: &str| match cfg!(windows) {
+        true => format!("{name}.cmd"),
+        false => name.to_owned(),
+    };
+    let bin = repo(
+        "checks-bin",
+        &[(&exe("mypy"), ""), (&exe("tsc"), ""), (&exe("ruff"), "")],
+    );
+    let path = std::env::join_paths([&bin]).unwrap();
+    let local = format!("node_modules/.bin/{}", exe("eslint"));
+    let typed = repo(
+        "checks-ts",
+        &[
+            ("tsconfig.json", "{}"),
+            ("eslint.config.js", ""),
+            (&local, ""),
+            ("pyproject.toml", "[tool.mypy]\nstrict = true\n"),
+            ("Cargo.toml", "[package]\n"),
+        ],
+    );
+    let eslint = Path::new("node_modules").join(".bin").join(exe("eslint"));
+    assert_eq!(
+        checks(&typed, &path),
+        [
+            "tsc --noEmit -p tsconfig.json".to_owned(),
+            format!("{} .", eslint.to_string_lossy()),
+            "mypy .".to_owned(),
+        ],
+        "cargo is not on the path, ruff is not configured"
+    );
+    let bare = repo(
+        "checks-none",
+        &[("package.json", "{}"), (".eslintrc.json", "{}")],
+    );
+    assert!(
+        checks(&bare, &path).is_empty(),
+        "eslint is not installed in the repository"
+    );
+}

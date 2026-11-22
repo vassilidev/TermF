@@ -1,0 +1,163 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "solo",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:19:17.622Z",
+  "state": "done",
+  "wall_s": 29.476,
+  "cost_usd": 0.10651469999999999,
+  "sessions": 1,
+  "turns": 6,
+  "tokens": {
+    "input": 12,
+    "output": 4225,
+    "cache_read": 131287,
+    "cache_creation": 12778
+  },
+  "said": "Bad titles and bad JSON now get a 400 with the messages from the ticket, and unexpected errors get a generic 500. All 14 tests pass. I haven't tried the page in a browser.\n\n- **Title rules** (`src/app.ts`): `POST /api/tasks` returns `400 {\"error\": \"title is required\"}` for a missing, empty, blank or non-string title, and creates nothing. `PATCH /api/tasks/:id` applies the same rule whenever the body has a `title` key, so `{\"title\": null}` is rejected too. A `PATCH` without `title` still works as before.\n- **Length and trimming**: Titles are saved trimmed. Over 200 characters after trimming gives `400 {\"error\": \"title must be at most 200 characters\"}`. I count Unicode characters, not UTF-16 units, so an emoji counts as one.\n- **Invalid JSON**: A body that doesn't parse gives `400 {\"error\": \"invalid JSON body\"}`. A body that parses but isn't an object (`null`, `[1]`, `\"text\"`) gets the same answer, because `null` would otherwise crash on `body.title` and return a 500. The ticket doesn't say what to do there, so that's my call.\n- **Unexpected errors**: These give `500 {\"error\": \"internal error\"}`, and the real error goes to `console.error` on the server.\n- **Page** (`public/app.js`): A failed add now shows the API's message in the existing error line, instead of throwing silently.\n- **Tests** (`test/tasks.test.ts`): They cover the title cases, the 200/201 boundary, trimming, `PATCH` with and without a title, invalid JSON, and the 500 case. To trigger the 500, the test closes the database under the server and checks that the response hides the message and that it was logged.\n- **README**: The README now documents the title rules and the new error answers.\n\nI haven't committed anything.",
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 4,
+      "removed": 1
+    },
+    {
+      "path": "public/app.js",
+      "added": 7,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 40,
+      "removed": 4
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 76,
+      "removed": 0
+    }
+  ],
+  "lines_added": 127,
+  "lines_removed": 8,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "validateTitle rejects missing/empty/blank/non-string with 400 'title is required' before createTask; test covers {}, '', spaces, null, 42, array and checks no task created."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "PATCH validates when 'title' in body, same rule; tested for '', blank, null, 7, and the task is kept."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Trimmed length >200 gives the specified 400 message and the trimmed title is stored; boundary 200/201 tested. Counts code points rather than UTF-16 units, which is a reasonable reading."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "JSON.parse failure maps to HttpError 400 'invalid JSON body'; also non-object bodies; tested for POST and PATCH."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "Non-HttpError logs via console.error and answers 500 'internal error'; test closes the DB to force it and checks the log."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "app.js wraps the submit in try/catch and calls show(err); this assumes api() throws with the API's error message, which is outside the diff."
+      },
+      {
+        "id": 7,
+        "verdict": "partial",
+        "why": "Server cases are well covered, but nothing tests the front-end error display (criterion 6)."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 8,
+      "edge_cases": 8,
+      "scope": 9
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH passes body.done through unvalidated, so a non-boolean or odd 'done' value could still reach SQLite and produce a 500. It is outside the ticket, but the same class of bug remains."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "readJson also rejects valid JSON that is not an object (null, arrays, strings) with 'invalid JSON body'. This is sensible but goes slightly beyond the ticket. It is documented in the README and tested."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The 500 test reaches into server internals (listeners('close'), removeAllListeners) and monkeypatches console.error. It is brittle and hard to read. The PATCH invalid-JSON case uses /api/tasks/1, which relies on parsing happening before the 404 lookup."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "public/app.js",
+        "what": "The new UI error path has no test."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "Title length counts code points (Array.from) instead of String.length. This is defensible, but it is untested and may differ from the 'characters' a client counts."
+      },
+      {
+        "severity": "low",
+        "category": "error-handling",
+        "file": "src/app.ts",
+        "what": "If headers are already sent, the handler calls res.end() after logging. That is reasonable, but it is untested."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets the server-side acceptance criteria cleanly. It uses a small HttpError class, a single validateTitle helper, and tests for each case, including trimming, boundaries and the hidden 500 message. Weaknesses are the brittle 500 test, the missing front-end test, and the unvalidated `done` field that can still cause a 500.",
+    "cost_usd": 0.0409104
+  }
+}

@@ -240,6 +240,21 @@ impl Agents {
         inner.view(&store, id, entry)
     }
 
+    /// Changes what the next process of a session that has none starts with (its budget, its denied tools), as a
+    /// new session would get them now.
+    pub fn respec(&self, id: i64, change: impl FnOnce(&mut SessionSpec)) -> Result<()> {
+        let inner = &self.inner;
+        let store = inner.store()?;
+        let live = inner.live.lock().unwrap();
+        ensure!(
+            live.get(&id).is_none_or(|e| e.process.is_none() && !e.busy),
+            "a process of this session still runs: it must end first"
+        );
+        let mut spec = store.session(id)?.spec;
+        change(&mut spec);
+        store.set_spec(id, &checked(spec)?)
+    }
+
     /// Sends a message between two turns. A session without a process resumes its conversation first.
     pub fn send(&self, id: i64, text: &str) -> Result<()> {
         ensure!(!text.trim().is_empty(), "the message is empty");

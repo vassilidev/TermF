@@ -20,6 +20,7 @@ import {
   runs,
   rounds,
   routeBudget,
+  taskRoles,
   tally,
   unanswered,
   withOthers,
@@ -324,6 +325,24 @@ test("editRouting: skip and add against the new workflow's defaults, efforts of 
     ["default", ["frame"], ["ux"], [{ step: "security", effort: "low" }, { step: "update-base", effort: "xhigh" }, { step: "ux", effort: "high" }], ["web", "api"], [], 4],
   );
   assert.equal(next.reason, "a new export", "the rest is the CTO's");
+  assert.equal(next.task, null, "a workflow with a plan takes no task");
+
+  const direct = { name: "direct", description: "", steps: workflow.steps.filter((s) => s.id !== "frame") };
+  const small = editRouting(cto, direct, [], ["api"], "S", { role: "back", goal: " Export invoices " });
+  assert.deepEqual(
+    [small.workflow, small.size, small.task],
+    ["direct", "S", { id: "T1", role: "back", squad: "api", repo: "", size: "S", covers: [], goal: "Export invoices", files_hint: [], depends_on: [], ui_impact: false }],
+  );
+  const own = { ...task("T7"), covers: ["AC1"], files_hint: ["src/a.ts"] };
+  const kept = editRouting({ ...cto, task: own }, direct, [], ["web", "api"], "M", { role: "front", goal: "g" });
+  assert.deepEqual([kept.task.id, kept.task.squad, kept.task.covers, kept.task.files_hint, kept.task.repo], ["T7", "", ["AC1"], ["src/a.ts"], "web"]);
+  assert.equal(editRouting({ ...cto, task: own }, workflow, [], []).task, null, "back to a plan, no task");
+});
+
+test("taskRoles: the roles a task may have, leads aside, each once", () => {
+  const member = (role, lead = false, plannable = true) => ({ role, lead, plannable });
+  const squads = [{ members: [member("lead", true), member("back"), member("qa")] }, { members: [member("front"), member("back"), member("ops", false, false)] }, {}];
+  assert.deepEqual(taskRoles(squads), ["back", "qa", "front"]);
 });
 
 test("routeBudget: a change of the routing starts below the run's budget and the advice", () => {

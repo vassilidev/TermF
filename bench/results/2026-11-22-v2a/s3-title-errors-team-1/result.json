@@ -1,0 +1,339 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "team",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:24:23.150Z",
+  "state": "done",
+  "wall_s": 154.223510333,
+  "cost_usd": 0.9596573000000002,
+  "sessions": 8,
+  "turns": 8,
+  "tokens": {
+    "cache_creation": 168252,
+    "cache_read": 819473,
+    "input": 56,
+    "output": 20459
+  },
+  "routing": {
+    "kind": "bug",
+    "size": "M",
+    "reason": "Input validation and error handling on the tasks API (POST and PATCH) plus the page's error display, with tests, so it touches back-end and front-end.",
+    "workflow": "default",
+    "skip": [
+      "frame"
+    ],
+    "add": [],
+    "efforts": [
+      {
+        "step": "plan",
+        "effort": "low"
+      },
+      {
+        "step": "security",
+        "effort": "medium"
+      }
+    ],
+    "squads": [],
+    "questions": [],
+    "budget_usd": 1.2,
+    "rulings": [
+      "Ruling: workflow default, not direct — the fix spans the API (back) and the page (front), and AC5 (never leak internal error messages) is a security stake — cost if wrong: a slightly longer run than direct.",
+      "Ruling: skip step frame — the ticket already lists seven testable acceptance criteria, so the product owner would only repeat them — cost if wrong: an unseen edge case (e.g. a non-string title on PATCH) is found later in review.",
+      "Ruling: keep prd, architecture, ux and seo off — not a vague epic, no cross-cutting decision, no new design (only an error message shown on the page) and no public page change — cost if wrong: the error display on the page may need a small follow-up.",
+      "Ruling: security review at medium effort — input parsing and error-message disclosure are in scope, but there is no authentication, payment or personal data — cost if wrong: a subtle leak path through another error route could pass.",
+      "Ruling: plan at low effort — the work is small and well specified by the criteria — cost if wrong: the lead may under-split the tasks between back and front.",
+      "Ruling: budget $1.20 — covers plan, a back task, a front task, a review round, the security review and the visual check — cost if wrong: the run could stop before its reviews and need the user to raise it."
+    ],
+    "replaces": [],
+    "changed": false,
+    "task": null
+  },
+  "plan_tasks": 3,
+  "steps": [
+    {
+      "key": "triage",
+      "role": "cto",
+      "state": "done",
+      "cost": 0.1324175,
+      "sessions": 2,
+      "attempt": 2
+    },
+    {
+      "key": "approve-route",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "plan",
+      "role": "lead",
+      "state": "done",
+      "cost": 0.12793500000000002,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "approve-plan",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "implement:T1",
+      "role": "back",
+      "state": "done",
+      "cost": 0.2149423,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T2",
+      "role": "front",
+      "state": "done",
+      "cost": 0.1152063,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement:T3",
+      "role": "qa",
+      "state": "done",
+      "cost": 0.1424764,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "implement",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "checks",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "rules",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "review",
+      "role": "reviewer",
+      "state": "done",
+      "cost": 0.1227392,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "security",
+      "role": "secops",
+      "state": "done",
+      "cost": 0.1039406,
+      "sessions": 1,
+      "attempt": 1
+    },
+    {
+      "key": "migrations",
+      "role": "dba",
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "visual",
+      "role": null,
+      "state": "skipped",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "update-base",
+      "role": "integrator",
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    },
+    {
+      "key": "deliver",
+      "role": null,
+      "state": "done",
+      "cost": 0,
+      "sessions": 0,
+      "attempt": 0
+    }
+  ],
+  "approved": [
+    "approve-route",
+    "approve-plan",
+    "deliver"
+  ],
+  "answered": [],
+  "note": null,
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 28,
+    "fail": 0,
+    "tests": 28,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 14,
+      "removed": 3
+    },
+    {
+      "path": "public/app.js",
+      "added": 8,
+      "removed": 4
+    },
+    {
+      "path": "src/app.ts",
+      "added": 26,
+      "removed": 6
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 19,
+      "removed": 0
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 132,
+      "removed": 0
+    }
+  ],
+  "lines_added": 199,
+  "lines_removed": 13,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "validateTitle throws 400 'title is required' for non-string/blank; called before createTask; tests cover missing, empty, blank, number, null, object."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "PATCH validates title when Object.hasOwn(body,'title'); tests cover empty, blank, null, number and stored title unchanged."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "Trimmed length >200 gives the specified 400 message; title returned trimmed; boundary 200/201 tested."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "readJson catches JSON.parse failure and throws HttpError 400 'invalid JSON body'; tested on POST and PATCH."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "fail() logs with console.error and sends generic 'internal error'; test injects a failing db and checks the secret is hidden and logged."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "app.js submit handler now catches and calls show(err); api() uses body.error."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "New tests cover all cases, including trim, boundaries, PATCH ordering and the 500 path."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 8,
+      "edge_cases": 8,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "createServer gains an injectable `open` parameter solely for testing; small API change, but justified for the 500 test."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "readJson silently turns null/array/primitive JSON bodies into {}; the ticket did not ask for it. It is documented and tested, and it avoids a TypeError 500 on body.title."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH `done` is still unvalidated, so a non-boolean value could still fail in SQLite and give a 500. This is outside the ticket."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "Title length is counted in UTF-16 code units, so emoji count as 2 characters. Minor."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/app.js",
+        "what": "api() now swallows a res.json() failure with .catch(() => null). It is reasonable, but it also affects successful responses, which would return null."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "There is no test for the UI change (item 6). The project has no front-end test setup."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets all seven criteria with a small HttpError and validateTitle design, a generic 500 handler that logs the real error, and a UI catch that shows the API message. The tests are thorough, including boundary, PATCH ordering and the hidden-500 case. The only extras are minor and documented: the injectable db opener and the coercion of non-object JSON bodies to {}.",
+    "cost_usd": 0.0485584
+  }
+}

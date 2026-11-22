@@ -1,0 +1,328 @@
+diff --git a/README.md b/README.md
+index 89fbcae..b9ccbb9 100644
+--- a/README.md
++++ b/README.md
+@@ -49,24 +49,38 @@ A task is:
+ 
+ ```json
+ {
+   "id": 12, "list_id": 3, "title": "Pay rent", "notes": "", "done": false, "position": 4, "priority": 2,
+   "due_date": "2026-04-01", "assignee": { "id": 1, "username": "alice" }, "tags": ["home"], "comment_count": 2,
+-  "created_by": 1, "created_at": "2026-03-01T09:00:00.000Z", "updated_at": "2026-03-02T10:00:00.000Z"
++  "version": 3, "created_by": 1, "created_at": "2026-03-01T09:00:00.000Z", "updated_at": "2026-03-02T10:00:00.000Z"
+ }
+ ```
+ 
++`version` is a whole number: 1 for a new task, and up by one each time the task is changed (a `PATCH` that changes
++nothing leaves it as it is).
++
+ | Method and path | Body | Answers |
+ |---|---|---|
+ | `GET /api/lists/:id/tasks` | | 200, the tasks of the list (filters and sorts below) |
+ | `POST /api/lists/:id/tasks` | `{ "title", "notes"?, "done"?, "priority"?, "due_date"?, "assignee_id"?, "position"?, "tags"? }` | 201, the task, at the end of the list unless `position` is given |
+ | `GET /api/tasks/:id` | | 200, the task |
+-| `PATCH /api/tasks/:id` | any of the fields above | 200, the task |
++| `PATCH /api/tasks/:id` | any of the fields above, and `version`? | 200, the task; 409 on a version conflict (below) |
+ | `DELETE /api/tasks/:id` | | 204 |
+ | `GET /api/tasks/:id/comments` | | 200, `[{ "id", "task_id", "author", "body", "created_at" }]`, oldest first |
+ | `POST /api/tasks/:id/comments` | `{ "body" }` | 201, the comment |
+ 
++`PATCH` only writes the fields it sends, so changes made at the same time to different fields are all kept. It may
++also send the `version` the client read. If the task has changed since, nothing is changed and the answer is `409`
++with the task as it is now:
++
++```json
++{ "error": "version conflict", "task": { "id": 12, "version": 4, "...": "..." } }
++```
++
++Without `version`, the change is applied to the task as it is. A `version` that is not a whole number, 1 or more,
++is a 400.
++
+ Fields: `title` 1 to 200 characters; `notes` up to 5,000; `done` a boolean; `priority` 0 (low) to 3 (urgent);
+ `due_date` `YYYY-MM-DD` or null; `assignee_id` a user who can see the list, or null; `position` a
+ whole number, 0 or more; `tags` up to 10 names of 1 to 30 letters, digits, `-` or `_`, stored in lowercase. A
+ comment has 1 to 2,000 characters.
+ 
+diff --git a/public/api.js b/public/api.js
+index d8788d4..aa0eaab 100644
+--- a/public/api.js
++++ b/public/api.js
+@@ -19,11 +19,16 @@ export async function api(path, { method = "GET", body } = {}) {
+   const data = res.status === 204 ? null : await res.json();
+   if (res.status === 401 && session.token) {
+     session.set(null);
+     dispatchEvent(new Event("signed-out"));
+   }
+-  if (!res.ok) throw new Error(data?.error ?? res.statusText);
++  if (!res.ok) {
++    const err = new Error(data?.error ?? res.statusText);
++    err.status = res.status;
++    err.data = data;
++    throw err;
++  }
+   return data;
+ }
+ 
+ const errorBox = document.querySelector("#error");
+ 
+diff --git a/public/tasks.js b/public/tasks.js
+index 78e5d5b..14631ca 100644
+--- a/public/tasks.js
++++ b/public/tasks.js
+@@ -135,12 +135,17 @@ function taskItem(task) {
+   );
+   commentsButton.addEventListener("click", () => toggleComments(task, item).catch(showError));
+   return item;
+ }
+ 
++/** Changes a task, sending the version this page read. On a conflict, shows the task as it is now. */
+ function patch(task, changes) {
+-  api(`/api/tasks/${task.id}`, { method: "PATCH", body: changes }).then(refresh, showError);
++  api(`/api/tasks/${task.id}`, { method: "PATCH", body: { ...changes, version: task.version } }).then(refresh, async (err) => {
++    if (err.status !== 409 || !err.data?.task) return showError(err);
++    await renderTasks().catch(() => {});
++    showError(new Error(`"${err.data.task.title}" was changed elsewhere, so your change was not saved. It is shown as it is now.`));
++  });
+ }
+ 
+ async function toggleComments(task, item) {
+   const open = item.querySelector(".comments");
+   if (open) return open.remove();
+diff --git a/src/app.ts b/src/app.ts
+index bc8701f..4af4a28 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -119,9 +119,9 @@ async function serveStatic(pathname: string, res: any): Promise<void> {
+   res.writeHead(200, { "content-type": type });
+   res.end(body);
+ }
+ 
+ function fail(res: any, err: unknown): void {
+-  if (err instanceof HttpError) return send(res, err.status, { error: err.message });
++  if (err instanceof HttpError) return send(res, err.status, { ...err.extra, error: err.message });
+   console.error(err);
+   send(res, 500, { error: "internal error" });
+ }
+diff --git a/src/db.ts b/src/db.ts
+index 203173c..c067127 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -89,10 +89,12 @@ const migrations: string[] = [
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT ${NOW},
+      sent_at TEXT
+    );`,
++
++  `ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;`,
+ ];
+ 
+ export function openDb(path = ":memory:"): Db {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA foreign_keys = ON");
+diff --git a/src/http.ts b/src/http.ts
+index c8193f7..524b525 100644
+--- a/src/http.ts
++++ b/src/http.ts
+@@ -1,16 +1,20 @@
+ /** An error the client caused: answered with its status and `{ "error": message }`. */
+ export class HttpError extends Error {
+   status: number;
++  /** Extra members of the JSON answer, next to `error`. */
++  extra: Record<string, unknown>;
+ 
+-  constructor(status: number, message: string) {
++  constructor(status: number, message: string, extra: Record<string, unknown> = {}) {
+     super(message);
+     this.status = status;
++    this.extra = extra;
+   }
+ }
+ 
+ export const badRequest = (message: string) => new HttpError(400, message);
++export const conflict = (message: string, extra: Record<string, unknown>) => new HttpError(409, message, extra);
+ export const notFound = (message: string) => new HttpError(404, message);
+ 
+ export interface Reply {
+   status: number;
+   body?: unknown;
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4f36ce6..21b7b7c 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -1,8 +1,8 @@
+ import type { User } from "./auth.ts";
+ import { now, transaction, type Db } from "./db.ts";
+-import { badRequest, notFound } from "./http.ts";
++import { badRequest, conflict, notFound } from "./http.ts";
+ import { loadList, type List } from "./lists.ts";
+ import * as activity from "./activity.ts";
+ import * as jobs from "./jobs.ts";
+ 
+ export interface Task {
+@@ -14,10 +14,11 @@ export interface Task {
+   position: number;
+   priority: number;
+   due_date: string | null;
+   assignee_id: number | null;
+   created_by: number | null;
++  version: number;
+   created_at: string;
+   updated_at: string;
+ }
+ 
+ export interface TaskView {
+@@ -31,10 +32,11 @@ export interface TaskView {
+   due_date: string | null;
+   assignee: { id: number; username: string } | null;
+   tags: string[];
+   comment_count: number;
+   created_by: number | null;
++  version: number;
+   created_at: string;
+   updated_at: string;
+ }
+ 
+ interface TaskInput {
+@@ -151,10 +153,11 @@ function toView(db: Db, task: Task): TaskView {
+     due_date: task.due_date,
+     assignee: assignee && { id: assignee.id, username: assignee.username },
+     tags: tagsOf(db, task.id),
+     comment_count: count,
+     created_by: task.created_by,
++    version: task.version,
+     created_at: task.created_at,
+     updated_at: task.updated_at,
+   };
+ }
+ 
+@@ -228,28 +231,43 @@ export async function createTask(db: Db, user: User, listId: number, body: any):
+   await activity.record(db, { list_id: listId, task_id: task.id, user_id: user.id, action: "task.created", detail: { title: task.title } });
+   return viewOf(db, task.id);
+ }
+ 
+ export async function updateTask(db: Db, user: User, id: number, body: any): Promise<TaskView> {
+-  const task = loadTask(db, user, id);
+-  const input = readInput(loadList(db, user, task.list_id), body, true);
+-  const current: Record<string, unknown> = { ...task, tags: input.tags && tagsOf(db, id) };
+-  const changes = Object.entries(input)
+-    .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
+-    .map(([key]) => key);
+-  if (changes.length === 0) return toView(db, task);
++  let expected: number | undefined;
++  if (body.version !== undefined) {
++    if (!Number.isInteger(body.version) || body.version < 1) throw badRequest("version must be a whole number, 1 or more");
++    expected = body.version;
++  }
++  // Everything from the read to the write is synchronous, so no other request can change the task in between.
++  // Only the fields of this request are written: a change to another field made meanwhile is kept.
++  const outcome = transaction(db, () => {
++    const task = loadTask(db, user, id);
++    if (expected !== undefined && expected !== task.version) throw conflict("version conflict", { task: toView(db, task) });
++    const input = readInput(loadList(db, user, task.list_id), body, true);
++    const current: Record<string, unknown> = { ...task, tags: input.tags && tagsOf(db, id) };
++    const changes = Object.entries(input)
++      .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
++      .map(([key]) => key);
++    if (changes.length === 0) return { task, changes };
+ 
+-  const next = { ...task, ...input, updated_at: now() };
+-  await activity.record(db, { list_id: task.list_id, task_id: id, user_id: user.id, action: "task.updated", detail: { changes } });
+-  transaction(db, () => {
+-    db.prepare(
+-      `UPDATE tasks SET title = ?, notes = ?, done = ?, priority = ?, due_date = ?, assignee_id = ?, position = ?, updated_at = ?
+-       WHERE id = ?`,
+-    ).run(next.title, next.notes, next.done, next.priority, next.due_date, next.assignee_id, next.position, next.updated_at, id);
+-    if (input.tags) setTags(db, task.list_id, id, input.tags);
++    const { tags, ...columns } = input;
++    const stamp = now();
++    const keys = changes.filter((key) => key !== "tags");
++    const assignments = [...keys.map((key) => `${key} = ?`), "updated_at = ?", "version = version + 1"];
++    db.prepare(`UPDATE tasks SET ${assignments.join(", ")} WHERE id = ?`).run(
++      ...keys.map((key) => (columns as Record<string, any>)[key]),
++      stamp,
++      id,
++    );
++    if (tags && changes.includes("tags")) setTags(db, task.list_id, id, tags);
++    return { task: db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Task, changes };
+   });
+-  if (changes.some((key) => key === "due_date" || key === "assignee_id" || key === "done")) jobs.scheduleReminder(db, next);
++  if (outcome.changes.length === 0) return toView(db, outcome.task);
++
++  if (outcome.changes.some((key) => key === "due_date" || key === "assignee_id" || key === "done")) jobs.scheduleReminder(db, outcome.task);
++  await activity.record(db, { list_id: outcome.task.list_id, task_id: id, user_id: user.id, action: "task.updated", detail: { changes: outcome.changes } });
+   return viewOf(db, id);
+ }
+ 
+ export async function deleteTask(db: Db, user: User, id: number): Promise<void> {
+   const task = loadTask(db, user, id);
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 50f8599..3f5ff8c 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -183,5 +183,65 @@ test.skip("moving a task renumbers the positions of the others", async () => {
+   assert.deepEqual(
+     res.body.map((t: any) => [t.title, t.position]),
+     [["c", 0], ["a", 1], ["b", 2]],
+   );
+ });
++
++test("tasks carry a version that goes up with each change", async () => {
++  const { auth, list } = await setUp();
++  const task = await makeTask(app, auth, list.id);
++  assert.equal(task.version, 1);
++  const changed = await app.call("PATCH", `/api/tasks/${task.id}`, { title: "New" }, auth);
++  assert.equal(changed.body.version, 2);
++  const same = await app.call("PATCH", `/api/tasks/${task.id}`, { title: "New" }, auth);
++  assert.equal(same.body.version, 2);
++  assert.equal((await app.call("GET", `/api/tasks/${task.id}`, undefined, auth)).body.version, 2);
++  assert.equal((await app.call("GET", `/api/lists/${list.id}/tasks`, undefined, auth)).body[0].version, 2);
++  const bad = await app.call("PATCH", `/api/tasks/${task.id}`, { title: "x", version: "2" }, auth);
++  assert.equal(bad.status, 400);
++});
++
++test("a PATCH with a stale version is a 409 and changes nothing", async () => {
++  const { auth, list } = await setUp();
++  const task = await makeTask(app, auth, list.id, { title: "Old" });
++  const first = await app.call("PATCH", `/api/tasks/${task.id}`, { done: true, version: 1 }, auth);
++  assert.equal(first.status, 200);
++  assert.equal(first.body.version, 2);
++  const stale = await app.call("PATCH", `/api/tasks/${task.id}`, { title: "Mine", version: 1 }, auth);
++  assert.equal(stale.status, 409);
++  assert.deepEqual(stale.body, { error: "version conflict", task: first.body });
++  assert.deepEqual((await app.call("GET", `/api/tasks/${task.id}`, undefined, auth)).body, first.body);
++  const retried = await app.call("PATCH", `/api/tasks/${task.id}`, { title: "Mine", version: 2 }, auth);
++  assert.equal(retried.status, 200);
++  assert.equal(retried.body.version, 3);
++  assert.equal(retried.body.done, true);
++});
++
++test("simultaneous PATCHes of different fields are all kept", async () => {
++  const { auth, list } = await setUp();
++  for (let round = 0; round < 20; round++) {
++    const task = await makeTask(app, auth, list.id, { title: "Old" });
++    const sent = await Promise.all([
++      app.call("PATCH", `/api/tasks/${task.id}`, { title: "Renamed" }, auth),
++      app.call("PATCH", `/api/tasks/${task.id}`, { done: true }, auth),
++      app.call("PATCH", `/api/tasks/${task.id}`, { priority: 2, due_date: "2026-06-01" }, auth),
++    ]);
++    assert.deepEqual(sent.map((r) => r.status), [200, 200, 200]);
++    const now = (await app.call("GET", `/api/tasks/${task.id}`, undefined, auth)).body;
++    assert.equal(now.title, "Renamed");
++    assert.equal(now.done, true);
++    assert.equal(now.priority, 2);
++    assert.equal(now.due_date, "2026-06-01");
++    assert.equal(now.version, 4);
++  }
++});
++
++test("of simultaneous PATCHes with the same version, one wins and the others get a 409", async () => {
++  const { auth, list } = await setUp();
++  const task = await makeTask(app, auth, list.id);
++  const sent = await Promise.all(
++    ["a", "b", "c"].map((title) => app.call("PATCH", `/api/tasks/${task.id}`, { title, version: 1 }, auth)),
++  );
++  assert.deepEqual(sent.map((r) => r.status).sort(), [200, 409, 409]);
++  const winner = sent.find((r) => r.status === 200)!.body;
++  for (const loser of sent.filter((r) => r.status === 409)) assert.deepEqual(loser.body.task, winner);
++});

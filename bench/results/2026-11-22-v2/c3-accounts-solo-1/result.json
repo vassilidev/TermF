@@ -1,0 +1,210 @@
+{
+  "ticket": "c3-accounts",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T18:24:48.283Z",
+  "state": "done",
+  "wall_s": 116.044,
+  "cost_usd": 0.32820619999999995,
+  "sessions": 1,
+  "turns": 9,
+  "tokens": {
+    "input": 18,
+    "output": 18588,
+    "cache_read": 272542,
+    "cache_creation": 28759
+  },
+  "said": "Accounts are in: sign-up, sign-in, sign-out, and every task query is now scoped to the signed-in user. All 23 tests pass. I couldn't click through the page in a browser, so the new sign-in UI has only had a syntax check. There's no `tsc` in the project, so I didn't type-check either.\n\n**What changed**\n- **Database:** a new migration adds `users` and `sessions`, plus a `tasks.user_id` column. Old tasks keep a `NULL` owner, so no user sees them. There's a test that opens a pre-accounts database to check this.\n- **Passwords and tokens:** `src/auth.ts` holds the hashing and sessions. Passwords use scrypt with a random salt and are compared in constant time. Tokens are 32 random bytes and only their SHA-256 is stored.\n- **Sign-in:** an unknown username still does a full scrypt check, so both failures answer `401 invalid credentials` in the same time.\n- **Task routes:** they need a valid bearer token, and another user's task answers `404 task not found`, same as a missing one.\n- **Page:** it has a sign-up and sign-in form and a sign-out button. The token is kept in `localStorage`. A `401` from any call sends the user back to the sign-in form.\n- **Tests and README:** `test/auth.test.ts` and a shared `test/helpers.ts` are new, and the existing task tests now sign in. The README documents the accounts and authentication.\n\n**Beyond the ticket**\n- **Session expiry:** sessions expire after 30 days.\n- **Password cap:** passwords over 256 characters get `400 password too long`, so a huge password can't tie up scrypt.\n- **Request bodies:** they're capped at 16 KB (`413`), and malformed JSON or a non-object body now gets `400` instead of a `500`.\n- **Error messages:** `500` responses no longer leak the internal error message.\n- **Task validation:** task titles and `done` are type-checked, so a bad value gets `400`.\n- **Bug fix:** `?done=false` used to return the done tasks, because the string `\"false\"` is truthy. It now returns the open ones, and any value other than `\"true\"` count",
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 23,
+    "fail": 0,
+    "tests": 23,
+    "failed": []
+  },
+  "original_tests": null,
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 30,
+      "removed": 3
+    },
+    {
+      "path": "public/app.js",
+      "added": 103,
+      "removed": 5
+    },
+    {
+      "path": "public/index.html",
+      "added": 22,
+      "removed": 1
+    },
+    {
+      "path": "src/app.ts",
+      "added": 100,
+      "removed": 25
+    },
+    {
+      "path": "src/auth.ts",
+      "added": 97,
+      "removed": 0
+    },
+    {
+      "path": "src/db.ts",
+      "added": 15,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 29,
+      "removed": 15
+    },
+    {
+      "path": "test/auth.test.ts",
+      "added": 225,
+      "removed": 0
+    },
+    {
+      "path": "test/helpers.ts",
+      "added": 35,
+      "removed": 0
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 20,
+      "removed": 16
+    }
+  ],
+  "lines_added": 676,
+  "lines_removed": 65,
+  "tests_changed": 3,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "POST /api/users validates lowercased username, 409 on duplicate, 400 short password, returns 201 {id, username}; extra 'too long' 400 is additive."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST /api/sessions returns 201 {token}; same 401 for wrong user/password, with a dummy-hash to equalize timing."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "All /api/tasks routes check the bearer token and answer 401 'authentication required'; tested over many malformed headers."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "All task queries are scoped by user_id; foreign tasks give 404 identical to missing ones; tested."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "DELETE /api/sessions removes the token's session and returns 204; the token then gives 401; tested."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "scrypt with 16-byte salt and timingSafeEqual, 32 random bytes per token, SHA-256 of the token stored, no hashes in responses; a DB-level test checks this."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "The migration adds a nullable user_id, so old tasks have NULL and match no user; tested against a pre-migration DB file."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "index.html has a sign-in/sign-up form and a sign-out button; app.js sends the Bearer token on every request."
+      },
+      {
+        "id": 9,
+        "verdict": "met",
+        "why": "New auth.test.ts, tasks.test.ts updated to sign in, README documents accounts and auth."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 7,
+      "edge_cases": 7,
+      "scope": 6
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/auth.ts",
+        "what": "verifyPassword splits the stored hash and would throw on a malformed value, which gives a 500. This is unlikely, since the app writes the value itself."
+      },
+      {
+        "severity": "medium",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "The password length checks mix code points ([...password].length for the minimum) with UTF-16 units (.length for the maximum). The rules are inconsistent, and a multi-byte password gets a different limit. The 'too short' check also runs before username availability is known, which is fine."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/auth.ts",
+        "what": "createUser hashes the password before checking for a duplicate username, so every duplicate sign-up costs a scrypt run. There is no rate limiting, though the README admits this."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "Changes beyond the ticket: a 16KB body limit with 413, a 256-character password maximum, a 500 handler that no longer exposes err.message, type validation of title/done, a cache-control header, a 405 on /api/users, and rewriting toTask. Most are defensible hardening, but they are unrequested."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "The ?done filter changed from truthiness to === 'true'. This fixes a latent bug where done=false returned done tasks, but it is outside the ticket. A test was added for it."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "public/app.js",
+        "what": "api() calls res.json() on any non-204 response, so a non-JSON error response such as a proxy 502 throws a confusing parse error. Sign-up and sign-in repeat the same pattern."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/auth.test.ts",
+        "what": "Session expiry (30 days) and the over-long password path (400 on sign-up, 401 on sign-in) are untested. The UI has no tests."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "public/index.html",
+        "what": "The #error element moved above the main block, and the <main> contents are not indented. This is minor."
+      }
+    ],
+    "over_engineering": "some",
+    "overall": 8,
+    "summary": "The diff meets all nine criteria with solid security: scrypt, hashed tokens, user-scoped queries, uniform 401 and 404 answers, and a timing-equalizing dummy hash. Tests are thorough, including a legacy-DB test. The main drawbacks are several unrequested additions (body limit, password max, input type checks, the done-filter fix) and small inconsistencies in password length handling.",
+    "cost_usd": 0.09946640000000001
+  }
+}

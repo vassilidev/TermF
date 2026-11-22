@@ -1,0 +1,191 @@
+{
+  "ticket": "c1-tags",
+  "arm": "solo",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:22:43.140Z",
+  "state": "done",
+  "wall_s": 51.061,
+  "cost_usd": 0.1771892,
+  "sessions": 1,
+  "turns": 6,
+  "tokens": {
+    "input": 12,
+    "output": 8748,
+    "cache_read": 144612,
+    "cache_creation": 18806
+  },
+  "said": "Tags are in: the API, a new migration, the page, tests and the README. All 12 tests pass (7 existing, 5 new). I haven't opened the page in a browser, only syntax-checked `public/app.js`, and I haven't run the migration against an existing `tasks.db`.\n\n- **Data:** the migration adds `tags` and `task_tags` with cascading foreign keys, so deleting a task removes its links. Tags that no task uses any more are removed too, so they drop out of `GET /api/tags`.\n- **API:**\n  - Every task now has sorted `tags`, `[]` by default. `POST` and `PATCH` accept `tags`, and a `PATCH` without it leaves them alone.\n  - Validation runs before any write, so a bad request changes nothing.\n  - `?tag=` is normalized like stored tags and combines with `done`.\n- **Page:** tags show on each task as buttons. Clicking one filters the list, and an \"All tasks\" button clears the filter. The add form takes comma-separated tags.\n- **Bug fix you didn't ask for:** `?done=false` was returning the done tasks, because the string `\"false\"` was treated as true. I fixed it so the `tag` + `done` combination works. Any `done` value other than `false` still means done, as before.\n\nI made two choices the ticket didn't specify:\n- A `PATCH` on a task that doesn't exist returns 400 if its `tags` are invalid, rather than 404.\n- `?tag=` with a value that matches nothing returns `[]` rather than an error.",
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 12,
+    "fail": 0,
+    "tests": 12,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": false,
+    "errors": 1,
+    "first": [
+      "test/tasks.test.ts(126,100): error TS2322: Type 'unknown' is not assignable to type 'BodyInit | null | undefined'."
+    ]
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 16,
+      "removed": 5
+    },
+    {
+      "path": "public/app.js",
+      "added": 36,
+      "removed": 4
+    },
+    {
+      "path": "public/index.html",
+      "added": 9,
+      "removed": 1
+    },
+    {
+      "path": "src/app.ts",
+      "added": 18,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 107,
+      "removed": 18
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 76,
+      "removed": 0
+    }
+  ],
+  "lines_added": 272,
+  "lines_removed": 31,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "withTags adds sorted tags (ORDER BY name), [] default; tested."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST/PATCH pass tags; PATCH replaces via setTags and skips when undefined; tested."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "parseTags trims, lowercases, dedupes, validates regex and max 10; 400 before any write; null handled as invalid; tested."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "tag filter normalized and combined with done via WHERE ... AND; tested."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "listTags counts via join, sorted by name; unused tags are pruned and join excludes them; tested."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "New migration adds tags and task_tags with ON DELETE CASCADE (foreign_keys is ON); orphans cleaned."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "Page renders tag buttons, click filters, 'All tasks' resets, add form takes comma-separated tags."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "API tests added and README updated."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 7,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "listTasks changes done semantics: the old code treated any value other than empty as true; now only 'false' maps to 0, so ?done=anything is silently 'done'. Pre-existing leniency kept, but ?done= (empty) behaviour changed: before it was falsy -> open, now -> done."
+      },
+      {
+        "severity": "medium",
+        "category": "bug",
+        "file": "src/tasks.ts",
+        "what": "inTransaction uses BEGIN/COMMIT on a shared connection. Node's sqlite is synchronous so it is fine today, but a ROLLBACK after a failed COMMIT could throw and mask the original error. Also, updateTask with an invalid title (null) would roll back fine, but there is no handling of non-InvalidTags errors such as a missing title; they surface as 500."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "withTags loads every task_tags link in the table for each call, even when fetching a single task or a filtered list. This is O(all links) per request and will not scale."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/tasks.ts",
+        "what": "setTags prepares statements inside a loop and does a global orphan-tag DELETE on every write, which is wasteful. Orphan cleanup runs a full scan."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The tag-count test spins up a second server instead of using the shared one, which is a bit clumsy. There is no test that deleting a task removes its task_tags links directly, and no UI test."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/app.js",
+        "what": "The form submit handler now catches errors and the 'title' span got a class. These are small related changes, and acceptable."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "public/app.js",
+        "what": "The tag filter is not cleared or validated if the active tag disappears after edits, so the page can show an empty list with a stale tag until 'All tasks' is clicked. Users can also type uppercase tags, which are fine since the server normalizes."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets all eight criteria with a clean schema, validation done before any write, transactions, and meaningful API tests. Weak points are the small ?done= semantic change, the unfiltered full-table tag load on every read, and the lack of a direct test of cascade deletion.",
+    "cost_usd": 0.0670024
+  }
+}

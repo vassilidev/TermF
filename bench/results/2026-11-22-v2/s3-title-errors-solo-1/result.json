@@ -1,0 +1,157 @@
+{
+  "ticket": "s3-title-errors",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T18:21:25.402Z",
+  "state": "done",
+  "wall_s": 35.41,
+  "cost_usd": 0.1236062,
+  "sessions": 1,
+  "turns": 9,
+  "tokens": {
+    "input": 16,
+    "output": 4868,
+    "cache_read": 192382,
+    "cache_creation": 13914
+  },
+  "said": "`POST /api/tasks` and `PATCH /api/tasks/:id` now return the 400 and 500 errors from the ticket, and the page shows the API's message when adding a task fails. All 14 tests pass. I didn't run the page in a browser, so the `public/app.js` change is untested.\n\n- **Title rule** (`src/app.ts`): a missing, empty, blank or non-string title (including `null`) answers `400 {\"error\": \"title is required\"}`. A title over 200 characters after trimming answers `400 {\"error\": \"title must be at most 200 characters\"}`. Titles are saved trimmed. On `PATCH` the rule applies only when the body has a `title`, and it runs before the task lookup. An invalid title on an unknown id therefore answers 400 rather than 404.\n- **Invalid JSON**: a body that doesn't parse answers `400 {\"error\": \"invalid JSON body\"}`. A body that parses but isn't an object (`null` or an array) gets the same answer. Before, those two would have crashed into a 500.\n- **Unexpected errors**: these now answer `500 {\"error\": \"internal error\"}`, and the real error goes to `console.error` on the server.\n- **Page** (`public/app.js`): the add-task handler now catches errors and shows the message.\n- **Tests and README**: `test/tasks.test.ts` has new tests for each case above. The 500 test closes the database under a running server to force a real failure. I also documented the error responses in `README.md`.",
+  "hidden": {
+    "pass": 9,
+    "fail": 0,
+    "tests": 9,
+    "failed": [],
+    "total": 9
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 6,
+      "removed": 1
+    },
+    {
+      "path": "public/app.js",
+      "added": 7,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 36,
+      "removed": 4
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 86,
+      "removed": 0
+    }
+  ],
+  "lines_added": 135,
+  "lines_removed": 8,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": false,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "validTitle rejects missing, empty, blank and non-string titles with 400 'title is required' before createTask is called; tests cover these cases."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "PATCH calls validTitle when body.title !== undefined, so null, empty and non-string titles all give 400; tested."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The length check runs after trim and titles are saved trimmed; the 200 and 201 boundaries are tested."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "readJson turns a parse failure into HttpError 400 'invalid JSON body'. It also rejects null, arrays and scalars, which is reasonable."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "The catch handler logs with console.error and answers 500 'internal error' for any non-HttpError."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "The submit handler wraps the call in try/catch and calls show(err). It assumes api() throws with the API's error message, which the diff doesn't show."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "New tests cover 400 on POST and PATCH, trimming, the length boundary, invalid JSON and the hidden 500. The front-end change has no test."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 9,
+      "tests": 8,
+      "error_handling": 9,
+      "edge_cases": 8,
+      "scope": 9
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The 500 test emits 'close' on the server to close the DB. This is hacky and depends on the internal 'close' listener, so it is brittle."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH with a non-boolean `done` or a non-object body is still not validated. This is outside the ticket. A body that is only `null` or an array now gives 400, which is fine."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "readJson has no body size limit and the chunk concatenation assumes string encoding. Both were already there and are not part of this ticket."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "README.md",
+        "what": "The README error documentation is a helpful addition, but it goes slightly beyond the ticket."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "public/app.js",
+        "what": "If the failed form submit leaves the text in the field, that is right. The page error display relies on the existing show() and api() helpers, and the diff doesn't show them or test them."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets every acceptance criterion with a small, clear HttpError and validTitle design. It has good tests, including boundary cases and a hidden-500 test. The only weak points are a hacky way of forcing the 500 in that test and no test of the front-end change.",
+    "cost_usd": 0.0395924
+  }
+}

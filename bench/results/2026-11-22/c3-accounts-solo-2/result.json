@@ -1,0 +1,192 @@
+{
+  "ticket": "c3-accounts",
+  "arm": "solo",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:25:39.421Z",
+  "state": "done",
+  "wall_s": 107.823,
+  "cost_usd": 0.33638339999999994,
+  "sessions": 1,
+  "turns": 10,
+  "tokens": {
+    "input": 20,
+    "output": 18571,
+    "cache_read": 312134,
+    "cache_creation": 29855
+  },
+  "said": "Accounts are in: sign-up, sign-in, sign-out, and every `/api/tasks` route now scopes to the signed-in user. All 22 tests pass, including the old ones, now signing in first. I checked `public/app.js` only with `node --check`. I didn't run the page in a browser or run `tsc`.\n\n**What changed**\n- **`src/auth.ts` (new):**\n  - It holds account creation, sign-in, bearer-token parsing and sign-out.\n  - Passwords use a 16-byte salt and scrypt, compared with `timingSafeEqual`.\n  - Tokens are 32 bytes from `randomBytes`, and only their SHA-256 is stored.\n  - An unknown username runs a dummy scrypt, so it costs the same as a wrong password.\n- **`src/db.ts`:** it has new migrations for `users` and `sessions`, plus a nullable `tasks.user_id`. Existing tasks keep a `NULL` owner, so nobody sees them.\n- **`src/tasks.ts`:** every query filters on the owner, and another user's task gives the same 404 as a missing one. Task responses are now built field by field so `user_id` never leaks.\n- **`src/app.ts`:**\n  - It adds `POST /api/users`, `POST /api/sessions` and `DELETE /api/sessions`.\n  - Authentication runs before body parsing and method checks on `/api/tasks*`.\n  - API responses carry `Cache-Control: no-store`.\n- **Page:** it has sign-in and sign-up forms, sends the token on every request, has a sign-out button, and returns to the sign-in form if the server rejects the token.\n- **Tests and README:** the new tests cover the validation and 401/404 cases from the ticket. They also check that nothing is stored in clear and that salts differ. They migrate an old database and confirm its legacy task stays but nobody can see it. The README documents accounts and authentication.\n\n**Changes beyond the ticket**\n- **Error handling:** malformed JSON and non-object bodies now give 400 instead of a 500, and 500s no longer return the internal error message. Bodies over 64 KiB give 413.\n- **Task validation:** `title` must be a non-empty string and `done` a boolean, otherwise 400.\n- **`?done=` fix:*",
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 22,
+    "fail": 0,
+    "tests": 22,
+    "failed": []
+  },
+  "original_tests": null,
+  "typecheck": {
+    "ok": false,
+    "errors": 3,
+    "first": [
+      "src/auth.ts(16,44): error TS2749: 'Buffer' refers to a value, but is being used as a type here. Did you mean 'typeof Buffer'?",
+      "src/auth.ts(16,61): error TS2749: 'Buffer' refers to a value, but is being used as a type here. Did you mean 'typeof Buffer'?",
+      "src/auth.ts(18,83): error TS2749: 'Buffer' refers to a value, but is being used as a type here. Did you mean 'typeof Buffer'?"
+    ]
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 39,
+      "removed": 3
+    },
+    {
+      "path": "public/app.js",
+      "added": 74,
+      "removed": 5
+    },
+    {
+      "path": "public/index.html",
+      "added": 21,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 88,
+      "removed": 13
+    },
+    {
+      "path": "src/auth.ts",
+      "added": 91,
+      "removed": 0
+    },
+    {
+      "path": "src/db.ts",
+      "added": 14,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 30,
+      "removed": 15
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 235,
+      "removed": 2
+    }
+  ],
+  "lines_added": 592,
+  "lines_removed": 41,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "createUser lowercases, validates with regex, 400/409 handled, password length checked, 201 returns {id, username}; tests cover each case."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "login returns 201 {token}; same 401 for unknown user and wrong password, with a dummy hash to equalize timing."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "All /api/tasks routes authenticate first via bearerToken/userForToken and answer 401 'authentication required'; tested across all routes."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "All queries are scoped by user_id; others' tasks give 404 'task not found'; tested for GET/PATCH/DELETE."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "DELETE /api/sessions deletes the token hash and answers 204; the token then gets 401; tested."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "scrypt with a random salt and timingSafeEqual; 32-byte randomBytes tokens stored as SHA-256; responses never include hashes; tested against the DB."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "Migration adds a nullable user_id, so old tasks keep NULL and match no user; a migration test covers it."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "The page has sign-in and sign-up forms, sends the Bearer header, and has a sign-out button."
+      },
+      {
+        "id": 9,
+        "verdict": "met",
+        "why": "Many new API tests, existing ones updated to sign in, and the README documents accounts."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 8,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 8,
+      "edge_cases": 7,
+      "scope": 6
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "Unrelated behaviour changes: new 400 validation for the done filter, title and done type checks, 64KiB body limit with 413, JSON parse errors becoming 400, cache-control no-store, and a 500 handler that hides messages. Useful, but outside the ticket and they change existing API behaviour."
+      },
+      {
+        "severity": "low",
+        "category": "bug",
+        "file": "src/auth.ts",
+        "what": "verifyPassword splits the stored hash without checking its shape. A malformed stored value would throw and give a 500. This is unlikely, since the app writes the values itself."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/auth.ts",
+        "what": "Sign-up runs scrypt on the full password with no maximum length. The 64KiB body cap bounds it, but unauthenticated scrypt calls are a CPU DoS vector, and there is no rate limiting (the README admits this). Passwords are NFKC-normalized, which the ticket does not ask for, though it is harmless."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "public/app.js",
+        "what": "The 401 handler only clears the token for /api/tasks paths. A DELETE sessions failure is swallowed, so the server session may stay alive if sign-out fails. The page also calls res.json() on every non-204 response, which throws on non-JSON errors."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "Test coverage is good, but the UI has no tests. A stray double blank line and a `let token` declared after its use in `before` (it works through hoisting) are minor style nits. The 413 body limit is untested."
+      },
+      {
+        "severity": "low",
+        "category": "over-engineering",
+        "file": "src/auth.ts",
+        "what": "The UNIQUE-race fallback and the dummy-hash timing equalization go slightly beyond the ticket, but they are reasonable for a security ticket."
+      }
+    ],
+    "over_engineering": "some",
+    "overall": 8,
+    "summary": "The diff meets every acceptance criterion. Authentication, per-user scoping, scrypt hashing and hashed tokens are done correctly and tested thoroughly. The main weakness is scope creep: unrelated validation, body-limit and header changes to existing endpoints, plus minor robustness gaps such as no password length cap.",
+    "cost_usd": 0.0945384
+  }
+}

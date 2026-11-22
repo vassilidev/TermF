@@ -1,0 +1,77 @@
+diff --git a/src/app.ts b/src/app.ts
+index 78a93d6..3e7424b 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -31,11 +31,15 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+     return;
+   }
+ 
+   if (url.pathname === "/api/tasks") {
+     if (method === "GET") {
+-      const done = url.searchParams.get("done") ?? undefined;
++      const raw = url.searchParams.get("done");
++      if (raw !== null && raw !== "true" && raw !== "false") {
++        return send(res, 400, { error: "done must be true or false" });
++      }
++      const done = raw === null ? undefined : raw === "true";
+       return send(res, 200, tasks.listTasks(db, { done }));
+     }
+     if (method === "POST") {
+       const body = await readJson(req);
+       return send(res, 201, tasks.createTask(db, body.title));
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4fd5acb..3ab8d62 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -14,11 +14,11 @@ interface Row {
+   created_at: string;
+ }
+ 
+ const toTask = (row: Row): Task => ({ ...row, done: row.done === 1 });
+ 
+-export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
++export function listTasks(db: Db, filter: { done?: boolean } = {}): Task[] {
+   if (filter.done === undefined) {
+     return (db.prepare("SELECT * FROM tasks ORDER BY id").all() as Row[]).map(toTask);
+   }
+   const rows = db.prepare("SELECT * FROM tasks WHERE done = ? ORDER BY id").all(filter.done ? 1 : 0) as Row[];
+   return rows.map(toTask);
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 1fa1bd8..326265f 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -69,5 +69,34 @@ test("lists only the done tasks with ?done=true", async () => {
+ test("serves the page", async () => {
+   const res = await fetch(base + "/");
+   assert.equal(res.status, 200);
+   assert.match(await res.text(), /<h1>Tasks<\/h1>/);
+ });
++
++test("filters tasks by done=false, done=true, or not at all", async () => {
++  const open = await call("POST", "/api/tasks", { title: "Filter open" });
++  const closed = await call("POST", "/api/tasks", { title: "Filter done" });
++  await call("PATCH", `/api/tasks/${closed.body.id}`, { done: true });
++
++  const ids = (r: any) => r.body.map((t: any) => t.id);
++  const onlyOpen = await call("GET", "/api/tasks?done=false");
++  assert.equal(onlyOpen.status, 200);
++  assert.ok(onlyOpen.body.every((t: any) => t.done === false));
++  assert.ok(ids(onlyOpen).includes(open.body.id));
++  assert.ok(!ids(onlyOpen).includes(closed.body.id));
++
++  const onlyDone = await call("GET", "/api/tasks?done=true");
++  assert.ok(onlyDone.body.every((t: any) => t.done === true));
++  assert.ok(ids(onlyDone).includes(closed.body.id));
++  assert.ok(!ids(onlyDone).includes(open.body.id));
++
++  const all = await call("GET", "/api/tasks");
++  assert.ok(ids(all).includes(open.body.id) && ids(all).includes(closed.body.id));
++});
++
++test("rejects any other value of done with 400", async () => {
++  for (const q of ["yes", ""]) {
++    const res = await call("GET", `/api/tasks?done=${q}`);
++    assert.equal(res.status, 400);
++    assert.deepEqual(res.body, { error: "done must be true or false" });
++  }
++});

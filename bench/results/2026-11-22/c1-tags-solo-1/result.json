@@ -1,0 +1,183 @@
+{
+  "ticket": "c1-tags",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:09:01.076Z",
+  "state": "done",
+  "wall_s": 62.511,
+  "cost_usd": 0.19348479999999998,
+  "sessions": 1,
+  "turns": 7,
+  "tokens": {
+    "input": 14,
+    "output": 9823,
+    "cache_read": 177908,
+    "cache_creation": 19359
+  },
+  "said": "Tags work on every acceptance criterion. All 14 tests pass, 7 of them new, and the new ones cover the API. I haven't clicked through the page in a browser; I only checked that `public/app.js` parses.\n\n- **Data:** a new migration adds `tags` and `task_tags`. Links are removed when their task is deleted. A tag nobody uses any more is deleted, so `GET /api/tags` never lists it. I confirmed the migration upgrades an old v1 database, but not with existing task rows in it.\n- **API:** every task has `tags`, and `POST` and `PATCH` accept them as the ticket describes. `GET /api/tasks?tag=` normalizes the name and combines with `done`. `GET /api/tags` returns the in-use tags with counts, sorted by name.\n- **Page:** each task shows its tags as buttons. Clicking one filters the list, and a \"Show all tags\" button clears the filter. The add form takes comma-separated tags.\n- **README:** documents the endpoints, the tag rules and the page behaviour.\n\n- **Bug fixed:** `?done=false` used to return the done tasks, because the string `\"false\"` counted as true. It now returns the open ones, which the tag-and-`done` combination needed.\n- **Choice for the ticket's gaps:** a `?tag=` value that doesn't normalize to a valid tag returns `[]` rather than a 400.\n- **Choice for the ticket's gaps:** a `PATCH` with invalid tags answers 400 even if the task id doesn't exist.",
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 14,
+    "fail": 0,
+    "tests": 14,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 17,
+      "removed": 6
+    },
+    {
+      "path": "public/app.js",
+      "added": 37,
+      "removed": 4
+    },
+    {
+      "path": "public/index.html",
+      "added": 8,
+      "removed": 0
+    },
+    {
+      "path": "src/app.ts",
+      "added": 13,
+      "removed": 3
+    },
+    {
+      "path": "src/db.ts",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 113,
+      "removed": 18
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 101,
+      "removed": 0
+    }
+  ],
+  "lines_added": 299,
+  "lines_removed": 31,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "toTasks adds tags sorted by t.name, defaulting to []; tested."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST and PATCH parse tags; PATCH replaces the list only when tags is defined; tested."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "parseTags trims, lowercases, dedupes, checks the pattern and the max of 10, and returns 400 before any write; tests cover many bad inputs and the no-change case."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "listTasks filters by normalized tag and combines it with done; tested."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "listTags counts per tag, sorted by name, and unused tags are purged; tested."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "New migration adds tags and task_tags with ON DELETE CASCADE, and the tests check that deleting a task removes its links."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "The page shows tag buttons, filters on click, has a 'Show all tags' button and a comma-separated input."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "API tests cover the new behaviours and the README is updated."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 9,
+      "readability": 8,
+      "tests": 8,
+      "error_handling": 7,
+      "edge_cases": 7,
+      "scope": 8
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "src/tasks.ts",
+        "what": "The done filter was rewritten: done=false now maps to 0 and any other value to 1. Before, an empty or other value was handled differently (an empty value gave 0). This is a behaviour change outside the ticket, and no test pins down odd values."
+      },
+      {
+        "severity": "low",
+        "category": "scope",
+        "file": "public/app.js",
+        "what": "The submit handler gained try/catch error display for the whole form. This is a reasonable change for tag errors, but it is slightly beyond what the ticket needs."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "setTags prepares statements inside the loop and runs a global orphan-tag cleanup on every call. deleteTask repeats the same cleanup, so the cleanup logic is duplicated. This is fine at this size."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "There is no test that the migration works on an existing version-1 database. The UI is not tested. The cascade is only checked indirectly through /api/tags."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "PATCH validates tags before checking that the task exists, so an unknown id with bad tags returns 400 instead of 404. This is acceptable, but it is untested."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "normalizeTag is exported but only used inside the module, and the 'tags' test setup is duplicated in the /api/tags test, which builds its own server and request helper."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 8,
+    "summary": "The diff meets every criterion. It uses a clean migration, validation before any write, transactional updates, and good API tests that include the 400 and no-change cases. The small issues are a quiet change to how the done filter is parsed, a duplicated orphan-tag cleanup, and no migration-upgrade or UI test.",
+    "cost_usd": 0.07144640000000001
+  }
+}
