@@ -83,8 +83,8 @@ h1 span{color:var(--accent)}
 .plat:hover{border-color:var(--line2);transform:translateY(-2px)}
 .plat b{display:flex;align-items:center;gap:10px;font-size:20px;letter-spacing:-.01em}
 .plat span{display:block;color:var(--mut);font-size:14.5px;margin-top:4px}
-.plat.you,.file.you{border-color:var(--fill)}
-.badge{padding:1px 9px;border-radius:999px;background:var(--fill);color:#fff;font-size:12px;font-weight:650;letter-spacing:0}
+.plat.you{border-color:var(--fill)}
+.plat .badge{margin:0;padding:1px 9px;border-radius:999px;background:var(--fill);color:#fff;font-size:12px;font-weight:650;letter-spacing:0}
 section{padding:110px 0 0}
 h2{font-size:clamp(30px,4vw,44px);letter-spacing:-.035em;margin:0 0 12px;line-height:1.05}
 h3{font-size:19px;letter-spacing:-.01em;margin:36px 0 4px}
@@ -280,20 +280,20 @@ footer{margin-top:120px;border-top:1px solid var(--line)}
 <script>
 const REPO = 'https://github.com/vassilidev/TermF';
 const COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
-// The asset names the release workflow (tauri-action) publishes, with the version in the middle
+// The asset names the release workflow (tauri-action) publishes; `*` stands for the version, which keeps the commands valid shell globs
 const FILES = {
   mac: [
-    {re: /_aarch64\.dmg$/, name: 'TermF_‹version›_aarch64.dmg', what: 'Apple Silicon (M1 and later)'},
-    {re: /_x64\.dmg$/, name: 'TermF_‹version›_x64.dmg', what: 'Intel'},
+    {re: /_aarch64\.dmg$/, name: 'TermF_*_aarch64.dmg', what: 'Apple Silicon (M1 and later)'},
+    {re: /_x64\.dmg$/, name: 'TermF_*_x64.dmg', what: 'Intel'},
   ],
   windows: [
-    {re: /_x64-setup\.exe$/, name: 'TermF_‹version›_x64-setup.exe', what: 'Installer, 64-bit'},
-    {re: /_x64_en-US\.msi$/, name: 'TermF_‹version›_x64_en-US.msi', what: 'MSI package, 64-bit'},
+    {re: /_x64-setup\.exe$/, name: 'TermF_*_x64-setup.exe', what: 'Installer, 64-bit'},
+    {re: /_x64_en-US\.msi$/, name: 'TermF_*_x64_en-US.msi', what: 'MSI package, 64-bit'},
   ],
   linux: [
-    {re: /_amd64\.AppImage$/, name: 'TermF_‹version›_amd64.AppImage', what: 'Any distribution', run: n => `chmod +x ${n} && ./${n}`},
-    {re: /_amd64\.deb$/, name: 'TermF_‹version›_amd64.deb', what: 'Debian, Ubuntu, Mint, Pop!_OS', run: n => `sudo apt install ./${n}`},
-    {re: /\.x86_64\.rpm$/, name: 'TermF-‹version›-1.x86_64.rpm', what: 'Fedora, openSUSE, Rocky, Alma', run: n => `sudo dnf install ./${n}`},
+    {re: /_amd64\.AppImage$/, name: 'TermF_*_amd64.AppImage', what: 'Any distribution', run: n => `chmod +x ${n} && ./${n}`},
+    {re: /_amd64\.deb$/, name: 'TermF_*_amd64.deb', what: 'Debian, Ubuntu, Mint, Pop!_OS', run: n => `sudo apt install ./${n}`},
+    {re: /\.x86_64\.rpm$/, name: 'TermF-*.x86_64.rpm', what: 'Fedora, openSUSE, Rocky, Alma', run: n => `sudo dnf install ./${n}`},
   ],
 };
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -301,17 +301,19 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
 const ua = navigator.userAgent, plat = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
 const os = /android|iphone|ipad|ipod/i.test(ua) || (plat.includes('mac') && navigator.maxTouchPoints > 1) ? 'mobile'
   : plat.includes('win') ? 'windows' : plat.includes('linux') || /linux|x11|cros/i.test(ua) ? 'linux' : 'mac';
-// null while loading, then the newest published release (pre-releases included: TermF only has those so far), or false
-let release = null;
+// null while loading, then the newest published release (pre-releases included: TermF only has those so far), or false;
+// failed when GitHub's API could not be read (it allows 60 requests an hour without an account)
+let release = null, failed = false;
 const find = f => release ? release.assets.find(a => f.re.test(a.name)) : undefined;
 const mb = n => (n / 1e6).toLocaleString('en-US', {maximumFractionDigits: 1}) + ' MB';
-function fileRow(f, mine) {
+function fileRow(f) {
   const a = find(f), sha = a?.digest?.replace(/^sha256:/, '');
-  const url = a?.browser_download_url ?? `${REPO}/releases/latest`;
+  const url = a?.browser_download_url ?? release?.html_url ?? `${REPO}/releases`;
   const hash = sha
-    ? `<code title="${sha}">${sha}</code><button class="copy icon" type="button" data-copy="${sha}" aria-label="Copy the SHA-256 of ${esc(a.name)}">${COPY}<span>Copy</span></button>`
-    : release === null ? 'Loading…' : a ? `<a href="${esc(release.html_url)}">See the release page</a>` : 'Not published yet';
-  return `<div class="file${mine ? ' you' : ''}">
+    ? `<code title="${esc(sha)}">${esc(sha)}</code><button class="copy icon" type="button" data-copy="${esc(sha)}" aria-label="Copy the SHA-256 of ${esc(a.name)}">${COPY}<span>Copy</span></button>`
+    : a ? `<a href="${esc(release.html_url)}">See the release page</a>`
+    : failed ? `<a href="${REPO}/releases">On the releases page</a>` : release === null ? 'Loading…' : 'Not published yet';
+  return `<div class="file">
     <div class="name">${a ? `<a href="${esc(url)}">${esc(a.name)}</a>` : `<code>${esc(f.name)}</code>`}<span>${esc(f.what)}</span></div>
     <div class="size">${a ? mb(a.size) : ''}</div>
     <div class="hash">${hash}</div>
@@ -329,7 +331,7 @@ function render() {
   }
   for (const box of document.querySelectorAll('[data-files]')) {
     const key = box.dataset.files;
-    box.innerHTML = FILES[key].map((f, i) => fileRow(f, os === key && i === 0)).join('');
+    box.innerHTML = FILES[key].map(fileRow).join('');
   }
   document.querySelector('[data-linux]').innerHTML = FILES.linux.map(f => `<h3>${esc(f.what)}</h3>${cmdBox(f.run(find(f)?.name ?? f.name))}`).join('');
 }
@@ -349,7 +351,11 @@ fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=10')
     }
     render();
   })
-  .catch(() => { release = false; render() });
+  .catch(() => {
+    failed = true;
+    document.getElementById('release').innerHTML = `GitHub couldn't be reached to list the files: every one is on the <a href="${REPO}/releases">releases page</a>.`;
+    render();
+  });
 // Copy buttons copy their data-copy text
 document.addEventListener('click', async e => {
   const btn = e.target.closest('button.copy');

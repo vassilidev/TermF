@@ -12,7 +12,7 @@ LDJSON = '<script type="application/ld+json">'
 
 
 def esbuild(code, loader):
-    return subprocess.run(ESBUILD + ['--loader=' + loader], input=code, capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(ESBUILD + ['--loader=' + loader], input=code, stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
 
 
 def minify(part):
