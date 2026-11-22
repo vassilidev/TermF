@@ -8,6 +8,7 @@
   import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
+  import { waitingAgents } from "$lib/agents.svelte";
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { aria } from "$lib/keymap.svelte";
@@ -18,7 +19,7 @@
   import { summary } from "$lib/sync.svelte";
   import { groups, views } from "$lib/views";
 
-  const waiting = $derived(waitingSessions().length);
+  const waiting = $derived(waitingSessions().length + waitingAgents().length);
   const projects = $derived(app.workspace?.projects ?? []);
   const counts = $derived(tallies());
   /** Sync needs the owner (password, conflicts, recovery key, error): a dot on Settings. */

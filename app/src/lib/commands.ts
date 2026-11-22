@@ -30,6 +30,7 @@ import Telescope from "@lucide/svelte/icons/telescope";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
+import { agents, conversation, showConversation, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { fontReady } from "$lib/Terminal.svelte";
@@ -37,6 +38,7 @@ import { t } from "$lib/i18n";
 import { allRepos, files, scopeRepos, showFiles } from "$lib/files.svelte";
 import { display, keys, pressed } from "$lib/keymap.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
+import { nextAfter } from "$lib/conversation-logic";
 import { type Command } from "$lib/nav-logic";
 import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
 import { openSetup } from "$lib/onboarding.svelte";
@@ -86,12 +88,19 @@ export async function focusSession(id: number) {
     ?.focus({ preventScroll: true });
 }
 
+/** Tiles first, then headless sessions; from the conversation shown, or the active tile. */
 export function nextWaiting() {
-  const waiting = waitingSessions();
-  if (!waiting.length) return;
-  const from = app.sessions.findIndex((s) => s.id === activeSession());
-  const next = waiting.find((s) => app.sessions.indexOf(s) > from) ?? waiting[0];
-  focusSession(next.id);
+  const tile = (id: number) => `tile:${id}`;
+  const agent = (id: number) => `agent:${id}`;
+  const order = [...app.sessions.map((s) => tile(s.id)), ...agents.sessions.map((a) => agent(a.id))];
+  const waiting = [...waitingSessions().map((s) => tile(s.id)), ...waitingAgents().map((a) => agent(a.id))];
+  const shown = ui.view === "conversations" && !agents.creating ? (conversation()?.id ?? null) : null;
+  const active = activeSession();
+  const next = nextAfter(order, waiting, shown !== null ? agent(shown) : active !== null ? tile(active) : null);
+  if (!next) return;
+  const id = Number(next.split(":")[1]);
+  if (next.startsWith("agent:")) showConversation(id);
+  else focusSession(id);
 }
 
 export function toggleMaximize(id = activeSession()) {
@@ -244,7 +253,7 @@ export function commands(): Command[] {
     list.push({ id: "project-setup", label: t("obPalette", { project: name }), icon: WandSparkles, group: "projects", run: () => openSetup(id) });
   }
 
-  if (waitingSessions().length) {
+  if (waitingSessions().length || waitingAgents().length) {
     list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, group: "sessions", run: nextWaiting });
   }
   const visible = app.sessions.filter(shown);

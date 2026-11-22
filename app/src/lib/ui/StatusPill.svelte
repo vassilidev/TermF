@@ -3,10 +3,12 @@
   import BellRing from "@lucide/svelte/icons/bell-ring";
   import Check from "@lucide/svelte/icons/check";
   import CircleCheck from "@lucide/svelte/icons/circle-check";
+  import CircleDollarSign from "@lucide/svelte/icons/circle-dollar-sign";
   import CircleDashed from "@lucide/svelte/icons/circle-dashed";
   import CircleOff from "@lucide/svelte/icons/circle-off";
   import CirclePause from "@lucide/svelte/icons/circle-pause";
   import CirclePlay from "@lucide/svelte/icons/circle-play";
+  import CircleStop from "@lucide/svelte/icons/circle-stop";
   import CircleX from "@lucide/svelte/icons/circle-x";
   import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
@@ -24,6 +26,10 @@
     idle: ["statusIdle", CirclePause, ""],
     done: ["statusDone", CircleCheck, "done"],
     exited: ["exitedLabel", CircleCheck, ""],
+    interactive: ["chatStateInteractive", SquareTerminal, ""],
+    stopped: ["chatStateStopped", CircleStop, ""],
+    error: ["chatStateError", CircleX, "failed"],
+    budget: ["chatStateBudget", CircleDollarSign, "failed"],
     running: ["runStatusRunning", CirclePlay, "working"],
     delivered: ["runStatusDelivered", GitPullRequest, "done"],
     closed: ["runStatusClosed", Archive, ""],
