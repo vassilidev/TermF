@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ui } from "$lib/state.svelte";
 import { t } from "$lib/i18n";
+import { latest } from "$lib/claude-logic";
 
 export type Scope = "user" | "project" | "local" | "managed";
 export type FileState = "absent" | "invalid" | "ok";
@@ -23,14 +24,23 @@ export type Folder = {
   path: string;
   items: { name: string; description: string | null; path: string }[];
 };
-export type Hook = { scope: Scope; event: string; matcher: string | null; kind: string; run: string };
+/** `group` and `index`: where it sits in its scope's file, `hooks.<event>[group].hooks[index]`. */
+export type Hook = {
+  scope: Scope;
+  event: string;
+  matcher: string | null;
+  kind: string;
+  run: string;
+  group: number;
+  index: number;
+};
 export type FileInfo = { scope: Scope | null; path: string; state: FileState; size: number | null };
 export type Overview = {
   claudeDir: string;
   repo: string | null;
   settings: Settings;
   mcp: { servers: McpServer[]; error: string | null };
-  plugins: { plugins: Record<string, unknown>[]; marketplaces: Record<string, unknown>[]; error: string | null };
+  plugins: Plugins;
   extensions: Folder[];
   hooks: Hook[];
   memory: { files: FileInfo[]; auto: { project: string; path: string; files: [string, number][] }[] };
@@ -44,7 +54,25 @@ export type Overview = {
   };
   tools: { name: string; version: string | null; path: string | null }[];
 };
-export type Preview = { path: string; diff: string };
+/** `hash`: the file as read for this preview, sent back with the save. */
+export type Preview = { path: string; diff: string; hash: string };
+export type Plugins = {
+  plugins: Record<string, unknown>[];
+  /** What the marketplaces offer and is not installed: `{pluginId, name, marketplaceName, source, description?}`. */
+  available: Record<string, unknown>[];
+  marketplaces: Record<string, unknown>[];
+  error: string | null;
+};
+/** One change to a settings file; lists and hooks change item by item, since what the page holds is masked. */
+export type Edit =
+  | { op: "set"; key: string; value: unknown }
+  | { op: "add"; key: string; value: unknown }
+  | { op: "drop"; key: string; index: number; value?: unknown }
+  | { op: "move"; key: string; index: number; to: string; value?: unknown }
+  | { op: "addHook"; event: string; matcher: string | null; command: string }
+  | { op: "dropHook"; event: string; group: number; index: number; run?: string };
+/** A command the marketplace runs to install a plugin, run only once accepted by its sha256. */
+export type Shown = { command?: string; plugin?: string; sha256: string };
 
 export type Owner = "me" | "shared";
 export type Artifact = {
@@ -117,6 +145,16 @@ export const EDITABLE: Record<string, { kind: "text" | "number" | "bool" | "enum
   autoUpdatesChannel: { kind: "enum", values: ["stable", "latest"] },
 };
 
+/** The settings change waiting for your go: its diff, shown next to what asked for it (`origin`). */
+export const change = $state({
+  origin: "",
+  scope: "user" as Scope,
+  edit: null as Edit | null,
+  preview: null as Preview | null,
+  error: "",
+  saving: false,
+});
+
 export const claudeView = $state({
   /** Loaded once first shown, then kept mounted, like the other views. */
   loaded: false,
@@ -160,6 +198,78 @@ export async function loadArtifacts() {
   } catch (e) {
     claudeView.error = String(e);
   }
+}
+
+const proposals = latest();
+
+/** The edit and its preview only arrive together, from the last request: Save writes the diff shown. */
+export async function propose(origin: string, scope: Scope, edit: Edit) {
+  const id = proposals.next();
+  Object.assign(change, { origin, scope, edit: null, preview: null, error: "" });
+  try {
+    const preview = await invoke<Preview>("claude_setting_preview", { scope, edit, repo: claudeView.repo || null });
+    if (proposals.isLast(id)) Object.assign(change, { edit, preview });
+  } catch (e) {
+    if (proposals.isLast(id)) change.error = String(e);
+  }
+}
+
+export function discard() {
+  proposals.next();
+  Object.assign(change, { origin: "", edit: null, preview: null, error: "" });
+}
+
+/** Writes the change previewed, refused when the file changed since; then the settings and hooks read again. */
+export async function commit() {
+  const o = claudeView.overview;
+  if (!change.edit || !change.preview || !o) return;
+  change.saving = true;
+  try {
+    const saved = await invoke<{ settings: Settings; hooks: Hook[] }>("claude_setting_save", {
+      scope: change.scope,
+      edit: change.edit,
+      hash: change.preview.hash,
+      repo: claudeView.repo || null,
+    });
+    o.settings = saved.settings;
+    o.hooks = saved.hooks;
+    const path = change.preview.path;
+    claudeView.done = "key" in change.edit ? t("claudeViewSaved", { key: change.edit.key, path }) : t("claudeMgmtSaved", { path });
+    discard();
+  } catch (e) {
+    change.error = String(e);
+  } finally {
+    change.saving = false;
+  }
+}
+
+/** One value as the file has it, unmasked: only once you asked to see it. */
+export async function reveal(scope: Scope, key: string): Promise<unknown> {
+  try {
+    return await invoke("claude_setting_reveal", { scope, key, repo: claudeView.repo || null });
+  } catch (e) {
+    claudeView.error = String(e);
+    return null;
+  }
+}
+
+let schema: Promise<Record<string, unknown>> | null = null;
+
+/** Claude Code's settings schema, the copy embedded in TermF. */
+export function settingsSchema(): Promise<Record<string, unknown>> {
+  schema ??= invoke<Record<string, unknown>>("claude_settings_schema").catch((e) => {
+    schema = null;
+    throw e;
+  });
+  return schema;
+}
+
+/** The value at a dotted key in `scope`'s file, masked as the overview has it. */
+export function fileValue(o: Overview, scope: Scope, key: string): unknown {
+  const file = o.settings.files.find((f) => f.scope === scope);
+  return key
+    .split(".")
+    .reduce<unknown>((v, k) => (v && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined), file?.value);
 }
 
 export async function openUrl(url: string) {

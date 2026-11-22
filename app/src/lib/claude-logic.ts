@@ -110,3 +110,50 @@ export function alerts(o: Overview): Alert[] {
   }
   return out;
 }
+
+/** Answers that may come back out of order: only the last request asked counts. */
+export function latest() {
+  let last = 0;
+  return { next: () => ++last, isLast: (id: number) => id === last };
+}
+
+/** What the settings editor starts with for a key in one scope: that file's value; another scope's only for a
+ * single value: lists and objects add up across scopes, so copying what is in effect would bring every scope's
+ * items into this file, and a masked value could not be revealed from this file. */
+export function prefill(own: unknown, other: { value: unknown; merged: boolean } | undefined): unknown {
+  if (own !== undefined) return own;
+  if (!other || other.merged || (other.value !== null && typeof other.value === "object")) return undefined;
+  return JSON.stringify(other.value).includes("••••••") ? undefined : other.value;
+}
+
+type Schema = Record<string, unknown>;
+
+/** How the settings editor shows a key: a form control for what the schema describes simply, JSON for the rest
+ * (objects, lists, mixed forms, keys the schema does not know). */
+export type Field = { kind: "text" | "number" | "bool" | "enum" | "json"; values: string[]; description: string };
+
+export function field(schema: Schema, key: string): Field {
+  const defs = (schema.$defs ?? {}) as Record<string, Schema>;
+  const resolve = (n: Schema | undefined) => {
+    const ref = typeof n?.$ref === "string" ? n.$ref.replace("#/$defs/", "") : null;
+    return ref ? defs[ref] : n;
+  };
+  let node: Schema | undefined = schema;
+  for (const part of key.split(".")) {
+    const props = node?.properties as Record<string, Schema> | undefined;
+    const extra = node?.additionalProperties;
+    node = resolve(props?.[part] ?? (extra && typeof extra === "object" ? (extra as Schema) : undefined));
+  }
+  const description = typeof node?.description === "string" ? node.description.split("\n")[0] : "";
+  const json: Field = { kind: "json", values: [], description };
+  if (!node) return json;
+  const branches = (node.anyOf ?? node.oneOf) as Schema[] | undefined;
+  const type = node.type ?? (branches?.every((b) => b.type === "string") ? "string" : undefined);
+  if (Array.isArray(node.enum) && node.enum.every((v) => typeof v === "string")) {
+    return { kind: "enum", values: node.enum as string[], description };
+  }
+  if (type === "boolean") return { kind: "bool", values: [], description };
+  if (type === "integer" || type === "number") return { kind: "number", values: [], description };
+  if (type === "string") return { kind: "text", values: [], description };
+  return json;
+}

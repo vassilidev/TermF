@@ -1,7 +1,9 @@
 import { allRepos, currentProject, scopeRepos } from "$lib/files.svelte";
 import { projectsOf, tally, type Tally } from "$lib/nav-logic";
-import { app, grid, launch, selected, ui, type Repo, type Session, type ViewId } from "$lib/state.svelte";
+import { app, grid, launch, onScreen, panes, selected, ui, type Repo, type Session, type ViewId } from "$lib/state.svelte";
 import { usable } from "$lib/onboarding.svelte";
+// Each module reads the other only inside functions, so the import cycle is safe.
+import { closePanel } from "$lib/panes.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 const projects = () => app.workspace?.projects ?? [];
@@ -44,5 +46,7 @@ export function editProject(id: string) {
 
 export function closeProject() {
   ui.editing = null;
-  if (ui.view === "project") ui.view = usable(back);
+  // Beside another view, its panel closes.
+  if (panes.other !== null && onScreen("project")) closePanel("project");
+  else if (ui.view === "project") ui.view = usable(back);
 }
