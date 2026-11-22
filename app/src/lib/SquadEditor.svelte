@@ -301,7 +301,10 @@
     gap: 6px;
   }
 
-  textarea {
+  textarea.field {
+    height: auto;
+    min-height: 64px;
+    padding-block: 6px;
     resize: vertical;
   }
 
