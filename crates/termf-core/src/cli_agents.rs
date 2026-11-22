@@ -275,15 +275,18 @@ mod tests {
         assert_eq!(settings["general"]["vimMode"], true);
         let before = settings["hooks"]["BeforeTool"].as_array().unwrap();
         assert_eq!(before.len(), 2, "the machine's hook stays");
+        let termf = quote(Path::new("/opt/termf"));
         assert_eq!(
-            before[1]["hooks"][0]["command"],
-            "'/opt/termf' hook BeforeTool"
+            before[1]["hooks"][0]["command"].as_str().unwrap(),
+            format!("{termf} hook BeforeTool")
         );
         let start = &settings["hooks"]["SessionStart"][0]["hooks"][0]["command"];
         assert_eq!(
             start.as_str().unwrap(),
-            format!("'/opt/termf' hook SessionStart '{}'", prompt.display())
+            format!("{termf} hook SessionStart {}", quote(&prompt))
         );
+        #[cfg(unix)]
+        assert_eq!(termf, "'/opt/termf'");
         assert_eq!(settings["mcpServers"]["termf"]["args"], json!(["mcp"]));
         let context = gemini_context(&prompt).unwrap();
         assert_eq!(
