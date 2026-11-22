@@ -97,3 +97,11 @@ export function squadIssues(squad: SquadForm, others: SquadForm[], roles: string
   for (const other of others) if (overlaps(squad, other)) add("warning", "overlap", other.id);
   return issues;
 }
+
+/**
+ * The onboarding assistant's squads still worth offering: all of them while the project declares none (its one squad
+ * is then the implicit `main`), else those it does not have yet, so that adding one leaves the others offered.
+ */
+export function offered<P extends { id: string }>(proposals: P[], declared: boolean, squads: { id: string }[]): P[] {
+  return declared ? proposals.filter((p) => !squads.some((s) => s.id === p.id)) : proposals;
+}

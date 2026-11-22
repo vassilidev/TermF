@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { access, added, initials, overlaps, shown, source, squadIssues } from "../src/lib/team-logic.ts";
+import { access, added, initials, offered, overlaps, shown, source, squadIssues } from "../src/lib/team-logic.ts";
 
 test("a role's mark takes two letters of its name", () => {
   assert.equal(initials("front"), "FR");
@@ -68,4 +68,11 @@ test("a squad's editor flags what is wrong, and warns of perimeters that meet", 
   ]);
   assert.deepEqual(said(squadIssues(squad("web", [], []), [web], roles, repos)), ["error taken web", "warning overlap web"]);
   assert.deepEqual(squadIssues({ ...squad("api", [], []), lead: "orchestrator" }, [], roles, repos), []);
+});
+
+test("offered: the assistant's squads the project does not have yet, one added leaving the others", () => {
+  const proposals = [{ id: "main" }, { id: "web" }, { id: "api" }];
+  assert.deepEqual(offered(proposals, false, [{ id: "main" }]), proposals, "the implicit main hides nothing");
+  assert.deepEqual(offered(proposals, true, [{ id: "web" }]).map((p) => p.id), ["main", "api"]);
+  assert.deepEqual(offered(proposals, true, proposals), []);
 });

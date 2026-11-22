@@ -8,7 +8,7 @@
   import { t } from "$lib/i18n";
   import { library, type Item, type Layer } from "$lib/library.svelte";
   import { app, onScreen, shortPath } from "$lib/state.svelte";
-  import { shown, source, type SquadForm } from "$lib/team-logic";
+  import { offered, shown, source, type SquadForm } from "$lib/team-logic";
 
   /** `team_squads`: a project's squads and staff, each role with its settings as the layers make them. */
   type Setting = { key: string; value: unknown; from: ("role" | "global" | "project" | "squad" | "repo")[] };
@@ -63,7 +63,7 @@
   let editing = $state<{ from: string | null; form: SquadForm } | null>(null);
   /** The library's roles, for the editor. */
   let roles = $state<Item[]>([]);
-  /** The onboarding assistant's squads, offered while the project declares none. */
+  /** The onboarding assistant's squads, read while the project declares none. */
   let proposals = $state<SquadForm[]>([]);
   let adding = $state(false);
 
@@ -74,6 +74,7 @@
   );
   const repos = $derived(app.workspace?.projects.find((p) => p.id === project)?.repos.map((r) => r.name) ?? []);
   const forms = $derived(view?.declared ? view.squads.map(formOf) : []);
+  const offering = $derived(view ? offered(proposals, view.declared, view.squads) : []);
 
   /** A squad as the editor takes it: the default lead left empty. */
   function formOf(s: Pick<Squad, "id" | "lead" | "roles" | "repos" | "paths" | "domains">): SquadForm {
@@ -185,11 +186,11 @@
     {#if error}
       <Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>
     {/if}
-    {#if view && !view.declared && proposals.length}
+    {#if offering.length}
       <div class="proposals">
         <p>{t("teams2SqProposed")}</p>
         <ul>
-          {#each proposals as p (p.id)}
+          {#each offering as p (p.id)}
             <li>
               <b>{p.id}</b>
               <span class="muted">
@@ -204,10 +205,10 @@
             </li>
           {/each}
         </ul>
-        {#if proposals.length > 1}
+        {#if offering.length > 1}
           <div>
-            <button class="btn sm primary" disabled={adding} onclick={() => adopt(proposals)}>
-              {t("teams2SqAddAll", { n: proposals.length })}
+            <button class="btn sm primary" disabled={adding} onclick={() => adopt(offering)}>
+              {t("teams2SqAddAll", { n: offering.length })}
             </button>
           </div>
         {/if}
