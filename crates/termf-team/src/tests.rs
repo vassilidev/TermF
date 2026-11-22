@@ -1206,7 +1206,10 @@ fn leaves_the_block_next_dev_writes_out_of_a_task_commit() {
     for file in ["AGENTS.md", "CLAUDE.md"] {
         assert!(said.contains(&format!("{file}: TermF left out")), "{said}");
     }
-    assert!(!said.contains("app/AGENTS.md"), "it has text of its own: {said}");
+    assert!(
+        !said.contains("app/AGENTS.md"),
+        "it has text of its own: {said}"
+    );
     assert_eq!(
         fs::read_to_string(run_dir.join("CLAUDE.md")).unwrap(),
         "# Acme\n\nUse pnpm.\n"
@@ -1258,7 +1261,10 @@ fn the_brief_puts_the_documents_first_and_caps_the_turns() {
     assert!(at("is a boundary: stop there") < at("about 300"));
     assert!(brief.contains("Do not commit, push or open a pull request"));
     let plan = env.message("plan", 1);
-    let (roles, answer) = (plan.find("## The roles you may use"), plan.find("## What to answer"));
+    let (roles, answer) = (
+        plan.find("## The roles you may use"),
+        plan.find("## What to answer"),
+    );
     assert!(roles.is_some() && roles < answer, "{plan}");
     assert!(plan.contains("no task commits, pushes or opens a pull request"));
 
@@ -1266,7 +1272,11 @@ fn the_brief_puts_the_documents_first_and_caps_the_turns() {
         let id = env.step(&run, key).session.unwrap();
         env.agents.session(id).unwrap().spec.max_turns
     };
-    assert_eq!(turns("implement:T1"), Some(7), "an S task, as the project says");
+    assert_eq!(
+        turns("implement:T1"),
+        Some(7),
+        "an S task, as the project says"
+    );
     assert_eq!(turns("plan"), None, "no size: M, which the project uncaps");
     let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
     assert!(args.contains("--max-turns 7"), "{args}");

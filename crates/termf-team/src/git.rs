@@ -114,7 +114,11 @@ impl Git<'_> {
     /// Puts back each `AGENTS.md` and `CLAUDE.md` of `dir` whose only change is a block a tool manages on its own
     /// (`next dev` writes `<!-- BEGIN:nextjs-agent-rules -->`…), unless `asked` says the ticket asks for that
     /// file: what it put back.
-    pub fn set_aside_managed(&self, dir: &Path, asked: impl Fn(&str) -> bool) -> Result<Vec<String>> {
+    pub fn set_aside_managed(
+        &self,
+        dir: &Path,
+        asked: impl Fn(&str) -> bool,
+    ) -> Result<Vec<String>> {
         let changed = self.run(dir, &["diff", "--name-only", "-z", "HEAD"])?;
         let new = self.run(dir, &["ls-files", "-o", "--exclude-standard", "-z"])?;
         let mut kept = Vec::new();
@@ -130,7 +134,9 @@ impl Git<'_> {
                 continue;
             };
             let before = self.run(dir, &["show", &format!("HEAD:{path}")]).ok();
-            if !now.contains(MANAGED) || unmanaged(&now) != unmanaged(before.as_deref().unwrap_or("")) {
+            if !now.contains(MANAGED)
+                || unmanaged(&now) != unmanaged(before.as_deref().unwrap_or(""))
+            {
                 continue;
             }
             match before {
