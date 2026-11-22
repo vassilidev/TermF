@@ -375,7 +375,11 @@ impl Source<'_> {
                     },
                     _ => continue,
                 };
-                if name.is_empty() || name.starts_with('.') {
+                // A shipped `_name` is a template for authors, not an item.
+                if name.is_empty()
+                    || name.starts_with('.')
+                    || (matches!(self, Source::Shipped) && name.starts_with('_'))
+                {
                     continue;
                 }
                 // A folder without its main file is not an item (yet).
