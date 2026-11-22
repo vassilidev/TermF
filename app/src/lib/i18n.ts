@@ -1438,13 +1438,11 @@ const fr = {
   viewCi: "CI/CD",
   // UX pass 2 · T5: Team view and Project page.
   t5Team: "Équipe",
-  t5ShowTeam: "Afficher l'équipe",
   t5InService: "En service",
   t5Access: "Accès",
   t5Layer: "Couche",
   t5ReadOnly: "Lecture seule",
   t5EditRoles: "Modifier les rôles",
-  t5ProjectSettings: "Réglages du projet",
   t5AddRepos: "Ajouter des dépôts…",
   t5RemoveRepo: "Retirer {name}",
   t5DeleteProject: "Supprimer le projet",
@@ -1452,9 +1450,6 @@ const fr = {
   t5None: "—",
   // UX pass 2 · T2: navigation and current project.
   navLabel: "Navigation",
-  navWork: "Travail",
-  navProject: "Projet",
-  navMachine: "Machine",
   navSearch: "Rechercher…",
   navProjectSearch: "Rechercher un projet…",
   navSwitchTo: "Passer au projet {name}",
@@ -1854,7 +1849,6 @@ const fr = {
   t6bHelpSsh: "Tes clés SSH, l'agent, les hôtes et les remotes SSH de tes dépôts.",
   t6bHelpSettings:
     "Les réglages de cette machine : rester éveillé, contexte, raccourcis, CI/CD, Claude, configuration, synchronisation.",
-  t6bHelpProject: "Le nom du projet, ses dépôts et ses sources de tickets. Échap revient où tu étais.",
   t6bHelpOnboarding:
     "TermF analyse les dépôts du projet, te pose quelques questions, puis propose une configuration à accepter ou refuser, point par point.",
   t6bFilesNoRepo: "Les fichiers se parcourent dans les dépôts de tes projets : ajoutes-en un.",
@@ -1864,25 +1858,9 @@ const fr = {
   t6bTourBack: "Précédent",
   t6bTourNext: "Suivant",
   t6bTourDone: "Terminer",
-  t6bTour1Title: "Le projet courant",
-  t6bTour1: "Tout suit le projet choisi ici : sessions, tickets, fichiers, équipe. Changes-en d'un clic ou au clavier.",
   t6bTour2Title: "Sessions, onglets et splits",
   t6bTour2:
     "Les Terminaux montrent tes agents Claude Code et tes shells. Chaque session s'ouvre dans un onglet ; divise-le pour en voir plusieurs côte à côte.",
-  t6bTour3Title: "Ce qui t'attend",
-  t6bTour3:
-    "Quand un agent t'attend, un bandeau ambre apparaît ici et le raccourci t'y emmène. La palette fait tout le reste au clavier.",
-  t6bTour4:
-    "L'inbox liste les tickets du projet. « Lancer » crée une branche, un worktree et une session Claude Code ; coches-en plusieurs pour les lancer d'un coup.",
-  t6bTour5Title: "Conversations et équipe",
-  t6bTour5:
-    "Conversations suit les agents qui travaillent sans terminal : leur fil, leurs outils, leurs demandes d'autorisation. Équipe montre les rôles du projet et qui est en service.",
-  t6bTour6Title: "Deux vues côte à côte",
-  t6bTour6:
-    "{key}-clic sur une vue, ou clic droit puis « Ouvrir à côté », l'affiche à côté de celle où tu es : Conversations | Fichiers, Terminaux | Tickets…",
-  t6bTour7Title: "Réglages et aide",
-  t6bTour7:
-    "Les Réglages rassemblent tout, dont chaque raccourci, modifiable. Appuie sur ? hors d'un terminal pour l'aide de la vue où tu es ; cette visite s'y relance.",
   t6bSelectAll: "Tout sélectionner",
   t6bPick: "Sélectionner {name}",
   t6bChosen: "sélectionné",
@@ -1949,9 +1927,7 @@ const fr = {
   obTeamQThrifty: "Économe : sonnet partout",
   obTeamQQuality: "Qualité : opus partout",
   // Phase 4b: team runs (launch, plan, gates, live steps).
-  teamRunsTabTeam: "Rôles et agents",
   teamRunsTab: "Runs",
-  teamRunsHelp: "L'onglet Runs suit les équipes lancées depuis un ticket : leur plan à approuver, leurs étapes en direct, ce qui t'attend, leur budget.",
   teamRunsLaunch: "Lancer l'équipe",
   teamRunsLaunchLong: "Lancer avec l'équipe",
   teamRunsWithTeam: "Avec l'équipe",
@@ -1966,11 +1942,7 @@ const fr = {
   teamRunsBudgetKeep: "inchangé",
   teamRunsBudgetInvalid: "Un montant en dollars, plus grand que 0.",
   teamRunsBudgetSpent: "Il doit dépasser ce que l'équipe a déjà dépensé ({spent}).",
-  teamRunsTicketRun: "Run du ticket",
   teamRunsSessionOpen: "La session Claude Code du run est encore ouverte dans le même worktree : arrête-la si elle travaille, pour que l'équipe ne la croise pas.",
-  teamRunsNoTicketRun: "Aucun run de ticket ouvert sans équipe dans ce projet : lance d'abord le ticket, ou utilise « Avec l'équipe » dans l'inbox.",
-  teamRunsEmpty: "Aucun run d'équipe",
-  teamRunsEmptyHelp: "Lance l'équipe depuis un ticket : elle cadre, planifie, réalise et vérifie, et t'attend aux étapes clés.",
   teamRunsPaused: "en pause",
   teamRunsStop: "Arrêt d'urgence",
   teamRunsStopTitle: "Arrêter l'équipe de {ticket} ?",
@@ -2132,11 +2104,6 @@ const fr = {
   expertNoticeQueued: "Message gardé pour {role} : il le lira à la fin de sa réponse en cours",
   // The CTO's triage: free requests, the routing and its gate, the questionnaire.
   ctoEntryRequest: "Demande",
-  ctoEntryFromRun: "Un run de ticket",
-  ctoEntryFromText: "Une demande écrite",
-  ctoEntryText: "Ta demande",
-  ctoEntryTextHint: "Ce que l'équipe doit faire, en quelques lignes…",
-  ctoEntryTextHelp: "Le CTO la lit d'abord, choisit le chemin (workflow, étapes, squads, budget) et te pose ses questions s'il en a. Un run sans ticket est créé pour elle.",
   ctoEntryProject: "Projet",
   ctoEntryRepo: "Dépôt",
   ctoEntryTriage: "Le CTO choisit le chemin…",
@@ -2332,7 +2299,7 @@ const fr = {
   ux3t4HelpConfig:
     "Tout ce qui règle le projet, par section : nom et dépôts, mise en route, tickets, équipe, bibliothèque, worktrees, mémoire, confiance Claude Code. La recherche trouve une section ; Échap revient où tu étais.",
   ux3t4TipElsewhere:
-    "Les conversations s'ouvrent depuis l'Accueil (« En service »), la bibliothèque depuis la Configuration ; la palette mène partout.",
+    "Les conversations s'ouvrent depuis l'Accueil (« En service »), la bibliothèque depuis la Configuration ; la palette mène partout.",
   ux3t4Tour1Title: "Tes projets",
   ux3t4Tour1:
     "Chaque projet a ses vues : Accueil, Terminaux, Tickets, Fichiers, CI/CD, Configuration. Clique un projet pour y passer sans quitter la vue où tu es, ou cherche-le au clavier.",
@@ -3772,13 +3739,11 @@ const en: Record<Key, string> = {
   viewCi: "CI/CD",
   // UX pass 2 · T5: Team view and Project page.
   t5Team: "Team",
-  t5ShowTeam: "Show the team",
   t5InService: "On duty",
   t5Access: "Access",
   t5Layer: "Layer",
   t5ReadOnly: "Read-only",
   t5EditRoles: "Edit the roles",
-  t5ProjectSettings: "Project settings",
   t5AddRepos: "Add repositories…",
   t5RemoveRepo: "Remove {name}",
   t5DeleteProject: "Delete the project",
@@ -3786,9 +3751,6 @@ const en: Record<Key, string> = {
   t5None: "—",
   // UX pass 2 · T2: navigation and current project.
   navLabel: "Navigation",
-  navWork: "Work",
-  navProject: "Project",
-  navMachine: "Machine",
   navSearch: "Search…",
   navProjectSearch: "Search projects…",
   navSwitchTo: "Switch to project {name}",
@@ -4183,7 +4145,6 @@ const en: Record<Key, string> = {
   t6bHelpSsh: "Your SSH keys, the agent, the hosts and your repositories' SSH remotes.",
   t6bHelpSettings:
     "This machine's settings: keep awake, context, shortcuts, CI/CD, Claude, configuration, sync.",
-  t6bHelpProject: "The project's name, its repositories and its ticket sources. Escape goes back where you were.",
   t6bHelpOnboarding:
     "TermF looks at the project's repositories, asks you a few questions, then proposes a setup to accept or decline, item by item.",
   t6bFilesNoRepo: "Files are browsed in your projects' repositories: add one.",
@@ -4193,25 +4154,9 @@ const en: Record<Key, string> = {
   t6bTourBack: "Back",
   t6bTourNext: "Next",
   t6bTourDone: "Done",
-  t6bTour1Title: "The current project",
-  t6bTour1: "Everything follows the project picked here: sessions, tickets, files, team. Switch in a click or from the keyboard.",
   t6bTour2Title: "Sessions, tabs and splits",
   t6bTour2:
     "Terminals show your Claude Code agents and shells. Each session opens in a tab; split it to see several side by side.",
-  t6bTour3Title: "What is waiting for you",
-  t6bTour3:
-    "When an agent waits for you, an amber banner shows here and the shortcut takes you there. The palette does everything else from the keyboard.",
-  t6bTour4:
-    "The inbox lists the project's tickets. “Launch” makes a branch, a worktree and a Claude Code session; tick several to launch them at once.",
-  t6bTour5Title: "Conversations and team",
-  t6bTour5:
-    "Conversations follows the agents working without a terminal: their thread, tools and permission requests. Team shows the project's roles and who is on duty.",
-  t6bTour6Title: "Two views side by side",
-  t6bTour6:
-    "{key}-click a view, or right-click it then “Open beside”, to show it beside the one you are in: Conversations | Files, Terminals | Tickets…",
-  t6bTour7Title: "Settings and help",
-  t6bTour7:
-    "Settings hold everything, every shortcut included, all editable. Press ? outside a terminal for help on the view you are in; this tour restarts from there.",
   t6bSelectAll: "Select all",
   t6bPick: "Select {name}",
   t6bChosen: "selected",
@@ -4278,9 +4223,7 @@ const en: Record<Key, string> = {
   obTeamQThrifty: "Thrifty: sonnet everywhere",
   obTeamQQuality: "Quality: opus everywhere",
   // Phase 4b: team runs (launch, plan, gates, live steps).
-  teamRunsTabTeam: "Roles and agents",
   teamRunsTab: "Runs",
-  teamRunsHelp: "The Runs tab follows the teams started from a ticket: their plan to approve, their steps live, what waits for you, their budget.",
   teamRunsLaunch: "Start the team",
   teamRunsLaunchLong: "Start with the team",
   teamRunsWithTeam: "With the team",
@@ -4295,11 +4238,7 @@ const en: Record<Key, string> = {
   teamRunsBudgetKeep: "unchanged",
   teamRunsBudgetInvalid: "An amount in dollars, above 0.",
   teamRunsBudgetSpent: "It must be above what the team spent already ({spent}).",
-  teamRunsTicketRun: "Ticket run",
   teamRunsSessionOpen: "The run's Claude Code session is still open in the same worktree: stop it if it is working, so the team does not cross it.",
-  teamRunsNoTicketRun: "No open ticket run without a team in this project: start the ticket first, or use “With the team” in the inbox.",
-  teamRunsEmpty: "No team runs",
-  teamRunsEmptyHelp: "Start the team from a ticket: it frames, plans, builds and checks, and waits for you at the key steps.",
   teamRunsPaused: "paused",
   teamRunsStop: "Emergency stop",
   teamRunsStopTitle: "Stop the team of {ticket}?",
@@ -4461,11 +4400,6 @@ const en: Record<Key, string> = {
   expertNoticeQueued: "Message kept for {role}: it reads it once its answer under way ends",
   // The CTO's triage: free requests, the routing and its gate, the questionnaire.
   ctoEntryRequest: "Request",
-  ctoEntryFromRun: "A ticket run",
-  ctoEntryFromText: "A written request",
-  ctoEntryText: "Your request",
-  ctoEntryTextHint: "What the team should do, in a few lines…",
-  ctoEntryTextHelp: "The CTO reads it first, picks the path (workflow, steps, squads, budget) and asks you its questions if it has any. A run without a ticket is created for it.",
   ctoEntryProject: "Project",
   ctoEntryRepo: "Repository",
   ctoEntryTriage: "The CTO is picking the path…",

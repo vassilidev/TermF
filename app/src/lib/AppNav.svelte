@@ -503,6 +503,18 @@
     min-width: 0;
   }
 
+  .machine {
+    position: relative;
+  }
+
+  /* Folded, the dot sits on the icon: the row has no width to spare for it. */
+  .machine .dot {
+    position: absolute;
+    top: 7px;
+    left: 19px;
+    box-shadow: 0 0 0 2px var(--chrome);
+  }
+
   .machine :global(.chev) {
     transition: transform var(--dur-fast) ease-out;
   }
