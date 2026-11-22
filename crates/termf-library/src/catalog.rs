@@ -31,6 +31,36 @@ const REQUIRED: [&str; 5] = [
 const MAX_LINES: usize = 500;
 const MAX_CARD: usize = 25;
 const MIN_EVALS: usize = 3;
+/// Skills shipped without evals, each with the reason.
+const NO_EVALS: [(&str, &str); 0] = [];
+/// The roles whose behaviour `pnpm evals` checks, in `library/roles/evals/<role>/`.
+const EVALUATED_ROLES: [&str; 5] = ["cto", "reviewer", "qa", "front", "back"];
+const MIN_ROLE_EVALS: usize = 2;
+/// The frontmatter keys of a `prompt.md` (an unknown one fails the case), and the grader types, of `claude plugin
+/// eval` (code.claude.com/docs/en/plugin-evals, 2026-11-22).
+const PROMPT_KEYS: [&str; 13] = [
+    "schema_version",
+    "name",
+    "description",
+    "tags",
+    "plugins",
+    "runs",
+    "expected_outcome",
+    "model",
+    "max_turns",
+    "timeout_seconds",
+    "allowed_tools",
+    "append_system_prompt",
+    "env",
+];
+const GRADERS: [(&str, &[&str]); 6] = [
+    ("regex", &["pattern", "flags", "match", "target"]),
+    ("tool_used", &["tool", "input_match", "min", "max"]),
+    ("tool_order", &["before", "after"]),
+    ("file_exists", &["path", "exists"]),
+    ("llm", &["criteria", "focus"]),
+    ("baseline", &["baseline_file", "criteria"]),
+];
 /// Two descriptions this close (cosine of their TF-IDF vectors) compete for the same requests.
 const MAX_SIMILARITY: f64 = 0.6;
 /// Globs that match a folder or a file of any kind of project.
@@ -238,11 +268,9 @@ fn references(text: &str) -> BTreeSet<String> {
     found
 }
 
-/// The `claude plugin eval` cases in `evals/`: three at least, each with a grader, one checking that the skill
-/// fires and one dormant case checking that it does not.
-fn evals(dir: &Path, name: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-    let mut cases: Vec<PathBuf> = fs::read_dir(dir.join("evals"))
+/// The `claude plugin eval` cases in `evals`, a folder of case folders.
+fn cases(evals: &Path) -> Vec<PathBuf> {
+    let mut cases: Vec<PathBuf> = fs::read_dir(evals)
         .into_iter()
         .flatten()
         .flatten()
@@ -250,6 +278,86 @@ fn evals(dir: &Path, name: &str) -> Vec<String> {
         .filter(|p| p.join("prompt.md").is_file() || p.join("case.yaml").is_file())
         .collect();
     cases.sort();
+    cases
+}
+
+/// What `claude plugin eval` would refuse in a case: a frontmatter key it does not know, no grader, a grader of no
+/// known type or with an option of another type. Each as `evals/<case>: <problem>`.
+fn case_format(case: &Path) -> Vec<String> {
+    let label = format!(
+        "evals/{}",
+        case.file_name().unwrap_or_default().to_string_lossy()
+    );
+    let mut errors = Vec::new();
+    if let Ok(text) = fs::read_to_string(case.join("prompt.md")) {
+        match parse_markdown(&text) {
+            Ok((meta, _)) => {
+                for key in meta.keys().filter(|k| !PROMPT_KEYS.contains(&k.as_str())) {
+                    errors.push(format!("{label}: unknown prompt.md key {key:?}"));
+                }
+            }
+            Err(e) => errors.push(format!("{label}: invalid prompt.md: {e:#}")),
+        }
+    }
+    let files: Vec<PathBuf> = fs::read_dir(case.join("graders"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    let in_yaml = fs::read_to_string(case.join("case.yaml")).is_ok_and(|t| t.contains("graders:"));
+    if files.is_empty() && !in_yaml {
+        errors.push(format!("{label}: no grader"));
+    }
+    for file in files {
+        let grader = file.file_stem().unwrap_or_default().to_string_lossy();
+        let text = fs::read_to_string(&file).unwrap_or_default();
+        let Ok((meta, body)) = parse_markdown(&text) else {
+            errors.push(format!("{label}: grader {grader} has no frontmatter"));
+            continue;
+        };
+        let kind = meta.get("type").and_then(Value::as_str).unwrap_or_default();
+        let Some((_, options)) = GRADERS.iter().find(|(t, _)| *t == kind) else {
+            errors.push(format!("{label}: grader {grader} has no known type"));
+            continue;
+        };
+        for key in meta.keys().filter(|k| {
+            !["type", "weight", "arm"].contains(&k.as_str()) && !options.contains(&k.as_str())
+        }) {
+            errors.push(format!(
+                "{label}: grader {grader} ({kind}) takes no {key:?}"
+            ));
+        }
+        let pattern = meta
+            .get("pattern")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let missing = match kind {
+            "regex" => pattern.is_empty() || pattern.contains("(?i"),
+            "tool_used" => !meta.contains_key("tool"),
+            "llm" => body.trim().is_empty() && !meta.contains_key("criteria"),
+            _ => false,
+        };
+        if missing {
+            errors.push(format!(
+                "{label}: grader {grader} ({kind}) lacks what it checks (a pattern without inline flags, a tool, criteria)"
+            ));
+        }
+    }
+    errors
+}
+
+/// The `claude plugin eval` cases in `evals/`: three at least, each with a grader, one checking that the skill
+/// fires and one dormant case checking that it does not; none for a skill `NO_EVALS` lists.
+fn evals(dir: &Path, name: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    let cases = cases(&dir.join("evals"));
+    if NO_EVALS.iter().any(|(n, _)| *n == name) {
+        if !cases.is_empty() {
+            errors.push(format!("has evals: take {name} out of NO_EVALS"));
+        }
+        return errors;
+    }
     if cases.len() < MIN_EVALS {
         errors.push(format!(
             "{} eval cases in evals/, {MIN_EVALS} at least",
@@ -258,6 +366,7 @@ fn evals(dir: &Path, name: &str) -> Vec<String> {
     }
     let (mut fires, mut dormant) = (false, false);
     for case in &cases {
+        errors.extend(case_format(case));
         let graders: Vec<_> = fs::read_dir(case.join("graders"))
             .into_iter()
             .flatten()
@@ -268,14 +377,6 @@ fn evals(dir: &Path, name: &str) -> Vec<String> {
                     .map(|(m, _)| m)
             })
             .collect();
-        let in_yaml =
-            fs::read_to_string(case.join("case.yaml")).is_ok_and(|t| t.contains("graders:"));
-        if graders.is_empty() && !in_yaml {
-            errors.push(format!(
-                "evals/{}: no grader",
-                case.file_name().unwrap_or_default().to_string_lossy()
-            ));
-        }
         for g in graders {
             let skill = g.get("type").and_then(Value::as_str) == Some("tool_used")
                 && g.get("tool").and_then(Value::as_str) == Some("Skill")
@@ -411,6 +512,73 @@ mod tests {
             ));
         }
         assert!(errors.is_empty(), "{}", errors.join("\n"));
+    }
+
+    #[test]
+    fn the_key_roles_have_evals_claude_code_can_run() {
+        let dir = library().join("roles/evals");
+        let mut errors = Vec::new();
+        for role in fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()) {
+            let name = role.file_name().unwrap().to_string_lossy().into_owned();
+            if !roles().contains(&name) {
+                errors.push(format!("roles/evals/{name}: no shipped role {name}"));
+            }
+            let cases = cases(&role);
+            if cases.len() < MIN_ROLE_EVALS {
+                errors.push(format!(
+                    "roles/evals/{name}: {} cases, {MIN_ROLE_EVALS} at least",
+                    cases.len()
+                ));
+            }
+            for case in &cases {
+                errors.extend(
+                    case_format(case)
+                        .into_iter()
+                        .map(|e| format!("roles/{name}/{e}")),
+                );
+            }
+        }
+        for role in EVALUATED_ROLES {
+            if !dir.join(role).is_dir() {
+                errors.push(format!("no evals for the role {role}"));
+            }
+        }
+        for (skill, why) in NO_EVALS {
+            if !library().join("skills").join(skill).is_dir() || why.trim().is_empty() {
+                errors.push(format!(
+                    "NO_EVALS: {skill} is no shipped skill, or has no reason"
+                ));
+            }
+        }
+        assert!(errors.is_empty(), "{}", errors.join("\n"));
+    }
+
+    #[test]
+    fn the_case_format_is_the_one_claude_code_reads() {
+        let case = temp_dir("catalog-case").join("evals/bad");
+        put(
+            &case.join("prompt.md"),
+            "---\nmax_turns: 5\nallowed-tools: [Read]\n---\nDo it.\n",
+        );
+        put(
+            &case.join("graders/a.md"),
+            "---\ntype: regex\npattern: '(?i)done'\nfocus: last_message\n---\n",
+        );
+        put(&case.join("graders/b.md"), "---\ntype: script\n---\n");
+        put(&case.join("graders/c.md"), "---\ntype: llm\n---\n");
+        let errors = case_format(&case).join("\n");
+        for expected in [
+            "evals/bad: unknown prompt.md key \"allowed-tools\"",
+            "grader a (regex) takes no \"focus\"",
+            "grader a (regex) lacks what it checks",
+            "grader b has no known type",
+            "grader c (llm) lacks what it checks",
+        ] {
+            assert!(
+                errors.contains(expected),
+                "missing {expected:?} in:\n{errors}"
+            );
+        }
     }
 
     #[test]
