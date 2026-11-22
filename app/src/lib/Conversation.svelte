@@ -60,7 +60,8 @@
   /**
    * `embedded`: in the Home, without the session's header; `lead` goes in its place and the session's details in a
    * popover. `card` replaces a notice of the thread (`fallback` draws it as usual), `top` goes at its head; `notices`
-   * tells the caller which notices the thread has.
+   * tells the caller which notices the thread has. `examples` false leaves the examples of an empty thread out, for a
+   * caller whose `top` already asks something.
    */
   let {
     session,
@@ -69,6 +70,7 @@
     card,
     top,
     notices = $bindable([]),
+    examples: offerExamples = true,
   }: {
     session: AgentSession;
     embedded?: boolean;
@@ -76,6 +78,7 @@
     card?: Snippet<[Notice, Snippet<[Notice]>]>;
     top?: Snippet;
     notices?: Notice[];
+    examples?: boolean;
   } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
@@ -207,6 +210,18 @@
     if (n.about === "review" && n.step && n.step !== "review") return t("roles2ReviewNotice", vars);
     if (n.about === "queued") return t("expertNoticeQueued", vars);
     return n.about in keys ? t(keys[n.about as keyof typeof keys], vars) : n.text;
+  }
+
+  // What a beginner can ask first, on an empty thread; a click fills the field without sending.
+  const examples = $derived.by(() => {
+    const repo = repos[0]?.name;
+    if (expert) return repo ? (["uxfT2ExpertExample1", "uxfT2ExpertExample2", "uxfT2ExpertExample3"] as const).map((k) => t(k, { repo })) : [];
+    return [t("uxfT2CtoExample1"), t("uxfT2CtoExample2"), ...(repo ? [t("uxfT2CtoExample3", { repo })] : [])];
+  });
+
+  function suggest(text: string) {
+    draft = text;
+    box?.focus();
   }
 
   function choose(role: string) {
@@ -637,7 +652,17 @@
       </p>
     {/if}
     {#if session.mcp && !turns.length && !loadError}
-      <p class="intro">{expert ? t("expertIntro") : t("ctoIntro")}</p>
+      <div class="intro">
+        <p>{expert ? t("expertIntro") : t("ctoIntro")}</p>
+        {#if offerExamples && examples.length}
+          <div class="examples" role="group" aria-label={t("uxfT2Examples")}>
+            <span aria-hidden="true">{t("uxfT2Examples")}</span>
+            {#each examples as example (example)}
+              <button type="button" class="btn sm" onclick={() => suggest(example)}>{example}</button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     {/if}
     {#each turns as turn (turn.key)}
       {@const now = turning && turn === turns.at(-1) && !turn.end}
@@ -1238,7 +1263,7 @@
     grid-column: 1 / -1;
     margin: 0;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
   }
 
   .send {
@@ -1253,10 +1278,28 @@
   }
 
   .intro {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 64ch;
+  }
+
+  .intro p {
     margin: 0;
+    line-height: 1.55;
+  }
+
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .examples span {
+    margin-right: 2px;
     color: var(--muted);
     font-size: var(--text-sm);
-    line-height: 1.5;
   }
 
   /* TermF speaks in the conversation: neither the user's bubble nor the agent's text. */
