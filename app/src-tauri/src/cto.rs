@@ -133,20 +133,31 @@ fn repo_path(project: &Project, repo: Option<&str>) -> Result<PathBuf> {
 
 /// Sends `text` to the session of `role`'s step at work in one of the project's team runs when it is between two
 /// turns, else to the direct conversation with `role` in `repo`, which starts the first time.
+///
+/// `read_prod`: the data folder, when the sender read prod data (the trifecta rule): the session that gets the
+/// message is marked first, and only one behind `termf guard` gets it (a new one has no way out at all).
 pub fn address(
     app: &AppHandle,
     id: &str,
     role: &str,
     text: &str,
     repo: Option<&str>,
+    read_prod: Option<&Path>,
 ) -> Result<Addressed> {
     ensure!(!text.trim().is_empty(), "the message is empty");
     let agents = agents(app);
     let project = project(app, id)?;
+    let mark = |session: i64| -> Result<()> {
+        if let Some(data) = read_prod {
+            termf_core::taint::mark_session(data, &agents.session(session)?.session_id)?;
+        }
+        Ok(())
+    };
     // The expert answers in its own conversation, with the project memory: it never works at a step. In the
     // middle of a turn, it gets the message at its end.
     if role == termf_agents::EXPERT {
         let session = standing(app, id, role)?;
+        mark(session.id)?;
         let queued = agents.send_or_queue(session.id, text)?;
         return Ok(Addressed {
             session: agents.session(session.id)?,
@@ -156,7 +167,9 @@ pub fn address(
         });
     }
     let at_work = step_at_work(&team::team(app).runs()?, id, role);
-    let busy = match route(at_work, |session| agents.send(session, text).is_ok()) {
+    let busy = match route(at_work, |session| {
+        mark(session).is_ok() && agents.send(session, text).is_ok()
+    }) {
         Route::Step { run, step, session } => {
             return Ok(Addressed {
                 session: agents.session(session)?,
@@ -168,8 +181,11 @@ pub fn address(
         Route::Direct { busy } => busy,
     };
     let cwd = repo_path(&project, repo)?;
-    let session = match direct_conversation(agents.sessions()?, id, role, &cwd) {
+    let sessions = agents.sessions()?.into_iter();
+    let guarded = sessions.filter(|s| read_prod.is_none() || s.spec.guard);
+    let session = match direct_conversation(guarded.collect(), id, role, &cwd) {
         Some(session) => {
+            mark(session.id)?;
             agents.send(session.id, text)?;
             agents.session(session.id)?
         }
@@ -181,9 +197,20 @@ pub fn address(
                 title,
                 project: Some(project.id.clone()),
                 role: Some(role.into()),
+                guard: read_prod.is_some(),
+                disallowed_tools: match read_prod {
+                    Some(_) => termf_core::taint::EGRESS_DENY
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect(),
+                    None => Vec::new(),
+                },
                 ..SessionSpec::default()
             };
-            agents.start(spec, Some(text))?
+            let created = agents.create(spec)?;
+            mark(created.id)?;
+            agents.send(created.id, text)?;
+            agents.session(created.id)?
         }
     };
     let (run, step) = busy.unzip();
@@ -351,27 +378,29 @@ pub fn call(
         mask(&mut value);
         return Ok(value);
     }
-    let passes = matches!(
+    // The trifecta rule follows what a conversation that read prod hands on: the run it starts and the session it
+    // writes to are marked before either gets a word of it.
+    let data = app.state::<crate::ops::OpsState>().data_dir.clone();
+    let read_prod = termf_core::taint::session(&data, &conversation.session_id);
+    let mut value = run_tool(
+        app,
+        &agents,
+        &project,
         tool,
-        McpCall::StartTeamRun { .. } | McpCall::SendMessage { .. }
-    );
-    let mut value = run_tool(app, &agents, &project, tool)?;
-    // The trifecta rule follows what a conversation that read prod hands on: the run it starts, the session it
-    // writes to.
-    let data = &app.state::<crate::ops::OpsState>().data_dir;
-    if passes && termf_core::taint::session(data, &conversation.session_id) {
-        if let Some(run) = value["run"].as_i64() {
-            termf_core::taint::mark_run(data, run)?;
-        }
-        if let Some(other) = value["conversation"].as_i64() {
-            termf_core::taint::mark_session(data, &agents.session(other)?.session_id)?;
-        }
-    }
+        read_prod.then_some(data.as_path()),
+    )?;
     mask(&mut value);
     Ok(value)
 }
 
-fn run_tool(app: &AppHandle, agents: &Agents, id: &str, tool: McpCall) -> Result<Value> {
+/// `read_prod`: the data folder, when the calling conversation read prod data.
+fn run_tool(
+    app: &AppHandle,
+    agents: &Agents,
+    id: &str,
+    tool: McpCall,
+    read_prod: Option<&Path>,
+) -> Result<Value> {
     let team = team::team(app);
     let owned = |run: i64| -> Result<TeamRun> {
         let found = team.run(run)?;
@@ -424,6 +453,7 @@ fn run_tool(app: &AppHandle, agents: &Agents, id: &str, tool: McpCall) -> Result
             let options = Options {
                 workflow,
                 budget,
+                read_prod: read_prod.is_some(),
                 ..Options::default()
             };
             let started = match (run, ticket, request) {
@@ -503,11 +533,14 @@ fn run_tool(app: &AppHandle, agents: &Agents, id: &str, tool: McpCall) -> Result
                     .find(|s| s.key == key)
                     .with_context(|| format!("team run {run} has no step {key}"))?;
                 let session = step.session.context("this step has no agent session")?;
+                if let Some(data) = read_prod {
+                    termf_core::taint::mark_session(data, &agents.session(session)?.session_id)?;
+                }
                 agents.send(session, &text)?;
                 json!({ "via": "step", "run": run, "step": key, "conversation": session })
             }
             (None, None, Some(role)) => {
-                let to = address(app, id, &role, &text, repo.as_deref())?;
+                let to = address(app, id, &role, &text, repo.as_deref(), read_prod)?;
                 json!({ "via": to.via, "run": to.run, "step": to.step, "conversation": to.session.id })
             }
             _ => bail!("give run and step, or role"),
@@ -672,7 +705,7 @@ pub async fn cto_address(
     repo: Option<String>,
 ) -> CmdResult<Addressed> {
     blocking(app, move |app| {
-        let to = address(app, &project, &role, &text, repo.as_deref())?;
+        let to = address(app, &project, &role, &text, repo.as_deref(), None)?;
         if let Err(e) = tell(app, &project, &role, &text, &to) {
             eprintln!("termf: the CTO conversation was not told: {e:#}");
         }

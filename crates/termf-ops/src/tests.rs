@@ -480,6 +480,74 @@ args = ["yes", "a line of output"]
     let out = redact::mask(raw, None, &[], &plan.limits);
     assert!(out.truncated);
     assert_eq!(out.text.lines().count(), 10, "{}", out.text);
+
+    // Nothing kept, a flood all the same: stopped by what it printed in all, long before its deadline.
+    let filtered = Recipe::parse(
+        r#"
+name = "filtered"
+[limits]
+bytes = 1000
+timeout_s = 60
+[[run]]
+kind = "ssh"
+args = ["yes", "nothing to see"]
+keep = "ERROR"
+"#,
+        "project",
+    )
+    .unwrap();
+    let plan = crate::plan(
+        &filtered,
+        &conn,
+        std::slice::from_ref(&conn),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    let raw = env.runner().run(&plan, &|_| unreachable!()).unwrap();
+    assert!(started.elapsed() < Duration::from_secs(30));
+    assert!(
+        raw.stopped
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stopped after reading"),
+        "{:?}",
+        raw.stopped
+    );
+    assert!(raw.stdout.is_empty());
+
+    // One line that never ends: stopped past its limit too, and never shown cut.
+    let endless = Recipe::parse(
+        r#"
+name = "endless"
+[limits]
+bytes = 1000
+timeout_s = 60
+[[run]]
+kind = "ssh"
+args = ["sh", "-c", "yes | tr -d '\\n'"]
+"#,
+        "project",
+    )
+    .unwrap();
+    let plan = crate::plan(
+        &endless,
+        &conn,
+        std::slice::from_ref(&conn),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    let raw = env.runner().run(&plan, &|_| unreachable!()).unwrap();
+    assert!(started.elapsed() < Duration::from_secs(30));
+    assert!(
+        raw.stopped
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stopped past 1000 bytes"),
+        "{:?}",
+        raw.stopped
+    );
 }
 
 #[cfg(unix)]

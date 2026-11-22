@@ -21,6 +21,10 @@ use crate::{Connection, Kind, Mode, install_hint};
 const MARGIN: usize = 4096;
 const TUNNEL_WAIT: Duration = Duration::from_secs(15);
 const TEST_TIMEOUT: u64 = 20;
+/// A client is stopped once it printed this many times its byte limit (at least `MIN_READ`), whatever `keep`
+/// kept of it.
+const READ_FACTOR: u64 = 16;
+const MIN_READ: u64 = 4 << 20;
 /// Where a client reaches a database through its tunnel, once the tunnel has its port.
 const PORT: &str = "<local port>";
 
@@ -408,6 +412,8 @@ impl Runner {
                 .map(|a| if a == PORT { port.as_str() } else { a }),
         );
         let cap = bytes + MARGIN;
+        // What a client may print in all, the lines `keep` drops included.
+        let read_cap = (cap as u64).saturating_mul(READ_FACTOR).max(MIN_READ);
         let cancel = AtomicBool::new(false);
         let (mut out, mut seen) = (String::new(), 0u64);
         let kept =
@@ -418,7 +424,7 @@ impl Runner {
                 out.push_str(line);
                 out.push('\n');
             }
-            if out.len() > cap {
+            if out.len() > cap || seen > read_cap {
                 cancel.store(true, Ordering::SeqCst);
             }
         };
@@ -428,6 +434,7 @@ impl Runner {
             Duration::from_secs(timeout),
             &mut on_line,
             &cancel,
+            cap,
         );
         drop(tunnel);
         let mut raw = Raw {
@@ -456,6 +463,7 @@ impl Runner {
                 raw.bytes = seen;
                 raw.stdout = out;
                 raw.stopped = Some(match cancel.load(Ordering::SeqCst) {
+                    true if seen > read_cap => format!("stopped after reading {read_cap} bytes"),
                     true => format!("stopped past {bytes} bytes"),
                     false => format!("{e:#}"),
                 });

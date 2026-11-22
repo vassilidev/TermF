@@ -1,7 +1,7 @@
 //! Running a helper program (Claude Code, a check script) with a deadline.
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,7 +26,7 @@ pub fn stream(
     timeout: Duration,
     line: &mut dyn FnMut(&str),
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-    exec(cmd, input, timeout, line, &AtomicBool::new(false))
+    exec(cmd, input, timeout, line, &AtomicBool::new(false), None)
 }
 
 /// [`run`], killed like at the deadline as soon as `cancel` is set.
@@ -36,18 +36,20 @@ pub fn run_until(
     timeout: Duration,
     cancel: &AtomicBool,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-    exec(cmd, input, timeout, &mut |_| {}, cancel)
+    exec(cmd, input, timeout, &mut |_| {}, cancel, None)
 }
 
-/// [`stream`], killed like at the deadline as soon as `cancel` is set, which `line` may do.
+/// [`stream`], killed like at the deadline as soon as `cancel` is set, which `line` may do. A line longer than
+/// `max_line` bytes reaches `line` in pieces of that size, so that one without an end cannot grow unseen.
 pub fn stream_until(
     cmd: Command,
     input: &[u8],
     timeout: Duration,
     line: &mut dyn FnMut(&str),
     cancel: &AtomicBool,
+    max_line: usize,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-    exec(cmd, input, timeout, line, cancel)
+    exec(cmd, input, timeout, line, cancel, Some(max_line.max(1)))
 }
 
 fn exec(
@@ -56,6 +58,7 @@ fn exec(
     timeout: Duration,
     line: &mut dyn FnMut(&str),
     cancel: &AtomicBool,
+    max_line: Option<usize>,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
     let scratch = scratch_dir()?;
     let result = (|| {
@@ -74,11 +77,24 @@ fn exec(
         let status = loop {
             let exited = child.try_wait()?;
             // Bytes, not text: the file may end in the middle of a character.
-            while reader.read_until(b'\n', &mut partial)? > 0 && partial.ends_with(b"\n") {
+            loop {
+                let room = max_line.map_or(u64::MAX, |max| {
+                    max.saturating_sub(partial.len()).max(1) as u64
+                });
+                if (&mut reader).take(room).read_until(b'\n', &mut partial)? == 0 {
+                    break;
+                }
+                let whole =
+                    partial.ends_with(b"\n") || max_line.is_some_and(|max| partial.len() >= max);
+                if !whole {
+                    break;
+                }
                 line(String::from_utf8_lossy(&partial).trim_end());
                 out.append(&mut partial);
-                // A child that writes faster than this reads would keep it here past its deadline.
-                if cancel.load(Ordering::SeqCst) || Instant::now() > deadline {
+                // A child that writes faster than this reads would keep it here past its deadline; one that
+                // ended has all its output read.
+                if exited.is_none() && (cancel.load(Ordering::SeqCst) || Instant::now() > deadline)
+                {
                     break;
                 }
             }
@@ -242,6 +258,30 @@ mod tests {
             }
             gone
         })
+    }
+
+    #[test]
+    fn a_program_that_ended_has_its_whole_output_read_whatever_the_deadline() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "seq 1 60"]);
+        let mut seen = 0;
+        // Reading takes longer than the deadline, the program long gone.
+        let slow = &mut |_: &str| {
+            seen += 1;
+            std::thread::sleep(Duration::from_millis(15));
+        };
+        let (status, out, _) = stream_until(
+            cmd,
+            b"",
+            Duration::from_millis(500),
+            slow,
+            &AtomicBool::new(false),
+            1 << 20,
+        )
+        .unwrap();
+        assert!(status.success());
+        assert_eq!(String::from_utf8_lossy(&out).lines().count(), 60);
+        assert_eq!(seen, 60);
     }
 
     #[test]
