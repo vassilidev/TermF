@@ -100,6 +100,16 @@ test("the overview lists what needs a look, worst first", () => {
   );
   const broken = alerts(o({ account: { auth: null, authError: "claude: not found" }, plugins: { error: "exit 2" } }));
   assert.deepEqual(broken.map((a) => [a.section, a.text]), [["mcp", "exit 2"], ["account", "claude: not found"]]);
+  const install = (version) => ({ path: "/usr/local/bin/claude", version, origin: "path" });
+  const binary = (tooOld, others) => ({ install: install(tooOld ? "2.0.1" : "2.1.330"), others, minimum: "2.1.288", tooOld });
+  const auth = { auth: { loggedIn: true }, authError: null };
+  assert.deepEqual(alerts(o({ account: { ...auth, binary: binary(false, []) } })), []);
+  const old = alerts(o({ mcp: { servers: [], error: "exit 1" }, account: { ...auth, binary: binary(true, [install("2.1.330")]) } }));
+  assert.deepEqual(
+    old.map((a) => [a.section, a.tone, a.binary ?? a.text]),
+    [["account", "error", "old"], ["mcp", "error", "exit 1"], ["account", "warn", "several"]],
+    "a Claude Code too old comes first: nothing TermF starts would run",
+  );
 });
 
 test("a preview that comes back after a newer one asked is ignored", async () => {

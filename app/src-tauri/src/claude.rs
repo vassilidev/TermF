@@ -15,6 +15,7 @@ use termf_claude::cli::{self, Mcp, Plugins};
 use termf_claude::manage::{self, Done, McpAction, PluginAction};
 use termf_claude::settings::{self, Edit, Preview, Scope, Settings};
 use termf_claude::{Env, Hook, Overview};
+use termf_core::claude::Found;
 use termf_core::ipc::SessionSummary;
 
 use crate::api::{self, Task};
@@ -102,6 +103,15 @@ pub async fn claude_overview(
 ) -> CmdResult<Overview> {
     let env = env(&state.config_dir, repo);
     tauri::async_runtime::spawn_blocking(move || termf_claude::overview(&env))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The Claude Code TermF runs, where it comes from, and the other installs found.
+#[tauri::command]
+pub async fn claude_binary(state: State<'_, AppState>) -> CmdResult<Found> {
+    let env = env(&state.config_dir, None);
+    tauri::async_runtime::spawn_blocking(move || cli::binary(&env))
         .await
         .map_err(|e| e.to_string())
 }
@@ -359,7 +369,7 @@ fn may_delete(confirmed: bool, without_confirmation: bool) -> Result<()> {
 /// these links only and refuses anything else, its settings deny the tools it does not need, and it runs in
 /// the mode that asks, so whatever the hook does not answer shows its tile instead of going ahead.
 #[tauri::command]
-pub fn artifacts_delete(
+pub async fn artifacts_delete(
     app: AppHandle,
     urls: Vec<String>,
     confirmed: bool,
@@ -416,7 +426,7 @@ fn delete_args() -> Vec<String> {
 
 /// Opens your Claude Code agent on the artifact, in the folder it was published from when TermF knows it.
 #[tauri::command]
-pub fn artifacts_edit(app: AppHandle, url: String) -> CmdResult<SessionSummary> {
+pub async fn artifacts_edit(app: AppHandle, url: String) -> CmdResult<SessionSummary> {
     let url = check_url(&url).map_err(err)?;
     let state = app.state::<AppState>();
     let claude = app.state::<ClaudeState>();
