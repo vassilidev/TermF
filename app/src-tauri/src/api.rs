@@ -190,6 +190,11 @@ impl Api {
         (api, listener)
     }
 
+    /// `[api] confirm_cli` as read at startup, which is what applies until TermF starts again.
+    pub fn confirm_cli(&self) -> bool {
+        self.confirm_cli
+    }
+
     fn confirm(&self, app: &AppHandle, call: &Call, caller: &Stream) -> Result<()> {
         let Some(mut reserved) = ipc::reserved(call).filter(|_| self.confirm_cli) else {
             return Ok(());

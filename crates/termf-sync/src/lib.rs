@@ -23,17 +23,20 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
 pub mod crypto;
+mod http;
 mod local;
 mod merge;
+mod objects;
 mod record;
 mod remote;
+mod ssh;
 mod store;
 #[cfg(test)]
 mod tests;
 
 use crypto::{DataKeys, Kdf, Key};
 use record::{Entry, Record};
-pub use remote::{Folder, Git, Remote, RemoteSpec};
+pub use remote::{Credentials, Folder, Git, Remote, RemoteSpec};
 pub use store::{KeyStore, OsKeyStore};
 pub use termf_library::archive::MissingRepo;
 
@@ -63,18 +66,19 @@ pub enum Scope {
     Conventions,
     /// The vault's sealed file: `<data>/vault/vault.json`, never `quick.json` (this machine's Touch ID).
     Vault,
-    /// Only ever on explicit request.
+    /// Only ever on explicit request: the key pairs of `~/.ssh` and the Host blocks TermF added (`ssh.rs`).
     SshKeys,
 }
 
 impl Scope {
-    pub const AVAILABLE: [Scope; 4] = [
+    pub const AVAILABLE: [Scope; 5] = [
         Scope::Config,
         Scope::Projects,
         Scope::Conventions,
         Scope::Vault,
+        Scope::SshKeys,
     ];
-    /// What a setup syncs unless told otherwise: the vault only when asked.
+    /// What a setup syncs unless told otherwise: the vault and the SSH keys only when asked.
     pub const DEFAULT: [Scope; 3] = [Scope::Config, Scope::Projects, Scope::Conventions];
 }
 
@@ -124,6 +128,8 @@ pub struct Status {
     pub last_error: Option<String>,
     pub conflicts: Vec<Conflict>,
     pub missing_repos: Vec<MissingRepo>,
+    /// Another machine forgot this one: nothing syncs here until sync is set up again.
+    pub forgotten: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -172,6 +178,20 @@ impl std::fmt::Display for Locked {
 
 impl std::error::Error for Locked {}
 
+/// Another machine removed this one from the sync and changed the data key.
+#[derive(Debug)]
+pub struct Forgotten;
+
+impl std::fmt::Display for Forgotten {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(
+            "another machine removed this one from the sync: turn sync off here, then set it up again to rejoin",
+        )
+    }
+}
+
+impl std::error::Error for Forgotten {}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Wrapped {
@@ -191,11 +211,28 @@ struct KeyFile {
     kdf: Kdf,
     password: Wrapped,
     recovery: Wrapped,
+    /// The machines forgotten (`forgotten_tag` of their id), so that each one says so instead of asking for a
+    /// password.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    forgotten: Vec<String>,
+}
+
+/// A device id as `forgotten` lists it: the remote learns nothing it could link to the device's blob.
+fn forgotten_tag(device_id: &str) -> String {
+    use sha2::Digest;
+    crypto::hex(&sha2::Sha256::digest(format!(
+        "termf-sync forgotten {device_id}"
+    )))[..32]
+        .to_owned()
 }
 
 impl KeyFile {
     /// A new data key wrapped by `password` and by a new recovery key; returns them with the password's key.
-    fn create(sync_id: String, password: &str) -> Result<(KeyFile, [u8; 32], Key, String)> {
+    fn create(
+        sync_id: String,
+        password: &str,
+        forgotten: Vec<String>,
+    ) -> Result<(KeyFile, [u8; 32], Key, String)> {
         let data_key: [u8; 32] = crypto::random();
         let key_id = crypto::hex(&crypto::random::<{ crypto::KEY_ID }>());
         let kdf = Kdf::default();
@@ -219,6 +256,7 @@ impl KeyFile {
             kdf,
             password,
             recovery,
+            forgotten,
         };
         Ok((keys, data_key, kek, recovery_key))
     }
@@ -268,6 +306,8 @@ struct State {
     conflicts: Vec<Conflict>,
     #[serde(default)]
     missing_repos: Vec<MissingRepo>,
+    #[serde(default)]
+    forgotten: bool,
 }
 
 fn now() -> u64 {
@@ -411,10 +451,14 @@ pub struct Engine {
     store: Box<dyn KeyStore>,
     /// The password's key for this process: a cache of the keychain, or its only copy without one.
     memory: Mutex<Option<(String, Key)>>,
-    /// Extra environment for git, so tests never read the user's git config.
+    /// Extra environment for git and curl, so tests never read the user's git or curl config.
     git_env: Vec<(String, String)>,
     /// `<data>/vault`, for the vault scope.
     vault_dir: Option<PathBuf>,
+    /// `~/.ssh`, for the SSH keys scope.
+    ssh: Option<termf_ssh::Ssh>,
+    /// An S3 or WebDAV remote's credentials for this process: a cache of the keychain, or its only copy.
+    credentials: Mutex<Option<(String, Credentials)>>,
 }
 
 impl Engine {
@@ -425,12 +469,20 @@ impl Engine {
             memory: Mutex::new(None),
             git_env: Vec::new(),
             vault_dir: None,
+            ssh: None,
+            credentials: Mutex::new(None),
         }
     }
 
     /// Where the vault lives (`<data>/vault`): without it, the vault scope syncs nothing.
     pub fn with_vault(mut self, dir: PathBuf) -> Self {
         self.vault_dir = Some(dir);
+        self
+    }
+
+    /// The SSH folder of the SSH keys scope: without it, that scope syncs nothing.
+    pub fn with_ssh(mut self, ssh: termf_ssh::Ssh) -> Self {
+        self.ssh = Some(ssh);
         self
     }
 
@@ -496,15 +548,103 @@ impl Engine {
         Ok((lock, self.load()?))
     }
 
-    fn remote(&self, spec: &RemoteSpec) -> Box<dyn Remote> {
-        match spec {
-            RemoteSpec::Git { url } => Box::new(Git::new(
-                url.clone(),
-                self.dir().join("git"),
+    fn remote(&self, spec: &RemoteSpec) -> Result<Box<dyn Remote>> {
+        let work = self.dir().join("http");
+        let store: Box<dyn objects::Store> = match spec {
+            RemoteSpec::Git { url } => {
+                return Ok(Box::new(Git::new(
+                    url.clone(),
+                    self.dir().join("git"),
+                    self.git_env.clone(),
+                )));
+            }
+            RemoteSpec::Folder { path } => {
+                return Ok(Box::new(Folder(termf_core::expand_tilde(path))));
+            }
+            RemoteSpec::S3 {
+                endpoint,
+                bucket,
+                region,
+                prefix,
+                ..
+            } => Box::new(http::S3::new(
+                endpoint,
+                bucket,
+                region,
+                prefix,
+                &self.remote_credentials(spec)?,
+                work,
                 self.git_env.clone(),
-            )),
-            RemoteSpec::Folder { path } => Box::new(Folder(termf_core::expand_tilde(path))),
+            )?),
+            RemoteSpec::Webdav { url, .. } => Box::new(http::Webdav::new(
+                url,
+                self.remote_credentials(spec).ok().as_ref(),
+                work,
+                self.git_env.clone(),
+            )?),
+        };
+        Ok(Box::new(objects::Objects::new(
+            store,
+            self.dir().join("objects"),
+            spec.label(),
+        )))
+    }
+
+    fn credentials_account(spec: &RemoteSpec) -> String {
+        format!("remote {}", spec.label())
+    }
+
+    /// Those given with `spec` (setting up), else this process's, else the keychain's.
+    fn remote_credentials(&self, spec: &RemoteSpec) -> Result<Credentials> {
+        let given = match spec {
+            RemoteSpec::S3 { credentials, .. } | RemoteSpec::Webdav { credentials, .. } => {
+                credentials.clone()
+            }
+            _ => None,
+        };
+        if let Some(given) = given {
+            return Ok(given);
         }
+        let account = Self::credentials_account(spec);
+        let mut memory = self.credentials.lock().unwrap();
+        if let Some((a, c)) = memory.as_ref()
+            && *a == account
+        {
+            return Ok(c.clone());
+        }
+        let stored = self
+            .store
+            .get(&account)
+            .ok()
+            .flatten()
+            .and_then(|bytes| serde_json::from_slice::<Credentials>(&bytes).ok())
+            .with_context(|| {
+                format!(
+                    "the credentials of {} are not on this machine: turn sync off here and set it up again",
+                    spec.label()
+                )
+            })?;
+        *memory = Some((account, stored.clone()));
+        Ok(stored)
+    }
+
+    /// Keeps the credentials given at setup: in the keychain, and for this process.
+    fn keep_credentials(&self, spec: &RemoteSpec) -> Result<()> {
+        if let RemoteSpec::S3 {
+            credentials: Some(c),
+            ..
+        }
+        | RemoteSpec::Webdav {
+            credentials: Some(c),
+            ..
+        } = spec
+        {
+            let account = Self::credentials_account(spec);
+            // Without a keychain they stay in memory until TermF quits, like the password's key.
+            let _ = self.store.set(&account, &serde_json::to_vec(c)?);
+            *self.credentials.lock().unwrap() = Some((account, c.clone()));
+        }
+        Ok(())
     }
 
     fn kek(&self, sync_id: &str) -> Option<Key> {
@@ -554,6 +694,7 @@ impl Engine {
                 last_error: None,
                 conflicts: Vec::new(),
                 missing_repos: Vec::new(),
+                forgotten: false,
             });
         }
         let state = self.load()?;
@@ -575,6 +716,7 @@ impl Engine {
             last_error: state.last_error,
             conflicts: state.conflicts,
             missing_repos: state.missing_repos,
+            forgotten: state.forgotten,
         })
     }
 
@@ -583,8 +725,9 @@ impl Engine {
     pub fn probe(&self, spec: &RemoteSpec) -> Result<bool> {
         ensure!(!self.enabled(), "sync is already set up: disable it first");
         let _lock = self.lock()?;
-        let mut remote = self.remote(spec);
+        let mut remote = self.remote(spec)?;
         remote.begin()?;
+        remote.check()?;
         Ok(read_keys(remote.root())?.is_some())
     }
 
@@ -600,7 +743,8 @@ impl Engine {
         let scopes: BTreeSet<Scope> = scopes.iter().copied().collect();
         check_scopes(&scopes)?;
         let lock = self.lock()?;
-        let mut remote = self.remote(&spec);
+        let mut remote = self.remote(&spec)?;
+        remote.check()?;
         let (mut recovery_key, mut joined) = (None, None);
         for _ in 0..ATTEMPTS {
             remote.begin()?;
@@ -623,7 +767,7 @@ impl Engine {
             );
             check_password(password)?;
             let sync_id = crypto::hex(&crypto::random::<16>());
-            let (keys, _, kek, recovery) = KeyFile::create(sync_id.clone(), password)?;
+            let (keys, _, kek, recovery) = KeyFile::create(sync_id.clone(), password, Vec::new())?;
             write_keys(root, &keys)?;
             if remote.commit()? {
                 recovery_key = Some(recovery);
@@ -632,6 +776,7 @@ impl Engine {
             }
         }
         let (sync_id, kek) = joined.context("the remote kept changing: try again")?;
+        self.keep_credentials(&spec)?;
         let remembered = self.remember(&sync_id, &kek);
         let mut state = State {
             remote: spec,
@@ -649,6 +794,7 @@ impl Engine {
             last_error: None,
             conflicts: Vec::new(),
             missing_repos: Vec::new(),
+            forgotten: false,
         };
         self.save(&state)?;
         let (report, error) = match self.sync_locked(&mut state, true, &lock) {
@@ -665,9 +811,10 @@ impl Engine {
     /// Takes the password on a machine that lost it (changed elsewhere, no keychain).
     pub fn unlock(&self, password: &str) -> Result<()> {
         let (_lock, mut state) = self.locked()?;
-        let mut remote = self.remote(&state.remote);
+        let mut remote = self.remote(&state.remote)?;
         remote.begin()?;
         let keys = read_keys(remote.root())?.context("the remote holds no TermF sync data")?;
+        self.not_forgotten(&keys, &mut state)?;
         let kek = keys.derive(&keys.password, password)?;
         ensure!(
             keys.unwrap(&keys.password, &kek).is_some(),
@@ -677,6 +824,18 @@ impl Engine {
         state.sync_id = keys.sync_id;
         state.needs_password = false;
         self.save(&state)
+    }
+
+    /// Refuses a machine the key file says was forgotten, and keeps it for `status` (whatever the command).
+    fn not_forgotten(&self, keys: &KeyFile, state: &mut State) -> Result<()> {
+        if !keys.forgotten.contains(&forgotten_tag(&state.device_id)) {
+            return Ok(());
+        }
+        if !state.forgotten {
+            state.forgotten = true;
+            self.save(state)?;
+        }
+        Err(Forgotten.into())
     }
 
     /// Pulls, merges, and with `publish` pushes this machine's changes. Errors are kept for `status`.
@@ -690,13 +849,14 @@ impl Engine {
         if let Err(e) = &result {
             state.last_error = Some(format!("{e:#}"));
             state.needs_password |= e.downcast_ref::<Locked>().is_some();
+            state.forgotten |= e.downcast_ref::<Forgotten>().is_some();
             self.save(state)?;
         }
         result
     }
 
     fn run(&self, state: &mut State, publish: bool) -> Result<Report> {
-        let mut remote = self.remote(&state.remote);
+        let mut remote = self.remote(&state.remote)?;
         let mut base = self.load_base()?;
         let mut mapping = local::load_mapping(&self.config_dir)?;
         let mut pulled = BTreeSet::new();
@@ -705,13 +865,27 @@ impl Engine {
             let root = remote.root().to_path_buf();
             let keys_file =
                 read_keys(&root)?.context("the remote holds no TermF sync data anymore")?;
+            self.not_forgotten(&keys_file, state)?;
             let keys = self.data_keys(&keys_file)?;
             let theirs = read_files(&root, &keys)?;
             let before = mapping.clone();
-            let (mine, skipped) =
+            let (mut mine, mut skipped) =
                 local::read(&self.config_dir, &state.scopes, &base, &mut mapping)?;
             if mapping != before {
                 local::save_mapping(&self.config_dir, &mapping)?;
+            }
+            let ssh = self
+                .ssh
+                .as_ref()
+                .filter(|_| state.scopes.contains(&Scope::SshKeys));
+            if let Some(ssh) = ssh {
+                match ssh::read_hosts(ssh, base.get(ssh::HOSTS)) {
+                    Ok(entry) => _ = mine.insert(ssh::HOSTS.into(), entry),
+                    Err(e) => skipped.push(Skipped {
+                        path: ssh::HOSTS.into(),
+                        error: format!("{e:#}"),
+                    }),
+                }
             }
             let paths: BTreeSet<&String> = mine
                 .keys()
@@ -721,7 +895,7 @@ impl Engine {
             let paths: Vec<String> = paths
                 .into_iter()
                 .filter(|p| {
-                    local::valid(p)
+                    (local::valid(p) || (*p == ssh::HOSTS && ssh.is_some()))
                         && state.scopes.contains(&local::scope_of(p))
                         && !termf_library::archive::through_link(&self.config_dir, p)
                         && !skipped.iter().any(|s| s.path == **p)
@@ -754,7 +928,7 @@ impl Engine {
                         clock: clock(),
                     });
                 } else if follows && merge::same(&path, l, b_entry) {
-                    local::write(&self.config_dir, &path, r_entry, &mapping)?;
+                    self.write_local(&path, r_entry, &mapping)?;
                     base.insert(path.clone(), r.expect("changed remotely").clone());
                     pulled.insert(path);
                 } else {
@@ -766,7 +940,7 @@ impl Engine {
                     };
                     match merged {
                         Ok(entry) => {
-                            local::write(&self.config_dir, &path, Some(&entry), &mapping)?;
+                            self.write_local(&path, Some(&entry), &mapping)?;
                             base.insert(path.clone(), r.expect("changed remotely").clone());
                             pulled.insert(path.clone());
                             outgoing.push(Record {
@@ -790,6 +964,20 @@ impl Engine {
                     sync_vault(dir, &theirs, &mut base, &mut pulled, &state.device_id)?
             {
                 outgoing.push(record);
+            }
+            if let Some(ssh) = ssh {
+                // Unreadable keys skip the keys this time: never taken as deleted.
+                match ssh::sync_keys(ssh, &theirs, &mut base, &mut pulled, &state.device_id) {
+                    Ok(keys) => {
+                        outgoing.extend(keys.outgoing);
+                        conflicts.extend(keys.conflicts);
+                        skipped.extend(keys.skipped);
+                    }
+                    Err(e) => skipped.push(Skipped {
+                        path: "ssh/keys".into(),
+                        error: format!("{e:#}"),
+                    }),
+                }
             }
             // What came from the remote is in place: kept even if publishing fails.
             self.save_base(&base)?;
@@ -816,6 +1004,12 @@ impl Engine {
                 state.last_device_write = Some(device.last_sync);
                 for record in outgoing {
                     pushed.push(record.path.clone());
+                    // A key pair's base is its digest: no private key in clear outside ~/.ssh.
+                    let record = if ssh::is_key(&record.path) {
+                        ssh::pushed(&record)
+                    } else {
+                        record
+                    };
                     base.insert(record.path.clone(), record);
                 }
                 self.save_base(&base)?;
@@ -835,6 +1029,7 @@ impl Engine {
                     .join("\n")
             });
             state.needs_password = false;
+            state.forgotten = false;
             state.conflicts = conflicts.clone();
             state.missing_repos = missing_repos.clone();
             self.save(state)?;
@@ -851,40 +1046,62 @@ impl Engine {
 
     /// Settles a conflict, then syncs: the version kept becomes this machine's change on top of the remote's.
     pub fn resolve(&self, path: &str, resolution: Resolution) -> Result<Report> {
-        ensure!(local::valid(path), "invalid path {path}");
+        ensure!(
+            local::valid(path) || path == ssh::HOSTS || ssh::is_key(path),
+            "invalid path {path}"
+        );
         let (lock, mut state) = self.locked()?;
-        let mut remote = self.remote(&state.remote);
+        let mut remote = self.remote(&state.remote)?;
         remote.begin()?;
         let keys_file = read_keys(remote.root())?.context("the remote holds no TermF sync data")?;
+        self.not_forgotten(&keys_file, &mut state)?;
         let keys = self.data_keys(&keys_file)?;
         let theirs = read_files(remote.root(), &keys)?
             .remove(path)
             .with_context(|| format!("the remote has no version of {path}"))?;
         let mapping = local::load_mapping(&self.config_dir)?;
-        match resolution {
-            Resolution::Local => {}
-            Resolution::Remote => {
-                local::write(&self.config_dir, path, theirs.entry.as_ref(), &mapping)?
-            }
-            Resolution::Merged { text } => {
-                let entry = Entry {
-                    bytes: text.into_bytes(),
-                    exec: theirs.entry.as_ref().is_some_and(|e| e.exec),
-                };
-                local::write(&self.config_dir, path, Some(&entry), &mapping)?
-            }
-        }
         let mut base = self.load_base()?;
-        base.insert(path.into(), theirs);
+        if ssh::is_key(path) {
+            let ssh = self.ssh.as_ref().context("no SSH folder on this machine")?;
+            ssh::resolve(ssh, path, &theirs, &resolution, &mut base)?;
+        } else {
+            match resolution {
+                Resolution::Local => {}
+                Resolution::Remote => self.write_local(path, theirs.entry.as_ref(), &mapping)?,
+                Resolution::Merged { text } => {
+                    let entry = Entry {
+                        bytes: text.into_bytes(),
+                        exec: theirs.entry.as_ref().is_some_and(|e| e.exec),
+                    };
+                    self.write_local(path, Some(&entry), &mapping)?
+                }
+            }
+            base.insert(path.into(), theirs);
+        }
         self.save_base(&base)?;
         self.sync_locked(&mut state, true, &lock)
     }
 
+    /// A file of the config folder, or the Host blocks TermF added to `~/.ssh/config`.
+    fn write_local(
+        &self,
+        path: &str,
+        entry: Option<&Entry>,
+        mapping: &local::Mapping,
+    ) -> Result<()> {
+        if path == ssh::HOSTS {
+            let ssh = self.ssh.as_ref().context("no SSH folder on this machine")?;
+            return ssh::write_hosts(ssh, entry);
+        }
+        local::write(&self.config_dir, path, entry, mapping)
+    }
+
     pub fn devices(&self) -> Result<Vec<Device>> {
-        let (_lock, state) = self.locked()?;
-        let mut remote = self.remote(&state.remote);
+        let (_lock, mut state) = self.locked()?;
+        let mut remote = self.remote(&state.remote)?;
         remote.begin()?;
         let keys_file = read_keys(remote.root())?.context("the remote holds no TermF sync data")?;
+        self.not_forgotten(&keys_file, &mut state)?;
         let keys = self.data_keys(&keys_file)?;
         let mut devices = read_devices(remote.root(), &keys)?;
         for device in &mut devices {
@@ -897,7 +1114,7 @@ impl Engine {
     /// A new data key re-encrypts everything: machines that only know the old password can no longer read
     /// anything (this is how a machine is revoked), and the old recovery key stops working.
     pub fn change_password(&self, current: &str, password: &str) -> Result<String> {
-        self.rekey(password, |keys| {
+        self.rekey(password, None, |keys| {
             let kek = keys.derive(&keys.password, current)?;
             keys.unwrap(&keys.password, &kek)
                 .context("wrong current password")
@@ -906,7 +1123,7 @@ impl Engine {
 
     /// Sets a new password with the recovery key, which then stops working.
     pub fn recover(&self, recovery_key: &str, password: &str) -> Result<String> {
-        self.rekey(password, |keys| {
+        self.rekey(password, None, |keys| {
             let secret = crypto::normalize_recovery_key(recovery_key);
             let kek = keys.derive(&keys.recovery, &secret)?;
             keys.unwrap(&keys.recovery, &kek)
@@ -914,17 +1131,46 @@ impl Engine {
         })
     }
 
-    fn rekey(&self, password: &str, open: impl Fn(&KeyFile) -> Result<[u8; 32]>) -> Result<String> {
+    /// Takes `device` off the list and re-encrypts everything with a new data key, still opened by the same
+    /// password: the copies that machine kept no longer open what comes next, and it says it was forgotten.
+    /// The other machines ask for the password once; the recovery key is replaced (returned).
+    pub fn forget(&self, device: &str, password: &str) -> Result<String> {
+        self.rekey(password, Some(device), |keys| {
+            let kek = keys.derive(&keys.password, password)?;
+            keys.unwrap(&keys.password, &kek).context("wrong password")
+        })
+    }
+
+    fn rekey(
+        &self,
+        password: &str,
+        forget: Option<&str>,
+        open: impl Fn(&KeyFile) -> Result<[u8; 32]>,
+    ) -> Result<String> {
         check_password(password)?;
         let (_lock, mut state) = self.locked()?;
-        let mut remote = self.remote(&state.remote);
+        ensure!(
+            forget != Some(state.device_id.as_str()),
+            "this machine cannot forget itself: turn sync off here instead"
+        );
+        let mut remote = self.remote(&state.remote)?;
         for _ in 0..ATTEMPTS {
             remote.begin()?;
             let root = remote.root().to_path_buf();
             let old_file = read_keys(&root)?.context("the remote holds no TermF sync data")?;
+            self.not_forgotten(&old_file, &mut state)?;
             let old = old_file.data_keys(&open(&old_file)?)?;
             let files = read_files(&root, &old)?;
-            let devices = read_devices(&root, &old)?;
+            let mut devices = read_devices(&root, &old)?;
+            let mut forgotten = old_file.forgotten.clone();
+            if let Some(id) = forget {
+                ensure!(
+                    devices.iter().any(|d| d.id == id),
+                    "no machine {id} in this sync"
+                );
+                devices.retain(|d| d.id != id);
+                forgotten.push(forgotten_tag(id));
+            }
             let stale: Vec<String> = [FILES, DEVICES]
                 .iter()
                 .map(|dir| blobs(&root, dir))
@@ -935,7 +1181,7 @@ impl Engine {
                 .collect();
 
             let (keys_file, data_key, kek, recovery_key) =
-                KeyFile::create(old_file.sync_id.clone(), password)?;
+                KeyFile::create(old_file.sync_id.clone(), password, forgotten)?;
             let new = keys_file.data_keys(&data_key)?;
             // New blobs first, then the key file, then the old blobs: an interruption never leaves the
             // remote without a readable version.
@@ -967,13 +1213,43 @@ impl Engine {
         self.save(&state)
     }
 
+    /// Clones a missing repository (`project` and `path` as `Status.missing_repos` gives them) into `target`,
+    /// with the SSH command another repository of the project uses here. When `target` is not the synced
+    /// path, the project points at it on this machine only. Returns the status, without that repository.
+    pub fn clone_repo(
+        &self,
+        project: &str,
+        path: &str,
+        target: &Path,
+        progress: &mut dyn FnMut(&str),
+    ) -> Result<Status> {
+        ensure!(self.enabled(), "sync is not set up on this machine");
+        let repo = local::missing_repos(&self.config_dir)?
+            .into_iter()
+            .find(|r| r.project == project && r.path == path)
+            .context("this repository is not missing anymore")?;
+        // Not under the sync's lock: a clone can take minutes.
+        local::clone(&self.config_dir, &self.git_env, &repo, target, progress)?;
+        {
+            let (_lock, mut state) = self.locked()?;
+            if termf_core::expand_tilde(&repo.path) != target {
+                local::relocate(&self.config_dir, &repo, target)?;
+            }
+            state.missing_repos = local::missing_repos(&self.config_dir)?;
+            self.save(&state)?;
+        }
+        self.status()
+    }
+
     /// Stops syncing on this machine: its key, settings, merge bases and clone go. The config files, the
     /// repository paths of `local.toml` and the remote stay.
     pub fn disable(&self) -> Result<()> {
         let (lock, state) = self.locked()?;
         // Without a keychain there is nothing to delete.
         let _ = self.store.delete(&state.sync_id);
+        let _ = self.store.delete(&Self::credentials_account(&state.remote));
         *self.memory.lock().unwrap() = None;
+        *self.credentials.lock().unwrap() = None;
         fs::remove_file(self.dir().join("state.json"))?;
         drop(lock);
         fs::remove_dir_all(self.dir())?;

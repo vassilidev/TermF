@@ -1,3 +1,6 @@
+mod fake;
+mod remotes;
+
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Arc;
@@ -454,6 +457,7 @@ fn the_remote_sees_no_content_and_no_name() {
         let m = sandbox.machine(match remote {
             RemoteSpec::Git { .. } => "git-machine",
             RemoteSpec::Folder { .. } => "folder-machine",
+            _ => unreachable!(),
         });
         m.put("termf.toml", "editor = \"topsecret-content\"\n");
         m.put("layouts.toml", "# topsecret-content\n");
@@ -492,6 +496,7 @@ fn the_remote_sees_no_content_and_no_name() {
                 files.retain(|(p, _)| !p.contains(".git"));
                 (files, log)
             }
+            _ => unreachable!(),
         };
         assert!(files.len() >= 6, "{files:?}");
         for (path, bytes) in &files {
@@ -624,10 +629,6 @@ fn a_disabled_scope_is_not_synced() {
     b.push();
     assert_eq!(b.read("projects/a-only/conventions/c/source.md"), "A\n");
     assert!(!b.dir.join("projects/a-only.toml").exists());
-    assert!(
-        a.engine.set_scopes(&[Scope::SshKeys]).is_err(),
-        "not available yet"
-    );
     assert!(a.engine.set_scopes(&[]).is_err());
 }
 

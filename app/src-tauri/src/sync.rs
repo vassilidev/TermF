@@ -7,13 +7,14 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
 use tauri::ipc::Invoke;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_sync::{
     Device, Engine, OsKeyStore, RemoteSpec, Report, Resolution, Scope, Setup, Status,
 };
 
-use crate::{CmdResult, err};
+use crate::{AppState, CmdResult, err, quick_terminal};
 
 const DEBOUNCE: Duration = Duration::from_secs(5);
 const PERIOD: Duration = Duration::from_secs(5 * 60);
@@ -70,8 +71,11 @@ pub struct SyncState {
 }
 
 pub fn start(app: &AppHandle, config_dir: PathBuf, vault_dir: PathBuf) -> SyncState {
-    let engine =
-        Arc::new(Engine::new(config_dir, Box::new(OsKeyStore::SYNC)).with_vault(vault_dir));
+    let mut engine = Engine::new(config_dir, Box::new(OsKeyStore::SYNC)).with_vault(vault_dir);
+    if let Ok(ssh) = termf_ssh::Ssh::current() {
+        engine = engine.with_ssh(ssh);
+    }
+    let engine = Arc::new(engine);
     let (tx, rx) = mpsc::channel();
     let (app, background) = (app.clone(), engine.clone());
     std::thread::spawn(move || run(app, background, rx));
@@ -118,7 +122,8 @@ fn run(app: AppHandle, engine: Arc<Engine>, wake: Receiver<Wake>) {
                 last = Instant::now();
                 // Locked: the UI asks for the password; trying would only fail again.
                 if engine.status().is_ok_and(|s| s.enabled && s.unlocked) {
-                    if engine.sync(true).is_ok() {
+                    if let Ok(report) = engine.sync(true) {
+                        applied(&app, &report);
                         merged(&app, &engine);
                     }
                     if let Ok(status) = engine.status() {
@@ -137,6 +142,62 @@ fn merged(app: &AppHandle, engine: &Engine) {
     if crate::vault::synced(app) {
         let _ = engine.sync(true);
     }
+}
+
+/// What a pull brought that does not apply at once, for the UI to say (`sync-pulled`).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct Pulled {
+    paths: Vec<String>,
+    /// Settings read once at startup that changed: they apply when TermF starts again.
+    restart: Vec<&'static str>,
+    /// Agents already running keep the library and the conventions they started with.
+    sessions: bool,
+}
+
+fn effects(paths: &[String], confirm_cli_changed: bool, agents_running: bool) -> Pulled {
+    let settings = paths.iter().any(|p| p == "termf.toml");
+    let launched_with = paths
+        .iter()
+        .any(|p| p.starts_with("library/") || p.starts_with("projects/"));
+    Pulled {
+        paths: paths.to_vec(),
+        restart: if settings && confirm_cli_changed {
+            vec!["confirmCli"]
+        } else {
+            Vec::new()
+        },
+        sessions: agents_running && launched_with,
+    }
+}
+
+/// Applies what the backend holds of a pulled `termf.toml` (keep awake, the system-wide shortcut), then tells
+/// the UI, which reloads the rest (projects, shortcuts, library, layouts…).
+fn applied(app: &AppHandle, report: &Report) {
+    if report.pulled.is_empty() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let settings = termf_core::load_settings(&state.config_dir).ok();
+    if let Some(s) = settings.as_ref()
+        && report.pulled.iter().any(|p| p == "termf.toml")
+    {
+        state
+            .keep_awake
+            .configure(app, s.keep_awake, s.keep_display_on);
+        quick_terminal::follow(app, &s.global_shortcut());
+    }
+    let confirm_cli_changed =
+        settings.is_some_and(|s| s.api.confirm_cli != state.api.confirm_cli());
+    let agents_running = state
+        .sessions
+        .list()
+        .iter()
+        .any(|s| s.running && s.agent.is_some());
+    let _ = app.emit(
+        "sync-pulled",
+        effects(&report.pulled, confirm_cli_changed, agents_running),
+    );
 }
 
 /// Every command runs on the blocking pool: they reach the network, or derive a key from a password.
@@ -163,6 +224,7 @@ pub async fn sync_probe(state: State<'_, SyncState>, remote: RemoteSpec) -> CmdR
 
 #[tauri::command]
 pub async fn sync_setup(
+    app: AppHandle,
     state: State<'_, SyncState>,
     remote: RemoteSpec,
     password: String,
@@ -170,7 +232,9 @@ pub async fn sync_setup(
     device_name: Option<String>,
 ) -> CmdResult<Setup> {
     blocking(&state, move |e| {
-        e.setup(remote, &password, &scopes, device_name.as_deref())
+        let setup = e.setup(remote, &password, &scopes, device_name.as_deref())?;
+        applied(&app, &setup.report);
+        Ok(setup)
     })
     .await
 }
@@ -193,6 +257,7 @@ pub async fn sync_recover(
 pub async fn sync_push(app: AppHandle, state: State<'_, SyncState>) -> CmdResult<Report> {
     blocking(&state, move |e| {
         let report = e.sync(true)?;
+        applied(&app, &report);
         merged(&app, e);
         Ok(report)
     })
@@ -203,6 +268,7 @@ pub async fn sync_push(app: AppHandle, state: State<'_, SyncState>) -> CmdResult
 pub async fn sync_pull(app: AppHandle, state: State<'_, SyncState>) -> CmdResult<Report> {
     blocking(&state, move |e| {
         let report = e.sync(false)?;
+        applied(&app, &report);
         crate::vault::synced(&app);
         Ok(report)
     })
@@ -211,11 +277,61 @@ pub async fn sync_pull(app: AppHandle, state: State<'_, SyncState>) -> CmdResult
 
 #[tauri::command]
 pub async fn sync_resolve(
+    app: AppHandle,
     state: State<'_, SyncState>,
     path: String,
     resolution: Resolution,
 ) -> CmdResult<Report> {
-    blocking(&state, move |e| e.resolve(&path, resolution)).await
+    blocking(&state, move |e| {
+        let report = e.resolve(&path, resolution)?;
+        applied(&app, &report);
+        Ok(report)
+    })
+    .await
+}
+
+/// Returns the new recovery key: the data key changed.
+#[tauri::command]
+pub async fn sync_forget(
+    state: State<'_, SyncState>,
+    id: String,
+    password: String,
+) -> CmdResult<String> {
+    blocking(&state, move |e| e.forget(&id, &password)).await
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CloneLine {
+    project: String,
+    path: String,
+    line: String,
+}
+
+/// Clones a missing repository into `target` (absolute); git's progress comes as `sync-clone` events.
+#[tauri::command]
+pub async fn sync_clone(
+    app: AppHandle,
+    state: State<'_, SyncState>,
+    project: String,
+    path: String,
+    target: String,
+) -> CmdResult<Status> {
+    blocking(&state, move |e| {
+        let target = PathBuf::from(target.trim());
+        anyhow::ensure!(target.is_absolute(), "choose a full path to clone into");
+        e.clone_repo(&project, &path, &target, &mut |line| {
+            let _ = app.emit(
+                "sync-clone",
+                CloneLine {
+                    project: project.clone(),
+                    path: path.clone(),
+                    line: line.to_owned(),
+                },
+            );
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -244,4 +360,29 @@ pub async fn sync_scopes(state: State<'_, SyncState>, scopes: Vec<Scope>) -> Cmd
 #[tauri::command]
 pub async fn sync_disable(state: State<'_, SyncState>) -> CmdResult<()> {
     blocking(&state, |e| e.disable()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn says_what_a_pull_cannot_apply_at_once() {
+        let paths = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let quiet = effects(&paths(&["termf.toml", "layouts.toml"]), false, true);
+        assert!(quiet.restart.is_empty() && !quiet.sessions);
+        assert_eq!(
+            effects(&paths(&["termf.toml"]), true, false).restart,
+            ["confirmCli"]
+        );
+        assert!(
+            effects(&paths(&["layouts.toml"]), true, false)
+                .restart
+                .is_empty()
+        );
+        let library = paths(&["library/skills/s/SKILL.md"]);
+        assert!(effects(&library, false, true).sessions);
+        assert!(!effects(&library, false, false).sessions);
+        assert!(effects(&paths(&["projects/acme.toml"]), false, true).sessions);
+    }
 }

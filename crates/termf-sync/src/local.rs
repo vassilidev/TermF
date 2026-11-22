@@ -5,8 +5,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use termf_library::archive::{self, MissingRepo};
 use toml_edit::{DocumentMut, Item, Table, value};
 
@@ -22,6 +23,8 @@ pub fn scope_of(path: &str) -> Scope {
     match path.split('/').collect::<Vec<_>>().as_slice() {
         ["projects", _, "conventions", ..] => Scope::Conventions,
         ["projects", ..] => Scope::Projects,
+        ["vault", ..] => Scope::Vault,
+        ["ssh", ..] => Scope::SshKeys,
         _ => Scope::Config,
     }
 }
@@ -260,4 +263,136 @@ pub fn missing_repos(config_dir: &Path) -> Result<Vec<MissingRepo>> {
         }
     }
     Ok(missing)
+}
+
+fn git(git_env: &[(String, String)]) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.env("GIT_TERMINAL_PROMPT", "0")
+        .envs(git_env.iter().map(|(k, v)| (k, v)))
+        .stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+/// The `core.sshCommand` another repository of `project` has on this machine: the key its remotes take.
+fn project_ssh_command(
+    config_dir: &Path,
+    project: &str,
+    git_env: &[(String, String)],
+) -> Option<String> {
+    let text = fs::read_to_string(config_dir.join(format!("projects/{project}.toml"))).ok()?;
+    let table: toml::Table = toml::from_str(&text).ok()?;
+    table
+        .get("repos")?
+        .as_array()?
+        .iter()
+        .filter_map(|r| r.get("path")?.as_str())
+        .map(termf_core::expand_tilde)
+        .filter(|p| p.join(".git").exists())
+        .find_map(|repo| {
+            let out = git(git_env)
+                .arg("-C")
+                .arg(&repo)
+                .args(["config", "--local", "--get", "core.sshCommand"])
+                .output()
+                .ok()?;
+            let command = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+            (out.status.success() && !command.is_empty()).then_some(command)
+        })
+}
+
+/// Clones `repo` into `target`, a folder that does not exist yet or is empty, telling git's progress lines to
+/// `progress`. Fails with git's own words.
+pub fn clone(
+    config_dir: &Path,
+    git_env: &[(String, String)],
+    repo: &MissingRepo,
+    target: &Path,
+    progress: &mut dyn FnMut(&str),
+) -> Result<()> {
+    let remote = repo
+        .remote
+        .as_deref()
+        .context("this repository has no git remote to clone from")?;
+    ensure!(
+        fs::read_dir(target).map_or(true, |mut d| d.next().is_none()),
+        "{} already exists and is not empty",
+        target.display()
+    );
+    let mut cmd = git(git_env);
+    cmd.args(["clone", "--progress"]);
+    if let Some(ssh) = project_ssh_command(config_dir, &repo.project, git_env) {
+        cmd.arg("-c").arg(format!("core.sshCommand={ssh}"));
+    }
+    let mut child = cmd
+        .arg("--")
+        .arg(remote)
+        .arg(target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("cannot run git: is it installed?")?;
+    let mut stderr = child.stderr.take().expect("piped");
+    let (mut line, mut last) = (Vec::new(), Vec::<String>::new());
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = std::io::Read::read(&mut stderr, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        // git rewrites its progress line with `\r`: each version is a line of its own.
+        for &b in &buf[..n] {
+            if b == b'\r' || b == b'\n' {
+                let text = String::from_utf8_lossy(&line).trim().to_owned();
+                line.clear();
+                if !text.is_empty() {
+                    progress(&text);
+                    last.push(text);
+                    if last.len() > 20 {
+                        last.remove(0);
+                    }
+                }
+            } else {
+                line.push(b);
+            }
+        }
+    }
+    let rest = String::from_utf8_lossy(&line).trim().to_owned();
+    if !rest.is_empty() {
+        last.push(rest);
+    }
+    let status = child.wait()?;
+    ensure!(
+        status.success(),
+        "git clone failed: {}",
+        last.iter()
+            .filter(|l| !l.contains('%'))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    Ok(())
+}
+
+/// Points `repo` of its project at `target` on this machine; the synced path stays for the others.
+pub fn relocate(config_dir: &Path, repo: &MissingRepo, target: &Path) -> Result<()> {
+    let file = config_dir.join(format!("projects/{}.toml", repo.project));
+    let mut doc: DocumentMut = fs::read_to_string(&file)?
+        .parse()
+        .with_context(|| format!("invalid {}", file.display()))?;
+    let path = termf_core::portable(&target.to_string_lossy());
+    if let Some(repos) = doc.get_mut("repos").and_then(Item::as_array_of_tables_mut) {
+        for entry in repos.iter_mut() {
+            let field = |k| entry.get(k).and_then(Item::as_str).map(str::to_owned);
+            if field("path").as_deref() == Some(&repo.path) && field("remote") == repo.remote {
+                entry["path"] = value(path.as_str());
+            }
+        }
+    }
+    termf_core::write_atomic(&file, &doc.to_string())
 }

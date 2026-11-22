@@ -3,14 +3,19 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
-use termf_sync::{Engine, Locked, OsKeyStore, RemoteSpec, Report, Resolution, Scope, VAULT_PATH};
+use termf_sync::{
+    Credentials, Engine, Locked, OsKeyStore, RemoteSpec, Report, Resolution, Scope, VAULT_PATH,
+};
 
 pub fn run(args: &[&str]) -> Result<()> {
-    let engine = Engine::new(
+    let mut engine = Engine::new(
         termf_core::default_config_dir()?,
         Box::new(OsKeyStore::SYNC),
     )
     .with_vault(termf_core::default_data_dir()?.join("vault"));
+    if let Ok(ssh) = termf_ssh::Ssh::current() {
+        engine = engine.with_ssh(ssh);
+    }
     match args {
         ["setup", options @ ..] => setup(&engine, options)?,
         ["status"] => status(&engine)?,
@@ -45,6 +50,22 @@ pub fn run(args: &[&str]) -> Result<()> {
             engine.set_scopes(&scopes(list)?)?;
             status(&engine)?;
         }
+        ["forget", device] => {
+            let devices = unlocked(&engine, |e| e.devices())?;
+            let found: Vec<_> = devices
+                .iter()
+                .filter(|d| d.id == *device || d.name == *device)
+                .collect();
+            let [target] = found.as_slice() else {
+                bail!("no single machine named {device}: see termf sync devices");
+            };
+            println!(
+                "{} will no longer read what syncs next. Your other machines will ask for the password once.",
+                target.name
+            );
+            let password = rpassword::prompt_password("Sync password: ")?;
+            show_recovery_key(&engine.forget(&target.id, &password)?);
+        }
         ["disable"] => {
             engine.disable()?;
             println!("Sync is off on this machine. Your config and the remote are unchanged.");
@@ -56,6 +77,7 @@ pub fn run(args: &[&str]) -> Result<()> {
 
 fn setup(engine: &Engine, options: &[&str]) -> Result<()> {
     let (mut remote, mut name, mut chosen) = (None, None, Scope::DEFAULT.to_vec());
+    let (mut bucket, mut region, mut prefix) = (None, "us-east-1".to_owned(), String::new());
     let mut options = options.iter();
     while let Some(option) = options.next() {
         match (*option, options.next()) {
@@ -68,12 +90,57 @@ fn setup(engine: &Engine, options: &[&str]) -> Result<()> {
                 let path = std::path::absolute(path)?.to_string_lossy().into_owned();
                 remote = Some(RemoteSpec::Folder { path })
             }
+            ("--s3", Some(endpoint)) => {
+                remote = Some(RemoteSpec::S3 {
+                    endpoint: endpoint.to_string(),
+                    bucket: String::new(),
+                    region: String::new(),
+                    prefix: String::new(),
+                    credentials: None,
+                })
+            }
+            ("--bucket", Some(text)) => bucket = Some(text.to_string()),
+            ("--region", Some(text)) => region = text.to_string(),
+            ("--prefix", Some(text)) => prefix = text.to_string(),
+            ("--webdav", Some(url)) => {
+                remote = Some(RemoteSpec::Webdav {
+                    url: url.to_string(),
+                    credentials: None,
+                })
+            }
             ("--name", Some(text)) => name = Some(text.to_string()),
             ("--scopes", Some(list)) => chosen = scopes(list)?,
             _ => bail!(crate::USAGE),
         }
     }
-    let remote = remote.context("give --git <url> or --folder <path>")?;
+    let remote = match remote
+        .context("give --git <url>, --folder <path>, --s3 <endpoint> or --webdav <url>")?
+    {
+        RemoteSpec::S3 { endpoint, .. } => {
+            let user = prompt("Access key id: ")?;
+            let secret = rpassword::prompt_password("Secret access key: ")?;
+            RemoteSpec::S3 {
+                endpoint,
+                bucket: bucket.context("give the bucket with --bucket <name>")?,
+                region,
+                prefix,
+                credentials: Some(Credentials { user, secret }),
+            }
+        }
+        RemoteSpec::Webdav { url, .. } => {
+            let user = prompt("User name (empty: none): ")?;
+            let secret = if user.is_empty() {
+                String::new()
+            } else {
+                rpassword::prompt_password("Password: ")?
+            };
+            RemoteSpec::Webdav {
+                url,
+                credentials: Some(Credentials { user, secret }),
+            }
+        }
+        other => other,
+    };
     let joining = engine.probe(&remote)?;
     let password = if joining {
         println!("This remote already holds a TermF sync: joining it.");
@@ -90,6 +157,14 @@ fn setup(engine: &Engine, options: &[&str]) -> Result<()> {
         bail!("sync is set up, but the first sync failed: {error}");
     }
     Ok(())
+}
+
+fn prompt(question: &str) -> Result<String> {
+    print!("{question}");
+    std::io::Write::flush(&mut std::io::stdout())?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    Ok(answer.trim().to_owned())
 }
 
 fn new_password() -> Result<String> {
@@ -126,6 +201,7 @@ fn scopes(list: &str) -> Result<Vec<Scope>> {
             "projects" => Ok(Scope::Projects),
             "conventions" => Ok(Scope::Conventions),
             "vault" => Ok(Scope::Vault),
+            "ssh-keys" | "sshKeys" => Ok(Scope::SshKeys),
             other => bail!("unknown scope {other} (config, projects, conventions, vault)"),
         })
         .collect()
@@ -140,6 +216,8 @@ fn status(engine: &Engine) -> Result<()> {
     match remote {
         RemoteSpec::Git { url } => println!("remote      git {url}"),
         RemoteSpec::Folder { path } => println!("remote      folder {path}"),
+        other @ RemoteSpec::S3 { .. } => println!("remote      s3 {}", other.label()),
+        RemoteSpec::Webdav { url, .. } => println!("remote      webdav {url}"),
     }
     let scopes: Vec<String> = status
         .scopes

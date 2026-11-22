@@ -2,7 +2,6 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Check from "@lucide/svelte/icons/check";
-  import GitBranch from "@lucide/svelte/icons/git-branch";
   import LibraryBig from "@lucide/svelte/icons/library-big";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
@@ -10,6 +9,8 @@
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import MemorySettings from "$lib/MemorySettings.svelte";
   import OnboardingJournal from "$lib/OnboardingJournal.svelte";
+  import RepoCard from "$lib/RepoCard.svelte";
+  import RepoPicker from "$lib/RepoPicker.svelte";
   import StackOffers from "$lib/StackOffers.svelte";
   import TeamDecisions from "$lib/TeamDecisions.svelte";
   import TeamRoles from "$lib/TeamRoles.svelte";
@@ -18,27 +19,24 @@
   import { openSetup } from "$lib/onboarding.svelte";
   import { steps, type Step } from "$lib/onboarding-logic";
   import Banner from "$lib/ui/Banner.svelte";
-  import Popover from "$lib/ui/Popover.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { lang, t } from "$lib/i18n";
+  import { t } from "$lib/i18n";
   import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
   import { hasWords } from "$lib/nav-logic";
+  import { cards, forgetCards, readCards } from "$lib/newproject.svelte";
   import { closeProject, config, configSections, type ConfigSection } from "$lib/project.svelte";
-  import { app, held, repoName, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
-  import { added } from "$lib/team-logic";
+  import { app, held, setProject, ui, type Project } from "$lib/state.svelte";
 
   type Log = { at: number; what: string; decision?: "accepted" | "rejected"; detail: string };
 
-  // Mounted per project (keyed on `ui.editing`), so the project only seeds the form; "" is a new project.
+  // Mounted per project (keyed on `ui.editing`), so the project only seeds the form; "" is every project's page.
   const id = ui.editing ?? "";
   const seed = app.workspace?.projects.find((p) => p.id === id);
   const project = $derived(app.workspace?.projects.find((p) => p.id === id));
   let name = $state(seed?.name ?? "");
   let chosen = $state(seed?.repos.map((r) => r.path) ?? []);
-  let filter = $state("");
   let adding = $state(false);
-  let addButton = $state<HTMLButtonElement>();
   let confirming = $state(false);
   let asked = false;
   let busy = $state(false);
@@ -66,28 +64,22 @@
     invoke<RepoStack[]>("library_stack", { project: id }).then((s) => (stacks = s), () => {});
   }
   if (seed) {
+    forgetCards();
+    readCards(seed.repos.map((r) => r.path)).catch(() => {});
     readRepos();
     invoke<{ step: Step; log: Log[] }>("onboarding_state", { project: id }).then((s) => (setup = s), () => {});
   }
 
-  // A new project has its name and repositories; under every project, the global library too.
-  const sections = $derived(
-    project ? configSections : configSections.filter((s) => s.id === "project" || (s.id === "library" && app.project === null)),
-  );
-  const found = $derived(
-    sections.filter((s) => hasWords([s.id === "project" && !project ? "newProject" : s.label, ...s.words].map((k) => t(k)).join(" "), query)),
-  );
-  /** A new project's page keeps its own section: the shared one is the projects'. */
-  let own = $state<ConfigSection>("project");
+  // Under every project, the global library; a new project is created by its setup.
+  const sections = $derived(project ? configSections : configSections.filter((s) => s.id === "library"));
+  const found = $derived(sections.filter((s) => hasWords([s.label, ...s.words].map((k) => t(k)).join(" "), query)));
   const current = $derived.by(() => {
     const list = found.length ? found : sections;
-    const wanted = id ? config.section : own;
-    return (list.find((s) => s.id === wanted) ?? list[0]).id;
+    return (list.find((s) => s.id === config.section) ?? list[0]).id;
   });
 
   function select(section: ConfigSection) {
     if (id) config.section = section;
-    else own = section;
   }
 
   // A search that hides the section shown opens the first one it found.
@@ -126,16 +118,15 @@
   async function answer(choice: "stay" | "discard" | "save") {
     const asked = pending;
     if (!asked) return;
-    const saved = choice === "save" ? await persist() : null;
+    const saved = choice === "save" ? await persist() : true;
     pending = undefined;
     question?.close();
-    if (choice === "stay" || saved === false) return asked.stay?.();
+    if (choice === "stay" || !saved) return asked.stay?.();
     released = true;
-    if (saved) setProject(saved);
     asked.leave();
   }
 
-  /** The current project when the page was last in step with it: a new project's page follows it while untouched. */
+  /** The current project when the page was last in step with it. */
   let shownFor = app.project;
 
   function follow(to: string | null) {
@@ -151,48 +142,40 @@
     }
     const to = app.project;
     if (to === (id || shownFor)) return;
-    // A project being created stays while the user looks at another one.
-    if (!id && untrack(() => dirty)) return;
     if (!ask(() => follow(to), () => setProject(id))) follow(to);
   });
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || adding || pending || ui.palette || ui.help) return;
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || pending || ui.palette || ui.help) return;
     // Beside another view, only while the keyboard is in its panel.
     if (ui.view !== "project") return;
     // Escape typed in a terminal (the quick terminal over the page) is the terminal's.
     if ((e.target as Element | null)?.closest?.(".xterm")) return;
     e.preventDefault();
-    closeProject();
+    if (adding) adding = false;
+    else closeProject();
   }
 
-  // The project's own repositories first, even if discovery no longer finds them.
-  const candidates = $derived.by(() => {
-    const own = seed?.repos ?? [];
-    const others = (app.workspace?.repos ?? [])
-      .filter((r) => !own.some((o) => o.path === r.path))
-      .sort((a, b) => a.name.localeCompare(b.name, lang, { sensitivity: "base" }));
-    const q = filter.toLowerCase();
-    return [...own, ...others].filter((r) => r.path.toLowerCase().includes(q));
-  });
-
-  function pick(path: string, on: boolean) {
-    chosen = on ? [...chosen, path] : chosen.filter((p) => p !== path);
+  /** A repository as the setup shows it: what the project or discovery knows, then its card once read. */
+  function cardOf(path: string) {
+    const known = [...(seed?.repos ?? []), ...(app.workspace?.repos ?? [])].find((r) => r.path === path);
+    return { ...(known ?? { name: path.split(/[\\/]/).pop() ?? path, path, modified: null }), ...cards[path] };
   }
 
-  /** Saves the form: the id of a project it created, null for this one, false when it failed. */
-  async function persist(): Promise<string | null | false> {
-    if (!name.trim() || busy) return false;
+  const others = (path: string) =>
+    (app.workspace?.projects ?? []).filter((p) => p.id !== id && p.repos.some((r) => r.path === path)).map((p) => p.name);
+
+  /** Saves the form: false when it failed. */
+  async function persist(): Promise<boolean> {
+    if (!id || !name.trim() || busy) return false;
     busy = true;
     error = "";
     try {
-      const before = app.workspace!.projects;
-      const after = await invoke<Project[]>("project_save", { id: id || null, name, repos: chosen });
-      app.workspace!.projects = after;
+      app.workspace!.projects = await invoke<Project[]>("project_save", { id, name, repos: chosen });
       savedForm = JSON.stringify([name, chosen]);
       await sources?.save();
-      if (id) readRepos();
-      return id ? null : added(before, after);
+      readRepos();
+      return true;
     } catch (e) {
       error = String(e);
       return false;
@@ -203,20 +186,13 @@
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
-    const created = await persist();
-    if (created) {
-      ui.editing = created;
-      setProject(created);
-    }
+    if (await persist()) adding = false;
   }
 
-  /** A new project's page closes; a project's form goes back to what is saved. */
+  /** The form goes back to what is saved. */
   function discard() {
-    if (!id) {
-      released = true;
-      return closeProject();
-    }
     [name, chosen] = JSON.parse(savedForm);
+    adding = false;
     round++;
   }
 
@@ -252,7 +228,7 @@
 
 {#if !missing}
   <div class="config">
-    <ViewHeader title={t("ux3t3Config")} context={project?.name ?? t(app.project === null ? "ticketsAll" : "newProject")}>
+    <ViewHeader title={t("ux3t3Config")} context={project?.name ?? t("ticketsAll")}>
       {#snippet actions()}
         {#if dirty}
           <button class="btn sm" onclick={discard}>{t("cancel")}</button>
@@ -291,7 +267,7 @@
       <SectionNav
         items={found.map((s) => ({
           id: s.id,
-          label: t(s.id === "project" && !project ? "newProject" : s.label),
+          label: t(s.label),
           icon: s.icon,
           count: s.id === "project" && chosen.length ? chosen.length : null,
           apart: s.id === "delete",
@@ -306,7 +282,7 @@
 
       <div class="page">
         <section class="sec" hidden={current !== "project"} aria-labelledby="config-project">
-          <h2 id="config-project">{t(project ? "runMetaProject" : "newProject")}</h2>
+          <h2 id="config-project">{t("runMetaProject")}</h2>
           <form id="project-form" class="form" onsubmit={save}>
             <div>
               <h3><label for="project-name">{t("projectName")}</label></h3>
@@ -316,9 +292,6 @@
                 bind:value={name}
                 autocomplete="off"
                 spellcheck="false"
-                {@attach (el) => {
-                  if (!id) el.focus();
-                }}
               />
             </div>
 
@@ -326,36 +299,37 @@
               <h3>{t("repos")} <small>{chosen.length}</small></h3>
               <ul class="repos">
                 {#each chosen as path (path)}
+                  {@const card = cardOf(path)}
                   <li>
-                    <GitBranch size={14} aria-hidden="true" />
-                    <b>{repoName(path)}</b>
-                    <span class="mono">{shortPath(path)}</span>
-                    <button
-                      type="button"
-                      class="icon-btn sm"
-                      aria-label={t("t5RemoveRepo", { name: repoName(path) })}
-                      title={t("t5RemoveRepo", { name: repoName(path) })}
-                      onclick={() => pick(path, false)}
-                    >
-                      <X size={14} aria-hidden="true" />
-                    </button>
+                    <RepoCard {card} elsewhere={others(path)}>
+                      {#snippet trailing()}
+                        <button
+                          type="button"
+                          class="icon-btn"
+                          aria-label={t("t5RemoveRepo", { name: card.name })}
+                          title={t("t5RemoveRepo", { name: card.name })}
+                          onclick={() => (chosen = chosen.filter((p) => p !== path))}
+                        >
+                          <X size={14} aria-hidden="true" />
+                        </button>
+                      {/snippet}
+                    </RepoCard>
                   </li>
                 {/each}
                 <li>
-                  <button
-                    type="button"
-                    class="add"
-                    bind:this={addButton}
-                    aria-haspopup="dialog"
-                    aria-expanded={adding}
-                    onclick={() => (adding = !adding)}
-                  >
+                  <button type="button" class="add" aria-expanded={adding} aria-controls="config-add" onclick={() => (adding = !adding)}>
                     <Plus size={14} aria-hidden="true" />{t("t5AddRepos")}
                   </button>
                 </li>
               </ul>
             </div>
           </form>
+          <!-- Outside the form: Enter in its search must not save the project. -->
+          {#if adding}
+            <div id="config-add" class="adding">
+              <RepoPicker bind:chosen project={id} autofocus />
+            </div>
+          {/if}
 
           {#if stacks.some((s) => s.mcp.length || s.sources.length)}
             <div class="offers">
@@ -472,33 +446,10 @@
     </div>
   </div>
 
-  <Popover bind:open={adding} trigger={addButton} label={t("t5AddRepos")} width={440}>
-    <div class="filter">
-      <Search size={14} aria-hidden="true" />
-      <input type="search" bind:value={filter} placeholder={t("filter")} aria-label={t("filter")} spellcheck="false" />
-    </div>
-    <ul class="candidates">
-      {#each candidates as repo (repo.path)}
-        <li>
-          <label>
-            <input
-              type="checkbox"
-              checked={chosen.includes(repo.path)}
-              onchange={(e) => pick(repo.path, e.currentTarget.checked)}
-            />
-            <span class="name">{repo.name}</span>
-            <span class="mono">{shortPath(repo.path)}</span>
-          </label>
-        </li>
-      {:else}
-        <li class="none">{t("noRepos")}</li>
-      {/each}
-    </ul>
-  </Popover>
 {/if}
 
 <dialog bind:this={question} class="question" oncancel={() => answer("stay")}>
-  <p>{t("ux3t3Unsaved", { name: project?.name ?? t("newProject") })}</p>
+  <p>{t("ux3t3Unsaved", { name: project?.name ?? "" })}</p>
   <div class="answers">
     <button class="btn" onclick={() => answer("stay")}>{t("cancel")}</button>
     <button class="btn delete" onclick={() => answer("discard")}>{t("ux3t3Discard")}</button>
@@ -616,35 +567,13 @@
     list-style: none;
   }
 
-  .repos li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 42px;
-    padding: 0 8px 0 14px;
-    color: var(--muted);
-  }
-
   .repos li + li {
     border-top: 1px solid var(--border);
   }
 
-  .repos b {
-    color: var(--text);
-    font-weight: 500;
-  }
-
-  .repos .mono {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    font-size: var(--text-sm);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .repos li:last-child {
-    padding: 0;
+  /* Right under the list it adds to. */
+  .adding {
+    margin-top: -4px;
   }
 
   .add {
@@ -752,73 +681,6 @@
 
   .delete {
     color: var(--danger);
-  }
-
-  .filter {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-    height: 40px;
-    padding: 0 12px;
-    border-bottom: 1px solid var(--border);
-    color: var(--muted);
-  }
-
-  .filter input {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    border: 0;
-    background: none;
-    color: var(--text);
-  }
-
-  .filter input:focus-visible {
-    outline: none;
-  }
-
-  .candidates {
-    margin: 0;
-    padding: 6px;
-    list-style: none;
-  }
-
-  .candidates label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 34px;
-    padding: 0 8px;
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  .candidates label:hover {
-    background: var(--hover);
-  }
-
-  .candidates input {
-    margin: 0;
-  }
-
-  .candidates .name {
-    flex-shrink: 0;
-    font-weight: 500;
-  }
-
-  .candidates .mono {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--muted);
-    font-size: var(--text-sm);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .none {
-    padding: 8px;
-    color: var(--muted);
   }
 
   .question {
