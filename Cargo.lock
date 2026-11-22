@@ -5713,6 +5713,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-visual"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64ct",
+ "png",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "termf-core",
+ "termf-team",
+ "termf-term",
+ "termf-tickets",
+ "termf-worktree",
+ "toml 1.2.2+spec-1.1.0",
+]
+
+[[package]]
 name = "termf-worktree"
 version = "0.1.0"
 dependencies = [
