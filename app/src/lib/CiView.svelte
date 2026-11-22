@@ -271,7 +271,7 @@
       <button class="btn sm quiet" onclick={() => showSettings("ci")} title={t("ciNotify")}>
         <SettingsIcon size={14} aria-hidden="true" />{t("settings")}
       </button>
-      <button class="btn sm" onclick={openForm} disabled={!ci.repo || !!form}>
+      <button class="btn sm" onclick={openForm} disabled={!ci.repo || !!form} title={t("uxfT3DispatchHint")}>
         <Rocket size={14} aria-hidden="true" />{t("ciDispatch")}
       </button>
       <button class="btn sm" onclick={refresh} disabled={!ci.repo || loading}>
