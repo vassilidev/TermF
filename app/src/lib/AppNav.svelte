@@ -680,9 +680,18 @@
       gap: 1px;
     }
 
+    .row .nav-item {
+      flex: none;
+    }
+
     .row .icon-btn {
       width: 100%;
       height: 30px;
+    }
+
+    /* A scrollbar would take a third of the rail and push the icons off center. */
+    .scroll {
+      scrollbar-width: none;
     }
 
     /* Unfolded, this machine lists the settings already. */

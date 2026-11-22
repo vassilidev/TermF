@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Compass from "@lucide/svelte/icons/compass";
   import Keyboard from "@lucide/svelte/icons/keyboard";
+  import Signpost from "@lucide/svelte/icons/signpost";
   import X from "@lucide/svelte/icons/x";
   import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
@@ -83,7 +84,7 @@
     </ul>
 
     <section class="linked" aria-labelledby="help-linked">
-      <h4 id="help-linked">{t("uxfT1HelpLinked")}</h4>
+      <h3 id="help-linked"><Signpost size={15} aria-hidden="true" />{t("uxfT1HelpLinked")}</h3>
       {#each linked as view (view.id)}
         <button class="open" onclick={() => go(view.show)}>
           <view.icon size={16} aria-hidden="true" />
@@ -209,10 +210,6 @@
     flex-direction: column;
     gap: 2px;
     margin-bottom: 22px;
-  }
-
-  .linked h4 {
-    margin-top: 0;
   }
 
   .open {
