@@ -727,18 +727,22 @@ pub fn spawn(
         None,
         guard,
         args,
+        None,
     )
 }
 
-/// Starts a session whose Bash commands go through the `termf guard` hook, as a ticket run's: a headless
-/// session of a team's step, taken over in a terminal.
-pub fn spawn_guarded(
+/// Starts a headless session taken over in a terminal: in its project, and through the `termf guard` hook when it
+/// had it (a team's step).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_taken_over(
     state: &AppState,
     agent: &str,
     cwd: PathBuf,
     title: String,
-    (cols, rows): (u16, u16),
+    size: (u16, u16),
     args: &[String],
+    guard: bool,
+    project: Option<&str>,
 ) -> Result<SessionSummary> {
     launch(
         state,
@@ -746,12 +750,13 @@ pub fn spawn_guarded(
         agent_command(state, Some(agent))?,
         cwd,
         title,
-        (cols, rows),
+        size,
         false,
         None,
         None,
-        true,
+        guard,
         args,
+        project,
     )
 }
 
@@ -800,6 +805,7 @@ pub fn spawn_task(
         Some(&task),
         false,
         &[],
+        None,
     )
 }
 
@@ -872,6 +878,8 @@ fn launch(
     task: Option<&Task>,
     guard: bool,
     args: &[String],
+    // Known by the caller when the folder does not say it (a step's worktree).
+    project: Option<&str>,
 ) -> Result<SessionSummary> {
     let tool = command.as_deref().and_then(Tool::of);
     let is_claude = tool == Some(Tool::Claude);
@@ -940,7 +948,8 @@ fn launch(
         let mut warnings: Vec<String> = old.iter().cloned().collect();
         // An agent starts with the allowlist and what TermF gives it: a shell keeps all of TermF's environment.
         let policy = command.as_ref().map(|_| {
-            let project = run.as_ref().map(|r| r.project.to_owned()).or_else(|| {
+            let project = project.or(run.as_ref().map(|r| r.project));
+            let project = project.map(str::to_owned).or_else(|| {
                 termf_core::project_of(&state.config_dir, &cwd)
                     .ok()
                     .flatten()
@@ -1064,11 +1073,12 @@ fn launch(
             }
             other => other,
         };
-        let mut command = command.map(|c| cli_agents::after_lines(&c, &warnings, shell_quote));
         let base_env = policy
             .as_ref()
             .filter(|p| !p.inherit)
             .map(|p| p.keep(tool, std::env::vars_os()));
+        // Before the lines it prints first: the program the wrapper resolves is the agent's.
+        let mut command = command;
         if let (Some(policy), Some(c)) = (&policy, &command) {
             let names: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
             let cli = termf_binary();
@@ -1078,6 +1088,7 @@ fn launch(
                 env.push((agent_env::SPEC.into(), spec));
             }
         }
+        let command = command.map(|c| cli_agents::after_lines(&c, &warnings, shell_quote));
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
             title: title.clone(),

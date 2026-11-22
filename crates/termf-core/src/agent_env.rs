@@ -2,11 +2,13 @@
 //! needs, the variables the user allows (`[agents] env_allow`) and the vault's values given to the project's agents
 //! (`[agents.secrets]`). A shell the user opens in a tile keeps everything.
 
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use toml_edit::{Array, DocumentMut, Item, value};
@@ -42,6 +44,14 @@ pub const BASE: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    // Sockets and displays, not secrets: git over SSH, signed commits and a browser go on working; the keys stay in
+    // their agents (ARCHITECTURE §12.3).
+    "SSH_AUTH_SOCK",
+    "GPG_TTY",
+    "GNUPGHOME",
+    "GPG_AGENT_INFO",
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
 ];
 
 /// What cmd.exe and Node need to start under Windows (names there ignore case).
@@ -202,6 +212,14 @@ pub fn current(project: Option<&str>) -> AgentEnv {
         Some((config_dir, _)) => load(config_dir, project),
         None => AgentEnv::default(),
     }
+}
+
+/// The settings for the project whose repository holds `dir`, from the configured folder.
+pub fn for_dir(dir: &Path) -> AgentEnv {
+    let project = CONFIG
+        .get()
+        .and_then(|(config_dir, _)| crate::project_of(config_dir, dir).ok().flatten());
+    current(project.as_deref())
 }
 
 /// The configured `termf` CLI.
@@ -421,8 +439,10 @@ impl AgentEnv {
 
     /// A command a login shell runs (`$SHELL -l -i -c`), whose profile may export anything again: run through
     /// `<cli> agent-env`, which keeps the same allowlist, TermF's own variables and `set` (the names TermF itself
-    /// gives the agent), then runs the command with `sh -c`. The command, and the value of [`SPEC`] to give its
-    /// process; `None` with `inherit`, without the CLI and on Windows, whose cmd.exe reads no profile.
+    /// gives the agent), then runs the command with `sh -c`. Its program is first made what the user's interactive
+    /// shell runs (a path, or the words of an alias), since `sh` knows neither aliases nor functions. The command,
+    /// and the value of [`SPEC`] to give its process; `None` with `inherit`, without the CLI, on Windows (cmd.exe
+    /// reads no profile), and for a program only the user's shell knows how to run (a function): it runs as before.
     pub fn wrap(
         &self,
         command: &str,
@@ -432,6 +452,8 @@ impl AgentEnv {
         quote: impl Fn(&str) -> String,
     ) -> Option<(String, String)> {
         let cli = cli.filter(|cli| !self.inherit && cfg!(unix) && cli.is_file())?;
+        let shell = std::env::var_os("SHELL").map(PathBuf::from);
+        let command = as_shell_runs(command, shell.as_deref())?;
         let patterns: Vec<&str> = self
             .allow
             .iter()
@@ -444,11 +466,60 @@ impl AgentEnv {
             format!(
                 "{} agent-env {}",
                 quote(&cli.to_string_lossy()),
-                quote(command)
+                quote(&command)
             ),
             format!("{tool};{}", patterns.join(",")),
         ))
     }
+}
+
+/// `command` with its program as the interactive login shell `shell` runs it: kept when it is a path, else the path
+/// or the alias's words that shell finds; `None` for a function, a builtin or nothing found.
+fn as_shell_runs(command: &str, shell: Option<&Path>) -> Option<String> {
+    let trimmed = command.trim_start();
+    let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+    let (program, rest) = trimmed.split_at(end);
+    if program.contains('/') {
+        return Some(trimmed.to_owned());
+    }
+    Some(format!("{}{rest}", resolve(shell?, program)?))
+}
+
+/// What `command -v <program>` says in an interactive login shell, as `sh` runs it. Remembered once found.
+fn resolve(shell: &Path, program: &str) -> Option<String> {
+    type Seen = HashMap<(PathBuf, String), String>;
+    static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
+    let key = (shell.to_path_buf(), program.to_owned());
+    if let Some(found) = SEEN.lock().unwrap().as_ref().and_then(|s| s.get(&key)) {
+        return Some(found.clone());
+    }
+    let safe = |c: char| c.is_ascii_alphanumeric() || "._+-".contains(c);
+    if program.is_empty() || !program.chars().all(safe) {
+        return None;
+    }
+    let mut cmd = Command::new(shell);
+    cmd.args(["-l", "-i", "-c", &format!("command -v {program}")]);
+    let (_, out, _) = crate::process::run(cmd, b"", Duration::from_secs(10)).ok()?;
+    let out = String::from_utf8_lossy(&out);
+    // Profiles may print their own lines first.
+    let line = out.lines().map(str::trim).rfind(|l| !l.is_empty())?;
+    let found = if line.starts_with('/') {
+        Path::new(line)
+            .is_file()
+            .then(|| format!("'{}'", line.replace('\'', r"'\''")))?
+    } else {
+        // `alias claude='~/.claude/local/claude --fast'`: an alias stands for its words.
+        let value = line.strip_prefix("alias ")?.split_once('=')?.1;
+        match value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
+            Some(quoted) => quoted.replace(r"'\''", "'"),
+            None => value.to_owned(),
+        }
+    };
+    SEEN.lock()
+        .unwrap()
+        .get_or_insert_default()
+        .insert(key, found.clone());
+    Some(found)
 }
 
 fn on(value: &OsStr) -> bool {
@@ -575,19 +646,35 @@ mod tests {
             ("ACME_ONE", "1"),
             ("ACME_TWO", "2"),
             ("TERMF_TOKEN", "app's own"),
+            ("SSH_AUTH_SOCK", "/tmp/ssh-x/agent.1"),
+            ("GNUPGHOME", "/home/alex/.gnupg"),
         ]);
         let plain = AgentEnv::default();
         assert_eq!(
             names(&plain.keep(Some(Tool::Claude), all.clone())),
-            ["PATH", "HOME", "LC_ALL", "ANTHROPIC_API_KEY"]
+            [
+                "PATH",
+                "HOME",
+                "LC_ALL",
+                "ANTHROPIC_API_KEY",
+                "SSH_AUTH_SOCK",
+                "GNUPGHOME"
+            ]
         );
         assert_eq!(
             names(&plain.keep(Some(Tool::Codex), all.clone())),
-            ["PATH", "HOME", "LC_ALL", "OPENAI_API_KEY"]
+            [
+                "PATH",
+                "HOME",
+                "LC_ALL",
+                "OPENAI_API_KEY",
+                "SSH_AUTH_SOCK",
+                "GNUPGHOME"
+            ]
         );
         assert_eq!(
             names(&plain.keep(None, all.clone())),
-            ["PATH", "HOME", "LC_ALL"]
+            ["PATH", "HOME", "LC_ALL", "SSH_AUTH_SOCK", "GNUPGHOME"]
         );
         let allowed = AgentEnv {
             allow: vec!["CORP_TOKEN".into(), "ACME_*".into()],
@@ -601,7 +688,9 @@ mod tests {
                 "LC_ALL",
                 "CORP_TOKEN",
                 "ACME_ONE",
-                "ACME_TWO"
+                "ACME_TWO",
+                "SSH_AUTH_SOCK",
+                "GNUPGHOME"
             ]
         );
         let inherit = AgentEnv {
@@ -671,7 +760,7 @@ mod tests {
         let quote = |s: &str| format!("'{s}'");
         let cli = std::env::current_exe().unwrap();
         let wrapped = env.wrap(
-            "claude --x",
+            "/opt/claude/bin/claude --x",
             Some(Tool::Claude),
             Some(&cli),
             &["PEXELS_API_KEY".into()],
@@ -681,7 +770,7 @@ mod tests {
             assert_eq!(
                 wrapped,
                 Some((
-                    format!("'{}' agent-env 'claude --x'", cli.display()),
+                    format!("'{}' agent-env '/opt/claude/bin/claude --x'", cli.display()),
                     "claude;ACME_*,PEXELS_API_KEY,TERMF_*".into()
                 ))
             );
@@ -696,6 +785,60 @@ mod tests {
             ..AgentEnv::default()
         };
         assert_eq!(inherit.wrap("claude", None, Some(&cli), &[], quote), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_program_is_what_the_user_s_shell_runs_an_alias_included() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = dir("shell");
+        let aider = dir.join("my tools/aider");
+        fs::create_dir_all(aider.parent().unwrap()).unwrap();
+        fs::write(&aider, "").unwrap();
+        let shell = dir.join("zsh");
+        let alias = r#"echo "alias cl='/opt/claude/bin/claude --model '\''opus'\'''""#;
+        let script = format!(
+            "#!/bin/sh\n[ \"$1 $2 $3\" = '-l -i -c' ] || exit 3\necho 'Welcome back'\ncase \"$4\" in\n\
+             'command -v cl') {alias} ;;\n\
+             'command -v aider') echo '{}' ;;\n\
+             'command -v work') echo work ;;\n\
+             esac\n",
+            aider.display()
+        );
+        fs::write(&shell, script).unwrap();
+        fs::set_permissions(&shell, fs::Permissions::from_mode(0o755)).unwrap();
+        // A process another test forks while the file is open for writing keeps it busy (ETXTBSY on Linux).
+        for _ in 0..100 {
+            match Command::new(&shell).output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                _ => break,
+            }
+        }
+        let shell = Some(shell.as_path());
+        assert_eq!(
+            as_shell_runs("cl -p hi", shell).as_deref(),
+            Some("/opt/claude/bin/claude --model 'opus' -p hi")
+        );
+        assert_eq!(
+            as_shell_runs("aider --yes", shell),
+            Some(format!("'{}' --yes", aider.display()))
+        );
+        assert_eq!(
+            as_shell_runs("work now", shell),
+            None,
+            "a function only the user's shell runs"
+        );
+        assert_eq!(as_shell_runs("missing", shell), None);
+        assert_eq!(as_shell_runs("a;b", shell), None);
+        assert_eq!(
+            as_shell_runs("'/opt/my claude/claude' -p", None).as_deref(),
+            Some("'/opt/my claude/claude' -p"),
+            "a path is kept, no shell asked"
+        );
+        assert_eq!(as_shell_runs("claude", None), None);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

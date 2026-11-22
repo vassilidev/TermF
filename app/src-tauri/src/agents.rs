@@ -115,27 +115,16 @@ fn takeover(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<SessionSum
     let agents = agents(app);
     let takeover = agents.takeover(id)?;
     let state = app.state::<AppState>();
-    let spawned = match takeover.guard {
-        true => api::spawn_guarded(
-            &state,
-            &takeover.agent,
-            takeover.cwd,
-            takeover.title,
-            (cols, rows),
-            &takeover.args,
-        ),
-        false => api::spawn(
-            &state,
-            Some(&takeover.agent),
-            takeover.cwd,
-            takeover.title,
-            cols,
-            rows,
-            false,
-            None,
-            &takeover.args,
-        ),
-    };
+    let spawned = api::spawn_taken_over(
+        &state,
+        &takeover.agent,
+        takeover.cwd,
+        takeover.title,
+        (cols, rows),
+        &takeover.args,
+        takeover.guard,
+        takeover.project.as_deref(),
+    );
     let tile = match spawned {
         Ok(tile) => tile,
         Err(e) => {

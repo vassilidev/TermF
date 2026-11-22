@@ -67,7 +67,16 @@ pub fn given(vault: &Vault, config_dir: &Path, project: Option<&str>, actor: &Ac
     if all.is_empty() {
         return Given::default();
     }
-    if !(vault.initialized() && vault.status().is_ok_and(|s| s.unlocked)) {
+    if !vault.initialized() {
+        return Given {
+            vars: Vec::new(),
+            note: Some(format!(
+                "TermF: there is no vault yet, so this agent started without {}. Create the vault in TermF and keep the keys there, then start the agent again.",
+                names(&all)
+            )),
+        };
+    }
+    if !vault.status().is_ok_and(|s| s.unlocked) {
         return Given {
             vars: Vec::new(),
             note: Some(format!(
@@ -95,17 +104,25 @@ pub fn given(vault: &Vault, config_dir: &Path, project: Option<&str>, actor: &Ac
 
 /// The project's secret of that name and scope, else the global one. Never prod: `agent_env` refuses it.
 fn value(vault: &Vault, project: Option<&str>, grant: &Grant, actor: &Actor) -> Result<Secret> {
+    let id = owner(vault, project, grant)?.context("no such secret")?;
+    vault.value(actor, &id, Access::Use)
+}
+
+/// The secret a grant names for `project`: the project's, else the global one; never another project's.
+fn owner(vault: &Vault, project: Option<&str>, grant: &Grant) -> Result<Option<SecretId>> {
     let scope = Scope::parse(&grant.scope)?;
     ensure!(scope != Scope::Prod, "agents never get a prod secret");
     let listed = vault.list(Some(scope), project)?;
     let owner = listed
         .iter()
-        .filter(|s| s.name == grant.secret)
+        .filter(|s| {
+            s.name == grant.secret && (s.project.is_none() || s.project.as_deref() == project)
+        })
         .map(|s| s.project.clone())
-        .max()
-        .context("no such secret")?;
-    let id = SecretId::new(&grant.secret, scope, owner.as_deref())?;
-    vault.value(actor, &id, Access::Use)
+        .max();
+    owner
+        .map(|p| SecretId::new(&grant.secret, scope, p.as_deref()))
+        .transpose()
 }
 
 /// A request, and the agents waiting for its answer.
@@ -242,14 +259,38 @@ pub fn request(
     };
     let request = checked(project, variable, purpose, signup_url, agent)?;
     let state = app.state::<AgentEnvState>();
-    let env = agent_env::load(&state.config_dir, Some(project));
-    if env.secrets.iter().any(|g| g.variable == request.variable) {
-        return Ok(answer(&request.variable, Some(true)));
+    let vault = crate::vault::shared(app);
+    if let Some(known) = known(&vault, &state.config_dir, project, &request.variable) {
+        return Ok(known);
     }
     let show = |event: &str, request: &SecretRequest| {
         let _ = app.emit(event, request);
     };
     state.requests.ask(request, WAIT, &show, gone)
+}
+
+/// The answer without asking the user, when the project's agents are already given `variable`: `granted` when the
+/// vault has its value, `locked` while the vault is locked; `None` when the user has a key to give (no vault yet, or
+/// no value in it).
+fn known(vault: &Vault, config_dir: &Path, project: &str, variable: &str) -> Option<Value> {
+    let env = agent_env::load(config_dir, Some(project));
+    let grant = env.secrets.iter().find(|g| g.variable == variable)?;
+    if !vault.initialized() {
+        return None;
+    }
+    if !vault.status().is_ok_and(|s| s.unlocked) {
+        return Some(json!({
+            "status": "locked",
+            "message": format!(
+                "{variable} is given to this project's agents, but TermF's vault is locked, so it cannot reach you. \
+                 Report blocked and say so: once the user unlocks the vault, your step runs again with it."
+            ),
+        }));
+    }
+    match owner(vault, Some(project), grant) {
+        Ok(Some(_)) => Some(answer(variable, Some(true))),
+        _ => None,
+    }
 }
 
 /// What the agent reads: `granted`, `refused`, or `waiting` when the user did not answer in time.
@@ -281,22 +322,21 @@ fn answer(variable: &str, granted: Option<bool>) -> Value {
 }
 
 /// Keeps `value` in the project's vault (dev) and gives it to the project's agents. A locked vault opens with
-/// `password`. Whether the vault was unlocked here.
+/// `password`.
 fn store(
     vault: &Vault,
     config_dir: &Path,
     request: &SecretRequest,
     value: &Secret,
     password: Option<&Secret>,
-) -> Result<bool> {
+) -> Result<()> {
     ensure!(!value.is_empty(), "paste the key first");
     ensure!(
         vault.initialized(),
         "create the vault first: the key is kept there"
     );
     let human = Actor::human();
-    let unlocked = !vault.status()?.unlocked;
-    if unlocked {
+    if !vault.status()?.unlocked {
         let password = password.ok_or(termf_vault::Locked)?;
         vault.unlock(&human, Some(password.expose()), None, None)?;
     }
@@ -307,8 +347,7 @@ fn store(
         &request.project,
         &request.variable,
         &format!("dev/{}", request.variable),
-    )?;
-    Ok(unlocked)
+    )
 }
 
 #[tauri::command]
@@ -333,16 +372,22 @@ pub async fn agentenv_answer(
         let request = state.requests.get(id)?;
         if let Some(value) = &value {
             let vault = crate::vault::shared(&app);
-            if store(
+            let was_open = vault.status().is_ok_and(|s| s.unlocked);
+            let stored = store(
                 &vault,
                 &state.config_dir,
                 &request,
                 value,
                 password.as_ref(),
-            )? && let Ok(status) = vault.status()
+            );
+            // Opened here, even when what follows failed: the rest of the app sees it open.
+            if let Ok(status) = vault.status()
+                && status.unlocked
+                && !was_open
             {
                 let _ = app.emit("vault-status", status);
             }
+            stored?;
         }
         let show = |event: &str, request: &SecretRequest| {
             let _ = app.emit(event, request);
@@ -473,6 +518,7 @@ mod tests {
 
     const PASSWORD: &str = "correct horse battery";
     const KEY: &str = "px-5f3a9c71d2";
+    const GRANT: &str = "[agents.secrets]\nPEXELS_API_KEY = \"pexels\"\n";
 
     #[derive(Default)]
     struct MemoryStore(Mutex<HashMap<String, Vec<u8>>>);
@@ -665,17 +711,16 @@ mod tests {
         vault.lock(&Actor::human()).unwrap();
         let locked = store(&vault, &config, &request, &Secret::new(KEY.into()), None);
         assert!(locked.unwrap_err().to_string().contains("locked"));
-        let password = Secret::new(PASSWORD.into());
-        assert!(
-            store(
-                &vault,
-                &config,
-                &request,
-                &Secret::new(KEY.into()),
-                Some(&password)
-            )
-            .unwrap()
+        assert_eq!(
+            known(&vault, &config, "acme", "PEXELS_API_KEY"),
+            None,
+            "not given yet: a card"
         );
+        let password = Secret::new(PASSWORD.into());
+        let key = Secret::new(KEY.into());
+        store(&vault, &config, &request, &key, Some(&password)).unwrap();
+        let again = known(&vault, &config, "acme", "PEXELS_API_KEY").unwrap();
+        assert_eq!(again["status"], "granted");
         let file = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
         assert!(
             file.starts_with("# Acme\nname = \"Acme\""),
@@ -711,6 +756,68 @@ mod tests {
         let got = given(&vault, &config, Some("acme"), &agent);
         assert!(got.vars.is_empty());
         assert!(got.note.unwrap().contains("vault is locked"));
+        // Asked again while it is locked: no `granted` the agent could not use.
+        let locked = known(&vault, &config, "acme", "PEXELS_API_KEY").unwrap();
+        assert_eq!(locked["status"], "locked");
+        // Given, but the value is gone from the vault: the user gets a card again.
+        vault
+            .unlock(&Actor::human(), Some(PASSWORD), None, None)
+            .unwrap();
+        let id = SecretId::new("PEXELS_API_KEY", Scope::Dev, Some("acme")).unwrap();
+        vault.delete(&Actor::human(), &id).unwrap();
+        assert_eq!(known(&vault, &config, "acme", "PEXELS_API_KEY"), None);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_agent_gets_its_project_s_key_or_a_global_one_never_another_project_s() {
+        let (root, vault) = fixture("owner");
+        let config = root.join("config");
+        let human = Actor::human();
+        let set = |project: Option<&str>, value: &str| {
+            let id = SecretId::new("pexels", Scope::Dev, project).unwrap();
+            vault
+                .set(&human, &id, Secret::new(value.into()), None)
+                .unwrap();
+        };
+        set(Some("mobile"), "px-of-mobile");
+        fs::write(config.join("termf.toml"), GRANT).unwrap();
+        let agent = Actor::agent(None, Some("5".into()));
+        for project in [None, Some("acme")] {
+            let got = given(&vault, &config, project, &agent);
+            assert!(got.vars.is_empty(), "{project:?} got another project's key");
+            assert!(got.note.unwrap().contains("no value for PEXELS_API_KEY"));
+        }
+        set(None, "px-global");
+        let value = |project| given(&vault, &config, project, &agent).vars[0].1.clone();
+        assert_eq!(value(None), "px-global");
+        assert_eq!(value(Some("acme")), "px-global");
+        assert_eq!(value(Some("mobile")), "px-of-mobile", "the project's first");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn without_a_vault_the_agent_is_told_to_create_one() {
+        let root = std::env::temp_dir().join(format!("termf-agentenv-none-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("termf.toml"), GRANT).unwrap();
+        let vault = Vault::new(
+            &root.join("data"),
+            Box::new(MemoryStore::default()),
+            Box::new(SystemClock::default()),
+        );
+        let got = given(&vault, &root, None, &Actor::agent(None, None));
+        let note = got.note.unwrap();
+        assert!(
+            note.contains("no vault yet") && !note.contains("locked"),
+            "{note}"
+        );
+        assert_eq!(
+            known(&vault, &root, "acme", "PEXELS_API_KEY"),
+            None,
+            "the user gets a card"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
