@@ -1599,7 +1599,7 @@ const fr = {
   t6bClick: "{key}-clic",
   t6bEditKeys: "Modifier les raccourcis",
   t6bTipBeside: "{key}-clic sur une vue de la navigation, ou clic droit, l'ouvre à côté de celle où tu es.",
-  t6bTipSelect: "Dans l'inbox, les runs et les onglets, {key}-clic ou Maj-clic en sélectionne plusieurs.",
+  t6bTipSelect: "Dans l'inbox, les runs, les conversations et les onglets, {key}-clic ou Maj-clic en sélectionne plusieurs.",
   t6bHelpTerminals:
     "Tes sessions d'agents et de shells, en onglets. « Nouvelle session » en ouvre une ; divise un onglet pour en voir plusieurs côte à côte, et passe d'un split à l'autre au clavier.",
   t6bHelpConversations:
@@ -1646,8 +1646,6 @@ const fr = {
   t6bTour7:
     "Les Réglages rassemblent tout, dont chaque raccourci, modifiable. Appuie sur ? hors d'un terminal pour l'aide de la vue où tu es ; cette visite s'y relance.",
   t6bSelectAll: "Tout sélectionner",
-  t6bSelected: "Sélection : {count}",
-  t6bClearSelection: "Désélectionner",
   t6bPick: "Sélectionner {name}",
   t6bChosen: "sélectionné",
   t6bLaunched: "Runs lancés : {count}.",
@@ -1658,6 +1656,7 @@ const fr = {
   t6bCloseAsk: "Fermer ces runs ({count}) ? Leurs sessions s'arrêtent et leurs worktrees sont retirés.",
   t6bCleanAsk: "Nettoyer ces runs ({count}) ? Leurs sessions s'arrêtent, leurs worktrees et branches locales sont retirés.",
   t6bCloseTabsAsk: "Fermer ces sessions ({count}, dont {running} en cours) ?",
+  t6bStopAsk: "Arrêter ces agents ({count}) ? Leur conversation reste lisible.",
 };
 
 type Key = keyof typeof fr;
@@ -3247,7 +3246,7 @@ const en: Record<Key, string> = {
   t6bClick: "{key}-click",
   t6bEditKeys: "Edit the shortcuts",
   t6bTipBeside: "{key}-click a view in the navigation, or right-click it, to open it beside the one you are in.",
-  t6bTipSelect: "In the inbox, the runs and the tabs, {key}-click or Shift-click picks several.",
+  t6bTipSelect: "In the inbox, the runs, the conversations and the tabs, {key}-click or Shift-click picks several.",
   t6bHelpTerminals:
     "Your agent and shell sessions, in tabs. “New session” opens one; split a tab to see several side by side, and move between splits from the keyboard.",
   t6bHelpConversations:
@@ -3294,8 +3293,6 @@ const en: Record<Key, string> = {
   t6bTour7:
     "Settings hold everything, every shortcut included, all editable. Press ? outside a terminal for help on the view you are in; this tour restarts from there.",
   t6bSelectAll: "Select all",
-  t6bSelected: "Selected: {count}",
-  t6bClearSelection: "Clear the selection",
   t6bPick: "Select {name}",
   t6bChosen: "selected",
   t6bLaunched: "Runs launched: {count}.",
@@ -3306,6 +3303,7 @@ const en: Record<Key, string> = {
   t6bCloseAsk: "Close these runs ({count})? Their sessions stop and their worktrees are removed.",
   t6bCleanAsk: "Clean up these runs ({count})? Their sessions stop, their worktrees and local branches are removed.",
   t6bCloseTabsAsk: "Close these sessions ({count}, {running} running)?",
+  t6bStopAsk: "Stop these agents ({count})? Their conversation stays readable.",
 };
 
 const messages = { fr, en };

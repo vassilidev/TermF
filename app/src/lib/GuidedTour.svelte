@@ -26,6 +26,8 @@
   /** The target's box, null when it is not on screen. */
   let box = $state<DOMRect | null>(null);
   let top = $state(0);
+  /** Beside the navigation, whatever the target's own width. */
+  let left = $state(0);
 
   const step = $derived(steps[tour.step ?? 0]);
   const last = $derived(tour.step === steps.length - 1);
@@ -33,6 +35,7 @@
   function place() {
     const target = document.querySelector<HTMLElement>(step.at);
     box = target?.getClientRects().length ? target.getBoundingClientRect() : null;
+    left = Math.max(box?.right ?? 0, target?.closest("nav")?.getBoundingClientRect().right ?? 0) + 14;
     const height = card?.offsetHeight ?? 0;
     const middle = box ? box.top + box.height / 2 : innerHeight / 2;
     top = Math.max(12, Math.min(innerHeight - height - 12, middle - height / 2));
@@ -85,7 +88,7 @@
   aria-labelledby="tour-title"
   aria-describedby="tour-text"
   tabindex="-1"
-  style:left={box ? `${box.right + 16}px` : undefined}
+  style:left={box ? `${left}px` : undefined}
   style:top="{top}px"
   {onkeydown}
 >

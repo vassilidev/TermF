@@ -365,9 +365,9 @@
                 onall={() => ((left = ""), (pickedTickets = all(pickedTickets, launchable)))}
                 onclear={() => ((left = ""), (pickedTickets = none()))}
               >
-                {#if left}<span class="left">{left}</span>{/if}
+                {#if left}<span class="note">{left}</span>{/if}
                 <button class="btn sm primary" disabled={bulk || !!starting} onclick={launchPicked}>
-                  {@render launching(bulk)}{#if !bulk}· {chosenTickets.length}{/if}
+                  {@render launching(bulk)}{#if !bulk}{` · ${chosenTickets.length}`}{/if}
                 </button>
               </SelectionBar>
             </div>
@@ -377,7 +377,7 @@
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (the box does it from the keyboard) -->
               <li
                 class="ticket"
-                class:chosen={chosenTickets.includes(ticket.url)}
+                class:picked={chosenTickets.includes(ticket.url)}
                 onclick={(e) => ticket.project && rowClick(e, () => pickTicket(e, ticket.url))}
               >
                 {#if ticket.project}
@@ -463,7 +463,7 @@
               {t(asking === "close" ? "closeRun" : "ticketsUiClean")} · {count}
             </button>
           {:else}
-            {#if left}<span class="left">{left}</span>{/if}
+            {#if left}<span class="note">{left}</span>{/if}
             {#if bulk}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}
             <button class="btn sm" disabled={bulk || !cleanable.length} onclick={() => (asking = "cleanup")}>
               <BrushCleaning size={14} aria-hidden="true" />{t("ticketsUiClean")} · {cleanable.length}
@@ -477,7 +477,7 @@
       <div class="split">
         <ul class="list" class:picking={chosenRuns.length > 0} aria-label={t("ticketsTabRuns")}>
           {#each runs as run (run.id)}
-            <li class="row" class:current={run === current} class:chosen={pickedRuns.keys.includes(run.id)}>
+            <li class="row" class:current={run === current} class:picked={pickedRuns.keys.includes(run.id)}>
               <input
                 class="box"
                 type="checkbox"
@@ -574,39 +574,8 @@
     top: 0;
   }
 
-  /* The boxes show on hover, and all of them once one is ticked. */
-  .box {
-    flex-shrink: 0;
-    width: 14px;
-    height: 14px;
-    margin: 0;
-    opacity: 0;
-    transition: opacity var(--dur-fast) ease-out;
-  }
-
-  :is(.ticket, .row):hover .box,
-  .box:focus-visible,
-  .picking .box {
-    opacity: 1;
-  }
-
-  .ticket.chosen,
-  .row.chosen {
-    background: var(--accent-soft);
-  }
-
   .row .box {
     margin-left: 8px;
-  }
-
-  .left {
-    color: var(--muted);
-  }
-
-  .ask {
-    margin-right: 4px;
-    color: var(--text);
-    font-weight: 500;
   }
 
   .empty-actions {

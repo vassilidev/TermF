@@ -167,18 +167,19 @@
   }
 
   .panels.two {
-    grid-template-columns: minmax(0, calc((100% - 5px) * var(--left))) 5px minmax(0, 1fr);
+    grid-template-columns: minmax(0, calc((100% - 1px) * var(--left))) 1px minmax(0, 1fr);
   }
 
+  /* A 1px line, wider to grab than to see, over the panels' edges. */
   .handle {
     position: relative;
+    z-index: 6;
     grid-area: 1 / 2;
-    background: var(--border);
+    background: var(--border-strong);
     cursor: col-resize;
     touch-action: none;
   }
 
-  /* Wider to grab than to see. */
   .handle::before {
     content: "";
     position: absolute;
@@ -188,7 +189,7 @@
   .handle::after {
     content: "";
     position: absolute;
-    inset: 0 1px;
+    inset: 0 -1px;
     transition: background-color var(--dur-fast) ease-out;
   }
 

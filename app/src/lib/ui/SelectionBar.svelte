@@ -41,9 +41,14 @@
     />
     <span>{t("t6bSelectAll")}</span>
   </label>
-  <span class="count" aria-live="polite">{t("t6bSelected", { count })}</span>
+  <span class="count" aria-live="polite">{t("claudeRedesignSelected", { count })}</span>
   <div class="actions">{@render children()}</div>
-  <button class="icon-btn sm" aria-label={t("t6bClearSelection")} title={t("t6bClearSelection")} onclick={onclear}>
+  <button
+    class="icon-btn sm"
+    aria-label={t("claudeRedesignClearSelection")}
+    title={t("claudeRedesignClearSelection")}
+    onclick={onclear}
+  >
     <X size={14} aria-hidden="true" />
   </button>
 </div>
@@ -92,5 +97,15 @@
     justify-content: flex-end;
     gap: 6px;
     min-width: 0;
+  }
+
+  /* What the last action left picked, and the question a destructive one asks. */
+  .actions :global(.note) {
+    color: var(--muted);
+  }
+
+  .actions :global([role="alert"]) {
+    margin-right: 4px;
+    font-weight: 500;
   }
 </style>

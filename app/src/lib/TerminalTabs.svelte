@@ -296,11 +296,6 @@
     color: var(--accent-ink);
   }
 
-  .ask {
-    margin-right: 4px;
-    font-weight: 500;
-  }
-
   [role="tab"] {
     display: flex;
     flex: 1;
