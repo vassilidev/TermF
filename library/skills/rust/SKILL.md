@@ -1,11 +1,12 @@
 ---
 name: rust
 description: >-
-  Writes, changes and tests Rust code the way the crate's edition and toolchain expect: modules and public
-  APIs, error types, ownership and lifetimes, async code on the project's runtime, unsafe code, Cargo
-  features and workspaces, unit, integration and doc tests, rustfmt, clippy and supply-chain checks. Use
-  when a task touches .rs files, Cargo.toml, Cargo.lock or rust-toolchain.toml. Not for Go or C and C++
-  code, and not for JavaScript bindings beyond their Rust side.
+  Writes, changes and tests Rust code the way the crate's edition and toolchain expect: modules and public APIs,
+  error types, ownership and lifetimes, async code on the project's runtime, unsafe code, Cargo features and
+  workspaces, unit, integration and doc tests, rustfmt, clippy and supply-chain checks. Use it before answering
+  whenever a task or a question is about Rust: .rs files, Cargo.toml, Cargo.lock, rust-toolchain.toml, or the
+  cargo, clippy and rustfmt commands that build, lint and test them. Not for Go or C and C++ code, and not for
+  JavaScript bindings beyond their Rust side.
 paths: "**/*.rs, **/Cargo.toml, **/Cargo.lock, **/rust-toolchain.toml, **/rust-toolchain, **/clippy.toml, **/rustfmt.toml, **/deny.toml"
 license: MIT
 metadata:
