@@ -144,9 +144,9 @@
       <div><dt>Claude Code</dt><dd>2.1.288 or later, signed in. The CTO and the team run on it.</dd></div>
       <div><dt>git</dt><dd>For worktrees, branches and deliveries.</dd></div>
       <div><dt>GitHub CLI</dt><dd>Signed in, for GitHub tickets, pull requests and CI. Optional otherwise.</dd></div>
-      <div><dt>macOS</dt><dd>Apple Silicon or Intel.</dd></div>
-      <div><dt>Windows</dt><dd>64-bit.</dd></div>
-      <div><dt>Linux</dt><dd>x86_64, with WebKitGTK 4.1.</dd></div>
+      <div><dt>macOS</dt><dd>Apple Silicon or Intel, macOS 11 or later.</dd></div>
+      <div><dt>Windows</dt><dd>x64 or ARM64.</dd></div>
+      <div><dt>Linux</dt><dd>x86_64 or ARM64, with WebKitGTK 4.1.</dd></div>
       </dl>
     </section>
   </div>
@@ -187,7 +187,7 @@
     <div class="split">
       <div class="text">
         <h2 id="cli-h">The termf command line</h2>
-        <p>It ships inside the app: there is nothing else to install. Put it on your <code>PATH</code>, then <code>termf help</code> lists every command. Commands that start a run, deliver, approve a step or type into a session wait for your confirmation in the app.</p>
+        <p>It ships inside the app: there is nothing else to install. Put it on your <code>PATH</code> in one click from the app's Settings, What you need, or by hand as below; then <code>termf help</code> lists every command. Commands that start a run, deliver, approve a step or type into a session wait for your confirmation in the app.</p>
         <p><a class="more" href="features/cli.html">What the command line does</a></p>
       </div>
       <div>
@@ -251,15 +251,21 @@ const FILES = {
   mac: [
     {re: /_aarch64\.dmg$/, name: 'TermF_*_aarch64.dmg', what: 'Apple Silicon', arch: 'arm'},
     {re: /_x64\.dmg$/, name: 'TermF_*_x64.dmg', what: 'Intel', arch: 'x86'},
+    {re: /_universal\.dmg$/, name: 'TermF_*_universal.dmg', what: 'Universal', arch: 'both'},
   ],
   windows: [
     {re: /_x64-setup\.exe$/, name: 'TermF_*_x64-setup.exe', what: 'Installer'},
     {re: /_x64_en-US\.msi$/, name: 'TermF_*_x64_en-US.msi', what: 'MSI'},
+    {re: /_arm64-setup\.exe$/, name: 'TermF_*_arm64-setup.exe', what: 'ARM64 installer'},
   ],
   linux: [
     {re: /_amd64\.AppImage$/, name: 'TermF_*_amd64.AppImage', what: 'AppImage', run: n => `chmod +x ${n} && ./${n}`, how: 'Any distribution'},
     {re: /_amd64\.deb$/, name: 'TermF_*_amd64.deb', what: 'Debian', run: n => `sudo apt install ./${n}`, how: 'Debian, Ubuntu, Mint, Pop!_OS'},
     {re: /\.x86_64\.rpm$/, name: 'TermF-*.x86_64.rpm', what: 'Fedora', run: n => `sudo dnf install ./${n}`, how: 'Fedora, openSUSE, Rocky, Alma'},
+    // ARM64: the same commands, listed with the files only
+    {re: /_aarch64\.AppImage$/, name: 'TermF_*_aarch64.AppImage', what: 'ARM64 AppImage', run: n => `chmod +x ${n} && ./${n}`},
+    {re: /_arm64\.deb$/, name: 'TermF_*_arm64.deb', what: 'ARM64 Debian', run: n => `sudo apt install ./${n}`},
+    {re: /\.aarch64\.rpm$/, name: 'TermF-*.aarch64.rpm', what: 'ARM64 Fedora', run: n => `sudo dnf install ./${n}`},
   ],
 };
 const NAMES = {mac: 'macOS', windows: 'Windows', linux: 'Linux'};
@@ -312,7 +318,7 @@ function oneLine(a) {
 
 function render() {
   for (const box of document.querySelectorAll('[data-files]')) box.innerHTML = FILES[box.dataset.files].map(item).join('');
-  document.querySelector('[data-linux]').innerHTML = FILES.linux.map(f => `<p class="status">${esc(f.how)}</p><div class="cmd"><code>${esc(f.run(find(f)?.name ?? f.name))}</code></div>`).join('');
+  document.querySelector('[data-linux]').innerHTML = FILES.linux.filter(f => f.how).map(f => `<p class="status">${esc(f.how)}</p><div class="cmd"><code>${esc(f.run(find(f)?.name ?? f.name))}</code></div>`).join('');
   const line = !mobile && release ? oneLine(find(os === 'mac' ? FILES.mac.find(f => f.arch === (arch ?? 'arm')) : FILES[os][0])) : '';
   document.getElementById('dl-line').hidden = !line;
   document.getElementById('dl-cmd').textContent = line;
@@ -342,7 +348,7 @@ function render() {
     get.firstElementChild.textContent = 'Releases on GitHub';
     hash.innerHTML = '<span>SHA-256</span><code>shown once a release is published</code>';
   }
-  const label = f => os === 'mac' ? (f.arch === 'x86' ? 'On an Intel Mac? The Intel build' : 'On Apple Silicon? That build') : `${f.what} package`;
+  const label = f => os === 'mac' ? (f.arch === 'x86' ? 'On an Intel Mac? The Intel build' : f.arch === 'both' ? 'One image for both chips' : 'On Apple Silicon? That build') : `${f.what} package`;
   const other = others.map(f => { const o = find(f); return `<a href="${esc(o?.browser_download_url ?? fallback())}">${label(f)}${o ? ' · ' + mb(o.size) : ''}</a>`; });
   alts.innerHTML = [...other, '<a href="#all">Every platform</a>'].join('');
 
@@ -388,7 +394,7 @@ document.addEventListener('click', async e => {
         <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
         <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
       </div>
-      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="team-vs-solo.html">Team or one session?</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
       <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
       <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
     </div>

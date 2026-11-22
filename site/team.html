@@ -118,12 +118,12 @@
 <section class="wrap" aria-labelledby="flow-h">
   <div class="sec-head" style="margin-top:96px">
     <h2 id="flow-h">How they work together on a ticket</h2>
-    <p>The same six steps as on the home page, with the agents behind each one. The amber steps wait for you: nothing moves on until you click.</p>
+    <p>The same six steps as on the home page, with the agents behind each one. The amber steps wait for you: nothing moves on until you click. A small ticket skips most of them: one developer, a short review, and you at the delivery.</p>
   </div>
   <ol class="steps flow">
     <li class="you"><span class="n">1</span><div><h3>You ask the CTO</h3><p class="marks"><span class="mark c-cto">CTO</span></p><p>You describe the work in your own words, or pick a ticket. The CTO asks before it starts the team.</p></div></li>
-    <li class="you"><span class="n">2</span><div><h3>The CTO picks the team</h3><p class="marks"><span class="mark c-cto">CTO</span></p><p>It picks the steps, the agents and the budget for this ticket, and shows you that route before anything starts.</p></div></li>
-    <li class="you"><span class="n">3</span><div><h3>You approve the plan</h3><p class="marks"><span class="mark c-product">PO</span><span class="mark c-product opt">PM</span><span class="mark c-product opt">UX</span><span class="mark c-product opt">AR</span><span class="mark c-build">LE</span></p><p>The product owner writes the acceptance criteria and asks what is still open, with proposed answers; the tech lead splits the work into tasks.</p></div></li>
+    <li class="you"><span class="n">2</span><div><h3>The CTO picks the team</h3><p class="marks"><span class="mark c-cto">CTO</span></p><p>It sizes the team to the ticket, never more: the steps, the agents and the budget. On a large ticket, it shows you that route before anything starts.</p></div></li>
+    <li class="you"><span class="n">3</span><div><h3>You approve the plan</h3><p class="marks"><span class="mark c-product">PO</span><span class="mark c-product opt">PM</span><span class="mark c-product opt">UX</span><span class="mark c-product opt">AR</span><span class="mark c-build">LE</span></p><p>The product owner writes the acceptance criteria and asks what is still open, with proposed answers; the tech lead splits the work into tasks. The plan waits for you on a large ticket; on a small one, the CTO writes the one task itself.</p></div></li>
     <li class="team"><span class="n">4</span><div><h3>Agents work in parallel</h3><p class="marks"><span class="mark c-build">FR</span><span class="mark c-build">BA</span><span class="mark c-build">DE</span><span class="mark c-build">SEO</span><span class="mark c-creative opt">BR</span><span class="mark c-creative opt">CO</span><span class="mark c-specialists opt">DBA</span><span class="mark c-quality">QA</span></p><p>Up to four at once, each in its own copy of the repository. On medium and large tickets, QA comes last and proves each criterion.</p></div></li>
     <li class="team"><span class="n">5</span><div><h3>Checks, reviews, and the latest base</h3><p class="marks"><span class="mark c-quality">RE</span><span class="mark c-quality">SEC</span><span class="mark c-quality opt">IN</span></p><p>The repository's tests and rules run, then the code review and the security review. If the main branch moved on meanwhile, the merge integrator brings it in and resolves the conflicts.</p></div></li>
     <li class="ship"><span class="n">6</span><div><h3>You approve the delivery</h3><p>You see the files and commits that will be sent, then the pull request opens.</p></div></li>
@@ -146,6 +146,7 @@
     <p>Under the hood</p>
     <ol>
       <li><a href="#cto">The CTO's tools and cost</a></li>
+      <li><a href="#sized">Sized to the ticket</a></li>
       <li><a href="#role-file">A role is a file</a></li>
       <li><a href="#squads">Squads</a></li>
       <li><a href="#review">The review loop</a></li>
@@ -161,6 +162,10 @@
     <p>It reads the project's repositories with Read, Grep and Glob. It has no shell and no network, and it acts only through TermF's own tools: it can read the project, the runs, the tickets and what waits for you, and it can start a team run, answer a question, request changes, approve, stop, or send a message to a role. Every one of these actions waits on your approval card.</p>
     <p>Two things are worth knowing about its cost. The conversation has no budget of its own, unlike a run. And every gate of a run wakes the CTO for one turn, so it can tell you what the gate is about; it runs on opus at high effort by default, which you can change with <code>[roles.cto]</code>.</p>
     <p>Each step of a run is a fresh Claude Code session with a brief: the role's instructions, the task, the criteria, your answers and the reports of the steps before. Turns are capped by the task's size, at 60, 120 or 240. Most planners and reviewers run on opus, most builders on sonnet, and the effort of a task follows its size, within the range of its role.</p>
+
+    <h2 id="sized">Sized to the ticket</h2>
+    <p>The team is built to spend only what a ticket needs. At the triage, the CTO sizes the request: a trivial change goes to one developer, with the project's checks as its review; a small ticket whose criteria are already testable, to one developer and a short review, with the task written by the CTO itself; medium work, to the project's workflow with only the steps it needs; large, vague or sensitive work (authentication, payments, personal data, data that could be lost, concurrency), to the full team. Only a large run waits for you at the path and the plan; a smaller one asks you nothing until the delivery, unless something real needs you.</p>
+    <p>It is not free: on a small ticket, the sized-down team still costs about 3.4 times one Claude Code session, for the same quality. On complex tickets, it met more of the unwritten criteria, 90 % against 72 %. The figures, and when to use which: <a href="team-vs-solo.html">the team or one session?</a></p>
 
     <h2 id="role-file">A role is a file</h2>
     <p>Every role is a Markdown file with a frontmatter, in the format of Claude Code's own agents. This is the start of the front-end role:</p>
@@ -208,7 +213,7 @@ max_parallel = 2</code></pre>
     <p>Between two turns, Take over opens any step's conversation in a terminal, with the same model, effort and permission mode; Hand back returns it to the team. There is never more than one process on a conversation.</p>
 
     <h2 id="tried">What has been tried</h2>
-    <p>With a real Claude Code, on Haiku, through automated tests: the triage, the plan, the tasks and their reports, the guard and the code review; the CTO's tools; the expert answering through <code>ask_expert</code>. With a fake Claude Code: the gates, the rules, resuming, the budget and the emergency stop. The interface: with a simulated backend, not yet in the app's real window. Brand, copy, motion and the specialists have not run in a real run yet. Not built yet: runs across several repositories, a squad editor, the leads' sub-plans.</p>
+    <p>With a real Claude Code, on Haiku, through automated tests: whole team runs from the triage to a real pull request on GitHub, a vague request turned into questions, a run across two repositories with each lead's sub-plan, the review loop up to its escalation, a stop and a restart in the middle of a task; the CTO's tools; the expert answering through <code>ask_expert</code>. On Sonnet, the benchmark against a plain session. The interface: every view driven in the real app by end-to-end tests with a fake Claude Code; little tried by hand yet. Brand, copy, motion, the specialists and the research roles have not run in a real run yet.</p>
 
     <nav class="next-read" aria-label="Read next">
       <a href="how-it-works.html"><span>Read next</span><b>How a ticket becomes a pull request</b></a>
@@ -226,7 +231,7 @@ max_parallel = 2</code></pre>
         <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
         <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
       </div>
-      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="team-vs-solo.html">Team or one session?</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
       <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
       <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
     </div>

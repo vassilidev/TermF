@@ -9,7 +9,7 @@
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="TermF">
 <meta property="og:title" content="How a ticket becomes a pull request, with TermF">
-<meta property="og:description" content="You ask the CTO. It picks the path, a team of Claude Code agents does the ticket in parallel worktrees, and the run stops for you at the path, the plan and the delivery.">
+<meta property="og:description" content="You ask the CTO. It picks the path, a team of Claude Code agents does the ticket in parallel worktrees, and a large run stops for you at the path and the plan, every run at the delivery.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/how-it-works.html">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta property="og:image:type" content="image/png">
@@ -18,7 +18,7 @@
 <meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="How a ticket becomes a pull request, with TermF">
-<meta name="twitter:description" content="You ask the CTO. It picks the path, a team of Claude Code agents does the ticket in parallel worktrees, and the run stops for you at the path, the plan and the delivery.">
+<meta name="twitter:description" content="You ask the CTO. It picks the path, a team of Claude Code agents does the ticket in parallel worktrees, and a large run stops for you at the path and the plan, every run at the delivery.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
 <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
@@ -180,7 +180,7 @@
     <p>You can also start from the ticket itself: Tickets lists the inbox of every source the project follows, GitHub Issues, GitHub Projects, Jira Cloud or an MCP server, and “With the team” sits next to each ticket. Pasting a URL or a key works too, and so does <code>termf team run</code> from a terminal, which waits for your confirmation in the app.</p>
 
     <h2 id="triage">The CTO picks the path</h2>
-    <p>Every team run starts with a triage. The CTO reads the request and the project and decides how to handle it: what kind of work it is (a bug, a feature, an epic, a refactor, infrastructure, SEO, docs…), its size, which workflow fits, which optional steps to add or skip, the effort of each step, which squads take it, and the budget. It writes down its rulings with the reason and the cost of being wrong, and if something is unclear, it asks before it routes. TermF checks everything it proposes before using it.</p>
+    <p>Every team run starts with a triage. The CTO reads the request and the project and decides how to handle it: what kind of work it is (a bug, a feature, an epic, a refactor, infrastructure, SEO, docs…), its size, which workflow fits, which optional steps to add or skip, the effort of each step, which squads take it, and the budget. It sizes the team to the ticket, never more: a trivial change goes to one developer with the project's checks as its review, a small ticket with testable criteria to one developer and a short review, medium work to the steps it needs, and only large, vague or sensitive work to the full team. It writes down its rulings with the reason and the cost of being wrong, and if something real is unclear, it asks before it routes. TermF checks everything it proposes before using it.</p>
     <figure>
       <div class="screen" style="--h:var(--waiting)">
         <p class="screen-cap">The path, as the run shows it · sample data</p>
@@ -193,11 +193,11 @@
       </div>
       <figcaption>The first gate: the route the CTO picked, before anything starts.</figcaption>
     </figure>
-    <p>That is the first gate. Nothing starts until you approve the path, change it, or refuse it. The <code>hotfix</code> workflow skips it for urgent fixes; if you launch with the default workflow and the CTO routes to a workflow with fewer gates, the gate opens anyway.</p>
+    <p>On a large run, that is the first gate: nothing starts until you approve the path, change it, or refuse it. A smaller run goes on by itself, and you see it at the delivery; <code>[team] approve_route</code> makes every run wait, and the <code>hotfix</code> workflow never does. How much this sizing saves, and what it still costs: <a href="team-vs-solo.html">the team or one session?</a></p>
     <div class="aside"><b>Workflows are files.</b> The default one ships as <code>library/workflows/default.toml</code>. A project can write its own, starting from it with <code>extends</code> and writing only what changes, such as a different budget or a step turned off.</div>
 
     <h2 id="frame">The product owner frames it</h2>
-    <p>With the path approved, the product owner reads the ticket and the code, changes nothing, and writes the acceptance criteria, each with its source, and the list of what is out of scope. It explores the implications and the side effects, settles what the evidence settles, and turns the rest into questions for you.</p>
+    <p>Then, unless the ticket already lists testable acceptance criteria, the product owner reads the ticket and the code, changes nothing, and writes the acceptance criteria, each with its source, and the list of what is out of scope. It explores the implications and the side effects, settles what the evidence settles, and turns the rest into questions for you.</p>
     <p>When a ticket needs more, the CTO can add steps that ship turned off: a product manager writes a short PRD for a vague epic, an architect settles a design decision that crosses modules, a UX designer specifies the screens and their states before anyone builds them. The product owner, the product manager and the architect ask the project expert before searching on their own; it answers from the project's memory, with its sources.</p>
 
     <h2 id="questions">Questions, with proposed answers</h2>
@@ -220,7 +220,7 @@
 
     <h2 id="plan">The lead plans, you approve</h2>
     <p>The lead turns the criteria into tasks, one per role: what each task covers, which files it expects to touch, what it depends on and its size. Tasks of the same level can run together; a task that needs another waits for it. The size sets the effort of the agent that will do it, medium, high or extra high, within the range its role allows.</p>
-    <p>That is the second gate. The plan waits for your approval in the run and on the Home. If something is off, ask for changes: the lead plans again with your feedback, in a fresh session.</p>
+    <p>On a large run, that is the second gate: the plan waits for your approval in the run and on the Home. If something is off, ask for changes: the lead plans again with your feedback, in a fresh session. A smaller plan goes on without you (<code>[team] plan_gate</code>), and for a small ticket the CTO writes the one task itself, with no plan from the lead.</p>
     <figure>
       <div class="screen" style="--h:var(--waiting)">
         <p class="screen-cap">The plan's gate · sample data</p>
@@ -252,7 +252,7 @@
     <p>You keep a hand on all of it. Each agent shows its state and its cost; <code>@back</code> sends it a message between turns; Take over opens its conversation in a terminal with the same model and settings, and Hand back gives it to the team again. The run has a budget, 15 dollars in the default workflow, split across the steps that are left, and the emergency stop interrupts every agent at once. If TermF restarts in the middle, the team waits, paused, until you start it again.</p>
 
     <h2 id="checks">Checks and rules</h2>
-    <p>When the tasks are merged, the repository's own checks run on the run's worktree, the lint, tests and build you declared for it, if any. Then come the project's rules. Three ship with TermF, off until you switch them on:</p>
+    <p>When the tasks are merged, the repository's own checks run on the run's worktree: the lint, tests and build you declared for it, plus the typecheck and the lint the repository configures. A failure goes back to the task that caused it, in its own session, twice at most, then to you. Then come the project's rules. Three ship with TermF, off until you switch them on:</p>
     <ul>
       <li><strong>scope-strict</strong>: do only what the ticket asks; in doubt, stop and ask. Its check flags files changed outside the role's paths or the plan.</li>
       <li><strong>no-text-changes</strong>: no change to a visible or editorial text that the ticket did not ask for. Its check reads the diff for changed texts.</li>
@@ -261,8 +261,8 @@
     <p>Each rule has a level, from advise (instructions in the briefs only) to block (a deviation fails the step), and you set it per project, per ticket or per task. You can write your own rules, with a check of your own.</p>
 
     <h2 id="review">Review and security</h2>
-    <p>The reviewer reads the run's integrated diff against the criteria, the contracts between tasks and the project's conventions. Each finding has its file and line, the scenario that breaks and the fix, and it goes back to the task that owns it; then the reviewer looks again, up to two rounds by default. A finding with no clear owner, or one still open after the last round, becomes a question for you. The CTO cannot skip the review.</p>
-    <p>Then the security reviewer goes over the same diff for vulnerabilities, abuse cases and vulnerable dependencies, in two passes, finding then confirming, so false positives are dropped before they reach you.</p>
+    <p>The reviewer reads the run's integrated diff against the criteria, the contracts between tasks and the project's conventions. Each finding has its file and line, the scenario that breaks and the fix, and it goes back to the task that owns it; then the reviewer looks again, up to two rounds by default. A change the ticket did not ask for is a finding too. A finding with no clear owner, or one still open after the last round, becomes a question for you. Every workflow has a review but <code>trivial</code>, where the project's checks are the review, and the one of <code>direct</code> is short.</p>
+    <p>Beside it, the security reviewer goes over the same diff for vulnerabilities, abuse cases and vulnerable dependencies, in two passes, finding then confirming, so false positives are dropped before they reach you.</p>
 
     <h2 id="visual">The visual review, when it is on</h2>
     <p>When the visual-review rule is on and the interface changed, the run stops once more. TermF's capture engine starts the project's dev server for the run and for its base, captures each changed screen with the system's Chrome, and compares the pixels and the texts. The review page then shows you each changed screen, side by side, with a slider, as an overlay or as a heatmap, opened on what changed; you pin comments on the image, and approve, ask for changes or refuse each screen. With several screens, a swipe mode takes them one card at a time.</p>
@@ -294,7 +294,7 @@
     <p>TermF checks the pull request's state now and then. Once it is merged, the run is closed if nothing would be lost: its worktree, its local branch, its database copy and its ports go away. A pull request closed without a merge, or a session still busy, is only flagged as ready to clean up. And if the app restarted in the middle of a run, Resume picks up the same conversation, with the same environment, ports and guard.</p>
 
     <h2 id="tried">What has been tried</h2>
-    <p>TermF is in early development, and this is what is known to work. The path from the plan to the tasks, their reports, the guard and the code review has run with a real Claude Code, on Haiku, through automated tests; so have the CTO's tools and the expert. The gates, the rules, resuming, the budget and the emergency stop have been tested with a fake Claude Code. The interface has been checked with a simulated backend rather than in the app's real window, and Windows and Linux have been built and tested in CI but not run by hand. The full list of what is not verified is in <a href="https://github.com/vassilidev/TermF/blob/main/docs/STATUS.md">docs/STATUS.md</a>, in French.</p>
+    <p>TermF is in early development, and this is what is known to work. Whole team runs have gone from a ticket to a real pull request on GitHub with a real Claude Code, on Haiku, through automated tests: the triage, the gates, the plan, the tasks, the checks, the review and the security review, the latest base and the delivery; so have the CTO's tools and the expert, a stop and a restart in the middle of a run. On Sonnet, the team was measured against a plain Claude Code session. Every view of the app is driven by end-to-end tests in the real app, with a fake Claude Code, but little has been tried by hand on real projects; Windows and Linux have been built and tested in CI but not run by hand. The full list of what is not verified is in <a href="https://github.com/vassilidev/TermF/blob/main/docs/STATUS.md">docs/STATUS.md</a>, in French.</p>
 
     <nav class="next-read" aria-label="Read next">
       <a href="team.html"><span>Read next</span><b>The CTO and the team</b></a>
@@ -312,7 +312,7 @@
         <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
         <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
       </div>
-      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="team-vs-solo.html">Team or one session?</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
       <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
       <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
     </div>

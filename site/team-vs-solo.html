@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The team or one session? · TermF</title>
+<meta name="description" content="TermF's agent team against one plain Claude Code session, on the same tickets with hidden tests and a blind judge: what the team does better, what it costs, and when to use which.">
+<link rel="canonical" href="https://vassilidev.github.io/TermF/team-vs-solo.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="TermF">
+<meta property="og:title" content="The team or one session? A benchmark of TermF's agents">
+<meta property="og:description" content="Same model, same tickets, hidden tests and a blind judge. On a small ticket one session is enough; on complex work the team meets more of the unwritten criteria, for more money and time.">
+<meta property="og:url" content="https://vassilidev.github.io/TermF/team-vs-solo.html">
+<meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The team or one session? A benchmark of TermF's agents">
+<meta name="twitter:description" content="Same model, same tickets, hidden tests and a blind judge. On a small ticket one session is enough; on complex work the team meets more of the unwritten criteria, for more money and time.">
+<meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f15" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
+<link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="site.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "TechArticle",
+      "headline": "The team or one session?",
+      "description": "TermF's agent team against one plain Claude Code session on the same tickets: quality, cost, time, and when to use which.",
+      "url": "https://vassilidev.github.io/TermF/team-vs-solo.html",
+      "datePublished": "2026-11-22",
+      "dateModified": "2026-11-22",
+      "inLanguage": "en",
+      "image": "https://vassilidev.github.io/TermF/og.png",
+      "author": {
+        "@type": "Organization",
+        "name": "TermF contributors",
+        "url": "https://github.com/vassilidev/TermF"
+      },
+      "about": {
+        "@type": "SoftwareApplication",
+        "name": "TermF",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Windows, Linux"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "TermF",
+          "item": "https://vassilidev.github.io/TermF/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "The team or one session?",
+          "item": "https://vassilidev.github.io/TermF/team-vs-solo.html"
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="2.6 3"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7M17 12H7"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.63l-19 6.5a.5.5 0 0 0-.02.93l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
+  <symbol id="i-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2M13 17v2M13 11v2"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 5a2 2 0 0 0 2 2h3"/><path d="M3 3v13a2 2 0 0 0 2 2h3"/></symbol>
+  <symbol id="i-ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="16" r="1"/><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+</svg>
+
+<header class="nav" id="nav">
+  <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
+  <nav class="links" aria-label="Main">
+    <a href="features.html">Features</a>
+    <a href="team.html">Team</a>
+    <a href="how-it-works.html">How it works</a>
+    <a href="security.html">Security</a>
+    <a href="./#faq">FAQ</a>
+    <a href="https://github.com/vassilidev/TermF">GitHub</a>
+  </nav>
+  <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+  <details class="menu">
+    <summary aria-label="Menu"><svg class="i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg><svg class="i-close" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></summary>
+    <nav class="menu-links" aria-label="Menu">
+      <a href="features.html">Features</a>
+      <a href="team.html">Team</a>
+      <a href="how-it-works.html">How it works</a>
+      <a href="security.html">Security</a>
+      <a href="./#faq">FAQ</a>
+      <a href="https://github.com/vassilidev/TermF">GitHub</a>
+      <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+    </nav>
+  </details>
+</header>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><a href="team.html">The team</a><span aria-hidden="true">/</span><span>The team or one session?</span></p>
+    <h1>The team or one session?</h1>
+    <p class="lead">We gave the same tickets to TermF's agent team and to one plain Claude Code session: same model, same starting code, hidden tests the agents never see, and a judge who does not know which is which. On a small, clear ticket, one session is enough. On complex, vague or sensitive work, the team gets more of the unwritten part right, and costs more.</p>
+  </div>
+</header>
+
+<section class="wrap verdict" aria-labelledby="verdict-h">
+  <h2 id="verdict-h" class="vh">The short answer</h2>
+  <div class="trio">
+    <div class="v-small">
+      <h3>A small, clear ticket</h3>
+      <p class="fig">Same quality</p>
+      <p>One session: 0.10 dollar and 26 seconds. The team, sized down by the CTO to one developer and a short review: 0.34 dollar and 69 seconds, three sessions, no question asked. Still <b>3.4 times the cost</b>.</p>
+    </div>
+    <div class="v-team">
+      <h3>A complex, realistic ticket</h3>
+      <p class="fig">90 % against 72 %</p>
+      <p>Both pass every hidden test. The judge finds 90 % of the unwritten criteria (security, robustness, edge cases) met by the team, 72 % by one session, with more tests and no type error left. For <b>4.8 times the cost</b> and 3.7 times the time.</p>
+    </div>
+    <div class="v-limits">
+      <h3>What it does not prove</h3>
+      <p class="fig">Small samples</p>
+      <p>One to three trials per ticket and side in the later series, two small projects, one model (Sonnet), and a judge that is itself a model reading only the diff. A first look, not a verdict.</p>
+    </div>
+  </div>
+</section>
+
+<div class="wrap article">
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#how">How it was measured</a></li>
+      <li><a href="#small">Small tickets</a></li>
+      <li><a href="#complex">Complex tickets</a></li>
+      <li><a href="#better">Better, and worse</a></li>
+      <li><a href="#when">When to use which</a></li>
+      <li><a href="#limits">Limits</a></li>
+    </ol>
+  </nav>
+
+  <article class="prose tvs">
+    <h2 id="how">How it was measured</h2>
+    <p>Two sides, on the same copy of the same project, with the same ticket text and the same budget cap:</p>
+    <ul>
+      <li><strong>One session</strong>: a single <code>claude -p</code> with the ticket, effort high, no skill, plugin, MCP server or subagent, working until it says it is done.</li>
+      <li><strong>TermF's team</strong>: the real path, from the CTO's triage to the delivery gate, stopped before the pull request. The benchmark plays a hurried user: it approves every gate and takes every proposed answer.</li>
+    </ul>
+    <p>Both run on Sonnet with Claude Code 2.1.330. Quality is measured by hidden tests copied in once the agent is done, the project's own tests, a strict typecheck, and a blind judge (Sonnet) that sees only the ticket and the diff, and says for each criterion whether it is met. The projects are small and realistic: a task tracker of 340 lines, then a shared task-list app of 2,100 lines with planted problems.</p>
+
+    <h2 id="small">Small tickets: a team the size of the ticket</h2>
+    <p>On a first pass, quality was a tie and the team cost 7.3 times more, often for the same fix line for line. So the team was changed to size itself. The CTO now sends a trivial change to one developer with the project's checks as its review, and a small ticket with testable criteria to one developer and a short review, writing the task itself; the gates of the path and the plan wait only for large runs; the typecheck and the lint run with the tests and send a failure back to the task's own session; the review sends back anything the ticket did not ask for; and each role reads less. Then the same tickets were measured again.</p>
+    <div class="tbl" role="region" aria-labelledby="t-small" tabindex="0">
+      <table>
+        <caption id="t-small">Three small tickets (a bug, a field with its migration, error messages), averages</caption>
+        <thead><tr><th scope="col"></th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Sessions</th><th scope="col">Hidden tests</th><th scope="col">Judge</th><th scope="col">Typecheck clean</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">One session</th><td>26 s</td><td>$0.10</td><td>1</td><td>100 %</td><td>9.0</td><td>100 %</td></tr>
+          <tr><th scope="row">Team, first pass</th><td>101 s</td><td>$0.72</td><td>6.2</td><td>100 %</td><td>8.7</td><td>67 %</td></tr>
+          <tr class="sum"><th scope="row">Team, sized to the ticket</th><td>69 s</td><td>$0.34</td><td>3.0</td><td>100 %</td><td>9.0</td><td>100 %</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The team went from 6.2 to 3 sessions, from 0.72 to 0.34 dollar and from 101 to 69 seconds, with no question asked and no type error left. It is still 3.4 times the cost and 2.7 times the time of one session. The floor is known: each session writes about 20,000 tokens of prompt and tools to the cache, and the triage, the task and the review do not share them.</p>
+
+    <h2 id="complex">Complex, realistic tickets</h2>
+    <p>Three tickets on the shared task-list app, written like real ones: they give the API's contract and leave the rest to the developer, as real tickets do. The hidden tests check that part: a reader cannot write, an expired link is refused, nothing leaks between accounts; 10,000 tasks paged in under 150 ms, each exactly once; 20 concurrent edits all applied.</p>
+    <div class="tbl" role="region" aria-labelledby="t-complex" tabindex="0">
+      <table>
+        <caption id="t-complex">Realistic tickets, one session against the team</caption>
+        <thead><tr><th scope="col">Ticket</th><th scope="col">Side</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Hidden tests</th><th scope="col">Criteria met</th><th scope="col">Judge</th></tr></thead>
+        <tbody>
+          <tr><th scope="row" rowspan="2">Sharing with roles and invitations</th><td class="s">One session</td><td>203 s</td><td>$0.67</td><td>15/15</td><td>86 %</td><td>8.0</td></tr>
+          <tr><td class="s">Team</td><td>953 s</td><td>$3.32</td><td>15/15</td><td>91 %</td><td>8.0</td></tr>
+          <tr><th scope="row" rowspan="2">“The app is slow on big lists”</th><td class="s">One session</td><td>103 s</td><td>$0.35</td><td>14/14</td><td>38 %</td><td>7.0</td></tr>
+          <tr><td class="s">Team</td><td>348 s</td><td>$2.51</td><td>14/14</td><td>100 %</td><td>8.0</td></tr>
+          <tr><th scope="row" rowspan="2">“Some edits disappear”</th><td class="s">One session</td><td>49 s</td><td>$0.22</td><td>12/12</td><td>67 %</td><td>7.0</td></tr>
+          <tr><td class="s">Team, sized small</td><td>173 s</td><td>$0.61</td><td>12/12</td><td>83 %</td><td>7.0</td></tr>
+          <tr class="sum"><th scope="row" rowspan="2">Average</th><td class="s">One session</td><td>132 s</td><td>$0.45</td><td>100 %</td><td>72 %</td><td>7.4</td></tr>
+          <tr class="sum"><td class="s">Team</td><td>492 s</td><td>$2.14</td><td>100 %</td><td>90 %</td><td>7.7</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>On the slow lists, the single session wrote a clean cursor pagination but left what a good engineer would have seen: no index for the filters, a condition that keeps the database from using the index, internal columns leaking into the responses. The team loaded the views in batches, covered sorting, filters and ties, and added the indexes in a migration. On sharing, both were serious about security; the team took 16 minutes. On the lost edits, the CTO judged the ticket small and sent it to one developer: there, the team was no better than one session. Its rule now counts data that could be lost and concurrency as sensitive work, which gets the full team (not measured again yet).</p>
+
+    <h2 id="better">What the team does better, and worse</h2>
+    <div class="dt">
+      <div><h3>Better</h3><ul>
+        <li>More of the unwritten criteria met on complex tickets: 90 % against 72 %.</li>
+        <li>More tests: 60 against 45 at the end of a realistic ticket.</li>
+        <li>No type error left, since the typecheck runs with the tests.</li>
+        <li>A log of every decision: why a step was skipped, the plan, each review round.</li>
+        <li>Nothing pushed without you: it stops at the delivery.</li>
+      </ul></div>
+      <div><h3>Worse</h3><ul>
+        <li>Cost and time, always: 3.4 times on a small ticket, 4.8 times on a complex one.</li>
+        <li>Large tickets stay slow: 16 minutes and 3.32 dollars for the sharing ticket.</li>
+        <li>On a small, clear ticket, no measurable gain in quality.</li>
+        <li>The sizing can be wrong: a data-loss bug sized small got no more than one session.</li>
+      </ul></div>
+    </div>
+
+    <h2 id="when">When to use which</h2>
+    <ul>
+      <li><strong>One session</strong>, in a terminal tab (<kbd>⌘T</kbd>): a small change you can describe precisely and review yourself.</li>
+      <li><strong>The team</strong>, through the CTO: work whose hard part is unwritten (security, data, performance, several areas at once), a vague request that needs framing, or work you want to leave running and come back to at the delivery, with its tests, its reviews and the reasons for each choice.</li>
+      <li><strong>In doubt, ask the CTO</strong>: it sizes the ticket, and a small one goes to one developer and a short review, without asking you anything.</li>
+    </ul>
+    <div class="aside"><b>Proportionate, not free.</b> The team is built to spend only what a ticket needs, and the benchmark shows it does on small tickets: half the cost of its first version, no question asked. It does not show the team costing as little as one session: it does not, yet.</div>
+
+    <h2 id="limits">Limits</h2>
+    <ul>
+      <li>Two small, clean projects without dependencies; a real codebase was not part of these figures.</li>
+      <li>Few trials: one to three per ticket and side in the later series. The noise between two trials of the same ticket is large.</li>
+      <li>One model, Sonnet, on both sides; Haiku and Opus were not tried.</li>
+      <li>The judge is a model that sees only the diff: it can miss context, or count a fair fix around the ticket as out of scope.</li>
+      <li>The hidden tests did not separate the two sides: both passed them all.</li>
+      <li>Your time is not counted: the benchmark approves every gate at once.</li>
+    </ul>
+    <p>The full report, with every table, the tickets and the raw results, is in <a href="https://github.com/vassilidev/TermF/blob/main/docs/BENCHMARK.md">docs/BENCHMARK.md</a> (in French, with a summary in English); <a href="https://github.com/vassilidev/TermF/tree/main/bench">bench/</a> runs it again on your machine.</p>
+
+    <nav class="next-read" aria-label="Read next">
+      <a href="team.html"><span>Read next</span><b>The CTO and the team</b></a>
+      <a href="features/triage.html"><span>Feature</span><b>Triage: a team the size of the ticket</b></a>
+    </nav>
+  </article>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="foot-about">
+        <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
+        <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
+        <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+      </div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="team.html">The team</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="team-vs-solo.html">Team or one session?</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
+      <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
+      <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
+    </div>
+    <p class="giant" aria-hidden="true">TermF</p>
+    <div class="foot-bottom"><span>© 2026 TermF contributors</span><span>Built by <a href="https://github.com/vassilidev">vassilidev</a></span></div>
+  </div>
+</footer>
+
+<script>
+const nav = document.getElementById('nav');
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {passive: true});
+const menu = nav.querySelector('.menu');
+menu.addEventListener('click', e => { if (e.target.closest('a')) menu.open = false; });
+addEventListener('click', e => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+addEventListener('keydown', e => { if (e.key === 'Escape' && menu.open) { menu.open = false; menu.querySelector('summary').focus(); } });
+
+const toc = [...document.querySelectorAll('.toc a')];
+if (toc.length) {
+  const seen = new Map();
+  const mark = () => {
+    let on = toc[0];
+    for (const a of toc) if (seen.get(a.hash.slice(1))) { on = a; break; }
+    for (const a of toc) a.classList.toggle('on', a === on);
+  };
+  const io = new IntersectionObserver(es => { for (const e of es) seen.set(e.target.id, e.isIntersecting); mark(); }, {rootMargin: '-90px 0px -60% 0px'});
+  for (const a of toc) { const el = document.getElementById(a.hash.slice(1)); if (el) io.observe(el); }
+}
+</script>
+</body>
+</html>
