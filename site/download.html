@@ -118,6 +118,7 @@
     <section class="dl-card" aria-labelledby="dl-title" aria-live="polite">
       <h2 id="dl-title">TermF for <span id="dl-os">macOS</span></h2>
       <p class="meta" id="dl-meta">Looking for the latest release on GitHub…</p>
+      <noscript><p class="ns">This page reads the release with JavaScript: every file is on the <a href="https://github.com/vassilidev/TermF/releases">releases page</a>.</p></noscript>
       <a class="pill big" id="dl-get" href="https://github.com/vassilidev/TermF/releases"><span>Releases on GitHub</span><i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
       <p class="alts" id="dl-alts"><a href="#all">Every platform and file</a><a href="#source">Build it from source</a></p>
       <p class="sha" id="dl-sha"><span>SHA-256</span><code>shown once the release is read</code></p>
@@ -284,8 +285,9 @@ function render() {
   const meta = document.getElementById('dl-meta'), get = document.getElementById('dl-get'), alts = document.getElementById('dl-alts'), hash = document.getElementById('dl-sha');
   if (release && a) {
     meta.textContent = `${pick.what} · ${release.tag_name}${release.prerelease ? ', pre-release' : ''} · ${date(release.published_at)} · ${mb(a.size)}`;
-    get.href = a.browser_download_url;
-    get.firstElementChild.textContent = mobile ? 'Download on a computer' : `Download for ${os === 'mac' ? pick.what : NAMES[os]}`;
+    // On a phone or a tablet there is nothing to install: the button leads to the files, for a computer
+    get.href = mobile ? '#all' : a.browser_download_url;
+    get.firstElementChild.textContent = mobile ? 'Every file, for a computer' : `Download for ${os === 'mac' ? pick.what : NAMES[os]}`;
     const h = sha(a);
     hash.innerHTML = h ? `<span>SHA-256</span><code title="${esc(h)}">${esc(h)}</code>${copyBtn(h, 'Copy the SHA-256')}` : '<span>SHA-256</span><code>not listed for this file</code>';
   } else {

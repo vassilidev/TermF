@@ -33,16 +33,16 @@ source = open(src).read()
 
 
 def inline(m):
-    """The shared stylesheet inlined, so a page renders without waiting for a second request; its relative url()s
-    are rewritten from the stylesheet's folder to the page's."""
-    href = m.group(1)
+    """The shared stylesheet goes inline, so a page renders without a second request. Its relative url()s are
+    rewritten for the page's folder, or against data-base for the 404, which GitHub Pages serves at any depth."""
+    href, base = m.group(1), m.group(3)
     css = open(os.path.join(os.path.dirname(src), href)).read()
-    folder = os.path.dirname(href)
+    folder = base or (os.path.dirname(href) + '/' if os.path.dirname(href) else '')
     if folder:
-        css = re.sub(r'url\((?![a-z]+:|/)', 'url(' + folder + '/', css)
+        css = re.sub(r'url\((?![a-z]+:|/)', 'url(' + folder, css)
     return '<style>' + css + '</style>'
 
 
-source = re.sub(r'<link rel="stylesheet" href="([\w./-]+\.css)">', inline, source)
+source = re.sub(r'<link rel="stylesheet" href="([\w./-]+\.css)"( data-base="([^"]+)")?>', inline, source)
 parts = re.split(r'(<style>.*?</style>|<script>.*?</script>|<script type="application/ld\+json">.*?</script>|<pre[\s>].*?</pre>)', source, flags=re.S)
 open(dst, 'w').write(''.join(minify(p) for p in parts))

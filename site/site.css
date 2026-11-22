@@ -29,6 +29,7 @@
 }}
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{scroll-behavior:smooth;scroll-padding-top:96px;-webkit-text-size-adjust:100%}
 body{margin:0;overflow-x:clip;background:var(--ground);color:var(--ink);font:17px/1.6 var(--sans);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11"}
 ::selection{background:var(--waiting);color:#1c1300}
@@ -126,9 +127,12 @@ section{padding:120px 0 0}
 .run .strip .what{overflow:hidden}
 .run.on .strip{position:absolute;left:0;top:0;transform:translate(var(--x),var(--y));transition:transform .7s var(--ease),opacity .5s var(--ease),border-color .4s}
 .run.on .strip.cocked{transform:translate(calc(var(--x) + 22px),var(--y))}
+.run.on .strip{pointer-events:none}
+.run.on .gate{pointer-events:auto}
 .idle{position:absolute;left:42px;right:28px;top:50%;transform:translateY(-50%);margin:0;text-align:center;font-size:.85rem;color:var(--console-soft);opacity:0;transition:opacity .4s}
 .bay.empty .idle{opacity:1}
 .run-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:10px 4px 0;font-size:.78rem;color:var(--console-soft)}
+.run-ctl{display:flex;gap:6px}
 .run-foot button{border:1px solid var(--console-edge);background:transparent;color:var(--console-ink);font:600 .78rem/1 var(--sans);padding:7px 12px;border-radius:999px;cursor:pointer}
 .run-foot button:hover{background:rgb(255 255 255/.08)}
 
@@ -400,6 +404,8 @@ section{padding:120px 0 0}
 .dl-card .meta{color:var(--console-soft);font-size:.92rem;margin:0 0 22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dl-card .pill{background:var(--paper);color:var(--paper-ink)}
 .dl-card .pill i{background:var(--paper-ink);color:var(--paper)}
+.dl-card .ns{margin:-12px 0 22px;color:var(--console-soft);font-size:.92rem}
+.dl-card .ns a{color:var(--console-ink)}
 .dl-card .alts{display:flex;flex-wrap:wrap;gap:8px 18px;margin:18px 0 0;font-size:.9rem}
 .dl-card .alts a{color:var(--console-ink)}
 .dl-card .sha{display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:16px;border-top:1px solid var(--console-edge);font-size:.82rem;color:var(--console-soft)}

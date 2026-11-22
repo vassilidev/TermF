@@ -3,7 +3,6 @@
 # site/sitemap.xml, all from site/features.toml. The icon sprite, the nav and the footer are taken from
 # site/how-it-works.html, so the generated pages share them with the hand-written ones.
 # Usage: python3 .github/scripts/features.py (Python 3.11+, standard library only). The Pages workflow runs it.
-import datetime
 import json
 import os
 import re
@@ -39,12 +38,10 @@ def esc(s):
 
 
 def text(s):
-    """The plain text of a field that may hold inline HTML, for meta tags and JSON-LD."""
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", s)).replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").strip()
 
 
 def rebase(page, prefix):
-    """Points the relative links of a page one folder up, for the pages in features/."""
     def fix(m):
         url = m.group(2)
         if re.match(r"(https?:|mailto:|data:|#|/)", url):
@@ -152,7 +149,6 @@ def feature_strip(f):
 
 written = []
 
-# One page per feature
 for f in features:
     g = by_group[f["group"]]
     visual = f.get("visual")
@@ -203,7 +199,6 @@ for f in features:
           {"@type": "BreadcrumbList", "itemListElement": crumbs(("TermF", ""), ("Features", "features.html"), (text(f["name"]), path))}]
     written.append(page(path, f"{text(f['name'])} · TermF features", desc, body, ld, og_type="article", current="features.html"))
 
-# The catalogue
 sections = []
 for g in groups:
     strips = "".join(feature_strip(f) for f in features if f["group"] == g["id"])
@@ -231,7 +226,6 @@ body = f"""<header class="page-head">
 </div>"""
 script = """
 
-// The filter keeps the features whose name, tagline or keywords hold every word typed, in the chosen group
 const form = document.querySelector('.filter'), q = document.getElementById('q'), none = form.querySelector('.none');
 let group = '';
 form.hidden = false;
@@ -259,7 +253,6 @@ form.querySelector('.chips').addEventListener('click', e => {
   for (const c of form.querySelectorAll('.chips button')) c.setAttribute('aria-pressed', c === b);
   filter();
 });"""
-# Each catalogue entry carries the words the filter reads
 keys = {f["slug"]: text(" ".join([f["name"], f["tagline"], f.get("keywords", ""), by_group[f["group"]]["name"]])).lower() for f in features}
 body = re.sub(r'<li><a class="strip" data-state="done" href="features/([a-z0-9-]+)\.html">',
               lambda m: f'<li data-text="{esc(keys[m.group(1)])}"><a class="strip" data-state="done" href="features/{m.group(1)}.html">', body)
@@ -272,10 +265,8 @@ written.append(page("features.html", "Features · TermF, every feature and what 
                     f"The {len(features)} features of TermF, from the CTO and its team of Claude Code agents to terminals, worktrees, skills, CI/CD, keys and security, each with what works out of the box and what you can tune.",
                     body, ld, current="features.html", script=script))
 
-# The sitemap lists every page but the 404
-today = datetime.date.today().isoformat()
 pages = ["" if p == "index.html" else p for p in sorted(os.listdir(SITE)) if p.endswith(".html") and p != "404.html"]
 pages += [p for p in written if p.startswith("features/")]
-urls = "".join(f"  <url>\n    <loc>{BASE}{p}</loc>\n    <lastmod>{today}</lastmod>\n  </url>\n" for p in sorted(set(pages), key=lambda p: (p != "", p)))
+urls = "".join(f"  <url>\n    <loc>{BASE}{p}</loc>\n  </url>\n" for p in sorted(set(pages), key=lambda p: (p != "", p)))
 open(os.path.join(SITE, "sitemap.xml"), "w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n')
 print(f"{len(written)} pages and sitemap.xml ({len(set(pages))} urls)")
