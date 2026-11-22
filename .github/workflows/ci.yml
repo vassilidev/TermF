@@ -46,6 +46,48 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  # The real app (debug build) driven by tauri-driver under xvfb, and the performance budgets of ARCHITECTURE §2.4.
+  # Not on macOS (no WebDriver for its webview), not yet on Windows (docs/STATUS.md §4).
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e
+      - name: Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+          sudo locale-gen en_US.UTF-8 fr_FR.UTF-8
+      - name: tauri-driver
+        run: cargo install tauri-driver --locked
+      - name: Build the app and the CLI (debug)
+        working-directory: app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm tauri build --debug --no-bundle
+          cargo build -p termf-cli
+      - name: End-to-end scenarios and performance
+        working-directory: app
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-linux
+          path: app/e2e/out/
+          if-no-files-found: ignore
+
   # site/install.sh and site/install.ps1, run dry against a fake GitHub API, then one real install in a throwaway home.
   install-scripts:
     strategy:

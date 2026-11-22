@@ -1,0 +1,163 @@
+// A stand-in for Claude Code 2.1.330, for the end-to-end runs: no network, no account. Headless (`-p`) it answers
+// in json or stream-json, with a `structured_output` that fits `--json-schema`; in a terminal it runs the hooks
+// of its `--plugin-dir` and `--settings` as the real one does, so TermF sees its status.
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, readFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+
+const VERSION = "2.1.330";
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const i = args.lastIndexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+const all = (name) => args.flatMap((a, i) => (a === name ? [args[i + 1]] : []));
+const say = (value) => process.stdout.write(JSON.stringify(value) + "\n");
+if (process.env.TERMF_E2E_LOG) appendFileSync(process.env.TERMF_E2E_LOG, `claude ${JSON.stringify(args)}\n`);
+
+/** The smallest value that `schema` accepts: required properties, first enum value, minimum lengths. */
+export function fill(schema, root = schema) {
+  if (!schema || typeof schema !== "object") return null;
+  if (schema.$ref) return fill(schema.$ref.split("/").slice(1).reduce((s, k) => s?.[k], root), root);
+  if ("const" in schema) return schema.const;
+  if (schema.enum) return schema.enum[0];
+  if ("default" in schema) return schema.default;
+  const alt = schema.anyOf ?? schema.oneOf;
+  if (alt) return fill(alt.find((s) => s.type !== "null") ?? alt[0], root);
+  if (schema.allOf) return Object.assign({}, ...schema.allOf.map((s) => fill(s, root)));
+  const types = [schema.type ?? (schema.properties ? "object" : schema.items ? "array" : "string")].flat();
+  switch (types.find((t) => t !== "null") ?? "null") {
+    case "object": {
+      const props = schema.properties ?? {};
+      const keys = schema.required ?? Object.keys(props);
+      return Object.fromEntries(keys.map((k) => [k, fill(props[k] ?? {}, root)]));
+    }
+    case "array":
+      return Array.from({ length: schema.minItems ?? 0 }, () => fill(schema.items ?? {}, root));
+    case "string":
+      return "x".repeat(schema.minLength ?? 0);
+    case "integer":
+    case "number":
+      return schema.minimum ?? 0;
+    case "boolean":
+      return false;
+    default:
+      return null;
+  }
+}
+
+const usage = { input_tokens: 5, output_tokens: 7, cache_read_input_tokens: 900, cache_creation_input_tokens: 100 };
+
+function turn(sid, prompt, schema) {
+  const text = `Fake Claude received: ${prompt}`.slice(0, 200);
+  const result = { type: "result", subtype: "success", is_error: false, result: text, total_cost_usd: 0.001, usage, session_id: sid };
+  if (schema) result.structured_output = fill(schema);
+  return [
+    { type: "system", subtype: "init", session_id: sid, model: "claude-haiku-5-5", permissionMode: "default", tools: [], mcp_servers: [] },
+    { type: "assistant", message: { model: "claude-haiku-5-5", content: [{ type: "text", text }], usage }, parent_tool_use_id: null, session_id: sid },
+    result,
+  ];
+}
+
+// Options that take a value, so that value is never taken for the prompt (the variadic ones end at `--`).
+const VALUED = new Set(
+  "--output-format --input-format --json-schema --model --fallback-model --effort --max-budget-usd --max-turns --session-id --resume --settings --plugin-dir --append-system-prompt --append-system-prompt-file --system-prompt --permission-mode --permission-prompt-tool --allowedTools --allowed-tools --disallowedTools --disallowed-tools --tools --add-dir --mcp-config --remote-control".split(" "),
+);
+
+/** The prompt given as an argument: after `--`, else the last word that is neither an option nor its value. */
+export function positional(list = args) {
+  const dash = list.indexOf("--");
+  if (dash >= 0) return list.slice(dash + 1).join(" ") || undefined;
+  let found;
+  for (let i = 0; i < list.length; i++) {
+    if (VALUED.has(list[i])) i++;
+    else if (!list[i].startsWith("-")) found = list[i];
+  }
+  return found;
+}
+
+function promptOf(line) {
+  const content = JSON.parse(line).message?.content;
+  return typeof content === "string" ? content : (content ?? []).map((c) => c.text ?? "").join(" ");
+}
+
+async function headless() {
+  const sid = flag("--session-id") ?? flag("--resume") ?? randomUUID();
+  const schemaText = flag("--json-schema");
+  const schema = schemaText ? JSON.parse(schemaText) : null;
+  if (flag("--input-format") === "stream-json") {
+    for await (const line of createInterface({ input: process.stdin })) {
+      if (line.includes('"control_request"')) {
+        const id = JSON.parse(line).request_id;
+        say({ type: "control_response", response: { subtype: "success", request_id: id, response: {} } });
+      } else if (line.includes('"type":"user"')) {
+        turn(sid, promptOf(line), schema).forEach(say);
+      }
+    }
+    return;
+  }
+  const prompt = positional() ?? readFileSync(0, "utf8");
+  const events = turn(sid, prompt.trim(), schema);
+  if (flag("--output-format") === "stream-json") events.forEach(say);
+  else if (flag("--output-format") === "json") say(events.at(-1));
+  else process.stdout.write(events.at(-1).result + "\n");
+}
+
+/** Hooks of every `--plugin-dir` and `--settings` file, by event. */
+function hooks() {
+  const files = [...all("--plugin-dir").map((d) => `${d}/hooks/hooks.json`), ...all("--settings")];
+  const out = {};
+  for (const file of files) {
+    let json;
+    try {
+      json = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      continue;
+    }
+    for (const [event, groups] of Object.entries(json.hooks ?? {})) {
+      for (const group of groups) (out[event] ??= []).push(...(group.hooks ?? []));
+    }
+  }
+  return out;
+}
+
+function interactive() {
+  const sid = flag("--session-id") ?? flag("--resume") ?? randomUUID();
+  const registered = hooks();
+  const fire = (event, extra = {}) => {
+    const payload = JSON.stringify({ session_id: sid, cwd: process.cwd(), hook_event_name: event, transcript_path: "", ...extra });
+    for (const h of registered[event] ?? []) {
+      const options = { input: payload, timeout: (h.timeout ?? 60) * 1000, stdio: ["pipe", "ignore", "ignore"] };
+      if (h.args) spawnSync(h.command, h.args, options);
+      else spawnSync(h.command, { ...options, shell: true });
+    }
+  };
+  process.stdout.write(`Fake Claude Code ${VERSION}\r\n> `);
+  fire("SessionStart", { source: flag("--resume") ? "resume" : "startup" });
+  const lines = createInterface({ input: process.stdin });
+  lines.on("line", (line) => {
+    const prompt = line.trim();
+    if (prompt === "/exit") return lines.close();
+    if (!prompt) return process.stdout.write("> ");
+    fire("UserPromptSubmit", { prompt });
+    const answer = `Fake Claude received: ${prompt}`;
+    process.stdout.write(`● ${answer}\r\n> `);
+    fire("Stop", { last_assistant_message: answer, stop_hook_active: false });
+  });
+  lines.on("close", () => {
+    fire("SessionEnd", { reason: "prompt_input_exit" });
+    process.exit(0);
+  });
+}
+
+if (process.argv[1]?.endsWith("claude.mjs")) {
+  if (args[0] === "--version" || args[0] === "-v") console.log(`${VERSION} (Claude Code)`);
+  else if (args[0] === "mcp" && args[1] === "list") console.log("No MCP servers configured. Use `claude mcp add` to add a server.");
+  else if (args[0] === "auth" && args[1] === "status") console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "alex@example.com" }));
+  else if (args[0] === "plugin" && args.includes("--available")) console.log(JSON.stringify({ installed: [], available: [] }));
+  else if (args[0] === "plugin" || args[0] === "plugins") console.log("[]");
+  else if (["auth", "doctor", "update", "config", "install"].includes(args[0])) console.log("ok");
+  else if (args.includes("-p") || args.includes("--print")) await headless();
+  else interactive();
+}

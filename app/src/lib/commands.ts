@@ -460,7 +460,9 @@ export function commands(): Command[] {
         icon: Play,
         group,
         searchOnly,
-        run: () => openSession(repo.path, agent),
+        run: () => openSession(repo.path, agent).then((id) => {
+          if (id !== null) focusSession(id);
+        }),
       });
     }
     list.push({
@@ -470,7 +472,9 @@ export function commands(): Command[] {
       icon: SquareTerminal,
       group,
       searchOnly,
-      run: () => openSession(repo.path, null),
+      run: () => openSession(repo.path, null).then((id) => {
+        if (id !== null) focusSession(id);
+      }),
     });
   }
 

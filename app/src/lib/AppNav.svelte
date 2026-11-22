@@ -200,6 +200,7 @@
         <li>
           <button
             class="nav-item project"
+            data-project={project.id}
             aria-current={open ? "true" : undefined}
             aria-keyshortcuts={i < 9 ? aria("project", i + 1) : undefined}
             title={i < 9 && keys.project(i + 1) ? `${t("navSwitchTo", { name: project.name })} (${keys.project(i + 1)})` : project.name}
