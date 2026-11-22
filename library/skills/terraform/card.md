@@ -1,0 +1,9 @@
+- Version: `required_version` in the `terraform {}` block, `.terraform-version` / `.opentofu-version`, `.tofu` files, and which binary CI calls.
+- Docs for this version: https://github.com/hashicorp/terraform/releases and the upgrade guides (Terraform 1.17.2, OpenTofu 1.13.9 verified 2026-11-22). Official skills: `hashicorp/agent-skills` (MPL-2.0).
+- Verify: the project's lint target, `terraform fmt -check -recursive`, `terraform init -backend=false && terraform validate`, `tflint --recursive` when configured.
+- `terraform test` applies for real unless each `run` block says `command = plan` or mocks the provider.
+- `plan` refreshes real resources with real credentials; validate offline when none are configured.
+- Secrets end up in state: use `ephemeral` (1.10+) and write-only `*_wo` arguments (1.11+); `sensitive` only hides output.
+- S3 backend: `use_lockfile = true`; DynamoDB locking is deprecated.
+- Never `apply`, `destroy`, `import`, `state` or `force-unlock`: give the command to the user.
+- Read the skill `terraform` before changing `.tf`, `.tofu`, `.tftest.hcl` or the lock file.

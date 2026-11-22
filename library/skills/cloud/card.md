@@ -1,0 +1,9 @@
+- Version: the CLI (`aws --version`, `gcloud version`, `az version`) and the IaC tool in the lockfile (`aws-cdk-lib` and `aws-cdk` are versioned separately; Bicep in `az bicep version`).
+- Docs and official skills: AWS `aws-core` plugin (`aws/agent-toolkit-for-aws`) and https://docs.aws.amazon.com/llms.txt; Google `google/skills`; Azure `azure` plugin (`microsoft/azure-skills`). Verified 2026-11-22.
+- Verify: the project's targets, then `cdk synth`, `cfn-lint`, `sam validate --lint`, `az bicep build`; previews (`cdk diff`, `what-if`, `azd provision --preview`) only on a non-production account the user signed in to.
+- Never deploy, create or delete through a CLI: stop at synth, lint and preview, and write the deploy command in your report.
+- Check the target first: `aws sts get-caller-identity`, `gcloud config list`, `az account show`.
+- No keys or client secrets in code or CI: SSO locally, OIDC federation in CI, managed or workload identity in the cloud.
+- IAM: named actions on named resources, one role per workload, never `*:*`, `Owner` or `Editor`.
+- `cloud.google.com/llms.txt` is a "not found" page; read Google docs through `google/skills`.
+- Read the skill `cloud` before changing cloud infrastructure, IAM, or SDK credentials.

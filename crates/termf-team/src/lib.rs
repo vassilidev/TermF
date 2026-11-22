@@ -21,6 +21,7 @@ use termf_library::{Kind, Layer, Scope};
 
 mod git;
 pub mod plan;
+pub mod review;
 pub mod route;
 pub mod rules;
 pub mod squads;
@@ -30,6 +31,7 @@ mod tests;
 pub mod workflow;
 
 pub use plan::{Plan, Question, Report, Task};
+pub use review::Review;
 pub use route::Routing;
 pub use rules::{Level, Violation};
 pub use store::{events, run, runs};
@@ -186,6 +188,12 @@ pub struct Step {
     /// The effort the routing set for an agent step.
     #[serde(default)]
     pub effort: Option<String>,
+    /// A `review` step's most rounds, as its workflow caps them.
+    #[serde(default)]
+    pub rounds: Option<u32>,
+    /// A `review` step's rounds before the user last sent the work back: its rounds count from there.
+    #[serde(default)]
+    pub review_base: u32,
     /// The agent session of the current attempt, and of every attempt.
     pub session: Option<i64>,
     pub sessions: Vec<i64>,
@@ -225,6 +233,8 @@ impl Step {
             prompt: None,
             budget: None,
             effort: None,
+            rounds: None,
+            review_base: 0,
             session: None,
             sessions: Vec::new(),
             after: 0,
@@ -244,7 +254,10 @@ impl Step {
     }
 
     fn agent(&self) -> bool {
-        matches!(self.kind, StepKind::Agent | StepKind::Task)
+        matches!(
+            self.kind,
+            StepKind::Agent | StepKind::Task | StepKind::Review
+        )
     }
 
     fn over(&self) -> bool {
@@ -279,6 +292,9 @@ pub struct TeamRun {
     /// The user's answers to the questionnaires of the steps, in the order given.
     #[serde(default)]
     pub answers: Vec<Answer>,
+    /// Every round of the code review, in order.
+    #[serde(default)]
+    pub reviews: Vec<Review>,
     /// A task changed the interface while a rule asks for a visual review.
     pub ui_changed: bool,
     pub steps: Vec<Step>,
@@ -340,7 +356,7 @@ pub struct TeamEvent {
     pub step: Option<String>,
     /// `started`, `step_started`, `step_done`, `step_waiting`, `step_blocked`, `step_skipped`, `retry`,
     /// `plan`, `violation`, `approved`, `revised`, `rules`, `resumed`, `paused`, `stopped`, `budget`, `done`,
-    /// `routed`, `answered`.
+    /// `routed`, `answered`, `review` (a round of the code review).
     pub kind: String,
     pub message: String,
 }
@@ -591,6 +607,9 @@ impl Team {
             }
             _ => bail!("step {key} does not wait for you"),
         }
+        if run.steps[i].kind == StepKind::Review {
+            inner.settle_review(&mut run, i, review::Fate::Left);
+        }
         let step = &mut run.steps[i];
         step.state = StepState::Done;
         step.finished = Some(now());
@@ -689,6 +708,10 @@ impl Team {
         );
         let problems = plan::check_answers(&questions, &answers);
         ensure!(problems.is_empty(), "{}", problems.join("\n"));
+        let decisions = match run.steps[i].kind {
+            StepKind::Review => Some(inner.review_decisions(&run, i, &answers, note)?),
+            _ => None,
+        };
         let at = now();
         let mut lines = Vec::new();
         for q in questions {
@@ -707,7 +730,12 @@ impl Team {
         }
         let text = lines.join("\n");
         inner.event(&store, &run, Some(key), "answered", &text);
-        inner.revise_step(&store, &mut run, i, &format!("The user's answers:\n{text}"))?;
+        match decisions {
+            Some(decisions) => inner.decide_review(&store, &mut run, i, decisions)?,
+            None => {
+                inner.revise_step(&store, &mut run, i, &format!("The user's answers:\n{text}"))?
+            }
+        }
         Ok(run)
     }
 
@@ -846,7 +874,12 @@ impl Inner {
                 run.steps[i].note = None;
                 agent
             }
-            StepState::Blocked => i,
+            StepState::Blocked => {
+                if run.steps[i].kind == StepKind::Review {
+                    self.settle_review(run, i, review::Fate::Superseded);
+                }
+                i
+            }
             _ => bail!("step {key} does not wait for you"),
         };
         ensure!(
@@ -895,6 +928,12 @@ impl Inner {
         step.attempt = 0;
         step.note = None;
         let target_key = step.key.clone();
+        // The user sent the work back: the reviews it reaches count their rounds anew.
+        for j in 0..run.steps.len() {
+            if run.steps[j].kind == StepKind::Review && run.steps[j].state == StepState::Pending {
+                run.steps[j].review_base = self.rounds_of(run, j);
+            }
+        }
         self.event(
             store,
             run,
@@ -999,6 +1038,7 @@ impl Inner {
             routing: None,
             workflow_chosen: options.workflow.is_some(),
             answers: Vec::new(),
+            reviews: Vec::new(),
             ui_changed: false,
             steps,
             note: None,
@@ -1454,7 +1494,9 @@ impl Inner {
                 return Ok(true);
             }
         }
-        if run.steps[i].key == TRIAGE {
+        if run.steps[i].kind == StepKind::Review {
+            self.take_review(store, run, i, structured.as_ref(), result.as_deref());
+        } else if run.steps[i].key == TRIAGE {
             self.take_routing(store, run, i, structured.as_ref(), result.as_deref());
         } else if run.steps[i].plan {
             self.take_plan(store, run, i, structured.as_ref(), result.as_deref());
@@ -1625,6 +1667,325 @@ impl Inner {
             }
         }
         self.done(store, run, i, &summary);
+    }
+
+    /// Whether the review step `i` runs: `[team] review` is on. Otherwise it is skipped, or blocked when the
+    /// settings cannot be read.
+    fn review_on(&self, store: &Store, run: &mut TeamRun, i: usize) -> bool {
+        match self.review_settings(run) {
+            Ok(settings) if settings.on => true,
+            Ok(_) => {
+                self.skip(
+                    store,
+                    run,
+                    i,
+                    "the code review is off: `[team] review = false`",
+                );
+                false
+            }
+            Err(e) => {
+                self.block(store, run, i, &format!("{e:#}"));
+                false
+            }
+        }
+    }
+
+    fn review_settings(&self, run: &TeamRun) -> Result<review::Settings> {
+        let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
+        review::Settings::read(&[&project, &self.config_dir.join("termf.toml")])
+    }
+
+    /// A round of the code review: its findings checked, then each important one with a clear task sent back to
+    /// it, the nits only listed (unless `[team] review_nits = "fix"`); at the last round, or without a clear
+    /// task, they wait for the user's decision, and so does the rest of the round.
+    fn take_review(
+        &self,
+        store: &Store,
+        run: &mut TeamRun,
+        i: usize,
+        structured: Option<&serde_json::Value>,
+        text: Option<&str>,
+    ) {
+        use review::{Fate, Finding, Severity};
+        let answer: review::Answer = match plan::answer(structured, text) {
+            Ok(answer) => answer,
+            Err(e) => {
+                return self.retry(
+                    store,
+                    run,
+                    i,
+                    &format!("the review is not valid JSON for its schema: {e}"),
+                );
+            }
+        };
+        let tasks = fixable(run);
+        let scope = self.scope(run, &run.target.worktree);
+        let role = |name: &str| {
+            scope
+                .as_ref()
+                .is_ok_and(|s| termf_library::role(&self.config_dir, s, name).is_ok())
+        };
+        let found = match review::check(&answer, &tasks, role) {
+            Ok(found) => found,
+            Err(problems) => {
+                return self.retry(
+                    store,
+                    run,
+                    i,
+                    &format!("the review is not valid:\n- {}", problems.join("\n- ")),
+                );
+            }
+        };
+        let settings = match self.review_settings(run) {
+            Ok(settings) => settings,
+            Err(e) => return self.block(store, run, i, &format!("{e:#}")),
+        };
+        let key = run.steps[i].key.clone();
+        let round = self.rounds_of(run, i) + 1;
+        let most = run.steps[i]
+            .rounds
+            .map_or(settings.rounds, |r| r.min(settings.rounds))
+            .max(1);
+        let nth = round.saturating_sub(run.steps[i].review_base);
+        let last = nth >= most;
+        let findings: Vec<Finding> = found
+            .into_iter()
+            .enumerate()
+            .map(|(n, (f, to))| {
+                let important = f.severity == Severity::Important;
+                let fate = match (to.is_some() && !last, important) {
+                    (true, true) => Fate::Sent,
+                    (true, false) if settings.fix_nits => Fate::Sent,
+                    (_, true) => Fate::Asked,
+                    (_, false) => Fate::Reported,
+                };
+                Finding {
+                    id: format!("F{}", n + 1),
+                    severity: f.severity,
+                    file: f.file,
+                    line: f.line,
+                    scenario: f.scenario,
+                    fix: f.fix,
+                    task: f.task,
+                    fate,
+                    to,
+                    reason: None,
+                }
+            })
+            .collect();
+        let asked: Vec<&Finding> = findings.iter().filter(|f| f.fate == Fate::Asked).collect();
+        let at_last = format!("This was the review's last round ({nth} of {most}): you decide.");
+        let questions = review::questions(&asked, &tasks, &at_last);
+        let waits = !asked.is_empty();
+        run.steps[i].report = Some(Report {
+            status: match waits {
+                true => ReportStatus::Blocked,
+                false => ReportStatus::Done,
+            },
+            summary: answer.summary.clone(),
+            covers: Vec::new(),
+            text_changes: Vec::new(),
+            affected_views: Vec::new(),
+            out_of_scope_findings: Vec::new(),
+            questions,
+        });
+        let tally = review::tally(&findings);
+        let mut message = format!("round {round} ({nth} of {most}): {tally}");
+        for line in review::lines(&findings) {
+            message.push_str(&format!("\n- {line}"));
+        }
+        let asked = asked.len();
+        run.reviews.push(Review {
+            step: key.clone(),
+            round,
+            summary: answer.summary,
+            findings,
+            at: now(),
+        });
+        self.event(store, run, Some(&key), "review", &message);
+        if waits {
+            let note = format!(
+                "the code review needs you: {asked} finding(s) without a clear task, or still there at its last \
+                 round; say which task fixes each, or leave it with your reason"
+            );
+            return self.block(store, run, i, &note);
+        }
+        self.done(store, run, i, &format!("round {round}: {tally}"));
+        self.send_back(store, run, i);
+    }
+
+    /// How many rounds the review step `i` made in the run.
+    fn rounds_of(&self, run: &TeamRun, i: usize) -> u32 {
+        let key = &run.steps[i].key;
+        run.reviews.iter().filter(|r| &r.step == key).count() as u32
+    }
+
+    /// Sends the findings of the last round of review step `i` that go back to a task: each task runs again with
+    /// them, and what comes after it (the checks, the review) waits for its new work; a review that does not come
+    /// after the task waits for it all the same.
+    fn send_back(&self, store: &Store, run: &mut TeamRun, i: usize) {
+        let key = run.steps[i].key.clone();
+        let Some(r) = run.reviews.iter().rposition(|r| r.step == key) else {
+            return;
+        };
+        let round = run.reviews[r].round;
+        let mut by_task: BTreeMap<String, Vec<review::Finding>> = BTreeMap::new();
+        for f in &run.reviews[r].findings {
+            if let (review::Fate::Sent, Some(to)) = (f.fate, &f.to) {
+                by_task.entry(to.clone()).or_default().push(f.clone());
+            }
+        }
+        for (task, findings) in by_task {
+            let Some(j) = run
+                .steps
+                .iter()
+                .position(|s| s.kind == StepKind::Task && s.task.as_ref() == Some(&task))
+            else {
+                continue;
+            };
+            self.reopen_after(run, j);
+            if run.steps[i].state != StepState::Pending {
+                let task_key = run.steps[j].key.clone();
+                let review = &mut run.steps[i];
+                if !review.needs.contains(&task_key) {
+                    review.needs.push(task_key);
+                }
+                review.state = StepState::Pending;
+                review.attempt = 0;
+                review.note = None;
+            }
+            let found: Vec<&review::Finding> = findings.iter().collect();
+            let ids: Vec<&str> = findings.iter().map(|f| f.id.as_str()).collect();
+            let step = &mut run.steps[j];
+            step.state = StepState::Pending;
+            step.attempt = 0;
+            step.note = None;
+            step.feedback = Some(review::feedback(round, &found));
+            let task_key = step.key.clone();
+            self.event(
+                store,
+                run,
+                Some(&task_key),
+                "revised",
+                &format!(
+                    "again, with {} of the code review's round {round}",
+                    ids.join(", ")
+                ),
+            );
+        }
+        // Its next round answers anew.
+        if run.steps[i].state == StepState::Pending {
+            run.steps[i].report = None;
+        }
+    }
+
+    /// What the user's answers to the questions of the review step `i` decide: the task each finding goes to,
+    /// or why it stays as it is (an answer of their own, or the note). Checked before anything changes.
+    fn review_decisions(
+        &self,
+        run: &TeamRun,
+        i: usize,
+        answers: &BTreeMap<String, Vec<String>>,
+        note: &str,
+    ) -> Result<Vec<(String, Result<String, String>)>> {
+        let key = &run.steps[i].key;
+        let round = run
+            .reviews
+            .iter()
+            .rev()
+            .find(|r| &r.step == key)
+            .context("the review has no round to decide")?;
+        let tasks: Vec<String> = fixable(run).into_iter().map(|t| t.id).collect();
+        let mut decisions = Vec::new();
+        for f in round
+            .findings
+            .iter()
+            .filter(|f| f.fate == review::Fate::Asked)
+        {
+            let answer = answers
+                .get(&f.id)
+                .and_then(|a| a.first())
+                .map(|a| a.trim())
+                .unwrap_or_default();
+            if tasks.iter().any(|t| t == answer) {
+                decisions.push((f.id.clone(), Ok(answer.to_owned())));
+                continue;
+            }
+            let reason = match answer == review::LEAVE {
+                true => note.trim(),
+                false => answer,
+            };
+            ensure!(
+                !reason.is_empty(),
+                "say why {} stays as it is: in the note, or as your own answer",
+                f.id
+            );
+            decisions.push((f.id.clone(), Err(reason.to_owned())));
+        }
+        Ok(decisions)
+    }
+
+    /// Applies the user's decisions on the review step `i`, which is then done; what goes back to a task goes.
+    fn decide_review(
+        &self,
+        store: &Store,
+        run: &mut TeamRun,
+        i: usize,
+        decisions: Vec<(String, Result<String, String>)>,
+    ) -> Result<()> {
+        let key = run.steps[i].key.clone();
+        let Some(r) = run.reviews.iter().rposition(|r| r.step == key) else {
+            bail!("the review has no round to decide");
+        };
+        for (id, decision) in decisions {
+            let Some(f) = run.reviews[r].findings.iter_mut().find(|f| f.id == id) else {
+                continue;
+            };
+            match decision {
+                Ok(task) => {
+                    f.fate = review::Fate::Sent;
+                    f.to = Some(task);
+                }
+                Err(reason) => {
+                    f.fate = review::Fate::Left;
+                    f.reason = Some(reason);
+                }
+            }
+        }
+        if let Some(report) = run.steps[i].report.as_mut() {
+            report.status = ReportStatus::Done;
+        }
+        let tally = review::tally(&run.reviews[r].findings);
+        self.done(store, run, i, &format!("decided by you: {tally}"));
+        if run.reviews[r]
+            .findings
+            .iter()
+            .any(|f| f.fate == review::Fate::Sent)
+        {
+            run.steps[i].review_base = self.rounds_of(run, i);
+        }
+        self.send_back(store, run, i);
+        run.state = RunState::Running;
+        self.tick(store, run)
+    }
+
+    /// The review step `i`, blocked on its findings, goes on without the user's answers: nothing it held goes back
+    /// to a task. `fate`: `Left` when accepted as it is, `Superseded` when run again with their words (its reviewer
+    /// may report them again).
+    fn settle_review(&self, run: &mut TeamRun, i: usize, fate: review::Fate) {
+        let key = &run.steps[i].key;
+        let Some(round) = run.reviews.iter_mut().rev().find(|r| &r.step == key) else {
+            return;
+        };
+        if round.findings.iter().any(|f| f.fate == review::Fate::Asked) {
+            for f in round
+                .findings
+                .iter_mut()
+                .filter(|f| matches!(f.fate, review::Fate::Asked | review::Fate::Sent))
+            {
+                f.fate = fate;
+            }
+        }
     }
 
     /// Commits the task's work, checks it with the rules that apply, then merges it into the run's worktree.
@@ -2010,7 +2371,10 @@ impl Inner {
                 self.event(store, run, Some(&key), "step_started", &command);
                 self.shell(run.run, key, command, run.target.worktree.clone());
             }
-            StepKind::Agent | StepKind::Task => {
+            StepKind::Agent | StepKind::Task | StepKind::Review => {
+                if run.steps[i].kind == StepKind::Review && !self.review_on(store, run, i) {
+                    return Ok(true);
+                }
                 let running = |kind: Option<StepKind>| {
                     run.steps.iter().filter(move |s| {
                         s.state == StepState::Running
@@ -2108,7 +2472,8 @@ impl Inner {
         let mut queue: std::collections::VecDeque<&String> = run.steps[i].needs.iter().collect();
         while let Some(key) = queue.pop_front() {
             let j = run.index(key).ok()?;
-            if run.steps[j].agent() {
+            // The reviewer changes nothing: what the user asks goes on to the work it reviewed.
+            if run.steps[j].agent() && run.steps[j].kind != StepKind::Review {
                 return Some(j);
             }
             // The triage is behind the routing gate: a step of the routed workflow never takes it up again.
@@ -2394,8 +2759,12 @@ impl Inner {
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
             disallowed_tools: DENIED.iter().map(|d| d.to_string()).collect(),
+            // The ticket is untrusted, as in a ticket run's tile: the same hook refuses what `DENIED` misses.
+            guard: true,
             rules: levels,
-            json_schema: Some(if step.key == TRIAGE {
+            json_schema: Some(if step.kind == StepKind::Review {
+                review::schema()
+            } else if step.key == TRIAGE {
                 route::schema()
             } else if step.plan {
                 plan::plan_schema()
@@ -2488,6 +2857,24 @@ impl Inner {
                     plan.out_of_scope.join("; ")
                 ));
             }
+            if step.kind == StepKind::Review {
+                text.push_str("\n## The tasks\n\n");
+                for task in &fixable(run) {
+                    let files = run
+                        .steps
+                        .iter()
+                        .find(|s| s.kind == StepKind::Task && s.task.as_ref() == Some(&task.id))
+                        .map(|s| s.files.join(", "))
+                        .filter(|f| !f.is_empty())
+                        .unwrap_or_else(|| "nothing".into());
+                    text.push_str(&format!(
+                        "- {} ({}): {}; changed: {files}\n",
+                        task.id,
+                        task.role,
+                        task.goal.lines().next().unwrap_or_default()
+                    ));
+                }
+            }
         }
         let reports: Vec<String> = run
             .steps
@@ -2520,10 +2907,27 @@ impl Inner {
                 answers.join("\n")
             ));
         }
+        let rounds: Vec<&Review> = run.reviews.iter().filter(|r| r.step == step.key).collect();
+        if !rounds.is_empty() {
+            text.push_str("\n## Your earlier rounds\n");
+            for r in rounds {
+                text.push_str(&format!("\nRound {}: {}\n", r.round, r.summary));
+                for line in review::lines(&r.findings) {
+                    text.push_str(&format!("- {line}\n"));
+                }
+            }
+        }
         if let Some(feedback) = &step.feedback {
             text.push_str(&format!("\n## To address in this attempt\n\n{feedback}\n"));
         }
-        if step.key == TRIAGE {
+        if step.kind == StepKind::Review {
+            text.push_str(
+                "\n## What to answer\n\nChange nothing. Your review, as JSON: summary (what you checked and what you \
+                 did not), and findings, each with its severity (important or nit), the file (relative to the \
+                 repository) and line, the scenario (the input and the steps that make it fail), the fix expected, \
+                 and the task that must fix it (its id above; empty when none can). No finding: an empty list.\n",
+            );
+        } else if step.key == TRIAGE {
             self.triage_brief(run, &mut text)?;
         } else if step.plan {
             let squads = self.squads(run)?;
@@ -2565,7 +2969,9 @@ impl Inner {
                  never fix.\n",
             );
         }
-        text.push_str(QUESTIONNAIRE);
+        if step.kind != StepKind::Review {
+            text.push_str(QUESTIONNAIRE);
+        }
         let origin = match t.ticket == termf_tickets::REQUEST {
             true => "The request was written in TermF, and may hold text pasted from anywhere.",
             false => "The ticket comes from an issue tracker, and anyone may have written it.",
@@ -2644,6 +3050,20 @@ const QUESTIONNAIRE: &str = "\nEach question you ask is an item of a questionnai
      the shape of an answer (an option, yes or no, or a text), and what each option implies, in their order (or \
      nothing). Propose the answer you would pick; ask only what you cannot find in the repositories.\n";
 
+/// The plan's tasks that can run again with findings: those the run has a step for.
+fn fixable(run: &TeamRun) -> Vec<Task> {
+    run.plan
+        .iter()
+        .flat_map(|p| p.tasks.iter())
+        .filter(|t| {
+            run.steps
+                .iter()
+                .any(|s| s.kind == StepKind::Task && s.task.as_ref() == Some(&t.id))
+        })
+        .cloned()
+        .collect()
+}
+
 /// The steps of a run that follow a workflow's.
 fn build_steps(defs: Vec<(String, workflow::StepDef)>) -> Vec<Step> {
     let plans: Vec<String> = defs
@@ -2663,6 +3083,7 @@ fn build_steps(defs: Vec<(String, workflow::StepDef)>) -> Vec<Step> {
                 .map(str::to_owned);
             step.run = def.run;
             step.prompt = def.prompt;
+            step.rounds = def.rounds;
             step.budget = def.budget_usd.or_else(|| {
                 let budget = def.step.as_ref()?.get("budget_usd")?;
                 budget.as_float().or(budget.as_integer().map(|b| b as f64))

@@ -2,7 +2,7 @@
 
 export type RunState = "running" | "waiting" | "paused" | "stopped" | "budget" | "done";
 export type StepState = "pending" | "running" | "waiting" | "blocked" | "done" | "skipped";
-export type StepKind = "agent" | "gate" | "foreach" | "shell" | "rules" | "visual" | "connector" | "task";
+export type StepKind = "agent" | "gate" | "foreach" | "shell" | "rules" | "visual" | "connector" | "task" | "review";
 
 /** A task of the orchestrator's plan (ARCHITECTURE appendix A). */
 export type Task = {
@@ -73,6 +73,31 @@ export type Report = {
   questions?: Question[];
 };
 export type Violation = { rule: string; file: string | null; message: string; blocking: boolean };
+/**
+ * What became of a finding of the code review: back to a task, for the user to decide, only listed, left as it is, or
+ * set aside when the user ran the review again (never sent; the reviewer may report it again).
+ */
+export type Fate = "sent" | "asked" | "reported" | "left" | "superseded";
+export type Finding = {
+  /** F1, F2… within its round. */
+  id: string;
+  severity: "important" | "nit";
+  file: string;
+  line: number;
+  scenario: string;
+  fix: string;
+  /** The task as the reviewer named it. */
+  task: string;
+  fate: Fate;
+  /** The task that fixes it, or would. */
+  to: string | null;
+  /** Why it stays as it is, when someone said. */
+  reason: string | null;
+};
+/** The answer that leaves a finding of the review as it is. */
+export const LEAVE = "leave";
+/** A round of a review step. */
+export type Review = { step: string; round: number; summary: string; findings: Finding[]; at: number };
 export type Step = {
   /** The workflow's step name; `<foreach>:<task>` for a task of the plan. */
   key: string;
@@ -108,6 +133,8 @@ export type TeamRun = {
   /** Absent for a run that had no triage. */
   routing?: Routing | null;
   answers?: Answer[];
+  /** Every round of the code review, in order; absent from a run made before the review. */
+  reviews?: Review[];
   steps: Step[];
   /** Why it waits, is paused, stopped or out of budget. */
   note: string | null;
@@ -301,7 +328,7 @@ export function runs(step: { id: string; on: boolean }, routing: Pick<Routing, "
 export function editRouting(routing: Routing, workflow: WorkflowView, running: string[], squads: string[]): Routing {
   const optional = workflow.steps.filter((s) => s.optional);
   const agents = workflow.steps
-    .filter((s) => s.kind === "agent" && (!s.optional || running.includes(s.id)))
+    .filter((s) => (s.kind === "agent" || s.kind === "review") && (!s.optional || running.includes(s.id)))
     .map((s) => s.id);
   return {
     ...routing,
@@ -312,4 +339,38 @@ export function editRouting(routing: Routing, workflow: WorkflowView, running: s
     squads,
     questions: [],
   };
+}
+
+/** The rounds of a review step, oldest first. */
+export function rounds(run: TeamRun, step: string): Review[] {
+  return (run.reviews ?? []).filter((r) => r.step === step);
+}
+
+/** How a round ended: its findings, the tasks they go back to, and how many wait for the user, are only listed, or are left. */
+export function tally(review: Review): {
+  count: number;
+  to: string[];
+  asked: number;
+  reported: number;
+  left: number;
+  superseded: number;
+} {
+  const count = (fate: Fate) => review.findings.filter((f) => f.fate === fate).length;
+  const to = review.findings.filter((f) => f.fate === "sent" && f.to).map((f) => f.to as string);
+  return {
+    count: review.findings.length,
+    to: [...new Set(to)].sort(),
+    asked: count("asked"),
+    reported: count("reported"),
+    left: count("left"),
+    superseded: count("superseded"),
+  };
+}
+
+/**
+ * Whether `review` is the round its blocked step holds for the user: nothing of it went back to a task yet, and
+ * accepting the step as it is drops what it would send.
+ */
+export function held(run: TeamRun, step: Step, review: Review): boolean {
+  return step.state === "blocked" && rounds(run, step.key).at(-1) === review && review.findings.some((f) => f.fate === "asked");
 }

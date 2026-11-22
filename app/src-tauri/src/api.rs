@@ -609,26 +609,56 @@ pub fn spawn(
     // Added at the end of the agent's command.
     args: &[String],
 ) -> Result<SessionSummary> {
-    let command = match agent {
-        Some(name) => {
-            let settings = termf_core::load_settings(&state.config_dir)?;
-            let command = settings.agents.get(name).cloned();
-            Some(command.ok_or_else(|| anyhow!("unknown agent {name}"))?)
-        }
-        None => None,
-    };
+    let guard = run.is_some();
     launch(
         state,
         agent,
-        command,
+        agent_command(state, agent)?,
         cwd,
         title,
         (cols, rows),
         remote_control,
         run,
         None,
+        guard,
         args,
     )
+}
+
+/// Starts a session whose Bash commands go through the `termf guard` hook, as a ticket run's: a headless
+/// session of a team's step, taken over in a terminal.
+pub fn spawn_guarded(
+    state: &AppState,
+    agent: &str,
+    cwd: PathBuf,
+    title: String,
+    (cols, rows): (u16, u16),
+    args: &[String],
+) -> Result<SessionSummary> {
+    launch(
+        state,
+        Some(agent),
+        agent_command(state, Some(agent))?,
+        cwd,
+        title,
+        (cols, rows),
+        false,
+        None,
+        None,
+        true,
+        args,
+    )
+}
+
+fn agent_command(state: &AppState, agent: Option<&str>) -> Result<Option<String>> {
+    let Some(name) = agent else {
+        return Ok(None);
+    };
+    let settings = termf_core::load_settings(&state.config_dir)?;
+    let command = settings.agents.get(name).cloned();
+    Ok(Some(
+        command.ok_or_else(|| anyhow!("unknown agent {name}"))?,
+    ))
 }
 
 /// A Claude Code session TermF starts for a task of its own: its first message, and the options it needs.
@@ -663,6 +693,7 @@ pub fn spawn_task(
         false,
         None,
         Some(&task),
+        false,
         &[],
     )
 }
@@ -731,6 +762,7 @@ fn launch(
     remote_control: bool,
     run: Option<RunSession>,
     task: Option<&Task>,
+    guard: bool,
     args: &[String],
 ) -> Result<SessionSummary> {
     let is_claude = command.as_deref().is_some_and(claude::is_claude);
@@ -743,7 +775,7 @@ fn launch(
     // Status needs the local API and the CLI the hooks run.
     let hooks = sessions_dir.as_ref().and_then(|_| termf_binary());
     ensure!(
-        run.is_none() || hooks.is_some(),
+        !guard || hooks.is_some(),
         "a ticket run needs its guard hook, which this session cannot get"
     );
     ensure!(
@@ -773,7 +805,7 @@ fn launch(
         if let Some(dir) = &dir {
             let plugin = dir.join("plugin");
             if let Some(termf) = &hooks {
-                claude::write_plugin(&plugin, termf, run.is_some())?;
+                claude::write_plugin(&plugin, termf, guard)?;
                 // The status line is what measures the context.
                 let settings = claude::write_settings(dir, termf, &cwd, &claude_dir())?;
                 if let Some(more @ Value::Object(_)) = task.and_then(|t| t.settings.as_ref()) {

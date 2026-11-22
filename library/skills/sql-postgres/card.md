@@ -1,0 +1,9 @@
+- Version: the `postgres:<major>` image in Compose or CI, the managed service config, or `SELECT version();`.
+- Docs for this version: https://www.postgresql.org/docs/<major>/ and its release notes (19.0 and 18.7 verified 2026-11-22). Vendor skills: Supabase `supabase-postgres-best-practices`, Timescale `pg-aiguide`.
+- Verify: the migration tool's up/down/status and the tests, then `psql -v ON_ERROR_STOP=1 -f`, `EXPLAIN (ANALYZE, BUFFERS)`.
+- Each DDL migration starts with `SET lock_timeout`; no table rewrite under an exclusive lock on a live table.
+- `CREATE INDEX CONCURRENTLY` outside the migration transaction; constraints `NOT VALID` then `VALIDATE` in a later step.
+- PG 19: `standard_conforming_strings` always on, `json_array()` of no rows is `[]`, JIT off, `REPACK (CONCURRENTLY)`.
+- PG 18: generated columns are virtual unless `STORED`; `uuidv7()`; `OLD`/`NEW` in `RETURNING`.
+- `EXPLAIN ANALYZE` executes: roll back DML. In a TermF worktree, migrate only the worktree's database copy.
+- Read the skill `sql-postgres` before writing a migration or changing a slow query.

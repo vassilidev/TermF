@@ -1,0 +1,9 @@
+- Version: GitHub-hosted, no version to read; check each action's current major on its releases page (`actions/checkout` is v7).
+- Docs: https://docs.github.com/llms.txt and the hardening reference https://docs.github.com/en/actions/reference/security/secure-use (verified 2026-11-22).
+- Verify: `actionlint`, `zizmor .` (`--offline` without network), `gh actions-lock --verify` when `.github/workflows/actions.lock` exists.
+- Workflow lockfiles are GA (2026-10-28): `gh actions-lock` writes `actions.lock`; never edit it by hand. Without it, pin by full commit SHA plus a `# vX.Y.Z` comment.
+- `permissions:` read-only at the top, widened per job; `id-token: write` only on the job that needs OIDC.
+- Untrusted `${{ github.event.* }}` values go through `env:`, never straight into `run:`.
+- checkout v7 refuses fork code under `pull_request_target`/`workflow_run`; `pull_request_target` is blocked by default in public repositories from 2026-12-02.
+- `persist-credentials: false` unless a step pushes; release jobs do not restore pull request caches.
+- Read the skill `github-actions` before writing or changing a workflow or an action.

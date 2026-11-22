@@ -1,0 +1,9 @@
+- Version: the framework, its authentication library and ORM in the lockfile; the standards are OWASP Top 10:2025 and ASVS 5.0.0 (verified 2026-11-22).
+- Docs: the framework's own security page, https://top10.owasp.org/2025 and https://github.com/OWASP/ASVS/tree/master/5.0/en (cite identifiers; OWASP text is CC BY-SA).
+- Verify: the project's security checks, the package manager's audit (`npm audit --omit=dev`, `pip-audit`, `cargo audit`, `govulncheck ./...`, `composer audit`), and a test per fix.
+- Cite `A01:2025`…`A10:2025` (new: A03 Software Supply Chain Failures, A10 Mishandling of Exceptional Conditions; SSRF is in A01) and `v5.0.0-<ch>.<sec>.<req>`.
+- Most real bugs: an object fetched by id without the owner or tenant in the query (IDOR).
+- A middleware or proxy check is not the authorization (CVE-2025-29927); check where the data is read.
+- Auto-escaping stops at HTML text: `dangerouslySetInnerHTML`, `v-html`, `{@html}`, `|safe`, `html_safe`, `{!! !!}` bypass it.
+- A finding names the principal, its input, the broken control, the affected resource, the result and `file:line`; otherwise it is a hardening note.
+- Read the skill `security-web` before a security review, or when a change touches auth, user input, uploads, secrets or a new dependency.

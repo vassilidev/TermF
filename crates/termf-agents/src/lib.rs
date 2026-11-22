@@ -60,6 +60,8 @@ pub struct Launch<'a> {
     /// The config of `termf mcp` for a session with TermF's tools, and the other folders it may read.
     pub mcp: Option<&'a Path>,
     pub dirs: &'a [PathBuf],
+    /// The `termf` CLI whose `guard` the session's Bash commands go through.
+    pub guard: Option<&'a Path>,
 }
 
 /// What a session runs with. Empty values mean the agent's default.
@@ -101,6 +103,11 @@ pub struct SessionSpec {
     /// the user first: a project's CTO conversation. No terminal takes it over: its tools would not follow.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub mcp: bool,
+    /// Each Bash command goes through `termf guard` first, as in a ticket run's tile: no push, no pull request,
+    /// no write to the tracker or the CI. Such a session never starts without it; taken over, its terminal gets the
+    /// same hook.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub guard: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -285,8 +292,8 @@ pub enum AgentEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Notice {
-    /// `waiting` (a gate), `blocked` (a step failed or asks something), `step` or `direct` (the user wrote to
-    /// a run's step or to a direct conversation).
+    /// `waiting` (a gate), `blocked` (a step failed or asks something), `review` (a round of the code review ended),
+    /// `step` or `direct` (the user wrote to a run's step or to a direct conversation).
     pub about: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<i64>,

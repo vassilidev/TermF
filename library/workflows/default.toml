@@ -1,4 +1,4 @@
-description = "Frame → plan → implement → checks → rules → security review → visual review → delivery"
+description = "Frame → plan → implement → checks → rules → code review → security review → visual review → delivery"
 max_parallel_agents = 4
 budget_usd = 15
 
@@ -55,23 +55,29 @@ run = "{{ repo.checks }}"
 type = "rules"
 needs = ["checks"]
 
+[steps.review]
+type = "review"
+role = "reviewer"
+needs = ["rules"]
+prompt = "Review the run's changes (git diff of this branch against its base), the tests included. Change nothing: answer with your findings, each with the task that must fix it."
+
 [steps.security]
 type = "agent"
 role = "secops"
-needs = ["rules"]
+needs = ["review"]
 prompt = "Review the run's changes (git diff of this branch against its base) for vulnerabilities, abuse cases and vulnerable dependencies. Change nothing: put what you find in your report."
 
 [steps.seo]
 type = "agent"
 role = "seo"
-needs = ["rules"]
+needs = ["review"]
 optional = true
 enabled = false
 prompt = "Review the run's changes (git diff of this branch against its base) for search and web performance: metadata, structured data, social cards, Core Web Vitals. Change nothing, not even a file: put what you find, page by page, in your report."
 
 [steps.visual]
 type = "visual"
-needs = ["rules"]
+needs = ["review"]
 
 [steps.deliver]
 type = "connector"
