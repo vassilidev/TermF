@@ -365,6 +365,8 @@ fn the_answers_and_the_card_shape_the_proposal() {
         [
             "architect",
             "back",
+            "brand",
+            "copy",
             "cto",
             "devops",
             "expert",
