@@ -517,5 +517,42 @@ fn real_expert() {
         answer.contains("11111111") || answer.to_lowercase().contains("conversation"),
         "it cites its source: {answer}"
     );
+
+    // Its sub-agents only read, and nothing runs a command.
+    agents
+        .send(
+            session.id,
+            "Use the Agent tool to launch one sub-agent that finds where webhooks are mentioned in this repository, then tell me what it found.",
+        )
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(300);
+    while agents.session(session.id).unwrap().state == termf_agents::State::Working {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let used: Vec<(String, bool)> = agents
+        .events(session.id, 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            termf_agents::AgentEvent::ToolUse { name, parent, .. } => {
+                Some((name, parent.is_some()))
+            }
+            _ => None,
+        })
+        .collect();
+    println!(
+        "tools: {used:?}\ncost: ${:.4}",
+        agents.session(session.id).unwrap().cost
+    );
+    assert!(used.iter().any(|(n, _)| n == "Agent"), "{used:?}");
+    for (name, _) in &used {
+        assert!(
+            ["Agent", "Read", "Grep", "Glob"].contains(&name.as_str())
+                || name.starts_with("mcp__termf__memory_"),
+            "{name}"
+        );
+    }
+    let _ = agents.stop(session.id);
     let _ = std::fs::remove_dir_all(&root);
 }
