@@ -52,7 +52,7 @@ not_yet = ["The review page: side by side, slider, overlay, heatmap, pins and a 
 id = "machine"
 name = "Keys, vault and sync"
 intro = "The chores of a developer's machine, done properly."
-not_yet = ["The vault's interface, Touch ID and Windows Hello, changing the master password", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
+not_yet = ["Touch ID and Windows Hello for the vault, changing its master password, importing from other password managers", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
 
 [[groups]]
 id = "security"
@@ -837,21 +837,29 @@ related = ["sync", "vault", "security-input"]
 [[features]]
 slug = "vault"
 group = "machine"
-name = "The vault"
-tagline = "Secrets by scope, encrypted, from the command line."
-keywords = "vault secrets encryption argon2 xchacha audit 1password bitwarden doppler aws"
-problem = '''<p>Secrets do not belong in agents' contexts or in plain files. The vault keeps them encrypted, by scope, with an audit log, and agents can never reveal a value. For now it works from the command line.</p>'''
+name = "The vault and passwords"
+tagline = "Secrets, logins and secure notes, per project, encrypted."
+keywords = "vault secrets passwords password manager logins notes totp 2fa generator passphrase encryption argon2 xchacha audit 1password bitwarden doppler aws"
+problem = '''<p>Secrets do not belong in agents' contexts or in plain files, and a project's logins should not live in another app. The vault keeps secrets, logins with their two-factor codes, and secure notes encrypted, per project or for all of them, with an audit log; agents can never reveal a value.</p>'''
 how = [
-  "<code>termf vault init</code> sets a master password.",
-  "Secrets live in dev, staging or prod scopes, globally or per project; prod asks the password again.",
-  "References point to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.",
-  "A hash-chained audit log records what happens to the secrets.",
+  "Create the vault with a master password, in the app or with <code>termf vault init</code>.",
+  "Add logins (addresses, user name, password, two-factor key) and notes, for one project or for all; secrets live in dev, staging or prod scopes, and prod asks the password again.",
+  "Search, filter logins, notes and secrets; copy a password or the current two-factor code without opening the item, the clipboard cleared after 30 seconds.",
+  "Generate passwords or passphrases; every reveal goes in a hash-chained audit log.",
 ]
-default = ["Argon2id and XChaCha20-Poly1305.", "Locks after 10 minutes, and on sleep."]
-tune = ["<code>[vault] auto_lock_minutes</code>."]
-commands = [["termf vault init | unlock | lock | status", "the vault"], ["termf vault set | ref | reveal | rm | audit", "secrets and the audit"]]
-limits = ["No interface yet, no Touch ID or Windows Hello, no password change: a forgotten password means a lost vault.", "On Linux and Windows, a key kept in the keychain can be read by any process of the user."]
-tried = "Command line tried in a throwaway home folder; never in the app."
+default = [
+  "Argon2id and XChaCha20-Poly1305; locks after 10 minutes, and on sleep.",
+  "A revealed password hides again after 30 seconds, a note after two minutes.",
+  "References point to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.",
+]
+tune = ["<code>[vault] auto_lock_minutes</code>.", "Per item, whether agents may use it: kept for the connections and recipes still to come."]
+commands = [["termf vault init | unlock | lock | status", "the vault"], ["termf vault items | item <id>", "logins and notes, from a terminal"], ["termf vault set | ref | reveal | audit", "secrets and the audit"]]
+limits = [
+  "No Touch ID or Windows Hello, no password change: a forgotten password means a lost vault.",
+  "No import from other password managers, no sync of the vault yet, no QR code reading.",
+  "On Linux and Windows, a key kept in the keychain can be read by any process of the user.",
+]
+tried = "The command line was tried in a throwaway home folder; the interface, with a simulated backend."
 related = ["ssh-keys", "sync", "security-input"]
 
 [[features]]
