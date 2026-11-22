@@ -279,6 +279,8 @@
 
   // Every project at a glance, when none is chosen.
   const projects = $derived(app.workspace?.projects ?? []);
+  // Read and holding no project: not while the workspace loads or failed to.
+  const empty = $derived(!!app.workspace && projects.length === 0);
 
   // What the machine needs, above them: until it is read at the first launch, and whenever a required tool lacks.
   const NEEDS_SEEN = "termf.needs";
@@ -440,7 +442,7 @@
 <div class="home-view">
   <ViewHeader title={t("ux3t1Home")} context={project ? [project.name, project.repos.map((r) => r.name).join(", ")].filter(Boolean).join(" · ") : t("ticketsAll")}>
     {#snippet actions()}
-      {#if !project && projects.length}
+      {#if !project && !empty}
         <button class="btn sm" onclick={newProject}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
       {/if}
     {/snippet}
@@ -557,7 +559,7 @@
           </div>
         {/if}
 
-        {#if !projects.length}
+        {#if empty}
           <!-- A first launch: what a project is and how to make one, instead of an empty table. -->
           <EmptyState icon={FolderPlus} title={t("uxfT1NoProjectTitle")} text={t("uxfT1NoProjectBody")}>
             <button class="btn primary" onclick={newProject}><Plus size={16} aria-hidden="true" />{t("newProject")}</button>
@@ -597,7 +599,7 @@
           </div>
         {/if}
 
-        {#if projects.length || runs.length}
+        {#if !empty || runs.length}
           <h2 class="sec">
             {t("ux3t1OpenRuns")} <span class="n">{runs.length}</span>
             {@render more(t("ux3t1AllRuns"), () => showAll("runs"))}
