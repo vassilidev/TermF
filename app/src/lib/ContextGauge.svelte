@@ -41,9 +41,8 @@
             window: tokens.format(gauge.window ?? 0),
             percent: gauge.percent,
           });
-    if (!settings) return used;
-    const auto = settings.on ? t("contextAutoAt", { percent: settings.resetAt }) : t("contextAutoOff");
-    return `${used} ${auto}`;
+    const auto = !settings ? "" : settings.on ? t("contextAutoAt", { percent: settings.resetAt }) : t("contextAutoOff");
+    return `${t("uxfT2GaugeHint")}\n${used} ${auto}`.trim();
   });
 </script>
 

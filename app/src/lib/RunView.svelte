@@ -304,16 +304,17 @@
         <ArrowLeft size={16} aria-hidden="true" />
       </button>
     {/snippet}
-    {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />{/if}
+    {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />{/if}
     {#snippet actions()}
+      <!-- A narrow window keeps the delivery and the stop in the header, the rest goes to the menu. -->
       {#if run && session}
-        <button class="btn sm" onclick={() => openTile(run)}>
+        <button class="btn sm wide" onclick={() => openTile(run)}>
           <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
         </button>
       {/if}
       {#if review}
         {@const id = review.id}
-        <button class="btn sm" onclick={() => showReview(id)}>
+        <button class="btn sm wide" onclick={() => showReview(id)}>
           <Images size={14} aria-hidden="true" />{t("review5bTitle")}
         </button>
       {/if}
@@ -327,10 +328,11 @@
           <CircleStop size={14} aria-hidden="true" />{t("teamRunsStop")}
         </button>
       {/if}
-      {#if run && hasMenu}
+      {#if run && (hasMenu || session || review)}
         <button
           bind:this={moreTrigger}
           class="icon-btn"
+          class:narrow={!hasMenu}
           aria-label={t("ux3t2More")}
           title={t("ux3t2More")}
           aria-haspopup="dialog"
@@ -512,7 +514,7 @@
                       <StatusPill {status} label={t(label)} />
                       {#if r.prUrl}
                         {@const url = r.prUrl}
-                        <button class="link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
+                        <button class="btn link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
                           {prName(url)}<ExternalLink size={12} aria-hidden="true" />
                         </button>
                       {/if}
@@ -549,7 +551,7 @@
               <dt>{t("runMetaTicket")}</dt>
               <dd>
                 {#if run.ticket.url}
-                  <button class="link" onclick={() => openUrl(run.ticket.url)} title={t("ticketsUiOpenLink")}>
+                  <button class="btn link" onclick={() => openUrl(run.ticket.url)} title={t("ticketsUiOpenLink")}>
                     {run.ticket.key}<ExternalLink size={12} aria-hidden="true" />
                   </button>
                 {:else}
@@ -566,7 +568,7 @@
               <dd>
                 {#if run.prUrl}
                   {@const url = run.prUrl}
-                  <button class="link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
+                  <button class="btn link" onclick={() => openUrl(url)} title={t("ticketsUiOpenLink")}>
                     {prName(url)}<ExternalLink size={12} aria-hidden="true" />
                   </button>
                 {:else}
@@ -623,6 +625,13 @@
 <Popover bind:open={more} trigger={moreTrigger} label={t("ux3t2More")} align="end" width={260}>
   {#if run}
     <ul class="menu">
+      {#if session}
+        <li class="narrow"><button class="row" onclick={pick(() => openTile(run))}><SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}</button></li>
+      {/if}
+      {#if review}
+        {@const id = review.id}
+        <li class="narrow"><button class="row" onclick={pick(() => showReview(id))}><Images size={14} aria-hidden="true" />{t("review5bTitle")}</button></li>
+      {/if}
       {#if canResumeTeam}
         <li><button class="row" onclick={pick(() => (step = { kind: "resume-team" }))}><RotateCcw size={14} aria-hidden="true" />{t("ticketsUiResume")}</button></li>
       {:else if canResume}
@@ -936,24 +945,6 @@
     overflow-wrap: anywhere;
   }
 
-  .link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    max-width: 100%;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent-ink);
-    font: inherit;
-    text-align: left;
-    overflow-wrap: anywhere;
-  }
-
-  .link:hover {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
 
   .ci :global(.checks) {
     margin: 0;
@@ -1045,5 +1036,17 @@
   .row :global(svg) {
     flex-shrink: 0;
     color: var(--muted);
+  }
+
+  @media (max-width: 1100px) {
+    .wide {
+      display: none;
+    }
+  }
+
+  @media (min-width: 1101px) {
+    .narrow {
+      display: none;
+    }
   }
 </style>
