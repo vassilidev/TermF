@@ -305,13 +305,12 @@ fn artifacts_state(app: &AppHandle) -> Artifacts {
 
 fn changed(app: &AppHandle) {
     let _ = app.emit("artifacts", artifacts_state(app));
-    // A listing or a deletion that starts has its time limits watched from now on.
+    // A listing or a deletion that starts, or a new `refresh_hours`, is seen by `watch` now, not in 10 minutes.
     if let Some(watcher) = WATCHER.get() {
         watcher.unpark();
     }
 }
 
-/// The thread of `watch`.
 static WATCHER: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
 
 #[tauri::command]
@@ -347,6 +346,7 @@ pub fn artifacts_auto(app: AppHandle, on: bool) -> CmdResult<Artifacts> {
         (true, hours) => hours,
     };
     termf_core::save_artifacts_refresh(config_dir, hours).map_err(err)?;
+    changed(&app);
     Ok(artifacts_state(&app))
 }
 

@@ -51,7 +51,7 @@
    */
   let { id, visible = true }: { id: number; visible?: boolean } = $props();
   let el: HTMLDivElement;
-  let kept: { top: number; bottom: boolean; selection?: [number, number, number] } | null = null;
+  let kept: { top: number; length: number; cols: number; selection?: [number, number, number] } | null = null;
 
   function start([{ Terminal }, { FitAddon }, { WebglAddon }]: Modules): () => void {
     const term = new Terminal({
@@ -73,7 +73,10 @@
       // No WebGL (some WebKitGTK setups): xterm keeps its DOM renderer.
     }
 
-    const input = term.onData((data) => invoke("pty_write", { id, data }).catch(() => {}));
+    // Replaying the history, xterm answers the queries in it again (cursor position, attributes, colours): those
+    // answers must not reach the program as if typed.
+    let replaying = true;
+    const input = term.onData((data) => !replaying && invoke("pty_write", { id, data }).catch(() => {}));
     const resize = term.onResize(({ cols, rows }) =>
       invoke("pty_resize", { id, cols, rows }).catch(() => {}),
     );
@@ -84,10 +87,14 @@
     const observer = new ResizeObserver(fitShown);
     observer.observe(el);
 
+    // Only onto the same history: once the program wrote meanwhile, or the width changed, the lines moved.
     const restore = () => {
-      if (!kept) return;
-      if (!kept.bottom) term.scrollToLine(kept.top);
-      if (kept.selection) term.select(...kept.selection);
+      replaying = false;
+      const buffer = term.buffer.active;
+      if (kept && kept.length === buffer.length && kept.cols === term.cols) {
+        term.scrollToLine(kept.top);
+        if (kept.selection) term.select(...kept.selection);
+      }
       kept = null;
     };
     // Live output can arrive before the scrollback snapshot resolves; hold it until the replay is written.
@@ -113,11 +120,12 @@
       const range = term.getSelectionPosition();
       kept = {
         top: buffer.viewportY,
-        bottom: buffer.viewportY >= buffer.baseY,
+        length: buffer.length,
+        cols: term.cols,
         selection: range && [range.start.x, range.start.y, (range.end.y - range.start.y) * term.cols + range.end.x - range.start.x],
       };
       gone = true;
-      invoke("pty_detach", { id }).catch(() => {});
+      invoke("pty_detach", { id, view: channel.id }).catch(() => {});
       observer.disconnect();
       input.dispose();
       resize.dispose();

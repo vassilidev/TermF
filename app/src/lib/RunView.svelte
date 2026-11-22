@@ -1,27 +1,6 @@
-<script module lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import { focusSession } from "$lib/commands";
-  import { app, type Session } from "$lib/state.svelte";
-  import { liveSession } from "$lib/tickets-logic";
-  import { tickets, type Run } from "$lib/tickets.svelte";
-
-  export function runSession(run: Run): Session | undefined {
-    return liveSession(run, app.sessions);
-  }
-
-  /** Shows the run's tile. `session-opened` may come after the answer that started the run: then the list is asked. */
-  export async function openTile(run: Run) {
-    if (!runSession(run)) {
-      const list = await invoke<Session[]>("pty_list").catch(() => []);
-      for (const s of list) if (!app.sessions.some((o) => o.id === s.id)) app.sessions.push(s);
-    }
-    const session = runSession(run);
-    if (session) await focusSession(session.id);
-  }
-</script>
-
 <script lang="ts">
   import { untrack } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import Archive from "@lucide/svelte/icons/archive";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import BellRing from "@lucide/svelte/icons/bell-ring";
@@ -77,7 +56,7 @@
   import { TRIAGE, budgetError, progress, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun } from "$lib/team.svelte";
   import { readyToClean, refusal, resumable } from "$lib/tickets-logic";
-  import { openUrl, upsert, type Resumed, type RunEvent } from "$lib/tickets.svelte";
+  import { openTile, openUrl, runSession, tickets, upsert, type Resumed, type Run, type RunEvent } from "$lib/tickets.svelte";
 
   /** A ticket's run on one page, whether its team works on it or not. */
   let { id }: { id: number } = $props();

@@ -7,7 +7,7 @@ import { APP, helpers } from "./harness.mjs";
 import { Key } from "./webdriver.mjs";
 
 /** The build measured: `TERMF_E2E_APP` pointing into `target/release` is the product, anything else the debug build. */
-export const build = /[\\/]release[\\/]/.test(APP) ? "release" : "debug";
+export const build = /target[\\/]release[\\/]/.test(APP) ? "release" : "debug";
 
 /**
  * `budget`: ARCHITECTURE §2.4. `limit`: what fails the Linux job, per build: the budget with a margin for a shared

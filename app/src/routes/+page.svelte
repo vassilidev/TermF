@@ -131,6 +131,8 @@
         {#key ui.editing}
           {#await import("$lib/ProjectView.svelte") then { default: ProjectView }}
             <Panel view="project"><ProjectView /></Panel>
+          {:catch error}
+            <Panel view="project"><Banner kind="error">{String(error)}</Banner></Panel>
           {/await}
         {/key}
       {/if}
@@ -139,6 +141,8 @@
         {#key tickets.selected}
           {#await import("$lib/RunView.svelte") then { default: RunView }}
             <Panel view="run"><RunView id={tickets.selected} /></Panel>
+          {:catch error}
+            <Panel view="run"><Banner kind="error">{String(error)}</Banner></Panel>
           {/await}
         {/key}
       {/if}
@@ -146,6 +150,8 @@
         {#key visual.selected}
           {#await import("$lib/ReviewView.svelte") then { default: ReviewView }}
             <Panel view="review"><ReviewView id={visual.selected} /></Panel>
+          {:catch error}
+            <Panel view="review"><Banner kind="error">{String(error)}</Banner></Panel>
           {/await}
         {/key}
       {/if}
@@ -153,6 +159,8 @@
         {#key setup.project}
           {#await import("$lib/OnboardingView.svelte") then { default: OnboardingView }}
             <Panel view="onboarding"><OnboardingView /></Panel>
+          {:catch error}
+            <Panel view="onboarding"><Banner kind="error">{String(error)}</Banner></Panel>
           {/await}
         {/key}
       {/if}
@@ -161,6 +169,8 @@
         {#key creating.round}
           {#await import("$lib/NewProjectView.svelte") then { default: NewProjectView }}
             <Panel view="newProject"><NewProjectView /></Panel>
+          {:catch error}
+            <Panel view="newProject"><Banner kind="error">{String(error)}</Banner></Panel>
           {/await}
         {/key}
       {/if}
@@ -187,16 +197,34 @@
 </div>
 
 {#if ui.palette}
-  {#await import("$lib/CommandPalette.svelte") then { default: CommandPalette }}<CommandPalette />{/await}
+  {#await import("$lib/CommandPalette.svelte") then { default: CommandPalette }}
+    <CommandPalette />
+  {:catch error}
+    <div class="load-error"><Banner kind="error" ondismiss={() => (ui.palette = false)}>{String(error)}</Banner></div>
+  {/await}
 {/if}
 {#if ui.help}
-  {#await import("$lib/HelpSheet.svelte") then { default: HelpSheet }}<HelpSheet />{/await}
+  {#await import("$lib/HelpSheet.svelte") then { default: HelpSheet }}
+    <HelpSheet />
+  {:catch error}
+    <div class="load-error"><Banner kind="error" ondismiss={() => (ui.help = false)}>{String(error)}</Banner></div>
+  {/await}
 {/if}
 {#if tour.step !== null}
-  {#await import("$lib/GuidedTour.svelte") then { default: GuidedTour }}<GuidedTour />{/await}
+  {#await import("$lib/GuidedTour.svelte") then { default: GuidedTour }}
+    <GuidedTour />
+  {:catch error}
+    <div class="load-error"><Banner kind="error" ondismiss={() => (tour.step = null)}>{String(error)}</Banner></div>
+  {/await}
 {/if}
 
 <style>
+  .load-error {
+    position: fixed;
+    inset: auto 16px 16px auto;
+    z-index: 20;
+  }
+
   .app {
     display: grid;
     grid-template: minmax(0, 1fr) / var(--nav-width) minmax(0, 1fr);
