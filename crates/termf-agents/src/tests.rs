@@ -340,7 +340,7 @@ fn runs_several_turns_on_one_process() {
     );
     assert_eq!(args[0][10], session.session_id);
     assert_eq!(
-        args[0][11..],
+        args[0][11..17],
         [
             "--model",
             "haiku",
@@ -349,6 +349,13 @@ fn runs_several_turns_on_one_process() {
             "--permission-mode",
             "manual"
         ]
+    );
+    assert_eq!(
+        args[0][17..],
+        termf_core::claude::SECRET_DENY
+            .iter()
+            .flat_map(|rule| ["--disallowedTools", rule])
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         fs::canonicalize(env.log("cwd").trim()).unwrap(),
@@ -410,7 +417,9 @@ fn plays_a_role_and_answers_with_its_schema() {
             .map(|w| w[1].clone())
             .collect()
     };
-    assert_eq!(after("--disallowedTools").len(), 4);
+    let denied = after("--disallowedTools");
+    assert_eq!(denied.len(), 4 + termf_core::claude::SECRET_DENY.len());
+    assert_eq!(denied[4..], termf_core::claude::SECRET_DENY[..]);
     assert_eq!(after("--json-schema"), [r#"{"type":"object"}"#]);
     let prompt = fs::read_to_string(&after("--append-system-prompt-file")[0]).unwrap();
     assert!(

@@ -6,7 +6,10 @@ use anyhow::{Context, Result, bail, ensure};
 use termf_sync::{Engine, Locked, OsKeyStore, RemoteSpec, Report, Resolution, Scope};
 
 pub fn run(args: &[&str]) -> Result<()> {
-    let engine = Engine::new(termf_core::default_config_dir()?, Box::new(OsKeyStore));
+    let engine = Engine::new(
+        termf_core::default_config_dir()?,
+        Box::new(OsKeyStore::SYNC),
+    );
     match args {
         ["setup", options @ ..] => setup(&engine, options)?,
         ["status"] => status(&engine)?,

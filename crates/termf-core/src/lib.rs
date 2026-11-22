@@ -89,6 +89,38 @@ pub struct Settings {
     /// Anything else than tables of strings is ignored rather than making the whole file invalid.
     #[serde(deserialize_with = "key_tables")]
     pub keys: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(deserialize_with = "vault_settings")]
+    pub vault: VaultSettings,
+}
+
+/// `[vault]` in `termf.toml`.
+#[derive(Debug, PartialEq)]
+pub struct VaultSettings {
+    /// The vault locks after this many minutes without use, 1 to 1440.
+    pub auto_lock_minutes: u32,
+}
+
+impl Default for VaultSettings {
+    fn default() -> Self {
+        Self {
+            auto_lock_minutes: 10,
+        }
+    }
+}
+
+/// A number out of range is brought into it; anything else is the default, rather than making the whole file
+/// invalid (it may come from another machine through the sync).
+fn vault_settings<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<VaultSettings, D::Error> {
+    let value = toml::Value::deserialize(deserializer)?;
+    let minutes = value
+        .get("auto_lock_minutes")
+        .and_then(toml::Value::as_integer)
+        .map(|m| m.clamp(1, 24 * 60) as u32);
+    Ok(VaultSettings {
+        auto_lock_minutes: minutes.unwrap_or(VaultSettings::default().auto_lock_minutes),
+    })
 }
 
 /// The id of the system-wide quick terminal shortcut in `[keys]`.
@@ -242,6 +274,7 @@ impl Default for Settings {
             ci: CiSettings::default(),
             artifacts: ArtifactSettings::default(),
             keys: BTreeMap::new(),
+            vault: VaultSettings::default(),
         }
     }
 }
@@ -389,6 +422,13 @@ pub fn save_artifacts_delete_without_confirmation(config_dir: &Path, on: bool) -
     edit_settings(config_dir, |doc| {
         doc.entry("artifacts").or_insert(toml_edit::table())["delete_without_confirmation"] =
             value(on);
+    })
+}
+
+pub fn save_vault_auto_lock(config_dir: &Path, minutes: u32) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        table_in(doc.as_table_mut(), "vault")
+            .insert("auto_lock_minutes", value(i64::from(minutes)));
     })
 }
 
@@ -992,6 +1032,27 @@ mod tests {
         let keys = BTreeMap::from([("palette".to_owned(), "Cmd+P".to_owned())]);
         save_keys(&dir, &keys).unwrap();
         assert_eq!(load_settings(&dir).unwrap().key_overrides(), keys);
+    }
+
+    #[test]
+    fn bounds_the_vault_auto_lock_and_never_breaks_the_file_for_it() {
+        let minutes = |text: &str| {
+            toml::from_str::<Settings>(text)
+                .unwrap()
+                .vault
+                .auto_lock_minutes
+        };
+        assert_eq!(minutes(""), 10);
+        assert_eq!(minutes("[vault]\nauto_lock_minutes = 30\n"), 30);
+        assert_eq!(minutes("[vault]\nauto_lock_minutes = 0\n"), 1);
+        assert_eq!(minutes("[vault]\nauto_lock_minutes = 99999\n"), 1440);
+        assert_eq!(minutes("[vault]\nauto_lock_minutes = \"soon\"\n"), 10);
+        assert_eq!(minutes("vault = 3\nscan_depth = 2\n"), 10);
+
+        let dir = temp_dir("vault-auto-lock");
+        fs::write(dir.join("termf.toml"), "vault = \"odd\"\n").unwrap();
+        save_vault_auto_lock(&dir, 25).unwrap();
+        assert_eq!(load_settings(&dir).unwrap().vault.auto_lock_minutes, 25);
     }
 
     #[test]
