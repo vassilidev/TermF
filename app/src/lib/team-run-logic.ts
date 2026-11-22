@@ -2,7 +2,7 @@
 
 export type RunState = "running" | "waiting" | "paused" | "stopped" | "budget" | "done";
 export type StepState = "pending" | "running" | "waiting" | "blocked" | "done" | "skipped";
-export type StepKind = "agent" | "gate" | "foreach" | "shell" | "rules" | "visual" | "connector" | "task" | "review";
+export type StepKind = "agent" | "gate" | "foreach" | "shell" | "rules" | "visual" | "connector" | "task" | "review" | "update";
 
 /** A task of the orchestrator's plan (ARCHITECTURE appendix A). */
 export type Task = {
@@ -122,7 +122,10 @@ export type Step = {
   sessions: number[];
   attempt: number;
   feedback: string | null;
+  /** What a task changed; for an update step, the files its merge left in conflict. */
   files: string[];
+  /** An update step whose agent resolved a conflict: the merge that brought the base in. */
+  merge?: string | null;
   report: Report | null;
   violations: Violation[];
   cost: number;
