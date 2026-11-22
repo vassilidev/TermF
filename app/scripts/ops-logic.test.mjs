@@ -7,7 +7,8 @@ test("every text of a shipped recipe has its translation, in French and in Engli
   const dir = new URL("../../library/recipes/", import.meta.url);
   const i18n = readFileSync(new URL("../src/lib/i18n.ts", import.meta.url), "utf8");
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".toml"))) {
-    for (const [, text] of readFileSync(new URL(file, dir), "utf8").matchAll(/^description = "(.*)"$/gm)) {
+    for (const [, quoted] of readFileSync(new URL(file, dir), "utf8").matchAll(/^description = "(.*)"$/gm)) {
+      const text = quoted.replace(/\\"/g, '"');
       const key = shippedTexts[text];
       assert.ok(key, `${file}: "${text}" has no key in shippedTexts`);
       assert.equal(i18n.split(`\n  ${key}:`).length, 3, `${key} in both blocks`);
