@@ -21,6 +21,7 @@
 </script>
 
 <script lang="ts">
+  import { untrack } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import BellRing from "@lucide/svelte/icons/bell-ring";
@@ -91,6 +92,14 @@
   let deliveringRepo = $state<number | null>(null);
   let stopping = $state(false);
   let more = $state(false);
+  // The page's own width, not the window's: a run beside another view is narrow too.
+  let width = $state(0);
+  const narrow = $derived(width > 0 && width < 1000);
+  // Its entries move between the header and the menu: an open menu would be left stale.
+  $effect(() => {
+    void narrow;
+    untrack(() => (more = false));
+  });
   let moreTrigger = $state<HTMLButtonElement>();
   let teamWorkflow = $state("");
   let teamBudget = $state<number | null>(null);
@@ -297,7 +306,7 @@
   {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
 {/snippet}
 
-<div class="run">
+<div class="run" bind:clientWidth={width}>
   <ViewHeader title={run?.title ?? teamRun?.target.title ?? ""} context={run ? ticketKey(run.ticket.key) : ""} mono>
     {#snippet lead()}
       <button class="icon-btn back" onclick={closeRun} aria-label={t("ux3t2Back")} title={t("ux3t2Back")}>
@@ -306,15 +315,15 @@
     {/snippet}
     {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />{/if}
     {#snippet actions()}
-      <!-- A narrow window keeps the delivery and the stop in the header, the rest goes to the menu. -->
-      {#if run && session}
-        <button class="btn sm wide" onclick={() => openTile(run)}>
+      <!-- A narrow page keeps the delivery and the stop in the header, the rest goes to the menu. -->
+      {#if run && session && !narrow}
+        <button class="btn sm" onclick={() => openTile(run)}>
           <SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}
         </button>
       {/if}
-      {#if review}
+      {#if review && !narrow}
         {@const id = review.id}
-        <button class="btn sm wide" onclick={() => showReview(id)}>
+        <button class="btn sm" onclick={() => showReview(id)}>
           <Images size={14} aria-hidden="true" />{t("review5bTitle")}
         </button>
       {/if}
@@ -328,11 +337,10 @@
           <CircleStop size={14} aria-hidden="true" />{t("teamRunsStop")}
         </button>
       {/if}
-      {#if run && (hasMenu || session || review)}
+      {#if run && (hasMenu || (narrow && (session || review)))}
         <button
           bind:this={moreTrigger}
           class="icon-btn"
-          class:narrow={!hasMenu}
           aria-label={t("ux3t2More")}
           title={t("ux3t2More")}
           aria-haspopup="dialog"
@@ -625,12 +633,12 @@
 <Popover bind:open={more} trigger={moreTrigger} label={t("ux3t2More")} align="end" width={260}>
   {#if run}
     <ul class="menu">
-      {#if session}
-        <li class="narrow"><button class="row" onclick={pick(() => openTile(run))}><SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}</button></li>
+      {#if session && narrow}
+        <li><button class="row" onclick={pick(() => openTile(run))}><SquareTerminal size={14} aria-hidden="true" />{t("runOpenTile")}</button></li>
       {/if}
-      {#if review}
+      {#if review && narrow}
         {@const id = review.id}
-        <li class="narrow"><button class="row" onclick={pick(() => showReview(id))}><Images size={14} aria-hidden="true" />{t("review5bTitle")}</button></li>
+        <li><button class="row" onclick={pick(() => showReview(id))}><Images size={14} aria-hidden="true" />{t("review5bTitle")}</button></li>
       {/if}
       {#if canResumeTeam}
         <li><button class="row" onclick={pick(() => (step = { kind: "resume-team" }))}><RotateCcw size={14} aria-hidden="true" />{t("ticketsUiResume")}</button></li>
@@ -945,6 +953,14 @@
     overflow-wrap: anywhere;
   }
 
+  /* A long pull request or ticket name wraps inside its panel. */
+  .btn.link {
+    justify-content: flex-start;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: left;
+    white-space: normal;
+  }
 
   .ci :global(.checks) {
     margin: 0;
@@ -1036,17 +1052,5 @@
   .row :global(svg) {
     flex-shrink: 0;
     color: var(--muted);
-  }
-
-  @media (max-width: 1100px) {
-    .wide {
-      display: none;
-    }
-  }
-
-  @media (min-width: 1101px) {
-    .narrow {
-      display: none;
-    }
   }
 </style>

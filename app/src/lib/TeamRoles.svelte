@@ -219,7 +219,13 @@
     border-bottom: 0;
   }
 
-  .off .who b {
+  /* The model of a role in use reads as text; a role switched off keeps it muted. */
+  td .badge {
+    color: var(--text);
+  }
+
+  .off .who b,
+  .off .badge {
     color: var(--muted);
   }
 

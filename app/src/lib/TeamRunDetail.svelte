@@ -177,8 +177,9 @@
       {#if round.findings.length}
         <ul class="findings">
           {#each round.findings as f (f.id)}
-            <li>
+            <li class:important={f.severity === "important"}>
               <div class="finding-head">
+                {#if f.severity === "important"}<TriangleAlert size={13} aria-hidden="true" class="mark" />{/if}
                 <span class="badge" class:danger={f.severity === "important"}>{t(f.severity === "important" ? "reviewLoopImportant" : "reviewLoopNit")}</span>
                 <span class="mono where">{f.file}:{f.line}</span>
                 <span class="badge" class:warn={f.fate === "asked"}>{fate(f, waiting)}</span>
@@ -459,6 +460,15 @@
     border-radius: var(--radius);
   }
 
+  /* An important finding stands out from the nits around it: a tinted frame and its icon. */
+  .findings li.important {
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  }
+
+  .finding-head :global(.mark) {
+    color: var(--danger);
+  }
+
   .findings p {
     margin: 4px 0 0;
     line-height: 1.5;
@@ -475,5 +485,4 @@
   .where {
     overflow-wrap: anywhere;
   }
-
 </style>
