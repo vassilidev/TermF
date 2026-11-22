@@ -35,7 +35,7 @@ color = "creative"
 [[groups]]
 id = "specialists"
 name = "Specialists"
-intro = "Called for one field, when a ticket needs it."
+intro = "One field each. The plan brings them in when a ticket touches it; the database engineer also reviews every migration."
 color = "specialists"
 
 [roles.cto]
@@ -177,3 +177,75 @@ short = "Videos and animations"
 does = "Makes launch videos, product demos, animations and GIFs, from a storyboard you approve first."
 when = "When a ticket asks for a video or an animation."
 never = "Touches the product's code or the app's own transitions."
+
+[roles.dba]
+label = "Database engineer"
+mark = "DBA"
+group = "specialists"
+short = "Schema, migrations, queries"
+does = "Keeps the schema sound: tables, constraints and indexes, migrations that are reversible and safe on a live database, queries read in their execution plans."
+when = "When the plan gives it the schema, and as a review step on every run that changes a migration."
+never = "Touches the API and business logic around the data (back), database servers and hosting (DevOps), or any database but the run's own."
+
+[roles.docs]
+label = "Technical writer"
+mark = "DOC"
+group = "specialists"
+short = "README, API docs, changelog"
+does = "Writes the documentation the ticket asks for: README, API reference, changelog, guides, the decision log and the conventions the other agents read."
+when = "When a ticket asks for documentation."
+never = "Writes the words of the interface (copy), or rewords docs the ticket does not name."
+
+[roles.integrations]
+label = "Integration engineer"
+mark = "INT"
+group = "specialists"
+short = "Payments, SSO, webhooks"
+does = "Connects the product to outside services, payments, single sign-on, outside APIs and webhooks, with idempotency, retries, signature checks and the provider's test mode."
+when = "When a ticket connects the product to a third-party service."
+never = "Touches the project's own API and business logic (back), the infrastructure (DevOps), or a real account or production endpoint of the provider."
+
+[roles.sre]
+label = "Site reliability engineer"
+mark = "SRE"
+group = "specialists"
+short = "Monitoring, alerts, load tests"
+does = "Makes the service observable and reliable: logs, metrics and traces, service level objectives and alerts, load tests, post-mortems."
+when = "For performance and reliability work."
+never = "Touches CI, infrastructure and deployments (DevOps), or any production system or real credentials."
+
+[roles.a11y]
+label = "Accessibility auditor"
+mark = "A11Y"
+group = "specialists"
+short = "Audits WCAG and RGAA"
+does = "Audits the changed screens against WCAG 2.2 AA and the RGAA, keyboard, screen readers, contrast, zoom, responsive layouts and browsers, with evidence for each finding."
+when = "After the front-end tasks, on the screens they changed."
+never = "Changes a file: the front-end developer fixes what it finds."
+
+[roles.ai]
+label = "AI engineer"
+mark = "AI"
+group = "specialists"
+short = "Prompts, RAG, evaluations"
+does = "Makes the product's use of language models measurably good: prompts and structured outputs, retrieval, evaluations, token costs and caching, the choice of model."
+when = "When the product calls language models."
+never = "Touches the product's code that does not call a model, or any real API key or paid account."
+
+[roles.analytics]
+label = "Product analyst"
+mark = "AN"
+group = "specialists"
+short = "Events, funnels, dashboards"
+does = "Makes the product measurable: the tracking plan, events sent with the project's analytics SDK after the user's consent, funnels and KPI dashboards."
+when = "When a ticket needs a tracking plan."
+never = "Touches server logs, metrics and alerts (SRE), the legal reading of consent (compliance), or a real analytics account."
+
+[roles.legal]
+label = "Compliance analyst"
+mark = "LAW"
+group = "specialists"
+short = "Terms, privacy, consent"
+does = "Says what the law asks of the change, terms of use, privacy and the GDPR, cookies and consent, mandatory notices, sector rules, each point sourced from an official text and to be checked by a legal professional."
+when = "When a ticket touches what the law asks of the product."
+never = "Changes a file: copy or docs write the pages it advises on."

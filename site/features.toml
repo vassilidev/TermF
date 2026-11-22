@@ -283,6 +283,34 @@ tried = "Shipped with their skills and evaluation cases; nothing run for real ye
 related = ["roles", "questionnaire", "squads"]
 
 [[features]]
+slug = "specialists"
+group = "team"
+name = "The specialists"
+tagline = "Database, docs, integrations, reliability, accessibility, AI, analytics and compliance, when a ticket needs them."
+keywords = "specialists dba database migrations docs technical writer integrations stripe webhooks sso sre observability load tests a11y accessibility wcag rgaa ai llm rag evals analytics tracking legal compliance gdpr"
+problem = '''<p>Costly bugs hide in the fields a generalist forgets: a migration that locks a table, a webhook received twice, a screen a keyboard cannot reach, a consent nobody asked for. Specialists ship with TermF for these fields: the database engineer, the technical writer, the integration engineer, the site reliability engineer, the accessibility auditor, the AI engineer, the product analyst and the compliance analyst.</p>'''
+how = [
+  "The plan gives a specialist a task when the request touches its field, like any role.",
+  "The database engineer also reviews, as a step of the default workflow, every run whose tasks changed a migration; the step is skipped otherwise.",
+  "The accessibility auditor opens the changed screens in the agents' browser and audits them against WCAG 2.2 AA and the RGAA; it changes nothing, the front-end developer fixes.",
+  "The compliance analyst sources each obligation from an official text, to be checked by a legal professional; it changes nothing either.",
+]
+default = [
+  "No shipped workflow includes them, except the database engineer's review of migrations.",
+  "With squads, a specialist must be in the staff or in a squad to get a task, like any role.",
+  "They never use a real account, key or production system of a provider.",
+]
+tune = ["Their models and effort, like any role: <code>[roles.&lt;role&gt;]</code>."]
+commands = [["termf team squads", "the roles of a project, staff included"]]
+limits = [
+  "Never run in a real run nor evaluated yet.",
+  "The worktrees of tasks and reviews are not prepared yet, so a database engineer's task that must run its migrations may not reach the run's database (not tried).",
+]
+tried = "Shipped with their instructions; nothing run for real yet."
+related = ["roles", "agent-browser", "creative"]
+read = "team.html#specialists"
+
+[[features]]
 slug = "expert"
 group = "team"
 name = "The project expert"
