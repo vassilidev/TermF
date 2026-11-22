@@ -11,6 +11,8 @@ mod config;
 mod context;
 mod cto;
 mod design;
+#[cfg(feature = "e2e")]
+mod e2e;
 mod files;
 mod git;
 mod keep_awake;
@@ -231,15 +233,21 @@ pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.menu(window::menu);
+    // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    // After the single instance: a second launch never opens a second bridge.
+    #[cfg(feature = "e2e")]
+    let builder = match e2e::plugin() {
+        Some(bridge) => builder.plugin(bridge),
+        None => builder,
+    };
     builder
-        // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -684,6 +692,8 @@ pub fn run() {
             vault::vault_import_apply,
             vault::vault_import_foreign,
             vault::vault_import_delete,
+            #[cfg(feature = "e2e")]
+            e2e::e2e_result,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

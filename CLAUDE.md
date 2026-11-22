@@ -17,7 +17,7 @@ Poste de pilotage d'agents CLI (Claude Code…) sur plusieurs dépôts. La conce
 - Paquet de l'app avec la CLI `termf` embarquée : `cd app && pnpm bundle` (`pnpm tauri build` seul ne l'embarque pas)
 - Rust : `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
 - Le clippy et les tests de l'app ont besoin de `app/build` : lancer `pnpm build` avant.
-- Bout en bout de la vraie app et budgets de performance (Linux, avec `tauri-driver` et `WebKitWebDriver`) : `cd app && pnpm tauri build --debug --no-bundle && cargo build -p termf-cli && pnpm e2e [nom]`
+- Bout en bout de la vraie app et budgets de performance (macOS par le pont de l'app ; Linux avec `tauri-driver` et `WebKitWebDriver`) : `cd app && pnpm e2e:build && pnpm e2e [nom]`
 - Évals des skills et des rôles, avec le vrai Claude Code (payant : joué par Haiku, jugé par Sonnet, 3 $ au plus par défaut) : `cd app && pnpm evals` (`--help`).
 
 ## Conventions
