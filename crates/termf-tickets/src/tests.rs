@@ -1208,7 +1208,6 @@ fn tells_a_pull_request_in_conflict_or_behind_its_base() {
     assert_eq!(t.pr_merge(id).unwrap(), None, "merged: nothing to update");
 }
 
-#[cfg(unix)]
 /// A double click, or the app and the CLI at once: both runs start, each on a branch of its own.
 #[cfg(unix)]
 #[test]
@@ -1241,6 +1240,7 @@ fn the_same_ticket_started_twice_at_once_gets_two_branches() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn keeps_worktrees_in_the_data_folder_when_asked_and_closes_both_kinds() {
     let sb = Sandbox::new("places");

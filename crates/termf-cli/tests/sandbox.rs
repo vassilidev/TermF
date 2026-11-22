@@ -102,7 +102,11 @@ impl Lab {
             &["clone", "-q", &url, &lab.repo.to_string_lossy()],
         );
         let mut termf = "[agents]\nclaude = \"claude\"\n".to_owned();
-        for role in ROLES {
+        // `settings` may set a role itself.
+        for role in ROLES
+            .iter()
+            .filter(|r| !settings.contains(&format!("[roles.{r}]")))
+        {
             termf.push_str(&format!(
                 "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
             ));
@@ -326,9 +330,15 @@ fn drive(
                     drive.answered.push(key);
                 }
                 StepState::Blocked => {
-                    println!("  (blocked step {key}: {:?}; accepted as it is)", step.note);
-                    team.approve(id, &key).unwrap();
-                    drive.approved.push(key);
+                    println!("  (blocked step {key}: {:?})", step.note);
+                    // A plan, a triage or a batch with nothing valid to approve is asked again.
+                    if team.approve(id, &key).is_err() {
+                        let again = "Answer again, fixing what TermF reported.";
+                        team.revise(id, &key, again).unwrap();
+                        drive.answered.push(format!("{key} (revised)"));
+                    } else {
+                        drive.approved.push(key);
+                    }
                 }
                 _ => continue,
             }
@@ -616,11 +626,12 @@ fn real_local_review_rounds_and_integrator_on_a_real_conflict() {
         "the integrator resolved the conflict: {update:#?}"
     );
     let worktree = PathBuf::from(run.worktree.clone().unwrap());
+    // The base's coercion may go again later: a finding of the review can send it back to the task (it did on
+    // 2026-11-22, the ticket asking for a guard on `b === 0` only), so only the merge itself is checked here.
     let merged = std::fs::read_to_string(worktree.join("src/calc.js")).unwrap();
-    assert!(
-        merged.contains("Number(a)") && merged.contains("RangeError"),
-        "both sides kept: {merged}"
-    );
+    assert!(merged.contains("RangeError"), "{merged}");
+    let merges = lab.git(&worktree, &["log", "--merges", "--format=%s"]);
+    assert!(merges.contains("Merge origin/main"), "{merges}");
     let tests = Command::new("npm")
         .arg("test")
         .current_dir(&worktree)
@@ -638,7 +649,9 @@ fn real_local_review_rounds_and_integrator_on_a_real_conflict() {
 #[test]
 #[ignore]
 fn real_local_visual_gate_with_chrome() {
-    let visual_settings = "[visual]\nroutes = [{ path = \"/web/index.html\", viewports = [\"desktop\", \"mobile\"] }]\n";
+    // The shipped rule visual-review starts off: the project turns it on.
+    let visual_settings = "[visual]\nroutes = [{ path = \"/web/index.html\", viewports = [\"desktop\", \"mobile\"] }]\n\
+                           [rules]\nvisual-review = \"block\"\n";
     let Some(lab) = Lab::local("visual", visual_settings, "") else {
         return;
     };
@@ -749,41 +762,20 @@ fn real_local_visual_gate_with_chrome() {
 
 /// Scenario 7: two squads over two repositories. The CTO plans one batch per squad, each squad's lead splits its
 /// batch into a sub-plan the tester approves, the tasks are grafted, and the second repository gets a run of its
-/// own. On local copies (the sandbox, and a second repository with a local remote).
+/// own; each repository's pull request links to the other. A run over several repositories needs each on GitHub:
+/// the second one is another clone of the sandbox, in a folder of its own.
 #[test]
 #[ignore]
-fn real_local_sub_plans_over_two_repositories() {
-    let Some(lab) = Lab::local("s2", "", "") else {
+fn real_sandbox_sub_plans_over_two_repositories() {
+    // On Haiku the CTO planned the two tasks itself, with no batch for the leads (2026-11-22): Sonnet plans here.
+    let cto =
+        "[roles.cto]\nmodel = \"sonnet\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n";
+    let Some(lab) = Lab::new("s2", "", cto) else {
         return;
     };
     let web = lab.root.join("web");
-    let web_remote = lab.root.join("web.git");
-    std::fs::create_dir_all(&web).unwrap();
-    lab.git(
-        &lab.root,
-        &[
-            "init",
-            "-q",
-            "--bare",
-            "-b",
-            "main",
-            &web_remote.to_string_lossy(),
-        ],
-    );
-    lab.git(&web, &["init", "-q", "-b", "main"]);
-    std::fs::write(
-        web.join("README.md"),
-        "# Web\n\nThe calculator's web page.\n",
-    )
-    .unwrap();
-    lab.git(&web, &["add", "-A"]);
-    lab.git(&web, &["commit", "-qm", "init"]);
-    lab.git(
-        &web,
-        &["remote", "add", "origin", &web_remote.to_string_lossy()],
-    );
-    lab.git(&web, &["push", "-q", "-u", "origin", "main"]);
-    lab.git(&web, &["remote", "set-head", "origin", "main"]);
+    let url = format!("https://github.com/{}.git", lab.slug);
+    lab.git(&lab.root, &["clone", "-q", &url, &web.to_string_lossy()]);
     let squads = format!(
         "[[repos]]\nname = \"web\"\npath = {web:?}\n\
          [[squads]]\nid = \"server\"\nroles = {{ back = 1, qa = 1 }}\nrepos = [\"sandbox\"]\ndomains = [\"server\"]\n\
@@ -831,21 +823,12 @@ fn real_local_sub_plans_over_two_repositories() {
         );
     }
     println!(
-        "real_local_sub_plans_over_two_repositories: ${:.4}, approved {:?}, repos {:?}",
+        "real_sandbox_sub_plans_over_two_repositories: ${:.4}, approved {:?}, repos {:?}",
         done.cost,
         drive.approved,
         done.repos.iter().map(|r| &r.name).collect::<Vec<_>>()
     );
     assert_eq!(done.state, RunState::Done, "{:?}", done.note);
-    assert!(!batches.is_empty(), "the CTO gave the leads their batches");
-    assert!(
-        batches.iter().all(|b| b.subplan.is_some()),
-        "each lead made its sub-plan"
-    );
-    assert!(
-        plan.tasks.iter().any(|t| t.id.contains('.')),
-        "the sub-plans' tasks were grafted"
-    );
     assert!(
         done.repos.iter().any(|r| r.name == "web"),
         "the run took in web"
@@ -857,7 +840,23 @@ fn real_local_sub_plans_over_two_repositories() {
     let calc =
         std::fs::read_to_string(PathBuf::from(run.worktree.clone().unwrap()).join("src/calc.js"));
     assert!(calc.unwrap().contains("multiply"));
+    let own = lab.deliver(run.id);
+    let other = lab.deliver(children[0].id);
+    let body = |pr: &str| lab.gh(&["pr", "view", pr, "--json", "body", "-q", ".body"]);
+    println!("pull requests {own} and {other}");
+    assert!(body(&own).contains(&other), "{}", body(&own));
+    assert!(body(&other).contains(&own), "{}", body(&other));
     t.close(run.id, true, || {}).unwrap();
+
+    assert!(!batches.is_empty(), "the CTO gave the leads their batches");
+    assert!(
+        batches.iter().all(|b| b.subplan.is_some()),
+        "each lead made its sub-plan"
+    );
+    assert!(
+        plan.tasks.iter().any(|t| t.id.contains('.')),
+        "the sub-plans' tasks were grafted"
+    );
 }
 
 /// Sessions still at work: a turn under way or a tool waiting for approval.
