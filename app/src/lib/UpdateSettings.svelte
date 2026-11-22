@@ -3,13 +3,26 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Banner from "$lib/ui/Banner.svelte";
+  import { openUrl } from "$lib/claude.svelte";
   import { ago, t } from "$lib/i18n";
+  import { blocks, type Span } from "$lib/markdown-logic";
   import { agentsAtWork, checkUpdates, installUpdate, setUpdates, updates, type Channel } from "$lib/release.svelte";
 
   const s = $derived(updates.state);
   const available = $derived(s?.available ?? null);
   const busy = $derived(agentsAtWork());
+
+  function open(e: MouseEvent, url: string) {
+    e.preventDefault();
+    openUrl(url);
+  }
 </script>
+
+{#snippet line(list: Span[])}{#each list as span, i (i)}{#if span.kind === "strong"}<strong>{@render line(span.spans)}</strong
+      >{:else if span.kind === "code"}<code>{span.text}</code>{:else if span.kind === "link"}<a
+        href={span.url}
+        onclick={(e) => open(e, span.url)}>{span.text}</a
+      >{:else}{span.text}{/if}{/each}{/snippet}
 
 <h2>{t("releaseUpdates")}</h2>
 {#if s}
@@ -67,7 +80,19 @@
         <h3 id="update-title">{t("releaseAvailable", { version: available.version })}</h3>
         {#if available.date}<span class="muted">{t("releasePublished", { when: ago(available.date) })}</span>{/if}
       </header>
-      <div class="notes">{available.notes ?? t("releaseNoNotes")}</div>
+      <div class="notes">
+        {#each blocks(available.notes ?? t("releaseNoNotes")) as block, i (i)}
+          {#if block.kind === "code"}
+            <pre class="mono">{block.text}</pre>
+          {:else if block.kind === "list" && block.start === null}
+            <ul>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ul>
+          {:else if block.kind === "list"}
+            <ol start={block.start}>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ol>
+          {:else}
+            <p>{@render line(block.spans)}</p>
+          {/if}
+        {/each}
+      </div>
       {#if updates.installing}
         <p class="muted" role="status">
           <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("releaseDownloading", { percent: updates.progress })}
@@ -120,7 +145,7 @@
     font-family: var(--font-mono);
   }
 
-  .labelled {
+  label.labelled {
     max-width: 320px;
   }
 
@@ -171,12 +196,30 @@
   }
 
   .notes {
-    max-height: 240px;
+    max-height: 280px;
     margin: 10px 0 0;
     overflow-y: auto;
     font-size: var(--text-sm);
     line-height: 1.5;
-    white-space: pre-wrap;
+  }
+
+  .notes > :first-child {
+    margin-top: 0;
+  }
+
+  .notes p,
+  .notes ul,
+  .notes ol {
+    margin: 8px 0 0;
+  }
+
+  .notes ul,
+  .notes ol {
+    padding-left: 20px;
+  }
+
+  .notes code {
+    font: var(--text-xs) var(--font-mono);
   }
 
   .update .row {

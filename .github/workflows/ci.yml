@@ -67,10 +67,12 @@ jobs:
       - if: steps.db.outcome == 'success'
         run: cargo audit --no-fetch
       - if: steps.db.outcome != 'success'
-        run: echo "::warning::RustSec advisory database out of reach: cargo audit skipped"
+        run: |
+          echo "::warning::RustSec advisory database out of reach, cargo audit skipped"
       - uses: pnpm/action-setup@v4
         with:
           version: 10
       - name: pnpm audit (informative)
         working-directory: app
-        run: pnpm audit --prod || echo "::warning::pnpm audit --prod reports advisories (informative): see this step's log"
+        run: |
+          pnpm audit --prod || echo "::warning::pnpm audit --prod reports advisories (informative), see this step's log"
