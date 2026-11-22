@@ -655,6 +655,47 @@ mod tests {
     }
 
     #[test]
+    fn a_role_asks_for_a_key_and_reads_only_the_answer() {
+        let allowed = vec!["request_secret".to_owned()];
+        let seen = std::cell::RefCell::new(Vec::new());
+        let call = |tool: McpCall| {
+            seen.borrow_mut().push(tool);
+            Ok(
+                json!({"status": "granted", "message": "The user gave PEXELS_API_KEY to this project's agents."}),
+            )
+        };
+        let mut none = |_: &str, _: &Value| -> Result<Vec<Value>> { unreachable!() };
+        let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}});
+        let init = answer(&init.to_string(), &allowed, &call, &mut none).unwrap();
+        assert_eq!(init["result"]["instructions"], json!(SECRET_INSTRUCTIONS));
+        let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
+        let list = answer(&list.to_string(), &allowed, &call, &mut none).unwrap();
+        assert_eq!(list["result"]["tools"][0]["name"], json!("request_secret"));
+        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 1);
+        let ask = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "request_secret",
+            "arguments": {"variable": "PEXELS_API_KEY", "purpose": "Stock photos for the launch video",
+                          "signup_url": "https://www.pexels.com/api/"}}});
+        let reply = answer(&ask.to_string(), &allowed, &call, &mut none).unwrap();
+        assert_eq!(reply["result"]["isError"], json!(false), "{reply}");
+        assert_eq!(
+            *seen.borrow(),
+            [McpCall::RequestSecret {
+                variable: "PEXELS_API_KEY".into(),
+                purpose: "Stock photos for the launch video".into(),
+                signup_url: Some("https://www.pexels.com/api/".into()),
+            }]
+        );
+        let value = json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "request_secret",
+            "arguments": {"variable": "X", "purpose": "y", "value": "px-5f3a9c"}}});
+        let refused = answer(&value.to_string(), &allowed, &call, &mut none).unwrap();
+        assert_eq!(
+            refused["result"]["isError"],
+            json!(true),
+            "no value goes through it: {refused}"
+        );
+    }
+
+    #[test]
     fn a_request_and_a_questionnaire_reach_termf_as_given() {
         let seen = std::cell::RefCell::new(Vec::new());
         let cto: Vec<String> = MCP_READ

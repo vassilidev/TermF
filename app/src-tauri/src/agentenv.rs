@@ -458,3 +458,292 @@ pub fn agentenv_revoke(
         &project,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::fs;
+    use std::sync::Arc;
+    use termf_sync::KeyStore;
+    use termf_vault::{Action, ActorKind, SystemClock};
+
+    const PASSWORD: &str = "correct horse battery";
+    const KEY: &str = "px-5f3a9c71d2";
+
+    #[derive(Default)]
+    struct MemoryStore(Mutex<HashMap<String, Vec<u8>>>);
+
+    impl KeyStore for MemoryStore {
+        fn get(&self, account: &str) -> Result<Option<Vec<u8>>> {
+            Ok(self.0.lock().unwrap().get(account).cloned())
+        }
+        fn set(&self, account: &str, secret: &[u8]) -> Result<()> {
+            self.0.lock().unwrap().insert(account.into(), secret.into());
+            Ok(())
+        }
+        fn delete(&self, account: &str) -> Result<()> {
+            self.0.lock().unwrap().remove(account);
+            Ok(())
+        }
+    }
+
+    /// A throwaway config with the project `acme`, and a vault created with `PASSWORD`, open.
+    fn fixture(name: &str) -> (PathBuf, Vault) {
+        let root =
+            std::env::temp_dir().join(format!("termf-agentenv-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("config/projects")).unwrap();
+        fs::write(
+            root.join("config/projects/acme.toml"),
+            "# Acme\nname = \"Acme\"\n\n[[repos]]\npath = \"/tmp/acme/api\"\n",
+        )
+        .unwrap();
+        let vault = Vault::new(
+            &root.join("data"),
+            Box::new(MemoryStore::default()),
+            Box::new(SystemClock::default()),
+        );
+        vault.init(&Actor::human(), PASSWORD, false).unwrap();
+        (root, vault)
+    }
+
+    fn request(variable: &str) -> SecretRequest {
+        let agent = termf_ops::Agent {
+            session: 7,
+            claude: "c7".into(),
+            run: Some(41),
+            title: "motion · acme".into(),
+            role: Some("motion".into()),
+        };
+        let purpose = "Stock photos\nfor the launch video".into();
+        let url = Some("https://www.pexels.com/api/".into());
+        checked("acme", variable.into(), purpose, url, agent).unwrap()
+    }
+
+    #[test]
+    fn an_agent_asks_and_reads_only_the_answer() {
+        let requests = Arc::new(Requests::default());
+        let shown: Arc<Mutex<Vec<(String, u64)>>> = Arc::default();
+        let show = {
+            let shown = shown.clone();
+            move |event: &str, r: &SecretRequest| shown.lock().unwrap().push((event.into(), r.id))
+        };
+        let never = || false;
+        let asking = {
+            let (requests, show) = (requests.clone(), show.clone());
+            std::thread::spawn(move || requests.ask(request("PEXELS_API_KEY"), WAIT, &show, &never))
+        };
+        let again = {
+            let (requests, show) = (requests.clone(), show.clone());
+            std::thread::spawn(move || {
+                // The same key asked twice waits on the same card.
+                std::thread::sleep(Duration::from_millis(100));
+                requests.ask(request("PEXELS_API_KEY"), WAIT, &show, &never)
+            })
+        };
+        while requests
+            .pending
+            .lock()
+            .unwrap()
+            .values()
+            .map(|(_, w)| w.len())
+            .sum::<usize>()
+            < 2
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let card = requests.get(1).unwrap();
+        assert_eq!(card.purpose, "Stock photos for the launch video");
+        assert_eq!(card.agent.run, Some(41));
+        requests.finish(1, true, &show).unwrap();
+        for reply in [
+            asking.join().unwrap().unwrap(),
+            again.join().unwrap().unwrap(),
+        ] {
+            assert_eq!(reply["status"], "granted");
+            assert!(
+                reply["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("not in your environment yet")
+            );
+        }
+        assert_eq!(
+            *shown.lock().unwrap(),
+            [
+                ("agentenv-request".into(), 1),
+                ("agentenv-request-done".into(), 1)
+            ]
+        );
+        assert!(requests.get(1).is_err(), "answered: gone");
+
+        let refused = {
+            let (requests, show) = (requests.clone(), show.clone());
+            std::thread::spawn(move || {
+                requests.ask(request("PISTE_CLIENT_ID"), WAIT, &show, &never)
+            })
+        };
+        while requests.get(2).is_err() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        requests.finish(2, false, &show).unwrap();
+        assert_eq!(refused.join().unwrap().unwrap()["status"], "refused");
+
+        // Unanswered in time: the agent goes on, the card stays.
+        let waiting = requests
+            .ask(
+                request("UNSPLASH_ACCESS_KEY"),
+                Duration::from_millis(300),
+                &show,
+                &never,
+            )
+            .unwrap();
+        assert_eq!(waiting["status"], "waiting");
+        assert!(requests.get(3).is_ok());
+        let gone = requests.ask(request("UNSPLASH_ACCESS_KEY"), WAIT, &show, &|| true);
+        assert!(gone.unwrap_err().to_string().contains("went away"));
+    }
+
+    #[test]
+    fn names_and_pages_are_checked_before_any_card() {
+        let agent = || termf_ops::Agent {
+            session: 1,
+            claude: String::new(),
+            run: None,
+            title: String::new(),
+            role: None,
+        };
+        let ask = |variable: &str, purpose: &str, url: Option<&str>| {
+            checked(
+                "acme",
+                variable.into(),
+                purpose.into(),
+                url.map(Into::into),
+                agent(),
+            )
+        };
+        for name in [
+            "PATH",
+            "LD_PRELOAD",
+            "DYLD_INSERT_LIBRARIES",
+            "NODE_OPTIONS",
+            "TERMF_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "lower",
+        ] {
+            assert!(ask(name, "x", None).is_err(), "{name}");
+        }
+        assert!(ask("PEXELS_API_KEY", "  ", None).is_err());
+        assert!(ask("PEXELS_API_KEY", &"x".repeat(301), None).is_err());
+        assert!(
+            ask(
+                "PEXELS_API_KEY",
+                "photos",
+                Some("http://www.pexels.com/api/")
+            )
+            .is_err()
+        );
+        assert!(ask("PEXELS_API_KEY", "photos", Some("javascript:alert(1)")).is_err());
+        assert!(ask("PEXELS_API_KEY", "photos", Some("https://x.test/a b")).is_err());
+        assert!(
+            ask("PEXELS_API_KEY", "photos", Some(""))
+                .unwrap()
+                .signup_url
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_grant_keeps_the_key_in_the_vault_and_names_it_in_the_project() {
+        let (root, vault) = fixture("grant");
+        let config = root.join("config");
+        let request = request("PEXELS_API_KEY");
+        vault.lock(&Actor::human()).unwrap();
+        let locked = store(&vault, &config, &request, &Secret::new(KEY.into()), None);
+        assert!(locked.unwrap_err().to_string().contains("locked"));
+        let password = Secret::new(PASSWORD.into());
+        assert!(
+            store(
+                &vault,
+                &config,
+                &request,
+                &Secret::new(KEY.into()),
+                Some(&password)
+            )
+            .unwrap()
+        );
+        let file = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
+        assert!(
+            file.starts_with("# Acme\nname = \"Acme\""),
+            "the rest kept: {file}"
+        );
+        assert!(
+            file.ends_with("[agents.secrets]\nPEXELS_API_KEY = \"dev/PEXELS_API_KEY\"\n"),
+            "{file}"
+        );
+        let id = SecretId::new("PEXELS_API_KEY", Scope::Dev, Some("acme")).unwrap();
+        assert_eq!(
+            vault
+                .value(&Actor::human(), &id, Access::Use)
+                .unwrap()
+                .expose(),
+            KEY
+        );
+        assert!(!file.contains(KEY));
+
+        // What the project's next agent gets, read for it and audited as its own.
+        let agent = Actor::agent(Some(41), Some("7".into()));
+        let got = given(&vault, &config, Some("acme"), &agent);
+        assert_eq!(got.vars, [("PEXELS_API_KEY".to_owned(), KEY.to_owned())]);
+        assert_eq!(got.note, None);
+        let audit = vault.audit(1).unwrap();
+        assert_eq!(audit[0].action, Action::Read);
+        assert_eq!(audit[0].actor.kind, ActorKind::Agent);
+        assert_eq!(audit[0].actor.run, Some(41));
+        assert!(!serde_json::to_string(&audit).unwrap().contains(KEY));
+
+        // Locked: the agent starts without it, and is told so.
+        vault.lock(&Actor::human()).unwrap();
+        let got = given(&vault, &config, Some("acme"), &agent);
+        assert!(got.vars.is_empty());
+        assert!(got.note.unwrap().contains("vault is locked"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_prod_secret_or_a_missing_one_never_reaches_an_agent() {
+        let (root, vault) = fixture("prod");
+        let config = root.join("config");
+        let human = Actor::human();
+        vault.reauth(&human, PASSWORD).unwrap();
+        for scope in [Scope::Prod, Scope::Staging] {
+            let id = SecretId::new("stripe", scope, None).unwrap();
+            vault
+                .set(&human, &id, Secret::new(format!("sk_{scope:?}_x")), None)
+                .unwrap();
+        }
+        fs::write(
+            config.join("termf.toml"),
+            "[agents.secrets]\nSTRIPE_KEY = \"prod/stripe\"\nSTRIPE_TEST_KEY = \"staging/stripe\"\nGONE_KEY = \"gone\"\n",
+        )
+        .unwrap();
+        let got = given(
+            &vault,
+            &config,
+            Some("acme"),
+            &Actor::agent(None, Some("3".into())),
+        );
+        assert_eq!(
+            got.vars,
+            [("STRIPE_TEST_KEY".to_owned(), "sk_Staging_x".to_owned())]
+        );
+        assert!(got.note.unwrap().contains("GONE_KEY"));
+        let problems = agent_env::load(&config, None).problems.join("\n");
+        assert!(
+            problems.contains("STRIPE_KEY: agents never get a prod secret"),
+            "{problems}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+}
