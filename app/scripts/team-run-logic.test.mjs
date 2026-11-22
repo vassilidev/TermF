@@ -6,13 +6,16 @@ import {
   byTheme,
   current,
   editRouting,
+  held,
   isForm,
   levels,
   notices,
   progress,
   proposed,
   runs,
+  rounds,
   routeBudget,
+  tally,
   unanswered,
   withOthers,
   upsert,
@@ -305,4 +308,28 @@ test("routeBudget: a change of the routing starts below the run's budget and the
   assert.equal(routeBudget(15, 0), 15, "no advice");
   assert.equal(routeBudget(null, 6), 6);
   assert.equal(routeBudget(null, 0), null);
+});
+
+test("rounds and tally: a review step's rounds in order, the tasks a round sends back to, what is left", () => {
+  const finding = (id, fate, to = null, severity = "important") => ({ id, severity, file: "src/a.ts", line: 3, scenario: "s", fix: "f", task: "", fate, to, reason: null });
+  const first = { step: "review", round: 1, summary: "s", at: 1, findings: [finding("F1", "sent", "T2"), finding("F2", "sent", "T1"), finding("F3", "sent", "T2"), finding("F4", "reported", "T1", "nit")] };
+  const second = { step: "review", round: 2, summary: "s", at: 2, findings: [finding("F1", "asked", "T1"), finding("F2", "left")] };
+  const other = { step: "review-api", round: 1, summary: "s", at: 3, findings: [] };
+  const run = { reviews: [first, other, second] };
+  assert.deepEqual(rounds(run, "review").map((r) => r.round), [1, 2]);
+  assert.deepEqual(rounds({}, "review"), [], "a run made before the review");
+  assert.deepEqual(tally(first), { count: 4, to: ["T1", "T2"], asked: 0, reported: 1, left: 0, superseded: 0 });
+  assert.deepEqual(tally(second), { count: 2, to: [], asked: 1, reported: 0, left: 1, superseded: 0 }, "a finding that waits goes nowhere yet");
+});
+
+test("held: only the last round of a blocked review that asks you has sent nothing yet", () => {
+  const finding = (fate) => ({ id: "F1", severity: "important", file: "a", line: 1, scenario: "s", fix: "f", task: "T1", fate, to: "T1", reason: null });
+  const first = { step: "review", round: 1, summary: "s", at: 1, findings: [finding("sent")] };
+  const second = { step: "review", round: 2, summary: "s", at: 2, findings: [finding("sent"), { ...finding("asked"), id: "F2" }] };
+  const run = { reviews: [first, second] };
+  const review = (state) => step("review", state, { kind: "review" });
+  assert.equal(held(run, review("blocked"), second), true);
+  assert.equal(held(run, review("blocked"), first), false, "an earlier round was sent");
+  assert.equal(held(run, review("done"), second), false, "decided: what was sent went");
+  assert.equal(held({ reviews: [first] }, review("blocked"), first), false, "blocked for another reason: nothing held");
 });

@@ -4,7 +4,7 @@ Some role prompts in `library/roles/` and some skills in `library/skills/` adapt
 
 | Source | Commit | License | Files adapted | Used in |
 |---|---|---|---|---|
-| https://github.com/obra/superpowers | 22f0b463e7a5e579904dd6211a520321035526f7 | MIT | `skills/subagent-driven-development/task-reviewer-prompt.md` | `roles/qa.md`, `roles/secops.md` |
+| https://github.com/obra/superpowers | 22f0b463e7a5e579904dd6211a520321035526f7 | MIT | `skills/subagent-driven-development/task-reviewer-prompt.md` | `roles/qa.md`, `roles/secops.md`, `roles/reviewer.md` |
 | https://github.com/garrytan/gstack | dd611038ca41f81fab9fa129b670852c17954b44 | MIT | `qa/SKILL.md`, `crew/docs/captain.md` (neither is listed in its `NOTICE.md` as derived from an Apache-2.0 work) | `roles/qa.md`, `roles/cto.md` |
 | https://github.com/wshobson/agents | 91ff75307f5668916f3eb77d5ba556266c961376 | MIT | `plugins/agent-teams/agents/team-lead.md` | `roles/lead.md`, `roles/cto.md` |
 | https://github.com/FoundationAgents/MetaGPT | 11cdf466d042aece04fc6cfd13b28e1a70341b1f | MIT | `metagpt/prompts/di/team_leader.py` | `roles/lead.md`, `roles/cto.md` |

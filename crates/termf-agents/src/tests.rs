@@ -752,6 +752,7 @@ fn takes_over_and_hands_back_without_two_processes() {
             ]
             .map(String::from)
             .to_vec(),
+            guard: false,
         }
     );
     assert!(
@@ -1147,6 +1148,33 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
             "{flag} only with TermF's tools"
         );
     }
+}
+
+#[test]
+fn a_guarded_session_never_runs_without_termf_guard() {
+    let env = Env::new("guard");
+    let spec = SessionSpec {
+        guard: true,
+        ..env.spec()
+    };
+    let refused = env.agents.start(spec.clone(), Some("hello")).unwrap_err();
+    assert!(
+        refused.to_string().contains("needs TermF's guard"),
+        "{refused}"
+    );
+    assert!(env.agents.sessions().unwrap().is_empty(), "nothing created");
+
+    let termf = env.root.join("bin/termf");
+    env.agents.serve_guard(termf.clone());
+    let id = env.agents.start(spec, Some("hello")).unwrap().id;
+    env.settle(id, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
+    assert_eq!(settings, termf_core::claude::guard_settings(&termf));
+    assert!(
+        env.agents.takeover(id).unwrap().guard,
+        "its terminal keeps it"
+    );
 }
 
 #[test]

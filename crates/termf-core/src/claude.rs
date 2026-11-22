@@ -75,6 +75,7 @@ pub fn structured_output(
 /// `guard`, for a ticket run's session: Bash commands also go through `<termf> guard`, which refuses pushes
 /// and tracker writes (defense in depth: a script the agent writes can still push).
 pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
+    let path = termf;
     let termf = termf.to_string_lossy();
     let mut hooks: Map<String, Value> = HOOK_EVENTS
         .iter()
@@ -90,10 +91,7 @@ pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
         })
         .collect();
     if guard && let Some(Value::Array(pre)) = hooks.get_mut("PreToolUse") {
-        pre.push(json!({
-            "matcher": "Bash",
-            "hooks": [{ "type": "command", "command": termf, "args": ["guard"], "timeout": 5 }],
-        }));
+        pre.push(guard_hook(path));
     }
     fs::create_dir_all(dir.join(".claude-plugin"))?;
     fs::create_dir_all(dir.join("hooks"))?;
@@ -109,6 +107,19 @@ pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
         serde_json::to_string_pretty(&json!({ "hooks": hooks }))?,
     )?;
     Ok(())
+}
+
+/// The `PreToolUse` hook that sends each Bash command through `<termf> guard`.
+fn guard_hook(termf: &Path) -> Value {
+    json!({
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": termf.to_string_lossy(), "args": ["guard"], "timeout": 5 }],
+    })
+}
+
+/// Settings with only the guard hook of a ticket run's tile, for a headless session's `--settings`.
+pub fn guard_settings(termf: &Path) -> Value {
+    json!({ "hooks": { "PreToolUse": [guard_hook(termf)] } })
 }
 
 /// Denied to every Claude Code session TermF starts (ARCHITECTURE §12.2): secret files under its folder and
@@ -374,6 +385,11 @@ mod tests {
         assert_eq!(guard["matcher"], "Bash");
         assert_eq!(guard["hooks"][0]["command"], "/opt/Term F/termf");
         assert_eq!(guard["hooks"][0]["args"], json!(["guard"]));
+        assert_eq!(
+            &guard_settings(termf)["hooks"]["PreToolUse"][0],
+            guard,
+            "a headless session gets the tile's hook"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 }

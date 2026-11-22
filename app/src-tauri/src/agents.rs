@@ -39,6 +39,9 @@ pub fn state(
         };
     });
     let (app, gone) = (app.clone(), app.clone());
+    if let Some(termf) = api::termf_binary() {
+        agents.serve_guard(termf);
+    }
     agents.serve_mcp(
         move |session| {
             let state = app.try_state::<AppState>().context("TermF is starting")?;
@@ -73,17 +76,27 @@ fn takeover(app: &AppHandle, id: i64, cols: u16, rows: u16) -> Result<SessionSum
     let agents = agents(app);
     let takeover = agents.takeover(id)?;
     let state = app.state::<AppState>();
-    let spawned = api::spawn(
-        &state,
-        Some(&takeover.agent),
-        takeover.cwd,
-        takeover.title,
-        cols,
-        rows,
-        false,
-        None,
-        &takeover.args,
-    );
+    let spawned = match takeover.guard {
+        true => api::spawn_guarded(
+            &state,
+            &takeover.agent,
+            takeover.cwd,
+            takeover.title,
+            (cols, rows),
+            &takeover.args,
+        ),
+        false => api::spawn(
+            &state,
+            Some(&takeover.agent),
+            takeover.cwd,
+            takeover.title,
+            cols,
+            rows,
+            false,
+            None,
+            &takeover.args,
+        ),
+    };
     let tile = match spawned {
         Ok(tile) => tile,
         Err(e) => {
