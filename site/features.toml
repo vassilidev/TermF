@@ -1037,7 +1037,9 @@ nav = '''<div class="app duo"><div class="nav-a">
   <a class="sub"><svg aria-hidden="true"><use href="#i-grid"/></svg>Terminals</a>
   <a class="sub"><svg aria-hidden="true"><use href="#i-ticket"/></svg>Tickets<span class="n">8</span></a>
   <a class="sub"><svg aria-hidden="true"><use href="#i-files"/></svg>Files</a>
+  <a class="sub"><svg aria-hidden="true"><use href="#i-git"/></svg>Git</a>
   <a class="sub"><svg aria-hidden="true"><use href="#i-ci"/></svg>CI/CD</a>
+  <a class="sub"><svg aria-hidden="true"><use href="#i-lock"/></svg>Vault</a>
   <a class="sub"><svg aria-hidden="true"><use href="#i-sliders"/></svg>Configuration</a>
   <span class="i"><span class="av muted">D</span>Docs</span>
   <span class="i"><span class="av muted">M</span>Mobile<span class="n wait">1</span></span>
