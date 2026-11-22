@@ -253,7 +253,7 @@ fn import(vault: &Vault, actor: &Actor, file: &str, project: Option<&str>) -> Re
     }
     if preview.unsupported > 0 {
         println!(
-            "{} elements TermF has no place for (cards, identities, documents) are left out.",
+            "{} element(s) TermF has no place for (cards, identities, documents) left out.",
             preview.unsupported
         );
     }
