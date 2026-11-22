@@ -423,8 +423,17 @@ pub async fn tickets_run(
     repo: Option<String>,
     cols: Option<u16>,
     rows: Option<u16>,
+    session: Option<bool>,
 ) -> CmdResult<Run> {
     blocking(app, move |app| {
+        // Its agent team works in the worktree instead: no Claude Code session at work beside it.
+        if session == Some(false) {
+            api::run_guard(&app.state::<AppState>())?;
+            let run =
+                tickets(app).start_without_session(&input, project.as_deref(), repo.as_deref())?;
+            updated(app, &run);
+            return Ok(run);
+        }
         let (cols, rows) = (cols.unwrap_or(120), rows.unwrap_or(32));
         start(app, &input, project.as_deref(), repo.as_deref(), cols, rows)
     })

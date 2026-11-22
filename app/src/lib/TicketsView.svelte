@@ -12,6 +12,8 @@
   import Play from "@lucide/svelte/icons/play";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Ticket from "@lucide/svelte/icons/ticket";
+  import Users from "@lucide/svelte/icons/users";
+  import TeamOptions from "$lib/TeamOptions.svelte";
   import TicketRun, { openTile } from "$lib/TicketRun.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
@@ -24,6 +26,8 @@
   import { editProject } from "$lib/project.svelte";
   import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
   import { app, repoName } from "$lib/state.svelte";
+  import { budgetError, type TeamRun } from "$lib/team-run-logic";
+  import { showTeamRun, upsertRun } from "$lib/team.svelte";
   import { readyToClean, refusal } from "$lib/tickets-logic";
   import {
     launchTicket,
@@ -40,7 +44,9 @@
   let input = $state("");
   let resolving = $state(false);
   /** A resolved ticket waiting to be launched: `from` is where it was asked, the paste field or an inbox row. */
-  let pending = $state<{ from: string; resolution: Resolution; repo: string } | null>(null);
+  let pending = $state<{ from: string; resolution: Resolution; repo: string; team?: boolean } | null>(null);
+  let teamWorkflow = $state("");
+  let teamBudget = $state<number | null>(null);
   /** The URL of the ticket being launched. */
   let starting = $state("");
 
@@ -199,6 +205,44 @@
     if (resolution) pending = { from: ticket.url, resolution, repo: "" };
   }
 
+  /** The team starts in a new run of the ticket, which opens no session of its own: the workflow and budget first. */
+  async function launchTeam(ticket: TicketSummary) {
+    pending = null;
+    teamWorkflow = "";
+    teamBudget = null;
+    starting = ticket.url;
+    const resolution = await resolve(ticket.url, ticket.project);
+    starting = "";
+    if (resolution) pending = { from: ticket.url, resolution, repo: resolution.repo ?? "", team: true };
+  }
+
+  async function startTeam(resolution: Resolution, repo: string) {
+    starting = resolution.ticket.url;
+    tickets.error = "";
+    let run: Run | null = null;
+    try {
+      run = await invoke<Run>("tickets_run", { input: resolution.ticket.url, project: resolution.project, repo, session: false });
+      upsert(run);
+      const options = { workflow: teamWorkflow || undefined, budget: teamBudget ?? undefined };
+      const started = await invoke<TeamRun>("team_start", { run: run.id, options });
+      upsertRun(started);
+      pending = null;
+      showTeamRun(started.run);
+    } catch (e) {
+      tickets.error = String(e);
+      // The team did not start: its new run goes, and the launch can be tried again; if it stays, its detail does it.
+      if (run) {
+        const id = run.id;
+        await invoke<Run>("tickets_close", { id, force: false }).then(upsert, () => {
+          pending = null;
+          Object.assign(tickets, { tab: "runs", selected: id });
+        });
+      }
+    } finally {
+      starting = "";
+    }
+  }
+
   async function start(resolution: Resolution, repo: string) {
     starting = resolution.ticket.url;
     tickets.error = "";
@@ -241,7 +285,7 @@
     {@const r = pending.resolution}
     {@const known = tickets.inbox?.find((ticket) => ticket.url === r.ticket.url)}
     {@const chosen = r.repos.find((repo) => repo.path === pending?.repo)}
-    <div class="launch" role="group" aria-label={t("ticketLaunchTitle", { key: r.ticket.key })}>
+    <div class="launch" class:team={pending.team} role="group" aria-label={t("ticketLaunchTitle", { key: r.ticket.key })}>
       <div class="what">
         <span class="name">
           <span class="mono">{r.ticket.key}</span>{known ? ` ${known.title}` : ""}
@@ -265,8 +309,23 @@
           </select>
         </label>
       {/if}
+      {#if pending.team}
+        <TeamOptions project={r.project} bind:workflow={teamWorkflow} bind:budget={teamBudget} />
+      {/if}
       <div class="buttons">
         <button class="btn sm" onclick={() => (pending = null)}>{t("cancel")}</button>
+        {#if pending.team}
+          <button
+            class="btn sm primary"
+            disabled={!pending.repo || !!starting || !!budgetError(teamBudget)}
+            onclick={() => pending && startTeam(r, pending.repo)}
+          >
+            {#if starting === r.ticket.url}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Users
+                size={14}
+                aria-hidden="true"
+              />{/if}{t("teamRunsLaunchLong")}
+          </button>
+        {:else}
         <button
           class="btn sm primary"
           disabled={!pending.repo || !!starting}
@@ -274,6 +333,7 @@
         >
           {@render launching(starting === r.ticket.url)}
         </button>
+        {/if}
       </div>
     </div>
   {/if}
@@ -425,6 +485,14 @@
                   <ExternalLink size={14} aria-hidden="true" />
                 </button>
                 {#if ticket.project}
+                  <button
+                    class="btn sm"
+                    title={t("teamRunsLaunchTitle", { key: ticket.key })}
+                    disabled={!!starting}
+                    onclick={() => launchTeam(ticket)}
+                  >
+                    <Users size={14} aria-hidden="true" />{t("teamRunsWithTeam")}
+                  </button>
                   <button
                     class="btn sm"
                     title={t("ticketLaunchTitle", { key: ticket.key })}
@@ -660,6 +728,15 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--panel);
+  }
+
+  /* The team's options need the row: the ticket goes above them. */
+  .launch.team .what {
+    flex-basis: 100%;
+  }
+
+  .launch.team {
+    align-items: flex-end;
   }
 
   .labelled {
