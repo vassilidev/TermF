@@ -12,8 +12,8 @@
 // --cap (3, US dollars per trial), --minutes (40 per trial), --judge-model (sonnet), --keep (keep the trial folders).
 // Needs Node 22.18+, git, cargo, and Claude Code signed in. Spends real money on your Claude Code account.
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -322,6 +322,18 @@ ${clipped || "(empty: nothing changed)"}
   }
 }
 
+/** Claude Code's transcripts of every folder of the trial (the copy, the team's worktrees), as the QA harness does. */
+function purge(work) {
+  const real = realpathSync(work);
+  // A project's folder is its path with every character but letters and digits made a dash.
+  const key = real.replace(/[^a-zA-Z0-9]/g, "-");
+  const projects = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+  if (!existsSync(projects)) return;
+  for (const name of readdirSync(projects).filter((n) => n.startsWith(key))) {
+    sh("claude", ["purge", real + name.slice(key.length), "-y"]);
+  }
+}
+
 async function trial(t, o, results) {
   const dir = join(results, `${t.ticket}-${t.arm}-${t.n}`);
   mkdirSync(dir, { recursive: true });
@@ -340,7 +352,10 @@ async function trial(t, o, results) {
   const result = { ...t, model: o.model, kind: TICKETS[t.ticket].kind, at: new Date().toISOString(), ...arm, ...measures, judge: verdict };
   delete result.final;
   writeFileSync(join(dir, "result.json"), JSON.stringify(result, null, 2));
-  if (!o.keep) rmSync(work, { recursive: true, force: true });
+  if (!o.keep) {
+    purge(work);
+    rmSync(work, { recursive: true, force: true });
+  }
   console.log(
     `done   ${t.ticket} ${t.arm} #${t.n}: ${result.state}, ${Math.round(result.wall_s)} s, $${result.cost_usd.toFixed(2)}, ` +
       `hidden ${m.hidden.pass}/${m.hidden.total}, judge ${verdict.overall ?? "?"}/10`,

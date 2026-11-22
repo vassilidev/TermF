@@ -40,7 +40,8 @@ running trial would pass it), `--cap` (3 US dollars per trial), `--minutes` (40 
    (severity, category) and an overall mark.
 
 Each trial writes `results/<date>/<ticket>-<arm>-<n>/result.json` and `diff.patch` (logs stay local);
-`summary.json` holds the means per ticket and per kind.
+`summary.json` holds the means per ticket and per kind. Then the trial's folders and their Claude Code transcripts
+(`claude purge`) are deleted, unless `--keep`.
 
 ## The tickets
 
