@@ -719,6 +719,7 @@ mod tests {
                     "back",
                     "devops",
                     "qa",
+                    "seo",
                     "secops",
                 ][..],
             ),
@@ -742,11 +743,11 @@ mod tests {
             }
         }
         let rule = find(&items, Kind::Rule, "no-text-changes");
-        assert_eq!(rule.applies_to, ["front", "back", "devops"]);
+        assert_eq!(rule.applies_to, ["front", "back", "devops", "seo"]);
         assert_eq!(rule.meta["level"], "block");
         assert_eq!(find(&items, Kind::Role, "secops").meta["effort"], "xhigh");
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 11, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 12, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);
