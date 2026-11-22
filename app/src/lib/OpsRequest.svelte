@@ -27,11 +27,15 @@
   let password = $state("");
   let asking = $state(false);
 
-  // Prod asks for the password up front when the vault would refuse the approval without it.
+  // The password up front when approving would need it: a locked vault (it masks the output), or prod.
+  let locked = $state(false);
   $effect(() => {
-    if (r.kind !== "approve" || r.plan.env !== "prod") return;
+    if (r.kind !== "approve") return;
     invoke<VaultStatus>("vault_status").then(
-      (s) => (asking = s.initialized && !s.prodUntil),
+      (s) => {
+        locked = s.initialized && !s.unlocked;
+        asking = locked || (s.initialized && r.plan.env === "prod" && !s.prodUntil);
+      },
       () => {},
     );
   });
@@ -44,7 +48,10 @@
       dropRequest(r.id);
     } catch (e) {
       const text = String(e);
-      if (/needs the master password again/.test(text)) asking = true;
+      if (/needs the master password again|the vault is locked/.test(text)) {
+        asking = true;
+        locked = /locked/.test(text);
+      }
       else error = /wrong master password/.test(text) ? t("vaultWrongPassword") : text;
     } finally {
       busy = false;
@@ -79,7 +86,7 @@
   {#if error}<p class="notice error" role="alert">{error}</p>{/if}
   {#if r.kind === "approve" && asking}
     <label class="labelled pw">
-      <span>{t("opsPasswordReauth")}</span>
+      <span>{t(locked ? "opsPasswordUnlock" : "opsPasswordReauth")}</span>
       <input class="field" type="password" autocomplete="current-password" placeholder={t("opsPassword")} bind:value={password} />
     </label>
   {/if}
@@ -116,12 +123,15 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--waiting-text);
+    font-size: var(--text-base);
+  }
+
+  header :global(svg) {
+    flex-shrink: 0;
   }
 
   header b {
-    font-size: var(--text-base);
-    font-weight: 600;
+    font-weight: 650;
     overflow-wrap: anywhere;
   }
 

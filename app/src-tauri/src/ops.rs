@@ -269,11 +269,24 @@ pub async fn ops_answer(
             .get(id)
             .context("this request is no longer waiting")?;
         let prod = request.plan.env == termf_ops::Env::Prod;
-        if allow && request.kind == "approve" && prod && vault.initialized() {
-            if let Some(password) = &password {
-                vault.reauth(&Actor::human(), password.expose())?;
+        // The vault masks the output with its values, so it must be open; prod needs the password within 5 min.
+        if allow && request.kind == "approve" && vault.initialized() {
+            let human = Actor::human();
+            let status = vault.status()?;
+            match &password {
+                Some(p) if !status.unlocked => {
+                    vault.unlock(&human, Some(p.expose()), None, None)?;
+                }
+                Some(p) if prod && status.prod_until.is_none() => {
+                    vault.reauth(&human, p.expose())?;
+                }
+                _ => {}
             }
-            if vault.status()?.prod_until.is_none() {
+            let status = vault.status()?;
+            if !status.unlocked {
+                bail!(termf_vault::Locked);
+            }
+            if prod && status.prod_until.is_none() {
                 bail!(NeedsPassword);
             }
         }

@@ -151,13 +151,13 @@
           </select>
         </label>
       {:else}
-        <label class="labelled" class:wide={!!help(f)}>
+        <label class="labelled">
           <span>{label(f)}</span>
           <input
             class="field mono"
             inputmode={f === "port" ? "numeric" : undefined}
             value={value(f)}
-            placeholder={placeholders[f] ?? ""}
+            placeholder={db && f === "host" ? "127.0.0.1" : db && f === "user" ? "readonly" : (placeholders[f] ?? "")}
             oninput={(e) => set(f, e.currentTarget.value)}
           />
           {#if help(f)}<small class="muted">{help(f)}</small>{/if}
@@ -212,6 +212,7 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+    max-width: 560px;
   }
 
   h2 {
@@ -221,13 +222,9 @@
   }
 
   .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 12px 16px;
-  }
-
-  .wide {
-    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   small {

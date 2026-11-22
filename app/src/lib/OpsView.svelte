@@ -501,9 +501,11 @@
                       <span class="mono muted">{h.connection}</span>
                       {#if h.env}<span class="badge env" class:prod={h.env === "prod"}>{h.env}</span>{/if}
                       <span class="muted">{h.by === "agent" ? t("opsByAgent", { session: h.session ?? "" }) : t("opsByYou")}</span>
-                      <span class="badge" class:bad={h.approval === "refused" || h.approval === "expired"}>
-                        {approvalLabels[h.approval] ? t(approvalLabels[h.approval]) : h.approval}
-                      </span>
+                      {#if h.approval !== "user"}
+                        <span class="badge" class:bad={h.approval === "refused" || h.approval === "expired"}>
+                          {approvalLabels[h.approval] ? t(approvalLabels[h.approval]) : h.approval}
+                        </span>
+                      {/if}
                       <span class="facts muted">
                         {#if h.exit !== null}{t("opsExit", { code: h.exit })}{/if}
                         {#if h.masks}· {t("opsMasked", { count: h.masks })}{/if}
@@ -532,7 +534,8 @@
 
   .intro {
     margin: 0;
-    padding: 0 28px 10px;
+    padding: 10px 20px 2px;
+    background: var(--chrome);
     font-size: var(--text-sm);
   }
 
@@ -540,7 +543,8 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 0 28px 12px;
+    padding: 10px 20px;
+    background: var(--chrome);
   }
 
   .pane {
@@ -731,6 +735,7 @@
   }
 
   .hidden {
+    white-space: nowrap;
     padding: 0 2px;
     border: 0;
     border-radius: var(--radius-sm);
