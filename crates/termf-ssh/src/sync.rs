@@ -101,7 +101,10 @@ impl Ssh {
         };
         let mut after = before.clone();
         for old in config::marked(&before) {
-            if !hosts.iter().any(|h| h.alias.eq_ignore_ascii_case(&old.alias)) {
+            if !hosts
+                .iter()
+                .any(|h| h.alias.eq_ignore_ascii_case(&old.alias))
+            {
                 after = config::remove_marked(&after, &old.alias);
             }
         }

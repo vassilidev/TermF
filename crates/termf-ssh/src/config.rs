@@ -481,7 +481,8 @@ fn marked_alias(lines: &[&str], i: usize) -> Option<String> {
 /// Whether `alias` has a block TermF did not add, which the sync leaves alone.
 pub fn hand_written(text: &str, alias: &str) -> bool {
     let lines: Vec<&str> = text.lines().collect();
-    (0..lines.len()).any(|i| declares(lines[i], alias).is_some() && marked_alias(&lines, i).is_none())
+    (0..lines.len())
+        .any(|i| declares(lines[i], alias).is_some() && marked_alias(&lines, i).is_none())
 }
 
 /// `text` without the marked block of `alias`: its mark, its lines and the blank line that followed it.
