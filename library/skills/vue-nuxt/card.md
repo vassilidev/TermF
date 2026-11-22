@@ -1,0 +1,9 @@
+- Version: read it in the lockfile entries (or `package.json`) of `vue`, `nuxt`, `vue-tsc` and `typescript`; a Nuxt 4 app keeps its code in `app/`.
+- Docs for this version: the Nuxt MCP tools (`https://nuxt.com/mcp`) when configured, else https://nuxt.com/llms.txt and https://vuejs.org/llms.txt (the packages ship no docs).
+- Verify: the project's `typecheck`, `build` and `test` scripts; else `npx nuxt typecheck`, `npx nuxt build` (Nuxt) or `npx vue-tsc --build`, `npx vite build` (Vue + Vite), and `npx vitest run`.
+- Nuxt 4 `useFetch` / `useAsyncData`: `data` and `error` start `undefined`, `data` is a `shallowRef` (nested mutations do not re-render), one key means shared refs.
+- Nuxt 4 folders: `app/pages`, `app/components`…, with `server/` and `shared/` at the root.
+- `vue-tsc` needs TypeScript 6: keep `typescript` on 6.x (or the `@typescript/typescript6` alias); plain `tsc` does not check `.vue` files.
+- Nuxt 4 turns on `noUncheckedIndexedAccess`: indexed access is `T | undefined`.
+- Module-level `ref()` is shared by every request during SSR: use `useState` or Pinia.
+- Read the skill `vue-nuxt` before writing or changing `.vue` files, Nuxt pages, server routes or config, or upgrading Nuxt 3 to 4.
