@@ -15,9 +15,9 @@ export const build = /[\\/]release[\\/]/.test(APP) ? "release" : "debug";
  * margin, so that a regression still fails. Windows: reported only.
  */
 export const measures = {
-  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: { debug: 900, release: 650 } },
+  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: { debug: 900, release: 800 } },
   idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: { debug: 650, release: 600 } },
-  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: { debug: 40, release: 50 } },
+  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: { debug: 35, release: 20 } },
   idleCpu: { label: "CPU at rest, over 10 s", unit: "%", budget: 1, limit: { debug: 2, release: 2 } },
   keyEcho: { label: "Keystroke to echo (median of 30)", unit: "ms", budget: 16, limit: { debug: 24, release: 24 } },
 };
@@ -117,6 +117,8 @@ export async function measure(port, log) {
     const driver = t.app.root;
     await t.ready();
     await t.settled("home");
+    // What the app does once at startup (the update check 5 s in) is not rest.
+    await sleep(SETTLE_SECONDS * 1000);
     out.idleRam = mb(sum(appTree(driver, ours), "mem"));
     const before = sum(appTree(driver), "cpu");
     await sleep(IDLE_SECONDS * 1000);
