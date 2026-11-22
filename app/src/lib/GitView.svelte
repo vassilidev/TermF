@@ -97,7 +97,8 @@
       if (commit) return { kind: "commit", commit } as const;
     }
     const branch = current ?? groups.local[0];
-    return branch ? ({ kind: "branch", branch } as const) : null;
+    if (branch) return { kind: "branch", branch } as const;
+    return here ? ({ kind: "worktree", worktree: here } as const) : null;
   });
 
   // A repository out of the current project falls back to the project's first one.
@@ -193,8 +194,10 @@
     });
 
   function switchTo(branch: Branch) {
-    const target = branch.remote ? (localFor(branch, snap?.branches ?? [])?.name ?? branch.name) : branch.name;
-    const name = branch.remote ? onRemote(branch) : branch.name;
+    // A remote branch: its local twin when there is one, else git makes a local branch of its name that tracks it.
+    const local = branch.remote ? localFor(branch, snap?.branches ?? []) : branch;
+    const target = local?.name ?? branch.name;
+    const name = local?.name ?? onRemote(branch);
     return act("switch", async (repo) => {
       await invoke("git_switch", { repo, branch: target });
       selected = { kind: "branch", name };
@@ -277,9 +280,11 @@
 
   const short = (oid: string) => oid.slice(0, 7);
   const runOf = (wt: Worktree) => tickets.runs.find((r) => r.worktree && samePath(r.worktree, wt.path));
+  /** A worktree's folder from the repository's when it is inside it (a run's), else from the home folder. */
   const where = (wt: Worktree) => {
     const base = git.repo.replace(/[\\/]+$/, "");
-    return !wt.main && samePath(wt.path.slice(0, base.length), base) ? `.${wt.path.slice(base.length)}` : shortPath(wt.path);
+    const inside = /^[\\/]/.test(wt.path.slice(base.length)) && samePath(wt.path.slice(0, base.length), base);
+    return inside ? `.${wt.path.slice(base.length)}` : shortPath(wt.path);
   };
   const isDefault = (b: Branch) => onRemote(b) === defaultName;
   const prState = (pr: Pr) => (pr.draft && pr.state === "OPEN" ? "draft" : pr.state.toLowerCase());
@@ -433,13 +438,19 @@
               <button class="pick" aria-current={picked} onclick={() => ([selected, form] = [{ kind: "worktree", path: wt.path }, null])}>
                 <span class="line">
                   <FolderGit2 size={13} aria-hidden="true" class="muted-icon" />
-                  <span class="bname">{wt.main ? t("gitRepoFolder") : where(wt).split("/").pop()}</span>
+                  {#if run}
+                    <span class="label">{t("gitRunShort", { id: run.id, key: run.ticket.key })}</span>
+                  {:else if wt.main}
+                    <span class="label">{t("gitRepoFolder")}</span>
+                  {:else}
+                    <span class="bname">{where(wt).split("/").pop()}</span>
+                  {/if}
                   <span class="badges">
                     {#if tally(wt.changes).conflicts}<span class="count danger">{t("gitConflicts", { count: tally(wt.changes).conflicts })}</span>{/if}
                     {#if wt.prunable}<span class="count warn">{t("gitWorktreeGone")}</span>{/if}
                   </span>
                 </span>
-                <span class="desc">{wt.branch ?? t("gitDetached")} · {wt.prunable ? where(wt) : treeSummary(wt)}{run ? ` · ${t("gitRunShort", { id: run.id, key: run.ticket.key })}` : ""}</span>
+                <span class="desc">{wt.branch ?? t("gitDetached")} · {wt.prunable ? where(wt) : treeSummary(wt)}</span>
               </button>
             </li>
           {/each}
@@ -521,7 +532,7 @@
           {@const run = runOf(wt)}
           <header class="card-head">
             <FolderGit2 size={18} aria-hidden="true" />
-            <h2 class="bname">{wt.main ? t("gitRepoFolder") : where(wt)}</h2>
+            <h2 class:bname={!wt.main}>{wt.main ? t("gitRepoFolder") : where(wt)}</h2>
             {#if wt.locked}<span class="tag">{t("gitLocked")}</span>{/if}
             {#if wt.prunable}<span class="tag warn">{t("gitWorktreeGone")}</span>{/if}
           </header>
@@ -546,7 +557,7 @@
                 {@const kind = changeKind(change)}
                 <li class:conflict={change.conflict}>
                   <span class="letter {kind}" title={t(kindLabel[kind])}>{kindLetter[kind]}</span>
-                  <span class="path mono">{#if change.from}<span class="muted">{change.from} → </span>{/if}{change.path}</span>
+                  <span class="path mono">{#if change.from}<span class="muted">{`${change.from} → `}</span>{/if}{change.path}</span>
                   <span class="muted small-kind">{t(kindLabel[kind])}{change.index !== "." && change.index !== "?" && !change.conflict ? ` · ${t("gitStaged")}` : ""}</span>
                 </li>
               {/each}
@@ -610,7 +621,10 @@
           <ol class="graph" bind:this={graphEl} aria-label={t("gitHistory")} style:--graph={`${graphWidth}px`}>
             {#each graph.commits as commit, i (commit.oid)}
               {@const row = rows[i]}
-              {@const picked = shown?.kind === "commit" ? shown.commit.oid === commit.oid : shown?.kind === "branch" && shown.branch.tip.oid === commit.oid}
+              {@const picked =
+                shown?.kind === "commit"
+                  ? shown.commit.oid === commit.oid
+                  : (shown?.kind === "branch" ? shown.branch.tip.oid : shown?.worktree.head) === commit.oid}
               <li data-oid={commit.oid}>
                 <button class="commit" class:picked aria-current={picked} onclick={() => ([selected, form] = [{ kind: "commit", oid: commit.oid }, null])}>
                   <svg width={graphWidth} height={ROW} aria-hidden="true">
@@ -629,7 +643,7 @@
                   <span class="message">
                     {#each labels(commit) as ref (ref.kind + ref.name)}
                       <span class="ref {ref.kind}" class:head={ref.head}>
-                        {#if ref.kind === "tag"}<Tag size={11} aria-hidden="true" />{:else if ref.kind === "remote"}<Cloud size={11} aria-hidden="true" />{:else}<GitBranch size={11} aria-hidden="true" />{/if}{ref.name}
+                        {#if ref.kind === "tag"}<Tag size={11} aria-hidden="true" />{:else if ref.kind === "remote"}<Cloud size={11} aria-hidden="true" />{:else}<GitBranch size={11} aria-hidden="true" />{/if}<span>{ref.name}</span>
                       </span>
                     {/each}
                     <span class="subject" class:merge={commit.parents.length > 1}>{commit.subject}</span>
@@ -705,6 +719,7 @@
     flex-direction: column;
     min-height: 0;
     background: var(--panel);
+    container: git / inline-size;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -848,7 +863,8 @@
     min-width: 0;
   }
 
-  .line .bname {
+  .line .bname,
+  .line .label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1155,7 +1171,7 @@
 
   .commit {
     display: grid;
-    grid-template-columns: var(--graph) minmax(0, 1fr) minmax(0, 140px) 92px 64px;
+    grid-template-columns: var(--graph) minmax(0, 1fr) minmax(0, 110px) 92px 60px;
     align-items: center;
     gap: 12px;
     width: 100%;
@@ -1243,6 +1259,15 @@
     white-space: nowrap;
   }
 
+  .ref :global(svg) {
+    flex-shrink: 0;
+  }
+
+  .ref span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .ref.local {
     border-color: var(--accent);
     color: var(--accent-ink);
@@ -1301,6 +1326,38 @@
     list-style: none;
     color: var(--text);
     font-size: var(--text-sm);
+  }
+
+  /* A narrow window or a panel beside another: fewer graph columns, then the list above the detail. */
+  @container git (max-width: 1000px) {
+    .split {
+      grid-template-columns: 280px minmax(0, 1fr);
+    }
+
+    .commit {
+      grid-template-columns: var(--graph) minmax(0, 1fr) 84px;
+    }
+
+    .author,
+    .sha {
+      display: none;
+    }
+  }
+
+  @container git (max-width: 700px) {
+    .split {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
+    }
+
+    .split > .list {
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .split > .detail {
+      padding: 16px 16px 24px;
+    }
   }
 
   .lost-list li {
