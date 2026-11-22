@@ -47,6 +47,10 @@ fn state_of(app: &AppHandle) -> &TeamState {
     app.state::<TeamState>().inner()
 }
 
+pub(crate) fn team(app: &AppHandle) -> &Team {
+    &state_of(app).team
+}
+
 /// The app quits: nothing more starts, before its agents are killed.
 pub fn shutdown(app: &AppHandle) {
     if let Some(state) = app.try_state::<TeamState>() {

@@ -72,6 +72,30 @@ pub enum Call {
     Agent(AgentCall),
     /// Drives the agent team of a ticket run (crate `termf-team`).
     Team(TeamCall),
+    /// Visual reviews before / after (crate `termf-visual`).
+    Review(ReviewCall),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ReviewCall {
+    /// `request`: a `termf_visual::Request`.
+    Start { request: Value },
+    /// `screen`: a screen id, or `all` for every pending one; `decision`: approve, reject or changes; `pins`:
+    /// `termf_visual::Pin`s.
+    Decide {
+        review: i64,
+        screen: String,
+        decision: String,
+        comment: Option<String>,
+        pins: Option<Value>,
+    },
+    /// Posts the images on the run's pull request; without `confirm` (the preview's fingerprint), shows what
+    /// it would post.
+    PrComment {
+        review: i64,
+        confirm: Option<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

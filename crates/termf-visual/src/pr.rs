@@ -8,11 +8,11 @@ use std::fs;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail, ensure};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Decision, Version, VersionState, Visual, env, folder};
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PrPreview {
     pub review: i64,

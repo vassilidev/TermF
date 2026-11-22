@@ -30,6 +30,7 @@ termf-tickets = { path = "../../crates/termf-tickets" }
 termf-worktree = { path = "../../crates/termf-worktree" }
 termf-claude = { path = "../../crates/termf-claude" }
 termf-onboarding = { path = "../../crates/termf-onboarding" }
+termf-visual = { path = "../../crates/termf-visual" }
 anyhow = "1.0.104"
 tauri-plugin-global-shortcut = "2"
 getrandom = "0.3.4"

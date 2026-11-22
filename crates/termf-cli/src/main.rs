@@ -14,6 +14,7 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 
 mod agent;
 mod ci;
+mod review;
 mod schedule;
 mod scout;
 mod ssh;
@@ -135,6 +136,14 @@ usage:
   termf team rules <run> [--task <id>] <rule>=<level>...
                                         rule levels for the ticket, or one task of the plan
   termf team stop [<run>]               emergency stop of one team, or of every team at work
+  termf review start [--run <run>] [--repo <path> --base <ref> --head <ref>] [--route <path>]...
+                                        capture the screens before and after (a run's worktree, or two
+                                        commits) with the project's dev server and Chrome, then compare
+  termf review show <id> | --run <run>  the screens, what changed, the decisions and the images
+  termf review decide <id> <screen>|all approve|reject|changes [--comment <text>] [--pin x,y,<text>]...
+                                        decide a screen; once none is pending, the team's visual gate
+                                        goes on, stops the run, or sends the changes to the agent
+  termf review pr <id> [--yes]          show, then (with --yes) post the images on the run's pull request
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
 kinds: skill, command, role, preference, rule, workflow";
@@ -229,6 +238,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,
         ["agent", rest @ ..] => agent::run(rest.to_vec())?,
         ["team", rest @ ..] => team::run(rest.to_vec())?,
+        ["review", rest @ ..] => review::run(rest.to_vec())?,
         ["project", "trust", id, rest @ ..] => {
             let on = match rest {
                 [] => true,

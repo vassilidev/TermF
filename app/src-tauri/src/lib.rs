@@ -15,6 +15,7 @@ mod ssh;
 mod sync;
 mod team;
 mod tickets;
+mod visual;
 mod worktree;
 
 use std::path::PathBuf;
@@ -275,6 +276,12 @@ pub fn run() {
                 data_dir.clone(),
                 inbox,
             ));
+            // After the team, whose visual gate it hooks.
+            app.manage(visual::state(
+                app.handle(),
+                config_dir.clone(),
+                data_dir.clone(),
+            ));
             app.manage(tickets::TicketsState::new(
                 config_dir.clone(),
                 data_dir.clone(),
@@ -471,6 +478,12 @@ pub fn run() {
             team::team_runs,
             team::team_run,
             team::team_events,
+            visual::visual_start,
+            visual::visual_reviews,
+            visual::visual_review,
+            visual::visual_decide,
+            visual::visual_image,
+            visual::visual_pr_comment,
             onboarding::onboarding_state,
             onboarding::onboarding_analyze,
             onboarding::onboarding_answer,
@@ -485,6 +498,7 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 team::shutdown(app);
+                visual::shutdown(app);
                 agents::shutdown(app);
             }
         });

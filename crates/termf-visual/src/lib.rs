@@ -112,6 +112,18 @@ pub enum Decision {
     Changes,
 }
 
+impl Decision {
+    /// `approve`, `reject` or `changes`, as the CLI and the API say it.
+    pub fn parse(text: &str) -> Result<Decision> {
+        Ok(match text.trim().to_lowercase().as_str() {
+            "approve" | "approved" => Decision::Approved,
+            "reject" | "rejected" => Decision::Rejected,
+            "changes" | "change" => Decision::Changes,
+            other => bail!("unknown decision {other}: approve, reject or changes"),
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
