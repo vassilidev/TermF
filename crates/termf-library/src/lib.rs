@@ -16,11 +16,13 @@ use yaml_rust2::{Yaml, YamlLoader};
 pub mod archive;
 mod claude;
 pub mod conventions;
+mod roles;
 pub mod scout;
 
 pub use claude::{
     Imported, Outcome, export_claude, export_target, export_text, import_claude, materialize,
 };
+pub use roles::{Setting, applies_to, plannable, role, role_settings};
 
 static SHIPPED: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../library");
 
@@ -155,6 +157,9 @@ pub struct Scope {
     /// Rule levels (`off`, `advise`, `warn`, `block`) that replace the library's: a rule named here is on
     /// unless its level is `off`, whatever its switch.
     pub rules: BTreeMap<String, String>,
+    /// The squad the session works in: its `[squads.roles.<name>]` settings, and the preferences and rules
+    /// whose `applies_to` says `squad:<id>`.
+    pub squad: Option<String>,
 }
 
 impl Scope {
@@ -249,22 +254,19 @@ pub fn resolve(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
     Ok(items.into_values().collect())
 }
 
-/// A role a session may play: from any layer, but one from a repository only once switched on, since it
-/// comes with whatever was cloned.
-pub fn role(config_dir: &Path, scope: &Scope, name: &str) -> Result<Item> {
-    let item = explain(config_dir, scope, Kind::Role, name)?;
-    ensure!(
-        item.layer != Layer::Repo || item.active,
-        "the role {name} comes from the repository and is not switched on"
-    );
-    Ok(item)
-}
-
-/// Whether a preference or a rule applies to a session that plays `role`.
-pub fn applies(item: &Item, role: Option<&str>) -> bool {
-    role.is_none_or(|role| {
-        item.applies_to.is_empty() || item.applies_to.iter().any(|a| a == "all" || a == role)
-    })
+/// Whether a preference or a rule applies to a session that plays `role` in `squad`. No role: those of every
+/// role, but a squad's only in that squad.
+pub fn applies(item: &Item, role: Option<&str>, squad: Option<&str>) -> bool {
+    match role {
+        Some(role) => applies_to(&item.applies_to, role, squad),
+        None => {
+            item.applies_to.is_empty()
+                || item.applies_to.iter().any(|t| {
+                    t.strip_prefix("squad:")
+                        .is_none_or(|s| Some(s.trim()) == squad)
+                })
+        }
+    }
 }
 
 /// A file of the library shipped with TermF, such as `workflows/default.toml`.
@@ -438,21 +440,7 @@ fn parse(
         Err(e) => (Map::new(), Some(format!("{e:#}"))),
     };
     let text_of = |key: &str| meta.get(key).and_then(Value::as_str).map(str::to_owned);
-    // Claude Code accepts a comma-separated string where a list is expected.
-    let list = |key: &str| match meta.get(key) {
-        Some(Value::String(s)) => s
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(Into::into)
-            .collect(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .filter_map(Value::as_str)
-            .map(Into::into)
-            .collect(),
-        _ => Vec::new(),
-    };
+    let list = |key: &str| list_of(meta.get(key));
     Item {
         kind,
         name,
@@ -472,6 +460,24 @@ fn parse(
         toggles: BTreeMap::new(),
         active: false,
         rel,
+    }
+}
+
+/// A frontmatter list. Claude Code accepts a comma-separated string where a list is expected.
+fn list_of(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::String(s)) => s
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(Into::into)
+            .collect(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(Into::into)
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -702,8 +708,21 @@ mod tests {
         for (kind, names) in [
             (
                 Kind::Role,
-                &["orchestrator", "po", "front", "back", "devops", "secops"][..],
+                &[
+                    "cto",
+                    "lead",
+                    "po",
+                    "pm",
+                    "architect",
+                    "ux",
+                    "front",
+                    "back",
+                    "devops",
+                    "qa",
+                    "secops",
+                ][..],
             ),
+            (Kind::Workflow, &["default", "hotfix", "squads"]),
             (
                 Kind::Rule,
                 &["scope-strict", "no-text-changes", "visual-review"],
@@ -726,6 +745,32 @@ mod tests {
         assert_eq!(rule.applies_to, ["front", "back", "devops"]);
         assert_eq!(rule.meta["level"], "block");
         assert_eq!(find(&items, Kind::Role, "secops").meta["effort"], "xhigh");
+        let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
+        assert_eq!(roles.len(), 11, "no orchestrator: lead took its place");
+        for role in roles {
+            let name = role.name.as_str();
+            assert_eq!(role.meta["name"], name);
+            assert!(role.meta["model"].is_string() && role.meta["effort"].is_string());
+            let lines = shipped(&format!("roles/{name}.md"))
+                .unwrap()
+                .lines()
+                .count();
+            assert!((20..=60).contains(&lines), "{name}: {lines} lines");
+            let planner_only = ["cto", "lead", "po", "pm", "secops"].contains(&name);
+            assert_eq!(plannable(role), !planner_only, "{name}");
+            if let Some(credits) = role.meta.get("credits") {
+                assert!(credits.as_array().is_some_and(|c| !c.is_empty()), "{name}");
+                assert!(
+                    !role.body.contains("github.com"),
+                    "{name}: credits stay out of the prompt"
+                );
+            }
+        }
+        assert_eq!(
+            list_of(find(&items, Kind::Role, "qa").meta.get("writes")).len(),
+            8,
+            "test files only"
+        );
     }
 
     #[test]

@@ -1298,7 +1298,7 @@ mod tests {
     #[test]
     fn checks_the_answer_and_drops_what_is_invalid() {
         let config = setup("scout-invalid");
-        let mut bad_url = entry("role", "orchestrator", false, "");
+        let mut bad_url = entry("role", "lead", false, "");
         bad_url["critique"][0]["source"] = "javascript:alert(1)".into();
         let mut one_bad = entry("role", "back", false, "");
         one_bad["critique"] = json!([
@@ -1357,7 +1357,7 @@ mod tests {
             "command handoff: already in the library",
             "skill Bad Name: invalid name",
             "role back: a flaw without its practice or a valid source was left out",
-            "role orchestrator: nothing to say",
+            "role lead: nothing to say",
             "role secops: its frontmatter cannot be read",
             "role devops: a new version needs its summary and sources",
             "preference canary: only a rule has a script",

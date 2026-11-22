@@ -343,7 +343,7 @@ impl Drop for Env {
 }
 
 fn task(id: &str, role: &str, hints: &[&str], deps: &[&str]) -> Value {
-    json!({"id": id, "role": role, "repo": "api", "size": "S", "covers": ["AC1"], "goal": format!("do {id}"),
+    json!({"id": id, "role": role, "squad": "", "repo": "api", "size": "S", "covers": ["AC1"], "goal": format!("do {id}"),
         "files_hint": hints, "depends_on": deps, "ui_impact": false})
 }
 
@@ -534,7 +534,8 @@ fn checks_the_plan_and_its_questions() {
     );
     let second = env.message("plan", 2);
     assert!(
-        second.contains("## To address in this attempt") && second.contains("no role wizard"),
+        second.contains("## To address in this attempt")
+            && second.contains("role wizard is not one a task may have"),
         "{second}"
     );
     assert!(env.team.approve(1, "plan").is_err(), "nothing to approve");
@@ -932,8 +933,9 @@ fn asks_the_last_task_again_from_the_visual_gate() {
     env.answer(
         "plan.json",
         env.plan(json!([
-            task("T1", "front", &["web"], &[]),
-            task("T2", "back", &["src"], &[])
+            // T1 last: should both finish within the same second on a loaded machine, the later step wins.
+            task("T2", "back", &["src"], &[]),
+            task("T1", "front", &["web"], &[])
         ])),
     );
     env.script(
@@ -1173,10 +1175,205 @@ fn reads_the_target_of_a_ticket_run() {
     assert_eq!(bounded("high", None), "high");
 }
 
-/// The team against the real Claude Code, its roles on Haiku, for a few cents: the orchestrator's plan, then a
-/// task that writes a file, each answer through `--json-schema` on a stream-json session. Permission requests
-/// are allowed. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
-/// `cargo test -p termf-team -- --ignored real_team`
+#[test]
+fn squads_plan_check_and_pace_their_tasks() {
+    let env = Env::new("squads");
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str(
+        r#"[team]
+staff = ["architect"]
+[[squads]]
+id = "web"
+roles = { front = 2 }
+repos = ["api"]
+paths = ["web/**"]
+domains = ["UI"]
+[[squads]]
+id = "api"
+paths = ["src/**"]
+max_parallel = 1
+[squads.roles.back]
+count = 2
+effort_range = ["high", "high"]
+"#,
+    );
+    fs::write(&file, project).unwrap();
+    let squad = |mut t: Value, s: &str| {
+        t["squad"] = s.into();
+        t
+    };
+    env.answer(
+        "plan.1.json",
+        env.plan(json!([squad(task("T1", "po", &["src"], &[]), "api")])),
+    );
+    env.answer(
+        "plan.2.json",
+        env.plan(json!([
+            squad(task("T1", "back", &["src/api/a.txt"], &[]), "api"),
+            squad(task("T2", "back", &["src/api/b.txt"], &[]), "api"),
+            squad(task("T3", "front", &["web/x.txt"], &[]), "web"),
+            squad(
+                task("T4", "front", &["web/y.txt", "src/shared.txt"], &[]),
+                "web"
+            ),
+            // After T1, so that only its squad holds T6 back: T1, T3, T4 and T6 fit in the workflow's 4.
+            squad(task("T5", "architect", &["docs"], &["T1"]), ""),
+            squad(task("T6", "front", &["web/z.txt"], &[]), "web"),
+        ])),
+    );
+    for (id, file) in [
+        ("T1", "src/api/a.txt"),
+        ("T2", "src/api/b.txt"),
+        ("T3", "web/x.txt"),
+        ("T4", "web/y.txt"),
+        ("T6", "web/z.txt"),
+    ] {
+        env.script(
+            &format!("implement:{id}"),
+            &format!("sleep 1; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
+        );
+    }
+    // T4 strays out of its squad once.
+    env.script(
+        "implement:T4",
+        "sleep 1; mkdir -p web src; echo T4 > web/y.txt\nif [ \"$1\" = 1 ]; then echo x > src/shared.txt; else rm -f src/shared.txt; fi\n",
+    );
+    let options = Options {
+        workflow: Some("squads".into()),
+        rules: [("scope-strict".to_owned(), Level::Block)].into(),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Waiting);
+    assert_eq!(env.step(&run, "approve-plan").state, StepState::Waiting);
+    let first = env.message("plan", 1);
+    assert!(first.contains("You are the cto of the team"), "{first}");
+    assert!(
+        first.contains("## The squads\n\n- web: roles front ×2; repositories api; paths web/**; domains UI\n- api: roles back ×2; paths src/**\n- staff, squad `\"\"`: architect"),
+        "{first}"
+    );
+    for (role, offered) in [
+        ("front", true),
+        ("back", true),
+        ("architect", true),
+        ("po", false),
+        ("devops", false),
+        ("lead", false),
+        ("cto", false),
+    ] {
+        assert_eq!(first.contains(&format!("\n- {role}: ")), offered, "{role}");
+    }
+    let second = env.message("plan", 2);
+    assert!(
+        second.contains("task T1: role po is not one a task may have"),
+        "{second}"
+    );
+    assert!(
+        env.team
+            .events(1, 0)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "violation"
+                && e.message
+                    == "task T4: src/shared.txt is outside the paths of squad web (web/**)")
+    );
+
+    env.team.approve(1, "approve-plan").unwrap();
+    let run = env.until("the delivery gate", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "deliver" && s.state == StepState::Waiting)
+    });
+    let log = env.steps_log();
+    let at = |line: &str| {
+        log.iter()
+            .position(|l| l == line)
+            .unwrap_or_else(|| panic!("{line} in {log:?}"))
+    };
+    assert!(
+        at("implement:T2 1 begin") > at("implement:T1 1 end"),
+        "one task at a time in squad api: {log:?}"
+    );
+    assert!(
+        at("implement:T4 1 begin") < at("implement:T3 1 end"),
+        "two fronts at once in squad web: {log:?}"
+    );
+    assert!(
+        at("implement:T6 1 begin") > at("implement:T3 1 end").min(at("implement:T4 1 end")),
+        "not three: {log:?}"
+    );
+    let t4 = env.step(&run, "implement:T4");
+    assert_eq!(t4.attempt, 2, "{:?}", t4.violations);
+    let retry = env.message("implement:T4", 2);
+    assert!(
+        retry.contains("src/shared.txt: outside the paths of its squad"),
+        "{retry}"
+    );
+    assert!(
+        env.message("implement:T3", 1)
+            .contains("You work in squad web; its paths: web/**; its domains: UI.")
+    );
+    let spec = |key: &str| {
+        env.agents
+            .session(env.step(&run, key).session.unwrap())
+            .unwrap()
+            .spec
+    };
+    assert_eq!(spec("implement:T3").squad.as_deref(), Some("web"));
+    assert_eq!(spec("implement:T5").squad, None, "a staff role");
+    let t1 = spec("implement:T1");
+    assert_eq!(t1.squad.as_deref(), Some("api"));
+    assert_eq!(
+        t1.effort.as_deref(),
+        Some("high"),
+        "a task sized S, within the squad's range for back"
+    );
+    assert_eq!(spec("plan").role.as_deref(), Some("cto"));
+}
+
+#[test]
+fn a_task_whose_squads_cannot_be_read_waits_for_the_user() {
+    let env = Env::new("squads-broken");
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str("[[squads]]\nid = \"web\"\nroles = { front = 1 }\npaths = [\"web/**\"]\n");
+    fs::write(&file, project).unwrap();
+    let mut t1 = task("T1", "front", &[], &[]);
+    t1["squad"] = "web".into();
+    env.answer("plan.json", env.plan(json!([t1])));
+    // While it works, the project gets a second squad named web: still TOML, no longer a team.
+    env.script(
+        "implement:T1",
+        &format!(
+            "printf '[[squads]]\\nid = \"web\"\\n' >> '{}'; mkdir -p src; echo x > src/x.txt\n",
+            file.display()
+        ),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        rules: [("scope-strict".to_owned(), Level::Block)].into(),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.until("T1 blocked", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.state == StepState::Blocked)
+    });
+    let note = env.step(&run, "implement:T1").note.clone().unwrap();
+    assert!(note.contains("two squads are named web"), "{note}");
+    assert!(
+        !env.target.worktree.join("src/x.txt").exists(),
+        "outside its squad's paths: never merged as if it had none"
+    );
+}
+
+/// The team against the real Claude Code, for a few cents: the shipped roles put on Haiku by `[roles.*]`, the
+/// `squads` workflow on a project of two squads (the PO's framing, the CTO's plan, one task per squad, the
+/// security review), each answer through `--json-schema` on a stream-json session. Permission requests are
+/// allowed. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
+/// `cargo test -p termf-team -- --ignored --nocapture real_team`
 #[test]
 #[ignore]
 fn real_team() {
@@ -1213,34 +1410,25 @@ fn real_team() {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
     };
-    put(
-        config.join("termf.toml"),
-        "[agents]\nclaude = \"claude\"\n".into(),
-    );
+    let mut settings = "[agents]\nclaude = \"claude\"\n".to_owned();
+    for role in ["po", "cto", "back", "front", "secops"] {
+        settings.push_str(&format!(
+            "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
+        ));
+    }
+    put(config.join("termf.toml"), settings);
     put(
         config.join("projects/acme.toml"),
         format!(
-            "name = \"Acme\"\n[[repos]]\nname = \"api\"\npath = \"{}\"\n",
+            "name = \"Acme\"\n[[repos]]\nname = \"api\"\npath = \"{}\"\n\
+             [[squads]]\nid = \"server\"\nroles = {{ back = 1 }}\npaths = [\"api/**\"]\ndomains = [\"server\"]\n\
+             [[squads]]\nid = \"client\"\nroles = {{ front = 1 }}\npaths = [\"web/**\"]\ndomains = [\"interface\"]\n",
             repo.display()
         ),
     );
-    for (role, extra) in [
-        (
-            "orchestrator",
-            "disallowedTools: Edit, Write, NotebookEdit\n",
-        ),
-        ("back", ""),
-    ] {
-        put(
-            config.join(format!("library/roles/{role}.md")),
-            format!(
-                "---\nname: {role}\ndescription: The {role} of the team\nmodel: haiku\neffort: low\n{extra}---\nYou are the {role} of the team. Be brief.\n"
-            ),
-        );
-    }
     put(
         config.join("library/workflows/real.toml"),
-        "budget_usd = 1\n[steps.plan]\ntype = \"agent\"\nrole = \"orchestrator\"\nbudget_usd = 0.3\n[steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\nstep = { budget_usd = 0.3 }\n".into(),
+        "extends = \"squads\"\nbudget_usd = 1.5\n[steps.approve-plan]\nenabled = false\n[steps.visual]\nenabled = false\n[steps.deliver]\nenabled = false\n".into(),
     );
     let target = Target {
         run: 1,
@@ -1249,8 +1437,8 @@ fn real_team() {
         repo_path: repo.clone(),
         worktree: worktree.clone(),
         ticket: "acme/api#1".into(),
-        title: "Add hello.txt".into(),
-        brief: "<ticket source=\"https://example.invalid/1\">\n# Add hello.txt\n\nCreate a file hello.txt at the root of the repository, containing the single word hi. One task, for the back role. No question.\n</ticket>".into(),
+        title: "Add hello.txt on both sides".into(),
+        brief: "<ticket source=\"https://example.invalid/1\">\n# Add hello.txt on both sides\n\nThis repository is a monorepo: api/ belongs to the server squad, web/ to the client squad, both folders are to be created here. Create api/hello.txt and web/hello.txt in this repository, each containing the single word hi. One small task per squad. Nothing else; everything is decided, no question.\n</ticket>".into(),
     };
     let (notifier, inbox) = channel();
     let agents = Agents::build(config.clone(), data.clone(), Vec::new(), move |u| {
@@ -1312,6 +1500,12 @@ fn real_team() {
             )
         })
     });
+    let specs: Vec<SessionSpec> = run
+        .steps
+        .iter()
+        .flat_map(|s| s.sessions.clone())
+        .map(|id| agents.session(id).unwrap().spec)
+        .collect();
     team.shutdown();
     agents.shutdown();
     for folder in folders {
@@ -1319,18 +1513,28 @@ fn real_team() {
             .args(["purge", &folder.to_string_lossy(), "-y"])
             .output();
     }
-    let hello = fs::read_to_string(worktree.join("hello.txt"));
+    let hello = ["api/hello.txt", "web/hello.txt"].map(|f| fs::read_to_string(worktree.join(f)));
     let _ = fs::remove_dir_all(&root);
 
+    eprintln!("real_team: ${:.4}, {} sessions", run.cost, specs.len());
     assert_eq!(run.state, RunState::Done, "{events:#?}");
     assert!(structured, "each answer came through --json-schema");
-    assert!(hello.unwrap().contains("hi"));
+    for file in hello {
+        assert!(file.unwrap().contains("hi"));
+    }
+    assert!(
+        specs.iter().all(|s| s.model.as_deref() == Some("haiku")),
+        "[roles.*] put every role on Haiku"
+    );
     let plan = run.plan.unwrap();
-    assert_eq!(plan.tasks.len(), 1, "{plan:#?}");
+    let mut squads: Vec<&str> = plan.tasks.iter().map(|t| t.squad.as_str()).collect();
+    squads.sort();
+    assert_eq!(squads, ["client", "server"], "{plan:#?}");
     assert!(
         run.steps
             .iter()
-            .all(|s| s.report.is_some() || s.plan || s.kind == StepKind::Foreach)
+            .filter(|s| s.agent() && !s.plan)
+            .all(|s| s.report.is_some())
     );
-    assert!(run.cost > 0.0 && run.cost < 1.0, "{}", run.cost);
+    assert!(run.cost > 0.0 && run.cost < 1.5, "{}", run.cost);
 }

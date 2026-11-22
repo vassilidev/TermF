@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { access, added, initials } from "../src/lib/team-logic.ts";
+import { access, added, initials, shown, source } from "../src/lib/team-logic.ts";
 
 test("a role's mark takes two letters of its name", () => {
   assert.equal(initials("front"), "FR");
@@ -30,4 +30,13 @@ test("the project a save created is the one that was missing", () => {
   const before = [{ id: "acme" }, { id: "docs" }];
   assert.equal(added(before, [...before, { id: "mobile" }]), "mobile");
   assert.equal(added(before, before), null);
+});
+
+test("role settings and credits, as the Team view shows them", () => {
+  assert.equal(shown(["medium", "xhigh"]), "medium, xhigh");
+  assert.equal(shown("opus"), "opus");
+  assert.equal(shown(2), "2");
+  assert.equal(source("obra/superpowers@22f0b463e7a5 (MIT): skills/x/task-reviewer-prompt.md"), "obra/superpowers (MIT)");
+  assert.equal(source("acme/roles"), "acme/roles");
+  assert.equal(source("https://github.com/obra/superpowers (MIT): skills/x.md"), "https://github.com/obra/superpowers (MIT)");
 });

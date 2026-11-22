@@ -500,6 +500,7 @@ pub fn run() {
             team::team_runs,
             team::team_run,
             team::team_events,
+            team::team_squads,
             onboarding::onboarding_state,
             onboarding::onboarding_analyze,
             onboarding::onboarding_answer,

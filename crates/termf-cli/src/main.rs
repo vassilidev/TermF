@@ -136,6 +136,8 @@ usage:
   termf team rules <run> [--task <id>] <rule>=<level>...
                                         rule levels for the ticket, or one task of the plan
   termf team stop [<run>]               emergency stop of one team, or of every team at work
+  termf team squads [<project>]         the squads and staff of a project (by default every project),
+                                        each role with its settings and the layers they come from
   termf project trust <id> [--off]      trust the project's repositories in Claude Code (and so their
                                         worktrees): no more \"Is this a project you trust?\"; --off stops
   termf claude settings get <key> [--scope <s>] [--repo <path>]

@@ -25,9 +25,16 @@ pub fn materialize(
 ) -> Result<Option<PathBuf>> {
     let plugin = session_dir.join("plugin");
     let mut prompt = String::new();
+    // The skills and preferences the role names come with it, on or not.
+    let mut wanted = Vec::new();
     if let Some(name) = &scope.role {
         let role = crate::role(config_dir, scope, name)?;
         prompt.push_str(&format!("## Role: {name}\n\n{}\n\n", role.body.trim()));
+        for kind in [Kind::Skill, Kind::Preference] {
+            for wanted_name in crate::list_of(role.meta.get(kind.dir())) {
+                wanted.push((kind, wanted_name));
+            }
+        }
     }
     let mut hooks = Vec::new();
     let generated = scope
@@ -41,9 +48,13 @@ pub fn materialize(
             _ => item.meta.get("level").and_then(Value::as_str),
         };
         // A level never switches on a rule a cloned repository brought.
+        let named = item.layer != Layer::Repo
+            && wanted
+                .iter()
+                .any(|(k, n)| *k == item.kind && *n == item.name);
         let on = match scope.rules.contains_key(&item.name) && item.kind == Kind::Rule {
             true => level != Some("off") && (item.layer != Layer::Repo || item.active),
-            false => item.active,
+            false => item.active || named,
         };
         if !on || item.runtime.as_deref().is_some_and(|r| r != "claude-code") {
             continue;
@@ -54,7 +65,13 @@ pub fn materialize(
             Kind::Command => copy_item(&item, &plugin.join("commands").join(file))?,
             Kind::Role => copy_item(&item, &plugin.join("agents").join(file))?,
             Kind::Preference | Kind::Rule
-                if level != Some("off") && crate::applies(&item, scope.role.as_deref()) =>
+                if level != Some("off")
+                    && (named
+                        || crate::applies(
+                            &item,
+                            scope.role.as_deref(),
+                            scope.squad.as_deref(),
+                        )) =>
             {
                 prompt.push_str(&format!("## {}\n\n{}\n\n", item.name, item.body.trim()));
                 if item.kind == Kind::Rule
@@ -408,6 +425,47 @@ mod tests {
             !prompt.contains("Push to main"),
             "a level never switches on a repository's rule"
         );
+
+        put(
+            &dir.join("library/preferences/web.md"),
+            "---\napplies_to: [squad:web]\n---\nThe web squad's way.\n",
+        );
+        put(
+            &dir.join("termf.toml"),
+            "[library]\nskills = [\"-notes\"]\n[roles.front]\npreferences = [\"+conventional-commits\"]\nskills = [\"+notes\"]\n",
+        );
+        put(&dir.join("library/skills/notes/SKILL.md"), "Take notes.\n");
+        let web = Scope {
+            squad: Some("web".into()),
+            ..front.clone()
+        };
+        let prompt = text(&web);
+        assert!(prompt.contains("The web squad's way."), "{prompt}");
+        assert!(
+            prompt.contains("## conventional-commits"),
+            "a preference the role names, though off"
+        );
+        assert!(
+            session.join("plugin/skills/notes/SKILL.md").is_file(),
+            "a skill the role names, though off"
+        );
+        assert!(!text(&front).contains("The web squad's way."), "no squad");
+        let plain = text(&Scope::default());
+        assert!(
+            !plain.contains("The web squad's way.") && plain.contains("Be brief."),
+            "no role: every role's, never another squad's"
+        );
+        let plain_web = text(&Scope {
+            squad: Some("web".into()),
+            ..Scope::default()
+        });
+        assert!(plain_web.contains("The web squad's way."));
+        let back = text(&Scope {
+            role: Some("back".into()),
+            squad: Some("web".into()),
+            ..Scope::default()
+        });
+        assert!(back.contains("The web squad's way.") && !back.contains("conventional-commits"));
 
         let unknown = Scope {
             role: Some("nobody".into()),
