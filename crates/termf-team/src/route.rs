@@ -477,7 +477,7 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
-        assert!(schema()["required"].as_array().unwrap().len() == 11);
+        assert!(schema()["required"].as_array().unwrap().len() == 12);
     }
 
     #[test]

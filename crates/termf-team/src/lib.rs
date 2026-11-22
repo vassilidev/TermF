@@ -1135,7 +1135,11 @@ impl Inner {
                  user.\n\nThe open findings:\n",
                 step.key
             ));
-            for f in last.findings.iter().filter(|f| f.fate == review::Fate::Asked) {
+            for f in last
+                .findings
+                .iter()
+                .filter(|f| f.fate == review::Fate::Asked)
+            {
                 text.push_str(&format!(
                     "- {} {:?} {}:{}: {} Fix expected: {} (the reviewer named: {})\n",
                     f.id,
@@ -1293,7 +1297,12 @@ impl Inner {
             if let Err(e) = self.accept(store, run, t) {
                 return self.block(store, run, t, &format!("{e:#}"));
             }
-            self.done(store, run, t, &format!("accepted as it is by the CTO: {ruling}"));
+            self.done(
+                store,
+                run,
+                t,
+                &format!("accepted as it is by the CTO: {ruling}"),
+            );
             return self.decide(store, run, &key, "cto", &ruling, None);
         }
         let instructions = verdict.instructions.trim();
@@ -1349,7 +1358,12 @@ impl Inner {
 
     /// The files the agent of step `i` tried to change in its turn (`events`) although its role may not: Claude Code
     /// refused them.
-    fn refused(&self, run: &TeamRun, i: usize, events: &[termf_agents::StoredEvent]) -> Vec<String> {
+    fn refused(
+        &self,
+        run: &TeamRun,
+        i: usize,
+        events: &[termf_agents::StoredEvent],
+    ) -> Vec<String> {
         let denied = self.denied(run, i).unwrap_or_default();
         if denied.is_empty() {
             return Vec::new();
@@ -1912,19 +1926,16 @@ impl Inner {
             return Ok(false);
         }
         let events = self.agents.events(id, step.after)?;
-        let end = events
-            .iter()
-            .rev()
-            .find_map(|e| match e.event.clone() {
-                AgentEvent::TurnEnd {
-                    outcome,
-                    result,
-                    structured,
-                    error,
-                    ..
-                } => Some((outcome, result, structured, error)),
-                _ => None,
-            });
+        let end = events.iter().rev().find_map(|e| match e.event.clone() {
+            AgentEvent::TurnEnd {
+                outcome,
+                result,
+                structured,
+                error,
+                ..
+            } => Some((outcome, result, structured, error)),
+            _ => None,
+        });
         let Some((outcome, result, structured, error)) = end else {
             if resuming || session.state == State::Idle {
                 return Ok(false);
@@ -3491,7 +3502,9 @@ impl Inner {
                 .map(|d| format!("- D{} (run {}, {}): {}", d.id, d.run, d.by, d.text))
                 .collect();
             let replace = match step.key == TRIAGE {
-                true => " (here, at the triage: name it in replaces, with the ruling that takes its place)",
+                true => {
+                    " (here, at the triage: name it in replaces, with the ruling that takes its place)"
+                }
                 false => "",
             };
             text.push_str(&format!(
@@ -3535,9 +3548,11 @@ impl Inner {
                  touched (affected_views), and the problems you saw out of scope (out_of_scope_findings): report \
                  them, never fix them.{}\n\n{OBSTACLES}\n\n{SUMMARY}\n",
                 match step.kind == StepKind::Task {
-                    true => " Say in public_change whether your work changes what users or other programs rely on \
+                    true =>
+                        " Say in public_change whether your work changes what users or other programs rely on \
                              (an API, a command, a setting, how a screen behaves).",
-                    false if canonical_role(role) == "secops" => " List each vulnerability you confirmed in \
+                    false if canonical_role(role) == "secops" =>
+                        " List each vulnerability you confirmed in \
                              vulnerabilities, one line each with its category, location and effect; none: an empty \
                              list.",
                     false => "",

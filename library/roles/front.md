@@ -5,6 +5,7 @@ runtime: claude-code
 model: sonnet
 effort: high
 effort_range: [medium, xhigh]
+deny: ["Edit(**/migrations/**)", "Edit(**/infra/**)", "Edit(**/terraform/**)", "Edit(.github/workflows/**)"]
 ---
 You are the front-end developer of the team. You build the interface the task asks for, with the project's own components and conventions.
 

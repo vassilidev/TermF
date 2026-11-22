@@ -179,9 +179,14 @@ pub fn denies(pattern: &str, path: &str) -> bool {
     if pattern.starts_with("//") || pattern.starts_with("~/") {
         return false;
     }
-    match pattern.strip_prefix("./").or_else(|| pattern.strip_prefix('/')) {
-        Some(anchored) => covers(anchored, path),
-        None => covers(pattern, path) || covers(&format!("**/{pattern}"), path),
+    // A pattern that names a folder takes in what it holds.
+    let within = |p: &str| covers(p, path) || covers(&format!("{p}/**"), path);
+    match pattern
+        .strip_prefix("./")
+        .or_else(|| pattern.strip_prefix('/'))
+    {
+        Some(anchored) => within(anchored),
+        None => within(pattern) || within(&format!("**/{pattern}")),
     }
 }
 
@@ -557,10 +562,16 @@ mod tests {
         assert!(denies("**/migrations/**", "db/migrations/001.sql"));
         assert!(denies("**/migrations/**", "migrations/001.sql"));
         assert!(!denies("**/migrations/**", "src/migrations.rs"));
-        assert!(denies("migrations", "api/migrations/x.sql"), "one segment: any depth");
+        assert!(
+            denies("migrations", "api/migrations/x.sql"),
+            "one segment: any depth"
+        );
         assert!(denies("*.sql", "db/x.sql"));
         assert!(denies("/infra/**", "infra/main.tf"));
-        assert!(!denies("/infra/**", "web/infra/main.tf"), "anchored at the folder");
+        assert!(
+            !denies("/infra/**", "web/infra/main.tf"),
+            "anchored at the folder"
+        );
         assert!(!denies("//etc/**", "etc/hosts"));
     }
 

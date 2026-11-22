@@ -113,7 +113,11 @@ fn check(run: &TeamRun, id: &str) -> Result<String, String> {
             Ok("passed".into())
         }
         "review" => {
-            let steps = over(of(StepKind::Review), false, "the workflow has no code review")?;
+            let steps = over(
+                of(StepKind::Review),
+                false,
+                "the workflow has no code review",
+            )?;
             let mut open = 0;
             let mut left = 0;
             for step in steps {
@@ -241,7 +245,12 @@ mod tests {
 
     #[test]
     fn a_file_of_the_documentation() {
-        for doc in ["README.md", "docs/api.yaml", "web/doc/x.html", "CHANGELOG.rst"] {
+        for doc in [
+            "README.md",
+            "docs/api.yaml",
+            "web/doc/x.html",
+            "CHANGELOG.rst",
+        ] {
             assert!(doc_file(doc), "{doc}");
         }
         for code in ["src/docs.rs", "requirements.txt", "docs"] {

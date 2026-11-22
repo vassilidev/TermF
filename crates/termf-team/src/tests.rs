@@ -11,8 +11,9 @@ use super::*;
 
 /// A stand-in for Claude Code that reads stream-json and answers each step from files a test writes: for the
 /// step `<key>` (read from the brief, or remembered for the conversation), its `<n>`th message runs
-/// `<key>.sh <n>` in the session's folder, then answers `<key>.<n>.json`, else `<key>.json`, else a report that
-/// says it is done (a clean review for `review`); `NONE` answers plain text. Each turn costs `<key>.cost`, else
+/// `<key>.sh <n>` in the session's folder, says the lines of `<key>.<n>.tool` (a tool call), then answers
+/// `<key>.<n>.json`, else `<key>.json`, else a report that says it is done (a clean review for `review`, "ask the
+/// user" for the CTO's escalation); `NONE` answers plain text. Each turn costs `<key>.cost`, else
 /// `cost`, cents (1 by default).
 /// It logs each step's begin and end, and the messages.
 const FAKE: &str = r#"
@@ -37,6 +38,7 @@ while IFS= read -r line; do
   echo "$key $n begin" >> "$log.steps"
   printf '{"type":"system","subtype":"init","session_id":"%s","model":"claude-haiku-5-5","permissionMode":"acceptEdits"}\n' "$sid"
   if [ -f "$dir/$key.sh" ]; then sh "$dir/$key.sh" "$n"; fi
+  if [ -f "$dir/$key.$n.tool" ]; then cat "$dir/$key.$n.tool"; fi
   ans="$dir/$key.$n.json"
   [ -f "$ans" ] || ans="$dir/$key.json"
   echo "$key $n end" >> "$log.steps"
@@ -48,6 +50,8 @@ while IFS= read -r line; do
   fi
   if [ -f "$ans" ]; then body=$(cat "$ans"); elif [ "$key" = review ]; then
     body='{"summary":"review done","findings":[]}'
+  elif [ "${key#escalate-}" != "$key" ]; then
+    body='{"decision":"ask","role":"","instructions":"","ruling":"Ruling: the user decides — no clear way — none","findings":[]}'
   else
     body="{\"status\":\"done\",\"summary\":\"$key done\",\"covers\":[],\"text_changes\":[],\"affected_views\":[],\"out_of_scope_findings\":[],\"questions\":[]}"
   fi
@@ -2762,4 +2766,584 @@ fn real_team() {
             .all(|s| s.report.is_some())
     );
     assert!(run.cost > 0.0 && run.cost < 1.5, "{}", run.cost);
+}
+
+/// A workflow with every step the definition of done reads: the checks, the code review, the security review, then
+/// the delivery gate; one back task that writes `src/api/a.txt`.
+fn disciplined(env: &Env, team: &str) {
+    fs::write(
+        env.config.join("library/workflows/disciplined.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
+         [steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{ repo.checks }}\"\n\
+         [steps.review]\ntype = \"review\"\nrole = \"reviewer\"\nneeds = [\"checks\"]\n\
+         [steps.security]\ntype = \"agent\"\nrole = \"secops\"\nneeds = [\"review\"]\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"security\"]\n",
+    )
+    .unwrap();
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\n{team}\n")).unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api"], &[])])),
+    );
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+    );
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("disciplined".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+}
+
+fn report(summary: &str) -> Value {
+    json!({"status": "done", "summary": summary, "covers": ["AC1"], "text_changes": [], "affected_views": [],
+        "out_of_scope_findings": [], "questions": []})
+}
+
+#[test]
+fn the_definition_of_done_holds_the_delivery_until_you_say_why() {
+    let env = Env::new("done");
+    let mut public = report("T1 done");
+    public["public_change"] = true.into();
+    env.answer("implement:T1.json", public);
+    let mut security = report("One confirmed finding.");
+    security["vulnerabilities"] = json!(["A01:2025 src/api/a.txt: any client reads any invoice"]);
+    env.answer("security.json", security);
+    disciplined(&env, "");
+    let run = env.until("the delivery", delivery);
+    let done = run
+        .done
+        .clone()
+        .expect("the gate read the definition of done");
+    let state: Vec<(&str, bool)> = done
+        .criteria
+        .iter()
+        .map(|c| (c.id.as_str(), c.met))
+        .collect();
+    assert_eq!(
+        state,
+        [
+            ("checks", true),
+            ("review", true),
+            ("security", false),
+            ("visual", true),
+            ("docs", false)
+        ]
+    );
+    assert!(
+        done.criteria[2]
+            .note
+            .contains("any client reads any invoice")
+    );
+    assert!(
+        done.criteria[4]
+            .note
+            .contains("T1 changed the public behaviour; no documentation changed")
+    );
+    let gate = env.step(&run, "deliver").note.clone().unwrap();
+    assert!(
+        gate.starts_with("the definition of done is not met"),
+        "{gate}"
+    );
+    let task = env.message("implement:T1", 1);
+    assert!(
+        task.contains("## The definition of done")
+            && task.contains("TermF delivers the run only when the project's checks pass;")
+            && task.contains("public_change"),
+        "{task}"
+    );
+    assert!(env.message("security", 1).contains("vulnerabilities"));
+
+    let refused = env.team.approve(1, "deliver").unwrap_err().to_string();
+    assert!(refused.contains("Give your reason"), "{refused}");
+    assert!(env.team.check_delivery(1).is_err(), "nor delivered past it");
+    assert!(env.team.approve_anyway(1, "deliver", "  ").is_err());
+    let run = env
+        .team
+        .approve_anyway(1, "deliver", "the docs come with the next ticket")
+        .unwrap();
+    assert_eq!(run.state, RunState::Done);
+    assert_eq!(
+        run.done.unwrap().overridden.as_deref(),
+        Some("the docs come with the next ticket")
+    );
+    env.team.check_delivery(1).unwrap();
+    let [decision] = &decisions(&env.data, "acme").unwrap()[..] else {
+        panic!("one decision")
+    };
+    assert_eq!(
+        (decision.by.as_str(), decision.step.as_str()),
+        ("you", "deliver")
+    );
+    assert!(
+        decision.text.contains("security (")
+            && decision
+                .text
+                .ends_with("the docs come with the next ticket"),
+        "{}",
+        decision.text
+    );
+    assert!(env.kinds().contains(&"decision".to_owned()));
+}
+
+#[test]
+fn the_definition_of_done_is_set_per_project() {
+    let env = Env::new("done-met");
+    disciplined(&env, "done = [\"checks\", \"review\"]");
+    let run = env.until("the delivery", delivery);
+    assert!(run.done.as_ref().unwrap().passes());
+    assert_eq!(run.done.unwrap().criteria.len(), 2);
+    env.team.check_delivery(1).unwrap();
+    assert_eq!(
+        env.team.approve(1, "deliver").unwrap().state,
+        RunState::Done
+    );
+
+    drop(env);
+    let env = Env::new("done-wrong");
+    disciplined(&env, "done = [\"checks\", \"tests\"]");
+    let run = env.until("the plan blocked", |r| {
+        r.steps[0].state == StepState::Blocked
+    });
+    let note = run.steps[0].note.clone().unwrap();
+    assert!(
+        note.contains("`[team] done`") && note.contains("checks, review, security, visual, docs"),
+        "{note}"
+    );
+}
+
+#[test]
+fn a_task_that_fails_twice_goes_to_the_cto_first() {
+    let env = Env::new("escalate");
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "front", &["src/api"], &[])])),
+    );
+    for n in [1, 2] {
+        fs::write(env.answers.join(format!("implement:T1.{n}.json")), "NONE").unwrap();
+    }
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo \"T1 attempt $1\" > src/api/a.txt\n",
+    );
+    env.answer(
+        "escalate-implement-T1.json",
+        json!({"decision": "reassign", "role": "back", "instructions": "Write src/api/a.txt from the API side.",
+            "ruling": "Ruling: back owns src/api — the API holds the export — a second escalation", "findings": []}),
+    );
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("nogate".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    let run = env.state(RunState::Done);
+    let t1 = env.step(&run, "implement:T1");
+    assert!(t1.escalated);
+    assert_eq!(t1.role.as_deref(), Some("back"));
+    assert_eq!(run.plan.as_ref().unwrap().tasks[0].role, "back");
+    let spec = env.agents.session(t1.session.unwrap()).unwrap().spec;
+    assert_eq!(
+        spec.role.as_deref(),
+        Some("back"),
+        "its new session plays back"
+    );
+    let cto = env.step(&run, "escalate-implement-T1");
+    assert_eq!(cto.escalates.as_deref(), Some("implement:T1"));
+    assert_eq!(cto.role.as_deref(), Some("cto"));
+    let verdict = &cto.report.as_ref().unwrap().summary;
+    assert!(verdict.contains("to the role back"), "{verdict}");
+
+    let asked = env.message("escalate-implement-T1", 1);
+    for expected in [
+        "## The escalation",
+        "Task T1 (role front, size S) did not get through 2 attempts",
+        "What went wrong the last time: the report is missing",
+        "The roles that may take it over:\n",
+        "- back:",
+        "## What to answer",
+    ] {
+        assert!(asked.contains(expected), "{expected} in {asked}");
+    }
+    assert!(
+        !asked.contains("an item of a questionnaire"),
+        "the CTO asks no question"
+    );
+    let third = env.message("implement:T1", 3);
+    assert!(
+        third.contains("This task failed with the role front")
+            && third.contains("The CTO gives it to you: Write src/api/a.txt from the API side."),
+        "{third}"
+    );
+    assert!(env.kinds().contains(&"escalated".to_owned()));
+    assert!(
+        decisions(&env.data, "acme").unwrap().is_empty(),
+        "only an acceptance is a ruling to keep"
+    );
+    assert!(
+        fs::read_to_string(env.target.worktree.join("src/api/a.txt"))
+            .unwrap()
+            .contains("attempt 3")
+    );
+}
+
+#[test]
+fn the_cto_accepts_once_then_you_decide() {
+    let env = Env::new("escalate-accept");
+    env.answer(
+        "plan.json",
+        env.plan(json!([
+            task("T1", "back", &["src/api"], &[]),
+            task("T2", "back", &["web"], &[]),
+        ])),
+    );
+    for n in [1, 2] {
+        fs::write(env.answers.join(format!("implement:T1.{n}.json")), "NONE").unwrap();
+    }
+    for n in 1..=4 {
+        fs::write(env.answers.join(format!("implement:T2.{n}.json")), "NONE").unwrap();
+    }
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+    );
+    env.answer(
+        "escalate-implement-T1.json",
+        json!({"decision": "accept", "role": "", "instructions": "",
+            "ruling": "Ruling: keep T1 — the file is right, only its report failed — a missing summary", "findings": []}),
+    );
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("nogate".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    let blocked = |r: &TeamRun| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T2" && s.state == StepState::Blocked)
+    };
+    let run = env.until("T2 waiting for you", blocked);
+    let t1 = env.step(&run, "implement:T1");
+    assert_eq!(t1.state, StepState::Done);
+    assert!(t1.accepted && t1.integrated);
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("src/api/a.txt")).unwrap(),
+        "T1\n",
+        "accepted: its work merged"
+    );
+    let t2 = env.step(&run, "implement:T2");
+    let note = t2.note.clone().unwrap();
+    assert!(
+        note.starts_with("the CTO leaves it to you: Ruling: the user decides")
+            && note.contains("the report is missing"),
+        "{note}"
+    );
+    let [decision] = &decisions(&env.data, "acme").unwrap()[..] else {
+        panic!("the CTO's acceptance is a decision")
+    };
+    assert_eq!(decision.by, "cto");
+    assert!(decision.text.starts_with("Ruling: keep T1"));
+
+    // Once a task: after your revision fails twice again, it is yours.
+    env.team
+        .revise(1, "implement:T2", "Write your report this time.")
+        .unwrap();
+    env.until("T2 blocked again", |r| {
+        blocked(r) && env.steps_log().contains(&"implement:T2 4 end".to_owned())
+    });
+    let escalations = env
+        .team
+        .events(1, 0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "escalated" && e.step.as_deref() == Some("implement:T2"))
+        .count();
+    assert_eq!(escalations, 1);
+    assert!(
+        !env.steps_log()
+            .contains(&"escalate-implement-T2 2 begin".to_owned())
+    );
+}
+
+#[test]
+fn the_last_round_goes_to_the_cto_before_you() {
+    let env = Env::new("escalate-review");
+    env.answer(
+        "review.1.json",
+        findings(
+            "Broken.",
+            json!([finding("important", "src/api/a.txt", 1, "T1")]),
+        ),
+    );
+    env.answer(
+        "review.2.json",
+        findings(
+            "Still broken.",
+            json!([
+                finding("important", "src/api/a.txt", 1, "T1"),
+                finding("important", "web/x.txt", 2, "T2"),
+            ]),
+        ),
+    );
+    env.answer(
+        "escalate-review.json",
+        json!({"decision": "retry", "role": "", "instructions": "",
+            "ruling": "Ruling: web/x.txt stays — no empty list reaches it — a crash on an empty cart",
+            "findings": [{"id": "F1", "task": "T1"}, {"id": "F2", "task": "leave"}]}),
+    );
+    reviewed(&env, "");
+    let run = env.until("the delivery", delivery);
+    let review = env.step(&run, "review");
+    assert!(review.escalated);
+    assert_eq!(review.state, StepState::Done);
+    assert_eq!(run.reviews.len(), 3, "the CTO's fix is reviewed too");
+    let fates: Vec<(review::Fate, Option<&str>)> = run.reviews[1]
+        .findings
+        .iter()
+        .map(|f| (f.fate, f.to.as_deref()))
+        .collect();
+    assert_eq!(
+        fates,
+        [
+            (review::Fate::Sent, Some("T1")),
+            (review::Fate::Left, Some("T2"))
+        ]
+    );
+    assert!(env.steps_log().contains(&"implement:T1 3 begin".to_owned()));
+    let asked = env.message("escalate-review", 1);
+    assert!(
+        asked.contains("ended its last round") && asked.contains("- F2 Important web/x.txt:2"),
+        "{asked}"
+    );
+    let [decision] = &decisions(&env.data, "acme").unwrap()[..] else {
+        panic!("what stays as it is is a decision")
+    };
+    assert_eq!(decision.by, "cto");
+    assert!(
+        decision.text.contains("finding F2 (web/x.txt:2")
+            && decision.text.ends_with("a crash on an empty cart"),
+        "{}",
+        decision.text
+    );
+}
+
+#[test]
+fn a_role_never_changes_a_path_it_may_not() {
+    let env = Env::new("paths");
+    env.answer(
+        "plan.json",
+        env.plan(json!([
+            task("T1", "front", &["web"], &[]),
+            task("T2", "front", &["app"], &[]),
+        ])),
+    );
+    // Written by a command: the commit shows it.
+    env.script(
+        "implement:T1",
+        "mkdir -p web db/migrations; echo hi > web/x.txt; echo 'select 1;' > db/migrations/1.sql\n",
+    );
+    // Refused by Claude Code: its tool call shows it.
+    let file = env.data.join("team/1/T2/db/migrations/2.sql");
+    let call = json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use",
+        "id": "toolu_1", "name": "Write", "input": {"file_path": file, "content": "select 2;"}}]}, "session_id": "x"});
+    fs::write(env.answers.join("implement:T2.1.tool"), format!("{call}\n")).unwrap();
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("nogate".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    let run = env.until("both tasks blocked", |r| {
+        r.steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Task && s.state == StepState::Blocked)
+            .count()
+            == 2
+    });
+    let t1 = env.step(&run, "implement:T1");
+    let t2 = env.step(&run, "implement:T2");
+    assert!(
+        t1.note
+            .as_deref()
+            .unwrap()
+            .starts_with("its role may not change db/migrations/1.sql")
+    );
+    assert!(
+        t2.note
+            .as_deref()
+            .unwrap()
+            .starts_with("its role may not change db/migrations/2.sql: Claude Code refused it")
+    );
+    assert!(
+        !t1.escalated && !t2.escalated,
+        "a boundary, not a failure: yours"
+    );
+    assert_eq!(t1.attempt, 1);
+    let spec = env.agents.session(t1.session.unwrap()).unwrap().spec;
+    assert!(
+        spec.disallowed_tools
+            .contains(&"Edit(**/migrations/**)".to_owned()),
+        "{:?}",
+        spec.disallowed_tools
+    );
+    let brief = env.message("implement:T1", 1);
+    assert!(
+        brief.contains(
+            "Your role may not change these paths: **/migrations/**, **/infra/**, **/terraform/**, \
+             .github/workflows/**."
+        ),
+        "{brief}"
+    );
+
+    drop(env);
+    let env = Env::new("paths-lifted");
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(
+        &file,
+        format!("{project}[roles.front]\ndeny = [\"-Edit(**/migrations/**)\"]\n"),
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "front", &["db"], &[])])),
+    );
+    env.script(
+        "implement:T1",
+        "mkdir -p db/migrations; echo 'select 1;' > db/migrations/1.sql\n",
+    );
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("nogate".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+    env.state(RunState::Done);
+    assert!(env.target.worktree.join("db/migrations/1.sql").is_file());
+}
+
+#[test]
+fn the_decisions_of_the_project_bind_the_runs_to_come() {
+    let env = Env::new("decisions");
+    triage_project(&env);
+    let store = Store::open(&env.data).unwrap();
+    let csv = store
+        .decide(
+            "acme",
+            7,
+            TRIAGE,
+            "cto",
+            "Ruling: CSV only — the finance team asked for it — an Excel request later",
+            None,
+        )
+        .unwrap();
+    let comma = store
+        .decide("acme", 7, "plan", "you", "Which separator? → comma", None)
+        .unwrap();
+    store
+        .decide("other", 3, TRIAGE, "cto", "Ruling: another project's", None)
+        .unwrap();
+    let mut asks = routing("default", &[]);
+    asks["questions"] = json!([
+        question("format", "choice", &["CSV", "Excel"], &["CSV"]),
+        {"id": "when", "theme": "scope", "question": "This sprint?", "why": "it changes the plan", "kind": "bool",
+            "options": [], "proposed": ["yes"], "implications": []},
+    ]);
+    env.answer("triage.1.json", asks);
+    let mut bad = routing("default", &["api"]);
+    bad["replaces"] = json!([{"decision": "D99", "ruling": "Ruling: x — y — z"}]);
+    env.answer("triage.2.json", bad);
+    let mut good = routing("default", &["api"]);
+    good["rulings"] = json!(["Ruling: semicolons — Excel in France reads them — a comma request"]);
+    good["replaces"] = json!([{"decision": format!("D{}", comma.id),
+        "ruling": "Ruling: semicolons, not commas — Excel in France — a second exporter"}]);
+    env.answer("triage.3.json", good);
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    env.until("the CTO's questions", |r| {
+        r.steps[0].state == StepState::Blocked
+    });
+    let first = env.message("triage", 1);
+    for expected in [
+        "## The project's decisions",
+        &format!("- D{} (run 7, cto): Ruling: CSV only", csv.id),
+        &format!("- D{} (run 7, you): Which separator? → comma", comma.id),
+        "name it in replaces",
+    ] {
+        assert!(first.contains(expected), "{expected} in {first}");
+    }
+    assert!(!first.contains("another project's"));
+    let answers = BTreeMap::from([
+        ("format".to_owned(), vec!["Excel".to_owned()]),
+        ("when".to_owned(), vec!["no".to_owned()]),
+    ]);
+    env.team.answer(1, TRIAGE, answers, "").unwrap();
+    env.until("the routing gate", |r| {
+        r.steps[1].state == StepState::Waiting
+    });
+    assert!(
+        env.message("triage", 3)
+            .contains("D99 is not a decision of the project in force")
+    );
+    env.team.approve(1, ROUTE).unwrap();
+    env.until("the framing", |_| {
+        env.steps_log().contains(&"frame 1 end".to_owned())
+    });
+
+    let list = decisions(&env.data, "acme").unwrap();
+    let texts: Vec<(&str, &str)> = list
+        .iter()
+        .map(|d| (d.by.as_str(), d.text.as_str()))
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            (
+                "cto",
+                "Ruling: semicolons, not commas — Excel in France — a second exporter"
+            ),
+            (
+                "cto",
+                "Ruling: semicolons — Excel in France reads them — a comma request"
+            ),
+            ("you", "CSV or Excel? → Excel"),
+            ("you", "Which separator? → comma"),
+            (
+                "cto",
+                "Ruling: CSV only — the finance team asked for it — an Excel request later"
+            ),
+        ],
+        "newest first; the scope of this ticket stays its own"
+    );
+    assert_eq!(list[0].replaces, Some(comma.id));
+    assert_eq!(list[3].replaced_by, Some(list[0].id));
+    let frame = env.message("frame", 1);
+    assert!(frame.contains(&format!("- D{} (run 7, cto): Ruling: CSV only", csv.id)));
+    assert!(
+        !frame.contains("→ comma"),
+        "a replaced decision no longer binds"
+    );
+    assert!(!frame.contains("name it in replaces"));
 }

@@ -169,10 +169,28 @@ mod tests {
     #[test]
     fn a_verdict_fits_its_step() {
         let roles = ["front".to_owned(), "back".to_owned()];
-        assert!(check(&verdict(Decision::Reassign, "back", &[]), None, &roles, "front").is_empty());
-        let same = check(&verdict(Decision::Reassign, "front", &[]), None, &roles, "front");
+        assert!(
+            check(
+                &verdict(Decision::Reassign, "back", &[]),
+                None,
+                &roles,
+                "front"
+            )
+            .is_empty()
+        );
+        let same = check(
+            &verdict(Decision::Reassign, "front", &[]),
+            None,
+            &roles,
+            "front",
+        );
         assert!(same[0].contains("retry it instead"), "{same:?}");
-        let unknown = check(&verdict(Decision::Reassign, "dba", &[]), None, &roles, "front");
+        let unknown = check(
+            &verdict(Decision::Reassign, "dba", &[]),
+            None,
+            &roles,
+            "front",
+        );
         assert!(unknown[0].contains("not a role"), "{unknown:?}");
         let mut silent = verdict(Decision::Accept, "", &[]);
         silent.ruling = " ".into();
@@ -185,9 +203,19 @@ mod tests {
         assert!(check(&fine, review, &roles, "").is_empty());
         let wrong = verdict(Decision::Retry, "", &[("F1", "T9"), ("F3", "T1")]);
         let problems = check(&wrong, review, &roles, "");
-        assert_eq!(problems.len(), 3, "T9, F2 missing, F3 not open: {problems:?}");
         assert_eq!(
-            check(&verdict(Decision::Reassign, "back", &[]), review, &roles, "").len(),
+            problems.len(),
+            3,
+            "T9, F2 missing, F3 not open: {problems:?}"
+        );
+        assert_eq!(
+            check(
+                &verdict(Decision::Reassign, "back", &[]),
+                review,
+                &roles,
+                ""
+            )
+            .len(),
             1
         );
         assert!(check(&verdict(Decision::Accept, "", &[]), review, &roles, "").is_empty());

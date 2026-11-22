@@ -224,7 +224,10 @@ impl Store {
             .filter_map(|d| Some((d.replaces?, d.id)))
             .collect();
         for d in &mut list {
-            d.replaced_by = replaced.iter().find(|(old, _)| *old == d.id).map(|(_, by)| *by);
+            d.replaced_by = replaced
+                .iter()
+                .find(|(old, _)| *old == d.id)
+                .map(|(_, by)| *by);
         }
         Ok(list)
     }
