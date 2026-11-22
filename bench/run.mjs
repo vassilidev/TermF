@@ -564,6 +564,7 @@ async function main() {
     const bin = mkdtempSync(join(tmpdir(), "termf-bench-bin-"));
     writeFileSync(join(bin, "tsc"), `#!/bin/sh\nexec node ${JSON.stringify(tsc)} "$@"\n`, { mode: 0o755 });
     gitEnv.PATH = `${bin}${delimiter}${process.env.PATH}`;
+    process.on("exit", () => rmSync(bin, { recursive: true, force: true }));
   }
   if (o.arms.includes("team")) teamBinary();
 
