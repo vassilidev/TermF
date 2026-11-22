@@ -49,7 +49,8 @@
   let subject = $state("");
   let body = $state("");
   let amend = $state(false);
-  let amendOf = $state<{ head: string; remote: string | null } | null>(null);
+  /** `filled`: the message Amend put in the form, if it did. */
+  let amendOf = $state<{ head: string; remote: string | null; filled: { subject: string; body: string } | null } | null>(null);
   let stashing = $state<{ message: string; untracked: boolean } | null>(null);
   let discard = $state<{
     open: boolean;
@@ -163,12 +164,18 @@
   }
 
   async function toggleAmend() {
+    const filled = amendOf?.filled;
     amendOf = null;
-    if (!amend) return;
+    if (!amend) {
+      // HEAD's message goes with Amend, unless it was edited: it would otherwise make a new commit.
+      if (filled && subject === filled.subject && body === filled.body) [subject, body] = ["", ""];
+      return;
+    }
     await act("amend", async () => {
       const head = await invoke<CommitDetail>("git_show", { repo: wt.path, rev: "HEAD" });
-      amendOf = { head: head.commit.oid, remote: head.remote };
-      if (!subject.trim() && !head.remote) ({ subject, body } = splitMessage(head.message));
+      const filled = !subject.trim() && !head.remote ? splitMessage(head.message) : null;
+      if (filled) ({ subject, body } = filled);
+      amendOf = { head: head.commit.oid, remote: head.remote, filled };
     });
     if (!amendOf) amend = false;
   }

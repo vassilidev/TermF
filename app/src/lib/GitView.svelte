@@ -251,14 +251,16 @@
     });
   });
 
+  let stashSeq = 0;
   $effect(() => {
     const [s, stashes, repo] = [shown, snap?.stashes, git.repo];
     untrack(() => {
       if (s?.kind !== "stash" || stashFiles?.oid === s.stash.oid || !stashes) return;
       const { index, oid } = s.stash;
+      const n = ++stashSeq;
       invoke<FileDiff[]>("git_stash_show", { repo, index, oid }).then(
-        (files) => (stashFiles = { oid, files }),
-        (e) => (error = String(e)),
+        (files) => n === stashSeq && (stashFiles = { oid, files }),
+        (e) => n === stashSeq && (error = String(e)),
       );
     });
   });
@@ -943,7 +945,7 @@
           {#if d}
             <h3>{t("gitChanges")}<span class="n">{d.files.length}</span></h3>
             <div class="files">
-              {#each d.files as f (f.path)}
+              {#each d.files as f, i (i)}
                 <details class="file">
                   <summary>
                     <span class="path mono">{#if f.from}<span class="muted">{`${f.from} → `}</span>{/if}{f.path}</span>
@@ -994,10 +996,10 @@
             <dd>{ago(st.date)}</dd>
           </dl>
           <div class="actions">
-            <button class="btn sm primary" onclick={() => applyStash(st, true)} disabled={!!busy} title={t("git2PopHint")}>
+            <button class="btn sm primary" onclick={() => applyStash(st, true)} disabled={!!busy || !!here?.operation} title={t("git2PopHint")}>
               <ArchiveRestore size={14} aria-hidden="true" />{t("git2Pop")}
             </button>
-            <button class="btn sm" onclick={() => applyStash(st, false)} disabled={!!busy} title={t("git2ApplyHint")}>{t("git2Apply")}</button>
+            <button class="btn sm" onclick={() => applyStash(st, false)} disabled={!!busy || !!here?.operation} title={t("git2ApplyHint")}>{t("git2Apply")}</button>
             <button class="btn sm quiet-danger" onclick={() => (stashRemoval = { stash: st, open: true })} disabled={!!busy}>
               <Trash size={14} aria-hidden="true" />{t("gitDelete")}
             </button>
@@ -1007,7 +1009,7 @@
             <p class="muted small" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" /> {t("gitLoading")}</p>
           {:else}
             <div class="files">
-              {#each files as f (f.path)}
+              {#each files as f, i (i)}
                 <details class="file">
                   <summary>
                     <span class="path mono">{f.path}</span>
@@ -1043,7 +1045,7 @@
               <label class="labelled grow">
                 <span>{t("git2TagOn", { sha: short(f.target) })}</span>
                 <!-- svelte-ignore a11y_autofocus -->
-                <input class="field mono" bind:value={f.name} placeholder="v1.2.0" spellcheck="false" autocomplete="off" autofocus />
+                <input class="field mono" bind:value={f.name} placeholder={t("git2TagPlaceholder")} spellcheck="false" autocomplete="off" autofocus />
               </label>
               <label class="labelled full">
                 <span>{t("git2TagMessage")}</span>
@@ -1288,7 +1290,7 @@
     <p class="lost">{t("git2StashDropLost", { message: r.stash.message })}</p>
     {#if files}
       <ul class="lost-list">
-        {#each files as f (f.path)}<li><span class="mono">{f.path}</span> <span class="muted">+{f.added} −{f.removed}</span></li>{/each}
+        {#each files as f, i (i)}<li><span class="mono">{f.path}</span> <span class="muted">+{f.added} −{f.removed}</span></li>{/each}
       </ul>
     {/if}
   </ConfirmDialog>
