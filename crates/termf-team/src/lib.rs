@@ -550,6 +550,8 @@ struct Inner {
     opening: Mutex<std::collections::BTreeSet<(i64, String)>>,
     /// The tasks whose worktree is being prepared, by run and step.
     preparing: Mutex<std::collections::BTreeSet<(i64, String)>>,
+    /// The automatic checks being run on a base, by the file their result goes to.
+    baselines: Arc<Mutex<std::collections::BTreeSet<String>>>,
 }
 
 /// Called when a visual gate opens, with the run and the gate's step: the visual review starts. It must not
@@ -592,6 +594,7 @@ impl Team {
             visual: Mutex::default(),
             opening: Mutex::default(),
             preparing: Mutex::default(),
+            baselines: Arc::default(),
         });
         if let Err(e) = inner.recover() {
             eprintln!("termf: team runs left as they were: {e:#}");
@@ -2254,8 +2257,11 @@ impl Inner {
         if sent >= CHECKS_BACK {
             return None;
         }
+        // Only the tasks the check comes after: run again, it reads their fix (in a workflow of the project's own,
+        // a check may not wait for them).
         let tasks: Vec<usize> = (0..run.steps.len())
             .filter(|&j| run.steps[j].kind == StepKind::Task && !run.steps[j].batch)
+            .filter(|&j| downstream(run, j).contains(&key))
             .collect();
         let named: Vec<usize> = tasks
             .iter()
@@ -2723,8 +2729,6 @@ impl Inner {
         Ok(())
     }
 
-    /// Whether the sub-plan of `batch` waits for the user: `[team] subplan_gate` of the project's file, else of
-    /// `termf.toml`: `off`, `large` (the default: a batch sized L) or `always`.
     /// Whether the gate step `i` waits for the user: always, but the plan's gate, which by `[team] plan_gate`
     /// (`large` by default, `always`, `off`) waits only for a run the CTO sized L. A run it did not size waits.
     fn plan_gate(&self, run: &TeamRun, i: usize) -> Result<bool> {
@@ -2760,6 +2764,8 @@ impl Inner {
         )
     }
 
+    /// Whether the sub-plan of `batch` waits for the user: `[team] subplan_gate` of the project's file, else of
+    /// `termf.toml`: `off`, `large` (the default: a batch sized L) or `always`.
     fn subplan_gate(&self, run: &TeamRun, batch: &Task) -> Result<bool> {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         let files = [project.as_path(), &self.config_dir.join("termf.toml")];
@@ -3836,13 +3842,20 @@ impl Inner {
             path,
             id: self.setup_id(run, i),
         };
+        let baseline = self.baseline(run, i)?;
         let step = &mut run.steps[i];
         step.prepared = false;
         step.note = Some("its worktree is being prepared".into());
         self.preparing.lock().unwrap().insert((run.run, key.clone()));
         let (setup, tx, id) = (self.setup(), self.tx.lock().unwrap().clone(), run.run);
+        let extra = self.env.clone();
         std::thread::spawn(move || {
             let report = setup.run(&worktree);
+            if let Some(baseline) = baseline {
+                let mut env: Vec<(String, String)> = setup.env(&worktree.path).into_iter().collect();
+                env.extend(extra);
+                baseline(&worktree.path, env);
+            }
             let failed: Vec<String> = report
                 .steps
                 .iter()
@@ -4166,7 +4179,7 @@ impl Inner {
                 step.state = StepState::Running;
                 step.accepted = false;
                 step.started = Some(now());
-                let listed: Vec<&str> = commands.iter().map(|(c, _)| c.as_str()).collect();
+                let listed: Vec<&str> = commands.iter().map(|(c, _, _)| c.as_str()).collect();
                 self.event(store, run, Some(&key), "step_started", &listed.join("\n"));
                 self.shell(run.run, key, commands);
             }
@@ -4485,24 +4498,7 @@ impl Inner {
     /// work. The plan's other tasks keep theirs.
     fn reopen_after(&self, run: &mut TeamRun, target: usize) {
         let key = run.steps[target].key.clone();
-        let mut after = std::collections::HashSet::from([key.clone()]);
-        // A task's work reaches what needs its foreach.
-        if let Some((each, _)) = key.split_once(':') {
-            after.insert(each.to_owned());
-        }
-        loop {
-            let more: Vec<String> = run
-                .steps
-                .iter()
-                .filter(|s| s.kind != StepKind::Task && !after.contains(&s.key))
-                .filter(|s| s.needs.iter().any(|n| after.contains(n)))
-                .map(|s| s.key.clone())
-                .collect();
-            if more.is_empty() {
-                break;
-            }
-            after.extend(more);
-        }
+        let after = downstream(run, target);
         for j in 0..run.steps.len() {
             let step = &run.steps[j];
             if step.key == key || !after.contains(&step.key) || step.state == StepState::Pending {
@@ -4519,16 +4515,18 @@ impl Inner {
         }
     }
 
-    /// The commands of the `shell` step `i`, each with the worktree it runs in: `{{ repo.checks }}` is each
-    /// repository's `checks` in its project, in its own work (the run's own repository, then the others it works
-    /// on); a command without it runs in the run's worktree.
-    fn command(&self, run: &TeamRun, i: usize) -> Result<Vec<(String, PathBuf)>> {
+    /// The commands of the `shell` step `i`, each with the worktree it runs in and whether its failure holds the
+    /// step: `{{ repo.checks }}` is each repository's `checks` in its project, in its own work (the run's own
+    /// repository, then the others it works on), with the typecheck and the lint the repository configures, which
+    /// hold the step only when they passed on the run's base (see [`Inner::baseline`]); a command without it runs in
+    /// the run's worktree.
+    fn command(&self, run: &TeamRun, i: usize) -> Result<Vec<(String, PathBuf, bool)>> {
         let command = run.steps[i].run.clone().unwrap_or_default();
         if !command.contains("{{") {
-            let found = Some((command, run.target.worktree.clone()));
+            let found = Some((command, run.target.worktree.clone(), true));
             return Ok(found
                 .into_iter()
-                .filter(|(c, _)| !c.trim().is_empty())
+                .filter(|(c, _, _)| !c.trim().is_empty())
                 .collect());
         }
         let file = termf_core::project_file(&self.config_dir, &run.target.project)?;
@@ -4552,17 +4550,11 @@ impl Inner {
                 .unwrap_or_default()
                 .to_owned()
         };
-        let homes = std::iter::once((&run.target.repo_path, &run.target.worktree))
-            .chain(run.repos.iter().map(|r| (&r.path, &r.worktree)));
-        // The typecheck and the lint a repository configures run with its checks, scripted or not, unless
-        // `[team] auto_checks = false`.
-        let auto = route::flag(&file, "auto_checks")?.unwrap_or(true);
-        let path = termf_core::shell::login_path()
-            .map(|p| p.to_os_string())
-            .or_else(|| std::env::var_os("PATH"))
-            .unwrap_or_default();
+        let homes = std::iter::once((&run.target.repo_path, &run.target.worktree, &run.base))
+            .chain(run.repos.iter().map(|r| (&r.path, &r.worktree, &r.base)));
+        let auto = self.auto_checks(run)?;
         let mut commands = Vec::new();
-        for (repo, worktree) in homes {
+        for (repo, worktree, base) in homes {
             let checks = checks(repo);
             let command = command
                 .replace("{{ repo.checks }}", &checks)
@@ -4572,34 +4564,101 @@ impl Inner {
                 "unknown placeholder in {command:?}"
             );
             if !command.trim().is_empty() {
-                commands.push((command.clone(), worktree.clone()));
+                commands.push((command.clone(), worktree.clone(), true));
             }
             if !auto {
                 continue;
             }
-            for extra in termf_library::stack::checks(worktree, &path) {
+            for extra in termf_library::stack::checks(worktree, &login_path()) {
                 let tool = extra.split_whitespace().next().unwrap_or_default();
                 let name = Path::new(tool)
                     .file_stem()
                     .unwrap_or_default()
                     .to_string_lossy();
                 if !command.contains(name.as_ref()) {
-                    commands.push((extra, worktree.clone()));
+                    let holds = base
+                        .as_deref()
+                        .and_then(|b| fs::read_to_string(self.baseline_file(b, &extra)).ok())
+                        .is_some_and(|r| r == "pass");
+                    commands.push((extra, worktree.clone(), holds));
                 }
             }
         }
         Ok(commands)
     }
 
-    /// Runs the `shell` step's commands one after the other, each in its worktree, until one fails.
-    fn shell(&self, run: i64, step: String, commands: Vec<(String, PathBuf)>) {
+    /// Whether the typecheck and the lint a repository configures run with its checks: `[team] auto_checks` of the
+    /// project's file, else of `termf.toml`, else yes.
+    fn auto_checks(&self, run: &TeamRun) -> Result<bool> {
+        let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
+        Ok(match route::flag(&project, "auto_checks")? {
+            Some(on) => on,
+            None => route::flag(&self.config_dir.join("termf.toml"), "auto_checks")?.unwrap_or(true),
+        })
+    }
+
+    /// Where the result of an automatic check on a commit is kept.
+    fn baseline_file(&self, commit: &str, command: &str) -> PathBuf {
+        let name: String = command
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        self.data_dir
+            .join("team-baselines")
+            .join(format!("{commit}-{name}"))
+    }
+
+    /// What runs the automatic checks of task `i`'s worktree once it is prepared, when the worktree is still the
+    /// base of its repository's run work: a check that fails there already (a config its tool's version no longer
+    /// reads, a generated file missing, errors already on the base) holds nothing, it only says what it found. Once
+    /// a commit: the results are kept by commit. `None` when there is nothing to learn.
+    fn baseline(&self, run: &TeamRun, i: usize) -> Result<Option<Baseline>> {
+        let task_repo = run.task(i).map(|t| t.repo.as_str()).unwrap_or_default();
+        let base = run
+            .repos
+            .iter()
+            .find(|r| !task_repo.is_empty() && r.name.eq_ignore_ascii_case(task_repo))
+            .map_or(&run.base, |r| &r.base);
+        let (Some(base), true) = (base.clone(), self.auto_checks(run)?) else {
+            return Ok(None);
+        };
+        if run.steps[i].base.as_deref() != Some(base.as_str()) {
+            return Ok(None);
+        }
+        let (files, claimed) = (self.data_dir.join("team-baselines"), self.baselines.clone());
+        Ok(Some(Box::new(move |dir: &Path, env: Vec<(String, String)>| {
+            let _ = fs::create_dir_all(&files);
+            for command in termf_library::stack::checks(dir, &login_path()) {
+                let name: String = command
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                    .collect();
+                let file = files.join(format!("{base}-{name}"));
+                let key = file.to_string_lossy().into_owned();
+                if file.exists() || !claimed.lock().unwrap().insert(key.clone()) {
+                    continue;
+                }
+                let (passed, _) = run_check(&command, dir, &env, &AtomicBool::new(false));
+                let _ = fs::write(&file, if passed { "pass" } else { "fail" });
+                claimed.lock().unwrap().remove(&key);
+            }
+        })))
+    }
+
+    /// Runs the `shell` step's commands one after the other, each in its worktree, until one that holds the step
+    /// fails; one that does not hold it only says what it found.
+    fn shell(&self, run: i64, step: String, commands: Vec<(String, PathBuf, bool)>) {
         let setup = termf_worktree::Setup::new(self.config_dir.clone(), self.data_dir.clone());
+        let extra = self.env.clone();
         let commands: Vec<_> = commands
             .into_iter()
-            .map(|(command, cwd)| (command, setup.env(&cwd), cwd))
+            .map(|(command, cwd, holds)| {
+                let mut env: Vec<(String, String)> = setup.env(&cwd).into_iter().collect();
+                env.extend(extra.iter().cloned());
+                (command, env, cwd, holds)
+            })
             .collect();
         let tx = self.tx.lock().unwrap().clone();
-        let extra = self.env.clone();
         let launch = self.launches.fetch_add(1, Ordering::SeqCst);
         let kill = Arc::new(AtomicBool::new(false));
         let killed = kill.clone();
@@ -4610,30 +4669,19 @@ impl Inner {
         std::thread::spawn(move || {
             let several = commands.len() > 1;
             let (mut ok, mut outputs) = (true, Vec::new());
-            for (command, env, cwd) in commands {
-                let (program, args) = termf_term::shell_command(Some(&command));
-                let mut cmd = std::process::Command::new(program);
-                cmd.args(args)
-                    .current_dir(&cwd)
-                    .envs(env)
-                    .envs(extra.clone());
-                let (passed, output) =
-                    match termf_core::process::run_until(cmd, b"", SHELL_TIMEOUT, &killed) {
-                        Ok((status, out, err)) => {
-                            let text = format!(
-                                "{}\n{}",
-                                String::from_utf8_lossy(&out),
-                                String::from_utf8_lossy(&err)
-                            );
-                            (status.success(), termf_core::process::tail(&text))
-                        }
-                        Err(e) => (false, format!("{e:#}")),
-                    };
+            for (command, env, cwd, holds) in commands {
+                let (passed, output) = run_check(&command, &cwd, &env, &killed);
+                let output = match (passed, holds) {
+                    (false, false) => format!(
+                        "{output}\n(added by TermF, it did not pass on the run's base: it holds nothing)"
+                    ),
+                    _ => output,
+                };
                 outputs.push(match several {
                     true => format!("$ {command} ({})\n{output}", cwd.display()),
                     false => output,
                 });
-                ok = passed;
+                ok = passed || !holds;
                 if !ok {
                     break;
                 }
@@ -5157,9 +5205,10 @@ impl Inner {
             ));
             if step.kind == StepKind::Task && !step.batch {
                 text.push_str(
-                    "\nChange only what the ticket and your task ask. Hardening, refactoring or cleanup beyond them, \
-                     however sound, goes in out_of_scope_findings as a proposal, not in the code: the reviewer sends \
-                     back any change the ticket does not need.\n",
+                    "\nChange only what the ticket and your task ask. Refactoring or cleanup beyond them, however \
+                     sound, goes in out_of_scope_findings as a proposal, not in the code: the reviewer sends back any \
+                     change the ticket does not need. A security control the code you write needs (a permission \
+                     check, input validation, escaping) is never beyond them: write it.\n",
                 );
             }
             if DIRECT.contains(&run.workflow.as_str()) {
@@ -5460,6 +5509,66 @@ const OBSTACLES: &str = "A failing command, a timeout or a missing package is a 
 const SUMMARY: &str = "Write your summary for a reader who saw none of your work: the key points first, about 300 \
      words at most, in plain words rather than names you made up along the way. The steps after you and the CTO \
      read only it.";
+
+/// What learns, in a task's freshly prepared worktree (with its environment), how the automatic checks fare on
+/// the run's base.
+type Baseline = Box<dyn FnOnce(&Path, Vec<(String, String)>) + Send>;
+
+/// The PATH the sessions TermF opens see.
+fn login_path() -> std::ffi::OsString {
+    termf_core::shell::login_path()
+        .map(|p| p.to_os_string())
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default()
+}
+
+/// Runs `command` through the shell in `cwd`: whether it passed, and the end of what it wrote.
+fn run_check(
+    command: &str,
+    cwd: &Path,
+    env: &[(String, String)],
+    killed: &AtomicBool,
+) -> (bool, String) {
+    let (program, args) = termf_term::shell_command(Some(command));
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args)
+        .current_dir(cwd)
+        .envs(env.iter().map(|(k, v)| (k, v)));
+    match termf_core::process::run_until(cmd, b"", SHELL_TIMEOUT, killed) {
+        Ok((status, out, err)) => {
+            let text = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out),
+                String::from_utf8_lossy(&err)
+            );
+            (status.success(), termf_core::process::tail(&text))
+        }
+        Err(e) => (false, format!("{e:#}")),
+    }
+}
+
+/// Step `target` and the steps its work reaches, through their needs.
+fn downstream(run: &TeamRun, target: usize) -> std::collections::HashSet<String> {
+    let key = &run.steps[target].key;
+    let mut after = std::collections::HashSet::from([key.clone()]);
+    // A task's work reaches what needs its foreach.
+    if let Some((each, _)) = key.split_once(':') {
+        after.insert(each.to_owned());
+    }
+    loop {
+        let more: Vec<String> = run
+            .steps
+            .iter()
+            .filter(|s| s.kind != StepKind::Task && !after.contains(&s.key))
+            .filter(|s| s.needs.iter().any(|n| after.contains(n)))
+            .map(|s| s.key.clone())
+            .collect();
+        if more.is_empty() {
+            return after;
+        }
+        after.extend(more);
+    }
+}
 
 /// The steps of a run that follow a workflow's.
 fn build_steps(defs: Vec<(String, workflow::StepDef)>) -> Vec<Step> {

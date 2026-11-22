@@ -756,6 +756,11 @@ pub fn ticket_criteria(ticket: &str) -> Vec<Criterion> {
             inside = HEADINGS.iter().any(|h| lower.contains(h));
             continue;
         }
+        // The frame TermF puts around an untrusted ticket.
+        if trimmed.starts_with("</ticket") || trimmed.starts_with("<ticket") {
+            inside = false;
+            continue;
+        }
         if !inside || trimmed.is_empty() {
             continue;
         }

@@ -54,7 +54,11 @@ export type Routing = {
   budget_usd: number;
   /** The user changed it, or set it. */
   changed: boolean;
+  /** The one task of a workflow without a plan ([`DIRECT`]); null otherwise. */
+  task?: Task | null;
 };
+/** The workflows whose one task comes with the routing: no lead plans it. */
+export const DIRECT = ["direct", "trivial"];
 /** A workflow as the triage sees it (`team_workflows`). */
 export type WorkflowView = {
   name: string;
@@ -419,23 +423,55 @@ export function runs(step: { id: string; on: boolean }, routing: Pick<Routing, "
 }
 
 /**
- * The routing once the user picks `workflow`, the optional steps that run and the squads: skip and add rebuilt
- * against that workflow's defaults, the efforts of the steps it does not run dropped. The run's budget goes apart.
+ * The routing once the user picks `workflow`, its size, the optional steps that run and the squads: skip and add
+ * rebuilt against that workflow's defaults, the efforts of the steps it does not run dropped. A workflow of
+ * [`DIRECT`] takes its one task from `task` (TermF adds every criterion of the ticket); any other, none. The run's
+ * budget goes apart.
  */
-export function editRouting(routing: Routing, workflow: WorkflowView, running: string[], squads: string[]): Routing {
+export function editRouting(
+  routing: Routing,
+  workflow: WorkflowView,
+  running: string[],
+  squads: string[],
+  size: Routing["size"] = routing.size,
+  task: { role: string; goal: string } | null = null,
+): Routing {
   const optional = workflow.steps.filter((s) => s.optional);
   const agents = workflow.steps
     .filter((s) => ["agent", "review", "update"].includes(s.kind) && (!s.optional || running.includes(s.id)))
     .map((s) => s.id);
+  const own = routing.task;
   return {
     ...routing,
+    size,
     workflow: workflow.name,
     skip: optional.filter((s) => s.on && !running.includes(s.id)).map((s) => s.id),
     add: optional.filter((s) => !s.on && running.includes(s.id)).map((s) => s.id),
     efforts: routing.efforts.filter((e) => agents.includes(e.step)),
     squads,
     questions: [],
+    task:
+      DIRECT.includes(workflow.name) && task
+        ? {
+            id: own?.id ?? "T1",
+            role: task.role,
+            squad: squads.length === 1 ? squads[0] : "",
+            repo: own?.repo ?? "",
+            size,
+            covers: own?.covers ?? [],
+            goal: task.goal.trim(),
+            files_hint: own?.files_hint ?? [],
+            depends_on: [],
+            ui_impact: own?.ui_impact ?? false,
+          }
+        : null,
   };
+}
+
+/** The roles a task may have in the project's squads (their leads aside), each once. */
+export function taskRoles(squads: { members?: { role: string; lead: boolean; plannable: boolean }[] }[]): string[] {
+  const roles = squads.flatMap((s) => (s.members ?? []).filter((m) => !m.lead && m.plannable).map((m) => m.role));
+  return [...new Set(roles)];
 }
 
 /** The rounds of a review step, oldest first. */

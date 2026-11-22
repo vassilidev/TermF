@@ -3980,6 +3980,12 @@ const fr = {
   uxfT4ParamFollowContainer: "Kubernetes : le conteneur, quand le pod en a plusieurs",
   uxfT4ParamFollowQuery: 'Loki : un sélecteur LogQL, par exemple {app="web"}',
   uxfT4ParamFollowLines: "Combien de lignes passées pour commencer",
+  proportionateSize: "Taille",
+  proportionateTask: "Tâche",
+  proportionateTaskHelp: "Ce workflow n'a pas de plan : une seule tâche, qui couvre tous les critères du ticket.",
+  proportionateTaskRole: "Rôle",
+  proportionateTaskGoal: "Objectif",
+  proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
 };
 
 type Key = keyof typeof fr;
@@ -7933,6 +7939,12 @@ const en: Record<Key, string> = {
   uxfT4ParamFollowContainer: "Kubernetes: the container, when the pod has several",
   uxfT4ParamFollowQuery: 'Loki: a LogQL selector, such as {app="web"}',
   uxfT4ParamFollowLines: "How many past lines to start with",
+  proportionateSize: "Size",
+  proportionateTask: "Task",
+  proportionateTaskHelp: "This workflow has no plan: one task, which covers every criterion of the ticket.",
+  proportionateTaskRole: "Role",
+  proportionateTaskGoal: "Goal",
+  proportionateTaskMissing: "Give the task's role and goal.",
 };
 
 const messages = { fr, en };

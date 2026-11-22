@@ -2394,16 +2394,59 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     direct["rulings"] =
         json!(["Ruling: direct — an S ticket with its criteria — a review catches a miss"]);
     env.answer("triage.2.json", direct);
-    // The first attempt misses what the project's checks test; told so, the same session fixes it.
+    // The first attempt misses what the project's checks test; told so, the same session fixes it. Meanwhile a
+    // recipe read prod for the run.
+    let taint = env.data.join("ops/taint");
     env.script(
         "implement:T1",
-        "mkdir -p src/api; if [ \"$1\" = 1 ]; then echo T1 > src/api/b.txt; else echo T1 > src/api/a.txt; fi\n",
+        &format!(
+            "mkdir -p src/api; if [ \"$1\" = 1 ]; then echo T1 > src/api/b.txt; mkdir -p '{0}'; touch '{0}/run-1'; \
+             else echo T1 > src/api/a.txt; fi\n",
+            taint.display()
+        ),
     );
-    env.team
-        .start(env.target.clone(), Options::default())
-        .unwrap();
+    // The CTO's task names one criterion of the three the ticket lists: it covers them all.
+    let mut covered = report("T1 done");
+    covered["covers"] = json!(["AC1", "AC3"]);
+    env.answer("implement:T1.json", covered);
+    let mut target = env.target.clone();
+    target.brief = "<ticket source=\"https://example.invalid/1\">\n# Export invoices\n\n## Acceptance criteria\n\n\
+        1. A CSV export.\n2. A button.\n3. Dates in ISO 8601.\n</ticket>"
+        .into();
+    let options = Options {
+        budget: Some(2.0),
+        ..Options::default()
+    };
+    env.team.start(target, options).unwrap();
+    let first = env.until("T1's first session", |r| {
+        r.steps.iter().any(|s| s.key == "implement:T1" && s.session.is_some())
+    });
+    let session = env.step(&first, "implement:T1").session.unwrap();
+    let launched = env.agents.session(session).unwrap().spec;
     // A small run asks nothing before its delivery: neither its routing nor its plan waits.
     let run = env.until("the delivery", delivery);
+    let planned = run.plan.as_ref().unwrap();
+    let ids: Vec<&str> = planned.acceptance.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, ["AC1", "AC2", "AC3"], "every criterion of the ticket");
+    assert_eq!(planned.acceptance[2].text, "Dates in ISO 8601.");
+    assert_eq!(planned.tasks[0].covers, ["AC1", "AC2", "AC3"]);
+    assert_eq!(
+        env.step(&run, "implement:T1").state,
+        StepState::Done,
+        "a report that covers AC3 holds"
+    );
+    // It goes on as a new session would start now: no way out once prod was read, within the run's share.
+    let resumed = env.agents.session(session).unwrap();
+    assert!(
+        !launched.disallowed_tools.iter().any(|t| t == "WebFetch")
+            && resumed.spec.disallowed_tools.iter().any(|t| t == "WebFetch"),
+        "{:?}",
+        resumed.spec.disallowed_tools
+    );
+    // Its budget: what it spent, plus the run's share now (what the others have not spent).
+    let others = run.cost - resumed.cost - env.step(&run, "review").cost;
+    let budget = resumed.spec.budget.unwrap();
+    assert!((budget - (2.0 - others)).abs() < 1e-6, "{budget} {others}");
     assert!(
         env.message("triage", 2)
             .contains("workflow direct needs its one task in task"),
@@ -2456,12 +2499,292 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     let first = env.message("implement:T1", 1);
     assert!(
         first.contains("You are this ticket's only developer")
-            && first.contains("Change only what the ticket and your task ask"),
+            && first.contains("Change only what the ticket and your task ask")
+            && first.contains("A security control the code you write needs"),
         "{first}"
     );
     assert!(env.target.worktree.join("src/api/a.txt").is_file());
     let log = env.steps_log();
     assert!(!log.iter().any(|l| l.starts_with("plan ")), "{log:?}");
+}
+
+/// A run the CTO routes to `workflow` with its one task, whose files are `hints`, on a ticket that says `ticket`.
+fn small_run(name: &str, workflow: &str, hints: &[&str], ticket: &str) -> (Env, Target) {
+    let env = Env::new(name);
+    triage_project(&env);
+    let mut small = routing(workflow, &["api"]);
+    small["size"] = "S".into();
+    let mut t1 = task("T1", "back", hints, &[]);
+    t1["squad"] = "".into();
+    small["task"] = t1.clone();
+    env.answer("triage.json", small);
+    // The lead's plan, should the run go the full way.
+    env.answer("plan.json", env.plan(json!([t1])));
+    let mut target = env.target.clone();
+    target.brief = format!("<ticket source=\"https://example.invalid/1\">\n{ticket}\n</ticket>");
+    (env, target)
+}
+
+#[test]
+fn a_sensitive_ticket_never_goes_the_short_way() {
+    for (name, hints, ticket, why) in [
+        (
+            "guard-words",
+            &["src/api/a.txt"][..],
+            "# Reset a password\n\nLet a user reset their own password.",
+            "the ticket says \"password\"",
+        ),
+        (
+            "guard-files",
+            &["src/api/a.txt", "src/auth"][..],
+            "# Export invoices\n\nAdd a CSV export.",
+            "its task touches src/auth",
+        ),
+    ] {
+        let (env, target) = small_run(name, "direct", hints, ticket);
+        env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+        env.team.start(target, Options::default()).unwrap();
+        let run = env.until("the delivery", delivery);
+        let routing = run.routing.as_ref().unwrap();
+        assert_eq!(
+            (run.workflow.as_str(), routing.task.is_none()),
+            ("default", true)
+        );
+        let security = env.step(&run, "security");
+        assert!(
+            security.paths.is_empty() && !security.sessions.is_empty(),
+            "the security review runs"
+        );
+        assert!(!env.step(&run, "plan").sessions.is_empty(), "its lead plans it");
+        let events = env.team.events(1, 0).unwrap();
+        let guard = events.iter().find(|e| e.kind == "guard").unwrap();
+        assert!(
+            guard.message.contains("workflow default, not direct") && guard.message.contains(why),
+            "{}",
+            guard.message
+        );
+        let done = run.done.as_ref().unwrap();
+        assert!(done.criteria.iter().any(|c| c.id == "security"));
+        assert!(
+            env.message("review", 1)
+                .contains("a security control is never one"),
+            "hardening is never undone"
+        );
+    }
+
+    // A small ticket whose task ends up changing a sensitive file gets the security review all the same.
+    let (env, target) = small_run("guard-changed", "direct", &["src/api/a.txt"], "# Export\n\n1. A CSV.");
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt; echo key > src/api/Tokens.txt\n",
+    );
+    env.team.start(target, Options::default()).unwrap();
+    let run = env.until("the delivery", delivery);
+    assert_eq!(run.workflow, "direct");
+    let security = env.step(&run, "security");
+    assert_eq!(security.state, StepState::Done);
+    assert!(!security.sessions.is_empty());
+    let done = run.done.as_ref().unwrap();
+    assert!(done.criteria.iter().any(|c| c.id == "security"));
+}
+
+#[test]
+fn a_trivial_ticket_is_delivered_on_its_checks() {
+    let (env, target) = small_run(
+        "trivial",
+        "trivial",
+        &["src/api/a.txt"],
+        "# Rename the export\n\n## Acceptance criteria\n\n1. The file is named a.txt.",
+    );
+    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    env.team.start(target, Options::default()).unwrap();
+    let run = env.until("the delivery", delivery);
+    assert!(!run.steps.iter().any(|s| s.key == "review"));
+    let done = run.done.clone().unwrap();
+    assert!(done.passes(), "{}", done.unmet());
+    let review = done.criteria.iter().find(|c| c.id == "review").unwrap();
+    assert!(
+        review.met && review.note.contains("its checks passed"),
+        "{review:?}"
+    );
+    assert!(!done.criteria.iter().any(|c| c.id == "security"));
+    let run = env.team.approve(1, "deliver").unwrap();
+    assert_eq!(run.state, RunState::Done);
+    assert!(run.done.unwrap().overridden.is_none());
+}
+
+#[test]
+fn a_task_is_prepared_off_the_lock_once_a_checkout() {
+    let env = Env::new("prepare");
+    let log = env.root.join("prepared.log");
+    let recipe = env
+        .config
+        .join("projects/acme/library/recipes/worktree-setup.toml");
+    fs::create_dir_all(recipe.parent().unwrap()).unwrap();
+    fs::write(
+        &recipe,
+        format!(
+            "[repos.api]\ncommands = [\"echo x >> '{}'; sleep 3\"]\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[])])),
+    );
+    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    env.team
+        .start(env.target.clone(), options("nogate"))
+        .unwrap();
+    let run = env.until("T1 being prepared", |_| log.exists());
+    assert_eq!(
+        env.step(&run, "implement:T1").note.as_deref(),
+        Some("its worktree is being prepared")
+    );
+    let asked = Instant::now();
+    env.team.set_rules(1, None, BTreeMap::new()).unwrap();
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "a command answers while a task is prepared: {:?}",
+        asked.elapsed()
+    );
+    env.until("T1 done", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.state == StepState::Done)
+    });
+    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 1);
+}
+
+/// A repository whose project lints with `eslint` and typechecks with `tsc`, both stand-ins that fail when `fails`
+/// (a shell condition, run in the worktree) holds; a task that writes `src/api/a.txt`.
+fn auto_checked(name: &str, eslint: &str, tsc: &str) -> Env {
+    let env = Env::new(name);
+    let repo = env.root.join("repo");
+    fs::write(repo.join(".eslintrc.json"), "{}").unwrap();
+    fs::write(repo.join("tsconfig.json"), "{}").unwrap();
+    fs::write(repo.join(".gitignore"), "node_modules/\n").unwrap();
+    git(&repo, &env.env, &["add", "-A"]);
+    git(&repo, &env.env, &["commit", "-q", "-m", "lint and types"]);
+    git(&env.target.worktree, &env.env, &["merge", "-q", "main"]);
+    let recipe = env
+        .config
+        .join("projects/acme/library/recipes/worktree-setup.toml");
+    fs::create_dir_all(recipe.parent().unwrap()).unwrap();
+    // The project's tools, installed in each worktree as its dependencies would be.
+    let install = |tool: &str, fails: &str| {
+        format!(
+            "mkdir -p node_modules/.bin; printf '#!/bin/sh\\nif {fails}; then echo {tool} failed; exit 1; fi\\n' > node_modules/.bin/{tool}; chmod +x node_modules/.bin/{tool}"
+        )
+    };
+    fs::write(
+        &recipe,
+        format!(
+            "[repos.api]\ncommands = [{:?}, {:?}]\n",
+            install("eslint", eslint),
+            install("tsc", tsc)
+        ),
+    )
+    .unwrap();
+    for tool in ["eslint", "tsc"] {
+        let bin = env.target.worktree.join("node_modules/.bin");
+        fs::create_dir_all(&bin).unwrap();
+        let fails = if tool == "eslint" { eslint } else { tsc };
+        fs::write(
+            bin.join(tool),
+            format!("#!/bin/sh\nif {fails}; then echo {tool} failed; exit 1; fi\n"),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(bin.join(tool), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[])])),
+    );
+    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    fs::write(
+        env.config.join("library/workflows/checked.toml"),
+        "extends = \"nogate\"\n[steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{ repo.checks }}\"\n\
+         [steps.rules]\nneeds = [\"checks\"]\n",
+    )
+    .unwrap();
+    env
+}
+
+#[test]
+fn an_automatic_check_holds_the_run_only_when_it_passes_on_the_base() {
+    // What already fails on the base holds nothing: ESLint 9 or 10 without a flat config, a SvelteKit project
+    // whose generated tsconfig is missing, errors already on main, a typecheck of another version.
+    for (name, eslint, tsc) in [
+        ("auto-eslint9", "[ ! -f eslint.config.js ]", "false"),
+        ("auto-sveltekit", "false", "[ ! -f .svelte-kit/tsconfig.json ]"),
+        ("auto-main", "false", "true"),
+        ("auto-version", "true", "false"),
+    ] {
+        let env = auto_checked(name, eslint, tsc);
+        env.team
+            .start(env.target.clone(), options("checked"))
+            .unwrap();
+        let run = env.until("the checks", |r| {
+            r.steps.iter().any(|s| s.key == "checks" && s.over())
+        });
+        let checks = env.step(&run, "checks");
+        let note = checks.note.clone().unwrap_or_default();
+        assert_eq!(checks.state, StepState::Done, "{name}: {note}");
+        assert!(
+            note.contains("did not pass on the run's base: it holds nothing"),
+            "{name}: {note}"
+        );
+        let t1 = env.step(&run, "implement:T1");
+        assert_eq!((name, t1.sessions.len()), (name, 1), "never sent back");
+    }
+
+    // What passes on the base and fails once the task is merged goes back to the task.
+    let env = auto_checked("auto-holds", "false", "[ -f src/api/a.txt ] && [ ! -f src/api/typed ]");
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt; if [ \"$1\" = 2 ]; then touch src/api/typed; fi\n",
+    );
+    env.team
+        .start(env.target.clone(), options("checked"))
+        .unwrap();
+    let run = env.until("the checks", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "checks" && s.state == StepState::Done)
+    });
+    assert_eq!(env.step(&run, "implement:T1").attempt, 1);
+    assert!(
+        env.message("implement:T1", 2).contains("tsc failed"),
+        "sent back with what failed"
+    );
+}
+
+#[test]
+fn a_failed_check_the_tasks_do_not_come_before_waits_for_you() {
+    let env = Env::new("checks-beside");
+    fs::write(
+        env.config.join("library/workflows/beside.toml"),
+        "extends = \"nogate\"\n[steps.lint]\ntype = \"shell\"\nneeds = [\"plan\"]\nrun = \"false\"\n",
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[])])),
+    );
+    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    env.team
+        .start(env.target.clone(), options("beside"))
+        .unwrap();
+    let run = env.until("the check blocked", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "lint" && s.state == StepState::Blocked)
+    });
+    assert!(!env.kinds().iter().any(|k| k == "revised"), "no task sent back");
+    assert_ne!(env.step(&run, "lint").state, StepState::Running);
 }
 
 #[test]
@@ -5144,6 +5467,10 @@ fn second_repo(env: &Env, origin: &str) -> PathBuf {
 fn a_plan_over_two_repositories_works_in_each() {
     let env = Env::new("two-repos");
     let web = second_repo(&env, "https://github.com/acme/web.git");
+    // The workflow has no code review, which the project asks for: the delivery waits for the team.
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\ndone = [\"checks\", \"review\"]\n")).unwrap();
     let mut front = task("T2", "front", &["web.txt"], &[]);
     front["repo"] = "web".into();
     env.answer(
