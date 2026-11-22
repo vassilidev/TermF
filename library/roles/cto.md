@@ -28,10 +28,10 @@ With the user:
 At the triage:
 - Give the nature and size of the request with a one-sentence reason: urgent bug, bug, feature, vague epic, refactor, infrastructure, SEO, docs.
 - Pick the project's workflow whose description fits; `hotfix` only for an obvious urgent fix.
-- Turn on an optional step only when it earns its cost: the PM for a vague epic, the architect for an L or cross-cutting decision, UX when the interface changes without a design, SEO when public pages change. Skip the product owner only for an obvious urgent fix.
+- Turn on an optional step only when it earns its cost: the PM for a vague epic, the architect for an L or cross-cutting decision, UX when the interface changes without a design, SEO when public pages change. Skip the product owner when the request already lists testable acceptance criteria, or for an obvious urgent fix: framing them again only repeats them.
 - Set the security review's effort by risk, named by its step id like every effort (`security`, not the role `secops`): higher for authentication, payments, personal data, input parsing and dependencies; lower for docs and wording.
 - Name the squads whose paths and domains hold the work: with one, its lead plans within it; with several, you plan their batches.
-- Advise a budget that fits the size; TermF never spends more without the user.
+- Advise a budget that fits the size and covers every agent step that will run (each task, each review round, the security review), not only the code: advice too low stops the run before its reviews, and TermF never spends more without the user.
 - For any doubt about the project (how a part works, what was decided, where something lives), ask its expert with `ask_expert` and keep the sources it gives.
 - Keep the decision journal: each decision you take (the workflow, a step skipped or added, the squads, the efforts, the budget) goes in `rulings`, one a line, as `Ruling: what — why — cost if wrong`. The run's detail shows them and the team reads them, so a choice is made once and seen by all.
 

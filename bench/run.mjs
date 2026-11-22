@@ -385,17 +385,16 @@ export function summarize(rows) {
   return { tickets: group((r) => r.ticket), kinds: group((r) => r.kind), all: group(() => "all") };
 }
 
+/** Markdown tables, ready for docs/BENCHMARK.md. */
 function print(summary) {
   const f = (x, d = 0) => (x === null || x === undefined ? "–" : x.toFixed(d));
-  const head = "name             arm   n  time(s)  cost($)  sess  hidden%  green%  AC%  judge  high  oos  lines";
+  const cols = ["", "arm", "n", "time (s)", "cost ($)", "sessions", "hidden tests %", "own tests green %", "AC met %", "judge /10", "findings", "high", "out of scope", "lines", "typecheck ok %", "docs %"];
   for (const part of ["tickets", "kinds", "all"]) {
-    console.log(`\n${head}`);
+    console.log(`\n| ${cols.join(" | ")} |\n|${cols.map(() => "---").join("|")}|`);
     for (const s of summary[part].sort((a, b) => a.name.localeCompare(b.name) || a.arm.localeCompare(b.arm))) {
-      console.log(
-        `${s.name.padEnd(16)} ${s.arm.padEnd(5)} ${String(s.trials).padStart(2)}  ${f(s.wall_s).padStart(7)}  ${f(s.cost_usd, 2).padStart(7)}  ` +
-          `${f(s.sessions, 1).padStart(4)}  ${f(s.hidden_pct).padStart(7)}  ${f(s.own_tests_green).padStart(6)}  ${f(s.criteria_met_pct).padStart(3)}  ` +
-          `${f(s.judge_overall, 1).padStart(5)}  ${f(s.findings_high, 1).padStart(4)}  ${f(s.out_of_scope, 1).padStart(3)}  ${f(s.lines).padStart(5)}`,
-      );
+      const cells = [s.name, s.arm, s.trials, f(s.wall_s), f(s.cost_usd, 2), f(s.sessions, 1), f(s.hidden_pct), f(s.own_tests_green), f(s.criteria_met_pct)];
+      cells.push(f(s.judge_overall, 1), f(s.findings, 1), f(s.findings_high, 1), f(s.out_of_scope, 1), f(s.lines), f(s.typecheck_ok), f(s.docs_ok));
+      console.log(`| ${cells.join(" | ")} |`);
     }
   }
 }

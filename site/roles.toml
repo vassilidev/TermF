@@ -68,7 +68,7 @@ label = "Product owner"
 group = "product"
 short = "Frames the ticket"
 does = "Frames the ticket before any work: testable acceptance criteria with their source, what is out of scope, and a questionnaire for what is left open."
-when = "On every run, right after the triage. Skipped only for an obvious urgent fix."
+when = "On every run, right after the triage. Skipped when the ticket already lists testable acceptance criteria, or for an obvious urgent fix."
 never = "Touches code, or changes the ticket without your approval."
 
 [roles.ux]
