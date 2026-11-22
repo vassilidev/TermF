@@ -2,10 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { t } from "$lib/i18n";
-import { historyRow, type Connection, type Ran, type Recipe, type Request, type Run } from "$lib/ops-logic";
+import { historyRow, type Connection, type Ran, type Recipe, type Request, type Run, type Streamed } from "$lib/ops-logic";
 import { ui } from "$lib/state.svelte";
 
-export type OpsTab = "connections" | "recipes" | "history";
+export type OpsTab = "connections" | "recipes" | "sql" | "live" | "history";
 
 /** Names and outputs only, already masked; a value of the vault reaches the webview by `ops_reveal`, on demand. */
 export const ops = $state({
@@ -29,8 +29,39 @@ export const ops = $state({
   result: null as Ran | null,
   /** The proposal the run form answers. */
   proposal: null as number | null,
+  /** The SQL console: its database, the query typed, its last result. */
+  sql: { connection: "", query: "", result: null as Ran | null },
+  /** The live logs: what is followed, and the lines received (masked), the last ones kept. */
+  live: {
+    recipe: "",
+    connection: "",
+    params: {} as Record<string, string>,
+    id: null as number | null,
+    lines: [] as string[],
+    /** Lines received while paused, shown on resume. */
+    paused: false,
+    held: [] as string[],
+    ended: null as { exit: number | null; errors: string } | null,
+  },
   error: "",
 });
+
+/** The live lines kept: the oldest go first. */
+const LIVE_LINES = 5000;
+const last = (lines: string[]) => (lines.length > LIVE_LINES ? lines.slice(-LIVE_LINES) : lines);
+
+/** Stops the followed stream, its client with it. */
+export async function stopFollow() {
+  const id = ops.live.id;
+  ops.live.id = null;
+  if (id !== null) await invoke("ops_follow_stop", { id }).catch(() => {});
+}
+
+export function resumeFollow() {
+  ops.live.lines = last([...ops.live.lines, ...ops.live.held]);
+  ops.live.held = [];
+  ops.live.paused = false;
+}
 
 export function showOps() {
   ui.view = "ops";
@@ -96,6 +127,14 @@ export function watchOps(): () => void {
       finished.add(payload.id);
       ops.requests = ops.requests.filter((r) => r.id !== payload.id);
       if (ops.project === payload.project) loadHistory(payload.project);
+    }),
+    listen<Streamed>("ops-follow", ({ payload }) => {
+      if (payload.id !== ops.live.id) return;
+      if (payload.kind === "end") {
+        ops.live.ended = { exit: payload.exit, errors: payload.errors };
+        ops.live.id = null;
+      } else if (ops.live.paused) ops.live.held = last([...ops.live.held, ...payload.lines]);
+      else ops.live.lines = last([...ops.live.lines, ...payload.lines]);
     }),
   ]);
   stops
