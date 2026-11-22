@@ -336,7 +336,7 @@
             <button class="btn sm danger" onclick={remove}>{t("delete")}</button>
           </div>
         {:else}
-          <button class="btn sm quiet danger-text" onclick={() => (confirmDelete = true)}>{t("delete")}</button>
+          <button class="btn sm quiet danger" onclick={() => (confirmDelete = true)}>{t("delete")}</button>
         {/if}
       </header>
 
@@ -841,10 +841,6 @@
     font-size: var(--text-sm);
   }
 
-  .danger-text {
-    color: var(--danger);
-  }
-
   .step {
     display: flex;
     flex-direction: column;
@@ -927,7 +923,9 @@
   }
 
   .card.rejected {
-    opacity: 0.65;
+    background: none;
+    box-shadow: none;
+    color: var(--muted);
   }
 
   .card header {
@@ -1181,7 +1179,7 @@
   }
 
   .convention.off .convention-main {
-    opacity: 0.6;
+    color: var(--muted);
   }
 
   .convention-main {

@@ -232,3 +232,31 @@ export function historyRow(e: Entry): Run {
 export function secondsLeft(until: number | null, now: number): number | null {
   return until === null ? null : Math.max(0, Math.round(until - now));
 }
+
+/** The shipped recipes' English texts (`library/recipes`), with the i18n key that says each in the user's language. */
+export const shippedTexts: Record<string, string> = {
+  "The last lines of a service's journal (journalctl) or of a log file, on a server reached by SSH": "uxfT4RecipeLogsTail",
+  "Restarts a systemd service on a server reached by SSH (sudo without a password)": "uxfT4RecipeServiceRestart",
+  "A command that only reads, from a fixed list (uptime, disk, memory, a service's status, containers…), on a server reached by SSH":
+    "uxfT4RecipeSshReadonly",
+  "The last log lines of a Kubernetes pod or deployment (deploy/web)": "uxfT4RecipeK8sLogs",
+  "The pods of a Kubernetes namespace: state, restarts, age and node": "uxfT4RecipeK8sPods",
+  "Recent log events from CloudWatch, Google Cloud Logging, Loki or Datadog": "uxfT4RecipeLogsCloud",
+  "How many lines at most": "uxfT4ParamLines",
+  "How many events at most": "uxfT4ParamEvents",
+  "How far back, such as 15m, 1h or 2d": "uxfT4ParamSince",
+  "How far back, such as 15m, 1h or 2d (journal only)": "uxfT4ParamSinceJournal",
+  "What to run": "uxfT4ParamCommand",
+  "The systemd unit, for systemctl status": "uxfT4ParamUnitStatus",
+  "The systemd unit to restart, such as nginx.service": "uxfT4ParamUnitRestart",
+  "A systemd unit, such as nginx.service (journal only)": "uxfT4ParamUnit",
+  "A log file instead of the journal, such as /var/log/app/error.log": "uxfT4ParamFile",
+  "The service's own query instead: a LogQL selector for Loki, a filter for Google Cloud": "uxfT4ParamQuery",
+  "The pod, or deploy/<name> for one of a deployment's pods": "uxfT4ParamPod",
+  "The container, when the pod has several": "uxfT4ParamContainer",
+  "The folder, for du and ls": "uxfT4ParamPath",
+  "Only the pods with these labels, such as app=web": "uxfT4ParamSelector",
+  "Only the lines that match this pattern": "uxfT4ParamGrepPattern",
+  "Only the lines that hold this text": "uxfT4ParamGrepLines",
+  "Only the events that hold this text": "uxfT4ParamGrepEvents",
+};

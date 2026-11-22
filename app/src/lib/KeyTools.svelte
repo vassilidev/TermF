@@ -239,7 +239,7 @@
       <div class="file">
         <div class="file-head">
           <span class="mono strong">{file.name}</span>
-          <span class="badge" class:private={file.secret}>{file.secret ? t("keysPrivate") : t("keysPublic")}</span>
+          <span class="badge" class:warn={file.secret}>{file.secret ? t("keysPrivate") : t("keysPublic")}</span>
           {#if file.path}<span class="mono muted path">{shortPath(file.path)}</span>{/if}
           {#if !file.secret}
             <button class="btn sm push" onclick={() => copyPublic(file)}>
@@ -644,11 +644,6 @@
     gap: 8px;
   }
 
-  .badge.private {
-    border-color: transparent;
-    background: var(--waiting-soft);
-    color: var(--warning);
-  }
 
   .push {
     margin-left: auto;

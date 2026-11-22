@@ -91,7 +91,7 @@
     <div class="titles">
       <h2 class:mono={secret}>{title}</h2>
       <p class="muted">
-        {#if secret}<span class="badge" class:prod={secret.scope === "prod"}>{secret.scope}</span>{/if}
+        {#if secret}<span class="badge" class:danger={secret.scope === "prod"}>{secret.scope}</span>{/if}
         <span class="badge">{entry.project ? projectName(entry.project) : t("vaultGlobal")}</span>
         {secret ? t("vaultSecret") : item?.kind === "login" ? t("vaultLogin") : t("vaultNote")}
       </p>
@@ -277,10 +277,6 @@
     font-size: var(--text-sm);
   }
 
-  .badge.prod {
-    border-color: var(--danger);
-    color: var(--danger);
-  }
 
   .head-actions {
     display: flex;

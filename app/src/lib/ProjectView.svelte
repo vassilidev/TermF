@@ -66,7 +66,8 @@
   }
   if (seed) {
     forgetCards();
-    readCards(seed.repos.map((r) => r.path)).catch(() => {});
+    // Unread, a card would show its placeholders forever: it shows what the project knows instead.
+    readCards(seed.repos.map((r) => r.path)).catch(() => seed.repos.forEach((r) => (cards[r.path] ??= { ...r, stack: null })));
     readRepos();
     invoke<{ step: Step; log: Log[] }>("onboarding_state", { project: id }).then((s) => (setup = s), () => {});
   }
@@ -276,7 +277,7 @@
         }))}
         {current}
         label={t("ux3t3Config")}
-        onselect={select}
+        onselect={(s) => (s === "library" ? openLibrary() : select(s))}
         top={search}
         empty={t("filesNoResults")}
       />
@@ -699,7 +700,7 @@
   }
 
   .question::backdrop {
-    background: rgb(10 12 20 / 0.28);
+    background: var(--scrim, rgb(10 12 20 / 0.3));
   }
 
   .question p {

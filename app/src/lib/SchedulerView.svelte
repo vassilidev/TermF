@@ -443,7 +443,7 @@
   }
 
   .row.elsewhere .pick {
-    opacity: 0.6;
+    color: var(--muted);
   }
 
   .elsewhere-note {

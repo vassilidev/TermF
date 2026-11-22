@@ -339,7 +339,7 @@
               <td class="origin" title={a.cwd ?? ""}>{#if a.cwd}{origin(a)}{:else}<span class="none">—</span>{/if}</td>
               <td class="owner">
                 {#if a.owner}
-                  <span class="badge" class:mine={a.owner === "me"}>{a.owner === "me" ? t("claudeViewMine") : t("claudeViewShared")}</span>
+                  <span class="badge" class:accent={a.owner === "me"}>{a.owner === "me" ? t("claudeViewMine") : t("claudeViewShared")}</span>
                 {:else}<span class="none">—</span>{/if}
               </td>
               <td class="updated" title={when?.title ?? ""}>{#if when}{when.text}{:else}<span class="none">—</span>{/if}</td>
@@ -646,7 +646,7 @@
   }
 
   tr.pending td:not(.actions) {
-    opacity: 0.55;
+    color: var(--muted);
   }
 
   .title {
@@ -689,11 +689,6 @@
     color: var(--border-strong);
   }
 
-  .badge.mine {
-    border-color: transparent;
-    background: var(--accent-soft);
-    color: var(--accent-ink);
-  }
 
   td.actions {
     padding: 0 8px 0 0;
@@ -752,7 +747,7 @@
   }
 
   .confirm::backdrop {
-    background: rgb(10 12 20 / 0.32);
+    background: var(--scrim, rgb(10 12 20 / 0.3));
   }
 
   .confirm h2 {
