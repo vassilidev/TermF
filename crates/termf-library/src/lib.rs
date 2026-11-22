@@ -853,6 +853,26 @@ fn put(path: &Path, text: &str) {
     write_file(path, text.as_bytes()).unwrap();
 }
 
+/// A program in `dir` whose `--version` succeeds or fails, for a test's `PATH`.
+#[cfg(test)]
+fn fake_bin(dir: &Path, name: &str, works: bool) {
+    let code = if works { 0 } else { 1 };
+    if cfg!(windows) {
+        put(
+            &dir.join(format!("{name}.cmd")),
+            &format!("@exit /b {code}\r\n"),
+        );
+        return;
+    }
+    let file = dir.join(name);
+    put(&file, &format!("#!/bin/sh\nexit {code}\n"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

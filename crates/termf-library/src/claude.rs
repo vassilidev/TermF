@@ -944,7 +944,7 @@ mod tests {
         let dir = temp_dir("materialize-lsp");
         let session = dir.join("session");
         let bin = dir.join("bin");
-        put(&bin.join("rust-analyzer"), "");
+        crate::fake_bin(&bin, "rust-analyzer", true);
         put(&dir.join("projects/acme.toml"), "name = \"Acme\"\n");
         let tags: Vec<crate::stack::Tag> = ["rust", "python"]
             .iter()

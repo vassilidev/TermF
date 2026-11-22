@@ -838,7 +838,7 @@ fn cleans_versions_and_checks_ranges() {
 #[test]
 fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() {
     let bin = temp_dir("stack-lsp-bin");
-    put(&bin.join("rust-analyzer"), "");
+    crate::fake_bin(&bin, "rust-analyzer", true);
     put(&bin.join("basedpyright-langserver"), "");
     let tags: Vec<Tag> = ["docker", "python", "rust", "node", "typescript"]
         .iter()
@@ -878,8 +878,12 @@ fn offers_one_language_server_a_language_and_declares_only_the_installed_ones() 
     );
 
     let none = temp_dir("stack-lsp-none");
+    crate::fake_bin(&none, "rust-analyzer", false);
     let missing = language_servers(&tags, none.as_os_str());
-    assert!(missing.iter().all(|s| !s.installed));
+    assert!(
+        missing.iter().all(|s| !s.installed),
+        "a rustup proxy without the component is not a server"
+    );
     assert_eq!(
         missing[2].name, "pyright",
         "the official one is the one to install"

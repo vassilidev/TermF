@@ -1683,6 +1683,9 @@ struct ServerDef {
     extensions: &'static [(&'static str, &'static str)],
     startup_timeout: Option<u64>,
     docs: &'static str,
+    /// Found is not enough: rustup puts a `rust-analyzer` proxy in `~/.cargo/bin` that fails until the component
+    /// is added, so `--version` must succeed.
+    probe: bool,
 }
 
 const OFFICIAL: &str = "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/";
@@ -1699,6 +1702,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".rs", "rust")],
         startup_timeout: None,
         docs: "rust-analyzer-lsp",
+        probe: true,
     },
     ServerDef {
         tags: &["typescript", "node"],
@@ -1718,6 +1722,7 @@ const SERVERS: [ServerDef; 11] = [
         ],
         startup_timeout: None,
         docs: "typescript-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["python"],
@@ -1728,6 +1733,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".py", "python"), (".pyi", "python")],
         startup_timeout: None,
         docs: "pyright-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["python"],
@@ -1738,6 +1744,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".py", "python"), (".pyi", "python")],
         startup_timeout: None,
         docs: "https://docs.basedpyright.com/latest/installation/command-line-and-language-server/",
+        probe: false,
     },
     ServerDef {
         tags: &["go"],
@@ -1748,6 +1755,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".go", "go")],
         startup_timeout: None,
         docs: "gopls-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["php"],
@@ -1758,6 +1766,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".php", "php")],
         startup_timeout: None,
         docs: "php-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["ruby"],
@@ -1774,6 +1783,7 @@ const SERVERS: [ServerDef; 11] = [
         ],
         startup_timeout: None,
         docs: "ruby-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["java"],
@@ -1784,6 +1794,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".java", "java")],
         startup_timeout: Some(120_000),
         docs: "jdtls-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["kotlin"],
@@ -1794,6 +1805,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".kt", "kotlin"), (".kts", "kotlin")],
         startup_timeout: Some(120_000),
         docs: "kotlin-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["swift", "ios"],
@@ -1804,6 +1816,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".swift", "swift")],
         startup_timeout: None,
         docs: "swift-lsp",
+        probe: false,
     },
     ServerDef {
         tags: &["dotnet"],
@@ -1814,6 +1827,7 @@ const SERVERS: [ServerDef; 11] = [
         extensions: &[(".cs", "csharp")],
         startup_timeout: None,
         docs: "csharp-lsp",
+        probe: false,
     },
 ];
 
@@ -1829,7 +1843,16 @@ pub fn language_servers(tags: &[Tag], path: &std::ffi::OsStr) -> Vec<LanguageSer
             name: def.name,
             r#for: tag.name.clone(),
             command: def.command,
-            installed: termf_claude::cli::which_in(path, def.command).is_some(),
+            installed: termf_claude::cli::which_in(path, def.command).is_some_and(|bin| {
+                !def.probe
+                    || Command::new(bin)
+                        .arg("--version")
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|s| s.success())
+            }),
             docs: match def.docs.starts_with("https://") {
                 true => def.docs.to_owned(),
                 false => format!("{OFFICIAL}{}", def.docs),
