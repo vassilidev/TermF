@@ -253,6 +253,13 @@ fn the_real_claude_code_reports_through_its_hooks() {
         &dir,
         app_env(),
     );
+    let _cleanup = Cleanup {
+        sessions: &sessions,
+        id,
+        // The path Claude Code keeps it under (`/private/var/…` on macOS).
+        repo: fs::canonicalize(&repo).unwrap(),
+        root: root.clone(),
+    };
     let screen = Arc::new(Mutex::new(String::new()));
     let seen = screen.clone();
     sessions
@@ -303,6 +310,39 @@ fn the_real_claude_code_reports_through_its_hooks() {
             .unwrap_or_else(|| panic!("no {e}: {events:?}"))
     };
     assert!(at("SessionStart") < at("UserPromptSubmit") && at("UserPromptSubmit") < at("Stop"));
-    let _ = sessions.kill(id);
-    let _ = fs::remove_dir_all(&root);
+}
+
+/// Leaves nothing in your Claude Code data, even when the test fails: `claude purge` takes the throwaway folder's
+/// trust in `~/.claude.json`, its transcripts and its prompts.
+struct Cleanup<'a> {
+    sessions: &'a Sessions,
+    id: u32,
+    repo: PathBuf,
+    root: PathBuf,
+}
+
+impl Drop for Cleanup<'_> {
+    fn drop(&mut self) {
+        let _ = self.sessions.terminate(self.id);
+        // Claude Code writes `~/.claude.json` again as it exits: purge once it is gone.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline
+            && self
+                .sessions
+                .list()
+                .iter()
+                .any(|s| s.id == self.id && s.running)
+        {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        std::thread::sleep(Duration::from_secs(1));
+        if let Ok(claude) = claude::binary("claude") {
+            let _ = Command::new(claude.path)
+                .args(["purge", "-y"])
+                .arg(&self.repo)
+                .stdout(Stdio::null())
+                .status();
+        }
+        let _ = fs::remove_dir_all(&self.root);
+    }
 }
