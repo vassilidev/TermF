@@ -2,12 +2,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Stream, prelude::*};
@@ -17,7 +17,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::artifacts::Policy;
 use termf_core::claude;
 use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
-use termf_core::ipc::{self, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent};
+use termf_core::ipc::{
+    self, AgentCall, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent,
+};
 use termf_term::{SessionInfo, Sessions, SpawnSpec, shell_command, shell_quote};
 
 use crate::{AppState, agents, schedule, team, tickets, visual};
@@ -41,8 +43,9 @@ const TYPE_AFTER: Duration = Duration::from_millis(1500);
 /// How long a step of the reset may take: writing the handoff, or reacting to what TermF typed.
 const HANDOFF_TIME: Duration = Duration::from_secs(600);
 const STEP_TIME: Duration = Duration::from_secs(30);
-/// How long a call through the local API waits for the user's confirmation in the app.
 const CONFIRM_TIME: Duration = Duration::from_secs(300);
+/// How often a call that waits for the user checks that its caller is still there.
+const CALLER_CHECK: Duration = Duration::from_millis(250);
 
 #[derive(Serialize, Clone)]
 struct ContextEvent {
@@ -80,7 +83,6 @@ impl Endpoint {
     }
 }
 
-/// A call through the local API that waits for the user in the app.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Confirm {
     id: u64,
@@ -88,7 +90,6 @@ pub struct Confirm {
     reserved: Reserved,
 }
 
-/// The calls waiting for the user's answer.
 #[derive(Default)]
 struct Confirms {
     next: AtomicU64,
@@ -96,9 +97,15 @@ struct Confirms {
 }
 
 impl Confirms {
-    /// Waits until the user allows the call, refuses it, or `wait` passes. `show` hears `api-confirm` when it
-    /// waits, then `api-confirm-done`.
-    fn ask(&self, reserved: Reserved, wait: Duration, show: impl Fn(&str, &Confirm)) -> Result<()> {
+    /// `show` hears `api-confirm`, then `api-confirm-done`. A caller that went away (Ctrl-C, a command that timed
+    /// out) gets nothing done: allowing it later would act for nobody.
+    fn ask(
+        &self,
+        reserved: Reserved,
+        wait: Duration,
+        show: impl Fn(&str, &Confirm),
+        gone: impl Fn() -> bool,
+    ) -> Result<()> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let confirm = Confirm { id, reserved };
         let (tx, rx) = mpsc::channel();
@@ -107,16 +114,26 @@ impl Confirms {
             .unwrap()
             .insert(id, (confirm.clone(), tx));
         show("api-confirm", &confirm);
-        let answer = rx.recv_timeout(wait);
+        let deadline = Instant::now() + wait;
+        let answer = loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(left.min(CALLER_CHECK)) {
+                Ok(allow) => break Ok(allow),
+                Err(_) if gone() => break Err(anyhow!("the caller went away")),
+                Err(_) if left.is_zero() => {
+                    break Err(anyhow!(
+                        "not confirmed in TermF within {} minutes",
+                        wait.as_secs() / 60
+                    ));
+                }
+                Err(_) => {}
+            }
+        };
         self.pending.lock().unwrap().remove(&id);
         show("api-confirm-done", &confirm);
-        match answer {
-            Ok(true) => Ok(()),
-            Ok(false) => bail!("refused in TermF"),
-            Err(_) => bail!(
-                "not confirmed in TermF within {} minutes",
-                wait.as_secs() / 60
-            ),
+        match answer? {
+            true => Ok(()),
+            false => bail!("refused in TermF"),
         }
     }
 
@@ -141,7 +158,7 @@ pub struct Api {
     watchers: Mutex<Vec<mpsc::Sender<StatusEvent>>>,
     /// The context reset settings last read from a valid `termf.toml`.
     limits: Mutex<Option<Limits>>,
-    /// `[api] confirm_cli` at startup.
+    /// Read once: an agent that edits `termf.toml` changes nothing before the user starts TermF again.
     confirm_cli: bool,
     confirms: Confirms,
 }
@@ -168,14 +185,23 @@ impl Api {
         (api, listener)
     }
 
-    /// A call through the local API that only the user may make: it waits for their answer in the app.
-    fn confirm(&self, app: &AppHandle, reserved: Reserved) -> Result<()> {
-        if !self.confirm_cli {
+    fn confirm(&self, app: &AppHandle, call: &Call, caller: &Stream) -> Result<()> {
+        let Some(mut reserved) = ipc::reserved(call).filter(|_| self.confirm_cli) else {
             return Ok(());
+        };
+        if let Call::Agent(AgentCall::Answer {
+            session, request, ..
+        }) = call
+        {
+            reserved
+                .args
+                .extend(agents::permission(app, *session, request));
         }
-        self.confirms.ask(reserved, CONFIRM_TIME, |event, confirm| {
+        let show = |event: &str, confirm: &Confirm| {
             let _ = app.emit(event, confirm);
-        })
+        };
+        self.confirms
+            .ask(reserved, CONFIRM_TIME, show, || hung_up(caller))
     }
 
     /// A session registry whose processes can report their own hooks, and whose exits end their status.
@@ -984,17 +1010,31 @@ fn handle(app: &AppHandle, conn: Stream) -> Result<()> {
         }
         // Only the user's token makes such a call, and whoever holds it may be an agent that runs the CLI: the
         // user decides in the app.
-        let confirmed = match ipc::reserved(&request.call) {
-            Some(reserved) => state.api.confirm(app, reserved),
-            None => Ok(()),
+        let allowed = match ipc::refused(&request.call) {
+            Some(why) => Err(anyhow!(why)),
+            None => state.api.confirm(app, &request.call, conn.get_ref()),
         };
-        let result = match confirmed.and_then(|()| call(app, &state, request.call)) {
+        let result = match allowed.and_then(|()| call(app, &state, request.call)) {
             Ok(value) => Reply::Ok(value),
             Err(e) => Reply::Error(format!("{e:#}")),
         };
         reply(&mut conn, &result)?;
     }
     Ok(())
+}
+
+/// Whether the client closed the connection; nothing it sends is expected while it waits for a reply.
+fn hung_up(caller: &Stream) -> bool {
+    if caller.set_nonblocking(true).is_err() {
+        return false;
+    }
+    let mut reader = caller;
+    let gone = match reader.read(&mut [0; 1]) {
+        Ok(read) => read == 0,
+        Err(e) => e.kind() != std::io::ErrorKind::WouldBlock,
+    };
+    let _ = caller.set_nonblocking(false);
+    gone
 }
 
 fn reply(conn: &mut BufReader<Stream>, reply: &Reply) -> Result<()> {
@@ -1076,7 +1116,6 @@ fn call(app: &AppHandle, state: &AppState, call: Call) -> Result<Value> {
     })
 }
 
-/// The calls through the local API that wait for the user.
 #[tauri::command]
 pub fn api_confirms(state: State<AppState>) -> Vec<Confirm> {
     state.api.confirms.list()
@@ -1186,12 +1225,16 @@ mod tests {
             .unwrap()
         };
         let shown: Arc<Mutex<Vec<(String, u64)>>> = Arc::default();
+        let caller_gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let ask = |wait| {
-            let (confirms, shown) = (confirms.clone(), shown.clone());
+            let (confirms, shown, gone) = (confirms.clone(), shown.clone(), caller_gone.clone());
             thread::spawn(move || {
-                confirms.ask(deliver(), wait, |event, c| {
-                    shown.lock().unwrap().push((event.into(), c.id))
-                })
+                confirms.ask(
+                    deliver(),
+                    wait,
+                    |event, c| shown.lock().unwrap().push((event.into(), c.id)),
+                    || gone.load(Ordering::SeqCst),
+                )
             })
         };
         let waiting = |n| {
@@ -1216,6 +1259,14 @@ mod tests {
 
         let ignored = ask(Duration::from_millis(50)).join().unwrap();
         assert!(ignored.unwrap_err().to_string().contains("not confirmed"));
+
+        // Ctrl-C in the terminal: the banner goes, and allowing it afterwards does nothing.
+        let abandoned = ask(Duration::from_secs(10));
+        let id = waiting(1)[0].id;
+        caller_gone.store(true, Ordering::SeqCst);
+        let error = abandoned.join().unwrap().unwrap_err().to_string();
+        assert!(error.contains("went away"), "{error}");
+        confirms.answer(id, true);
         assert!(confirms.list().is_empty(), "none left waiting");
         let events: Vec<String> = shown
             .lock()
@@ -1223,8 +1274,38 @@ mod tests {
             .iter()
             .map(|(e, _)| e.clone())
             .collect();
-        assert_eq!(events.len(), 6, "each shown, then gone: {events:?}");
-        assert_eq!(events[..2], ["api-confirm", "api-confirm-done"]);
+        assert_eq!(events.len(), 8, "each shown, then gone: {events:?}");
+        assert_eq!(events[6..], ["api-confirm", "api-confirm-done"]);
+    }
+
+    #[test]
+    fn notices_a_caller_that_hung_up() {
+        let name = if cfg!(windows) {
+            format!(r"\\.\pipe\termf-hangup-{}", std::process::id())
+        } else {
+            std::env::temp_dir()
+                .join(format!("termf-hangup-{}.sock", std::process::id()))
+                .to_string_lossy()
+                .into_owned()
+        };
+        let listener = ListenerOptions::new()
+            .name(name.as_str().to_fs_name::<GenericFilePath>().unwrap())
+            .try_overwrite(true)
+            .create_sync()
+            .unwrap();
+        let client =
+            Stream::connect(name.as_str().to_fs_name::<GenericFilePath>().unwrap()).unwrap();
+        let server = listener.accept().unwrap();
+        assert!(!hung_up(&server), "still waiting for its reply");
+        drop(client);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !hung_up(&server) {
+            assert!(Instant::now() < deadline, "the hang-up was never seen");
+            thread::sleep(Duration::from_millis(20));
+        }
+        if !cfg!(windows) {
+            let _ = fs::remove_file(&name);
+        }
     }
 
     #[test]

@@ -7,15 +7,14 @@ const REASON: &str = "In a TermF run, pushing, pull requests and writes to the t
                       delivers the run. Commit your work if you like, then tell the user it is ready.";
 const CI_REASON: &str =
     "In a TermF run, the user starts and cancels the CI: tell them what to run, and why.";
-const TOKEN_REASON: &str = "The user's TermF token is theirs alone: work without it.";
+const TOKEN_REASON: &str = "TermF's tokens are not for your commands: work without them.";
 
 /// Why the Bash command `line` is refused in a run's session, or `None` when it may run.
 pub fn guard(line: &str) -> Option<String> {
-    // Any case: macOS and Windows file names ignore it.
-    if line
-        .to_lowercase()
-        .contains(termf_core::ipc::USER_TOKEN_DIR)
-    {
+    // Any case: macOS and Windows file and variable names ignore it.
+    let lower = line.to_lowercase();
+    let mcp_token = termf_core::ipc::ENV_MCP_TOKEN.to_lowercase();
+    if lower.contains(termf_core::ipc::USER_TOKEN_DIR) || lower.contains(&mcp_token) {
         return Some(format!("`{line}` is refused. {TOKEN_REASON}"));
     }
     for words in commands(line) {
@@ -295,16 +294,19 @@ mod tests {
     }
 
     #[test]
-    fn keeps_the_user_token_out_of_reach() {
+    fn keeps_termf_tokens_out_of_reach() {
         for refused in [
             r"cat ~/Library/Application\ Support/dev.termf.cli/token",
             r#"cat "$HOME/.local/share/dev.termf.cli/token""#,
             "ls ~/Library/'Application Support'/DEV.TERMF.CLI",
             r#"python3 -c 'print(open("/home/alex/.local/share/dev.termf.cli/token").read())'"#,
             r"type %LOCALAPPDATA%\dev.termf.cli\token",
+            "echo $TERMF_MCP_TOKEN",
+            r#"sh -c 'curl -H "x: ${TERMF_MCP_TOKEN}" localhost'"#,
+            "echo %termf_mcp_token%",
         ] {
             let reason = guard(refused).unwrap_or_else(|| panic!("{refused} let through"));
-            assert!(reason.contains("token is theirs alone"), "{reason}");
+            assert!(reason.contains("TermF's tokens are not for"), "{reason}");
         }
     }
 

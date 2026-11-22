@@ -142,9 +142,17 @@ pub const SECRET_DENY: &[&str] = &[
     "Bash(declare -p*)",
     "Bash(declare -x*)",
     "Bash(cat *.env*)",
-    // The user's token (`ipc::USER_TOKEN_DIR`), on any drive.
+    // The user's token (`ipc::USER_TOKEN_DIR`), on any drive, and the session's own `termf mcp` token
+    // (`ipc::ENV_MCP_TOKEN`), which the commands it runs inherit. File systems that ignore case: a Read rule
+    // checks the resolved path (any case on macOS, and `cat`, `head`… with it), Bash rules have no pattern for
+    // case, so only these two spellings; PowerShell rules ignore case.
     "Read(//**/dev.termf.cli/**)",
+    "Read(//**/DEV.TERMF.CLI/**)",
     "Bash(*dev.termf.cli*)",
+    "Bash(*DEV.TERMF.CLI*)",
+    "PowerShell(*dev.termf.cli*)",
+    "Bash(*TERMF_MCP_TOKEN*)",
+    "PowerShell(*TERMF_MCP_TOKEN*)",
 ];
 
 /// Settings holding only [`SECRET_DENY`], for a session without TermF's hooks. The same for every session, so
@@ -311,8 +319,12 @@ mod tests {
             !SECRET_DENY.iter().any(|r| r.contains("*printenv*")),
             "`grep -r printenv src/` stays allowed"
         );
-        let token = crate::ipc::USER_TOKEN_DIR;
-        for rule in [format!("Read(//**/{token}/**)"), format!("Bash(*{token}*)")] {
+        let (token, mcp) = (crate::ipc::USER_TOKEN_DIR, crate::ipc::ENV_MCP_TOKEN);
+        for rule in [
+            format!("Read(//**/{token}/**)"),
+            format!("Bash(*{token}*)"),
+            format!("Bash(*{mcp}*)"),
+        ] {
             assert!(denied.as_array().unwrap().contains(&json!(rule)), "{rule}");
         }
         assert!(settings["statusLine"]["command"].is_string());

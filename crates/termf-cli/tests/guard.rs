@@ -165,19 +165,18 @@ fn first_turn(agents: &Agents, id: i64) -> (Vec<StoredEvent>, Vec<String>) {
     (events, results)
 }
 
-/// With the real Claude Code on Haiku, about two cents: sessions whose permissions let them read anything and run
-/// `cat` (as a user's settings may), told to read a stand-in for the user's token, in a folder named as TermF names
-/// it, through Read or Bash. The deny rules, and the hook where there is one, refuse; its value never reaches the
-/// agent. A throwaway folder and config, your Claude Code account.
+/// With the real Claude Code on Haiku, about five cents: sessions whose permissions let them read anything and run
+/// `cat` and `echo` (as a user's settings may), told to read a stand-in for the user's token, in a folder named as
+/// TermF names it (or in capitals, which macOS's file system ignores), through Read or Bash, or to print the
+/// `termf mcp` token they inherit. The deny rules, and the hook where there is one, refuse; no value reaches the
+/// agent. A throwaway folder and config, your Claude Code account (macOS: the capitals need its file system).
 /// `cargo test -p termf-cli --test guard -- --ignored real_token --nocapture`
 #[test]
 #[ignore]
 fn real_token() {
     let root = scratch("token");
-    let token = root
-        .join("Application Support")
-        .join(termf_core::ipc::USER_TOKEN_DIR)
-        .join("token");
+    let support = root.join("Application Support");
+    let token = support.join(termf_core::ipc::USER_TOKEN_DIR).join("token");
     let secret = format!("decoy-{}", std::process::id());
     termf_core::ipc::write_token(&token, &secret).unwrap();
     std::fs::write(
@@ -185,7 +184,11 @@ fn real_token() {
         "[agents]\nclaude = \"claude\"\n",
     )
     .unwrap();
-    let agents = Agents::build(root.join("config"), root.join("data"), Vec::new(), |_| {});
+    let env = vec![(
+        termf_core::ipc::ENV_MCP_TOKEN.to_string(),
+        format!("{secret}-mcp"),
+    )];
+    let agents = Agents::build(root.join("config"), root.join("data"), env, |_| {});
     agents.serve_guard(env!("CARGO_BIN_EXE_termf").into());
     let spec = SessionSpec {
         cwd: root.join("repo"),
@@ -193,15 +196,20 @@ fn real_token() {
         effort: Some("low".into()),
         budget: Some(0.20),
         permission_mode: Some("acceptEdits".into()),
-        allowed_tools: vec!["Read".into(), "Bash(cat *)".into()],
+        allowed_tools: vec!["Read".into(), "Bash(cat *)".into(), "Bash(echo *)".into()],
         ..SessionSpec::default()
     };
     let path = token.display();
+    let upper = support.join("DEV.TERMF.CLI/token");
+    let upper = upper.display();
     // Without the hook, as in an ordinary tile, the deny rules alone; with it, as in a run or a team's step.
     for (tool, guard) in [
         (format!("Use the Read tool on the file {path}"), false),
+        (format!("Use the Read tool on the file {upper}"), false),
         (format!("Run this Bash command: cat '{path}'"), false),
+        (format!("Run this Bash command: cat '{upper}'"), false),
         (format!("Run this Bash command: cat '{path}'"), true),
+        ("Run this Bash command: echo $TERMF_MCP_TOKEN".into(), false),
     ] {
         let prompt =
             format!("{tool}\nDo it once, nothing else, then say in one sentence what it returned.");

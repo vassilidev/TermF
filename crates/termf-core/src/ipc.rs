@@ -475,7 +475,6 @@ pub fn read_user_token() -> Result<String> {
     Ok(token.trim().to_owned())
 }
 
-/// Replaces the token in `file`, readable by the user only, in a folder of its own.
 pub fn write_token(file: &Path, token: &str) -> Result<()> {
     let dir = file.parent().context("the token file has no folder")?;
     #[cfg(unix)]
@@ -525,56 +524,122 @@ impl Access {
     }
 }
 
-/// A call the user confirms in the app when it comes through the local API: what it does (`action`) and what
-/// it applies to.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Reserved {
     pub action: &'static str,
+    /// What the user sees before deciding, in full.
     pub args: BTreeMap<&'static str, String>,
 }
 
-/// Whether `call` is one the user confirms in the app: starting, delivering or closing a run, starting a team,
-/// letting a gate pass, allowing what an agent asks.
+/// A call the user confirms in the app when it comes through the local API: the CLI cannot tell them from an
+/// agent that runs it.
 pub fn reserved(call: &Call) -> Option<Reserved> {
-    let (action, args): (_, Vec<(_, String)>) = match call {
-        Call::Run { ticket, .. } => ("run", vec![("ticket", ticket.clone())]),
-        Call::Deliver { run, .. } => ("deliver", vec![("run", run.to_string())]),
+    let text = |v: &Value| v.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    let (action, args): (_, Vec<(_, Option<String>)>) = match call {
+        Call::Run {
+            ticket,
+            project,
+            repo,
+        } => (
+            "run",
+            vec![
+                ("ticket", Some(ticket.clone())),
+                ("project", project.clone()),
+                ("repo", repo.clone()),
+            ],
+        ),
+        Call::Resume { run } => ("resume", vec![("run", Some(run.to_string()))]),
+        Call::Deliver { run, .. } => ("deliver", vec![("run", Some(run.to_string()))]),
         Call::Close { run, force } => {
             let action = if *force { "closeForce" } else { "close" };
-            (action, vec![("run", run.to_string())])
+            (action, vec![("run", Some(run.to_string()))])
         }
         Call::Team(TeamCall::Start { run: Some(run), .. }) => {
-            ("team", vec![("run", run.to_string())])
+            ("team", vec![("run", Some(run.to_string()))])
         }
         Call::Team(TeamCall::Start { request, .. }) => {
-            let text = request.as_ref().and_then(|r| r["text"].as_str());
-            let text: String = text.unwrap_or_default().chars().take(200).collect();
-            ("teamRequest", vec![("request", text)])
+            let request = request.clone().unwrap_or_default();
+            (
+                "teamRequest",
+                vec![
+                    ("request", text(&request["text"])),
+                    ("project", text(&request["project"])),
+                    ("repo", text(&request["repo"])),
+                ],
+            )
         }
         Call::Team(TeamCall::Approve { run, step }) => (
             "approve",
-            vec![("run", run.to_string()), ("step", step.clone())],
+            vec![("run", Some(run.to_string())), ("step", Some(step.clone()))],
         ),
+        // Anything but a refusal or changes, as `termf_visual::Decision::parse` reads them, may let the gate pass.
         Call::Review(ReviewCall::Decide {
             review,
             screen,
             decision,
             ..
-        }) if decision == "approve" => (
-            "review",
-            vec![("review", review.to_string()), ("screen", screen.clone())],
-        ),
+        }) if !matches!(
+            decision.trim().to_lowercase().as_str(),
+            "reject" | "rejected" | "changes" | "change"
+        ) =>
+        {
+            (
+                "review",
+                vec![
+                    ("review", Some(review.to_string())),
+                    ("screen", Some(screen.clone())),
+                ],
+            )
+        }
         Call::Agent(AgentCall::Answer {
             session,
             allow: true,
             ..
-        }) => ("allow", vec![("session", session.to_string())]),
+        }) => ("allow", vec![("session", Some(session.to_string()))]),
+        Call::Agent(AgentCall::Start { spec, prompt }) => {
+            let tools: Vec<&str> = spec["allowedTools"]
+                .as_array()
+                .map(|t| t.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            (
+                "agentStart",
+                vec![
+                    ("cwd", text(&spec["cwd"])),
+                    ("role", text(&spec["role"])),
+                    ("mode", text(&spec["permissionMode"])),
+                    ("tools", Some(tools.join(", ")).filter(|t| !t.is_empty())),
+                    ("model", text(&spec["model"])),
+                    ("prompt", prompt.clone().filter(|p| !p.is_empty())),
+                ],
+            )
+        }
         _ => return None,
     };
     Some(Reserved {
         action,
-        args: args.into_iter().collect(),
+        args: args
+            .into_iter()
+            .filter_map(|(k, v)| Some((k, v?)))
+            .collect(),
     })
+}
+
+/// Why the local API never makes `call`, whoever confirms it: a headless session started from outside the app
+/// keeps TermF's guard, asks before what its permissions do not allow, and never gets TermF's own tools.
+pub fn refused(call: &Call) -> Option<&'static str> {
+    let Call::Agent(AgentCall::Start { spec, .. }) = call else {
+        return None;
+    };
+    let mode = spec["permissionMode"].as_str().unwrap_or_default();
+    if !matches!(spec["mcp"], Value::Null | Value::Bool(false)) {
+        Some("a session with TermF's tools only starts from TermF itself")
+    } else if mode.trim().eq_ignore_ascii_case("bypassPermissions") {
+        Some("bypassPermissions is refused through the local API")
+    } else if spec["guard"] != true {
+        Some("a session started through the local API needs TermF's guard (\"guard\": true)")
+    } else {
+        None
+    }
 }
 
 /// The access `token` grants, given the user's token, each terminal session's token and each agent session's
@@ -963,11 +1028,19 @@ mod tests {
         );
         assert_eq!(
             action(Call::Run {
-                ticket: "acme/api#42".into(),
-                project: None,
-                repo: None
+                ticket: "#42".into(),
+                project: Some("acme".into()),
+                repo: Some("api".into())
             }),
-            Some(("run", args(&[("ticket", "acme/api#42")])))
+            Some((
+                "run",
+                args(&[("ticket", "#42"), ("project", "acme"), ("repo", "api")])
+            )),
+            "where it runs is part of what you allow"
+        );
+        assert_eq!(
+            action(Call::Resume { run: 7 }),
+            Some(("resume", args(&[("run", "7")])))
         );
         assert_eq!(
             action(Call::Close {
@@ -985,14 +1058,16 @@ mod tests {
             })),
             Some(("approve", args(&[("run", "3"), ("step", "plan")])))
         );
-        let request = json!({"text": "x".repeat(500), "project": "acme"});
+        let request = json!({"text": "x".repeat(5000), "project": "acme"});
         let (kind, said) = action(Call::Team(TeamCall::Start {
             run: None,
             request: Some(request),
             options: json!({}),
         }))
         .unwrap();
-        assert_eq!((kind, said["request"].len()), ("teamRequest", 200));
+        assert_eq!(kind, "teamRequest");
+        assert_eq!(said["request"].len(), 5000, "never cut");
+        assert_eq!(said["project"], "acme");
         assert_eq!(
             action(Call::Team(TeamCall::Start {
                 run: Some(4),
@@ -1012,8 +1087,12 @@ mod tests {
                 pins: None,
             }))
         };
-        assert_eq!(decide("approve").unwrap().0, "review");
-        assert_eq!(decide("reject"), None);
+        for approves in ["approve", "Approved", " APPROVE ", "approved\n"] {
+            assert_eq!(decide(approves).unwrap().0, "review", "{approves:?}");
+        }
+        for not in ["reject", "Rejected", "changes", " CHANGE "] {
+            assert_eq!(decide(not), None, "{not:?}");
+        }
         let answer = |allow| {
             action(Call::Agent(AgentCall::Answer {
                 session: 5,
@@ -1024,6 +1103,38 @@ mod tests {
         };
         assert_eq!(answer(true).unwrap().0, "allow");
         assert_eq!(answer(false), None, "refusing needs no confirmation");
+        let start = |spec: Value| {
+            Call::Agent(AgentCall::Start {
+                spec,
+                prompt: Some("fix the build".into()),
+            })
+        };
+        let spec = json!({"cwd": "/src/api", "role": "back", "permissionMode": "acceptEdits",
+                          "allowedTools": ["Bash(npm *)", "Edit"], "guard": true});
+        assert_eq!(
+            action(start(spec.clone())),
+            Some((
+                "agentStart",
+                args(&[
+                    ("cwd", "/src/api"),
+                    ("role", "back"),
+                    ("mode", "acceptEdits"),
+                    ("tools", "Bash(npm *), Edit"),
+                    ("prompt", "fix the build"),
+                ])
+            ))
+        );
+        assert_eq!(refused(&start(spec.clone())), None);
+        for (key, value) in [
+            ("guard", json!(false)),
+            ("guard", Value::Null),
+            ("mcp", json!(true)),
+            ("permissionMode", json!(" BypassPermissions")),
+        ] {
+            let mut spec = spec.clone();
+            spec[key] = value.clone();
+            assert!(refused(&start(spec)).is_some(), "{key}: {value}");
+        }
         for call in [
             Call::List,
             Call::Watch,
