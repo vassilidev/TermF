@@ -195,6 +195,11 @@ impl Server {
         self.child.id()
     }
 
+    /// Whether its own process still runs: another server may answer on its port.
+    pub fn running(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
     /// Waits until it answers HTTP on its port.
     pub fn wait(&mut self, timeout: Duration) -> Result<()> {
         let deadline = Instant::now() + timeout;
@@ -221,7 +226,7 @@ impl Server {
         }
     }
 
-    fn tail(&self) -> String {
+    pub fn tail(&self) -> String {
         let text = fs::read_to_string(&self.log).unwrap_or_default();
         match termf_core::process::tail(&text) {
             t if t.is_empty() => format!("nothing in {}", self.log.display()),

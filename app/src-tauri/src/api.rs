@@ -860,6 +860,21 @@ fn launch(
             let plugin = dir.join("plugin");
             if let Some(termf) = &hooks {
                 claude::write_plugin(&plugin, termf, guard)?;
+                if let Some(endpoint) = &state.api.endpoint
+                    && termf_visual::agent::for_tiles(&state.config_dir, &cwd)
+                {
+                    // The project gives its terminals the agents' browser: a `termf mcp` with its tools only.
+                    let server = serde_json::json!({ "mcpServers": { "browser": {
+                        "command": termf,
+                        "args": ["mcp"],
+                        "env": {
+                            ipc::ENV_MCP_TOOLS: ipc::MCP_BROWSER.join(","),
+                            ipc::ENV_CONFIG_DIR: state.config_dir,
+                            ipc::ENV_DATA_DIR: endpoint.data_dir,
+                        },
+                    } } });
+                    fs::write(plugin.join(".mcp.json"), server.to_string())?;
+                }
                 // The status line is what measures the context.
                 let settings = claude::write_settings(dir, termf, &cwd, &claude_dir())?;
                 if let Some(more @ Value::Object(_)) = task.and_then(|t| t.settings.as_ref()) {
