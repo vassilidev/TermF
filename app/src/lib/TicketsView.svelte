@@ -15,22 +15,23 @@
   import Ticket from "@lucide/svelte/icons/ticket";
   import Users from "@lucide/svelte/icons/users";
   import TeamOptions from "$lib/TeamOptions.svelte";
-  import { runPill } from "$lib/TeamRunDetail.svelte";
-  import TicketRun, { openTile } from "$lib/TicketRun.svelte";
+  import { openTile } from "$lib/RunView.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
-  import StatusPill from "$lib/ui/StatusPill.svelte";
+  import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { showRun } from "$lib/commands";
   import { isMac } from "$lib/files.svelte";
   import { ago, t } from "$lib/i18n";
   import { editProject } from "$lib/project.svelte";
+  import { shown } from "$lib/run-logic";
   import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
   import { app, repoName } from "$lib/state.svelte";
   import { budgetError, type TeamRun } from "$lib/team-run-logic";
-  import { showTeamRun, team, upsertRun } from "$lib/team.svelte";
+  import { team, upsertRun } from "$lib/team.svelte";
   import { readyToClean, refusal } from "$lib/tickets-logic";
   import {
     launchTicket,
@@ -70,11 +71,9 @@
   const sourceName = (id: string) =>
     id in sourceNames ? t(sourceNames[id]) : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
   const runs = $derived(tickets.scope ? tickets.runs.filter((r) => r.project === tickets.scope) : tickets.runs);
-  const current = $derived(runs.find((r) => r.id === tickets.selected) ?? runs[0]);
 
   /** A ticket has one run at a time: its latest one not closed. */
   const runOf = (ticket: TicketSummary) => runs.find((r) => r.ticket.url === ticket.url && r.status !== "closed");
-  const seeRun = (run: Run) => Object.assign(tickets, { tab: "runs", selected: run.id });
 
   let pickedTickets = $state(none<string>());
   let pickedRuns = $state(none<number>());
@@ -298,13 +297,13 @@
     starting = "";
     if ("started" in out) {
       pending = null;
-      return showTeamRun(out.started.run);
+      return showRun(out.started.run);
     }
     tickets.error = out.error;
-    // Its detail decides: it may be a pasted ticket the inbox does not show.
+    // Its page decides: it may be a pasted ticket the inbox does not show.
     if (out.left !== null) {
       pending = null;
-      Object.assign(tickets, { tab: "runs", selected: out.left });
+      showRun(out.left);
     }
   }
 
@@ -323,7 +322,7 @@
       upsert(run);
       if (pending?.from === "paste") input = "";
       pending = null;
-      Object.assign(tickets, { tab: "runs", selected: run.id });
+      tickets.tab = "runs";
       await openTile(run);
     } catch (e) {
       tickets.error = String(e);
@@ -518,7 +517,6 @@
           <ul class="inbox" class:picking={chosenTickets.length > 0}>
             {#each tickets.inbox as ticket (ticket.url)}
               {@const run = runOf(ticket)}
-              {@const crew = run?.status === "running" ? team.runs.find((r) => r.run === run.id) : undefined}
               {@const pickable = !!ticket.project && !run}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (the box does it from the keyboard) -->
               <li
@@ -557,13 +555,9 @@
                 </div>
                 <div class="state">
                   {#if run}
-                    {#if crew}
-                      {@const [status, label] = runPill(crew.state)}
-                      <StatusPill {status} {label} />
-                    {:else}
-                      <StatusPill status={run.status} label={readyToClean(run) ? t("ticketsUiReady") : undefined} />
-                    {/if}
-                    <button class="link" onclick={() => seeRun(run)}>{t("ux3t5SeeRun")}</button>
+                    {@const pill = shown(run, team.runs.find((r) => r.run === run.id))}
+                    <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />
+                    <button class="link" onclick={() => showRun(run.id)}>{t("ux3t5SeeRun")}</button>
                   {/if}
                   <div class="acts" class:quiet={(!!ticket.project || !!run) && starting !== ticket.url}>
                     {#if run}
@@ -648,10 +642,11 @@
           {/if}
         </SelectionBar>
       {/if}
-      <div class="split">
-        <ul class="list" class:picking={chosenRuns.length > 0} aria-label={t("ticketsTabRuns")}>
+      <div class="pane">
+        <ul class="runs" class:picking={chosenRuns.length > 0} aria-label={t("ticketsTabRuns")}>
           {#each runs as run (run.id)}
-            <li class="row" class:current={run === current} class:picked={pickedRuns.keys.includes(run.id)}>
+            {@const pill = shown(run, team.runs.find((r) => r.run === run.id))}
+            <li class="run" class:picked={pickedRuns.keys.includes(run.id)}>
               <input
                 class="box"
                 type="checkbox"
@@ -659,25 +654,14 @@
                 aria-label={t("t6bPick", { name: `${run.ticket.key} ${run.title}` })}
                 onclick={(e) => pickRun(e, run.id)}
               />
-              <button
-                class="pick"
-                aria-current={run === current}
-                onclick={(e) => (toggleKey(e) || e.shiftKey ? pickRun(e, run.id) : (tickets.selected = run.id))}
-              >
+              <button class="pick" onclick={(e) => (toggleKey(e) || e.shiftKey ? pickRun(e, run.id) : showRun(run.id))}>
                 <span class="name"><span class="mono">{run.ticket.key}</span> {run.title}</span>
                 <span class="desc">{repoName(run.repo)}{run.branch ? ` · ${run.branch}` : ""} · {ago(run.updated)}</span>
               </button>
-              <StatusPill status={run.status} label={readyToClean(run) ? t("ticketsUiReady") : undefined} />
+              <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} />
             </li>
           {/each}
         </ul>
-        <section class="detail" aria-live="polite">
-          {#if current}
-            {#key current.id}
-              <TicketRun run={current} />
-            {/key}
-          {/if}
-        </section>
       </div>
     {/if}
   </Tabs>
@@ -767,8 +751,36 @@
     top: 0;
   }
 
-  .row .box {
-    margin-left: 8px;
+  /* A run's row opens its page; the box picks it. */
+  .runs {
+    max-width: 1100px;
+    margin: 0;
+    padding: 8px 12px 32px;
+    list-style: none;
+  }
+
+  .run {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .run:hover {
+    background: var(--hover);
+  }
+
+  .run .pick {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    padding: 8px 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    text-align: left;
   }
 
   /* In place of the box of a ticket with no project: the titles stay aligned. */

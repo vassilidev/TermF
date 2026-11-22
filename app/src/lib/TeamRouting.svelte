@@ -21,6 +21,7 @@
 <script lang="ts">
   import { usd } from "$lib/agents.svelte";
   import type { Routing } from "$lib/team-run-logic";
+  import { stepTitle } from "$lib/team.svelte";
 
   /** What the CTO decided for a run, and why. */
   let { routing }: { routing: Routing } = $props();
@@ -38,11 +39,11 @@
     <dd class="mono">{routing.workflow}</dd>
     {#if routing.add.length}
       <dt>{t("ctoEntryAdded")}</dt>
-      <dd class="mono">{routing.add.join(", ")}</dd>
+      <dd>{routing.add.map((s) => stepTitle(s)).join(", ")}</dd>
     {/if}
     {#if routing.skip.length}
       <dt>{t("ctoEntrySkipped")}</dt>
-      <dd class="mono">{routing.skip.join(", ")}</dd>
+      <dd>{routing.skip.map((s) => stepTitle(s)).join(", ")}</dd>
     {/if}
     {#if routing.squads.length}
       <dt>{t("ctoEntrySquads")}</dt>
@@ -50,7 +51,7 @@
     {/if}
     {#if routing.efforts.length}
       <dt>{t("ctoEntryEfforts")}</dt>
-      <dd class="mono">{routing.efforts.map((e) => `${e.step} ${e.effort}`).join(", ")}</dd>
+      <dd>{routing.efforts.map((e) => `${stepTitle(e.step)} ${e.effort}`).join(", ")}</dd>
     {/if}
     <dt>{t("ctoEntryBudget")}</dt>
     <dd>{routing.budget_usd > 0 ? usd(routing.budget_usd) : t("ctoEntryNoAdvice")}</dd>

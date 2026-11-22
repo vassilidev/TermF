@@ -91,7 +91,7 @@ export const tickets = $state({
   configured: null as boolean | null,
   loading: false,
   runs: [] as Run[],
-  /** The run shown in the detail pane, by id. */
+  /** The run its page shows, by id. */
   selected: null as number | null,
   /** Asks the paste field for the keyboard. */
   paste: false,

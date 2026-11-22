@@ -47,8 +47,9 @@ import { library, showLibrary } from "$lib/library.svelte";
 import { nextAfter } from "$lib/conversation-logic";
 import { type Command } from "$lib/nav-logic";
 import { editProject, launchable, sessionProjects, shown } from "$lib/project.svelte";
-import { openSetup } from "$lib/onboarding.svelte";
-import { openBeside, otherPanel, toggleSplit } from "$lib/panes.svelte";
+import { openSetup, usable } from "$lib/onboarding.svelte";
+import { leave } from "$lib/panes-logic";
+import { closePanel, openBeside, otherPanel, toggleSplit } from "$lib/panes.svelte";
 import type { Side } from "$lib/split-logic";
 import * as tabs from "$lib/tabs.svelte";
 import { generateKey, newKey } from "$lib/ssh.svelte";
@@ -67,12 +68,13 @@ import {
   ui,
   waitingSessions,
   type KeepAwakeMode,
+  type ViewId,
 } from "$lib/state.svelte";
 import { showScout } from "$lib/scout.svelte";
 import { exportConfig, importConfig, showSettings } from "$lib/settings.svelte";
 import { showSync, summary, syncNow } from "$lib/sync.svelte";
-import { launchTicket } from "$lib/tickets.svelte";
-import { showTeamRun, shownRun, team, waitingRuns } from "$lib/team.svelte";
+import { launchTicket, tickets } from "$lib/tickets.svelte";
+import { team, waitingRuns } from "$lib/team.svelte";
 import { startTour } from "$lib/tour.svelte";
 import { dispatchWorkflow } from "$lib/ci.svelte";
 import { views } from "$lib/views";
@@ -115,15 +117,35 @@ export function nextWaiting() {
     ...waitingRuns().map((r) => run(r.run)),
   ];
   const shown = onScreen("conversations") && !agents.creating ? (conversation()?.id ?? null) : null;
-  const shownTeam = onScreen("team") && team.tab === "runs" && !team.launching ? (shownRun()?.run ?? null) : null;
+  const shownTeam = onScreen("run") ? tickets.selected : null;
   const active = activeSession();
   const from = shown !== null ? agent(shown) : shownTeam !== null ? run(shownTeam) : active !== null ? tile(active) : null;
   const next = nextAfter(order, waiting, from);
   if (!next) return;
   const id = Number(next.split(":")[1]);
   if (next.startsWith("agent:")) showConversation(id);
-  else if (next.startsWith("team:")) showTeamRun(id);
+  else if (next.startsWith("team:")) showRun(id);
   else focusSession(id);
+}
+
+let runBack: ViewId = "tickets";
+
+/** Opens a run's page, switching to its project if the current one is another; going back returns where it was opened from. */
+export function showRun(id: number) {
+  const project = tickets.runs.find((r) => r.id === id)?.project ?? team.runs.find((r) => r.run === id)?.target.project;
+  if (project && app.project !== null && project !== app.project) setProject(project);
+  if (ui.view !== "run") runBack = ui.view;
+  ui.switcher = false;
+  tickets.selected = id;
+  ui.view = "run";
+}
+
+/** Back where the run was opened from, in the run's own panel; beside that view already, its panel closes. */
+export function closeRun() {
+  const back = usable(runBack);
+  const how = leave({ ...panes, view: ui.view }, "run", back);
+  if (how === "close") closePanel("run");
+  else if (how === "back") ui.view = back;
 }
 
 export function toggleMaximize(id = activeSession()) {

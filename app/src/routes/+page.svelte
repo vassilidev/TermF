@@ -6,6 +6,7 @@
   import CommandPalette from "$lib/CommandPalette.svelte";
   import OnboardingView from "$lib/OnboardingView.svelte";
   import ProjectView from "$lib/ProjectView.svelte";
+  import RunView from "$lib/RunView.svelte";
   import HelpSheet from "$lib/HelpSheet.svelte";
   import GuidedTour from "$lib/GuidedTour.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -21,7 +22,7 @@
   import { watchCi } from "$lib/ci.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
   import { watchTeam } from "$lib/team.svelte";
-  import { watchTickets } from "$lib/tickets.svelte";
+  import { tickets, watchTickets } from "$lib/tickets.svelte";
   import { setup, watchSetup } from "$lib/onboarding.svelte";
   import { views } from "$lib/views";
 
@@ -111,6 +112,12 @@
       {#if onScreen("project") && ui.editing !== null}
         {#key ui.editing}
           <Panel view="project"><ProjectView /></Panel>
+        {/key}
+      {/if}
+      <!-- Kept once left, like the views: an answer being written or a delivery preview open is still there on return. -->
+      {#if tickets.selected !== null}
+        {#key tickets.selected}
+          <Panel view="run"><RunView id={tickets.selected} /></Panel>
         {/key}
       {/if}
       {#if onScreen("onboarding") && setup.project !== null}

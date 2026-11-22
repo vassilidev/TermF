@@ -49,7 +49,7 @@
   import { blocks, type Span } from "$lib/markdown-logic";
   import { app, onScreen, shortPath, type Session } from "$lib/state.svelte";
   import { asks as runAsks } from "$lib/team-run-logic";
-  import { showTeamRun, team } from "$lib/team.svelte";
+  import { showTeamRun, stepTitle, team } from "$lib/team.svelte";
   import { tickets } from "$lib/tickets.svelte";
 
   let { session }: { session: AgentSession } = $props();
@@ -165,7 +165,7 @@
     termfTools[tool] ? t("ctoAsks", { action: t(termfTools[tool]) }) : t("chatPermission", { tool });
 
   function said(n: NoticeFields): string {
-    const vars = { run: n.run ?? "", step: n.step ?? "", role: n.role ?? "" };
+    const vars = { run: n.run ?? "", step: n.step ? stepTitle(n.step) : "", role: n.role ?? "" };
     const keys = {
       waiting: "ctoNoticeWaiting",
       blocked: "ctoNoticeBlocked",
