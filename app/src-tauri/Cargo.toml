@@ -44,6 +44,10 @@ tauri-plugin-notification = "2.8.1"
 tauri-plugin-dialog = "2.8.0"
 tauri-plugin-single-instance = "2.5.5"
 keepawake = "0.6.1"
+# Tauri's own updater: signed packages from the GitHub releases (ARCHITECTURE §16).
+tauri-plugin-updater = "2.14.1"
+# Already in the lockfile through the updater: orders the releases' versions.
+semver = "1.0.28"
 
 # Touch ID, through LocalAuthentication; these crates are already in the lockfile through Tauri.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -55,6 +59,5 @@ objc2-foundation = "0.3.2"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Security_Credentials_UI", "Win32_System_Com", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging"] }
 windows-future = "0.3.2"
-
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
-tauri-plugin-updater = "2.14.1"
+# The user's PATH, for the termf CLI; already in the lockfile through the updater.
+windows-registry = "0.6.1"

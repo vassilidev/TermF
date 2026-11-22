@@ -5776,6 +5776,7 @@ dependencies = [
  "keepawake",
  "objc2",
  "objc2-foundation",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
@@ -5806,6 +5807,7 @@ dependencies = [
  "termf-worktree",
  "windows",
  "windows-future",
+ "windows-registry",
 ]
 
 [[package]]

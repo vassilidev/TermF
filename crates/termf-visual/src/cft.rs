@@ -69,8 +69,13 @@ pub fn install(data_dir: &Path, api: &str) -> Result<(String, PathBuf)> {
     let listing: Value = serde_json::from_slice(&curl(&["-fsSL", api], API_TIMEOUT)?)
         .context("unreadable Chrome for Testing listing")?;
     let stable = &listing["channels"]["Stable"];
-    let version = stable["version"].as_str().context("no stable Chrome for Testing version")?;
-    ensure!(numbers(version).is_some(), "unexpected Chrome for Testing version {version:?}");
+    let version = stable["version"]
+        .as_str()
+        .context("no stable Chrome for Testing version")?;
+    ensure!(
+        numbers(version).is_some(),
+        "unexpected Chrome for Testing version {version:?}"
+    );
     let url = stable["downloads"]["chrome"]
         .as_array()
         .into_iter()
@@ -84,12 +89,19 @@ pub fn install(data_dir: &Path, api: &str) -> Result<(String, PathBuf)> {
     let zip = root.join(format!("{version}.zip"));
     let part = root.join(format!("{version}.part"));
     let result = (|| {
-        curl(&["-fsSL", "-o", &zip.to_string_lossy(), url], DOWNLOAD_TIMEOUT)?;
+        curl(
+            &["-fsSL", "-o", &zip.to_string_lossy(), url],
+            DOWNLOAD_TIMEOUT,
+        )?;
         let _ = fs::remove_dir_all(&part);
         fs::create_dir_all(&part)?;
         extract(&zip, &part)?;
         let exe = executable(platform);
-        ensure!(part.join(&exe).is_file(), "the Chrome for Testing zip has no {}", exe.display());
+        ensure!(
+            part.join(&exe).is_file(),
+            "the Chrome for Testing zip has no {}",
+            exe.display()
+        );
         let dest = root.join(version);
         let _ = fs::remove_dir_all(&dest);
         fs::rename(&part, &dest)?;
@@ -111,7 +123,10 @@ fn curl(args: &[&str], timeout: Duration) -> Result<Vec<u8>> {
     cmd.args(args);
     let (status, out, err) = run(cmd, timeout).context("cannot run curl")?;
     if !status.success() {
-        bail!("curl failed ({status}): {}", termf_core::process::excerpt(&String::from_utf8_lossy(&err)));
+        bail!(
+            "curl failed ({status}): {}",
+            termf_core::process::excerpt(&String::from_utf8_lossy(&err))
+        );
     }
     Ok(out)
 }
@@ -183,7 +198,10 @@ mod tests {
                 } else {
                     ZIP.to_vec()
                 };
-                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
                 stream.write_all(head.as_bytes()).unwrap();
                 stream.write_all(&body).unwrap();
             }
@@ -204,13 +222,25 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_ne!(fs::metadata(&exe).unwrap().permissions().mode() & 0o111, 0, "executable");
+            assert_ne!(
+                fs::metadata(&exe).unwrap().permissions().mode() & 0o111,
+                0,
+                "executable"
+            );
         }
 
         let (newer, exe) = install(&data, &server("132.0.6834.6")).unwrap();
         assert_eq!(installed(&data), Some((newer, exe)));
-        let left: Vec<_> = fs::read_dir(root(&data)).unwrap().flatten().map(|e| e.file_name()).collect();
-        assert_eq!(left, ["132.0.6834.6"], "the older version and the download are gone");
+        let left: Vec<_> = fs::read_dir(root(&data))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(
+            left,
+            ["132.0.6834.6"],
+            "the older version and the download are gone"
+        );
         fs::remove_dir_all(&data).unwrap();
     }
 

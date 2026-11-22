@@ -1122,8 +1122,15 @@ mod tests {
     #[test]
     fn saves_the_update_settings() {
         let dir = temp_dir("updates");
-        fs::write(dir.join("termf.toml"), "# mine\n").unwrap();
-        assert_eq!(load_settings(&dir).unwrap().updates, UpdateSettings::default());
+        fs::write(
+            dir.join("termf.toml"),
+            "# mine\n\n[agents]\nclaude = \"claude\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            load_settings(&dir).unwrap().updates,
+            UpdateSettings::default()
+        );
         save_updates(&dir, Channel::Beta, false).unwrap();
         let text = fs::read_to_string(dir.join("termf.toml")).unwrap();
         assert!(text.starts_with("# mine\n"), "comments kept: {text}");
