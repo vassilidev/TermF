@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import Pin from "@lucide/svelte/icons/pin";
   import Plus from "@lucide/svelte/icons/plus";
   import UserRound from "@lucide/svelte/icons/user-round";
   import Conversation from "$lib/Conversation.svelte";
@@ -10,15 +11,17 @@
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { agents, conversation, listed, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import { agents, conversation, ctoOf, listed, showCto, upsert, usd, type AgentSession } from "$lib/agents.svelte";
   import { currentProject, isMac, scopeRepos } from "$lib/files.svelte";
   import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
+  import { pinnedFirst } from "$lib/conversation-logic";
   import { ago, t } from "$lib/i18n";
   import type { Item } from "$lib/library.svelte";
   import { mostRecent } from "$lib/nav-logic";
   import { app, shortPath } from "$lib/state.svelte";
 
-  const sessions = $derived(listed());
+  // Pinned for display only: without a pick, the view and ⌘J still start from the most recent.
+  const sessions = $derived(pinnedFirst(listed()));
   const current = $derived(conversation());
   const creating = $derived(agents.creating || !current);
   const repos = $derived([...scopeRepos()].sort((a, b) => a.name.localeCompare(b.name)));
@@ -178,6 +181,18 @@
   {/if}
   <div class="split">
     <ul class="list" class:picking={chosen.length > 0} aria-label={t("chatList")}>
+      {#if app.project !== null && !ctoOf(app.project)}
+        <li class="row">
+          <span class="slot" aria-hidden="true"></span>
+          <button class="pick" onclick={showCto}>
+            <span class="name">
+              <span class="title">{t("ctoTitle", { project: currentProject()?.name ?? app.project })}</span>
+              <Pin size={12} class="pin" aria-label={t("ctoPinned")} />
+            </span>
+            <span class="desc">{t("ctoStart")}</span>
+          </button>
+        </li>
+      {/if}
       {#each sessions as session (session.id)}
         <li class="row" class:current={session === current && !creating} class:picked={chosen.includes(session)}>
           <input
@@ -194,7 +209,8 @@
           >
             <span class="name">
               <span class="title">{session.title}</span>
-              {#if session.role}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
+              {#if session.mcp}<Pin size={12} class="pin" aria-label={t("ctoPinned")} />{/if}
+              {#if session.role && !session.mcp}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
             </span>
             <span class="desc">{usd(session.cost)} · {ago(session.updated)}</span>
           </button>
@@ -344,6 +360,17 @@
 
   .role :global(svg) {
     color: var(--accent-ink);
+  }
+
+  .name :global(.pin) {
+    flex-shrink: 0;
+    color: var(--accent-ink);
+  }
+
+  /* Where the other rows have their checkbox. */
+  .slot {
+    flex-shrink: 0;
+    width: 14px;
   }
 
   .none {

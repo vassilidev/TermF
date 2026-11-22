@@ -97,6 +97,9 @@ export const keys = {
   get switcher() {
     return display("switch_project");
   },
+  get cto() {
+    return display("talk_cto");
+  },
   get launcher() {
     return display("new_session");
   },

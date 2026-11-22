@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 use termf_core::context::Gauge;
+use termf_core::ipc::{MCP_ACTIONS, MCP_READ};
 
 use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
 
@@ -13,6 +14,22 @@ use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usag
 pub const TOOL_OUTPUT: usize = 4000;
 
 pub struct ClaudeCode;
+
+/// The built-in tools a session with TermF's tools keeps: reading the repositories.
+const MCP_BUILT_IN: &str = "Read,Grep,Glob";
+
+/// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user
+/// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web.
+pub fn mcp_settings() -> Value {
+    let tools = |names: &[&str]| -> Vec<String> {
+        names.iter().map(|n| format!("mcp__termf__{n}")).collect()
+    };
+    json!({ "permissions": {
+        "allow": tools(&MCP_READ),
+        "ask": tools(&MCP_ACTIONS),
+        "deny": ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent"],
+    } })
+}
 
 /// `--model`, `--effort`, `--permission-mode` and the tools, as the spec sets them.
 fn options(spec: &SessionSpec) -> Vec<String> {
@@ -83,6 +100,26 @@ impl AgentRuntime for ClaudeCode {
                 "--append-system-prompt-file".into(),
                 prompt.to_string_lossy().into_owned(),
             ]);
+        }
+        if spec.mcp {
+            // Trifecta (ARCHITECTURE §12.4): no command, no web, no MCP server but TermF's, none of the
+            // user's or the repository's settings files, the file tools kept to the repositories.
+            args.extend(
+                [
+                    "--restricted",
+                    "--tools",
+                    MCP_BUILT_IN,
+                    "--strict-mcp-config",
+                ]
+                .map(Into::into),
+            );
+            args.extend(["--settings".into(), mcp_settings().to_string()]);
+            if let Some(config) = launch.mcp {
+                args.extend(["--mcp-config".into(), config.to_string_lossy().into_owned()]);
+            }
+            for dir in launch.dirs {
+                args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
+            }
         }
         args
     }

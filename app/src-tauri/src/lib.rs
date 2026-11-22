@@ -6,6 +6,7 @@ mod claude;
 mod claude_native;
 mod config;
 mod context;
+mod cto;
 mod files;
 mod keep_awake;
 mod library;
@@ -510,6 +511,8 @@ pub fn run() {
             team::team_run,
             team::team_events,
             team::team_squads,
+            cto::cto_open,
+            cto::cto_address,
             visual::visual_start,
             visual::visual_reviews,
             visual::visual_review,
