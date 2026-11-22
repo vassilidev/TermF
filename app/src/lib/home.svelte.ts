@@ -130,7 +130,8 @@ export async function talkCto(draft?: string) {
   await ensure(project, "cto");
   const box = await reach('[data-panel="home"] .composer textarea');
   if (draft && box instanceof HTMLTextAreaElement) {
-    box.value = draft;
+    // What the user was writing stays, above.
+    box.value = box.value.trim() ? `${box.value.trimEnd()}\n\n${draft}` : draft;
     // The conversation's binding takes it from the event, as if typed.
     box.dispatchEvent(new Event("input", { bubbles: true }));
   }
