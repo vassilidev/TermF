@@ -110,7 +110,7 @@ fn keeps_secrets_encrypted_and_gives_them_back() {
     let env = Env::new("roundtrip");
     let vault = env.vault();
     assert!(!vault.status().unwrap().initialized);
-    assert!(vault.unlock(&human(), Some(PASSWORD), None).is_err());
+    assert!(vault.unlock(&human(), Some(PASSWORD), None, None).is_err());
     assert!(vault.init(&human(), "short", false).is_err());
     let status = vault.init(&human(), PASSWORD, false).unwrap();
     assert!(status.initialized && status.unlocked && !status.remembered);
@@ -174,7 +174,7 @@ fn keeps_secrets_encrypted_and_gives_them_back() {
 
     // The CLI: another process, which unlocks with the password.
     let cli = env.vault();
-    cli.unlock(&human(), Some(PASSWORD), None).unwrap();
+    cli.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     assert_eq!(
         cli.value(&human(), &db, Access::Reveal).unwrap().expose(),
         VALUE
@@ -186,7 +186,7 @@ fn keeps_secrets_encrypted_and_gives_them_back() {
     cli.delete(&human(), &acme).unwrap();
     assert!(cli.delete(&human(), &acme).is_err());
 
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     assert_eq!(
         vault.value(&human(), &db, Access::Use).unwrap().expose(),
         "changed-value"
@@ -230,7 +230,7 @@ fn refuses_a_wrong_password_and_a_tampered_file() {
     vault.lock(&human()).unwrap();
 
     let err = vault
-        .unlock(&human(), Some("not the password"), None)
+        .unlock(&human(), Some("not the password"), None, None)
         .unwrap_err()
         .to_string();
     assert_eq!(err, "wrong master password");
@@ -245,21 +245,23 @@ fn refuses_a_wrong_password_and_a_tampered_file() {
         fs::write(env.file(), file.to_string()).unwrap();
     };
     tamper("data");
-    let err = vault.unlock(&human(), Some(PASSWORD), None).unwrap_err();
+    let err = vault
+        .unlock(&human(), Some(PASSWORD), None, None)
+        .unwrap_err();
     assert_eq!(err.to_string(), DAMAGED);
     assert!(!vault.status().unwrap().unlocked);
     tamper("key");
-    assert!(vault.unlock(&human(), Some(PASSWORD), None).is_err());
+    assert!(vault.unlock(&human(), Some(PASSWORD), None, None).is_err());
     fs::write(env.file(), "{ not json").unwrap();
     assert_eq!(
         vault
-            .unlock(&human(), Some(PASSWORD), None)
+            .unlock(&human(), Some(PASSWORD), None, None)
             .unwrap_err()
             .to_string(),
         DAMAGED
     );
     fs::write(env.file(), &original).unwrap();
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
 }
 
 #[test]
@@ -288,7 +290,7 @@ fn locks_after_the_idle_delay_and_after_a_sleep() {
 
     vault.set_auto_lock(1).unwrap();
     assert!(vault.set_auto_lock(0).is_err());
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     assert_eq!(vault.status().unwrap().auto_lock_minutes, 1);
     env.clock.awake(61);
     assert!(
@@ -301,7 +303,7 @@ fn locks_after_the_idle_delay_and_after_a_sleep() {
     );
 
     vault.set_auto_lock(10).unwrap();
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     env.clock.awake(20);
     env.clock.asleep(20);
     assert!(!vault.check(), "a short gap is not a sleep");
@@ -351,7 +353,7 @@ fn prod_asks_for_the_password_again_after_five_minutes() {
 
     // The keychain unlocks, but only a typed password opens prod.
     vault.lock(&human()).unwrap();
-    vault.unlock(&human(), None, None).unwrap();
+    vault.unlock(&human(), None, None, None).unwrap();
     assert!(vault.value(&human(), &prod, Access::Reveal).is_err());
     vault.reauth(&human(), PASSWORD).unwrap();
     env.clock.awake(60);
@@ -383,26 +385,33 @@ fn keeps_the_key_in_the_keychain_only_when_asked() {
     assert!(env.store.0.lock().unwrap().is_empty());
     vault.lock(&human()).unwrap();
     assert_eq!(
-        vault.unlock(&human(), None, None).unwrap_err().to_string(),
+        vault
+            .unlock(&human(), None, None, None)
+            .unwrap_err()
+            .to_string(),
         "the master password is needed"
     );
 
-    vault.unlock(&human(), Some(PASSWORD), Some(true)).unwrap();
+    vault
+        .unlock(&human(), Some(PASSWORD), Some(true), None)
+        .unwrap();
     assert!(vault.status().unwrap().remembered);
     assert_eq!(env.store.0.lock().unwrap().len(), 1);
     vault.lock(&human()).unwrap();
     let app = env.vault();
-    let status = app.unlock(&human(), None, None).unwrap();
+    let status = app.unlock(&human(), None, None, None).unwrap();
     assert!(status.unlocked && status.prod_until.is_none());
     assert_eq!(app.audit(1).unwrap()[0].detail.as_deref(), Some("keychain"));
 
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     assert!(vault.status().unwrap().remembered, "None leaves it");
-    vault.unlock(&human(), Some(PASSWORD), Some(false)).unwrap();
+    vault
+        .unlock(&human(), Some(PASSWORD), Some(false), None)
+        .unwrap();
     assert!(!vault.status().unwrap().remembered);
     assert!(env.store.0.lock().unwrap().is_empty());
     vault.lock(&human()).unwrap();
-    assert!(vault.unlock(&human(), None, None).is_err());
+    assert!(vault.unlock(&human(), None, None, None).is_err());
 }
 
 #[test]
@@ -448,7 +457,7 @@ fn never_shows_a_value_to_an_agent_nor_in_debug_or_errors() {
         vault
             .set(&human(), &dev, Secret::new(VALUE.repeat(2000)), None)
             .unwrap_err(),
-        vault.unlock(&human(), Some(VALUE), None).unwrap_err(),
+        vault.unlock(&human(), Some(VALUE), None, None).unwrap_err(),
         vault.reauth(&human(), VALUE).unwrap_err(),
     ] {
         texts.push(format!("{err:#} {err:?}"));
@@ -612,7 +621,7 @@ fn resolves_references_with_the_managers_cli_and_never_keeps_the_value() {
     );
     assert_eq!(resolve.size, Some(18));
     vault.lock(&human()).unwrap();
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     assert!(
         !vault
             .masker()
@@ -719,11 +728,11 @@ fn records_before_it_changes_anything_and_always_locks() {
         !vault.lock(&human()).unwrap().unlocked,
         "locked all the same"
     );
-    assert!(vault.unlock(&human(), Some(PASSWORD), None).is_err());
+    assert!(vault.unlock(&human(), Some(PASSWORD), None, None).is_err());
     assert!(!vault.status().unwrap().unlocked, "no entry, no unlock");
     mend_audit();
 
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     assert_eq!(
         vault
             .value(&human(), &dev, Access::Reveal)
@@ -746,7 +755,7 @@ fn tells_when_it_locks_itself() {
     vault.init(&human(), PASSWORD, false).unwrap();
     vault.lock(&human()).unwrap();
     assert!(told.lock().unwrap().is_empty(), "not when asked to");
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     env.clock.awake(11 * 60);
     assert!(vault.list(None, None).is_err());
     assert_eq!(*told.lock().unwrap(), [false], "a command noticed it first");
@@ -1065,7 +1074,7 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
     vault.lock(&human()).unwrap();
 
     let vault = env.vault();
-    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
     assert!(vault.items(None).unwrap().is_empty());
     let format = || -> u64 {
         let file: serde_json::Value =
@@ -1099,7 +1108,7 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
     assert_eq!(fs::read(&backup).unwrap(), v1);
 
     vault.save_item(&human(), login(None, "GitHub")).unwrap();
-    assert_eq!(format(), 2);
+    assert_eq!(format(), 3);
     assert!(!backup.exists(), "gone once the new file reads back");
     assert_eq!(
         vault.value(&human(), &db, Access::Use).unwrap().expose(),
@@ -1109,11 +1118,11 @@ fn migrates_a_format_1_vault_and_refuses_a_newer_one() {
 
     let mut newer: serde_json::Value =
         serde_json::from_slice(&fs::read(env.file()).unwrap()).unwrap();
-    newer["format"] = 3.into();
+    newer["format"] = 4.into();
     fs::write(env.file(), newer.to_string()).unwrap();
     let err = env
         .vault()
-        .unlock(&human(), Some(PASSWORD), None)
+        .unlock(&human(), Some(PASSWORD), None, None)
         .unwrap_err();
     assert_eq!(err.to_string(), "this vault was written by a newer TermF");
     assert!(vault.items(None).is_err());

@@ -43,3 +43,14 @@ tauri-plugin-notification = "2.8.1"
 tauri-plugin-dialog = "2.8.0"
 tauri-plugin-single-instance = "2.5.5"
 keepawake = "0.6.1"
+
+# Touch ID, through LocalAuthentication; these crates are already in the lockfile through Tauri.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-foundation = "0.3.2"
+
+# Windows Hello, through UserConsentVerifier; the same `windows` crate as Tauri's.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Security_Credentials_UI", "Win32_System_Com", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging"] }
+windows-future = "0.3.2"

@@ -6,15 +6,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_core::ipc::VaultCall;
 use termf_sync::OsKeyStore;
 use termf_vault::{
-    Access, Actor, Entry, Field, ItemDraft, ItemInfo, KEYCHAIN, Recipe, Scope, Secret, SecretId,
-    SecretInfo, Status, SystemClock, Vault, Verification,
+    Access, Actor, Entry, Field, ItemDraft, ItemInfo, KEYCHAIN, KeyInfo, Recipe, Scope, Secret,
+    SecretId, SecretInfo, Status, SystemClock, Vault, Verification,
 };
 
+use crate::biometry;
 use crate::{CmdResult, err};
 
 /// How soon the key leaves memory once idle or after a sleep. Any use checks first, so this is not what
@@ -34,6 +36,7 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
         Box::new(OsKeyStore(KEYCHAIN)),
         Box::new(SystemClock::default()),
     )
+    .with_keys(termf_vault::fido::system())
     .on_lock(move |status| {
         let _ = told.emit("vault-status", status);
     });
@@ -75,9 +78,15 @@ pub fn call(app: &AppHandle, call: VaultCall) -> anyhow::Result<Value> {
     let vault = &app.state::<VaultState>().vault;
     let status = match call {
         VaultCall::Status => vault.status()?,
-        VaultCall::Unlock { password } => {
+        VaultCall::Unlock { password, pin } => {
             let password = Secret::new(password);
-            vault.unlock(&Actor::human(), Some(password.expose()), None)?
+            let pin = pin.map(Secret::new);
+            vault.unlock(
+                &Actor::human(),
+                Some(password.expose()),
+                None,
+                pin.as_ref().map(Secret::expose),
+            )?
         }
         VaultCall::Lock => vault.lock(&Actor::human())?,
     };
@@ -124,13 +133,16 @@ pub async fn vault_unlock(
     state: State<'_, VaultState>,
     password: Option<String>,
     remember: Option<bool>,
+    pin: Option<String>,
 ) -> CmdResult<Status> {
     let password = password.map(Secret::new);
+    let pin = pin.map(Secret::new);
     blocking(&state, move |v| {
         v.unlock(
             &Actor::human(),
             password.as_ref().map(Secret::expose),
             remember,
+            pin.as_ref().map(Secret::expose),
         )
     })
     .await
@@ -288,4 +300,159 @@ pub async fn vault_generate(recipe: Recipe) -> CmdResult<String> {
     termf_vault::generate(&recipe)
         .map(|s| s.expose().to_owned())
         .map_err(err)
+}
+
+/// How this machine can open the vault besides the password.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Methods {
+    /// TermF asks for a security key's PIN (macOS, Linux); Windows asks in its own window.
+    key_pin: bool,
+    /// Touch ID or Windows Hello, when set up here; `None` on Linux.
+    biometry: Option<&'static str>,
+}
+
+#[tauri::command]
+pub async fn vault_methods(state: State<'_, VaultState>) -> CmdResult<Methods> {
+    blocking(&state, |v| {
+        Ok(Methods {
+            key_pin: v.asks_pin(),
+            biometry: biometry::available(),
+        })
+    })
+    .await
+}
+
+/// `reason`: what the system's window says, in the user's language.
+#[tauri::command]
+pub async fn vault_unlock_biometry(
+    state: State<'_, VaultState>,
+    reason: String,
+) -> CmdResult<Status> {
+    blocking(&state, move |v| {
+        biometry::verify(&reason)?;
+        v.unlock_quick(&Actor::human())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_reauth_key(
+    state: State<'_, VaultState>,
+    pin: Option<String>,
+) -> CmdResult<Status> {
+    let pin = pin.map(Secret::new);
+    blocking(&state, move |v| {
+        v.reauth_key(&Actor::human(), pin.as_ref().map(Secret::expose))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_reauth_biometry(
+    state: State<'_, VaultState>,
+    reason: String,
+) -> CmdResult<Status> {
+    blocking(&state, move |v| {
+        biometry::verify(&reason)?;
+        v.reauth_quick(&Actor::human())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_keys(state: State<'_, VaultState>) -> CmdResult<Vec<KeyInfo>> {
+    blocking(&state, |v| v.keys()).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Added {
+    key: KeyInfo,
+    /// The first key turned the second factor on: a new recovery key, to show once.
+    recovery_key: Option<String>,
+}
+
+#[tauri::command]
+pub async fn vault_key_add(
+    state: State<'_, VaultState>,
+    name: String,
+    pin: Option<String>,
+) -> CmdResult<Added> {
+    let pin = pin.map(Secret::new);
+    blocking(&state, move |v| {
+        let (key, recovery) =
+            v.add_key(&Actor::human(), &name, pin.as_ref().map(Secret::expose))?;
+        Ok(Added {
+            key,
+            recovery_key: recovery.map(|r| r.expose().to_owned()),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_key_remove(state: State<'_, VaultState>, id: String) -> CmdResult<Status> {
+    blocking(&state, move |v| v.remove_key(&Actor::human(), &id)).await
+}
+
+#[tauri::command]
+pub async fn vault_password_change(
+    state: State<'_, VaultState>,
+    password: String,
+) -> CmdResult<Status> {
+    let password = Secret::new(password);
+    blocking(&state, move |v| {
+        v.change_password(&Actor::human(), password.expose())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_recovery_new(state: State<'_, VaultState>) -> CmdResult<String> {
+    blocking(&state, |v| {
+        Ok(v.new_recovery(&Actor::human())?.expose().to_owned())
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Recovered {
+    status: Status,
+    /// The one used stops working: this one replaces it, to show once.
+    recovery_key: String,
+}
+
+#[tauri::command]
+pub async fn vault_recover(
+    state: State<'_, VaultState>,
+    recovery_key: String,
+    password: String,
+) -> CmdResult<Recovered> {
+    let (recovery_key, password) = (Secret::new(recovery_key), Secret::new(password));
+    blocking(&state, move |v| {
+        let (status, new) = v.recover(&Actor::human(), recovery_key.expose(), password.expose())?;
+        Ok(Recovered {
+            status,
+            recovery_key: new.expose().to_owned(),
+        })
+    })
+    .await
+}
+
+/// `days: None` turns it off. Turning it on asks the system once, so it is known to work here.
+#[tauri::command]
+pub async fn vault_biometry_set(
+    state: State<'_, VaultState>,
+    days: Option<u32>,
+    reason: String,
+) -> CmdResult<Status> {
+    blocking(&state, move |v| {
+        if days.is_some() {
+            biometry::verify(&reason)?;
+        }
+        v.set_quick(&Actor::human(), days)
+    })
+    .await
 }
