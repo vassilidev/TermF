@@ -4,3 +4,7 @@ approve_route = false
 
 [steps.approve-plan]
 enabled = false
+
+[steps.review]
+rounds = 1
+prompt = "An urgent fix: a short review. Look only for correctness bugs in the fix and for what it could break; leave conventions, complexity and nits aside. Change nothing: answer with your findings, each with the task that must fix it."

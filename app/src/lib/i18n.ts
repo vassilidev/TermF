@@ -2127,6 +2127,24 @@ const fr = {
   ctoToolChanges: "Demander des modifications",
   ctoToolStop: "Arrêter un run d'équipe",
   ctoToolSend: "Envoyer un message à un agent",
+  // Phase 4: the code review and its rounds (review → fixes → review again).
+  reviewLoopRound: "Tour {round}",
+  reviewLoopClean: "aucun constat",
+  reviewLoopFindings: "{count} constat(s)",
+  reviewLoopBackTo: "renvoyés à {tasks}",
+  reviewLoopAskedCount: "{count} à décider",
+  reviewLoopReportedCount: "{count} signalé(s)",
+  reviewLoopLeftCount: "{count} laissé(s) tel quel",
+  reviewLoopImportant: "Important",
+  reviewLoopNit: "Détail",
+  reviewLoopSent: "Renvoyé à {task}",
+  reviewLoopAsked: "À décider",
+  reviewLoopReported: "Signalé",
+  reviewLoopLeft: "Laissé tel quel",
+  reviewLoopWhy: "Pourquoi : {reason}",
+  reviewLoopFix: "Correction attendue : {fix}",
+  reviewLoopAsk: "La revue de code attend ta décision",
+  reviewLoopNotice: "Run {run} · revue de code : un tour est terminé",
 };
 
 type Key = keyof typeof fr;
@@ -4242,6 +4260,24 @@ const en: Record<Key, string> = {
   ctoToolChanges: "Request changes",
   ctoToolStop: "Stop a team run",
   ctoToolSend: "Send a message to an agent",
+  // Phase 4: the code review and its rounds (review → fixes → review again).
+  reviewLoopRound: "Round {round}",
+  reviewLoopClean: "no finding",
+  reviewLoopFindings: "{count} finding(s)",
+  reviewLoopBackTo: "sent back to {tasks}",
+  reviewLoopAskedCount: "{count} for you to decide",
+  reviewLoopReportedCount: "{count} listed",
+  reviewLoopLeftCount: "{count} left as is",
+  reviewLoopImportant: "Important",
+  reviewLoopNit: "Nit",
+  reviewLoopSent: "Sent back to {task}",
+  reviewLoopAsked: "For you to decide",
+  reviewLoopReported: "Listed",
+  reviewLoopLeft: "Left as is",
+  reviewLoopWhy: "Why: {reason}",
+  reviewLoopFix: "Fix expected: {fix}",
+  reviewLoopAsk: "The code review waits for your decision",
+  reviewLoopNotice: "Run {run} · code review: a round ended",
 };
 
 const messages = { fr, en };

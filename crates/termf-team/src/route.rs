@@ -243,10 +243,9 @@ fn check_steps(
                 EFFORTS.join(", ")
             ));
         }
-        if !steps
-            .iter()
-            .any(|(id, s)| *id == effort.step && s.kind == StepKind::Agent)
-        {
+        if !steps.iter().any(|(id, s)| {
+            *id == effort.step && matches!(s.kind, StepKind::Agent | StepKind::Review)
+        }) {
             problems.push(format!(
                 "efforts: {} is not an agent step that runs in workflow {name}",
                 effort.step

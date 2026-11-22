@@ -234,16 +234,19 @@ fn tell(app: &AppHandle, project: &str, role: &str, text: &str, to: &Addressed) 
 }
 
 /// Tells the project's CTO conversation what a team run waits for (a gate, or a step blocked by a failure or a
-/// question), so that it relays it at once. Off the team's thread, which may be in the middle of a change.
+/// question), so that it relays it at once; and how each round of the code review ended, which it reads with the
+/// next message (what waits for the user comes as a blocked step). Off the team's thread, which may be in the
+/// middle of a change.
 pub fn team_event(app: &AppHandle, event: &TeamEvent) {
-    let about = match event.kind.as_str() {
-        "step_waiting" => "waiting",
-        "step_blocked" => "blocked",
+    let (about, wake) = match event.kind.as_str() {
+        "step_waiting" => ("waiting", true),
+        "step_blocked" => ("blocked", true),
+        "review" => ("review", false),
         _ => return,
     };
     let (app, event) = (app.clone(), event.clone());
     std::thread::spawn(move || {
-        if let Err(e) = relay(&app, &event, about) {
+        if let Err(e) = relay(&app, &event, about, wake) {
             eprintln!(
                 "termf: the CTO conversation was not told of run {}: {e:#}",
                 event.run
@@ -252,13 +255,13 @@ pub fn team_event(app: &AppHandle, event: &TeamEvent) {
     });
 }
 
-fn relay(app: &AppHandle, event: &TeamEvent, about: &str) -> Result<()> {
+fn relay(app: &AppHandle, event: &TeamEvent, about: &str, wake: bool) -> Result<()> {
     let run = team::team(app).run(event.run)?;
     let agents = agents(app);
     let Some(cto) = conversation(&agents, &run.target.project)? else {
         return Ok(());
     };
-    agents.notify(cto.id, notice_of(event, &run, about), true)
+    agents.notify(cto.id, notice_of(event, &run, about), wake)
 }
 
 /// The notice of a gate or a blocked step. The event says why; the run, read without the team's lock and maybe
@@ -273,6 +276,7 @@ fn notice_of(event: &TeamEvent, run: &TeamRun, about: &str) -> Notice {
     let key = event.step.clone().unwrap_or_default();
     let what = match about {
         "waiting" => format!("the gate {key} waits for the user's approval"),
+        "review" => format!("the code review (step {key}) ended a round"),
         _ => format!("the step {key} is blocked"),
     };
     let text = format!(
@@ -285,8 +289,8 @@ fn notice_of(event: &TeamEvent, run: &TeamRun, about: &str) -> Notice {
         step: event.step.clone(),
         role: step.and_then(|s| s.role.clone()),
         conversation: step.and_then(|s| s.session),
-        // A gate says nothing more than that it waits; a blocked step says why.
-        detail: (about == "blocked").then_some(detail),
+        // A gate says nothing more than that it waits; a blocked step says why, a review round what it found.
+        detail: (about != "waiting").then_some(detail),
         text: mask_text(&text),
     }
 }
@@ -789,5 +793,12 @@ mod tests {
         );
         let gate = notice_of(&event, &run, "waiting");
         assert_eq!(gate.detail, None);
+        let round = notice_of(&event, &run, "review");
+        assert!(
+            round
+                .text
+                .contains("the code review (step implement:t2) ended a round")
+        );
+        assert!(round.detail.is_some_and(|d| !d.contains("ghp_")));
     }
 }

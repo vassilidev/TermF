@@ -12,7 +12,8 @@ use super::*;
 /// A stand-in for Claude Code that reads stream-json and answers each step from files a test writes: for the
 /// step `<key>` (read from the brief, or remembered for the conversation), its `<n>`th message runs
 /// `<key>.sh <n>` in the session's folder, then answers `<key>.<n>.json`, else `<key>.json`, else a report that
-/// says it is done; `NONE` answers plain text. Each turn costs `<key>.cost`, else `cost`, cents (1 by default).
+/// says it is done (a clean review for `review`); `NONE` answers plain text. Each turn costs `<key>.cost`, else
+/// `cost`, cents (1 by default).
 /// It logs each step's begin and end, and the messages.
 const FAKE: &str = r#"
 prev=
@@ -45,7 +46,9 @@ while IFS= read -r line; do
     printf '{"type":"result","subtype":"success","is_error":false,"result":"I did it.","total_cost_usd":%s,"session_id":"%s"}\n' "$total" "$sid"
     continue
   fi
-  if [ -f "$ans" ]; then body=$(cat "$ans"); else
+  if [ -f "$ans" ]; then body=$(cat "$ans"); elif [ "$key" = review ]; then
+    body='{"summary":"review done","findings":[]}'
+  else
     body="{\"status\":\"done\",\"summary\":\"$key done\",\"covers\":[],\"text_changes\":[],\"affected_views\":[],\"out_of_scope_findings\":[],\"questions\":[]}"
   fi
   printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","total_cost_usd":%s,"structured_output":%s,"session_id":"%s"}\n' "$total" "$body" "$sid"
@@ -224,6 +227,8 @@ impl Env {
                 notifier.session(s.id);
             }
         });
+        // Never run: the stand-in for Claude Code runs no hook.
+        agents.serve_guard(config.join("termf"));
         let team = Team::build(
             config.into(),
             data.into(),
@@ -491,8 +496,8 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
     let run = env.team.approve(1, "deliver").unwrap();
     assert_eq!(run.state, RunState::Done);
     assert!(
-        (run.cost - 0.07).abs() < 1e-9,
-        "seven sessions of a cent: {}",
+        (run.cost - 0.08).abs() < 1e-9,
+        "eight sessions of a cent: {}",
         run.cost
     );
     let journal = fs::read_to_string(env.data.join("runs/1/journal.md")).unwrap();
@@ -1813,11 +1818,371 @@ fn a_hotfix_routing_skips_its_gate_and_a_stopped_gate_waits_again() {
     assert_eq!(env.step(&run, ROUTE).state, StepState::Waiting);
 }
 
+/// A plan, its tasks, the checks, then the code review, before the delivery; `team`: what the project adds to
+/// its `[team]`.
+fn reviewed(env: &Env, team: &str) {
+    fs::write(
+        env.config.join("library/workflows/reviewed.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
+         [steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{ repo.checks }}\"\n\
+         [steps.review]\ntype = \"review\"\nrole = \"reviewer\"\nneeds = [\"checks\"]\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"review\"]\n",
+    )
+    .unwrap();
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\n{team}\n")).unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([
+            task("T1", "back", &["src/api"], &[]),
+            task("T2", "front", &["web"], &[]),
+        ])),
+    );
+    // Each attempt leaves its number, so a fix shows in the run's worktree.
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo \"T1 attempt $1\" > src/api/a.txt\n",
+    );
+    env.script(
+        "implement:T2",
+        "mkdir -p web; echo \"T2 attempt $1\" > web/x.txt\n",
+    );
+    env.team
+        .start(
+            env.target.clone(),
+            Options {
+                workflow: Some("reviewed".into()),
+                ..Options::default()
+            },
+        )
+        .unwrap();
+}
+
+fn finding(severity: &str, file: &str, line: u32, task: &str) -> Value {
+    json!({"severity": severity, "file": file, "line": line, "scenario": format!("{file} breaks on an empty list"),
+        "fix": "return early on an empty list", "task": task})
+}
+
+fn findings(summary: &str, list: Value) -> Value {
+    json!({"summary": summary, "findings": list})
+}
+
+fn delivery(r: &TeamRun) -> bool {
+    r.steps
+        .iter()
+        .any(|s| s.key == "deliver" && s.state == StepState::Waiting)
+}
+
+fn blocked_review(r: &TeamRun) -> bool {
+    r.steps
+        .iter()
+        .any(|s| s.key == "review" && s.state == StepState::Blocked)
+}
+
+#[test]
+fn the_review_sends_each_finding_to_its_task_then_looks_again() {
+    let env = Env::new("review-loop");
+    env.answer(
+        "review.1.json",
+        findings(
+            "Checked the export and its tests.",
+            json!([
+                finding("important", "src/api/a.txt", 1, "T1"),
+                finding("nit", "web/x.txt", 1, "front"),
+            ]),
+        ),
+    );
+    env.answer(
+        "review.2.json",
+        findings("F1 is fixed; nothing else.", json!([])),
+    );
+    reviewed(&env, "");
+    let run = env.until("the delivery", delivery);
+
+    let log = env.steps_log();
+    let at = |line: &str| {
+        log.iter()
+            .position(|l| l == line)
+            .unwrap_or_else(|| panic!("{line} in {log:?}"))
+    };
+    assert!(at("review 1 end") < at("implement:T1 2 begin"));
+    assert!(at("implement:T1 2 end") < at("review 2 begin"));
+    assert!(
+        !log.contains(&"implement:T2 2 begin".to_owned()),
+        "a nit is only listed: {log:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("src/api/a.txt")).unwrap(),
+        "T1 attempt 2\n",
+        "the fix is merged before the second round"
+    );
+    assert_eq!(
+        env.kinds().iter().filter(|k| *k == "review").count(),
+        2,
+        "one event a round"
+    );
+
+    let [first, second] = &run.reviews[..] else {
+        panic!("two rounds: {:#?}", run.reviews)
+    };
+    assert_eq!((first.round, second.round), (1, 2));
+    let fates: Vec<(review::Fate, Option<&str>)> = first
+        .findings
+        .iter()
+        .map(|f| (f.fate, f.to.as_deref()))
+        .collect();
+    assert_eq!(
+        fates,
+        [
+            (review::Fate::Sent, Some("T1")),
+            (review::Fate::Reported, Some("T2"))
+        ],
+        "the nit's role has one task: T2"
+    );
+    assert!(second.findings.is_empty());
+
+    let fix = env.message("implement:T1", 2);
+    assert!(
+        fix.contains("The code review (round 1) found what to fix")
+            && fix.contains("src/api/a.txt:1 (important): src/api/a.txt breaks on an empty list"),
+        "{fix}"
+    );
+    let first_look = env.message("review", 1);
+    assert!(
+        first_look.contains("## The tasks")
+            && first_look.contains("- T1 (back): do T1; changed: src/api/a.txt"),
+        "{first_look}"
+    );
+    assert!(
+        !first_look.contains("Each question you ask"),
+        "no questionnaire"
+    );
+    let second_look = env.message("review", 2);
+    assert!(
+        second_look.contains("## Your earlier rounds")
+            && second_look.contains("F1 important src/api/a.txt:1 (sent to T1)")
+            && second_look.contains("F2 nit web/x.txt:1 (reported)"),
+        "{second_look}"
+    );
+
+    let review = env.step(&run, "review");
+    assert_eq!(
+        review.report.as_ref().unwrap().summary,
+        "F1 is fixed; nothing else."
+    );
+    let session = env.agents.session(review.session.unwrap()).unwrap();
+    assert_eq!(session.spec.role.as_deref(), Some("reviewer"));
+    assert!(session.spec.guard, "the guard, as every step");
+    let schema = session.spec.json_schema.unwrap();
+    assert!(schema["properties"]["findings"].is_object());
+    let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
+    assert!(
+        args.lines().all(|l| l.contains(r#""args":["guard"]"#)),
+        "every step's session has the guard hook: {args}"
+    );
+}
+
+#[test]
+fn a_review_that_does_not_hold_is_asked_again() {
+    let env = Env::new("review-invalid");
+    env.answer(
+        "review.1.json",
+        findings(
+            "",
+            json!([
+                finding("important", "/etc/hosts", 0, "T9"),
+                {"severity": "important", "file": "src/api/a.txt", "line": 2, "scenario": " ", "fix": "x", "task": "T1"},
+            ]),
+        ),
+    );
+    reviewed(&env, "");
+    let run = env.until("the delivery", delivery);
+    let again = env.message("review", 2);
+    for problem in [
+        "the review has no summary",
+        "the file must be a path inside the repository",
+        "lines count from 1",
+        "T9 is neither a task of the plan (T1, T2) nor a role",
+        "must say how it fails and the fix expected",
+    ] {
+        assert!(again.contains(problem), "{problem}: {again}");
+    }
+    assert_eq!(run.reviews.len(), 1, "only the round that holds counts");
+    assert!(run.reviews[0].findings.is_empty());
+}
+
+#[test]
+fn the_last_round_leaves_the_rest_to_you() {
+    let env = Env::new("review-limit");
+    for n in [1, 2] {
+        env.answer(
+            &format!("review.{n}.json"),
+            findings(
+                "Still broken.",
+                json!([finding("important", "src/api/a.txt", 1, "T1")]),
+            ),
+        );
+    }
+    reviewed(&env, "");
+    let run = env.until("the review waiting for you", blocked_review);
+    assert!(env.steps_log().contains(&"implement:T1 2 begin".to_owned()));
+    assert!(
+        !env.steps_log().contains(&"implement:T1 3 begin".to_owned()),
+        "two rounds at most: one fix"
+    );
+    let review = env.step(&run, "review");
+    assert!(
+        review
+            .note
+            .as_deref()
+            .unwrap()
+            .contains("the code review needs you")
+    );
+    let i = run.steps.iter().position(|s| s.key == "review").unwrap();
+    let [q] = run.questions(i) else {
+        panic!("one question: {:?}", run.questions(i))
+    };
+    assert_eq!(q.id, "F1");
+    assert_eq!(q.options, ["T1", "T2", "leave"]);
+    assert_eq!(q.proposed, ["T1"], "the reviewer's task");
+    assert!(q.why.contains("last round (2 of 2)"), "{}", q.why);
+
+    let run = env.team.approve(1, "review").unwrap();
+    assert_eq!(run.reviews[1].findings[0].fate, review::Fate::Left);
+    let run = env.until("the delivery", delivery);
+    assert_eq!(env.step(&run, "review").state, StepState::Done);
+    assert!(!env.steps_log().contains(&"implement:T1 3 begin".to_owned()));
+}
+
+#[test]
+fn a_finding_without_a_clear_task_waits_for_you() {
+    let env = Env::new("review-ask");
+    env.answer(
+        "review.1.json",
+        findings(
+            "Two findings.",
+            json!([
+                finding("important", "src/api/a.txt", 3, ""),
+                finding("nit", "web/x.txt", 1, "T2"),
+            ]),
+        ),
+    );
+    env.answer("review.2.json", findings("Clean.", json!([])));
+    reviewed(&env, "review_nits = \"fix\"");
+    let run = env.until("the review waiting for you", blocked_review);
+    let i = run.steps.iter().position(|s| s.key == "review").unwrap();
+    let [q] = run.questions(i) else {
+        panic!("only the finding without a task: {:?}", run.questions(i))
+    };
+    assert!(q.proposed.is_empty(), "nothing to propose");
+    assert!(
+        q.why.contains("No task of the plan clearly owns it"),
+        "{}",
+        q.why
+    );
+    assert_eq!(
+        run.reviews[0].findings[1].fate,
+        review::Fate::Sent,
+        "review_nits = \"fix\""
+    );
+    assert!(
+        !env.steps_log().contains(&"implement:T2 2 begin".to_owned()),
+        "held until you answer"
+    );
+
+    let leave = BTreeMap::from([("F1".to_owned(), vec!["leave".to_owned()])]);
+    let refused = env
+        .team
+        .answer(1, "review", leave.clone(), " ")
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("say why F1 stays"),
+        "{refused}"
+    );
+    env.team
+        .answer(1, "review", leave, "pre-existing, says the CTO")
+        .unwrap();
+    let run = env.until("the delivery", delivery);
+    let left = &run.reviews[0].findings[0];
+    assert_eq!(
+        (left.fate, left.reason.as_deref()),
+        (review::Fate::Left, Some("pre-existing, says the CTO"))
+    );
+    let log = env.steps_log();
+    assert!(log.contains(&"implement:T2 2 begin".to_owned()), "{log:?}");
+    assert!(!log.contains(&"implement:T1 2 begin".to_owned()), "{log:?}");
+    assert_eq!(run.reviews.len(), 2);
+    assert!(
+        run.answers
+            .iter()
+            .any(|a| a.step == "review" && a.answer == ["leave"]),
+        "the answer is kept"
+    );
+}
+
+#[test]
+fn no_review_when_it_is_off() {
+    let env = Env::new("review-off");
+    reviewed(&env, "review = false");
+    let run = env.until("the delivery", delivery);
+    let review = env.step(&run, "review");
+    assert_eq!(review.state, StepState::Skipped);
+    assert!(
+        review
+            .note
+            .as_deref()
+            .unwrap()
+            .contains("[team] review = false")
+    );
+    assert!(review.session.is_none() && run.reviews.is_empty());
+}
+
+#[test]
+fn a_team_step_never_starts_without_the_guard() {
+    let env = Env::new("no-guard");
+    let (notifier, inbox) = channel();
+    let agents = Agents::build(
+        env.config.clone(),
+        env.data.clone(),
+        env.env.clone(),
+        move |u| {
+            if let termf_agents::Update::Session(s) = u {
+                notifier.session(s.id);
+            }
+        },
+    );
+    let team = Team::build(
+        env.config.clone(),
+        env.data.clone(),
+        agents.clone(),
+        inbox,
+        env.env.clone(),
+        |_| {},
+    );
+    let run = team.start(env.target.clone(), Options::default()).unwrap();
+    let frame = run.steps.iter().find(|s| s.key == "frame").unwrap();
+    assert_eq!(frame.state, StepState::Blocked);
+    assert!(
+        frame
+            .note
+            .as_deref()
+            .unwrap()
+            .contains("needs TermF's guard"),
+        "{:?}",
+        frame.note
+    );
+    assert!(agents.sessions().unwrap().is_empty(), "no session started");
+    team.shutdown();
+}
+
 /// The team against the real Claude Code, for a few cents: the shipped roles put on Haiku by `[roles.*]`, the
 /// `squads` workflow on a project of two squads (the CTO's triage, the PO's framing, the CTO's plan, one task per squad, the
-/// security review), each answer through `--json-schema` on a stream-json session. Permission requests are
-/// allowed. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
-/// `cargo test -p termf-team -- --ignored --nocapture real_team`
+/// code review, the security review), each answer through `--json-schema` on a stream-json session, each Bash
+/// command through the real `termf guard`. Permission requests are allowed, a review that waits is accepted as it
+/// is. Transcripts of throwaway folders, removed with `claude purge`; the config is never touched.
+/// `cargo build -p termf-cli && cargo test -p termf-team -- --ignored --nocapture real_team`
 #[test]
 #[ignore]
 fn real_team() {
@@ -1866,6 +2231,7 @@ fn real_team() {
         "back",
         "front",
         "secops",
+        "reviewer",
     ] {
         settings.push_str(&format!(
             "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
@@ -1901,6 +2267,12 @@ fn real_team() {
             notifier.session(s.id);
         }
     });
+    let termf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/termf");
+    assert!(
+        termf.is_file(),
+        "build the CLI first: cargo build -p termf-cli"
+    );
+    agents.serve_guard(termf);
     let team = Team::build(config, data, agents.clone(), inbox, env, |_| {});
     team.start(
         target,
@@ -1913,6 +2285,14 @@ fn real_team() {
     let deadline = Instant::now() + Duration::from_secs(600);
     let run = loop {
         let run = team.run(1).unwrap();
+        if run
+            .steps
+            .iter()
+            .any(|s| s.kind == StepKind::Review && s.state == StepState::Blocked)
+        {
+            team.approve(1, "review").unwrap();
+            continue;
+        }
         if !matches!(run.state, RunState::Running) || Instant::now() > deadline {
             break run;
         }
@@ -1972,11 +2352,12 @@ fn real_team() {
     let _ = fs::remove_dir_all(&root);
 
     eprintln!(
-        "real_team: ${:.4}, {} sessions, triage ${:.4}, routing {:?}",
+        "real_team: ${:.4}, {} sessions, triage ${:.4}, routing {:?}, review {:#?}",
         run.cost,
         specs.len(),
         run.steps[0].cost,
-        run.routing
+        run.routing,
+        run.reviews
     );
     assert_eq!(run.state, RunState::Done, "{events:#?}");
     assert!(structured, "each answer came through --json-schema");
@@ -1987,6 +2368,8 @@ fn real_team() {
         specs.iter().all(|s| s.model.as_deref() == Some("haiku")),
         "[roles.*] put every role on Haiku"
     );
+    assert!(specs.iter().all(|s| s.guard), "every step behind the guard");
+    assert!(!run.reviews.is_empty(), "the reviewer looked at the work");
     let routing = run.routing.clone().expect("the CTO routed the run");
     assert_eq!(run.steps[0].key, TRIAGE);
     assert_eq!(routing.workflow, "real", "the workflow you chose");

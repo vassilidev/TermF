@@ -34,6 +34,7 @@ const KILL_WAIT: Duration = Duration::from_secs(5);
 /// How long a terminal may take to close when its session is handed back.
 const TILE_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 });
 const BUSY: &str = "the session is being stopped, taken over or handed back";
+const NO_GUARD: &str = "this session needs TermF's guard, the hook that keeps it from pushing: the termf CLI next to TermF (`pnpm bundle`, or `cargo build -p termf-cli` in development)";
 
 /// Clones share the same sessions.
 #[derive(Clone)]
@@ -52,6 +53,8 @@ struct Inner {
     /// Added to every process's environment.
     env: Vec<(String, String)>,
     mcp: OnceLock<McpServer>,
+    /// The `termf` CLI, for the sessions whose Bash commands go through its `guard`.
+    guard: OnceLock<PathBuf>,
 }
 
 #[derive(Default)]
@@ -88,6 +91,8 @@ pub struct Takeover {
     pub cwd: PathBuf,
     pub title: String,
     pub args: Vec<String>,
+    /// Its terminal must have TermF's guard too.
+    pub guard: bool,
 }
 
 impl Agents {
@@ -118,6 +123,7 @@ impl Agents {
                 sink: Box::new(sink),
                 env,
                 mcp: OnceLock::new(),
+                guard: OnceLock::new(),
             }),
         };
         if let Err(e) = agents.inner.store().and_then(|s| agents.inner.reap(&s)) {
@@ -147,10 +153,17 @@ impl Agents {
         });
     }
 
+    /// The `termf` CLI whose `guard` the sessions that ask for it go through. Set once; without it, they never
+    /// start.
+    pub fn serve_guard(&self, termf: PathBuf) {
+        let _ = self.inner.guard.set(termf);
+    }
+
     /// A new session with no process yet: its first message starts one.
     pub fn create(&self, spec: SessionSpec) -> Result<AgentSession> {
         let inner = &self.inner;
         let mut spec = checked(spec)?;
+        ensure!(!spec.guard || inner.guard.get().is_some(), NO_GUARD);
         let settings = termf_core::load_settings(&inner.config_dir)?;
         spec.agent = Some(claude_agent(&settings, spec.agent.as_deref())?);
         if let Some(role) = spec.role.clone() {
@@ -341,6 +354,7 @@ impl Agents {
             cwd: spec.cwd.clone(),
             title: spec.title.clone(),
             args: inner.runtime.interactive_args(spec, &session.session_id),
+            guard: spec.guard,
         })
     }
 
@@ -573,6 +587,10 @@ impl Inner {
         let system_prompt = library(&self.config_dir, &session.spec, &dir);
         let plugin = dir.join("plugin");
         let resume = store.started(id)?;
+        let guard = match session.spec.guard {
+            true => Some(self.guard.get().context(NO_GUARD)?.as_path()),
+            false => None,
+        };
         let (mcp, dirs) = match session.spec.mcp {
             true => {
                 let dirs = other_repos(&self.config_dir, &session.spec)?;
@@ -590,6 +608,7 @@ impl Inner {
                 system_prompt: system_prompt.as_deref(),
                 mcp: mcp.as_deref(),
                 dirs: &dirs,
+                guard,
             },
         );
         let args: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();

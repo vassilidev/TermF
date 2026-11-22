@@ -552,6 +552,8 @@ impl TeamEnv {
                 notifier.session(s.id);
             }
         });
+        // Never run: the stand-in for Claude Code runs no hook.
+        agents.serve_guard(config.join("termf"));
         let team = Team::build(
             config.clone(),
             data.clone(),
