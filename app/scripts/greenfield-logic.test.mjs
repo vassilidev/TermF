@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanName, nameFromIdea, parentOf } from "../src/lib/greenfield-logic.ts";
+import { cleanName, nameFromIdea, parentOf, uniqueSlug } from "../src/lib/greenfield-logic.ts";
 
 test("the name comes from the first words of the idea that say something", () => {
   assert.equal(
@@ -27,4 +27,11 @@ test("the new project goes beside most of the known repositories, else in the ho
   assert.equal(parentOf(repos, H), `${H}/code/acme`);
   assert.equal(parentOf([], H), H);
   assert.equal(parentOf([{ path: "C:\\Users\\alex\\code\\api\\" }], "C:\\Users\\alex"), "C:\\Users\\alex\\code");
+});
+
+test("a name a project already has gets a number, as a folder name can", () => {
+  assert.equal(uniqueSlug("plant-care", ["Blog", "Plant-Care"]), "plant-care-2");
+  assert.equal(uniqueSlug("plant-care", ["plant-care", "plant-care-2"]), "plant-care-3");
+  assert.equal(uniqueSlug("plant-care", ["Blog"]), "plant-care");
+  assert.equal(uniqueSlug("", ["Blog"]), "");
 });

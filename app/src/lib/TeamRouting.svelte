@@ -22,7 +22,7 @@
     analytics: "roles2KindAnalytics",
     legal: "roles2KindLegal",
     research: "greenfieldKindResearch",
-    other:"ctoEntryKindOther",
+    other: "ctoEntryKindOther",
   };
 
   /** A request's nature as the CTO named it; one TermF does not know as it came. */

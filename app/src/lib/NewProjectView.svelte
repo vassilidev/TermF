@@ -41,14 +41,14 @@
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Lightbulb from "@lucide/svelte/icons/lightbulb";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
-  import { cleanName, nameFromIdea, parentOf } from "$lib/greenfield-logic";
+  import { cleanName, nameFromIdea, parentOf, uniqueSlug } from "$lib/greenfield-logic";
   import { ensure, home as column } from "$lib/home.svelte";
 
   type Mode = "repos" | "scratch";
   type Scratch = "idea" | "review";
   type Visibility = "private" | "public";
   type Plan = { path: string; exists: boolean; files: { name: string; text: string }[]; commands: string[]; gh: boolean };
-  type Created = { project: string; path: string; remote: string | null; githubError: string | null };
+  type Created = { project: string; path: string; remote: string | null; pushed: boolean; githubError: string | null };
 
   const scratchSteps: { id: Scratch; label: Key }[] = [
     { id: "idea", label: "greenfieldStepIdea" },
@@ -70,6 +70,8 @@
   let visibility = $state<Visibility>("private");
   let plan = $state<Plan | null>(null);
   let planError = $state("");
+  /** The spec the plan or its error is for: creating waits until it is the one shown. */
+  let plannedFor = $state("");
 
   type Step = "repos" | "detect" | "setup" | "trust" | "create";
   type Block = "team" | "tickets" | "worktree" | "ci" | "skills";
@@ -124,13 +126,17 @@
     }),
   );
   const guess = $derived(derive(chosenCards, home));
-  const suggested = $derived(mode === "scratch" ? nameFromIdea(idea) : guess ? unique(guess.name, taken) : "");
+  // From scratch the name is also a folder's: `name-2` rather than `name 2`.
+  const dedupe = (n: string) => (mode === "scratch" ? uniqueSlug(n, taken) : unique(n, taken));
+  const suggested = $derived(mode === "scratch" ? dedupe(nameFromIdea(idea)) : guess ? unique(guess.name, taken) : "");
   const name = $derived((typed ?? "").trim() || suggested);
-  const clash = $derived(mode === "repos" && typed !== null && !!typed.trim() && unique(typed.trim(), taken) !== typed.trim());
+  const clash = $derived(typed !== null && !!typed.trim() && dedupe(typed.trim()) !== typed.trim());
   const where = $derived(picked ?? parentOf(app.workspace?.repos ?? [], home));
   const spec = $derived({ name, parent: where, idea: idea.trim(), github: onGithub ? visibility : null });
   const scratchIndex = $derived(scratchSteps.findIndex((s) => s.id === scratch));
-  const ready = $derived(!!name && !!idea.trim() && !!plan && !planError && (!onGithub || plan.gh));
+  const ready = $derived(
+    !!name && !!idea.trim() && !!plan && !planError && plannedFor === JSON.stringify(spec) && (!onGithub || plan.gh),
+  );
   const github = $derived(githubSlugs(chosenCards));
   const trackers = $derived<Trackers | null>(
     github.length ? githubIssues({ github: null, jira: null, mcp: {}, implicit: true }) : null,
@@ -240,19 +246,19 @@
 
   // What creating from the idea would do, read again a moment after the owner stops typing.
   $effect(() => {
-    if (mode !== "scratch" || !spec.name || !spec.idea) {
-      plan = null;
-      planError = "";
-      return;
-    }
     const asked = JSON.stringify(spec);
+    // What was shown is for another spec now: nothing to create from until the new plan comes.
+    plan = null;
+    planError = "";
+    plannedFor = "";
+    if (mode !== "scratch" || !spec.name || !spec.idea) return;
     const timer = setTimeout(() => {
       invoke<Plan>("greenfield_plan", { spec: JSON.parse(asked) }).then(
         (p) => {
-          if (asked === JSON.stringify(spec)) ((plan = p), (planError = ""));
+          if (asked === JSON.stringify(spec)) ((plan = p), (planError = ""), (plannedFor = asked));
         },
         (e) => {
-          if (asked === JSON.stringify(spec)) ((plan = null), (planError = String(e)));
+          if (asked === JSON.stringify(spec)) ((plan = null), (planError = String(e)), (plannedFor = asked));
         },
       );
     }, 250);
@@ -296,7 +302,11 @@
     }
     const project = made.project;
     // From here the project exists: a step that fails is reported, never a reason to create it again.
-    const failed: string[] = made.githubError ? [t("greenfieldNoGithub", { error: made.githubError })] : [];
+    const failed: string[] = !made.githubError
+      ? []
+      : made.remote
+        ? [t("greenfieldNotPushed", { url: made.remote, error: made.githubError, path: made.path })]
+        : [t("greenfieldNoGithub", { error: made.githubError })];
     await load();
     try {
       // There is nothing to read in an empty repository yet: the assistant waits for the skeleton.
@@ -759,7 +769,12 @@
             value={typed ?? name}
             spellcheck="false"
             autocomplete="off"
-            oninput={(e) => (typed = mode === "scratch" ? cleanName(e.currentTarget.value) : e.currentTarget.value)}
+            oninput={(e) => {
+              const field = e.currentTarget;
+              // What cannot be in a folder name leaves the field too, so what is shown is what is used.
+              if (mode === "scratch" && cleanName(field.value) !== field.value) field.value = cleanName(field.value);
+              typed = field.value;
+            }}
             onblur={() => (editing = false)}
             onkeydown={(e) => {
               if (e.key === "Enter" || e.key === "Escape") {
@@ -784,8 +799,8 @@
       <p class="source" class:warn={clash}>
         {sourceText}
         {#if clash}
-          <button type="button" class="link" onclick={() => (typed = unique(typed!.trim(), taken))}>
-            {t("setupNameUse", { name: unique(typed!.trim(), taken) })}
+          <button type="button" class="link" onclick={() => (typed = dedupe(typed!.trim()))}>
+            {t("setupNameUse", { name: dedupe(typed!.trim()) })}
           </button>
         {:else if typed !== null && typed.trim() && suggested}
           <button type="button" class="link" onclick={() => (typed = null)}>{t("setupNameReset", { name: suggested })}</button>

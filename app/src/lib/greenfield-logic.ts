@@ -14,7 +14,10 @@ const FILLER = new Set(
   ).split(" "),
 );
 
-/** A short name for a project, from the first words of its idea that say something: `arrosage-plantes-interieur`. */
+/**
+ * A short name for a project, from the first words of its idea that say something: « Une app pour suivre l'arrosage de
+ * mes plantes » gives `suivre-arrosage-plantes`.
+ */
 export function nameFromIdea(idea: string, words = 3): string {
   return idea
     .normalize("NFD")
@@ -36,6 +39,15 @@ export function cleanName(text: string): string {
     .replace(/\s+/g, "-")
     .replace(/[^A-Za-z0-9._-]/g, "")
     .slice(0, 100);
+}
+
+/** `name`, or `name-2`, `name-3`… when a project already has it (whatever the case): still a folder name. */
+export function uniqueSlug(name: string, taken: string[]): string {
+  const used = new Set(taken.map((t) => t.trim().toLowerCase()));
+  if (!name || !used.has(name.toLowerCase())) return name;
+  let n = 2;
+  while (used.has(`${name}-${n}`.toLowerCase())) n++;
+  return `${name}-${n}`;
 }
 
 const dir = (path: string) => path.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]*$/, "");

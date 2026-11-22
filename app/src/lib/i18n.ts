@@ -3727,6 +3727,8 @@ const fr = {
   greenfieldThenCto: "L'Accueil s'ouvre : le CTO reçoit ton idée et te propose le workflow de démarrage.",
   greenfieldThenYou: "Tu valides chaque étape : rien ne démarre sans toi.",
   greenfieldNoGithub: "le dépôt GitHub n'a pas été créé ({error}) ; le projet existe sur cette machine",
+  greenfieldNotPushed:
+    "le dépôt GitHub {url} est créé, mais le premier commit n'y est pas poussé ({error}) : pousse-le avec git push -u origin main dans {path}",
   greenfieldDeliverLocal:
     "Ce dépôt n'a pas de dépôt distant (origin) : les fichiers sont commités sur {branch}, puis la branche est fusionnée dans {target}, ici, sans pull request. Refusé si {target} a des changements non commités.",
   greenfieldEventMerged: "fusionnée dans {into} à {commit}, dans le dépôt",
@@ -7447,6 +7449,8 @@ const en: Record<Key, string> = {
   greenfieldThenCto: "The Home opens: the CTO gets your idea and proposes the kickoff workflow.",
   greenfieldThenYou: "You approve each step: nothing starts without you.",
   greenfieldNoGithub: "the GitHub repository was not created ({error}); the project exists on this machine",
+  greenfieldNotPushed:
+    "the GitHub repository {url} is created, but the first commit is not pushed to it ({error}): push it with git push -u origin main in {path}",
   greenfieldDeliverLocal:
     "This repository has no remote (origin): the files are committed on {branch}, then the branch is merged into {target}, here, without a pull request. Refused if {target} has uncommitted changes.",
   greenfieldEventMerged: "merged into {into} at {commit}, in the repository",

@@ -56,9 +56,12 @@ pub struct Plan {
 pub struct Created {
     pub project: String,
     pub path: String,
-    /// The GitHub repository's URL, as `gh` gives it.
+    /// The GitHub repository's URL, as `gh` gives it, or as `origin` has it when the push failed.
     pub remote: Option<String>,
-    /// Why the GitHub repository was not created; the project is, without it.
+    /// The first commit reached the GitHub repository.
+    pub pushed: bool,
+    /// Why `gh` failed: with `remote`, the repository was created but not pushed; without, not created. The project
+    /// is created either way.
     pub github_error: Option<String>,
 }
 
@@ -77,12 +80,12 @@ fn folder(spec: &Spec) -> Result<PathBuf> {
     // Also a valid GitHub repository name, so the folder and the repository keep the same name.
     ensure!(
         name.len() <= 100
-            && name != "."
-            && name != ".."
+            // Never read as an option, nor hidden.
+            && !name.starts_with(['-', '.'])
             && name
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')),
-        "the name \"{name}\" can only hold letters, digits, '-', '_' and '.'"
+        "the name \"{name}\" can only hold letters, digits, '-', '_' and '.', and starts with a letter or a digit"
     );
     let parent = Path::new(spec.parent.trim());
     ensure!(
@@ -126,7 +129,8 @@ fn commands(spec: &Spec) -> Vec<Vec<String>> {
     let name = spec.name.trim();
     if spec.github.is_some() {
         list.push(vec![
-            "gh", "repo", "create", name, vis, "--source", ".", "--remote", "origin", "--push",
+            "gh", "repo", "create", vis, "--source", ".", "--remote", "origin", "--push", "--",
+            name,
         ]);
     }
     list.into_iter()
@@ -197,8 +201,27 @@ fn local(spec: &Spec, path: &Path, local: &[Vec<String>], env: &Env) -> Result<(
     Ok(())
 }
 
-/// Creates the repository, then the project in `config_dir`. A GitHub repository that cannot be created leaves the
-/// local one and the project as they are, and says why.
+/// Leaves the folder as it was found: removed if it was made, else without what was added to it.
+fn undo(path: &Path, existed: bool) {
+    let _ = if existed {
+        [".git", "README.md", ".gitignore"]
+            .iter()
+            .map(|n| path.join(n))
+            .filter(|p| p.exists())
+            .try_for_each(|p| {
+                if p.is_dir() {
+                    fs::remove_dir_all(p)
+                } else {
+                    fs::remove_file(p)
+                }
+            })
+    } else {
+        fs::remove_dir_all(path)
+    };
+}
+
+/// Creates the repository and the project in `config_dir`, then the GitHub repository: a local step that fails
+/// leaves nothing behind; `gh` failing leaves the project and its repository, and says how far it got.
 pub fn create(config_dir: &Path, spec: &Spec, env: &Env) -> Result<Created> {
     let (path, existed) = check(spec)?;
     let mut all = commands(spec);
@@ -206,44 +229,40 @@ pub fn create(config_dir: &Path, spec: &Spec, env: &Env) -> Result<Created> {
     if !existed {
         fs::create_dir(&path).with_context(|| format!("cannot create {}", path.display()))?;
     }
-    if let Err(e) = local(spec, &path, &all, env) {
-        // Leaves the folder as it was found.
-        let _ = if existed {
-            [".git", "README.md", ".gitignore"]
-                .iter()
-                .map(|n| path.join(n))
-                .filter(|p| p.exists())
-                .try_for_each(|p| {
-                    if p.is_dir() {
-                        fs::remove_dir_all(p)
-                    } else {
-                        fs::remove_file(p)
-                    }
-                })
-        } else {
-            fs::remove_dir_all(&path)
-        };
-        return Err(e);
-    }
-    let (remote, github_error) = match github.map(|c| run(&path, &c, env)) {
-        None => (None, None),
+    let dir = path.to_string_lossy().into_owned();
+    let saved = local(spec, &path, &all, env).and_then(|()| {
+        termf_core::save_project(
+            config_dir,
+            None,
+            spec.name.trim(),
+            std::slice::from_ref(&dir),
+        )
+    });
+    let project = match saved {
+        Ok(project) => project,
+        Err(e) => {
+            undo(&path, existed);
+            return Err(e);
+        }
+    };
+    let (remote, pushed, github_error) = match github.map(|c| run(&path, &c, env)) {
+        None => (None, false, None),
         Some(Ok(out)) => (
             out.lines().find(|l| l.contains("://")).map(str::to_owned),
+            true,
             None,
         ),
-        Some(Err(e)) => (None, Some(format!("{e:#}"))),
+        // `gh` adds `origin` once the repository exists: the push is what failed.
+        Some(Err(e)) => {
+            let origin = ["git", "remote", "get-url", "origin"].map(str::to_owned);
+            (run(&path, &origin, env).ok(), false, Some(format!("{e:#}")))
+        }
     };
-    let dir = path.to_string_lossy().into_owned();
-    let project = termf_core::save_project(
-        config_dir,
-        None,
-        spec.name.trim(),
-        std::slice::from_ref(&dir),
-    )?;
     Ok(Created {
         project,
         path: dir,
         remote,
+        pushed,
         github_error,
     })
 }
@@ -355,6 +374,8 @@ mod tests {
             ("../up", "home/Projects"),
             ("plant care", "home/Projects"),
             ("ok", "nowhere"),
+            ("-public", "home/Projects"),
+            (".hidden", "home/Projects"),
         ] {
             let bad = Spec {
                 name: name.into(),
@@ -401,17 +422,17 @@ mod tests {
         assert!(plan.gh);
         assert_eq!(
             plan.commands.last().unwrap(),
-            "gh repo create plant-care --private --source . --remote origin --push"
+            "gh repo create --private --source . --remote origin --push -- plant-care"
         );
         let made = create(&dir.join("config"), &spec, &env).unwrap();
         assert_eq!(
             made.remote.as_deref(),
             Some("https://github.com/alex/plant-care")
         );
-        assert_eq!(made.github_error, None);
+        assert_eq!((made.pushed, made.github_error), (true, None));
         assert_eq!(
             fs::read_to_string(&log).unwrap(),
-            "repo create plant-care --private --source . --remote origin --push\nmain\n",
+            "repo create --private --source . --remote origin --push -- plant-care\nmain\n",
             "after the first commit, from the project's folder"
         );
         let public = Spec {
@@ -439,7 +460,7 @@ mod tests {
             &env,
         )
         .unwrap();
-        assert_eq!(made.remote, None);
+        assert_eq!((made.remote, made.pushed), (None, false));
         assert!(made.github_error.unwrap().contains("Bad credentials"));
         let repo = dir.join("home/Projects/plant-care");
         assert_eq!(git(&repo, &["log", "--format=%s"], &env), MESSAGE);
@@ -454,11 +475,20 @@ mod tests {
     #[test]
     fn a_failed_commit_leaves_no_folder_behind() {
         let dir = temp("no-identity");
-        // No identity anywhere: git refuses to commit.
+        // No identity anywhere, whatever the shell running the tests exports: git refuses to commit.
         let env: Env = env_in(&dir, None)
             .into_iter()
             .filter(|(k, _)| !k.starts_with("GIT_AUTHOR") && !k.starts_with("GIT_COMMITTER"))
-            .chain([("EMAIL".to_owned(), OsString::new())])
+            .chain(
+                [
+                    "GIT_AUTHOR_NAME",
+                    "GIT_AUTHOR_EMAIL",
+                    "GIT_COMMITTER_NAME",
+                    "GIT_COMMITTER_EMAIL",
+                    "EMAIL",
+                ]
+                .map(|k| (k.to_owned(), OsString::new())),
+            )
             .collect();
         fs::write(
             dir.join("home/.gitconfig"),
@@ -473,5 +503,45 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_github_repository_created_but_not_pushed_says_so_with_its_url() {
+        let dir = temp("gh-push-fails");
+        let script = "[ \"$1\" = --version ] && exit 0\ngit remote add origin https://github.com/alex/plant-care.git\necho 'error: failed to push some refs' >&2\nexit 1";
+        let env = env_in(&dir, fake_gh(&dir, script));
+        let made = create(
+            &dir.join("config"),
+            &spec(&dir, Some(Visibility::Private)),
+            &env,
+        )
+        .unwrap();
+        assert_eq!(
+            made.remote.as_deref(),
+            Some("https://github.com/alex/plant-care.git")
+        );
+        assert!(!made.pushed);
+        assert!(made.github_error.unwrap().contains("failed to push"));
+        assert_eq!(
+            termf_core::load_projects(&dir.join("config"))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_project_that_cannot_be_saved_leaves_no_folder_behind() {
+        let dir = temp("unsaved");
+        let env = env_in(&dir, None);
+        // The projects folder cannot be made: a file stands where it goes.
+        fs::write(dir.join("config/projects"), "").unwrap();
+        assert!(create(&dir.join("config"), &spec(&dir, None), &env).is_err());
+        let repo = dir.join("home/Projects/plant-care");
+        assert!(!repo.exists(), "a new attempt starts from nothing");
+        fs::remove_file(dir.join("config/projects")).unwrap();
+        create(&dir.join("config"), &spec(&dir, None), &env).unwrap();
+        assert!(repo.join(".git").is_dir());
     }
 }
