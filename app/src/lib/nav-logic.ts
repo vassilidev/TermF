@@ -70,6 +70,14 @@ const fold = (s: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
+/** Whether `text` holds every word of `query`, case and accents aside: the search of a page's sections. */
+export function hasWords(text: string, query: string): boolean {
+  const folded = fold(text);
+  return fold(query)
+    .split(/\s+/)
+    .every((word) => folded.includes(word));
+}
+
 /** Score of `text` for one query word: a substring beats scattered letters, a word start beats both. -1 when absent. */
 function wordScore(text: string, word: string): number {
   const at = text.indexOf(word);

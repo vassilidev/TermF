@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mostRecent, projectsOf, rank, tally, validProject } from "../src/lib/nav-logic.ts";
+import { hasWords, mostRecent, projectsOf, rank, tally, validProject } from "../src/lib/nav-logic.ts";
 
 const repo = (path, modified = null) => ({ name: path.split(/[/\\]/).pop(), path, modified });
 const projects = [
@@ -75,4 +75,12 @@ test("palette results are grouped, the group of the best match first", () => {
   assert.deepEqual(rank(list, "dcs").map((c) => c.id), ["switch-docs"]);
   // Groups follow their best match: here the sessions.
   assert.equal(rank(list, "api claude")[0].id, "s1");
+});
+
+test("a page's search finds the sections holding every word, case and accents aside", () => {
+  const text = "Mémoire du projet L'expert du projet y cherche avant de lire le code";
+  assert.equal(hasWords(text, ""), true);
+  assert.equal(hasWords(text, "  memoire "), true);
+  assert.equal(hasWords(text, "EXPERT mém"), true);
+  assert.equal(hasWords(text, "mémoire tickets"), false);
 });
