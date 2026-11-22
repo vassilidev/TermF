@@ -27,7 +27,7 @@
   import { focusSession, keys, showRun } from "$lib/commands";
   import { pinned, summary, type Item } from "$lib/conversation-logic";
   import { openRuns, place, primary, type Wait } from "$lib/home-logic";
-  import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject } from "$lib/home.svelte";
+  import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject, type Decision } from "$lib/home.svelte";
   import { ago, t } from "$lib/i18n";
   import { openSetup, setup } from "$lib/onboarding.svelte";
   import type { Step } from "$lib/onboarding-logic";
@@ -72,7 +72,20 @@
 
   // The cards of the CTO's thread: each step of the project's runs that waits for the user.
   let notices = $state<Notice[]>([]);
-  const decisions = $derived(project ? decisionsOf(project.id) : []);
+  // A delivery's card stays once done, to say so with the pull request, until it is dismissed.
+  let delivering = $state<Record<string, Decision>>({});
+  $effect(() => {
+    void project?.id;
+    untrack(() => (delivering = {}));
+  });
+  $effect(() => {
+    for (const d of decisionsOf(project?.id ?? null)) if (!d.ask || d.ask.kind === "deliver") untrack(() => (delivering[d.key] = d));
+  });
+  const decisions = $derived.by(() => {
+    const open = project ? decisionsOf(project.id) : [];
+    const done = Object.values(delivering).filter((d) => !open.some((o) => o.key === d.key));
+    return [...open, ...done.map((d) => ({ ...d, run: team.runs.find((r) => r.run === d.run.run) ?? d.run }))];
+  });
   const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.step }))));
   const main = $derived(primary(placed, cto?.state === "waiting"));
   const decision = (key: string | undefined) => decisions.find((d) => d.key === key);
@@ -199,8 +212,11 @@
       : d.ask.kind === "questions" && d.step === TRIAGE
         ? t("ux3t1CtoQuestions", { count: d.ask.questions.length })
         : askTitle(d.ask);
-    return { icon: askIcons[d.ask?.kind ?? "deliver"], title, context: `${ticketKey(d.run.target.ticket)} · ${d.run.target.title}` };
+    return { icon: askIcons[d.ask?.kind ?? "deliver"], title, context: `${short(d.run.target.ticket)} ${d.run.target.title}` };
   }
+
+  /** A ticket by its number in the rail, its repository being the project's: `acme/api#482` → `#482`. */
+  const short = (key: string) => (key.includes("#") ? `#${key.split("#").pop()}` : ticketKey(key));
 
   const askIcons: Record<AskKind, Component> = {
     route: Route,
@@ -294,7 +310,7 @@
   {@const p = everywhere ? projects.find((x) => x.id === id) : undefined}
   <button class="rrow" onclick={() => showRun(o.run?.id ?? o.team?.run ?? 0)}>
     <span class="t">
-      <b><span class="key mono">{ticketKey(key)}</span> {o.team?.target.title ?? o.run?.title}</b>
+      <b><span class="key mono">{short(key)}</span> {o.team?.target.title ?? o.run?.title}</b>
       {#if line.text}<span>{line.text}</span>{/if}
     </span>
     {#if p}<span class="pm"><span class="mark" aria-hidden="true">{initial(p.name)}</span>{p.name}</span>{/if}
