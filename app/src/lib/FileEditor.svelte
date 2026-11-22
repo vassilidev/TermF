@@ -297,7 +297,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .toolbar button[aria-pressed="true"] {
@@ -311,7 +311,7 @@
     padding: 4px 8px;
     border-bottom: 1px solid var(--border);
     background: var(--hover);
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .message {
@@ -346,6 +346,6 @@
     grid-template-columns: 1fr 1fr;
     padding: 2px 8px;
     border-bottom: 1px solid var(--border);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 </style>
