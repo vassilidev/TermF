@@ -402,6 +402,14 @@ impl GitHub {
         })
     }
 
+    /// GitHub's `mergeable` and `mergeStateStatus` of the pull request at `url`.
+    pub(crate) fn pr_merge(&self, url: &str) -> Result<(String, String)> {
+        pull_request(url)?;
+        let pull = self.json(&["pr", "view", url, "--json", "mergeable,mergeStateStatus"])?;
+        let field = |key: &str| pull[key].as_str().unwrap_or("UNKNOWN").to_owned();
+        Ok((field("mergeable"), field("mergeStateStatus")))
+    }
+
     fn json(&self, args: &[&str]) -> Result<Value> {
         let out = self.run(None, args, None)?;
         serde_json::from_str(&out).with_context(|| format!("gh {} gave no JSON", args.join(" ")))

@@ -30,7 +30,7 @@ const asking = (team: Team) => working(team) && team.steps.some((s) => s.state =
 export function stageOf(step: Pick<Step, "key" | "kind">): string {
   if (step.kind === "foreach" || step.kind === "task") return "tasks";
   if (step.kind === "review") return "review";
-  if (step.kind === "connector") return "deliver";
+  if (step.kind === "connector" || step.kind === "update") return "deliver";
   return folded[step.key] ?? step.key;
 }
 
@@ -52,7 +52,7 @@ function stageState(steps: Step[], team: Team): StageState {
 
 /**
  * The run's timeline: the routed workflow's stages in order, a stage every step of which was skipped left out, and the
- * delivery last, done once a pull request is open; a run without a team goes launched → pull request → delivered (merged).
+ * delivery last, done once a pull request is open and the team is not at work; a run without a team goes launched → pull request → delivered (merged).
  */
 export function stages(ticket: Ticket, team?: Team | null): Stage[] {
   if (!team) {
@@ -70,11 +70,12 @@ export function stages(ticket: Ticket, team?: Team | null): Stage[] {
     groups.set(id, [...(groups.get(id) ?? []), step]);
   }
   groups.delete("deliver");
-  const deliver = team.steps.filter((s) => stageOf(s) === "deliver");
+  const deliver = team.steps.filter((s) => stageOf(team.steps.find((t) => t.key === s.escalates) ?? s) === "deliver");
   const out: Stage[] = [...groups]
     .filter(([, steps]) => steps.some((s) => s.state !== "skipped"))
     .map(([id, steps]) => ({ id, state: stageState(steps, team) }));
-  const delivered = !!ticket.prUrl;
+  // A delivered run the team updates with its base again is at work, not done.
+  const delivered = !!ticket.prUrl && !(working(team) && deliver.length);
   const last: StageState = delivered
     ? "done"
     : awaitsDelivery(ticket, team)
@@ -117,6 +118,7 @@ export const stepNames: Record<string, Key> = {
   seo: "ux3t2StepSeo",
   visual: "ux3t2StepVisual",
   migrations: "roles2StepMigrations",
+  "update-base": "integratorStep",
   deliver: "ux3t2StageDeliver",
 };
 
@@ -186,6 +188,22 @@ export function expected(ticket: Ticket, team?: Team | null): "answer" | "delive
   if (ticket.status !== "running" && ticket.status !== "delivered") return null;
   if (team && asking(team)) return "answer";
   return awaitsDelivery(ticket, team) ? "deliver" : null;
+}
+
+/**
+ * What the Run page says of a delivered run's open pull request against its base: in conflict, or behind it, and
+ * whether the team can take the update up (it is done and its workflow has the step). A team still at work, paused or
+ * stopped shows its own state instead.
+ */
+export function baseUpdate(
+  ticket: Ticket,
+  merge: { conflict: boolean; behind: boolean } | null,
+  team?: Team | null,
+): { state: "conflict" | "behind"; action: boolean } | null {
+  if (ticket.status !== "delivered" || !ticket.prUrl || ticket.prState || !merge) return null;
+  const state = merge.conflict ? "conflict" : merge.behind ? "behind" : null;
+  if (!state || (team && team.state !== "done")) return null;
+  return { state, action: !!team?.steps.some((s) => s.kind === "update") };
 }
 
 /** A GitHub pull request as `owner/repo#n`; any other address as it is. */

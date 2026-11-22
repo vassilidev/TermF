@@ -3075,6 +3075,15 @@ const fr = {
   claudebinOthersHelp: "Pour en lancer une autre, indique son chemin dans [agents] de termf.toml.",
   claudebinAlertOld: "Claude Code {version} est trop ancien pour TermF (il faut la {minimum} ou plus récente)",
   claudebinAlertSeveral: "Plusieurs installations de Claude Code coexistent",
+  // The integrator: the run brought up to date with its base before the delivery, and a pull request that conflicts
+  // with its base or is behind it.
+  integratorStep: "Mise à jour avec la base",
+  integratorConflicts: "En conflit avec la base : {files}",
+  integratorConflict: "La PR est en conflit avec {base}.",
+  integratorBehind: "La PR est en retard sur {base}.",
+  integratorHelp: "TermF fusionne {base} dans la branche, l'intégrateur résout les conflits, les contrôles et la revue repassent, puis tu relivres.",
+  integratorSolo: "Fusionne {base} dans la branche depuis la session du run, puis relivre.",
+  integratorUpdate: "Mettre à jour avec la base",
   // Phase 5b: the visual review page (four comparisons, pins, context, decisions) and its quick mode.
   review5bTitle: "Revue visuelle",
   review5bCommand: "Revue visuelle · {title}",
@@ -6238,6 +6247,15 @@ const en: Record<Key, string> = {
   claudebinOthersHelp: "To run another one, set its path in termf.toml [agents].",
   claudebinAlertOld: "Claude Code {version} is too old for TermF ({minimum} or later needed)",
   claudebinAlertSeveral: "Several Claude Code installs side by side",
+  // The integrator: the run brought up to date with its base before the delivery, and a pull request that conflicts
+  // with its base or is behind it.
+  integratorStep: "Update with the base",
+  integratorConflicts: "In conflict with the base: {files}",
+  integratorConflict: "The pull request conflicts with {base}.",
+  integratorBehind: "The pull request is behind {base}.",
+  integratorHelp: "TermF merges {base} into the branch, the integrator resolves the conflicts, the checks and the review run again, then you deliver again.",
+  integratorSolo: "Merge {base} into the branch from the run's session, then deliver again.",
+  integratorUpdate: "Update with the base",
   // Phase 5b: the visual review page (four comparisons, pins, context, decisions) and its quick mode.
   review5bTitle: "Visual review",
   review5bCommand: "Visual review · {title}",
