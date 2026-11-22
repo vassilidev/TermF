@@ -44,6 +44,7 @@
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Users from "@lucide/svelte/icons/users";
+  import BaseUpdate from "$lib/BaseUpdate.svelte";
   import CiChecks from "$lib/CiChecks.svelte";
   import Delivery from "$lib/Delivery.svelte";
   import TeamOptions from "$lib/TeamOptions.svelte";
@@ -464,6 +465,8 @@
               </div>
             </section>
           {/if}
+
+          <BaseUpdate {run} team={teamRun} />
 
           {#if teamRun}
             {#if triaging}

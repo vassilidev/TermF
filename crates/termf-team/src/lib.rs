@@ -221,8 +221,11 @@ pub struct Step {
     pub worktree: Option<PathBuf>,
     pub base: Option<String>,
     pub integrated: bool,
-    /// What the task changed.
+    /// What the task changed; for an update step, the files its merge left in conflict.
     pub files: Vec<String>,
+    /// An update step whose agent resolved a conflict: the merge commit that brought the base in.
+    #[serde(default)]
+    pub merge: Option<String>,
     pub report: Option<Report>,
     pub violations: Vec<Violation>,
     /// All its sessions, in US dollars.
@@ -263,6 +266,7 @@ impl Step {
             base: None,
             integrated: false,
             files: Vec::new(),
+            merge: None,
             report: None,
             violations: Vec::new(),
             cost: 0.0,
@@ -275,7 +279,7 @@ impl Step {
     fn agent(&self) -> bool {
         matches!(
             self.kind,
-            StepKind::Agent | StepKind::Task | StepKind::Review
+            StepKind::Agent | StepKind::Task | StepKind::Review | StepKind::Update
         )
     }
 
@@ -382,7 +386,7 @@ pub struct TeamEvent {
     /// `started`, `step_started`, `step_done`, `step_waiting`, `step_blocked`, `step_skipped`, `retry`,
     /// `plan`, `violation`, `approved`, `revised`, `rules`, `resumed`, `paused`, `stopped`, `budget`, `done`,
     /// `routed`, `answered`, `review` (a round of the code review), `escalated` (to the CTO), `decision` (one more
-    /// in the project's journal).
+    /// in the project's journal), `base` (the update step merged the run's base, or found it in conflict).
     pub kind: String,
     pub message: String,
 }
@@ -864,6 +868,48 @@ impl Team {
         Ok(run)
     }
 
+    /// Brings run `id` up to date with its base again, once its team is done or waits for the user: its update step
+    /// runs anew (a conflict goes to its agent, then the checks and the reviews look again), then its delivery gate
+    /// waits again.
+    pub fn update_base(&self, id: i64) -> Result<TeamRun> {
+        let inner = &self.inner;
+        let _lock = inner.lock.lock().unwrap();
+        let store = inner.store()?;
+        let mut run = inner.get(&store, id)?;
+        let idle = run.state == RunState::Done
+            || (run.state == RunState::Waiting
+                && !run.steps.iter().any(|s| s.state == StepState::Running));
+        ensure!(
+            idle,
+            "the team of run {id} is {}: update it with its base once it is done or waits for you",
+            run.state.as_str()
+        );
+        let i = run
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::Update)
+            .with_context(|| {
+                format!("the workflow of run {id} has no step that updates the run with its base")
+            })?;
+        inner.drop_worktree(&run, i);
+        let step = &mut run.steps[i];
+        step.state = StepState::Pending;
+        // Its escalation stays spent: once per step, then the user.
+        step.attempt = 0;
+        step.accepted = false;
+        step.worktree = None;
+        step.feedback = None;
+        step.note = None;
+        let key = step.key.clone();
+        inner.reopen_after(&mut run, i);
+        let message = "again, as you asked: the run is updated with its base";
+        inner.event(&store, &run, Some(&key), "revised", message);
+        run.state = RunState::Running;
+        run.note = None;
+        inner.tick(&store, &mut run)?;
+        Ok(run)
+    }
+
     /// Emergency stop of one run, or of every team at work: their agents are stopped (interrupted, then
     /// killed after 10 s). `start` goes on.
     pub fn stop(&self, id: Option<i64>) -> Result<Vec<TeamRun>> {
@@ -982,7 +1028,7 @@ impl Inner {
             !feedback.is_empty()
                 || matches!(
                     run.steps[target].kind,
-                    StepKind::Shell | StepKind::Connector
+                    StepKind::Shell | StepKind::Connector | StepKind::Update
                 ),
             "say what to change"
         );
@@ -1067,6 +1113,11 @@ impl Inner {
         }
         if run.steps[i].kind == StepKind::Review {
             self.settle_review(run, i, review::Fate::Left);
+        }
+        if run.steps[i].kind == StepKind::Update {
+            // As it is, the run goes on without its base: the merge prepared for the agent is dropped.
+            self.drop_worktree(run, i);
+            run.steps[i].worktree = None;
         }
         run.steps[i].accepted = true;
         Ok(())
@@ -1214,6 +1265,28 @@ impl Inner {
             }
             return Ok(text);
         }
+        let roles = self.roles(run, &self.squads(run)?)?;
+        let roles: Vec<String> = roles.iter().map(|(n, d)| format!("- {n}: {d}")).collect();
+        if step.kind == StepKind::Update {
+            text.push_str(&format!(
+                "Merging the run's base `{}` into its work conflicts in {}, and the {} did not settle it; TermF asks \
+                 you before the user.\n\nWhat went wrong the last time: {why}\n",
+                self.base_ref(run)?,
+                step.files.join(", "),
+                step.role.as_deref().unwrap_or_default()
+            ));
+            if let Some(report) = &step.report {
+                text.push_str(&format!("\nWhat its agent reported: {}\n", report.summary));
+            }
+            text.push_str(&format!(
+                "\nHere, retry has the merge resolved again with your instructions (which side's intent holds, and \
+                 why); reassign gives it to a role below; accept lets the run go on without its base (the merge is \
+                 dropped, and the pull request may conflict); ask leaves the choice to the user, as for a product \
+                 choice between the two sides.\n\nThe roles that may take it over:\n{}\n",
+                roles.join("\n")
+            ));
+            return Ok(text);
+        }
         let task = run
             .plan
             .as_ref()
@@ -1230,8 +1303,6 @@ impl Inner {
         if !step.files.is_empty() {
             text.push_str(&format!("\nFiles it changed: {}\n", step.files.join(", ")));
         }
-        let roles = self.roles(run, &self.squads(run)?)?;
-        let roles: Vec<String> = roles.iter().map(|(n, d)| format!("- {n}: {d}")).collect();
         text.push_str(&format!(
             "\nThe roles that may take it over:\n{}\n",
             roles.join("\n")
@@ -2207,6 +2278,12 @@ impl Inner {
         let status = report.status;
         let summary = report.summary.clone();
         run.steps[i].report = Some(report);
+        // A merge its agent cannot settle goes to the CTO before the user.
+        let escalate = run.steps[i].kind == StepKind::Update && !run.steps[i].escalated;
+        let stop = |inner: &Self, run: &mut TeamRun, why: &str| match escalate {
+            true => inner.escalate(store, run, i, why),
+            false => inner.block(store, run, i, why),
+        };
         match status {
             ReportStatus::Blocked => {
                 let questions = run.steps[i]
@@ -2215,17 +2292,15 @@ impl Inner {
                     .map(|r| question_lines(&r.questions))
                     .unwrap_or_default();
                 let note = format!("its agent needs an answer: {summary}\n- {questions}");
-                return self.block(store, run, i, note.trim_end_matches("\n- "));
+                return stop(self, run, note.trim_end_matches("\n- "));
             }
             ReportStatus::Failed => {
-                return self.block(
-                    store,
-                    run,
-                    i,
-                    &format!("its agent says it failed: {summary}"),
-                );
+                return stop(self, run, &format!("its agent says it failed: {summary}"));
             }
             ReportStatus::Done => {}
+        }
+        if run.steps[i].kind == StepKind::Update {
+            return self.take_merge(store, run, i, &summary);
         }
         if run.steps[i].kind == StepKind::Task {
             if let Err(e) = self.check_task(store, run, i) {
@@ -2766,6 +2841,192 @@ impl Inner {
         )))
     }
 
+    /// The branch the run started from, which its pull request goes to: the ticket run's, else the repository's
+    /// default branch as a run would start from it.
+    fn base_ref(&self, run: &TeamRun) -> Result<String> {
+        let tickets = termf_tickets::Tickets::new(self.config_dir.clone(), self.data_dir.clone());
+        if let Some(base) = tickets.run(run.run).ok().and_then(|r| r.base) {
+            return Ok(base);
+        }
+        let (git, dir) = (Git(&self.env), &run.target.worktree);
+        let head = ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"];
+        if let Ok(head) = git.run(dir, &head) {
+            return Ok(head);
+        }
+        ["origin/main", "origin/master", "main", "master"]
+            .into_iter()
+            .find(|r| git.run(dir, &["rev-parse", "-q", "--verify", r]).is_ok())
+            .map(str::to_owned)
+            .context("cannot tell the run's base branch")
+    }
+
+    /// The update step `i`: merges the run's base, as it is now, into the run's work. Nothing new: it is done.
+    /// Merged cleanly: the checks run again on the result before it goes on. A conflict: the merge waits in a
+    /// worktree of its own for the step's agent, never in the run's.
+    fn merge_base(&self, store: &Store, run: &mut TeamRun, i: usize) -> Result<()> {
+        let git = Git(&self.env);
+        let dir = run.target.worktree.clone();
+        let base = self.base_ref(run)?;
+        let mut offline = String::new();
+        if let Some(branch) = base.strip_prefix("origin/") {
+            // Offline, the base is what was last fetched.
+            if let Err(e) = git.run(&dir, &["fetch", "-q", "origin", branch]) {
+                offline = format!(", as last fetched ({e:#})");
+            }
+        }
+        let commit = git.run(&dir, &["rev-parse", &format!("{base}^{{commit}}")])?;
+        if git.contains(&dir, &commit)? {
+            let note = format!("the run's work is up to date with {base}{offline}");
+            self.done(store, run, i, &note);
+            return Ok(());
+        }
+        let key = run.steps[i].key.clone();
+        let message = format!("Merge {base} into {}", run.target.ticket);
+        run.steps[i].base = Some(commit.clone());
+        run.steps[i].files = Vec::new();
+        run.steps[i].merge = None;
+        if git.merge(&dir, &commit, &message).is_err() {
+            // Changes left uncommitted in the run's worktree would stop the resolved merge from coming back in.
+            let dirty = git.run(&dir, &["status", "--porcelain", "--untracked-files=no"])?;
+            ensure!(
+                dirty.is_empty(),
+                "the run's worktree has changes not committed, in the way of {base}: commit them or set them aside, \
+                 then revise {key}\n{dirty}"
+            );
+            let path = self
+                .data_dir
+                .join("team")
+                .join(run.run.to_string())
+                .join(&key);
+            let _ = fs::remove_dir_all(&path);
+            git.add_worktree(&dir, &path)?;
+            run.steps[i].worktree = Some(path.clone());
+            run.steps[i].integrated = false;
+            let conflicts = git.merge_in(&path, &commit, &message)?;
+            if !conflicts.is_empty() {
+                let files = conflicts.join(", ");
+                run.steps[i].files = conflicts;
+                let why = format!("{base} conflicts with the run's work in {files}");
+                self.event(store, run, Some(&key), "base", &why);
+                return Ok(());
+            }
+            // It merged in a clean copy: untracked files of the run's worktree are in the way.
+            let head = git.head(&path)?;
+            self.drop_worktree(run, i);
+            run.steps[i].worktree = None;
+            git.merge(&dir, &head, &message)?;
+        }
+        run.base = Some(commit);
+        let note =
+            format!("{base} merged into the run's work{offline}: the checks run again on it");
+        self.event(store, run, Some(&key), "base", &note);
+        self.recheck(run, i, false);
+        Ok(())
+    }
+
+    /// The agent of the update step `i` resolved the merge in its worktree: TermF concludes it (refused while a
+    /// conflict marker is left), brings it into the run's work, then the checks and the reviews look at it again,
+    /// as at a task's work.
+    fn take_merge(&self, store: &Store, run: &mut TeamRun, i: usize, summary: &str) {
+        let git = Git(&self.env);
+        let step = &run.steps[i];
+        let (Some(worktree), Some(base)) = (step.worktree.clone(), step.base.clone()) else {
+            return self.block(
+                store,
+                run,
+                i,
+                "the merge's worktree is gone: revise the step",
+            );
+        };
+        let message = format!(
+            "Merge {} into {}",
+            self.base_ref(run).unwrap_or_default(),
+            run.target.ticket
+        );
+        if let Err(e) = git.commit_all(&worktree, &message) {
+            return self.retry(store, run, i, &format!("{e:#}"));
+        }
+        match git.contains(&worktree, &base) {
+            Ok(true) => {}
+            Ok(false) => {
+                // The merge was given up: the next attempt starts from a new one.
+                self.drop_worktree(run, i);
+                run.steps[i].worktree = None;
+                let why = "the merge of the base was aborted or undone: TermF merges it again; resolve it and leave \
+                           the merge for TermF to conclude";
+                return self.retry(store, run, i, why);
+            }
+            Err(e) => return self.block(store, run, i, &format!("{e:#}")),
+        }
+        let merged = git.head(&worktree).and_then(|head| {
+            git.merge(&run.target.worktree, &head, &message)
+                .map(|_| head)
+        });
+        let head = match merged {
+            Ok(head) => head,
+            Err(e) => {
+                let why = format!("cannot bring the merge into the run's worktree: {e:#}");
+                return self.block(store, run, i, &why);
+            }
+        };
+        self.drop_worktree(run, i);
+        let key = run.steps[i].key.clone();
+        let step = &mut run.steps[i];
+        step.worktree = None;
+        step.integrated = true;
+        step.merge = Some(head);
+        let files = step.files.join(", ");
+        run.base = Some(base);
+        self.done(store, run, i, summary);
+        let note = format!(
+            "the conflicts in {files} resolved and merged into the run's work: the checks and the reviews look at it \
+             again"
+        );
+        self.event(store, run, Some(&key), "base", &note);
+        self.recheck(run, i, true);
+    }
+
+    /// Once the update step `i` merged the base, the checks it comes after run again on the result before it goes
+    /// on; with `reviews` (a conflict was resolved), the reviews too, and what follows them, as for a task sent
+    /// back.
+    fn recheck(&self, run: &mut TeamRun, i: usize, reviews: bool) {
+        let mut before = Vec::new();
+        let mut queue = run.steps[i].needs.clone();
+        while let Some(key) = queue.pop() {
+            if let Some(j) = run.index(&key).ok().filter(|j| !before.contains(j)) {
+                queue.extend(run.steps[j].needs.iter().cloned());
+                before.push(j);
+            }
+        }
+        before.sort();
+        for j in before {
+            let kind = run.steps[j].kind;
+            if kind != StepKind::Shell && !(reviews && kind == StepKind::Review) {
+                continue;
+            }
+            let key = run.steps[j].key.clone();
+            let step = &mut run.steps[j];
+            step.state = StepState::Pending;
+            step.attempt = 0;
+            step.feedback = None;
+            step.note = None;
+            if reviews {
+                self.reopen_after(run, j);
+            } else if !run.steps[i].needs.contains(&key) {
+                run.steps[i].needs.push(key);
+            }
+        }
+        if !reviews {
+            return;
+        }
+        // New work to review: its rounds count anew.
+        for j in 0..run.steps.len() {
+            if run.steps[j].kind == StepKind::Review && run.steps[j].state == StepState::Pending {
+                run.steps[j].review_base = self.rounds_of(run, j);
+            }
+        }
+    }
+
     fn drop_worktree(&self, run: &TeamRun, i: usize) {
         if let Some(path) = &run.steps[i].worktree {
             Git(&self.env).remove_worktree(&run.target.worktree, path);
@@ -2790,7 +3051,7 @@ impl Inner {
             step.state = StepState::Pending;
             step.feedback = Some(why.to_owned());
             self.event(store, run, Some(&key), "retry", why);
-        } else if step.kind == StepKind::Task && !step.escalated {
+        } else if matches!(step.kind, StepKind::Task | StepKind::Update) && !step.escalated {
             self.escalate(store, run, i, why);
         } else {
             self.block(store, run, i, why);
@@ -3010,6 +3271,22 @@ impl Inner {
                 self.event(store, run, Some(&key), "step_started", &command);
                 self.shell(run.run, key, command, run.target.worktree.clone());
             }
+            StepKind::Update if run.steps[i].worktree.is_some() => {
+                // The merge waits in its own worktree: this attempt of its agent resolves it.
+                let Some(budget) = self.room(run, i) else {
+                    return Ok(false);
+                };
+                if let Err(e) = self.launch(store, run, i, budget) {
+                    self.block(store, run, i, &format!("its agent cannot start: {e:#}"));
+                }
+            }
+            StepKind::Update => {
+                if let Err(e) = self.merge_base(store, run, i) {
+                    self.drop_worktree(run, i);
+                    run.steps[i].worktree = None;
+                    self.block(store, run, i, &format!("{e:#}"));
+                }
+            }
             StepKind::Agent | StepKind::Task | StepKind::Review => {
                 let paths = &run.steps[i].paths;
                 if !paths.is_empty() {
@@ -3033,16 +3310,6 @@ impl Inner {
                 if run.steps[i].kind == StepKind::Review && !self.review_on(store, run, i) {
                     return Ok(true);
                 }
-                let running = |kind: Option<StepKind>| {
-                    run.steps.iter().filter(move |s| {
-                        s.state == StepState::Running
-                            && s.agent()
-                            && kind.is_none_or(|k| s.kind == k)
-                    })
-                };
-                if running(None).count() >= run.max_parallel {
-                    return Ok(false);
-                }
                 if run.steps[i].kind == StepKind::Task {
                     let hints = |s: &Step| {
                         run.plan
@@ -3052,25 +3319,44 @@ impl Inner {
                             .unwrap_or_default()
                     };
                     let mine = hints(&run.steps[i]);
-                    if running(Some(StepKind::Task)).any(|s| rules::overlap(&mine, &hints(s))) {
+                    let mut tasks = run
+                        .steps
+                        .iter()
+                        .filter(|s| s.state == StepState::Running && s.kind == StepKind::Task);
+                    if tasks.any(|s| rules::overlap(&mine, &hints(s))) {
                         return Ok(false);
                     }
                     if self.squad_full(run, i) {
                         return Ok(false);
                     }
                 }
-                let running = running(None).count();
-                let budget = self.share(run, i);
-                if running > 0 && budget.is_some_and(|b| b < 0.01) {
+                let Some(budget) = self.room(run, i) else {
                     return Ok(false);
-                }
-                let budget = budget.map(|b| b.max(0.01));
+                };
                 if let Err(e) = self.launch(store, run, i, budget) {
                     self.block(store, run, i, &format!("its agent cannot start: {e:#}"));
                 }
             }
         }
         Ok(true)
+    }
+
+    /// The budget an agent of step `i` starts with now, or `None` while it waits: `max_parallel` sessions at
+    /// work, or too little left for one more beside them.
+    fn room(&self, run: &mut TeamRun, i: usize) -> Option<Option<f64>> {
+        let running = run
+            .steps
+            .iter()
+            .filter(|s| s.state == StepState::Running && s.agent())
+            .count();
+        if running >= run.max_parallel {
+            return None;
+        }
+        let budget = self.share(run, i);
+        if running > 0 && budget.is_some_and(|b| b < 0.01) {
+            return None;
+        }
+        Some(budget.map(|b| b.max(0.01)))
     }
 
     /// The budget of the session of step `i`: its step's, within its share of what the run has left once the
@@ -3134,8 +3420,10 @@ impl Inner {
             if run.steps[j].escalates.is_some() {
                 continue;
             }
-            // The reviewer changes nothing: what the user asks goes on to the work it reviewed.
-            if run.steps[j].agent() && run.steps[j].kind != StepKind::Review {
+            // The reviewer changes nothing, the update only merges the base: what the user asks goes on to the work.
+            if run.steps[j].agent()
+                && !matches!(run.steps[j].kind, StepKind::Review | StepKind::Update)
+            {
                 return Some(j);
             }
             // The triage is behind the routing gate: a step of the routed workflow never takes it up again.
@@ -3640,6 +3928,26 @@ impl Inner {
                 }
             }
         }
+        if step.kind == StepKind::Update {
+            text.push_str(&self.conflict_brief(run, i)?);
+        } else if step.kind == StepKind::Review {
+            for update in run.steps.iter().filter(|s| s.kind == StepKind::Update) {
+                let Some(merge) = &update.merge else {
+                    continue;
+                };
+                text.push_str(&format!(
+                    "\n## The base update\n\nMerging the run's base into its work conflicted in {}; the {} resolved it \
+                     in the merge {merge} (`git show --remerge-diff {merge}` shows the resolution alone). Review that \
+                     resolution with the rest of the run's changes: it must keep what both sides meant. A finding on it \
+                     goes to the task whose work it touches.\n",
+                    update.files.join(", "),
+                    update.role.as_deref().unwrap_or_default()
+                ));
+                if let Some(report) = &update.report {
+                    text.push_str(&format!("\nWhat it reported: {}\n", report.summary));
+                }
+            }
+        }
         let answer = if step.escalates.is_some() {
             escalate::ANSWER.to_owned()
         } else if step.kind == StepKind::Review {
@@ -3733,6 +4041,50 @@ impl Inner {
         if step.kind != StepKind::Review && step.escalates.is_none() {
             text.push_str(QUESTIONNAIRE);
         }
+        Ok(text)
+    }
+
+    /// What the agent of the update step `i` learns of its merge: the files in conflict, and what the base brought
+    /// since the run's work left it.
+    fn conflict_brief(&self, run: &TeamRun, i: usize) -> Result<String> {
+        let step = &run.steps[i];
+        let mut text = format!(
+            "\n## The base update\n\nThe run's base `{}` moved on since the run started. TermF merged it ({}) into a \
+             copy of the run's work, this folder, and the merge waits there with its conflicts in: {}.\n",
+            self.base_ref(run)?,
+            step.base.as_deref().unwrap_or_default(),
+            step.files.join(", ")
+        );
+        let git = Git(&self.env);
+        let from = step.worktree.as_deref().and_then(|dir| {
+            Some((
+                dir,
+                git.run(dir, &["merge-base", "HEAD", "MERGE_HEAD"]).ok()?,
+            ))
+        });
+        if let Some((dir, from)) = from {
+            let range = format!("{from}..MERGE_HEAD");
+            let log = git.run(
+                dir,
+                &["log", "--oneline", "--no-decorate", "-n", "40", &range],
+            );
+            let stat = git.run(dir, &["diff", "--stat=100", &range]);
+            let stat: Vec<&str> = stat.as_deref().unwrap_or_default().lines().collect();
+            // shortcut: the first 40 files and the total, to keep the brief short; the agent reads the rest with git.
+            let stat = match stat.len() > 41 {
+                true => [&stat[..40], &["…"], &stat[stat.len() - 1..]].concat(),
+                false => stat,
+            };
+            text.push_str(&format!(
+                "\nWhat the base brought since the run's work left it ({range}), newest first:\n\n{}\n\n{}\n",
+                log.unwrap_or_default(),
+                stat.join("\n")
+            ));
+        }
+        text.push_str(
+            "\nThe run's side meant what the plan and the reports above say; the base's side, what its commits say. \
+             Leave the merge for TermF to conclude: do not commit it, abort it or start it again.\n",
+        );
         Ok(text)
     }
 

@@ -236,7 +236,15 @@ fn proposes_a_team_for_each_kind_of_project() {
     }
     assert_eq!(
         simple.steps,
-        ["cto", "lead", "pm", "po", "reviewer", "secops"]
+        [
+            "cto",
+            "integrator",
+            "lead",
+            "pm",
+            "po",
+            "reviewer",
+            "secops"
+        ]
     );
     let squads = &composition(&simple).squads;
     assert_eq!(squads.len(), 1);
@@ -558,6 +566,7 @@ fn the_answers_and_the_card_shape_the_proposal() {
             "docs",
             "expert",
             "front",
+            "integrator",
             "lead",
             "pm",
             "po",
