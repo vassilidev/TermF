@@ -11,8 +11,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use termf_core::ipc::VaultCall;
 use termf_sync::OsKeyStore;
 use termf_vault::{
-    Access, Actor, Entry, KEYCHAIN, Scope, Secret, SecretId, SecretInfo, Status, SystemClock,
-    Vault, Verification,
+    Access, Actor, Entry, Field, ItemDraft, ItemInfo, KEYCHAIN, Recipe, Scope, Secret, SecretId,
+    SecretInfo, Status, SystemClock, Vault, Verification,
 };
 
 use crate::{CmdResult, err};
@@ -248,4 +248,44 @@ pub async fn vault_auto_lock_set(state: State<'_, VaultState>, minutes: u32) -> 
         v.status()
     })
     .await
+}
+
+#[tauri::command]
+pub async fn vault_items(
+    state: State<'_, VaultState>,
+    project: Option<String>,
+) -> CmdResult<Vec<ItemInfo>> {
+    blocking(&state, move |v| v.items(project.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn vault_item_save(state: State<'_, VaultState>, item: ItemDraft) -> CmdResult<ItemInfo> {
+    blocking(&state, move |v| v.save_item(&Actor::human(), item)).await
+}
+
+#[tauri::command]
+pub async fn vault_item_delete(state: State<'_, VaultState>, id: String) -> CmdResult<()> {
+    blocking(&state, move |v| v.delete_item(&Actor::human(), &id)).await
+}
+
+/// A password, a note, a TOTP secret or the code valid now, which the user asked to see or copy.
+#[tauri::command]
+pub async fn vault_item_reveal(
+    state: State<'_, VaultState>,
+    id: String,
+    field: Field,
+) -> CmdResult<String> {
+    blocking(&state, move |v| {
+        Ok(v.item_value(&Actor::human(), &id, field, Access::Reveal)?
+            .expose()
+            .to_owned())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_generate(recipe: Recipe) -> CmdResult<String> {
+    termf_vault::generate(&recipe)
+        .map(|s| s.expose().to_owned())
+        .map_err(err)
 }

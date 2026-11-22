@@ -29,6 +29,8 @@
     settings: ["settings", "t6bHelpSettings"],
     project: ["ux3t3Config", "ux3t4HelpConfig"],
     onboarding: ["obConfigure", "t6bHelpOnboarding"],
+    vault: ["vaultTitle", "vaultHelp"],
+    vaultAll: ["vaultTitle", "vaultHelp"],
   };
 
   let dialog: HTMLDialogElement;

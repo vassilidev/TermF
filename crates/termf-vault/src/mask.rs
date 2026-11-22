@@ -35,8 +35,16 @@ impl Masker {
         let value = value.expose();
         // A value on several lines (a PEM key) also hides those of its lines that hold key material, never
         // its armor nor a JSON file's ordinary lines.
-        let lines = value.lines().map(str::trim).filter(|l| key_material(l));
-        for v in std::iter::once(value).chain(lines) {
+        self.insert(std::iter::once(value).chain(key_lines(value)));
+    }
+
+    /// Only the lines that hold key material: a note's prose stays readable.
+    pub fn add_key_lines(&mut self, value: &Secret) {
+        self.insert(key_lines(value.expose()));
+    }
+
+    fn insert<'a>(&mut self, values: impl Iterator<Item = &'a str>) {
+        for v in values {
             if v.len() >= MIN && !self.values.iter().any(|known| known.expose() == v) {
                 self.values.push(Secret::new(v.into()));
             }
@@ -60,6 +68,10 @@ impl Masker {
         count += text.matches(MASK).count().saturating_sub(before);
         Masked { text, count }
     }
+}
+
+fn key_lines(value: &str) -> impl Iterator<Item = &str> {
+    value.lines().map(str::trim).filter(|l| key_material(l))
 }
 
 /// A long run of base64 or random-looking characters, letters and digits mixed: a PEM body line, a token.

@@ -574,6 +574,11 @@ pub fn run() {
             vault::vault_audit_verify,
             vault::vault_audit_export,
             vault::vault_auto_lock_set,
+            vault::vault_items,
+            vault::vault_item_save,
+            vault::vault_item_delete,
+            vault::vault_item_reveal,
+            vault::vault_generate,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
