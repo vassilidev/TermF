@@ -9,7 +9,7 @@ description: >-
 license: MIT
 metadata:
   termf-stacks: "mongodb"
-  termf-roles: "back"
+  termf-roles: "back dba"
   termf-versions: "*"
   termf-verified: "2026-11-22 mongodb@9.0.8 mongodb-mcp-server@3.3.0 mongodb/agent-skills@main"
   termf-sources: "https://www.mongodb.com/docs/llms.txt https://www.mongodb.com/docs/manual/release-notes/9.0/ https://github.com/mongodb/agent-skills https://github.com/mongodb-js/mongodb-mcp-server"

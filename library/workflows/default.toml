@@ -75,11 +75,18 @@ optional = true
 enabled = false
 prompt = "Review the run's changes (git diff of this branch against its base) for search and web performance: metadata, structured data, social cards, Core Web Vitals. Change nothing, not even a file: put what you find, page by page, in your report."
 
+[steps.migrations]
+type = "review"
+role = "dba"
+needs = ["review"]
+paths = ["**/migrations/**", "**/Migrations/**", "**/migration/**", "**/Migration/**", "**/db/migrate/**", "**/alembic/versions/**", "**/drizzle/**", "**/*.prisma", "**/schema.sql", "**/db/schema.rb", "**/db/structure.sql"]
+prompt = "Review the database changes of the run (git diff of this branch against its base): each migration and schema file the tasks changed, and the code that calls them. Look for long locks on tables in use, a migration that cannot be rolled back, data that could be lost, a change the code running during the deploy would not survive, a missing index or constraint. Read them and run none: this folder is a throwaway copy without the run's database. Change nothing: answer with your findings, each with the task that must fix it."
+
 [steps.visual]
 type = "visual"
 needs = ["review"]
 
 [steps.deliver]
 type = "connector"
-needs = ["security", "seo", "visual"]
+needs = ["security", "seo", "visual", "migrations"]
 actions = ["commit", "pull_request"]

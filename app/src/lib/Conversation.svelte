@@ -203,6 +203,7 @@
       review: "reviewLoopNotice",
     } as const;
     if (n.about === "direct" && n.run) return t("ctoNoticeBusy", vars);
+    if (n.about === "review" && n.step && n.step !== "review") return t("roles2ReviewNotice", vars);
     if (n.about === "queued") return t("expertNoticeQueued", vars);
     return n.about in keys ? t(keys[n.about as keyof typeof keys], vars) : n.text;
   }

@@ -10,7 +10,7 @@ paths: "**/*.sql, **/migrations/**, **/db/migrate/*.rb, **/my.cnf"
 license: MIT
 metadata:
   termf-stacks: "mysql"
-  termf-roles: "back devops"
+  termf-roles: "back devops dba"
   termf-versions: "*"
   termf-verified: "2026-11-22 mysql@9.7.4-lts mysql@8.4-lts mysql@26.10-innovation"
   termf-sources: "https://dev.mysql.com/doc/refman/9.7/en/mysql-releases.html https://dev.mysql.com/doc/relnotes/mysql/9.7/en/ https://dev.mysql.com/doc/relnotes/mysql/9.0/en/news-9-0-0.html https://dev.mysql.com/doc/refman/9.7/en/innodb-online-ddl-operations.html https://dev.mysql.com/doc/refman/9.7/en/mysql-nutshell.html"
