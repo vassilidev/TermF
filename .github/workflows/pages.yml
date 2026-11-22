@@ -1,6 +1,8 @@
 name: Website
 
-# Publishes site/ to GitHub Pages with every page minified (inline CSS and JS through esbuild); the repo keeps the readable sources
+# Publishes site/ to GitHub Pages with every page minified (inline CSS and JS through esbuild); the repo keeps the readable sources.
+# Needs Settings > Pages > Source: GitHub Actions. Until then the build job stops at "configure-pages", before anything
+# is uploaded or deployed; once it is set, rerun with `gh workflow run pages.yml`.
 on:
   push:
     branches: [main]
@@ -17,13 +19,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-24.04
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
 
       - name: Minify the pages
         run: |
@@ -37,5 +38,13 @@ jobs:
         with:
           path: _site
 
+  # A job of its own, so the github-pages environment is only used once the site is built
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4
