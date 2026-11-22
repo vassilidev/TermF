@@ -2750,3 +2750,123 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
         }
     );
 }
+
+/// The whole run of a ticket against a real GitHub repository the tester owns and may write to
+/// (`TERMF_GH_SANDBOX=owner/name`, with the real `gh` signed in): an issue with an awkward title, the inbox and
+/// its ETag, a worktree in a folder with spaces and accents, the delivery's push and pull request, the comment on
+/// the issue, then the pull request closed and the run cleaned up. Everything it creates on GitHub is removed.
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_github_sandbox() {
+    let Ok(slug) = std::env::var("TERMF_GH_SANDBOX") else {
+        eprintln!("TERMF_GH_SANDBOX=owner/name is not set: skipped");
+        return;
+    };
+    let gh = |args: &[&str]| -> String {
+        let out = Command::new("gh").args(args).output().unwrap();
+        assert!(out.status.success(), "gh {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let mut sb = Sandbox::new("real-github");
+    sb.env.retain(|(k, _)| k != "GIT_ALLOW_PROTOCOL");
+    let gitconfig =
+        "[credential \"https://github.com\"]\n\thelper = \n\thelper = !gh auth git-credential\n";
+    fs::write(sb.root.join("gitconfig"), gitconfig).unwrap();
+    let mut t = sb.tickets();
+    t.gh = "gh".into();
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let title = format!("QA « déjà vu » café 🚀 {stamp}");
+    let body = "Line one\r\nLine two with `code` and <b>tags</b>\r\n\r\nNo final newline";
+    let url = gh(&[
+        "issue",
+        "create",
+        "-R",
+        &slug,
+        "--title",
+        &title,
+        "--body",
+        body,
+        "--assignee",
+        "@me",
+    ]);
+    let number = url.rsplit('/').next().unwrap().to_owned();
+    let created_branch = Mutex::new(None);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let repo = sb.root.join("dépôts avec espaces/sandbox");
+        fs::create_dir_all(repo.parent().unwrap()).unwrap();
+        let clone_url = format!("https://github.com/{slug}.git");
+        sb.git(&sb.root, &["clone", "-q", &clone_url, &path(&repo)]);
+        let project =
+            format!("name = \"QA\"\n[[repos]]\npath = {repo:?}\n[trackers.github]\ncomment = true\n");
+        sb.project("qa", &project);
+
+        // GitHub's search sees a new issue after a few seconds.
+        let key = format!("{}#{number}", slug.to_lowercase());
+        let has = |inbox: &Inbox| {
+            let mut tickets = inbox.tickets.iter();
+            tickets.find(|i| i.reference.key.to_lowercase() == key).cloned()
+        };
+        let mut inbox = t.inbox(Some("qa"), true).unwrap();
+        for _ in 0..30 {
+            if has(&inbox).is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            inbox = t.inbox(Some("qa"), true).unwrap();
+        }
+        assert_eq!(inbox.errors, []);
+        assert_eq!(has(&inbox).map(|i| i.title), Some(title.clone()), "{inbox:?}");
+        assert_eq!(t.inbox(Some("qa"), false).unwrap(), inbox, "asked again with its ETag");
+
+        let input = format!("#{number}");
+        let run = t.start_without_session(&input, Some("qa"), None).unwrap();
+        let branch = run.branch.clone().unwrap();
+        assert_eq!(branch, format!("termf/{number}-qa-d-j-vu-caf-{stamp}"));
+        *created_branch.lock().unwrap() = Some(branch.clone());
+        let worktree = PathBuf::from(run.worktree.clone().unwrap());
+        let brief = fs::read_to_string(t.brief_dir(run.id).unwrap().join("prompt.md")).unwrap();
+        assert!(brief.contains(&title) && brief.contains("No final newline"), "{brief}");
+
+        fs::write(worktree.join(format!("qa-{stamp}.txt")), "é\r\nno newline").unwrap();
+        let preview = t.deliver_preview(run.id).unwrap();
+        assert_eq!(preview.files.len(), 1, "{preview:?}");
+        let delivery = t.deliver(run.id, &preview.fingerprint).unwrap();
+        assert_eq!(delivery.warning, None);
+        let pr = delivery.run.pr_url.clone().unwrap();
+        let fields = ".body+\"|\"+.headRefName+\"|\"+.title";
+        let sent = gh(&["pr", "view", &pr, "--json", "body,headRefName,title", "-q", fields]);
+        assert_eq!(sent, format!("Closes #{number}|{branch}|{title}"));
+        let comments = ".comments[].body";
+        let issue = ["issue", "view", &number, "-R", &slug, "--json", "comments", "-q", comments];
+        assert_eq!(gh(&issue), format!("Pull request: {pr}"));
+        let merge = t.pr_merge(run.id).unwrap().unwrap();
+        assert!(!merge.conflict, "{merge:?}");
+        let open = t.cleanup(run.id, || {}).unwrap_err().to_string();
+        assert!(open.contains("is open"), "{open}");
+
+        gh(&["pr", "close", &pr]);
+        let check = t.after_merge(true, |_| false, |_| {}).unwrap();
+        assert_eq!(check.errors, []);
+        assert_eq!(check.cleanups.len(), 1);
+        assert_eq!(check.cleanups[0].run.pr_state.as_deref(), Some("closed"));
+        assert!(!check.cleanups[0].cleaned, "a closed pull request is only told");
+        let closed = t.cleanup(run.id, || {}).unwrap();
+        assert_eq!(closed.status, RunStatus::Closed);
+        assert!(!worktree.exists());
+        assert_eq!(sb.git(&repo, &["branch", "--list", &branch]), "");
+    }));
+    if let Some(branch) = created_branch.lock().unwrap().take() {
+        let refs = format!("repos/{slug}/git/refs/heads/{branch}");
+        let _ = Command::new("gh").args(["api", "-X", "DELETE", &refs]).output();
+    }
+    let delete = ["issue", "delete", &number, "-R", &slug, "--yes"];
+    let _ = Command::new("gh").args(delete).output();
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
