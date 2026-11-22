@@ -1,6 +1,6 @@
 // Starts the real app through tauri-driver in a sandbox, and the helpers every scenario uses.
 import { spawn, execFileSync } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Key, Session } from "./webdriver.mjs";
@@ -115,6 +115,9 @@ export async function launch(box, port, { args = [] } = {}, signal) {
     const asked = Date.now();
     const s = await Session.create(base, { browserName: "wry", "tauri:options": { application: APP, args } }, signal);
     await s.exec(prepare);
+    // WebKitGTK under xvfb drops the first click of a pointer that never entered the window.
+    const enter = [{ type: "pointerMove", origin: "viewport", x: 1, y: 1, duration: 0 }];
+    await s.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions: enter }] });
     return {
       s,
       log,
@@ -127,6 +130,15 @@ export async function launch(box, port, { args = [] } = {}, signal) {
       },
     };
   } catch (e) {
+    if (windows) {
+      // What runs when the session could not open: the app, its WebView2, the drivers.
+      const list = "Get-Process termf-app,msedgewebview2,msedgedriver,tauri-driver -ErrorAction SilentlyContinue | Format-Table -AutoSize Id,ProcessName,StartTime | Out-String -Width 200";
+      try {
+        appendFileSync(log, execFileSync("powershell", ["-NoProfile", "-Command", list], { encoding: "utf8" }));
+      } catch {
+        // Diagnostics only.
+      }
+    }
     kill(driver);
     await exited;
     throw e;

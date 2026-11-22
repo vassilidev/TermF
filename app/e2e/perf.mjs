@@ -7,15 +7,16 @@ import { helpers } from "./harness.mjs";
 import { Key } from "./webdriver.mjs";
 
 /**
- * `budget`: ARCHITECTURE §2.4. `limit`: what fails the CI job on Linux, the budget plus the margin a shared CI
- * runner and a debug build need, set from repeated measures (see docs/STATUS.md §4); null: reported only.
+ * `budget`: ARCHITECTURE §2.4. `limit`: what fails the Linux job: the budget with a margin for a shared runner and a
+ * debug build, or, where the app is already past its budget (docs/STATUS.md §4), the level measured on the CI runner
+ * plus a margin, so that a regression still fails. Windows: reported only.
  */
 export const measures = {
-  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: null },
-  idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: null },
-  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: null },
-  idleCpu: { label: "CPU at rest, over 10 s", unit: "%", budget: 1, limit: null },
-  keyEcho: { label: "Keystroke to echo (median of 30)", unit: "ms", budget: 16, limit: null },
+  coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: 1500 },
+  idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: 650 },
+  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: 70 },
+  idleCpu: { label: "CPU at rest, over 10 s", unit: "%", budget: 1, limit: 2 },
+  keyEcho: { label: "Keystroke to echo (median of 30)", unit: "ms", budget: 16, limit: 24 },
 };
 
 const SESSIONS = 5;

@@ -1,6 +1,6 @@
 // `pnpm e2e [part of a scenario's name | perf]`: drives the real app (debug build) through tauri-driver, on Linux
 // and Windows. Each scenario gets its own sandbox and app; a failed one runs once more, with the reason logged.
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP, helpers, viewIds } from "./harness.mjs";
@@ -61,7 +61,11 @@ async function attempt(scenario) {
   // Past its time, the scenario fails at its next command or wait; its app and sandbox go only once it has stopped.
   const timer = setTimeout(() => abort.abort(new Error("the scenario took over 3 minutes")), 180_000);
   try {
-    await t.start(scenario.launch);
+    await t.start(scenario.launch).catch((e) => {
+      e.launch = true;
+      e.log = existsSync(join(box.root, "app.log")) ? readFileSync(join(box.root, "app.log"), "utf8").split("\n").slice(-25).join("\n") : "";
+      throw e;
+    });
     await scenario.run(t);
     return null;
   } catch (e) {
@@ -86,6 +90,7 @@ if (filter && filter !== "perf" && !chosen.length) {
   process.exit(1);
 }
 const results = [];
+let unusable = false;
 if (filter !== "perf") {
   for (const scenario of chosen) {
     const started = Date.now();
@@ -100,11 +105,18 @@ if (filter !== "perf") {
     results.push({ name: scenario.name, error, retried });
     log(`${error ? "✗" : "✓"} ${scenario.name} (${seconds} s${retried ? ", second try" : ""})`);
     if (error) log(`  ${String(error.message).replaceAll("\n", "\n  ")}`);
+    if (error?.launch) log(`  app.log:\n${error.log ?? ""}`);
+    // Every scenario starts the app: when it cannot be driven at all, the others would only wait as long.
+    if (error?.launch && results.length === 1) {
+      log("The app could not be started through the WebDriver: the other scenarios and the measures are skipped.");
+      unusable = true;
+      break;
+    }
   }
 }
 
 let over = false;
-if (!filter || filter === "perf") {
+if ((!filter || filter === "perf") && !unusable) {
   try {
     const values = await measure(port, (m) => log(`  ${m}`));
     const { table, over: past } = report(values, platform);

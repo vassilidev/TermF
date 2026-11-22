@@ -1721,26 +1721,21 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
             .any(|e| matches!(e, AgentEvent::ToolUse { id, .. } if id == "item_0"))
     });
     env.agents.interrupt(id).unwrap();
-    env.until("the interrupted turn", || {
-        env.turns(id) == 3 && env.exits(id) == 3
+    // The end of the process is recorded before the session's new state is saved: wait for both.
+    env.until("the interrupted turn, the conversation going on", || {
+        env.turns(id) == 3 && env.exits(id) == 3 && env.session(id).state == State::Idle
     });
     assert_eq!(turn_end(&env.events(id)).0, Outcome::Interrupted);
-    assert_eq!(
-        env.session(id).state,
-        State::Idle,
-        "the conversation goes on"
-    );
 
     env.agents.send(id, "this will fail").unwrap();
     env.until("the failed turn", || {
-        env.turns(id) == 4 && env.exits(id) == 4
+        env.turns(id) == 4 && env.exits(id) == 4 && env.session(id).state == State::Error
     });
     let (outcome, _, _, error, _) = turn_end(&env.events(id));
     assert_eq!(
         (outcome, error.as_deref()),
         (Outcome::Error, Some("model overloaded"))
     );
-    assert_eq!(env.session(id).state, State::Error);
 
     let takeover = env.agents.takeover(id).unwrap();
     assert_eq!(takeover.agent, "codex");
