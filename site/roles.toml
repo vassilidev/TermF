@@ -1,0 +1,178 @@
+# The team as the website shows it: readable names and groups for the roles in library/roles/. The model, the effort and
+# the permissions come from each role's frontmatter; .github/scripts/features.py reads both, so the roster and its count
+# follow the library. A role missing here still shows, in the last group, with its own description.
+
+[[groups]]
+id = "contact"
+name = "Who you talk to"
+intro = "The CTO is your one point of contact. The expert answers your questions about the project."
+color = "cto"
+
+[[groups]]
+id = "product"
+name = "Product and design"
+intro = "They settle what to build and how it should work, before any code."
+color = "product"
+
+[[groups]]
+id = "build"
+name = "Plan and build"
+intro = "The lead plans the tasks; the builders write the code, each in its own copy of the repository."
+color = "build"
+
+[[groups]]
+id = "quality"
+name = "Quality and security"
+intro = "They check the work before it reaches you, and send each problem back to the task that made it."
+color = "quality"
+
+[[groups]]
+id = "creative"
+name = "Brand, words and video"
+intro = "They join a run when a ticket asks for an identity, words or a video."
+color = "creative"
+
+[[groups]]
+id = "specialists"
+name = "Specialists"
+intro = "Called for one field, when a ticket needs it."
+color = "specialists"
+
+[roles.cto]
+label = "CTO"
+mark = "CTO"
+group = "contact"
+short = "Your one point of contact"
+does = "Reads each request, decides how the team takes it on, and brings back what the team needs from you."
+when = "First, on every request: it triages the run, and plans the squads' work when there are several."
+never = "Writes code or edits a file: it only reads the repositories."
+
+[roles.expert]
+label = "Project expert"
+group = "contact"
+short = "Answers about the project"
+does = "Answers questions about the project, how a part works, why, where it lives, what was decided, with its sources."
+when = "When you switch the Home's conversation to Expert, and when the CTO, the product owner, the product manager or the architect has a doubt."
+never = "Edits a file, runs a command or browses the web. It is never given a task."
+
+[roles.pm]
+label = "Product manager"
+group = "product"
+short = "Writes the PRD of a vague epic"
+does = "Turns a vague request into a short PRD: the problem, measurable goals, non-goals, risks, and questions for you."
+when = "Before the product owner, for a vague epic. Optional."
+never = "Touches code, the ticket or the acceptance criteria."
+
+[roles.po]
+label = "Product owner"
+group = "product"
+short = "Frames the ticket"
+does = "Frames the ticket before any work: testable acceptance criteria with their source, what is out of scope, and a questionnaire for what is left open."
+when = "On every run, right after the triage. Skipped only for an obvious urgent fix."
+never = "Touches code, or changes the ticket without your approval."
+
+[roles.ux]
+label = "UX designer"
+group = "product"
+short = "Specifies flows and states"
+does = "Specifies how the change looks and behaves: flows, screens, every state, keyboard and screen reader."
+when = "Before the front-end tasks, when the interface changes and the ticket gives no design."
+never = "Writes code, or invents visible text the ticket did not give."
+
+[roles.architect]
+label = "Architect"
+group = "product"
+short = "Settles design decisions"
+does = "Settles a design decision: options with their trade-offs, a proposed decision, and the contracts the other tasks build on."
+when = "First in a plan, for a large task or a decision that crosses modules or squads."
+never = "Writes code. Not called for a change that fits one module's existing design."
+
+[roles.lead]
+label = "Tech lead"
+group = "build"
+short = "Plans the tasks"
+does = "Turns the ticket into a plan of tasks per role, each with its files, the criteria it covers and its dependencies."
+when = "After the framing, on every run, and again when a step fails or a question blocks."
+never = "Edits a file, or takes a task itself."
+
+[roles.front]
+label = "Front-end developer"
+group = "build"
+short = "Builds the interface"
+does = "Builds screens, components, styles and client-side logic, with accessibility."
+when = "For interface work, after the UX designer when there is no design."
+never = "Changes metadata or social cards (the SEO engineer's job), or text the ticket did not ask for."
+
+[roles.back]
+label = "Back-end developer"
+group = "build"
+short = "Builds the API and the data"
+does = "Builds the API, business logic, database and migrations, with their tests."
+when = "For server work."
+never = "Touches CI, infrastructure or dependency upgrades (DevOps), or screens (front)."
+
+[roles.devops]
+label = "DevOps engineer"
+group = "build"
+short = "CI, infrastructure, dependencies"
+does = "Changes CI/CD pipelines, infrastructure as code, builds and dependencies, with the smallest change that works."
+when = "For CI, infrastructure, build and dependency work."
+never = "Touches application code or its tests."
+
+[roles.seo]
+label = "SEO engineer"
+mark = "SEO"
+group = "build"
+short = "Search, sharing and speed"
+does = "Metadata, sitemaps, structured data, social cards and their images, Lighthouse and Core Web Vitals."
+when = "When the ticket changes public pages."
+never = "Changes a page's content or layout, or any text the ticket did not give."
+
+[roles.qa]
+label = "QA engineer"
+group = "quality"
+short = "Proves each criterion"
+does = "Checks every acceptance criterion on the merged work, with evidence, and adds the missing regression tests."
+when = "Last in a medium or large plan, once the code tasks are done."
+never = "Changes production code, CI, or an existing test's assertions."
+
+[roles.reviewer]
+label = "Code reviewer"
+group = "quality"
+short = "Reviews the whole change"
+does = "Reviews the run's whole diff against the criteria, the contracts and the project's conventions; each finding goes back to the task that must fix it."
+when = "On every run, after the tasks and the checks, for up to two rounds."
+never = "Edits a file: the task that made the problem fixes it."
+
+[roles.secops]
+label = "Security reviewer"
+mark = "SEC"
+group = "quality"
+short = "Looks for vulnerabilities"
+does = "Reviews the run's diff for vulnerabilities, abuse cases and vulnerable dependencies, in two passes: find, then confirm."
+when = "On every run, after the code review."
+never = "Edits a file: the developers fix what it finds."
+
+[roles.brand]
+label = "Brand designer"
+group = "creative"
+short = "Logo, guidelines, design system"
+does = "Makes the visual identity: a logo and its variants, guidelines in PDF, the design system as code, and every export."
+when = "When a ticket asks for an identity."
+never = "Builds screens and features, or writes product text the ticket did not give."
+
+[roles.copy]
+label = "UX writer"
+group = "creative"
+short = "Interface text and docs"
+does = "Writes the words the ticket asks for: interface text, pages, README, glossary, in every language the project ships."
+when = "When a ticket asks for words."
+never = "Rewords existing text the ticket does not name, or changes layout and code."
+
+[roles.motion]
+label = "Motion designer"
+group = "creative"
+short = "Videos and animations"
+does = "Makes launch videos, product demos, animations and GIFs, from a storyboard you approve first."
+when = "When a ticket asks for a video or an animation."
+never = "Touches the product's code or the app's own transitions."
