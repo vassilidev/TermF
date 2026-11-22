@@ -465,6 +465,9 @@ fn refuses_what_would_not_read_back() {
     let mut spaced = base.clone();
     spaced.team.as_mut().unwrap().squads[0].id = "a b".into();
     refused(spaced, "is not made of");
+    let mut elsewhere = base.clone();
+    elsewhere.team.as_mut().unwrap().squads[0].repos = strings(&["billing", "front"]);
+    refused(elsewhere, "squad main: no repository front in the project");
     let mut flow = base.clone();
     flow.workflow = Some("nope".into());
     refused(flow, "no workflow named nope");

@@ -1137,10 +1137,22 @@ fn written(
         Ok(())
     };
     if let Some(team) = &edit.team {
+        let names: Vec<String> = termf_core::load_projects(config_dir)?
+            .into_iter()
+            .filter(|p| p.id == project)
+            .flat_map(|p| p.repos.into_iter().map(|r| r.name))
+            .collect();
         for s in &team.squads {
             role(&s.lead)?;
             for r in s.roles.keys() {
                 role(r)?;
+            }
+            for repo in &s.repos {
+                ensure!(
+                    names.contains(repo),
+                    "squad {}: no repository {repo} in the project",
+                    s.id
+                );
             }
         }
         for r in &team.staff {
