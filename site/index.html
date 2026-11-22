@@ -274,6 +274,21 @@ fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
 const reel = document.getElementById('reel'), video = reel.querySelector('video');
 if ('video' in reel.dataset) {
   const pause = reel.querySelector('.pause'), play = reel.querySelector('.play');
+  // The loop exists in both themes, so the window never shows a dark film on a light page
+  const film = () => {
+    const name = dark() ? 'launch' : 'launch-light';
+    if (video.dataset.film === name) return;
+    const playing = video.dataset.film && !video.paused;
+    video.dataset.film = name;
+    video.poster = 'media/' + name + '-poster.webp';
+    const [webm, mp4] = video.querySelectorAll('source');
+    webm.src = 'media/' + name + '.webm'; mp4.src = 'media/' + name + '.mp4';
+    video.load();
+    if (playing) video.play().catch(() => {});
+  };
+  film();
+  themeBtn.addEventListener('click', film);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', film);
   const sync = () => { pause.classList.toggle('paused', video.paused); pause.setAttribute('aria-label', video.paused ? 'Play the video' : 'Pause the video'); };
   video.addEventListener('play', () => { play.hidden = true; sync(); });
   video.addEventListener('pause', sync);
