@@ -152,7 +152,7 @@
     <textarea class="field" rows="3" placeholder={t(ask.kind === "questions" ? "teamRunsAnswersHint" : "teamRunsFeedbackHint")} bind:value={drafts[key]}></textarea>
   </label>
   <div class="buttons">
-    {#if ask.kind !== "questions" && ask.kind !== "blocked"}
+    {#if changing === key}
       <button class="btn sm" onclick={() => (changing = null)}>{t("cancel")}</button>
     {:else if ask.accept}
       <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
@@ -331,7 +331,28 @@
             <TeamRouting routing={run.routing} />
           {/if}
         {:else if ask.kind === "questions" && isForm(ask.questions)}
-          <TeamQuestionnaire {run} step={key} questions={ask.questions} />
+          {#if editingRoute && key === TRIAGE && run.routing}
+            <TeamRouteEdit {run} routing={run.routing} onclose={() => (editingRoute = false)} />
+          {:else if changing === key}
+            {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
+          {:else}
+            <!-- Never stuck in the form: accept as it is, answer in free text, or set the path yourself. -->
+            <TeamQuestionnaire {run} step={key} questions={ask.questions}>
+              {#if ask.accept}
+                <button class="btn sm" disabled={!!busy} onclick={() => approve(key)}>
+                  {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
+                </button>
+              {/if}
+              <button class="btn sm" disabled={!!busy} onclick={() => (changing = key)}>
+                <MessageSquareText size={14} aria-hidden="true" />{t("ctoEntryFreeText")}
+              </button>
+              {#if key === TRIAGE}
+                <button class="btn sm" disabled={!!busy} onclick={() => (editingRoute = true)}>
+                  <Pencil size={14} aria-hidden="true" />{t("ctoEntryChange")}
+                </button>
+              {/if}
+            </TeamQuestionnaire>
+          {/if}
         {:else if ask.kind === "plan"}
           <p class="help">{t("teamRunsAskPlanHelp")}</p>
         {:else if ask.kind === "visual"}

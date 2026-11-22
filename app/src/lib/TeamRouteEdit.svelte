@@ -3,7 +3,7 @@
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { t } from "$lib/i18n";
-  import { budgetError, editRouting, runs, type Routing, type TeamRun, type WorkflowView } from "$lib/team-run-logic";
+  import { budgetError, editRouting, routeBudget, runs, type Routing, type TeamRun, type WorkflowView } from "$lib/team-run-logic";
   import { upsertRun } from "$lib/team.svelte";
 
   /** Changes the CTO's routing before it applies: the workflow, its optional steps, the squads, the budget. */
@@ -17,7 +17,7 @@
   // svelte-ignore state_referenced_locally
   let picked = $state<string[]>([...routing.squads]);
   // svelte-ignore state_referenced_locally
-  let budget = $state<number | null>(routing.budget_usd > 0 ? routing.budget_usd : null);
+  let budget = $state<number | null>(routeBudget(run.budget, routing.budget_usd));
   let running = $state<string[]>([]);
   let busy = $state(false);
   let error = $state("");
@@ -59,8 +59,8 @@
     busy = true;
     error = "";
     try {
-      const next = editRouting(routing, workflow, running, picked, budget ?? 0);
-      upsertRun(await invoke<TeamRun>("team_route", { run: run.run, routing: next }));
+      const next = editRouting(routing, workflow, running, picked);
+      upsertRun(await invoke<TeamRun>("team_route", { run: run.run, routing: next, budget: budget ?? undefined }));
       onclose();
     } catch (e) {
       error = String(e);
@@ -79,7 +79,7 @@
       </select>
     </label>
     <label class="labelled budget">
-      <span>{t("ctoEntryBudget")}</span>
+      <span>{t("ctoEntryRunBudget")}</span>
       <input class="field" type="number" min="0" step="0.5" bind:value={budget} />
     </label>
   </div>

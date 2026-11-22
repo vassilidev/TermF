@@ -21,25 +21,32 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Send from "@lucide/svelte/icons/send";
   import QuestionInput from "$lib/ui/QuestionInput.svelte";
-  import { byTheme, proposed, unanswered, type Question, type TeamRun } from "$lib/team-run-logic";
+  import type { Snippet } from "svelte";
+  import { byTheme, proposed, unanswered, withOthers, type Question, type TeamRun } from "$lib/team-run-logic";
   import { upsertRun } from "$lib/team.svelte";
 
-  /** A step's questions as one form, grouped by theme, the proposed answers filled in, sent all at once. */
-  let { run, step, questions }: { run: TeamRun; step: string; questions: Question[] } = $props();
+  /**
+   * A step's questions as one form, grouped by theme, the proposed answers filled in, sent all at once; a choice
+   * also takes an answer of one's own. `children`: the step's other actions, beside Send.
+   */
+  let { run, step, questions, children }: { run: TeamRun; step: string; questions: Question[]; children?: Snippet } =
+    $props();
 
   // svelte-ignore state_referenced_locally
   let answers = $state<Record<string, string[]>>(proposed(questions));
+  let others = $state<Record<string, string>>({});
   let note = $state("");
   let busy = $state(false);
   let error = $state("");
 
-  const missing = $derived(unanswered(questions, answers));
+  const given = $derived(withOthers(questions, answers, others));
+  const missing = $derived(unanswered(questions, given));
 
   async function send() {
     busy = true;
     error = "";
     try {
-      upsertRun(await invoke<TeamRun>("team_answer", { run: run.run, step, answers, note: note.trim() || undefined }));
+      upsertRun(await invoke<TeamRun>("team_answer", { run: run.run, step, answers: given, note: note.trim() || undefined }));
     } catch (e) {
       error = String(e);
     } finally {
@@ -57,6 +64,9 @@
         <span class="q-text">{q.question}</span>
         {#if q.why}<span class="why">{t("ctoEntryWhyItMatters", { why: q.why })}</span>{/if}
         <QuestionInput kind={q.kind} options={q.options} label={q.question} value={answers[q.id] ?? []} onchange={(v) => (answers[q.id] = v)} />
+        {#if q.kind === "choice" || q.kind === "multi"}
+          <input class="field other" placeholder={t("ctoEntryOther")} aria-label={t("ctoEntryOther")} bind:value={others[q.id]} />
+        {/if}
         {#if q.implications.length === q.options.length && q.implications.some((i) => i.trim())}
           <ul class="implications">
             {#each q.options as option, i (option)}
@@ -75,6 +85,7 @@
 {#if missing.length}<p class="notice">{t("ctoEntryMissing")}</p>{/if}
 {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
 <div class="buttons">
+  {@render children?.()}
   <button class="btn sm primary" disabled={busy || missing.length > 0} onclick={send}>
     {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
     {t("ctoEntrySend")}
@@ -142,8 +153,15 @@
     background: var(--panel);
   }
 
+  .other {
+    width: min(100%, 480px);
+    background: var(--panel);
+  }
+
   .buttons {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
+    gap: 8px;
   }
 </style>

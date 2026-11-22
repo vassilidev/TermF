@@ -12,7 +12,9 @@ import {
   progress,
   proposed,
   runs,
+  routeBudget,
   unanswered,
+  withOthers,
   upsert,
 } from "../src/lib/team-run-logic.ts";
 
@@ -246,10 +248,20 @@ test("questionnaire: by theme, proposed answers, what is left to answer, old sen
   assert.deepEqual(qs[0].proposed, ["CSV"], "a copy");
   assert.deepEqual(unanswered(qs, proposed(qs)), ["public", "who"]);
   assert.deepEqual(
-    unanswered(qs, { format: ["PDF"], cols: ["date", "tax"], public: ["maybe"], name: ["  "], who: ["finance"] }),
+    unanswered(qs, { format: [], cols: ["date", " "], public: ["maybe"], name: ["  "], who: ["finance"] }),
     ["format", "cols", "public", "name"],
   );
   assert.deepEqual(unanswered(qs, { format: ["Excel"], cols: [], public: ["no"], name: ["a"], who: ["b"] }), []);
+  assert.deepEqual(
+    unanswered(qs, { format: ["PDF for the bank"], cols: ["date", "tax code"], public: ["no"], name: ["a"], who: ["b"] }),
+    [],
+    "an answer of one's own for a choice",
+  );
+  const own = withOthers(qs, proposed(qs), { format: " PDF ", cols: "tax code", public: "maybe", who: "finance" });
+  assert.deepEqual(own.format, ["PDF"], "replaces the option of a choice");
+  assert.deepEqual(own.cols, ["tax code"], "adds to a multiple choice");
+  assert.deepEqual([own.public, own.who], [[], []], "only for a choice");
+  assert.deepEqual(withOthers(qs, proposed(qs), { format: "  " }).format, ["CSV"], "blank: the option stays");
   assert.equal(isForm(qs), true);
   assert.equal(isForm([]), false);
   assert.equal(isForm(["CSV or XLSX?"].map((q) => ({ ...question("", "text"), question: q }))), false);
@@ -279,10 +291,18 @@ test("editRouting: skip and add against the new workflow's defaults, efforts of 
   });
   assert.equal(runs(workflow.steps[1], cto), false);
   assert.equal(runs(workflow.steps[2], { skip: [], add: ["ux"] }), true);
-  const next = editRouting(cto, workflow, ["ux"], ["web", "api"], 6);
+  const next = editRouting(cto, workflow, ["ux"], ["web", "api"]);
   assert.deepEqual(
     [next.workflow, next.skip, next.add, next.efforts, next.squads, next.questions, next.budget_usd],
-    ["default", ["frame"], ["ux"], [{ step: "security", effort: "low" }, { step: "ux", effort: "high" }], ["web", "api"], [], 6],
+    ["default", ["frame"], ["ux"], [{ step: "security", effort: "low" }, { step: "ux", effort: "high" }], ["web", "api"], [], 4],
   );
   assert.equal(next.reason, "a new export", "the rest is the CTO's");
+});
+
+test("routeBudget: a change of the routing starts below the run's budget and the advice", () => {
+  assert.equal(routeBudget(15, 25), 15, "the advice never raises it");
+  assert.equal(routeBudget(15, 6), 6);
+  assert.equal(routeBudget(15, 0), 15, "no advice");
+  assert.equal(routeBudget(null, 6), 6);
+  assert.equal(routeBudget(null, 0), null);
 });

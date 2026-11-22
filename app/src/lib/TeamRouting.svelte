@@ -44,8 +44,10 @@
       <dt>{t("ctoEntrySkipped")}</dt>
       <dd class="mono">{routing.skip.join(", ")}</dd>
     {/if}
-    <dt>{t("ctoEntrySquads")}</dt>
-    <dd>{routing.squads.length ? routing.squads.join(", ") : t("ctoEntrySquadsAll")}</dd>
+    {#if routing.squads.length}
+      <dt>{t("ctoEntrySquads")}</dt>
+      <dd>{routing.squads.join(", ")}</dd>
+    {/if}
     {#if routing.efforts.length}
       <dt>{t("ctoEntryEfforts")}</dt>
       <dd class="mono">{routing.efforts.map((e) => `${e.step} ${e.effort}`).join(", ")}</dd>

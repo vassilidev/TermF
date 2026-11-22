@@ -251,17 +251,42 @@ export function proposed(questions: Question[]): Record<string, string[]> {
   return Object.fromEntries(questions.map((q) => [q.id, [...q.proposed]]));
 }
 
-/** The questions left without an answer: one option, yes or no, or a text; a multiple choice may tick nothing. */
+/**
+ * The questions left without an answer: one value for a choice (an option, or an answer of one's own), yes or no,
+ * a text; a multiple choice may tick nothing.
+ */
 export function unanswered(questions: Question[], answers: Record<string, string[]>): string[] {
   return questions
     .filter((q) => {
-      const answer = (answers[q.id] ?? []).filter((a) => a.trim());
-      if (q.kind === "multi") return answer.some((a) => !q.options.includes(a));
+      const answer = answers[q.id] ?? [];
+      if (answer.some((a) => !a.trim())) return true;
+      if (q.kind === "multi") return false;
       if (answer.length !== 1) return true;
-      if (q.kind === "bool") return !["yes", "no"].includes(answer[0]);
-      return q.kind === "choice" && !q.options.includes(answer[0]);
+      return q.kind === "bool" && !["yes", "no"].includes(answer[0]);
     })
     .map((q) => q.id);
+}
+
+/** The answers once the user's own are in: for a choice it replaces the option, for a multiple choice it adds to them. */
+export function withOthers(
+  questions: Question[],
+  answers: Record<string, string[]>,
+  others: Record<string, string>,
+): Record<string, string[]> {
+  return Object.fromEntries(
+    questions.map((q) => {
+      const own = (others[q.id] ?? "").trim();
+      const answer = answers[q.id] ?? [];
+      if (!own || (q.kind !== "choice" && q.kind !== "multi")) return [q.id, answer];
+      return [q.id, q.kind === "choice" ? [own] : [...answer, own]];
+    }),
+  );
+}
+
+/** The run's budget a change of the routing starts from: never above the run's own, nor above the CTO's advice. */
+export function routeBudget(budget: number | null, advice: number): number | null {
+  const amounts = [budget, advice > 0 ? advice : null].filter((b): b is number => b !== null);
+  return amounts.length ? Math.min(...amounts) : null;
 }
 
 /** Whether an optional step runs under `routing`: on by default unless skipped, off unless added. */
@@ -270,16 +295,10 @@ export function runs(step: { id: string; on: boolean }, routing: Pick<Routing, "
 }
 
 /**
- * The routing once the user picks `workflow`, the optional steps that run, the squads and the budget: skip and add
- * rebuilt against that workflow's defaults, the efforts of the steps it does not run dropped.
+ * The routing once the user picks `workflow`, the optional steps that run and the squads: skip and add rebuilt
+ * against that workflow's defaults, the efforts of the steps it does not run dropped. The run's budget goes apart.
  */
-export function editRouting(
-  routing: Routing,
-  workflow: WorkflowView,
-  running: string[],
-  squads: string[],
-  budget: number,
-): Routing {
+export function editRouting(routing: Routing, workflow: WorkflowView, running: string[], squads: string[]): Routing {
   const optional = workflow.steps.filter((s) => s.optional);
   const agents = workflow.steps
     .filter((s) => s.kind === "agent" && (!s.optional || running.includes(s.id)))
@@ -292,6 +311,5 @@ export function editRouting(
     efforts: routing.efforts.filter((e) => agents.includes(e.step)),
     squads,
     questions: [],
-    budget_usd: budget,
   };
 }
