@@ -316,6 +316,9 @@ fn declares(line: &str, alias: &str) -> Option<Vec<String>> {
     }
 }
 
+/// Put above each block TermF adds, so that the sync carries those blocks and never one written by hand.
+pub const MARK: &str = "# Written by TermF";
+
 /// `text` with the block of `entry.alias` added or updated. Only the five options of `HostEntry` change:
 /// other options, comments and blocks are kept as they were. A new block goes before `Host *`, since the
 /// first value found wins and a block after it could not override its defaults.
@@ -398,7 +401,7 @@ pub fn upsert(text: &str, entry: &HostEntry) -> Result<String> {
             lines.splice(start + 1..end, block);
         }
         None => {
-            let mut block = vec![format!("Host {}", entry.alias)];
+            let mut block = vec![MARK.to_owned(), format!("Host {}", entry.alias)];
             block.extend(
                 options.iter().filter_map(|(name, value)| {
                     Some(format!("  {name} {}", quote(value.as_ref()?)))
@@ -426,6 +429,93 @@ pub fn upsert(text: &str, entry: &HostEntry) -> Result<String> {
         }
     }
     Ok(join(text, &lines))
+}
+
+/// The blocks of `text` that TermF added (marked), with the options the UI sets; the first value of each wins.
+pub fn marked(text: &str) -> Vec<HostEntry> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    for i in 0..lines.len() {
+        let Some(alias) = marked_alias(&lines, i) else {
+            continue;
+        };
+        let mut entry = HostEntry {
+            alias,
+            ..Default::default()
+        };
+        for line in &lines[i + 1..] {
+            let Some((keyword, args)) = directive(line) else {
+                continue;
+            };
+            if keyword == "host" || keyword == "match" {
+                break;
+            }
+            let Some(value) = args.into_iter().next() else {
+                continue;
+            };
+            match keyword.as_str() {
+                "hostname" => _ = entry.host_name.get_or_insert(value),
+                "user" => _ = entry.user.get_or_insert(value),
+                "port" => entry.port = entry.port.or(value.parse().ok()),
+                "identityfile" => _ = entry.identity_file.get_or_insert(value),
+                "identitiesonly" => {
+                    _ = entry
+                        .identities_only
+                        .get_or_insert(value.eq_ignore_ascii_case("yes"))
+                }
+                _ => {}
+            }
+        }
+        found.push(entry);
+    }
+    found
+}
+
+/// The alias of the `Host` line at `i` when TermF's mark is right above it.
+fn marked_alias(lines: &[&str], i: usize) -> Option<String> {
+    let (keyword, mut patterns) = directive(lines[i])?;
+    (keyword == "host" && patterns.len() == 1 && i > 0 && lines[i - 1].trim() == MARK)
+        .then(|| patterns.remove(0))
+}
+
+/// Whether `alias` has a block TermF did not add, which the sync leaves alone.
+pub fn hand_written(text: &str, alias: &str) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    (0..lines.len())
+        .any(|i| declares(lines[i], alias).is_some() && marked_alias(&lines, i).is_none())
+}
+
+/// `text` without the marked block of `alias`: its mark, its lines and the blank line that followed it.
+pub fn remove_marked(text: &str, alias: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let Some(start) = (0..lines.len())
+        .find(|&i| marked_alias(&lines, i).is_some_and(|a| a.eq_ignore_ascii_case(alias)))
+    else {
+        return text.to_owned();
+    };
+    let mut end = lines[start + 1..]
+        .iter()
+        .position(|l| matches!(directive(l), Some((k, _)) if k == "host" || k == "match"))
+        .map_or(lines.len(), |i| start + 1 + i);
+    // Comments right above the next block (its mark among them) belong to it.
+    while end > start + 1 && lines[end - 1].trim_start().starts_with('#') {
+        end -= 1;
+    }
+    while end < lines.len() && lines[end].trim().is_empty() {
+        end += 1;
+    }
+    let mut kept: Vec<String> = lines[..start - 1]
+        .iter()
+        .chain(&lines[end..])
+        .map(|l| l.to_string())
+        .collect();
+    while kept.last().is_some_and(|l| l.trim().is_empty()) {
+        kept.pop();
+    }
+    if kept.is_empty() {
+        return String::new();
+    }
+    join(text, &kept)
 }
 
 /// Why the block of `entry` may not fully apply once `config` is `~/.ssh/config`: ssh keeps the first

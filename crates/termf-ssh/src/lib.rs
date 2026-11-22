@@ -1,10 +1,12 @@
 //! SSH key manager (architecture §12.7): the keys of `~/.ssh`, the agent, the config hosts and the
-//! repositories that use them. Private key contents never leave this crate: only public data is returned.
+//! repositories that use them. Private key contents never leave this crate, but for the encrypted sync (`pairs`):
+//! only public data is returned.
 
 mod config;
 mod formats;
 mod keys;
 mod ppk;
+mod sync;
 mod tools;
 
 use std::fs;
@@ -17,8 +19,9 @@ use ssh_key::public::KeyData;
 use ssh_key::{EcdsaCurve, HashAlg, PrivateKey, PublicKey};
 use zeroize::Zeroizing;
 
-pub use config::{Host, HostEntry};
+pub use config::{Host, HostEntry, MARK};
 pub use keys::{Algo, Check, CheckKind, Format, Generated, KeyFile, Locked, Spec, Usage};
+pub use sync::{Pair, synced_identity, valid_name};
 pub use tools::{
     ASKPASS_ENV, Agent, AgentKey, HostTest, Remote, RepoKeys, askpass, clipboard_clear, test_host,
 };

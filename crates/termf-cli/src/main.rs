@@ -63,6 +63,8 @@ usage:
   termf ssh trash <key>                 move a key to ~/.ssh/.termf-trash
   termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions,vault]
                                         sync this machine's config, encrypted, through a remote
+  termf sync setup --s3 <endpoint> --bucket <name> [--region <region>] [--prefix <path>] | --webdav <url>
+                                        the same through S3 (curl 8.3 or newer) or WebDAV; asks the credentials
   termf sync status                     remote, last sync, conflicts, missing repositories
   termf sync push | pull                sync now (pull only brings changes in)
   termf sync resolve <path> --local|--remote
@@ -71,6 +73,8 @@ usage:
   termf sync change-password            re-encrypt everything; other machines need the new password
   termf sync recover                    set a new password with the recovery key
   termf sync scopes <list>              choose what syncs: config, projects, conventions, vault
+                                        and ssh-keys (the keys of ~/.ssh, only when named)
+  termf sync forget <device>            remove another machine and change the data key
   termf sync disable                    stop syncing on this machine
   termf run <ticket> [--project <id>] [--repo <name>]
                                         work on a ticket (URL, owner/repo#42, repo#42, #42, ACME-123)
