@@ -34,7 +34,8 @@
    * What a team run waits for from the user, one actionable card each, the Run page's and the Home's alike: `step`
    * keeps only that step's card; `context` names the ticket on each card, for a page that is not the run's own;
    * `primary` false makes no button of the cards the screen's main one; `compact` sums the plan up and leaves the
-   * whole of it to the Run page. Once the team is done, the delivery left to the user is a card too.
+   * whole of it to the Run page. Once the team is done, the delivery left to the user is a card too. `ondismiss`: the
+   * cards had something to show and no longer have (the delivery hidden, or made elsewhere; every wait answered).
    */
   let {
     run,
@@ -42,7 +43,8 @@
     context = false,
     primary = true,
     compact = false,
-  }: { run: TeamRun; step?: string; context?: boolean; primary?: boolean; compact?: boolean } = $props();
+    ondismiss,
+  }: { run: TeamRun; step?: string; context?: boolean; primary?: boolean; compact?: boolean; ondismiss?: () => void } = $props();
 
   /** The action under way: `<command>:<step>`. */
   let busy = $state("");
@@ -61,6 +63,13 @@
   const waits = $derived(asks(run).filter((a) => step === undefined || a.step.key === step));
   const connector = $derived(run.steps.find((s) => s.kind === "connector"));
   const late = $derived(!!ticket && awaitsDelivery(ticket, run) && (step === undefined || step === connector?.key));
+  const showing = $derived(waits.length > 0 || late || delivering || !!error);
+  let shown = false;
+  $effect(() => {
+    // Once this update is drawn: the caller may drop this very card.
+    if (shown && !showing) queueMicrotask(() => ondismiss?.());
+    shown = showing;
+  });
 
   async function act(name: string, command: string, args: Record<string, unknown>): Promise<boolean> {
     busy = name;
@@ -199,7 +208,7 @@
   </article>
 {/snippet}
 
-{#if waits.length || late || delivering || error}
+{#if showing}
   <div class="waits">
     {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
     {#each waits as ask (ask.step.key)}

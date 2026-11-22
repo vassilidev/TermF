@@ -72,10 +72,9 @@
 
   // The cards of the CTO's thread: each step of the project's runs that waits for the user.
   let notices = $state<Notice[]>([]);
-  // A delivery's card stays once made, to say so with the pull request, as long as it shows something: "Hide" empties it.
+  // A delivery's card stays once made, to say so with the pull request, until it has nothing left to show: hidden, or
+  // the delivery made from the Run page.
   let delivering = $state<Record<string, Decision>>({});
-  /** Whether each card of the thread shows anything, by its key: one with nothing left to say has no height. */
-  let showing = $state<Record<string, boolean>>({});
   $effect(() => {
     void project?.id;
     untrack(() => (delivering = {}));
@@ -85,25 +84,10 @@
     for (const d of open) if (!d.ask || d.ask.kind === "deliver") untrack(() => (delivering[d.key] = d));
   });
   const finished = $derived(Object.values(delivering).filter((d) => !open.some((o) => o.key === d.key)));
-  // Made from the Run page, or its card hidden: nothing left to show here.
-  $effect(() => {
-    for (const d of finished) if (showing[d.key] === false) untrack(() => delete delivering[d.key]);
-  });
   const decisions = $derived([...open, ...finished.map((d) => ({ ...d, run: team.runs.find((r) => r.run === d.run.run) ?? d.run }))]);
   const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.step }))));
   const main = $derived(primary(placed, cto?.state === "waiting", finished.map((d) => d.key)));
   const decision = (key: string | undefined) => decisions.find((d) => d.key === key);
-
-  function measured(node: HTMLElement, key: string) {
-    const watch = new ResizeObserver(() => (showing[key] = node.offsetHeight > 0));
-    watch.observe(node);
-    return {
-      destroy() {
-        watch.disconnect();
-        delete showing[key];
-      },
-    };
-  }
 
   // A new project's setup, until it is done.
   let onboarding = $state<Record<string, Onboarding>>({});
@@ -363,8 +347,8 @@
   {@const d = decision(key)}
   {#if d}
     <!-- Only the latest open decision keeps its primary button: one main action on the Home. -->
-    <div class="decision" data-wait={key} tabindex="-1" use:measured={key}>
-      <WaitCards run={d.run} step={d.step} context compact primary={key === main} />
+    <div class="decision" data-wait={key} tabindex="-1">
+      <WaitCards run={d.run} step={d.step} context compact primary={key === main} ondismiss={() => delete delivering[key]} />
     </div>
   {/if}
 {/snippet}
