@@ -1527,6 +1527,264 @@ fn real_claude() {
     );
 }
 
+const REAL_CRASH: &str = "TERMF_REAL_CRASH_ROOT";
+const LONG: &str = "Write the numbers from 1 to 400 in words, one per line, nothing else.";
+
+fn real_agents(root: &std::path::Path) -> Agents {
+    Agents::build(root.join("config"), root.join("data"), Vec::new(), |_| {})
+}
+
+fn real_turns(agents: &Agents, id: i64, turns: usize) -> Vec<AgentEvent> {
+    let deadline = Instant::now() + Duration::from_secs(180);
+    loop {
+        let events: Vec<AgentEvent> = agents
+            .events(id, 0)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event)
+            .collect();
+        let ended = events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::TurnEnd { .. }))
+            .count();
+        if ended >= turns && agents.session(id).unwrap().state != State::Working {
+            return events;
+        }
+        assert!(Instant::now() < deadline, "{events:#?}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+fn last_reply(events: &[AgentEvent]) -> String {
+    events
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            AgentEvent::TurnEnd { result, .. } => Some(result.clone().unwrap_or_default()),
+            _ => None,
+        })
+        .unwrap_or_default()
+        .to_lowercase()
+}
+
+/// What `real_claude_restart` runs in a process of its own: a session in the middle of a long turn when
+/// the process ends at once, as an app that crashes.
+#[test]
+#[ignore]
+fn real_crash_child() {
+    let Some(root) = std::env::var_os(REAL_CRASH).map(PathBuf::from) else {
+        return;
+    };
+    let agents = real_agents(&root);
+    let spec = SessionSpec {
+        cwd: root.join("repo"),
+        model: Some("haiku".into()),
+        effort: Some("low".into()),
+        permission_mode: Some("manual".into()),
+        budget: Some(0.30),
+        ..SessionSpec::default()
+    };
+    let id = agents
+        .start(
+            spec,
+            Some("Remember the word pineapple for later. Reply with exactly: ok"),
+        )
+        .unwrap()
+        .id;
+    real_turns(&agents, id, 1);
+    agents.send(id, LONG).unwrap();
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(agents.session(id).unwrap().state, State::Working);
+    std::process::exit(0);
+}
+
+/// With the real Claude Code on Haiku, a few cents: the app ends in the middle of a turn (a process of its
+/// own, ended at once); at the next launch its Claude Code, still running, is killed and the session
+/// stopped; the next message resumes the conversation. A long turn interrupted, then another message; the
+/// session taken over in a real terminal (`claude --resume` in a PTY, as a tile), a message typed there, the
+/// terminal closed and the session handed back: the conversation goes on headless, never two processes at
+/// once (whether it knows what was said in the terminal is printed: it did not, twice). A throwaway folder
+/// and config, your Claude Code account.
+/// `cargo test -p termf-agents -- --ignored real_claude_restart --nocapture`
+#[test]
+#[ignore]
+#[cfg(unix)]
+fn real_claude_restart() {
+    let root = std::env::temp_dir().join(format!("termf-agents-restart-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("repo")).unwrap();
+    fs::create_dir_all(root.join("config")).unwrap();
+    fs::write(
+        root.join("config/termf.toml"),
+        "[agents]\nclaude = \"claude\"\n",
+    )
+    .unwrap();
+    let crashed = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--ignored", "--exact", "tests::real_crash_child"])
+        .env(REAL_CRASH, &root)
+        .output()
+        .unwrap();
+    assert!(crashed.status.success(), "{crashed:?}");
+    let store = crate::store::Store::open(&root.join("data")).unwrap();
+    let id = 1;
+    let pid = store.pid(id).unwrap().expect("the pid stays saved");
+    let session_id = store.session(id).unwrap().session_id;
+    let dir = store.dir(id).join("session");
+    assert!(
+        crate::agents::ours(pid, &session_id, &dir),
+        "Claude Code outlived the app"
+    );
+
+    let (tiles, ended) = std::sync::mpsc::channel();
+    let agents = real_agents(&root);
+    assert!(
+        !crate::agents::ours(pid, &session_id, &dir),
+        "killed at launch"
+    );
+    assert_eq!(agents.session(id).unwrap().state, State::Stopped);
+    let before = agents.events(id, 0).unwrap().len();
+    agents
+        .send(
+            id,
+            "Which word did I ask you to remember? Reply with that word only.",
+        )
+        .unwrap();
+    // The turn under way when the app ended never ended.
+    let events = real_turns(&agents, id, 2);
+    assert!(last_reply(&events).contains("pineapple"), "{events:#?}");
+    assert!(
+        agents.events(id, 0).unwrap()[before..]
+            .iter()
+            .any(|e| matches!(e.event, AgentEvent::Started { resumed: true })),
+        "resumed"
+    );
+
+    agents.send(id, LONG).unwrap();
+    std::thread::sleep(Duration::from_secs(3));
+    agents.interrupt(id).unwrap();
+    let events = real_turns(&agents, id, 3);
+    assert!(
+        matches!(
+            events
+                .iter()
+                .rev()
+                .find(|e| matches!(e, AgentEvent::TurnEnd { .. })),
+            Some(AgentEvent::TurnEnd {
+                outcome: Outcome::Interrupted,
+                ..
+            })
+        ),
+        "{events:#?}"
+    );
+    assert_eq!(agents.session(id).unwrap().state, State::Idle);
+    agents.send(id, "Reply with exactly: kiwi").unwrap();
+    assert!(last_reply(&real_turns(&agents, id, 4)).contains("kiwi"));
+
+    let takeover = agents.takeover(id).unwrap();
+    let headless = store.pid(id).unwrap();
+    assert!(
+        headless.is_none_or(|pid| !crate::agents::ours(pid, &session_id, &dir)),
+        "the headless process ended before the terminal opens"
+    );
+    let sessions = {
+        let agents = agents.clone();
+        Arc::new(termf_term::Sessions::default().on_exit(move |tile| {
+            agents.tile_exited(tile);
+            let _ = tiles.send(tile);
+        }))
+    };
+    let install = termf_core::claude::binary("claude").unwrap();
+    let mut command = termf_term::shell_quote(&install.path.to_string_lossy());
+    for arg in &takeover.args {
+        command = format!("{command} {}", termf_term::shell_quote(arg));
+    }
+    let (program, args) = termf_term::shell_command(Some(&command));
+    let tile = sessions
+        .spawn(termf_term::SpawnSpec {
+            title: takeover.title.clone(),
+            program,
+            args,
+            cwd: takeover.cwd.clone(),
+            agent: Some("claude".into()),
+            cols: 120,
+            rows: 40,
+            env: Vec::new(),
+        })
+        .unwrap();
+    agents.attach_tile(id, Some(tile)).unwrap();
+    let screen = || {
+        let raw = sessions.attach(tile, Box::new(|_| {})).unwrap();
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        // Letters only, escape sequences left out.
+        let mut out = String::new();
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\x1b' => {
+                    if chars.next() == Some('[') {
+                        while chars.next().is_some_and(|c| !c.is_ascii_alphabetic()) {}
+                    }
+                }
+                c if c.is_alphanumeric() => out.push(c),
+                _ => {}
+            }
+        }
+        out
+    };
+    let wait = |what: &str, done: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(90);
+        while !done(&screen()) {
+            assert!(Instant::now() < deadline, "no {what}: {}", screen());
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    };
+    wait("prompt", &|s| {
+        s.contains("kiwi") || s.contains("Itrustthisfolder")
+    });
+    if screen().contains("Itrustthisfolder") && !screen().contains("kiwi") {
+        // "No, exit" comes selected; an arrow sent before the dialog reads keys would arrive as Esc.
+        std::thread::sleep(Duration::from_secs(1));
+        sessions.write(tile, b"\x1b[B").unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        sessions.write(tile, b"\r").unwrap();
+        wait("the resumed conversation", &|s| s.contains("kiwi"));
+    }
+    std::thread::sleep(Duration::from_secs(2));
+    sessions
+        .type_line(
+            tile,
+            "Name the yellow tropical fruit whose name starts with man, in lowercase, one word only.",
+        )
+        .unwrap();
+    // Only the answer holds the word.
+    wait("the answer in the terminal", &|s| s.contains("mango"));
+    std::thread::sleep(Duration::from_secs(3));
+    let back = agents
+        .handback(id, |tile| sessions.terminate(tile).unwrap())
+        .unwrap();
+    assert_eq!(ended.recv_timeout(Duration::from_secs(5)), Ok(tile));
+    assert_ne!(back.state, State::Interactive);
+    agents
+        .send(
+            id,
+            "Which fruit did you name in your last reply? Reply with that word only.",
+        )
+        .unwrap();
+    let events = real_turns(&agents, id, 5);
+    let cost = agents.session(id).unwrap().cost;
+    let _ = agents.stop(id);
+    let _ = std::process::Command::new(&install.path)
+        .args(["purge", &root.join("repo").to_string_lossy(), "-y"])
+        .output();
+    let _ = fs::remove_dir_all(&root);
+    println!("real_claude_restart: ${cost:.4} headless (the terminal's turn not counted)");
+    // Not asserted: twice the resumed session did not know the terminal's answer (see STATUS §4).
+    println!(
+        "real_claude_restart: the turn typed in the terminal seen after the hand-back: {}",
+        last_reply(&events).contains("mango")
+    );
+}
+
 /// Codex CLI as `codex exec --json` answers, its lines from developers.openai.com/codex/noninteractive and
 /// codex-rs/exec/src/exec_events.rs (2026-11-22; no Codex installed here to record a real run). One process per
 /// turn: the prompt on stdin, the thread resumed by its id.
