@@ -3,9 +3,9 @@ name: sql-postgres
 description: >-
   Writes PostgreSQL schema migrations that are safe on a live database, and queries and indexes that hold up:
   adding columns, constraints and indexes without long locks, backfills, EXPLAIN plans, slow queries,
-  transactions, row level security, upgrades to PostgreSQL 18 and 19. Use when a task touches SQL for
-  Postgres, migration files of an ORM on Postgres, psql, DATABASE_URL with postgres://, or EXPLAIN output.
-  Not for MySQL or MariaDB (mysql), MongoDB (mongodb) or Redis (redis).
+  transactions, row level security, upgrades to PostgreSQL 18 and 19. Use it before answering whenever a task or
+  a question is about PostgreSQL: SQL for Postgres, migration files of an ORM on Postgres, psql, DATABASE_URL
+  with postgres://, or EXPLAIN output. Not for MySQL or MariaDB (mysql), MongoDB (mongodb) or Redis (redis).
 paths: "**/*.sql, **/migrations/**, **/db/migrate/*.rb, **/alembic/versions/*.py, **/prisma/schema.prisma"
 license: MIT
 metadata:

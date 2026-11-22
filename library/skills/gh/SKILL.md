@@ -3,9 +3,10 @@ name: gh
 description: >-
   Drives the GitHub CLI without prompts and without unwanted writes to GitHub: reads pull requests, reviews,
   checks, failed CI logs, issues and releases as JSON, calls any REST or GraphQL endpoint with pagination, and
-  makes the few writes a user asks for (open or merge a pull request, comment, release). Use when a task runs
-  gh or needs data from github.com: a PR's diff or review comments, why checks fail, an issue's text. Not for
-  local commits, branches or history (git), nor for writing workflow YAML (github-actions).
+  makes the few writes a user asks for (open or merge a pull request, comment, release). Use it before answering
+  whenever a task runs gh, asks for a gh or gh api command, or needs data from github.com: a PR's diff or review
+  comments, why checks fail, an issue's text. Not for local commits, branches or history (git), nor for writing
+  workflow YAML (github-actions).
 license: MIT
 metadata:
   termf-stacks: "github"
