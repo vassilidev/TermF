@@ -1772,7 +1772,7 @@ mod tests {
         fs::create_dir_all(repo.join("src")).unwrap();
         fs::create_dir_all(root.join("config/projects")).unwrap();
         let file = format!(
-            "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n",
+            "name = \"Acme\"\n[[repos]]\npath = '{}'\n",
             repo.display()
         );
         fs::write(root.join("config/projects/acme.toml"), file).unwrap();

@@ -936,7 +936,7 @@ mod tests {
         fs::write(
             config.join("projects/acme.toml"),
             format!(
-                "name = \"acme\"\n[[repos]]\npath = \"{}\"\n\n[agents]\nenv_allow = [\"ACME_*\"]\n",
+                "name = \"acme\"\n[[repos]]\npath = '{}'\n\n[agents]\nenv_allow = [\"ACME_*\"]\n",
                 repo.display()
             ),
         )
