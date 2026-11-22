@@ -147,7 +147,8 @@ export function askTitle(ask: Pick<Ask, "kind"> & { step: Pick<Ask["step"], "key
   if (ask.kind === "gate") return { key: "teamRunsAskGate", step: true };
   if (ask.step.key === "triage") return { key: "ctoEntryAskQuestions", step: false };
   if (ask.step.plan) return { key: "teamRunsAskPlanQuestions", step: false };
-  if (ask.step.kind === "review") return { key: "reviewLoopAsk", step: false };
+  // Another review than the code review, such as the migrations', is named by its step.
+  if (ask.step.kind === "review") return ask.step.key === "review" ? { key: "reviewLoopAsk", step: false } : { key: "roles2ReviewAsk", step: true };
   return { key: "teamRunsAskQuestions", step: true };
 }
 

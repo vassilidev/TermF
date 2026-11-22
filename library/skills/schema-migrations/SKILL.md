@@ -9,7 +9,7 @@ description: >-
   drops or retypes a column, table, index or constraint, or when asked to review one. Not for everyday
   application queries, nor database servers, backups or hosting (devops); engine specifics stay with
   sql-postgres, mysql, mongodb and redis.
-paths: "**/migrations/**, **/db/migrate/**, **/alembic/**, **/db/migration/**, **/*.prisma, **/db/schema.rb, **/db/structure.sql"
+paths: "**/migrations/**, **/Migrations/**, **/db/migrate/**, **/alembic/**, **/db/migration/**, **/*.prisma, **/db/schema.rb, **/db/structure.sql"
 license: MIT
 metadata:
   termf-stacks: "sql postgres mysql prisma sqlalchemy django rails laravel"

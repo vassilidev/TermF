@@ -987,7 +987,7 @@ mod tests {
             let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
             assert_eq!(tools, "mcp__termf__ask_expert", "{role} asks the expert");
         }
-        for role in ["front", "qa", "ux", "seo"] {
+        for role in ["front", "qa", "ux", "seo", "a11y"] {
             let tools = &find(&items, Kind::Role, role).meta["allowedTools"];
             assert_eq!(
                 tools, "mcp__termf__browser_*",

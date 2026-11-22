@@ -171,7 +171,6 @@ const DEPS: [(&str, &[&str]); 4] = [
             "litellm",
             "ollama",
             "groq-sdk",
-            "transformers",
             "async-openai",
             "github.com/openai/openai-go",
             "github.com/anthropics/anthropic-sdk-go",
@@ -198,7 +197,6 @@ const DEPS: [(&str, &[&str]); 4] = [
             "@vercel/analytics",
             "plausible-tracker",
             "react-ga4",
-            "@next/third-parties",
             "@rudderstack/analytics-js",
             "@snowplow/browser-tracker",
         ],
@@ -270,20 +268,21 @@ pub(crate) fn survey(repo: &Path, facts: &mut Facts, tests: &[String]) {
     facts.signals = signals(repo, &files);
 }
 
-/// What calls for a specialist: the dependencies of `DEPS` its manifests name, its migrations and schema files
+/// What calls for a specialist: the dependencies of `DEPS` its manifests list, its migrations and schema files
 /// (`data`), its docs folder, API specs and changelog (`docs`).
 fn signals(repo: &Path, files: &[String]) -> BTreeMap<String, Vec<String>> {
     let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let manifests = files.iter().filter(|f| {
-        let name = f.rsplit('/').next().unwrap_or(f);
-        MANIFESTS.contains(&name) || (name.starts_with("requirements") && name.ends_with(".txt"))
+        let (dir, name) = f.rsplit_once('/').unwrap_or(("", f));
+        let requirements = name.ends_with(".txt")
+            && (name.starts_with("requirements") || dir.rsplit('/').next() == Some("requirements"));
+        MANIFESTS.contains(&name) || requirements
     });
     for file in manifests.take(MAX_MANIFEST_READS) {
         let Ok(text) = fs::read_to_string(repo.join(file)) else {
             continue;
         };
-        // PyPI and Composer names ignore case: `Django` is `django`.
-        let listed = dependencies(file, &text).to_lowercase();
+        let listed = normal(&dependencies(file, &text));
         for (kind, deps) in DEPS {
             for dep in deps.iter().filter(|d| names(&listed, d)) {
                 found
@@ -296,8 +295,10 @@ fn signals(repo: &Path, files: &[String]) -> BTreeMap<String, Vec<String>> {
     for f in files {
         let dirs: Vec<&str> = f.split('/').collect();
         let (name, folders) = dirs.split_last().unwrap_or((&"", &[]));
+        // Folder names in any case: Entity Framework writes `Migrations/`.
+        let lower: Vec<String> = folders.iter().map(|d| d.to_lowercase()).collect();
         let upto = |i: usize| format!("{}/", folders[..=i].join("/"));
-        let at = |dir: &[&str]| folders.windows(dir.len()).position(|w| w == dir);
+        let at = |dir: &[&str]| lower.windows(dir.len()).position(|w| w == dir);
         let data = at(&["migrations"])
             .map(upto)
             .or_else(|| at(&["db", "migrate"]).map(|i| upto(i + 1)))
@@ -308,8 +309,8 @@ fn signals(repo: &Path, files: &[String]) -> BTreeMap<String, Vec<String>> {
         }
         let spec = ["openapi.", "swagger."].iter().any(|p| name.starts_with(p))
             && [".yaml", ".yml", ".json"].iter().any(|e| name.ends_with(e));
-        let docs = if folders.first() == Some(&"docs") {
-            Some("docs/".to_owned())
+        let docs = if lower.first().is_some_and(|d| d == "docs") {
+            Some(format!("{}/", folders[0]))
         } else if spec || (folders.is_empty() && *name == "CHANGELOG.md") {
             Some(f.clone())
         } else {
@@ -325,37 +326,103 @@ fn signals(repo: &Path, files: &[String]) -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-/// The part of a manifest that lists dependencies: the keys of a JSON manifest's dependency tables (its name and
-/// description say nothing of them), the whole text of the others.
+/// The dependencies a manifest lists, one a line: the keys of a JSON manifest's dependency tables, the packages of
+/// a TOML one's, a Gemfile's `gem` lines, a `go.mod` or a requirements file without comments. A name or a
+/// description is no dependency.
 fn dependencies(file: &str, text: &str) -> String {
-    if !file.ends_with(".json") {
-        return text.to_owned();
-    }
-    let Ok(json) = serde_json::from_str::<Value>(text) else {
-        return String::new();
+    let name = file.rsplit('/').next().unwrap_or(file);
+    let uncommented = |mark: &str| -> Vec<String> {
+        text.lines()
+            .map(|l| l.split(mark).next().unwrap_or_default().trim().to_owned())
+            .filter(|l| !l.is_empty())
+            .collect()
     };
-    [
-        "dependencies",
-        "devDependencies",
-        "peerDependencies",
-        "optionalDependencies",
-        "require",
-        "require-dev",
-    ]
-    .iter()
-    .filter_map(|k| json[*k].as_object())
-    .flat_map(|o| o.keys().cloned())
-    .collect::<Vec<_>>()
-    .join("\n")
+    let list: Vec<String> = match name {
+        _ if name.ends_with(".json") => {
+            let Ok(json) = serde_json::from_str::<Value>(text) else {
+                return String::new();
+            };
+            [
+                "dependencies",
+                "devDependencies",
+                "peerDependencies",
+                "optionalDependencies",
+                "require",
+                "require-dev",
+            ]
+            .iter()
+            .filter_map(|k| json[*k].as_object())
+            .flat_map(|o| o.keys().cloned())
+            .collect()
+        }
+        "pyproject.toml" | "Cargo.toml" => {
+            let mut list = Vec::new();
+            if let Ok(table) = toml::from_str::<toml::Table>(text) {
+                toml_dependencies(&table, &mut list);
+            }
+            list
+        }
+        "Gemfile" => uncommented("#")
+            .into_iter()
+            .filter(|l| l.starts_with("gem ") || l.starts_with("gem("))
+            .collect(),
+        "go.mod" => uncommented("//")
+            .into_iter()
+            .filter(|l| !l.starts_with("module "))
+            .collect(),
+        _ => uncommented("#"),
+    };
+    list.join("\n")
 }
 
-/// Whether `text` names the package `name` whole: `stripe` in `gem "stripe"` or `stripe==9`, not in
-/// `stripe-mock`; a Go module also before its major version (`github.com/stripe/stripe-go/v82`).
+/// The packages of the dependency tables of a Cargo or Poetry manifest (renamed ones by their `package` too),
+/// and the requirements of PEP 621 and PEP 735 lists, at any depth (`[workspace.dependencies]`,
+/// `[tool.poetry.group.dev.dependencies]`, `[target.'cfg(…)'.dependencies]`).
+fn toml_dependencies(table: &toml::Table, list: &mut Vec<String>) {
+    let strings = |items: &[toml::Value]| -> Vec<String> {
+        items
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect()
+    };
+    for (key, value) in table {
+        let deps = key.ends_with("dependencies") || key == "dependency-groups";
+        match value {
+            toml::Value::Array(items) if deps => list.extend(strings(items)),
+            toml::Value::Table(packages) if deps => {
+                for (package, spec) in packages {
+                    match spec {
+                        // An extra or a group: its requirements.
+                        toml::Value::Array(items) => list.extend(strings(items)),
+                        spec => {
+                            list.push(package.clone());
+                            if let Some(real) = spec.get("package").and_then(|p| p.as_str()) {
+                                list.push(real.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+            toml::Value::Table(inner) => toml_dependencies(inner, list),
+            _ => {}
+        }
+    }
+}
+
+/// A package name as registries compare them: PyPI and Composer ignore case, and PyPI takes `_`, `-` and `.` for
+/// one another (`llama_index` is `llama-index`).
+fn normal(name: &str) -> String {
+    name.to_lowercase().replace(['_', '.'], "-")
+}
+
+/// Whether `text`, made `normal`, names the package `name` whole: `stripe` in `gem "stripe"` or `stripe==9`, not
+/// in `stripe-mock`; a Go module also before its major version (`github.com/stripe/stripe-go/v82`).
 fn names(text: &str, name: &str) -> bool {
     let edge =
         |c: Option<char>| c.is_none_or(|c| c.is_whitespace() || "\"'=<>~!^,[](){}:;#".contains(c));
     let go = name.contains('.') && name.contains('/');
-    text.match_indices(name).any(|(i, _)| {
+    let name = normal(name);
+    text.match_indices(&name).any(|(i, _)| {
         let after = text[i + name.len()..].chars().next();
         edge(text[..i].chars().next_back()) && (edge(after) || (go && after == Some('/')))
     })
@@ -928,11 +995,19 @@ fn propose(
     };
     let tests = unique(repos.iter().flat_map(|r| r.tests.clone()).collect());
     let infra = unique(repos.iter().flat_map(|r| r.infra.clone()).collect());
+    // A file or a folder, as `labels` names a part: with its repository's name when there are several.
     let found = |kind: &str| -> Vec<String> {
+        let dependency = |m: &str| DEPS.iter().any(|(_, list)| list.contains(&m));
         unique(
             repos
                 .iter()
-                .flat_map(|r| r.signals.get(kind).cloned().unwrap_or_default())
+                .flat_map(|r| {
+                    let markers = r.signals.get(kind).cloned().unwrap_or_default();
+                    markers.into_iter().map(|m| match many && !dependency(&m) {
+                        true => format!("{}/{m}", r.name),
+                        false => m,
+                    })
+                })
                 .collect(),
         )
     };

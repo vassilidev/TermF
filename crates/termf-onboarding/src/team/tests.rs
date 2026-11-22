@@ -365,7 +365,22 @@ const SAAS: Files = &[
     ("prisma/migrations/20261101_init/migration.sql", ""),
     (
         "worker/requirements.txt",
-        "Django==5.2\nanthropic[vertex]>=0.40\n",
+        "Django==5.2\nanthropic[vertex]>=0.40\n# mixpanel, later\n",
+    ),
+    ("worker/requirements/ml.txt", "llama_index>=0.12\n"),
+    (
+        "worker/pyproject.toml",
+        "[project]\nname = \"worker\"\ndescription = \"Segment and Mixpanel helpers\"\ndependencies = [\"tortoise_orm>=0.21\"]\n\
+         [tool.poetry.group.dev.dependencies]\nsvix = \"^1\"\n",
+    ),
+    (
+        "engine/Cargo.toml",
+        "[package]\nname = \"engine\"\ndescription = \"OpenAI helpers\"\n\
+         [dependencies]\npayments = { package = \"async-stripe\", version = \"0.39\" }\n",
+    ),
+    (
+        "legacy/Gemfile",
+        "source \"https://rubygems.org\"\n# gem \"openai\"\ngem \"pg\"\n",
     ),
     ("legacy/db/migrate/001_init.rb", ""),
     (
@@ -391,20 +406,26 @@ fn finds_what_calls_for_each_specialist() {
             "django",
             "legacy/db/migrate/",
             "prisma/migrations/",
-            "prisma/schema.prisma"
+            "prisma/schema.prisma",
+            "tortoise-orm"
         ],
-        "an ORM, migrations of three tools and a schema; Django's name ignores case"
+        "ORMs, migrations of three tools and a schema; PyPI names ignore case and take _ for -"
     );
     assert_eq!(
         signals["llm"],
-        ["anthropic"],
-        "a package.json's description is no dependency"
+        ["anthropic", "llama-index"],
+        "a requirements folder too; descriptions and comments name no dependency"
     );
     assert_eq!(signals["analytics"], ["posthog-node"]);
     assert_eq!(
         signals["integrations"],
-        ["github.com/stripe/stripe-go", "stripe"],
-        "a Go module before its major version; stripe-mock is not stripe"
+        [
+            "async-stripe",
+            "github.com/stripe/stripe-go",
+            "stripe",
+            "svix"
+        ],
+        "a renamed crate, a Go module before its major version, a Poetry group; stripe-mock is not stripe"
     );
     assert_eq!(
         signals["docs"],
@@ -427,7 +448,13 @@ fn finds_what_calls_for_each_specialist() {
     assert_eq!(detail(&saas, "sre"), ["Dockerfile"]);
     assert_eq!(
         detail(&saas, "legal"),
-        ["github.com/stripe/stripe-go", "stripe", "posthog-node"],
+        [
+            "async-stripe",
+            "github.com/stripe/stripe-go",
+            "stripe",
+            "svix",
+            "posthog-node"
+        ],
         "payments and analytics handle personal data"
     );
     assert_eq!(
@@ -446,6 +473,35 @@ fn finds_what_calls_for_each_specialist() {
     );
     assert!(names("gem \"rails\", \"~> 8.0\"\n", "rails"));
     assert!(!names("gem \"rails-html-sanitizer\"\n", "rails"));
+}
+
+#[test]
+fn names_each_marker_s_repository_when_there_are_several() {
+    const DOTNET: Files = &[
+        ("Ledger.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />\n"),
+        ("src/Data/Migrations/20261101120000_Init.cs", ""),
+        ("Docs/index.md", ""),
+    ];
+    let (_, config, data) = setup("several", &[("billing", SAAS), ("ledger", DOTNET)]);
+    let items = library(&config, "acme").unwrap();
+    let repos = crate::repos(&config, "acme", &test_globs(&items)).unwrap();
+    assert_eq!(
+        repos[1].signals["data"],
+        ["src/Data/Migrations/"],
+        "Entity Framework's folder: names in any case"
+    );
+    assert_eq!(repos[1].signals["docs"], ["Docs/"]);
+
+    let both = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    let dba = detail(&both, "dba");
+    for marker in [
+        "billing/prisma/migrations/",
+        "ledger/src/Data/Migrations/",
+        "django",
+    ] {
+        assert!(dba.contains(&marker.to_owned()), "{marker} in {dba:?}");
+    }
+    assert!(detail(&both, "docs").contains(&"ledger/Docs/".to_owned()));
 }
 
 #[test]

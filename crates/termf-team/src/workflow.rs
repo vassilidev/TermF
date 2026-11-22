@@ -334,6 +334,22 @@ impl Workflow {
                 StepKind::Task => bail!("step {id}: tasks come from a plan, not from a workflow"),
                 _ => {}
             }
+            if !step.paths.is_empty() {
+                ensure!(
+                    matches!(step.kind, StepKind::Agent | StepKind::Review),
+                    "step {id}: only an agent or review step takes paths"
+                );
+                // The files it looks for are the tasks' work: before it, nothing changed them yet.
+                let after_tasks = self
+                    .steps
+                    .iter()
+                    .filter(|(_, s)| s.kind == StepKind::Foreach && s.enabled)
+                    .any(|(each, _)| step.needs.iter().any(|n| needs_step(&needs, n, each)));
+                ensure!(
+                    after_tasks,
+                    "step {id} takes paths: it must come after the tasks (a foreach step)"
+                );
+            }
             steps.push((id.to_owned(), step));
         }
         Ok(steps)
@@ -400,11 +416,12 @@ mod tests {
         assert_eq!(steps["migrations"].kind, StepKind::Review);
         assert_eq!(steps["migrations"].role.as_deref(), Some("dba"));
         assert!(!steps["migrations"].optional, "the CTO cannot skip it");
-        assert!(
-            steps["migrations"]
-                .paths
-                .contains(&"**/migrations/**".to_owned())
-        );
+        for glob in ["**/migrations/**", "**/Migrations/**"] {
+            assert!(
+                steps["migrations"].paths.contains(&glob.to_owned()),
+                "{glob}"
+            );
+        }
         for (skip, add) in [
             (vec!["plan".to_owned()], vec![]),
             (vec![], vec!["nope".to_owned()]),
@@ -461,6 +478,27 @@ mod tests {
         );
         assert!(load(&dir, None, None, "nope").is_err());
         assert!(load(&dir, None, None, "../x").is_err());
+        let tasks = "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+                     [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n";
+        for (name, step, why) in [
+            (
+                "paths-gate",
+                "[steps.g]\ntype = \"gate\"\nneeds = [\"implement\"]\npaths = [\"db/**\"]\n",
+                "only an agent or review step takes paths",
+            ),
+            (
+                "paths-early",
+                "[steps.r]\ntype = \"review\"\nrole = \"dba\"\nneeds = [\"plan\"]\npaths = [\"db/**\"]\n",
+                "it must come after the tasks",
+            ),
+        ] {
+            put(
+                &dir.join(format!("library/workflows/{name}.toml")),
+                &format!("{tasks}{step}"),
+            );
+            let e = load(&dir, None, None, name).unwrap_err().to_string();
+            assert!(e.contains(why), "{name}: {e}");
+        }
         put(
             &dir.join("library/workflows/bad.toml"),
             "[steps.a]\ntype = \"agent\"\nrole = \"po\"\nneeds = [\"b\"]\n[steps.b]\ntype = \"gate\"\nneeds = [\"a\"]\n",

@@ -2504,24 +2504,31 @@ fn no_review_when_it_is_off() {
     assert!(review.session.is_none() && run.reviews.is_empty());
 }
 
-/// A run whose one task, given to the dba, writes `file`; the dba then reviews the migrations it changed.
-fn migrated(env: &Env, file: &str) {
+/// A run whose one task, given to the dba, runs `script` (its attempt as `$1`); with `coded`, the code review comes
+/// first; then the dba reviews the migrations the run changed.
+fn migrated(env: &Env, coded: bool, script: &str) {
+    let (code, after) = match coded {
+        true => (
+            "[steps.review]\ntype = \"review\"\nrole = \"reviewer\"\nneeds = [\"implement\"]\n",
+            "review",
+        ),
+        false => ("", "implement"),
+    };
     fs::write(
         env.config.join("library/workflows/migrated.toml"),
-        "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
-         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
-         [steps.migrations]\ntype = \"review\"\nrole = \"dba\"\nneeds = [\"implement\"]\npaths = [\"**/migrations/**\"]\n\
-         [steps.deliver]\ntype = \"connector\"\nneeds = [\"migrations\"]\n",
+        format!(
+            "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+             [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n{code}\
+             [steps.migrations]\ntype = \"review\"\nrole = \"dba\"\nneeds = [\"{after}\"]\npaths = [\"**/migrations/**\"]\n\
+             [steps.deliver]\ntype = \"connector\"\nneeds = [\"migrations\"]\n"
+        ),
     )
     .unwrap();
     env.answer(
         "plan.json",
         env.plan(json!([task("T1", "dba", &["db"], &[])])),
     );
-    env.script(
-        "implement:T1",
-        &format!("mkdir -p \"$(dirname {file})\"; echo 'up and down' > {file}\n"),
-    );
+    env.script("implement:T1", script);
     env.team
         .start(
             env.target.clone(),
@@ -2533,6 +2540,8 @@ fn migrated(env: &Env, file: &str) {
         .unwrap();
 }
 
+const MIGRATION: &str = "mkdir -p db/migrations; echo 'up and down' > db/migrations/001.sql\n";
+
 #[test]
 fn the_dba_reviews_a_run_only_when_a_task_changed_a_migration() {
     let env = Env::new("migrations");
@@ -2540,7 +2549,12 @@ fn the_dba_reviews_a_run_only_when_a_task_changed_a_migration() {
         "migrations.json",
         findings("001.sql takes no long lock and rolls back.", json!([])),
     );
-    migrated(&env, "db/migrations/001.sql");
+    // What a migration tool does when the reviewer runs it: it rewrites the schema files.
+    env.script(
+        "migrations",
+        "echo rewritten > db/migrations/001.sql; echo 'version: 2' > db/schema.rb\n",
+    );
+    migrated(&env, false, MIGRATION);
     let run = env.until("the delivery", delivery);
     let review = env.step(&run, "migrations");
     assert_eq!(review.state, StepState::Done);
@@ -2557,6 +2571,19 @@ fn the_dba_reviews_a_run_only_when_a_task_changed_a_migration() {
             spec.disallowed_tools
         );
     }
+    let worktree = &env.target.worktree;
+    assert_ne!(&spec.cwd, worktree, "a throwaway copy of the run's work");
+    assert!(!spec.cwd.exists(), "removed once the review is over");
+    assert_eq!(
+        fs::read_to_string(worktree.join("db/migrations/001.sql")).unwrap(),
+        "up and down\n",
+        "what the review ran never reaches the run's worktree"
+    );
+    assert!(!worktree.join("db/schema.rb").exists());
+    assert_eq!(
+        git(worktree, &env.env, &["status", "--porcelain", "db"]),
+        ""
+    );
     let task = env.step(&run, "implement:T1");
     let spec = env.agents.session(task.session.unwrap()).unwrap().spec;
     assert!(
@@ -2565,7 +2592,7 @@ fn the_dba_reviews_a_run_only_when_a_task_changed_a_migration() {
     );
 
     let other = Env::new("no-migrations");
-    migrated(&other, "src/api/a.txt");
+    migrated(&other, false, "mkdir -p src/api; echo x > src/api/a.txt\n");
     let run = other.until("the delivery", delivery);
     let review = other.step(&run, "migrations");
     assert_eq!(review.state, StepState::Skipped);
@@ -2574,6 +2601,39 @@ fn the_dba_reviews_a_run_only_when_a_task_changed_a_migration() {
         Some("no task changed **/migrations/**")
     );
     assert!(review.session.is_none());
+}
+
+#[test]
+fn a_migration_from_an_earlier_attempt_is_still_reviewed() {
+    let env = Env::new("migrations-again");
+    env.answer(
+        "review.1.json",
+        findings(
+            "The export breaks on an empty list.",
+            json!([finding("important", "src/api/a.txt", 1, "T1")]),
+        ),
+    );
+    env.answer("review.2.json", findings("Fixed.", json!([])));
+    env.answer("migrations.json", findings("001.sql is safe.", json!([])));
+    // The first attempt adds the migration; the second, sent back by the code review, only fixes the code.
+    let script = format!(
+        "if [ \"$1\" = 1 ]; then {}; fi; mkdir -p src/api; echo \"attempt $1\" > src/api/a.txt\n",
+        MIGRATION.trim_end()
+    );
+    migrated(&env, true, &script);
+    let run = env.until("the delivery", delivery);
+    let task = env.step(&run, "implement:T1");
+    assert_eq!(task.files, ["src/api/a.txt"], "the last attempt alone");
+    let review = env.step(&run, "migrations");
+    assert_eq!(
+        review.state,
+        StepState::Done,
+        "the run's changes hold the migration: {:?}",
+        review.note
+    );
+    let log = env.steps_log();
+    let at = |line: &str| log.iter().position(|l| l == line).unwrap();
+    assert!(at("implement:T1 2 end") < at("migrations 1 begin"));
 }
 
 #[test]

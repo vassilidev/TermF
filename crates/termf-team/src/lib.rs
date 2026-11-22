@@ -302,6 +302,9 @@ pub struct TeamRun {
     pub reviews: Vec<Review>,
     /// A task changed the interface while a rule asks for a visual review.
     pub ui_changed: bool,
+    /// What the run's worktree was on when the team started: the run's changes are the diff from it.
+    #[serde(default)]
+    pub base: Option<String>,
     pub steps: Vec<Step>,
     /// Why it waits, paused, stopped or failed.
     pub note: Option<String>,
@@ -1030,7 +1033,9 @@ impl Inner {
             budget.is_none_or(|b| b > 0.0),
             "the budget must be more than 0"
         );
+        let base = Git(&self.env).head(&target.worktree).ok();
         let mut run = TeamRun {
+            base,
             run: target.run,
             target,
             workflow: name.clone(),
@@ -1501,6 +1506,10 @@ impl Inner {
         // A new session for each step: this one is over.
         let _ = self.agents.stop(id);
         self.costs(run);
+        if run.steps[i].kind == StepKind::Review {
+            self.drop_worktree(run, i);
+            run.steps[i].worktree = None;
+        }
         match outcome {
             Outcome::Done => {}
             Outcome::Budget => {
@@ -1698,12 +1707,11 @@ impl Inner {
         match self.review_settings(run) {
             Ok(settings) if settings.on => true,
             Ok(_) => {
-                self.skip(
-                    store,
-                    run,
-                    i,
-                    "the code review is off: `[team] review = false`",
+                let note = format!(
+                    "the {} is off: `[team] review = false`",
+                    review::title(&run.steps[i].key)
                 );
+                self.skip(store, run, i, &note);
                 false
             }
             Err(e) => {
@@ -1828,8 +1836,9 @@ impl Inner {
         self.event(store, run, Some(&key), "review", &message);
         if waits {
             let note = format!(
-                "the code review needs you: {asked} finding(s) without a clear task, or still there at its last \
-                 round; say which task fixes each, or leave it with your reason"
+                "the {} needs you: {asked} finding(s) without a clear task, or still there at its last \
+                 round; say which task fixes each, or leave it with your reason",
+                review::title(&key)
             );
             return self.block(store, run, i, &note);
         }
@@ -1883,7 +1892,7 @@ impl Inner {
             step.state = StepState::Pending;
             step.attempt = 0;
             step.note = None;
-            step.feedback = Some(review::feedback(round, &found));
+            step.feedback = Some(review::feedback(&key, round, &found));
             let task_key = step.key.clone();
             self.event(
                 store,
@@ -1891,8 +1900,9 @@ impl Inner {
                 Some(&task_key),
                 "revised",
                 &format!(
-                    "again, with {} of the code review's round {round}",
-                    ids.join(", ")
+                    "again, with {} of the {}'s round {round}",
+                    ids.join(", "),
+                    review::title(&key)
                 ),
             );
         }
@@ -2412,13 +2422,18 @@ impl Inner {
             StepKind::Agent | StepKind::Task | StepKind::Review => {
                 let paths = &run.steps[i].paths;
                 if !paths.is_empty() {
-                    let touched = run
-                        .steps
-                        .iter()
-                        .filter(|s| s.kind == StepKind::Task)
-                        .flat_map(|s| &s.files)
-                        .any(|f| paths.iter().any(|p| rules::glob(p, f)));
-                    if !touched {
+                    // The run's whole diff: a task sent back starts anew, its first attempt's files merged already.
+                    // Unknown, the step runs.
+                    let changed = run.base.as_deref().and_then(|base| {
+                        let names = ["diff", "--name-only", "--no-renames", base, "HEAD"];
+                        Git(&self.env).run(&run.target.worktree, &names).ok()
+                    });
+                    let untouched = changed.is_some_and(|files| {
+                        !files
+                            .lines()
+                            .any(|f| paths.iter().any(|p| rules::glob(p, f)))
+                    });
+                    if untouched {
                         let note = format!("no task changed {}", paths.join(", "));
                         self.skip(store, run, i, &note);
                         return Ok(true);
@@ -2760,12 +2775,14 @@ impl Inner {
             .as_ref()
             .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()))
             .cloned();
-        if step.kind == StepKind::Task && step.worktree.is_none() {
+        // A review gets a throwaway copy of the run's work each time: what it runs never reaches what ships.
+        if (step.kind == StepKind::Task && step.worktree.is_none()) || step.kind == StepKind::Review
+        {
             let path = self
                 .data_dir
                 .join("team")
                 .join(run.run.to_string())
-                .join(step.task.as_deref().unwrap_or("task"));
+                .join(step.task.as_deref().unwrap_or(&step.key));
             let _ = fs::remove_dir_all(&path);
             let git = Git(&self.env);
             let base = git.add_worktree(&run.target.worktree, &path)?;
