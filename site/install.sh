@@ -104,7 +104,11 @@ if [ "$dry" = 1 ]; then
 fi
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+cleanup() {
+  [ ! -d "$tmp/mnt" ] || hdiutil detach -quiet "$tmp/mnt" 2>/dev/null || :
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
 printf 'Downloading TermF %s (%s)…\n' "$tag" "$name"
 curl -fL --progress-bar -o "$tmp/$name" "$asset"
 curl -fsSL -o "$tmp/SHA256SUMS" "$sums"
@@ -123,14 +127,21 @@ as_root() {
 
 case $os in
   Darwin)
-    apps=/Applications
+    apps=${TERMF_APPS:-/Applications}
     [ -w "$apps" ] || apps=$HOME/Applications
     mkdir -p "$apps"
     mkdir "$tmp/mnt"
     hdiutil attach -nobrowse -readonly -quiet -mountpoint "$tmp/mnt" "$tmp/$name"
-    rm -rf "$apps/TermF.app"
-    ditto "$tmp/mnt/TermF.app" "$apps/TermF.app"
-    hdiutil detach -quiet "$tmp/mnt"
+    # Copied beside the installed app first, then swapped: a failed copy leaves the old TermF in place.
+    rm -rf "$apps/.TermF.app.new" "$apps/.TermF.app.old"
+    ditto "$tmp/mnt/TermF.app" "$apps/.TermF.app.new"
+    hdiutil detach -quiet "$tmp/mnt" && rmdir "$tmp/mnt"
+    [ ! -e "$apps/TermF.app" ] || mv "$apps/TermF.app" "$apps/.TermF.app.old"
+    if ! mv "$apps/.TermF.app.new" "$apps/TermF.app"; then
+      [ ! -e "$apps/.TermF.app.old" ] || mv "$apps/.TermF.app.old" "$apps/TermF.app"
+      die "cannot put TermF.app in $apps"
+    fi
+    rm -rf "$apps/.TermF.app.old"
     printf 'TermF %s is in %s.\n' "$tag" "$apps"
     ;;
   Linux)

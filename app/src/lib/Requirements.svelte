@@ -19,13 +19,14 @@
   let { ondone }: { ondone?: () => void } = $props();
 
   const os = osOf(navigator.platform);
-  const rows: { id: ToolId; name: string; what: Parameters<typeof t>[0] }[] = [
-    { id: "git", name: "git", what: "releaseGitWhat" },
-    { id: "claude", name: "Claude Code", what: "releaseClaudeWhat" },
-    { id: "codex", name: "Codex CLI", what: "releaseAgentWhat" },
-    { id: "gemini", name: "Gemini CLI", what: "releaseAgentWhat" },
-    { id: "gh", name: "GitHub CLI (gh)", what: "releaseGhWhat" },
-    { id: "chrome", name: "Chrome", what: "releaseChromeWhat" },
+  type Key = Parameters<typeof t>[0];
+  const rows: { id: ToolId; name: Key; what: Key }[] = [
+    { id: "git", name: "releaseToolGit", what: "releaseGitWhat" },
+    { id: "claude", name: "releaseToolClaude", what: "releaseClaudeWhat" },
+    { id: "codex", name: "releaseToolCodex", what: "releaseAgentWhat" },
+    { id: "gemini", name: "releaseToolGemini", what: "releaseAgentWhat" },
+    { id: "gh", name: "releaseToolGh", what: "releaseGhWhat" },
+    { id: "chrome", name: "releaseToolChrome", what: "releaseChromeWhat" },
   ];
 
   let copied = $state<ToolId | null>(null);
@@ -70,7 +71,7 @@
           </span>
           <div class="body">
             <div class="title">
-              <b>{row.name}</b>
+              <b>{t(row.name)}</b>
               <span class="badge">{t(must ? "releaseRequired" : "releaseOptional")}</span>
               {#if !ok}<span class="sr-only">{t("releaseMissing")}</span>{/if}
             </div>

@@ -47,6 +47,14 @@ impl Updates {
     fn set_checked(&self, at: u64) {
         let _ = fs::write(&self.file, serde_json::json!({ "checked": at }).to_string());
     }
+
+    /// What was found belonged to the other channel: forgotten, with the time of the check, so that nothing says
+    /// "up to date" before the new channel is checked.
+    fn forget(&self) {
+        *self.found.lock().unwrap() = None;
+        *self.error.lock().unwrap() = None;
+        let _ = fs::remove_file(&self.file);
+    }
 }
 
 #[derive(Serialize)]
@@ -223,8 +231,7 @@ pub fn update_settings_set(
         .map_err(err)?;
     termf_core::save_updates(&config.config_dir, channel, check).map_err(err)?;
     if before != channel {
-        // What was found belongs to the other channel.
-        *app.state::<Updates>().found.lock().unwrap() = None;
+        app.state::<Updates>().forget();
     }
     Ok(state(&app))
 }
@@ -310,6 +317,21 @@ mod tests {
             manifest(&[release("v0.1.0", true, true)], Channel::Stable),
             None
         );
+    }
+
+    #[test]
+    fn a_new_channel_forgets_the_last_check() {
+        let dir = std::env::temp_dir().join(format!("termf-updates-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let updates = Updates::new(&dir);
+        updates.set_checked(1_000_000);
+        *updates.error.lock().unwrap() = Some("offline".into());
+        assert_eq!(updates.checked(), Some(1_000_000));
+        updates.forget();
+        assert_eq!(updates.checked(), None);
+        assert!(updates.error.lock().unwrap().is_none());
+        assert!(due(updates.checked(), 1_000_001), "checked again at once");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -70,11 +70,15 @@ export async function checkUpdates() {
 
 export async function setUpdates(channel: Channel, check: boolean) {
   updates.error = "";
+  const before = updates.state?.channel;
   try {
     updates.state = await invoke<UpdateState>("update_settings_set", { channel, check });
   } catch (e) {
     updates.error = String(e);
+    return;
   }
+  // Another channel: what was found and when were forgotten, so it is checked now.
+  if (before !== channel) await checkUpdates();
 }
 
 /** Downloads, installs, then TermF restarts: it only comes back on failure. */

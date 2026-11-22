@@ -126,6 +126,26 @@ printf 'tampered\n' > "$tmp/api/dl/TermF_0.4.0_amd64.AppImage"
 refuse HOME="$tmp/home" TERMF_OS=Linux TERMF_ARCH=x86_64 sh "$sh" --format appimage
 [ ! -e "$tmp/home/.local/bin/TermF.AppImage" ] || { echo "FAIL tampered AppImage installed"; fail=1; }
 
+# macOS: a real .dmg into a throwaway Applications folder that holds an older TermF, swapped in whole.
+if [ "$(uname -s)" = Darwin ]; then
+  mkdir -p "$tmp/app/TermF.app/Contents" "$tmp/Applications/TermF.app/Contents"
+  printf 'new\n' > "$tmp/app/TermF.app/Contents/version"
+  printf 'old\n' > "$tmp/Applications/TermF.app/Contents/version"
+  printf 'old\n' > "$tmp/Applications/TermF.app/Contents/stale"
+  serve "$(assets 0.5.0 false yes "$api/dl")" "[]"
+  mkdir -p "$tmp/api/dl"
+  hdiutil create -quiet -volname TermF -srcfolder "$tmp/app" -format UDZO "$tmp/api/dl/TermF_0.5.0_aarch64.dmg"
+  (cd "$tmp/api/dl" && "$python" -c "import hashlib,sys; d=open(sys.argv[1],'rb').read(); print(hashlib.sha256(d).hexdigest() + '  ' + sys.argv[1])" TermF_0.5.0_aarch64.dmg > SHA256SUMS)
+  expect "is in $tmp/Applications" TERMF_APPS="$tmp/Applications" TERMF_OS=Darwin TERMF_ARCH=arm64 sh "$sh"
+  if [ "$(cat "$tmp/Applications/TermF.app/Contents/version")" = new ] && [ ! -e "$tmp/Applications/TermF.app/Contents/stale" ] &&
+    [ -z "$(find "$tmp/Applications" -maxdepth 1 -name '.TermF*')" ] && ! hdiutil info | grep -q "$tmp"; then
+    echo "ok   TermF.app replaced whole, dmg detached"
+  else
+    echo "FAIL TermF.app not replaced cleanly"
+    fail=1
+  fi
+fi
+
 if command -v shellcheck > /dev/null 2>&1; then
   if shellcheck -S warning "$sh" "$0"; then echo "ok   shellcheck"; else fail=1; fi
 else

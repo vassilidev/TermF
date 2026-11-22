@@ -63,7 +63,8 @@
     if ((Get-FileHash -Algorithm SHA256 $file).Hash -ne $expected.ToUpper()) {
       throw "TermF install: $($asset.name) does not match its SHA-256 sum: not installed"
     }
-    Start-Process -FilePath $file -ArgumentList '/S' -Wait
+    $setup = Start-Process -FilePath $file -ArgumentList '/S' -Wait -PassThru
+    if ($setup.ExitCode -ne 0) { throw "TermF install: the installer failed (exit code $($setup.ExitCode))" }
     Write-Host "TermF $tag is installed: find it in the Start menu."
   } finally {
     Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue

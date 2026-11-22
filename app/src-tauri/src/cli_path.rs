@@ -44,6 +44,19 @@ mod sys {
         home.join(".local").join("bin").join("termf")
     }
 
+    /// A link TermF made earlier: to nothing any more (the app moved or left), or to the CLI of another TermF.
+    fn stale(link: &Path) -> bool {
+        let Ok(target) = fs::read_link(link) else {
+            return false;
+        };
+        let target = link
+            .parent()
+            .map_or(target.clone(), |dir| dir.join(&target));
+        !target.exists()
+            || (target.file_name() == Some(OsStr::new("termf"))
+                && target.with_file_name("termf-app").is_file())
+    }
+
     pub fn status(bundled: Option<&Path>, home: &Path, path: &OsStr, appimage: bool) -> CliPath {
         let link = link(home);
         let installed = bundled.is_some_and(|b| fs::read_link(&link).ok().as_deref() == Some(b));
@@ -52,7 +65,7 @@ mod sys {
             bundled: bundled.map(|b| b.to_string_lossy().into_owned()),
             target: link.to_string_lossy().into_owned(),
             installed,
-            taken: !installed && fs::symlink_metadata(&link).is_ok(),
+            taken: !installed && fs::symlink_metadata(&link).is_ok() && !stale(&link),
             on_path: std::env::split_paths(path).any(|d| d == dir),
             managed: if appimage {
                 Some("appimage")
@@ -70,7 +83,9 @@ mod sys {
         if fs::read_link(&link).ok().as_deref() == Some(bundled) {
             return Ok(());
         }
-        if fs::symlink_metadata(&link).is_ok() {
+        if stale(&link) {
+            fs::remove_file(&link)?;
+        } else if fs::symlink_metadata(&link).is_ok() {
             bail!("{} already exists: TermF leaves it alone", link.display());
         }
         fs::create_dir_all(link.parent().unwrap_or(home))?;
@@ -117,6 +132,23 @@ fn path_has(path: &str, dir: &str) -> bool {
     path.split(';').any(|p| same_dir(p, dir))
 }
 
+/// `HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)`: the user has no PATH of their own yet.
+#[cfg(any(windows, test))]
+const NOT_FOUND: i32 = 0x8007_0002_u32 as i32;
+
+/// The user's PATH as read: empty only when it does not exist, so that a failed read never gets written back as
+/// a PATH with TermF's folder alone.
+#[cfg(any(windows, test))]
+fn existing(read: std::result::Result<String, i32>) -> Result<String> {
+    match read {
+        Ok(path) => Ok(path),
+        Err(NOT_FOUND) => Ok(String::new()),
+        Err(code) => {
+            anyhow::bail!("cannot read the user's PATH (error {code:#010x}): TermF leaves it alone")
+        }
+    }
+}
+
 /// Windows paths: case aside, with or without a trailing backslash.
 #[cfg(any(windows, test))]
 fn same_dir(a: &str, b: &str) -> bool {
@@ -137,10 +169,11 @@ mod sys {
     /// The user's own PATH, unexpanded (`%USERPROFILE%\…` stays as written).
     pub fn user_path() -> Result<String> {
         let key = CURRENT_USER.create("Environment")?;
-        Ok(key
-            .get_hstring("Path")
-            .map(|p| p.to_string_lossy())
-            .unwrap_or_default())
+        super::existing(
+            key.get_hstring("Path")
+                .map(|p| p.to_string_lossy())
+                .map_err(|e| e.code().0),
+        )
     }
 
     /// Written back as an expandable string, then announced, so that programs started afterwards see it.
@@ -260,6 +293,18 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn a_path_that_cannot_be_read_is_never_rewritten() {
+        assert_eq!(existing(Ok(r"C:\a".into())).unwrap(), r"C:\a");
+        assert_eq!(
+            existing(Err(NOT_FOUND)).unwrap(),
+            "",
+            "no PATH of the user's own yet"
+        );
+        let access_denied = 0x8007_0005_u32 as i32;
+        assert!(existing(Err(access_denied)).is_err());
+    }
+
+    #[test]
     fn edits_the_windows_path_list() {
         let dir = r"C:\Users\alex\AppData\Local\TermF";
         assert_eq!(path_with("", dir), dir);
@@ -313,6 +358,38 @@ mod tests {
         assert!(sys::install(&cli, &home).is_err());
         assert!(sys::uninstall(&cli, &home).is_err());
         assert_eq!(fs::read_to_string(bin.join("termf")).unwrap(), "mine");
+
+        // A link TermF made to a place the app left, or to another TermF's CLI, is replaced.
+        fs::remove_file(bin.join("termf")).unwrap();
+        std::os::unix::fs::symlink(root.join("Old.app/Contents/MacOS/termf"), bin.join("termf"))
+            .unwrap();
+        assert!(
+            !sys::status(Some(&cli), &home, &path, false).taken,
+            "dangling"
+        );
+        sys::install(&cli, &home).unwrap();
+        assert_eq!(fs::read_link(bin.join("termf")).unwrap(), cli);
+        let other = root.join("Other.app/Contents/MacOS");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("termf"), "").unwrap();
+        fs::write(other.join("termf-app"), "").unwrap();
+        fs::remove_file(bin.join("termf")).unwrap();
+        std::os::unix::fs::symlink(other.join("termf"), bin.join("termf")).unwrap();
+        assert!(
+            !sys::status(Some(&cli), &home, &path, false).taken,
+            "another TermF"
+        );
+        sys::install(&cli, &home).unwrap();
+        assert_eq!(fs::read_link(bin.join("termf")).unwrap(), cli);
+        // A link to someone else's termf stays.
+        let mine = root.join("mine/termf");
+        fs::create_dir_all(mine.parent().unwrap()).unwrap();
+        fs::write(&mine, "").unwrap();
+        fs::remove_file(bin.join("termf")).unwrap();
+        std::os::unix::fs::symlink(&mine, bin.join("termf")).unwrap();
+        assert!(sys::status(Some(&cli), &home, &path, false).taken);
+        assert!(sys::install(&cli, &home).is_err());
+        assert_eq!(fs::read_link(bin.join("termf")).unwrap(), mine);
 
         let package = sys::status(Some(Path::new("/usr/bin/termf")), &home, &path, false);
         assert_eq!(package.managed, Some("package"));

@@ -11,6 +11,9 @@
   const s = $derived(updates.state);
   const available = $derived(s?.available ?? null);
   const busy = $derived(agentsAtWork());
+  // The last check's error, as the backend keeps it, until closed here.
+  let closed = $state<string | null>(null);
+  const error = $derived(updates.error || (s?.error && s.error !== closed ? s.error : ""));
 
   function open(e: MouseEvent, url: string) {
     e.preventDefault();
@@ -64,13 +67,13 @@
       {/if}
     </button>
     <span class="muted" role="status">
-      {#if !available && s.checked && !updates.checking}{t("releaseUpToDate")}{/if}
+      {#if !available && s.checked && !updates.checking && !error}{t("releaseUpToDate")}{/if}
       {#if s.checked}{t("releaseCheckedAt", { when: ago(s.checked) })}{/if}
     </span>
   </div>
 
-  {#if updates.error || s.error}
-    <Banner kind="error" ondismiss={() => (updates.error = "")}>{updates.error || s.error}</Banner>
+  {#if error}
+    <Banner kind="error" ondismiss={() => ((closed = s.error), (updates.error = ""))}>{error}</Banner>
   {/if}
 
   {#if available}
