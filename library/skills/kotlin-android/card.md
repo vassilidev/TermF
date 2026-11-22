@@ -1,0 +1,8 @@
+- Version: `kotlin`, `agp`, `compose-bom` in `gradle/libs.versions.toml`; Gradle in `gradle/wrapper/gradle-wrapper.properties`.
+- Docs for this version: `https://kotlinlang.org/llms.txt`, the AGP release notes of that major, `android docs search` with the Android CLI; official skills `android/skills` and `Kotlin/kotlin-agent-skills` (Apache-2.0).
+- Verify: the project's CI tasks, else `./gradlew assembleDebug`, `./gradlew testDebugUnitTest`, `./gradlew lint`, `./gradlew connectedAndroidTest` with a device.
+- Kotlin 2.4 removed K1 (`-language-version=1.9` fails); context parameters are stable.
+- Compose compiler = Kotlin plugin `org.jetbrains.kotlin.plugin.compose`, same version as Kotlin; `StrongSkipping` / `IntrinsicRemember` options are errors.
+- AGP 9: built-in Kotlin (no `kotlin-android` plugin), `kotlin-kapt` incompatible (KSP), no legacy variant API; AGP 9.5 needs Gradle 9.6+, JDK 17.
+- Compose UI tests: v2 `createComposeRule` (StandardTestDispatcher); v1 deprecated.
+- Read the skill `kotlin-android` before writing Kotlin, Compose or Gradle changes.

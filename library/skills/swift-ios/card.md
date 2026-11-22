@@ -1,0 +1,8 @@
+- Version: `// swift-tools-version:` in `Package.swift`, `SWIFT_VERSION` of the target, `swift --version`, `xcodebuild -version`; default isolation in `defaultIsolation(...)` or the "Default Actor Isolation" build setting.
+- Docs for this version: swift.org release posts, `https://docs.swift.org/latest/documentation`, Apple pages as Markdown (append `.md`); Xcode MCP `xcrun mcpbridge` when the user enabled it.
+- Verify: the project's CI or fastlane lanes, else `swift build`, `swift test`, or `xcodebuild test -scheme <Scheme> -destination 'platform=iOS Simulator,name=<device>'`.
+- Under MainActor default isolation, unannotated code is main-actor: no new `@MainActor`, `@concurrent` for work that leaves it.
+- No `nonisolated(unsafe)` or `@unchecked Sendable` to silence a race.
+- Swift Testing (`@Test`, `#expect`, `try #require`) for new tests; parameterized cases run in parallel.
+- Xcode 27.2 JSON `.xcproj` format opens in Xcode 27+ only: keep the project's format.
+- Read the skill `swift-ios` before writing Swift code or tests.
