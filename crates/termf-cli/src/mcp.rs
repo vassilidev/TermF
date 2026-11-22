@@ -12,7 +12,7 @@ use std::process::{ChildStdin, Command, Stdio};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use termf_core::ipc::{self, Call, MCP_ACTIONS, MCP_READ, McpCall};
-use termf_visual::agent::{Leftover, Pilot};
+use termf_visual::agent::{Leftover, Pilot, Watch};
 
 use crate::Client;
 
@@ -350,7 +350,7 @@ pub fn serve() -> Result<()> {
 /// Starts `termf mcp --reaper` in a process group of its own, so that it outlives this process however it ends
 /// (Claude Code kills its MCP servers rather than closing their input; TermF kills an agent's whole group), and
 /// tells it what to clean up after it.
-fn reaper() -> Result<Box<dyn FnMut(Leftover) + Send>> {
+fn reaper() -> Result<Watch> {
     let mut cmd = Command::new(env::current_exe()?);
     cmd.args(["mcp", "--reaper"])
         .stdin(Stdio::piped())

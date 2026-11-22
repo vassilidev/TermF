@@ -58,6 +58,9 @@ pub enum Leftover<'a> {
     Folder(&'a Path),
 }
 
+/// Hears of each [`Leftover`] as soon as it exists.
+pub type Watch = Box<dyn FnMut(Leftover) + Send>;
+
 /// The browser of one agent session.
 pub struct Pilot {
     /// The session's worktree.
@@ -76,7 +79,7 @@ pub struct Pilot {
     /// The request id Chrome gives each entry of `network` still in its hands.
     open: HashMap<String, usize>,
     /// Dropped last: once the rest is cleaned up.
-    watch: Box<dyn FnMut(Leftover) + Send>,
+    watch: Watch,
 }
 
 struct Request {
@@ -94,7 +97,7 @@ impl Pilot {
         dir: PathBuf,
         config_dir: PathBuf,
         data_dir: PathBuf,
-        watch: Box<dyn FnMut(Leftover) + Send>,
+        watch: Watch,
     ) -> Result<Pilot> {
         let config = config::load(&config_dir, &repository(&dir)).ok();
         let origins = config
@@ -913,6 +916,53 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(no_dev.contains("in no TermF project"), "{no_dev}");
+    }
+
+    #[test]
+    fn the_project_says_what_its_browser_reaches_and_which_terminals_get_it() {
+        let root = std::env::temp_dir().join(format!("termf-agent-config-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (repo, other, config) = (root.join("web"), root.join("other"), root.join("config"));
+        for dir in [&repo, &other, &config.join("projects")] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        let write = |browser: &str| {
+            fs::write(
+                config.join("projects/acme.toml"),
+                format!(
+                    "name = 'Acme'\n[[repos]]\npath = '{}'\n{browser}",
+                    repo.display()
+                ),
+            )
+            .unwrap();
+        };
+        let pilot = |dir: &Path| {
+            Pilot::new(
+                dir.into(),
+                config.clone(),
+                root.join("data"),
+                Box::new(|_| {}),
+            )
+        };
+        write("[browser]\norigins = ['HTTPS://Staging.Acme.test']\ntiles = true\n");
+        assert_eq!(
+            pilot(&repo).unwrap().origins,
+            ["https://staging.acme.test:443"]
+        );
+        assert!(
+            pilot(&other).unwrap().origins.is_empty(),
+            "another folder: localhost only"
+        );
+        assert!(for_tiles(&config, &repo) && !for_tiles(&config, &other));
+        write("[browser]\norigins = ['staging.acme.test']\n");
+        let invalid = pilot(&repo).err().unwrap().to_string();
+        assert!(
+            invalid.contains("invalid origin \"staging.acme.test\""),
+            "{invalid}"
+        );
+        write("");
+        assert!(!for_tiles(&config, &repo), "off unless the project says so");
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

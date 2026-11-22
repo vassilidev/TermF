@@ -317,7 +317,7 @@ fn real_chrome_drives_a_page_and_dies_with_its_server() {
         "{page}"
     );
     assert!(
-        page.contains(&format!("Blocked by TermF, origin not allowed")),
+        page.contains("Blocked by TermF, origin not allowed"),
         "{page}"
     );
     let field = reference(&page, "textbox \"Search\"");
