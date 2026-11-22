@@ -1,0 +1,8 @@
+- Version: `.ruby-version`, `RUBY VERSION`, `BUNDLED WITH` and `rails (x.y.z)` in `Gemfile.lock`, `bin/rails --version`.
+- Docs for this version: `https://guides.rubyonrails.org/v<major.minor>/`, `https://api.rubyonrails.org/v<major.minor>/`, `https://docs.ruby-lang.org/llms.txt`.
+- Verify: `bin/ci` when present (Rails 8.1), else `bin/rubocop`, `bin/brakeman --no-pager`, `bin/rails test` or `bundle exec rspec`.
+- Rails 8: `params.expect(...)`, Solid Queue/Cache/Cable, Propshaft, authentication generator.
+- Rails 8.1: `bin/ci` + `config/ci.rb`, job continuations, scaffolds without system tests; `bin/rails test` skips system tests.
+- Ruby 4.0: `Set`/`Pathname` core, `Ractor::Port`, `Net::HTTP` adds no form Content-Type; Bundler 4 dropped `bundle install --path/--deployment/--without`.
+- Never interpolate input into SQL or `order`; no `permit!`; `html_safe` does not escape.
+- Read the skill `ruby-rails` before changing Rails code.

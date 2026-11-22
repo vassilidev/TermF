@@ -1,0 +1,8 @@
+- Version: `junit-bom` / `junit-jupiter`, `mockito-core`, `assertj-core`, `testcontainers-bom`, `mockk` in the build or catalog, or Boot's managed versions.
+- Docs for this version: `https://docs.junit.org/current/`, Spring Boot testing reference, `https://java.testcontainers.org/`.
+- Verify: `./gradlew test --tests '<Class>'` or `./mvnw test -Dtest=<Class>` while iterating, then `./gradlew build` or `./mvnw verify`.
+- JUnit 6: Java 17+, one version for Platform and Jupiter, Vintage deprecated; Gradle 9 needs `junit-platform-launcher` as `testRuntimeOnly`.
+- Boot 4: `@MockitoBean` (no `@MockBean`), `@AutoConfigureMockMvc` with `@SpringBootTest`, slices in new packages.
+- Real database engine through Testcontainers and `@ServiceConnection`, not H2; Testcontainers 2 artifacts are `testcontainers-<module>`.
+- Each test comes from a criterion and fails without the change; mock only outside systems.
+- Read the skill `junit` before writing or fixing JVM tests.
