@@ -587,6 +587,8 @@ pub fn run() {
             team::team_run,
             team::team_events,
             team::team_squads,
+            team::team_squad_save,
+            team::team_squad_delete,
             team::team_update_base,
             cto::cto_open,
             cto::cto_address,

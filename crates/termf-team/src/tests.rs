@@ -128,6 +128,8 @@ impl Env {
             ("GIT_AUTHOR_EMAIL", "alex@example.invalid".into()),
             ("GIT_COMMITTER_NAME", "alex".into()),
             ("GIT_COMMITTER_EMAIL", "alex@example.invalid".into()),
+            // Nothing but local paths: a GitHub remote of a test never reaches the network.
+            ("GIT_ALLOW_PROTOCOL", "file".into()),
         ]
         .map(|(k, v)| (k.to_owned(), v))
         .to_vec();
@@ -1452,6 +1454,7 @@ fn reads_the_target_of_a_ticket_run() {
         updated: 0,
         claude_session: None,
         pr_state: None,
+        parent: None,
         session_id: None,
     };
     let target = Target::of(&run, &env.config, &env.data).unwrap();
@@ -4495,6 +4498,543 @@ fn real_integrator() {
     assert!(
         merged.contains("trim()") && merged.contains("Hello, ") && merged.contains('!'),
         "both intents kept: {merged}"
+    );
+}
+
+/// Two squads by paths in the run's repository, a workflow whose plan the CTO makes, and `[team]` as given.
+fn batched(env: &Env, team: &str) {
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str(&format!(
+        "[team]\n{team}\n[[squads]]\nid = \"web\"\nroles = {{ front = 1, qa = 1 }}\npaths = [\"web/**\"]\n\
+         [[squads]]\nid = \"api\"\nroles = {{ back = 1 }}\npaths = [\"src/**\"]\n"
+    ));
+    fs::write(&file, project).unwrap();
+    fs::write(
+        env.config.join("library/workflows/batches.toml"),
+        "extends = \"lean\"\n[steps.plan]\nrole = \"cto\"\n",
+    )
+    .unwrap();
+}
+
+fn batch(id: &str, squad: &str, size: &str, covers: &[&str], deps: &[&str]) -> Value {
+    json!({"id": id, "role": "lead", "squad": squad, "repo": "", "size": size, "covers": covers,
+        "goal": format!("the part of squad {squad}"), "files_hint": [], "depends_on": deps, "ui_impact": false})
+}
+
+fn subplan(tasks: Value) -> Value {
+    json!({"summary": "the squad's part", "acceptance": [], "out_of_scope": [], "questions": [], "tasks": tasks})
+}
+
+fn sub(id: &str, role: &str, hints: &[&str], covers: &[&str], deps: &[&str]) -> Value {
+    json!({"id": id, "role": role, "squad": "", "repo": "", "size": "S", "covers": covers,
+        "goal": format!("do {id}"), "files_hint": hints, "depends_on": deps, "ui_impact": false})
+}
+
+fn options(workflow: &str) -> Options {
+    Options {
+        workflow: Some(workflow.into()),
+        ..Options::default()
+    }
+}
+
+#[test]
+fn leads_plan_their_batches_and_termf_grafts_them() {
+    let env = Env::new("batches");
+    batched(&env, "");
+    let mut cto = env.plan(json!([
+        batch("T1", "api", "M", &["AC1", "IC1"], &[]),
+        batch("T2", "web", "L", &["AC2", "IC1"], &["T1"]),
+    ]));
+    cto["acceptance"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id": "IC1", "text": "the export answers CSV"}));
+    env.answer("plan.json", cto);
+    // The api lead strays into the web squad's paths once.
+    env.answer(
+        "implement:T1.1.json",
+        subplan(json!([sub(
+            "T1",
+            "back",
+            &["web/x.txt"],
+            &["AC1", "IC1"],
+            &[]
+        )])),
+    );
+    env.answer(
+        "implement:T1.2.json",
+        subplan(json!([sub(
+            "T1",
+            "back",
+            &["src/api/a.txt"],
+            &["AC1", "IC1"],
+            &[]
+        )])),
+    );
+    // The grafted T1.1 answers its own report, not the batch's first sub-plan.
+    env.answer("implement:T1.1.1.json", report("T1.1 done"));
+    env.script(
+        "implement:T1.1",
+        "mkdir -p src/api; echo a > src/api/a.txt\n",
+    );
+    env.answer(
+        "implement:T2.json",
+        subplan(json!([
+            sub("T1", "front", &["web/x.txt"], &["AC2", "IC1"], &[]),
+            sub("T2", "qa", &["web/x.test.ts"], &["AC2"], &["T1"]),
+        ])),
+    );
+    env.script("implement:T2.1", "mkdir -p web; echo x > web/x.txt\n");
+    env.team
+        .start(env.target.clone(), options("batches"))
+        .unwrap();
+    env.until("the plan's gate", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "approve-plan" && s.state == StepState::Waiting)
+    });
+    let plan = env.message("plan", 1);
+    assert!(
+        plan.contains("## Batches") && plan.contains("lead (squad web), lead (squad api)"),
+        "{plan}"
+    );
+    env.team.approve(1, "approve-plan").unwrap();
+
+    // T2 is sized L: its sub-plan waits for you, as `[team] subplan_gate` is "large" by default.
+    let run = env.until("the web sub-plan", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T2" && s.state == StepState::Waiting)
+    });
+    let t1 = env.step(&run, "implement:T1");
+    assert!(t1.batch && t1.state == StepState::Done && t1.attempt == 2);
+    let retry = env.message("implement:T1", 2);
+    assert!(
+        retry.contains("task T1: web/x.txt is outside the paths of squad api (src/**)"),
+        "{retry}"
+    );
+    let first = env.message("implement:T1", 1);
+    assert!(
+        first.contains("## Your squad\n\n- api: roles back; paths src/**")
+            && first.contains("the contracts between squads:\n- AC1: a CSV export\n- IC1: the export answers CSV\n"),
+        "only the batch's criteria and the contracts: {first}"
+    );
+    assert_eq!(env.step(&run, "implement:T1.1").state, StepState::Done);
+    assert!(env.target.worktree.join("src/api/a.txt").is_file());
+    assert!(
+        env.step(&run, "implement:T2").subplan.is_some()
+            && !run.steps.iter().any(|s| s.key == "implement:T2.1"),
+        "not grafted before you approve it"
+    );
+    env.team.approve(1, "implement:T2").unwrap();
+
+    let run = env.state(RunState::Done);
+    let plan = run.plan.as_ref().unwrap();
+    let grafted: Vec<(&str, &str, &[String])> = plan
+        .tasks
+        .iter()
+        .map(|t| (t.id.as_str(), t.role.as_str(), t.depends_on.as_slice()))
+        .collect();
+    assert_eq!(
+        grafted,
+        [
+            ("T1", "lead", &[][..]),
+            ("T2", "lead", &["T1".to_owned()][..]),
+            ("T1.1", "back", &[][..]),
+            ("T2.1", "front", &["T1".to_owned()][..]),
+            ("T2.2", "qa", &["T1".to_owned(), "T2.1".to_owned()][..]),
+        ]
+    );
+    assert_eq!(
+        env.step(&run, "implement:T2.2").needs,
+        [
+            "approve-plan",
+            "implement:T1",
+            "implement:T1.1",
+            "implement:T2.1"
+        ]
+    );
+    let log = env.steps_log();
+    let at = |line: &str| log.iter().position(|l| l == line).unwrap();
+    assert!(
+        at("implement:T2 1 begin") > at("implement:T1.1 1 end"),
+        "what waits for a batch waits for its tasks: {log:?}"
+    );
+    assert!(at("implement:T2.2 1 begin") > at("implement:T2.1 1 end"));
+    let spec = |key: &str| {
+        env.agents
+            .session(env.step(&run, key).session.unwrap())
+            .unwrap()
+            .spec
+    };
+    assert_eq!(spec("implement:T2").role.as_deref(), Some("lead"));
+    assert_eq!(spec("implement:T2.1").squad.as_deref(), Some("web"));
+    assert!(
+        env.kinds().iter().filter(|k| *k == "subplan").count() >= 2,
+        "{:?}",
+        env.kinds()
+    );
+}
+
+#[test]
+fn a_sub_plan_you_send_back_and_one_that_never_holds() {
+    let env = Env::new("subplan-gate");
+    batched(&env, "subplan_gate = \"always\"");
+    env.answer(
+        "plan.json",
+        env.plan(json!([batch("T1", "api", "S", &["AC1"], &[])])),
+    );
+    env.answer(
+        "implement:T1.1.json",
+        subplan(json!([sub("T1", "back", &["src/a.txt"], &["AC1"], &[])])),
+    );
+    env.answer(
+        "implement:T1.2.json",
+        subplan(json!([
+            sub("T1", "back", &["src/a.txt"], &["AC1"], &[]),
+            sub("T2", "back", &["src/b.txt"], &["AC1"], &["T1"]),
+        ])),
+    );
+    env.answer("implement:T1.1.1.json", report("T1.1 done"));
+    env.answer("implement:T1.2.1.json", report("T1.2 done"));
+    env.team
+        .start(env.target.clone(), options("batches"))
+        .unwrap();
+    env.until("the plan's gate", |r| r.state == RunState::Waiting);
+    env.team.approve(1, "approve-plan").unwrap();
+    env.until("the sub-plan", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.state == StepState::Waiting)
+    });
+    env.team
+        .revise(1, "implement:T1", "split it: the export, then its test")
+        .unwrap();
+    let again = env.until("the second sub-plan", |r| {
+        r.steps.iter().any(|s| {
+            s.key == "implement:T1"
+                && s.state == StepState::Waiting
+                && s.subplan.as_ref().is_some_and(|p| p.tasks.len() == 2)
+        })
+    });
+    let second = env.message("implement:T1", 2);
+    assert!(
+        second.contains("Your previous sub-plan:") && second.contains("split it: the export"),
+        "{second}"
+    );
+    assert!(
+        again
+            .questions(again.index("implement:T1").unwrap())
+            .is_empty()
+    );
+    env.team.approve(1, "implement:T1").unwrap();
+    let run = env.state(RunState::Done);
+    assert_eq!(
+        env.step(&run, "implement:T1.2").needs,
+        ["approve-plan", "implement:T1.1"]
+    );
+
+    drop(env);
+    let env = Env::new("subplan-escalate");
+    batched(&env, "subplan_gate = \"off\"");
+    env.answer(
+        "plan.json",
+        env.plan(json!([batch("T1", "api", "L", &["AC1"], &[])])),
+    );
+    // Out of its squad twice: the CTO hears of it before you, and leaves it to you.
+    env.answer(
+        "implement:T1.json",
+        subplan(json!([sub("T1", "front", &["web/x.txt"], &["AC1"], &[])])),
+    );
+    env.team
+        .start(env.target.clone(), options("batches"))
+        .unwrap();
+    env.until("the plan's gate", |r| r.state == RunState::Waiting);
+    env.team.approve(1, "approve-plan").unwrap();
+    let run = env.until("the batch, blocked", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.state == StepState::Blocked)
+    });
+    let t1 = env.step(&run, "implement:T1");
+    assert!(t1.escalated, "{:?}", t1.note);
+    assert!(
+        t1.note
+            .as_deref()
+            .unwrap()
+            .contains("the CTO leaves it to you")
+    );
+    let refused = env.team.approve(1, "implement:T1").unwrap_err().to_string();
+    assert!(refused.contains("no valid sub-plan"), "{refused}");
+}
+
+/// A second repository of the project, `web`, with `origin`, and the run's own `api` on GitHub; the ticket run of
+/// the team, in the database, for the other repositories to work for.
+fn second_repo(env: &Env, origin: &str) -> PathBuf {
+    let web = env.root.join("web");
+    fs::create_dir_all(&web).unwrap();
+    git(&web, &env.env, &["init", "-q", "-b", "main"]);
+    fs::write(web.join("index.html"), "<p>Acme</p>\n").unwrap();
+    git(&web, &env.env, &["add", "-A"]);
+    git(&web, &env.env, &["commit", "-q", "-m", "init"]);
+    git(&web, &env.env, &["remote", "add", "origin", origin]);
+    let api = &env.target.repo_path;
+    let github = "https://github.com/acme/api.git";
+    git(api, &env.env, &["remote", "add", "origin", github]);
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str(&format!(
+        "[[repos]]\nname = \"web\"\npath = \"{}\"\nchecks = \"test -f web.txt\"\n",
+        web.display()
+    ));
+    fs::write(&file, project).unwrap();
+    fs::write(
+        env.config.join("library/workflows/checked.toml"),
+        "extends = \"lean\"\n[steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{ repo.checks }}\"\n\
+         [steps.rules]\nneeds = [\"checks\"]\n[steps.deliver]\ntype = \"connector\"\nneeds = [\"rules\"]\n",
+    )
+    .unwrap();
+    let mut tickets = termf_tickets::Tickets::new(env.config.clone(), env.data.clone());
+    tickets.env = env.env.clone();
+    let run = tickets
+        .start_request("Export invoices", "acme", Some("api"))
+        .unwrap();
+    assert_eq!(run.id, 1);
+    web
+}
+
+#[test]
+fn a_plan_over_two_repositories_works_in_each() {
+    let env = Env::new("two-repos");
+    let web = second_repo(&env, "https://github.com/acme/web.git");
+    let mut front = task("T2", "front", &["web.txt"], &[]);
+    front["repo"] = "web".into();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[]), front])),
+    );
+    env.script("implement:T1", "mkdir -p src/api; echo a > src/api/a.txt\n");
+    env.script("implement:T2", "echo web > web.txt\n");
+    env.team
+        .start(env.target.clone(), options("checked"))
+        .unwrap();
+    let run = env.until("the plan's gate", |r| r.state == RunState::Waiting);
+    let plan = env.message("plan", 1);
+    assert!(
+        plan.contains(
+            "## The repositories\n\nThe run's own is `api`; the project's others: `web`."
+        ),
+        "{plan}"
+    );
+    let planner = env
+        .agents
+        .session(env.step(&run, "plan").session.unwrap())
+        .unwrap();
+    assert_eq!(
+        planner.spec.add_dirs,
+        std::slice::from_ref(&web),
+        "it reads the other repository"
+    );
+    assert!(
+        run.repos.is_empty(),
+        "web joins the run with its first task"
+    );
+
+    // Its worktree takes a while to prepare (a checkout hook): the team answers meanwhile.
+    let marker = env.root.join("preparing");
+    let hook = web.join(".git/hooks/post-checkout");
+    fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\n[ -e '{0}' ] && exit 0\ntouch '{0}'\nsleep 3\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    let asked = Instant::now();
+    env.team.approve(1, "approve-plan").unwrap();
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        asked.elapsed()
+    );
+    env.until("web being prepared", |_| marker.exists());
+    let asked = Instant::now();
+    env.team.set_rules(1, None, BTreeMap::new()).unwrap();
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "a command answers while a repository is prepared: {:?}",
+        asked.elapsed()
+    );
+    let run = env.until("the delivery gate", delivery);
+    assert_eq!(run.repos.len(), 1);
+    let joined = run.repos[0].clone();
+    assert_eq!(joined.name, "web");
+    let tickets = termf_tickets::Tickets::new(env.config.clone(), env.data.clone());
+    let child = tickets.run(joined.run).unwrap();
+    assert_eq!(child.parent, Some(1));
+    assert!(joined.worktree.starts_with(web.join(".claude/worktrees")));
+    assert!(
+        env.team.check_delivery(joined.run).is_err(),
+        "the run of another repository waits for the team, as the run's own does"
+    );
+    assert!(env.kinds().contains(&"repo".to_owned()));
+    assert!(
+        joined.worktree.join("web.txt").is_file(),
+        "T2 merged into web's run"
+    );
+    assert!(!env.target.worktree.join("web.txt").exists());
+    assert!(env.target.worktree.join("src/api/a.txt").is_file());
+    let checks = env.step(&run, "checks");
+    assert_eq!(checks.state, StepState::Done, "{:?}", checks.note);
+    let note = checks.note.as_deref().unwrap();
+    assert!(
+        note.contains("$ test -f src/api/a.txt") && note.contains("$ test -f web.txt"),
+        "{note}"
+    );
+    let spec = |key: &str| {
+        env.agents
+            .session(env.step(&run, key).session.unwrap())
+            .unwrap()
+            .spec
+    };
+    assert!(
+        spec("implement:T2").add_dirs.is_empty(),
+        "a task stays in its worktree"
+    );
+    assert!(
+        env.message("implement:T2", 1)
+            .contains("You are the front of the team, working in repository web.")
+    );
+    let last = git(&joined.worktree, &env.env, &["log", "--format=%s", "-1"]);
+    assert!(last.contains("T2: do T2"), "{last}");
+
+    // A repository that is not on GitHub never joins: its pull request could not open.
+    drop(env);
+    let env = Env::new("two-repos-local");
+    second_repo(&env, "/srv/git/web.git");
+    let mut front = task("T2", "front", &["web.txt"], &[]);
+    front["repo"] = "web".into();
+    env.answer("plan.json", env.plan(json!([front])));
+    env.team
+        .start(env.target.clone(), options("checked"))
+        .unwrap();
+    let run = env.until("the plan, blocked", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "plan" && s.state == StepState::Blocked)
+    });
+    let note = env.step(&run, "plan").note.clone().unwrap();
+    assert!(
+        note.contains("repository web is not on GitHub (its origin is /srv/git/web.git)"),
+        "{note}"
+    );
+    assert!(run.repos.is_empty());
+}
+
+#[test]
+fn a_batch_for_another_repository_is_planned_in_its_worktree() {
+    let env = Env::new("batch-repo");
+    second_repo(&env, "https://github.com/acme/web.git");
+    let file = env.config.join("projects/acme.toml");
+    let mut project = fs::read_to_string(&file).unwrap();
+    project.push_str(
+        "[[squads]]\nid = \"web\"\nroles = { front = 1 }\nrepos = [\"web\"]\n\
+         [[squads]]\nid = \"api\"\nroles = { back = 1 }\nrepos = [\"api\"]\n",
+    );
+    fs::write(&file, project).unwrap();
+    fs::write(
+        env.config.join("library/workflows/batches.toml"),
+        "extends = \"lean\"\n[steps.plan]\nrole = \"cto\"\n",
+    )
+    .unwrap();
+    let mut web = batch("T1", "web", "S", &["AC1"], &[]);
+    web["repo"] = "web".into();
+    let mut api = task("T2", "back", &["src/api/a.txt"], &[]);
+    (api["squad"], api["covers"]) = ("api".into(), json!(["AC2"]));
+    env.answer("plan.json", env.plan(json!([web, api])));
+    env.answer(
+        "implement:T1.json",
+        subplan(json!([sub("T1", "front", &["web.txt"], &["AC1"], &[])])),
+    );
+    env.answer("implement:T1.1.1.json", report("T1.1 done"));
+    env.script("implement:T1.1", "echo web > web.txt\n");
+    env.team
+        .start(env.target.clone(), options("batches"))
+        .unwrap();
+    env.until("the plan's gate", |r| r.state == RunState::Waiting);
+    env.team.approve(1, "approve-plan").unwrap();
+    let run = env.state(RunState::Done);
+    let joined = &run.repos[0];
+    let lead = env
+        .agents
+        .session(env.step(&run, "implement:T1").session.unwrap())
+        .unwrap()
+        .spec;
+    assert_eq!(lead.cwd, joined.worktree, "its lead reads its repository");
+    assert!(
+        lead.add_dirs.contains(&env.target.worktree),
+        "{:?}",
+        lead.add_dirs
+    );
+    assert!(joined.worktree.join("web.txt").is_file());
+    assert!(!env.target.worktree.join("web.txt").exists());
+    for name in ["..", ".", "a/b", "../../x"] {
+        assert!(env.team.inner.run_dir(1, name).is_err(), "{name}");
+    }
+    assert!(env.team.inner.run_dir(1, "T1.1").is_ok());
+}
+
+#[test]
+fn a_base_update_looks_at_every_repository_even_after_a_conflict() {
+    let env = Env::new("update-repos");
+    let web = second_repo(&env, "https://github.com/acme/web.git");
+    fs::write(
+        env.config.join("library/workflows/updated.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"lead\"\n\
+         [steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n\
+         [steps.update-base]\ntype = \"update\"\nrole = \"integrator\"\nneeds = [\"implement\"]\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"update-base\"]\n",
+    )
+    .unwrap();
+    // The run's own base moves in the way of T1, web's base beside T2's work, once web joined the run.
+    let api = &env.target.repo_path;
+    fs::write(api.join("shared.txt"), "base\n").unwrap();
+    git(api, &env.env, &["add", "-A"]);
+    git(api, &env.env, &["commit", "-q", "-m", "Base: shared"]);
+    let mut front = task("T2", "front", &["web.txt"], &[]);
+    front["repo"] = "web".into();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["shared.txt"], &[]), front])),
+    );
+    env.script("implement:T1", "echo run > shared.txt\n");
+    env.script(
+        "implement:T2",
+        &format!(
+            "echo web > web.txt\ncd '{}' && echo base > web-base.txt && git add web-base.txt && git commit -qm 'Base: web'\n",
+            web.display()
+        ),
+    );
+    env.script("update-base", "printf 'base\\nrun\\n' > shared.txt\n");
+    env.team
+        .start(env.target.clone(), options("updated"))
+        .unwrap();
+    let run = env.until("the delivery gate", delivery);
+    let update = env.step(&run, "update-base");
+    assert_eq!(update.state, StepState::Done, "{:?}", update.note);
+    assert_eq!(update.sessions.len(), 1, "one conflict for the integrator");
+    let joined = &run.repos[0];
+    assert!(
+        joined.worktree.join("web-base.txt").is_file(),
+        "web's base merged after the run's own conflict"
+    );
+    assert_eq!(
+        fs::read_to_string(env.target.worktree.join("shared.txt")).unwrap(),
+        "base\nrun\n"
     );
 }
 

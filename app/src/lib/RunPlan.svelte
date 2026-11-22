@@ -1,18 +1,76 @@
 <script lang="ts">
+  import RunPlan from "$lib/RunPlan.svelte";
   import { stepPill } from "$lib/TeamRunDetail.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { t } from "$lib/i18n";
-  import { asks, levels, type TeamRun } from "$lib/team-run-logic";
+  import { asks, batchTasks, levels, planned, type TeamRun } from "$lib/team-run-logic";
 
-  /** The orchestrator's plan: summary, criteria, what is out of scope, questions left, tasks by level. */
-  let { run }: { run: TeamRun } = $props();
+  /**
+   * The orchestrator's plan: summary, criteria, what is out of scope, questions left, tasks by level, each batch with
+   * its sub-plan folded under it. `batch`: only the tasks of that batch's sub-plan.
+   */
+  let { run, batch }: { run: TeamRun; batch?: string } = $props();
 
-  const tasks = $derived(levels(run.plan?.tasks ?? []));
+  const sub = $derived(batch ? batchTasks(run, batch) : null);
+  const tasks = $derived(levels(batch ? (sub?.tasks ?? []) : planned(run)));
   const asked = $derived(asks(run).some((a) => a.kind === "questions" && a.step.plan));
   const taskStep = (id: string) => run.steps.find((s) => s.kind === "task" && s.task === id);
 </script>
 
-{#if run.plan}
+{#snippet levelled()}
+  <ol class="levels">
+    {#each tasks as level, n (n)}
+      <li>
+        <span class="level">{t("teamRunsLevel", { n: n + 1 })}</span>
+        <ul class="tasks">
+          {#each level as task (task.id)}
+            {@const step = taskStep(task.id)}
+            {@const own = step?.batch ? batchTasks(run, task.id) : null}
+            <li class="task">
+              <div class="task-head">
+                <span class="mono id">{task.id}</span>
+                <b>{task.goal}</b>
+                {#if step && (!batch || sub?.grafted)}
+                  {@const [status, label] = stepPill(step)}
+                  <StatusPill {status} {label} />
+                {/if}
+              </div>
+              <div class="tags">
+                {#if step?.batch}<span class="badge batch">{t("teams2Batch")}</span>{/if}
+                <span class="badge role">{task.role}</span>
+                {#if task.squad}<span class="badge">{t("teamRunsSquad", { name: task.squad })}</span>{/if}
+                <span class="badge">{task.repo}</span>
+                <span class="badge size">{task.size}</span>
+                {#if task.ui_impact}<span class="badge">{t("teamRunsUiImpact")}</span>{/if}
+                {#if task.covers.length}<span class="muted">{t("teamRunsCovers", { ids: task.covers.join(", ") })}</span>{/if}
+                {#if task.depends_on.length}<span class="muted">{t("teamRunsDependsOn", { ids: task.depends_on.join(", ") })}</span>{/if}
+              </div>
+              {#if task.files_hint.length}<p class="mono muted hint">{task.files_hint.join("  ")}</p>{/if}
+              {#if step?.batch && !batch}
+                {#if own}
+                  {@const count = own.tasks.length}
+                  <details class="sub" open={!own.grafted}>
+                    <summary>
+                      {count === 1 ? t("teams2SubplanOne") : t("teams2SubplanCount", { count })}
+                      {#if !own.grafted}<span class="muted"> · {t("teams2SubplanProposed")}</span>{/if}
+                    </summary>
+                    <RunPlan {run} batch={task.id} />
+                  </details>
+                {:else}
+                  <p class="muted small">{t("teams2SubplanPending")}</p>
+                {/if}
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </li>
+    {/each}
+  </ol>
+{/snippet}
+
+{#if batch}
+  {@render levelled()}
+{:else if run.plan}
   {@const plan = run.plan}
   {#if plan.summary}<p class="summary">{plan.summary}</p>{/if}
   {#if plan.acceptance.length || plan.out_of_scope.length}
@@ -45,38 +103,7 @@
   {/if}
   {#if plan.tasks.length}
     <h4>{t("teamRunsTasks")} <small class="muted">{t("teamRunsLevelsHelp")}</small></h4>
-    <ol class="levels">
-      {#each tasks as level, n (n)}
-        <li>
-          <span class="level">{t("teamRunsLevel", { n: n + 1 })}</span>
-          <ul class="tasks">
-            {#each level as task (task.id)}
-              {@const step = taskStep(task.id)}
-              <li class="task">
-                <div class="task-head">
-                  <span class="mono id">{task.id}</span>
-                  <b>{task.goal}</b>
-                  {#if step}
-                    {@const [status, label] = stepPill(step)}
-                    <StatusPill {status} {label} />
-                  {/if}
-                </div>
-                <div class="tags">
-                  <span class="badge role">{task.role}</span>
-                  {#if task.squad}<span class="badge">{t("teamRunsSquad", { name: task.squad })}</span>{/if}
-                  <span class="badge">{task.repo}</span>
-                  <span class="badge size">{task.size}</span>
-                  {#if task.ui_impact}<span class="badge">{t("teamRunsUiImpact")}</span>{/if}
-                  {#if task.covers.length}<span class="muted">{t("teamRunsCovers", { ids: task.covers.join(", ") })}</span>{/if}
-                  {#if task.depends_on.length}<span class="muted">{t("teamRunsDependsOn", { ids: task.depends_on.join(", ") })}</span>{/if}
-                </div>
-                {#if task.files_hint.length}<p class="mono muted hint">{task.files_hint.join("  ")}</p>{/if}
-              </li>
-            {/each}
-          </ul>
-        </li>
-      {/each}
-    </ol>
+    {@render levelled()}
   {/if}
 {:else}
   <p class="muted small">{t("teamRunsNoPlan")}</p>
@@ -226,5 +253,24 @@
   .hint {
     margin: 0;
     overflow-wrap: anywhere;
+  }
+
+  .batch {
+    border-color: var(--border-strong);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .sub {
+    margin-top: 4px;
+    padding-left: 12px;
+    border-left: 2px solid var(--border);
+  }
+
+  .sub > summary {
+    margin-bottom: 8px;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
   }
 </style>
