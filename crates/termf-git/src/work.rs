@@ -479,7 +479,12 @@ pub(crate) fn parse_diff(out: &str, max_lines: usize) -> Vec<FileDiff> {
                     ["diff --git ", "index ", "--- ", "+++ "]
                         .iter()
                         .any(|p| h.starts_with(p))
-                });
+                })
+                // A submodule's "Subproject commit" lines have no index line when only dirty, mode 160000 else.
+                && file
+                    .header
+                    .iter()
+                    .any(|h| h.starts_with("index ") && !h.ends_with(" 160000"));
             file.id = hash(&[raw.text.as_bytes()]);
             file
         })
