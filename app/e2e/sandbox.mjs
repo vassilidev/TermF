@@ -75,11 +75,19 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
   if (windows) for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
   for (const d of [bin, acme, join(dirs.configDir, "projects")]) mkdirSync(d, { recursive: true });
 
+  // Where the fakes log their calls and read what the scenario gives them.
+  const scratch = {
+    TERMF_E2E_LOG: join(root, "calls.log"),
+    TERMF_E2E_RELEASES: join(root, "releases.json"),
+    TERMF_E2E_GH_RUNS: join(root, "gh-runs.json"),
+  };
   for (const name of ["claude", "gh", "curl"]) {
     if (windows) copyFileSync(windowsShim(), join(bin, `${name}.exe`));
     else {
       const file = join(bin, name);
-      writeFileSync(file, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(fakes, `${name}.mjs`))} "$@"\n`);
+      // In the shim, not only in the app's environment: agents get a minimal environment of their own.
+      const own = Object.entries(scratch).map(([k, v]) => `export ${k}=${JSON.stringify(v)}\n`).join("");
+      writeFileSync(file, `#!/bin/sh\n${own}exec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(fakes, `${name}.mjs`))} "$@"\n`);
       chmodSync(file, 0o755);
     }
   }
@@ -97,9 +105,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     LC_ALL: locale,
     GIT_CONFIG_GLOBAL: gitconfig,
     GIT_CONFIG_NOSYSTEM: "1",
-    TERMF_E2E_LOG: join(root, "calls.log"),
-    TERMF_E2E_RELEASES: join(root, "releases.json"),
-    TERMF_E2E_GH_RUNS: join(root, "gh-runs.json"),
+    ...scratch,
   });
   if (!windows) {
     Object.assign(env, {
