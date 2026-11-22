@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askTitle, awaitsDelivery, expected, named, prName, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
+import { askTitle, awaitsDelivery, baseUpdate, expected, named, prName, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
 
 const ticket = (o = {}) => ({ status: "running", prUrl: null, prState: null, ...o });
 const step = (key, state, kind = "agent") => ({ key, kind, state });
@@ -145,4 +145,36 @@ test("the CTO's escalation shows through the step it decides on, never as a stag
   assert.equal(flat(stages(ticket(), team(steps))), "tasks:working deliver:pending");
   assert.deepEqual(stepLabel("escalate-implement-T1"), { name: "disciplineEscalation" });
   assert.deepEqual(stepLabel("escalate-review"), { name: "disciplineEscalation" });
+});
+
+test("the update with the base, and the CTO's decision on it, belong to the delivery", () => {
+  const steps = [
+    step("review", "done", "review"),
+    step("update-base", "pending", "update"),
+    { ...step("escalate-update-base", "running"), escalates: "update-base" },
+    step("deliver", "pending", "connector"),
+  ];
+  assert.equal(flat(stages(ticket(), team(steps))), "review:done deliver:working");
+  assert.deepEqual(stepLabel("update-base"), { name: "integratorStep" });
+  const delivered = ticket({ status: "delivered", prUrl: "u" });
+  assert.equal(flat(stages(delivered, team(steps))), "review:done deliver:working", "updated again after its pull request");
+  const again = [steps[0], step("update-base", "done", "update"), step("deliver", "waiting", "connector")];
+  assert.equal(flat(stages(delivered, team(again, "waiting"))), "review:done deliver:waiting");
+  assert.equal(flat(stages(delivered, team(again.map((s) => ({ ...s, state: "done" })), "done"))), "review:done deliver:done");
+});
+
+test("a pull request in conflict or behind its base is said, with the team's update once the team is done", () => {
+  const delivered = ticket({ status: "delivered", prUrl: "https://github.com/acme/api/pull/7" });
+  const done = team([step("update-base", "done", "update"), step("deliver", "done", "connector")], "done");
+  const conflict = { conflict: true, behind: false };
+  assert.deepEqual(baseUpdate(delivered, conflict, done), { state: "conflict", action: true });
+  assert.deepEqual(baseUpdate(delivered, { conflict: false, behind: true }, done), { state: "behind", action: true });
+  assert.equal(baseUpdate(delivered, { conflict: false, behind: false }, done), null, "up to date");
+  assert.equal(baseUpdate(delivered, null, done), null, "not known yet");
+  assert.deepEqual(baseUpdate(delivered, conflict), { state: "conflict", action: false }, "without a team: from its session");
+  const older = team([step("deliver", "done", "connector")], "done");
+  assert.deepEqual(baseUpdate(delivered, conflict, older), { state: "conflict", action: false }, "a workflow without the step");
+  assert.equal(baseUpdate(delivered, conflict, team(done.steps, "running")), null, "the team at work shows its own state");
+  assert.equal(baseUpdate({ ...delivered, prState: "merged" }, conflict, done), null, "merged");
+  assert.equal(baseUpdate(ticket({ prUrl: delivered.prUrl }), conflict, done), null, "not delivered");
 });
