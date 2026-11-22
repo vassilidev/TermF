@@ -116,6 +116,10 @@ impl AgentRuntime for ClaudeCode {
         "claude-code"
     }
 
+    fn label(&self) -> &'static str {
+        "Claude Code"
+    }
+
     fn headless_args(&self, spec: &SessionSpec, launch: &Launch) -> Vec<String> {
         let mut args: Vec<String> = [
             "-p",
@@ -204,11 +208,11 @@ impl AgentRuntime for ClaudeCode {
         json!({ "type": "user", "message": { "role": "user", "content": text } }).to_string()
     }
 
-    fn interrupt(&self) -> String {
+    fn interrupt(&self) -> Option<String> {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = format!("termf-interrupt-{}", NEXT.fetch_add(1, Ordering::Relaxed));
-        json!({ "type": "control_request", "request_id": id, "request": { "subtype": "interrupt" } })
-            .to_string()
+        let line = json!({ "type": "control_request", "request_id": id, "request": { "subtype": "interrupt" } });
+        Some(line.to_string())
     }
 
     fn answer(&self, request: &str, allow: bool, input: &Value, message: &str) -> String {
@@ -426,7 +430,7 @@ fn tool_output(content: &Value) -> String {
     }
 }
 
-fn cut(text: &str) -> (String, bool) {
+pub(crate) fn cut(text: &str) -> (String, bool) {
     match text.char_indices().nth(TOOL_OUTPUT) {
         Some((end, _)) => (text[..end].to_owned(), true),
         None => (text.to_owned(), false),
@@ -641,11 +645,11 @@ mod tests {
     fn writes_stdin_lines() {
         let line: Value = serde_json::from_str(&ClaudeCode.message("hi \"there\"\n")).unwrap();
         assert_eq!(line["message"]["content"], "hi \"there\"\n");
-        let interrupt: Value = serde_json::from_str(&ClaudeCode.interrupt()).unwrap();
+        let interrupt: Value = serde_json::from_str(&ClaudeCode.interrupt().unwrap()).unwrap();
         assert_eq!(interrupt["request"]["subtype"], "interrupt");
         assert_ne!(
             interrupt["request_id"],
-            serde_json::from_str::<Value>(&ClaudeCode.interrupt()).unwrap()["request_id"]
+            serde_json::from_str::<Value>(&ClaudeCode.interrupt().unwrap()).unwrap()["request_id"]
         );
         let allow: Value =
             serde_json::from_str(&ClaudeCode.answer("r1", true, &json!({"a": 1}), "")).unwrap();

@@ -13,7 +13,14 @@ use termf_core::squads::{Membership, same_role};
 
 use crate::{Item, Kind, Layer, Scope, resolve};
 
-const SCALARS: [&str; 4] = ["model", "effort", "effort_range", "permission_mode"];
+// `agent`: the `[agents]` entry its sessions run, Claude Code unless set (docs/AGENTS-CLI.md).
+const SCALARS: [&str; 5] = [
+    "model",
+    "effort",
+    "effort_range",
+    "permission_mode",
+    "agent",
+];
 const LISTS: [&str; 6] = [
     "skills",
     "preferences",

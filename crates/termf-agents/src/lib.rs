@@ -13,6 +13,7 @@ use termf_core::context::Gauge;
 
 mod agents;
 mod claude;
+mod cli;
 mod store;
 // The fake Claude Code is a shell script.
 #[cfg(all(test, unix))]
@@ -22,12 +23,27 @@ pub use agents::{Agents, Takeover};
 pub use claude::{
     ASK_EXPERT, BROWSER, ClaudeCode, EXPERT, OPS, TOOL_OUTPUT, mcp_settings, mcp_tools,
 };
+pub use cli::{Codex, Gemini};
 pub use store::{events, sessions};
 
-/// An agent CLI TermF drives (ARCHITECTURE §6.1); only Claude Code so far.
+/// An agent CLI TermF drives (ARCHITECTURE §6.1): Claude Code, Codex CLI, Gemini CLI.
 pub trait AgentRuntime: Send + Sync {
-    /// `claude-code`.
+    /// `claude-code`, `codex`, `gemini`.
     fn id(&self) -> &'static str;
+    /// `Claude Code`, for messages.
+    fn label(&self) -> &'static str;
+    /// One process per turn: its message on stdin, closed once written; the process ends with the turn.
+    fn per_turn(&self) -> bool {
+        false
+    }
+    /// The library's instructions go at the head of the first message of a conversation: no option takes them.
+    fn instructions_in_message(&self) -> bool {
+        false
+    }
+    /// Why a session cannot run on it, said before it starts rather than faked.
+    fn refuse(&self, _spec: &SessionSpec) -> anyhow::Result<()> {
+        Ok(())
+    }
     /// The options of a headless process, added after the agent's command.
     fn headless_args(&self, spec: &SessionSpec, launch: &Launch) -> Vec<String>;
     /// The options that reopen the conversation in a terminal.
@@ -36,8 +52,8 @@ pub trait AgentRuntime: Send + Sync {
     fn parser(&self) -> Box<dyn Parser>;
     /// The stdin line of a user message.
     fn message(&self, text: &str) -> String;
-    /// The stdin line that stops the turn under way.
-    fn interrupt(&self) -> String;
+    /// The stdin line that stops the turn under way; `None`: an interrupt signal does.
+    fn interrupt(&self) -> Option<String>;
     /// The stdin line that answers a permission request; `input` is the tool input it asked about.
     fn answer(&self, request: &str, allow: bool, input: &Value, message: &str) -> String;
 }
@@ -59,11 +75,16 @@ pub struct Launch<'a> {
     /// The library's plugin and system prompt, when it has them.
     pub plugin: Option<&'a Path>,
     pub system_prompt: Option<&'a Path>,
-    /// The config of `termf mcp` for a session with TermF's tools, and the other folders it may read.
+    /// The config of `termf mcp` for a session with TermF's tools, its server, and the other folders it may read.
     pub mcp: Option<&'a Path>,
+    pub mcp_server: Option<&'a Value>,
     pub dirs: &'a [PathBuf],
     /// The `termf` CLI whose `guard` the session's Bash commands go through.
     pub guard: Option<&'a Path>,
+    /// Gemini CLI's rules that keep secrets out of reach (`--policy`).
+    pub policy: Option<&'a Path>,
+    /// The session's own folder for this process, whose path marks it (`ours`).
+    pub dir: &'a Path,
 }
 
 /// What a session runs with. Empty values mean the agent's default.
@@ -76,7 +97,8 @@ pub struct SessionSpec {
     pub title: String,
     /// The project whose library applies; by default the one that lists the folder.
     pub project: Option<String>,
-    /// The `[agents]` entry to run, which must run Claude Code; by default the first that does.
+    /// The `[agents]` entry to run: Claude Code, Codex CLI or Gemini CLI; by default the role's, else the first
+    /// that runs Claude Code.
     pub agent: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,

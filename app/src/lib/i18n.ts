@@ -3524,6 +3524,10 @@ const fr = {
   teams2RepoGone: "Fermé",
   teams2DeliverRepo: "Livrer {repo}",
   teams2CleanRepo: "Nettoyer {repo}",
+  adaptersTool: "Outil",
+  adaptersCodex: "Codex CLI",
+  adaptersGemini: "Gemini CLI",
+  adaptersTurnTokens: "ce tour {input} jetons en entrée · {output} en sortie",
 };
 
 type Key = keyof typeof fr;
@@ -7027,6 +7031,10 @@ const en: Record<Key, string> = {
   teams2RepoGone: "Closed",
   teams2DeliverRepo: "Deliver {repo}",
   teams2CleanRepo: "Clean up {repo}",
+  adaptersTool: "Tool",
+  adaptersCodex: "Codex CLI",
+  adaptersGemini: "Gemini CLI",
+  adaptersTurnTokens: "this turn {input} input tokens · {output} output",
 };
 
 const messages = { fr, en };

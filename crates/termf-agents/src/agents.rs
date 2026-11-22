@@ -12,13 +12,14 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
-use termf_core::{Settings, claude, ipc};
+use termf_core::claude::Tool;
+use termf_core::{Settings, claude, cli_agents, ipc};
 use termf_term::{shell_command, shell_quote};
 
 use crate::store::{self, Store};
 use crate::{
-    AgentEvent, AgentRuntime, AgentSession, ClaudeCode, Launch, Notice, Outcome, SessionSpec,
-    State, StoredEvent, Update, now,
+    AgentEvent, AgentRuntime, AgentSession, ClaudeCode, Codex, Gemini, Launch, Notice, Outcome,
+    SessionSpec, State, StoredEvent, Update, Usage, now,
 };
 
 /// The `termf mcp` server of a session with TermF's tools, one per process: what `--mcp-config` takes, and what
@@ -46,7 +47,6 @@ pub struct Agents {
 struct Inner {
     config_dir: PathBuf,
     data_dir: PathBuf,
-    runtime: Box<dyn AgentRuntime>,
     live: Mutex<HashMap<i64, Live>>,
     /// A process or a terminal ended.
     ended: Condvar,
@@ -67,6 +67,11 @@ struct Live {
     wake: bool,
     /// The user's messages written during a turn: they go, as one, once it ends.
     queued: Vec<String>,
+    /// The library's instructions, for the first message of a runtime that reads them there.
+    instructions: Option<String>,
+    /// A process that runs one turn: the state its end of turn sets, once it has exited (a message sent sooner
+    /// would find it still there).
+    after_exit: Option<State>,
     /// Permission requests waiting for an answer, with the tool input each asks about.
     pending: HashMap<String, Value>,
     interrupting: bool,
@@ -120,7 +125,6 @@ impl Agents {
             inner: Arc::new(Inner {
                 config_dir,
                 data_dir,
-                runtime: Box::new(ClaudeCode),
                 live: Mutex::default(),
                 ended: Condvar::new(),
                 sink: Box::new(sink),
@@ -168,11 +172,24 @@ impl Agents {
         let mut spec = checked(spec)?;
         ensure!(!spec.guard || inner.guard.get().is_some(), NO_GUARD);
         let settings = termf_core::load_settings(&inner.config_dir)?;
-        spec.agent = Some(claude_agent(&settings, spec.agent.as_deref())?);
-        if let Some(role) = spec.role.clone() {
-            play(&inner.config_dir, &mut spec, &role)?;
+        let role = match spec.role.clone() {
+            Some(name) => Some((role_of(&inner.config_dir, &spec, &name)?, name)),
+            None => None,
+        };
+        // TermF's own conversations (CTO, expert) stay on Claude Code, whatever their role says.
+        let wanted = spec.agent.clone().or_else(|| {
+            let (settings, _) = role.as_ref().filter(|_| !spec.mcp)?;
+            let agent = settings.1.iter().find(|s| s.key == "agent")?;
+            agent.value.as_str().map(str::to_owned)
+        });
+        let (agent, tool) = agent_named(&settings, wanted.as_deref())?;
+        spec.agent = Some(agent);
+        if let Some((settings, name)) = &role {
+            play(&mut spec, settings, name, tool == Tool::Claude)?;
         }
-        let session = inner.store()?.create(inner.runtime.id(), &uuid()?, &spec)?;
+        let runtime = runtime_of(tool);
+        runtime.refuse(&spec)?;
+        let session = inner.store()?.create(runtime.id(), &uuid()?, &spec)?;
         (inner.sink)(Update::Session(session.clone()));
         Ok(session)
     }
@@ -187,6 +204,8 @@ impl Agents {
         let entry = live.entry(id).or_default();
         match prompt.filter(|p| !p.trim().is_empty()) {
             Some(text) => inner.deliver(&store, id, entry, Some(text))?,
+            // A runtime that runs a process per turn starts with its first message.
+            None if inner.runtime(&store, id)?.per_turn() => {}
             None => inner.launch(&store, id, entry)?,
         }
         inner.view(&store, id, entry)
@@ -247,7 +266,7 @@ impl Agents {
             matches!(state, State::Working | State::Waiting),
             "the agent is not working"
         );
-        inner.write(entry, &inner.runtime.interrupt())?;
+        inner.interrupt(&store, id, entry)?;
         entry.interrupting = true;
         Ok(())
     }
@@ -264,7 +283,10 @@ impl Agents {
             })?;
         let message = message.map(str::trim).filter(|m| !m.is_empty());
         let why = message.unwrap_or("The user refused.");
-        inner.write(entry, &inner.runtime.answer(request, allow, &input, why))?;
+        let answer = inner
+            .runtime(&store, id)?
+            .answer(request, allow, &input, why);
+        inner.write(entry, &answer)?;
         entry.pending.remove(request);
         inner.record(
             &store,
@@ -295,7 +317,7 @@ impl Agents {
                 "the session is taken over in a terminal: hand it back first"
             );
             if matches!(session.state, State::Working | State::Waiting) {
-                let _ = inner.write(entry, &inner.runtime.interrupt());
+                let _ = inner.interrupt(&store, id, entry);
             }
             if matches!(
                 session.state,
@@ -375,7 +397,7 @@ impl Agents {
             agent: spec.agent.clone().unwrap_or_default(),
             cwd: spec.cwd.clone(),
             title: spec.title.clone(),
-            args: inner.runtime.interactive_args(spec, &session.session_id),
+            args: runtime(&session.runtime).interactive_args(spec, &session.session_id),
             guard: spec.guard,
         })
     }
@@ -453,7 +475,9 @@ impl Agents {
         entry.tile = None;
         inner.record(&store, id, AgentEvent::HandedBack);
         inner.set_state(&store, id, entry, State::Stopped)?;
-        inner.launch(&store, id, entry)?;
+        if !inner.runtime(&store, id)?.per_turn() {
+            inner.launch(&store, id, entry)?;
+        }
         inner.view(&store, id, entry)
     }
 
@@ -592,14 +616,15 @@ impl Inner {
     fn reap(&self, store: &Store) -> Result<()> {
         store.stop_all()?;
         for (id, pid, session_id) in store.pids()? {
-            if ours(pid, &session_id) {
+            let dir = store.dir(id).join("session");
+            if ours(pid, &session_id, &dir) {
                 kill_group(pid);
                 let deadline = std::time::Instant::now() + KILL_WAIT;
-                while ours(pid, &session_id) && std::time::Instant::now() < deadline {
+                while ours(pid, &session_id, &dir) && std::time::Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(100));
                 }
             }
-            if ours(pid, &session_id) {
+            if ours(pid, &session_id, &dir) {
                 let message = format!("its process {pid} from the last launch still runs");
                 self.record(store, id, AgentEvent::Error { message });
                 self.set_state(store, id, &Live::default(), State::Error)?;
@@ -607,6 +632,23 @@ impl Inner {
                 store.clear_pid(id, pid)?;
             }
         }
+        Ok(())
+    }
+
+    fn runtime(&self, store: &Store, id: i64) -> Result<&'static dyn AgentRuntime> {
+        Ok(runtime(&store.session(id)?.runtime))
+    }
+
+    /// Stops the turn under way: a line on stdin, or an interrupt signal to a process that runs one turn.
+    fn interrupt(&self, store: &Store, id: i64, entry: &mut Live) -> Result<()> {
+        if let Some(line) = self.runtime(store, id)?.interrupt() {
+            return self.write(entry, &line);
+        }
+        let process = entry
+            .process
+            .as_ref()
+            .context("the agent's process is not running")?;
+        interrupt_group(process.pid);
         Ok(())
     }
 
@@ -643,15 +685,24 @@ impl Inner {
         if entry.process.is_none() {
             self.launch(store, id, entry)?;
         }
+        let runtime = self.runtime(store, id)?;
         let mut said = entry.queued.clone();
         said.extend(text.map(str::to_owned));
         let text = (!said.is_empty()).then(|| said.join("\n\n"));
-        self.write(
-            entry,
-            &self
-                .runtime
-                .message(&message(&entry.notices, text.as_deref())),
-        )?;
+        let mut line = message(&entry.notices, text.as_deref());
+        if let Some(instructions) = entry.instructions.take() {
+            line = format!(
+                "<termf-instructions>\n{}\n</termf-instructions>\nTermF's instructions for this whole conversation, from the project's library.\n\n{line}",
+                instructions.trim()
+            );
+        }
+        self.write(entry, &runtime.message(&line))?;
+        if runtime.per_turn()
+            && let Some(process) = entry.process.as_mut()
+        {
+            // Its message is all it reads: closing stdin lets it start.
+            process.stdin = None;
+        }
         entry.notices.clear();
         entry.queued.clear();
         entry.wake = false;
@@ -662,16 +713,16 @@ impl Inner {
         self.set_state(store, id, entry, State::Working)
     }
 
-    /// The agent's command, a bare `claude` replaced by the Claude Code it runs. Asking an install its version can
-    /// take seconds: callers that may start a process ask once before taking `live`, then it is cached.
+    /// The agent's command, a bare `claude`, `codex` or `gemini` replaced by the install it runs. Asking an install
+    /// its version can take seconds: callers that may start a process ask once before taking `live`, then it is
+    /// cached.
     fn command(&self, spec: &SessionSpec) -> Result<(String, claude::Install)> {
         let settings = termf_core::load_settings(&self.config_dir)?;
         let agent = spec.agent.as_deref().unwrap_or_default();
         let command = settings
-            .agents
-            .get(agent)
+            .agent(agent)
             .with_context(|| format!("no agent {agent} in termf.toml [agents]"))?;
-        claude::in_command(command, shell_quote)
+        claude::in_command(&command, shell_quote)
     }
 
     /// Starts the session's process, which waits for a message. The library is written again, so that what
@@ -684,17 +735,23 @@ impl Inner {
             bail!("the session's budget is spent");
         }
         if let Some(pid) = store.pid(id)?
-            && ours(pid, &session.session_id)
+            && ours(pid, &session.session_id, &store.dir(id).join("session"))
         {
             bail!("a process of this session still runs (pid {pid}): it must end first");
         }
         let (command, claude) = self.command(&session.spec)?;
+        let runtime = runtime(&session.runtime);
         let dir = store.dir(id).join("session");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir)?;
         let system_prompt = library(&self.config_dir, &session.spec, &dir);
         let plugin = dir.join("plugin");
         let resume = store.started(id)?;
+        let gemini = runtime.id() == Gemini.id();
+        let policy = match gemini {
+            true => Some(cli_agents::write_gemini_policy(&dir)?),
+            false => None,
+        };
         let guard = match session.spec.guard {
             true => Some(self.guard.get().context(NO_GUARD)?.as_path()),
             false => None,
@@ -712,7 +769,7 @@ impl Inner {
             // A role that may ask the expert still works without it, e.g. with no app to serve the tool.
             self.mcp_config(id, &dir, &tools).ok()
         };
-        let args = self.runtime.headless_args(
+        let args = runtime.headless_args(
             &session.spec,
             &Launch {
                 session_id: &session.session_id,
@@ -720,9 +777,12 @@ impl Inner {
                 budget,
                 plugin: plugin.is_dir().then_some(plugin.as_path()),
                 system_prompt: system_prompt.as_deref(),
-                mcp: mcp.as_ref().map(|(file, _)| file.as_path()),
+                mcp: mcp.as_ref().map(|(file, ..)| file.as_path()),
+                mcp_server: mcp.as_ref().map(|(_, server, _)| server),
                 dirs: &dirs,
                 guard,
+                policy: policy.as_deref(),
+                dir: &dir,
             },
         );
         let args: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();
@@ -739,8 +799,12 @@ impl Inner {
             cmd.env_remove(var);
         }
         cmd.envs(self.env.iter().map(|(k, v)| (k, v)));
-        if let Some((_, Some(token))) = &mcp {
+        if let Some((.., Some(token))) = &mcp {
             cmd.env(ipc::ENV_MCP_TOKEN, token);
+        }
+        if gemini && let Some((_, server, _)) = &mcp {
+            let settings = cli_agents::gemini_settings(&dir, None, None, Some(server))?;
+            cmd.env(cli_agents::GEMINI_SETTINGS_ENV, settings);
         }
         // Its own process group, so stopping it also stops what it started.
         #[cfg(unix)]
@@ -767,12 +831,17 @@ impl Inner {
         });
         entry.pending.clear();
         entry.interrupting = false;
+        entry.instructions = system_prompt
+            .filter(|_| runtime.instructions_in_message() && !resume)
+            .and_then(|file| fs::read_to_string(file).ok())
+            .filter(|text| !text.trim().is_empty());
+        let label = runtime.label();
         let said = std::thread::spawn(move || match said(stderr) {
             said if said.is_empty() => said,
-            said => format!("Claude Code {claude}: {said}"),
+            said => format!("{label} {claude}: {said}"),
         });
         let inner = self.clone();
-        std::thread::spawn(move || inner.read(id, generation, child, stdout, said));
+        std::thread::spawn(move || inner.read(id, generation, child, stdout, said, runtime));
         store.set_pid(id, Some(pid))?;
         self.record(store, id, AgentEvent::Started { resumed: resume });
         self.set_state(store, id, entry, State::Idle)
@@ -785,9 +854,10 @@ impl Inner {
         mut child: Child,
         stdout: ChildStdout,
         said: JoinHandle<String>,
+        runtime: &'static dyn AgentRuntime,
     ) {
         let pid = child.id();
-        let mut parser = self.runtime.parser();
+        let mut parser = runtime.parser();
         let mut reader = BufReader::new(stdout);
         let mut line = Vec::new();
         // Opened again only after a failure.
@@ -796,7 +866,7 @@ impl Inner {
             for event in parser.parse(&line) {
                 let handled = self
                     .opened(&mut store)
-                    .and_then(|s| self.handle(s, id, generation, event));
+                    .and_then(|s| self.handle(s, id, generation, event, runtime));
                 if let Err(e) = handled {
                     eprintln!("termf: agent session {id}: {e:#}");
                 }
@@ -805,7 +875,8 @@ impl Inner {
         }
         let code = child.wait().ok().and_then(|s| s.code());
         let said = said.join().unwrap_or_default();
-        if let Err(e) = self.exited(&mut store, id, generation, pid, code, &said) {
+        let exited = self.exited(&mut store, id, generation, pid, code, &said, runtime);
+        if let Err(e) = exited {
             eprintln!("termf: agent session {id}: {e:#}");
         }
     }
@@ -823,6 +894,7 @@ impl Inner {
         id: i64,
         generation: u64,
         mut event: AgentEvent,
+        runtime: &dyn AgentRuntime,
     ) -> Result<()> {
         let mut live = self.live.lock().unwrap();
         let entry = live.entry(id).or_default();
@@ -885,6 +957,10 @@ impl Inner {
                     Outcome::Error => State::Error,
                     _ => State::Idle,
                 };
+                if runtime.per_turn() && current {
+                    entry.after_exit = Some(state);
+                    state = session.state;
+                }
             }
             _ => {}
         }
@@ -910,10 +986,16 @@ impl Inner {
         Ok(())
     }
 
-    /// Writes the `--mcp-config` of the session's `termf mcp`, and returns it with the token its process gets in
-    /// its environment: never in the file, which another session of the user could read. Claude Code gives a
-    /// stdio server its own environment and expands `${…}` in its config (2.1.330, `--mcp-config` included).
-    fn mcp_config(&self, id: i64, dir: &Path, tools: &[&str]) -> Result<(PathBuf, Option<String>)> {
+    /// Writes the `--mcp-config` of the session's `termf mcp`, and returns it with its server and the token its
+    /// process gets in its environment: never in the file, which another session of the user could read. Claude
+    /// Code gives a stdio server its own environment and expands `${…}` in its config (2.1.330, `--mcp-config`
+    /// included), as Gemini CLI does in its settings; Codex CLI is given the variable's name (`env_vars`).
+    fn mcp_config(
+        &self,
+        id: i64,
+        dir: &Path,
+        tools: &[&str],
+    ) -> Result<(PathBuf, Value, Option<String>)> {
         let mcp = self
             .mcp
             .get()
@@ -946,7 +1028,7 @@ impl Inner {
             .and_then(|mut f| f.write_all(config.to_string().as_bytes()))
             .with_context(|| format!("cannot write {}", file.display()))
             .inspect_err(|_| self.end_mcp(id, dir))?;
-        Ok((file, token))
+        Ok((file, server, token))
     }
 
     /// Voids the token of the session's `termf mcp` and removes its config: no process of it runs any more.
@@ -957,14 +1039,16 @@ impl Inner {
         let _ = fs::remove_file(dir.join("mcp.json"));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn exited(
-        &self,
+        self: &Arc<Self>,
         store: &mut Option<Store>,
         id: i64,
         generation: u64,
         pid: u32,
         code: Option<i32>,
         said: &str,
+        runtime: &dyn AgentRuntime,
     ) -> Result<()> {
         let mut live = self.live.lock().unwrap();
         let entry = live.entry(id).or_default();
@@ -972,6 +1056,8 @@ impl Inner {
             .process
             .as_ref()
             .is_some_and(|p| p.generation == generation);
+        let interrupted = current && entry.interrupting;
+        let ended = current.then(|| entry.after_exit.take()).flatten();
         if current {
             entry.process = None;
             entry.pending.clear();
@@ -989,19 +1075,41 @@ impl Inner {
             return Ok(());
         }
         let mut session = store.session(id)?;
-        let failed = matches!(session.state, State::Working | State::Waiting)
-            || (session.state == State::Idle && code != Some(0));
-        if failed {
+        let working = matches!(session.state, State::Working | State::Waiting);
+        let failed = working || (session.state == State::Idle && code != Some(0));
+        if let Some(state) = ended.filter(|_| working) {
+            session.state = state;
+        } else if working && interrupted && runtime.per_turn() {
+            // An interrupt signal ends the process without an end of turn: the conversation goes on.
+            let end = AgentEvent::TurnEnd {
+                outcome: Outcome::Interrupted,
+                result: None,
+                structured: None,
+                error: None,
+                usage: Usage::default(),
+                cost: 0.0,
+                total: session.cost,
+                context: None,
+            };
+            self.record(store, id, end);
+            session.state = State::Idle;
+        } else if failed {
             let message = match said {
                 "" => "the agent's process ended during its turn".into(),
                 said => said.to_owned(),
             };
             self.record(store, id, AgentEvent::Error { message });
             session.state = State::Error;
-        } else if session.state == State::Idle {
+        } else if session.state == State::Idle && !runtime.per_turn() {
             session.state = State::Stopped;
         }
-        self.save(store, &mut session, entry)
+        self.save(store, &mut session, entry)?;
+        // What waited for the end of the turn: a message written meanwhile, a notice that wakes the agent.
+        let due = entry.wake || !entry.queued.is_empty();
+        if runtime.per_turn() && due && !entry.busy && session.state == State::Idle {
+            self.deliver(store, id, entry, None)?;
+        }
+        Ok(())
     }
 
     /// Waits for the session's process to end, and kills it when it takes too long.
@@ -1075,38 +1183,72 @@ fn checked(mut spec: SessionSpec) -> Result<SessionSpec> {
     Ok(spec)
 }
 
-/// The `[agents]` entry named `name`, else the first that runs Claude Code.
-fn claude_agent(settings: &Settings, name: Option<&str>) -> Result<String> {
+fn runtime_of(tool: Tool) -> &'static dyn AgentRuntime {
+    match tool {
+        Tool::Claude => &ClaudeCode,
+        Tool::Codex => &Codex,
+        Tool::Gemini => &Gemini,
+    }
+}
+
+/// A session's runtime, by the id it was created with.
+fn runtime(id: &str) -> &'static dyn AgentRuntime {
+    [&Codex as &dyn AgentRuntime, &Gemini]
+        .into_iter()
+        .find(|r| r.id() == id)
+        .unwrap_or(&ClaudeCode)
+}
+
+/// The `[agents]` entry named `name` (Codex CLI and Gemini CLI also when installed without one), else the first
+/// that runs Claude Code; and what it runs.
+fn agent_named(settings: &Settings, name: Option<&str>) -> Result<(String, Tool)> {
     let (name, command) = match name {
-        Some(name) => settings
-            .agents
-            .get_key_value(name)
-            .with_context(|| format!("no agent {name} in termf.toml [agents]"))?,
+        Some(name) => {
+            let command = settings.agent(name);
+            let command =
+                command.with_context(|| format!("no agent {name} in termf.toml [agents]"))?;
+            (name.to_owned(), command)
+        }
         None => settings
             .agents
             .iter()
             .find(|(_, c)| claude::is_claude(c))
+            .map(|(n, c)| (n.clone(), c.clone()))
             .context("no agent runs Claude Code in termf.toml [agents]")?,
     };
-    ensure!(
-        claude::is_claude(command),
-        "the agent {name} does not run Claude Code"
-    );
-    Ok(name.clone())
+    let tool = Tool::of(&command).with_context(|| {
+        format!("the agent {name} does not run Claude Code, Codex CLI or Gemini CLI")
+    })?;
+    Ok((name, tool))
 }
 
-/// What playing `role` sets that the spec does not: model, effort, permission mode, and the tools it allows or
-/// denies (`allowedTools`, `disallowedTools` and `deny`, as lists or comma-separated). Its prompt comes with the
-/// library, at each launch.
-fn play(config_dir: &Path, spec: &mut SessionSpec, role: &str) -> Result<()> {
+type RoleSettings = (termf_library::Item, Vec<termf_library::Setting>);
+
+fn role_of(config_dir: &Path, spec: &SessionSpec, role: &str) -> Result<RoleSettings> {
     let scope = termf_library::Scope {
         squad: spec.squad.clone(),
         ..termf_library::Scope::new(config_dir, Some(&spec.cwd), spec.project.clone())?
     };
-    let item = termf_library::role(config_dir, &scope, role)?;
+    termf_library::role_settings(config_dir, &scope, role)
+}
+
+/// What playing `role` sets that the spec does not: model, effort, permission mode, and the tools it allows or
+/// denies (`allowedTools`, `disallowedTools` and `deny`, as lists or comma-separated). Its prompt comes with the
+/// library, at each launch. On another runtime than Claude Code, the model, effort and permission mode the role's
+/// own file names are Claude Code's: only those set in a `[roles.<name>]` table apply.
+fn play(
+    spec: &mut SessionSpec,
+    (item, settings): &RoleSettings,
+    role: &str,
+    claude: bool,
+) -> Result<()> {
     let text = |keys: &[&str]| {
-        keys.iter()
-            .find_map(|k| item.meta.get(*k)?.as_str().map(str::to_owned))
+        let key = keys.iter().find(|k| item.meta.contains_key(**k))?;
+        let from = settings.iter().find(|s| s.key == *key).map(|s| &s.from);
+        if !claude && from.is_none_or(|f| f.iter().all(|layer| layer == "role")) {
+            return None;
+        }
+        item.meta.get(*key)?.as_str().map(str::to_owned)
     };
     let list = |key: &str| -> Vec<String> {
         match item.meta.get(key) {
@@ -1222,9 +1364,18 @@ fn said(mut stderr: impl Read) -> String {
     termf_core::process::excerpt(&String::from_utf8_lossy(&head))
 }
 
-/// Whether `pid` still runs this conversation's agent: its command line names the conversation, so a pid the
-/// system has given to another program since is never taken for it.
-pub(crate) fn ours(pid: u32, session_id: &str) -> bool {
+fn interrupt_group(pid: u32) {
+    #[cfg(unix)]
+    termf_core::process::interrupt_group(pid);
+    // shortcut: Windows has no interrupt signal for a process group; the process is ended instead.
+    #[cfg(windows)]
+    kill_group(pid);
+}
+
+/// Whether `pid` still runs this conversation's agent: its command line names the conversation, or the session's
+/// folder (the first `codex exec` of a conversation knows no id yet), so a pid the system has given to another
+/// program since is never taken for it.
+pub(crate) fn ours(pid: u32, session_id: &str, dir: &Path) -> bool {
     #[cfg(unix)]
     let out = Command::new("ps")
         .args(["-ww", "-o", "args=", "-p", &pid.to_string()])
@@ -1238,7 +1389,11 @@ pub(crate) fn ours(pid: u32, session_id: &str) -> bool {
             &format!("(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"),
         ])
         .output();
-    out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(session_id))
+    let dir = dir.to_string_lossy();
+    out.is_ok_and(|o| {
+        let line = String::from_utf8_lossy(&o.stdout);
+        line.contains(session_id) || line.contains(dir.as_ref())
+    })
 }
 
 pub(crate) fn kill_group(pid: u32) {
