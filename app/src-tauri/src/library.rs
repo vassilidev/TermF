@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, State};
 use termf_library::archive::{self, Exported, Preview};
 use termf_library::conventions::{self, Answer, Convention, Conventions, Impact, Level, Review};
 use termf_library::scout::{self, ItemRef, Scout};
-use termf_library::{Imported, Item, Kind, Scope};
+use termf_library::{Imported, Item, Kind, Scope, stack};
 
 use crate::{AppState, CmdResult, err};
 
@@ -25,6 +25,31 @@ pub async fn library_list(
     Ok(items
         .into_iter()
         .filter(|i| kind.is_none_or(|k| i.kind == k))
+        .collect())
+}
+
+#[derive(serde::Serialize)]
+pub struct StackView {
+    #[serde(flatten)]
+    repo: stack::RepoStack,
+    mcp: Vec<stack::McpOffer>,
+    sources: Vec<stack::SkillSource>,
+}
+
+/// Each repository of the project: what it is built with, what its packages ship, and what its vendors offer.
+#[tauri::command]
+pub async fn library_stack(
+    state: State<'_, AppState>,
+    project: String,
+) -> CmdResult<Vec<StackView>> {
+    let scope = scope(&state, None, Some(project))?;
+    Ok(scope
+        .stack
+        .into_iter()
+        .map(|repo| {
+            let (mcp, sources) = stack::offers(&repo);
+            StackView { repo, mcp, sources }
+        })
         .collect())
 }
 

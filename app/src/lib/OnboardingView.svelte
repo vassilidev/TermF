@@ -14,11 +14,13 @@
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import Conventions from "$lib/Conventions.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
+  import StackOffers from "$lib/StackOffers.svelte";
+  import StackSkills from "$lib/StackSkills.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, lang, t } from "$lib/i18n";
-  import { library, showLibrary } from "$lib/library.svelte";
+  import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
   import { analyze as runAnalysis, analyzing, closeSetup, running, setup } from "$lib/onboarding.svelte";
   import {
     byTheme,
@@ -88,6 +90,7 @@
   let sourcesEditor = $state<TicketSources>();
   let recipe = $state<RecipeView | null>(null);
   let notify = $state<Notify>("mine");
+  let stacks = $state<RepoStack[]>([]);
 
   const analysis = $derived(ob?.analysis ?? null);
   const inProgress = $derived(!!project && (!!analyzing[project.id] || !!ob?.analyzing));
@@ -110,7 +113,14 @@
   };
   const notifyLabel = { mine: "ciNotifyMine", all: "ciNotifyAll", off: "ciNotifyOff" } as const;
   const notifyOptions: Notify[] = ["mine", "all", "off"];
-  const logLabel = { tickets: "obTicketsTitle", worktree: "obRecipeTitle", ci: "obCiTitle", trust: "obTrustTitle" } as const;
+  const logLabel = {
+    tickets: "obTicketsTitle",
+    worktree: "obRecipeTitle",
+    ci: "obCiTitle",
+    trust: "obTrustTitle",
+    skills: "stackSkillsTitle",
+    mcp: "stackMcpTitle",
+  } as const;
 
   onMount(async () => {
     if (!project) return closeSetup();
@@ -186,6 +196,9 @@
 
   async function loadProposals() {
     const id = project!.id;
+    invoke<RepoStack[]>("library_stack", { project: id })
+      .then((list) => (stacks = list))
+      .catch((e) => (error = String(e)));
     try {
       [sources, recipe, notify] = await Promise.all([
         invoke<Sources>("tickets_sources", { project: id }),
@@ -447,6 +460,9 @@
             <p class="hint">{t("obLibraryHint")}</p>
             <Conventions {project} only="onboarding" />
           </article>
+
+          <StackSkills project={project.id} {stacks} ondecide={(decision, detail) => decide("skills", decision, detail)} />
+          <StackOffers {stacks} ondecide={(detail) => decide("mcp", "accepted", detail)} />
 
           <article class="proposal">
             <h3><Ticket size={15} aria-hidden="true" />{t("obTicketsTitle")} {@render decided("tickets")}</h3>

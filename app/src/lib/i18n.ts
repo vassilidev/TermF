@@ -1986,6 +1986,39 @@ const fr = {
   teamRunsViolationWarn: "signale",
   teamRunsNotifyDone: "L'équipe a fini",
   teamRunsNotifyBudget: "Le budget de l'équipe est épuisé",
+  stackLayer: "Paquet",
+  stackWhyOn: "Livré avec TermF, activé par la stack du projet",
+  stackWhyAlways: "Livré avec TermF, actif pour toutes les stacks",
+  stackWhyPackage: "Fourni par un paquet installé du dépôt, actif quand Claude Code fait confiance au dépôt",
+  stackActivatedBy: "Activée par :",
+  stackFromPackage: "Fournie par le paquet {package}",
+  stackForEvery: "Pour toutes les stacks",
+  stackSkillsTitle: "Skills de la stack",
+  stackSkillsHint:
+    "Ce que TermF a relevé dans les dépôts, et les skills qui s'activeront toutes seules dans leurs sessions. Retirer une skill la coupe pour ce projet.",
+  stackNoTag: "Rien de reconnu",
+  stackNoSkill: "Aucune skill livrée ne correspond encore à cette stack.",
+  stackRemove: "Retirer",
+  stackRemoved: "Retirée",
+  stackPutBack: "Remettre",
+  stackTurnOn: "Activer",
+  stackUntrusted:
+    "Les skills des paquets d'un dépôt pas encore approuvé dans Claude Code restent coupées : active-les une par une, ou approuve le dépôt à l'étape suivante.",
+  stackOfficialTitle: "Skills officielles des éditeurs",
+  stackOfficialHint:
+    "Publiées par les éditeurs de ta stack, à installer depuis leur dépôt : TermF n'en redistribue aucune. Lis-les avant de les activer.",
+  stackLicense: "Licence : {license}",
+  stackCopy: "Copier la commande",
+  stackCopied: "Copiée",
+  stackNothing: "Rien à proposer pour cette stack.",
+  stackMcpTitle: "Serveurs MCP des frameworks",
+  stackMcpHint:
+    "Proposés par les frameworks de ta stack, ajoutés seulement si tu le demandes, pour toi et ce dépôt (portée locale de Claude Code).",
+  stackMcpRunsCode: "Exécute le code du projet",
+  stackDocs: "Doc",
+  stackMcpAdd: "Ajouter",
+  stackMcpAdded: "Ajouté",
+  stackOffersTitle: "Proposé par les éditeurs de la stack",
 };
 
 type Key = keyof typeof fr;
@@ -3960,6 +3993,39 @@ const en: Record<Key, string> = {
   teamRunsViolationWarn: "warns",
   teamRunsNotifyDone: "The team is done",
   teamRunsNotifyBudget: "The team's budget is spent",
+  stackLayer: "Package",
+  stackWhyOn: "Shipped with TermF, on for the project's stack",
+  stackWhyAlways: "Shipped with TermF, on for every stack",
+  stackWhyPackage: "Shipped by an installed package of the repository, on when Claude Code trusts the repository",
+  stackActivatedBy: "Switched on by:",
+  stackFromPackage: "Shipped by the package {package}",
+  stackForEvery: "For every stack",
+  stackSkillsTitle: "Skills of the stack",
+  stackSkillsHint:
+    "What TermF found in the repositories, and the skills that switch on by themselves in their sessions. Removing a skill turns it off for this project.",
+  stackNoTag: "Nothing recognized",
+  stackNoSkill: "No shipped skill matches this stack yet.",
+  stackRemove: "Remove",
+  stackRemoved: "Removed",
+  stackPutBack: "Put back",
+  stackTurnOn: "Turn on",
+  stackUntrusted:
+    "The package skills of a repository Claude Code does not trust yet stay off: turn them on one by one, or trust the repository at the next step.",
+  stackOfficialTitle: "Official skills from the vendors",
+  stackOfficialHint:
+    "Published by the vendors of your stack, to install from their repository: TermF redistributes none. Read them before you turn them on.",
+  stackLicense: "License: {license}",
+  stackCopy: "Copy the command",
+  stackCopied: "Copied",
+  stackNothing: "Nothing to offer for this stack.",
+  stackMcpTitle: "Framework MCP servers",
+  stackMcpHint:
+    "Offered by the frameworks of your stack, added only when you ask, for you and this repository (Claude Code's local scope).",
+  stackMcpRunsCode: "Runs the project's code",
+  stackDocs: "Docs",
+  stackMcpAdd: "Add",
+  stackMcpAdded: "Added",
+  stackOffersTitle: "Offered by the stack's vendors",
 };
 
 const messages = { fr, en };
