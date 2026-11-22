@@ -465,7 +465,7 @@ mod tests {
         let steps: BTreeMap<String, StepDef> = custom.steps().unwrap().into_iter().collect();
         assert_eq!(
             steps["deliver"].needs,
-            ["migrations", "review", "visual"],
+            ["migrations", "review", "update-base", "visual"],
             "security disabled by the repository"
         );
 
