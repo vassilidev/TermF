@@ -95,6 +95,36 @@ VCFKljbJLPEAnypiFzJQOSt3Sbg2LONTygFKQOn8o0pb8Zk=
 ";
 const LIBRESSL_ENCRYPTED_PUBLIC: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBP6iLr7/MDsAHRubyu0AsMXBjQObok60Jy02+My3zGc3bF0v4eZEj9WkaZ9dOdaRLx4bvaaNaF1qTkomXwhvzYA= made";
 
+// A throwaway P-521 key whose scalar `ssh-keygen` wrote without its leading zero, then the same protected by
+// "passphrase".
+const OPENSSH_SHORT_SCALAR: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAArAAAABNlY2RzYS
+1zaGEyLW5pc3RwNTIxAAAACG5pc3RwNTIxAAAAhQQAww5qvpgl+uM9BRuo72P/Q5qCrgFe
+dAqD83ViHLBGnrN7SP8W0ylOSkZJT5Tm30DMJS9d7S8gza53WMAgWssQIyoBF6/+EMqSDZ
+ACwpXwPtt89TKrG6ZxtIvUeTTbgBNneiC+Rkf0s3H36CWL1UMQ15IILDkgt1z19a6pdLUm
+02cWyxEAAAEIl3eBEJd3gRAAAAATZWNkc2Etc2hhMi1uaXN0cDUyMQAAAAhuaXN0cDUyMQ
+AAAIUEAMMOar6YJfrjPQUbqO9j/0Oagq4BXnQKg/N1YhywRp6ze0j/FtMpTkpGSU+U5t9A
+zCUvXe0vIM2ud1jAIFrLECMqARev/hDKkg2QAsKV8D7bfPUyqxumcbSL1Hk024ATZ3ogvk
+ZH9LNx9+gli9VDENeSCCw5ILdc9fWuqXS1JtNnFssRAAAAQUj05W7Ztz3arTO7PS8a40On
+zsIGMCXOasqfB0cYhWmqUq706rI0x22h8J0akZzV/0/G4Re7RxoSH3RkCMcFjz11AAAABG
+1hZGUBAgMEBQYH
+-----END OPENSSH PRIVATE KEY-----
+";
+const OPENSSH_SHORT_SCALAR_ENCRYPTED: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBLoTAXIx
+8IFoDtX8rwBGzvAAAAGAAAAAEAAACsAAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlz
+dHA1MjEAAACFBADDDmq+mCX64z0FG6jvY/9DmoKuAV50CoPzdWIcsEaes3tI/xbTKU5KRk
+lPlObfQMwlL13tLyDNrndYwCBayxAjKgEXr/4QypINkALClfA+23z1MqsbpnG0i9R5NNuA
+E2d6IL5GR/SzcffoJYvVQxDXkggsOSC3XPX1rql0tSbTZxbLEQAAARAxlrn2OA/ekXG9fA
+S8DL5igshvLFRKwYGC8ZmBFFbeKgVCAHFEgPR0wPfe3paQThyX+nILKfuqw8AQE82Grap6
+0P1BJHXN9ZussPYlwCq0VYw13QD9ix+rGCSc4l5XwIZu+TdVdpFSlU+ha5hCLyuhv45iVl
+wx7ZYozXqGr/BImO9LfUgBLHuGv2yoUpHAn08QSrnqQx1bt0V3ztiZFOFRmXsV6RwhPTez
+qXFmRd5DneyG6WHdw9BBPaCkLWdRg+10dwdoFOyvlUXEW2qK/W0vo69pPj2QcxYnJTwDJi
+EOmu1ZqWhQjiPgwtWzm4Wliiqw8nywnjfC2JYcvDjcoVjjbgnP+FODF0kLktko6drBVw==
+-----END OPENSSH PRIVATE KEY-----
+";
+const OPENSSH_SHORT_SCALAR_PUBLIC: &str = "ecdsa-sha2-nistp521 AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjEAAACFBADDDmq+mCX64z0FG6jvY/9DmoKuAV50CoPzdWIcsEaes3tI/xbTKU5KRklPlObfQMwlL13tLyDNrndYwCBayxAjKgEXr/4QypINkALClfA+23z1MqsbpnG0i9R5NNuAE2d6IL5GR/SzcffoJYvVQxDXkggsOSC3XPX1rql0tSbTZxbLEQ== made";
+
 fn scratch(name: &str) -> (Ssh, PathBuf) {
     let home = std::env::temp_dir().join(format!("termf-keys-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&home);
@@ -923,15 +953,8 @@ fn ssh_keygen_reads_every_key_termf_writes_and_termf_reads_its() {
             let public = fs::read_to_string(format!("{file}.pub")).unwrap();
             let text = fs::read_to_string(&file).unwrap();
             let pass = (!passphrase.is_empty()).then_some(passphrase);
-            let parsed = match parse(&text, pass) {
-                // shortcut: ssh-key 0.6.7 wants a P-521 scalar of 66 bytes, OpenSSH drops its leading zero
-                // (half of its keys); fix when ssh-key 0.7 is out, or by reading OpenSSH's format here.
-                Err(e) if bits == "521" && format == "RFC4716" => {
-                    eprintln!("TermF cannot read {name}: {e:#} (known)");
-                    continue;
-                }
-                read => read.unwrap_or_else(|e| panic!("TermF cannot read {name}: {e:#}")),
-            };
+            let parsed =
+                parse(&text, pass).unwrap_or_else(|e| panic!("TermF cannot read {name}: {e:#}"));
             assert_eq!(
                 parsed.secret.spki().unwrap(),
                 parse_public(&public).unwrap(),
@@ -970,4 +993,34 @@ fn reads_ecdsa_keys_whose_curve_is_spelled_out() {
     let last = bytes.len() - 1;
     bytes[last] ^= 1;
     assert!(formats::from_pkcs8(&bytes).is_err());
+}
+
+#[test]
+fn reads_openssh_ecdsa_keys_whose_scalar_lost_its_leading_zero() {
+    for (text, pass) in [
+        (OPENSSH_SHORT_SCALAR, None),
+        (OPENSSH_SHORT_SCALAR_ENCRYPTED, Some("passphrase")),
+    ] {
+        let read = parse(text, pass).unwrap();
+        assert_eq!(
+            read.secret.spki().unwrap(),
+            parse_public(OPENSSH_SHORT_SCALAR_PUBLIC).unwrap()
+        );
+        assert_eq!(
+            (read.comment.as_str(), read.encrypted),
+            ("made", pass.is_some())
+        );
+    }
+    assert_eq!(
+        locked(
+            parse(OPENSSH_SHORT_SCALAR_ENCRYPTED, Some("wrong"))
+                .err()
+                .unwrap()
+        ),
+        Locked::WrongPassphrase
+    );
+    assert_eq!(
+        locked(parse(OPENSSH_SHORT_SCALAR_ENCRYPTED, None).err().unwrap()),
+        Locked::NeedsPassphrase
+    );
 }

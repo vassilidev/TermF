@@ -726,6 +726,93 @@ fn pem_block<'a>(text: &'a str, suffix: &str) -> Option<(&'a str, &'a str)> {
     None
 }
 
+/// An ECDSA key in OpenSSH's format whose scalar lost its leading zero bytes, as OpenSSH writes an mpint (one
+/// P-256 key in 256, half of the P-521 ones): `ssh-key` 0.6 refuses it. `None`: not such a key.
+fn openssh_ecdsa(block: &str, pass: Option<&str>) -> Result<Option<(Secret, String, bool)>> {
+    fn string<'a>(data: &mut &'a [u8]) -> Option<&'a [u8]> {
+        let len = usize::try_from(u32::from_be_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
+        let value = data.get(4..4usize.checked_add(len)?)?;
+        *data = &data[4 + len..];
+        Some(value)
+    }
+    let body: String = block
+        .lines()
+        .filter(|l| !l.starts_with("-----"))
+        .map(str::trim)
+        .collect();
+    let Ok(data) = base64ct::Base64::decode_vec(&body) else {
+        return Ok(None);
+    };
+    let data = Zeroizing::new(data);
+    let mut rest = match data.strip_prefix(b"openssh-key-v1\0".as_slice()) {
+        Some(rest) => rest,
+        None => return Ok(None),
+    };
+    // The cipher, the KDF and its options, one key, its public half, then the private part.
+    let Some(cipher) = string(&mut rest) else {
+        return Ok(None);
+    };
+    let section = (|| {
+        string(&mut rest)?;
+        string(&mut rest)?;
+        (rest.get(..4)? == [0, 0, 0, 1]).then_some(())?;
+        rest = &rest[4..];
+        string(&mut rest)?;
+        string(&mut rest)
+    })();
+    let Some(section) = section else {
+        return Ok(None);
+    };
+    let encrypted = cipher != b"none";
+    let mut plain = Zeroizing::new(section.to_vec());
+    if encrypted {
+        let Ok(key) = PrivateKey::from_openssh(block) else {
+            return Ok(None);
+        };
+        if key.cipher().has_tag() {
+            return Ok(None);
+        }
+        let (k, iv) = key
+            .kdf()
+            .derive_key_and_iv(key.cipher(), passphrase(pass)?)
+            .map_err(|_| Locked::WrongPassphrase)?;
+        if key.cipher().decrypt(&k, &iv, &mut plain, None).is_err() {
+            return Ok(None);
+        }
+    }
+    let mut p: &[u8] = &plain;
+    match (p.get(..4), p.get(4..8)) {
+        (Some(a), Some(b)) if a == b => p = &p[8..],
+        _ if encrypted => return Err(Locked::WrongPassphrase.into()),
+        _ => return Ok(None),
+    }
+    let curve = match string(&mut p) {
+        Some(b"ecdsa-sha2-nistp256") => Curve::P256,
+        Some(b"ecdsa-sha2-nistp384") => Curve::P384,
+        Some(b"ecdsa-sha2-nistp521") => Curve::P521,
+        _ => return Ok(None),
+    };
+    let (Some(_), Some(point), Some(d), Some(comment)) = (
+        string(&mut p),
+        string(&mut p),
+        string(&mut p),
+        string(&mut p),
+    ) else {
+        return Ok(None);
+    };
+    let d = &d[d.iter().take_while(|b| **b == 0).count()..];
+    if d.len() > curve.size() {
+        return Ok(None);
+    }
+    let mut padded = Zeroizing::new(vec![0; curve.size() - d.len()]);
+    padded.extend_from_slice(d);
+    if Secret::ec_point(curve, &padded).ok().as_deref() != Some(point) {
+        return Ok(None);
+    }
+    let comment = String::from_utf8_lossy(comment).into_owned();
+    Ok(Some((Secret::Ec(curve, padded), comment, encrypted)))
+}
+
 fn passphrase(passphrase: Option<&str>) -> Result<&str> {
     Ok(passphrase
         .filter(|p| !p.is_empty())
@@ -768,23 +855,35 @@ pub(crate) fn parse(text: &str, pass: Option<&str>) -> Result<Parsed> {
     };
     match label {
         "OPENSSH PRIVATE KEY" => {
-            let key =
-                PrivateKey::from_openssh(block).map_err(|_| anyhow!("invalid OpenSSH key"))?;
-            let encrypted = key.is_encrypted();
-            let key = match encrypted {
-                true => key
-                    .decrypt(passphrase(pass)?)
-                    .map_err(|_| Locked::WrongPassphrase)?,
-                false => key,
+            let read = || -> Result<Parsed> {
+                let key =
+                    PrivateKey::from_openssh(block).map_err(|_| anyhow!("invalid OpenSSH key"))?;
+                let encrypted = key.is_encrypted();
+                let key = match encrypted {
+                    true => key
+                        .decrypt(passphrase(pass)?)
+                        .map_err(|_| Locked::WrongPassphrase)?,
+                    false => key,
+                };
+                Ok(Parsed {
+                    comment: key.comment().to_owned(),
+                    ..parsed(
+                        Secret::from_ssh(key.key_data())?,
+                        Format::Openssh,
+                        encrypted,
+                    )
+                })
             };
-            Ok(Parsed {
-                comment: key.comment().to_owned(),
-                ..parsed(
-                    Secret::from_ssh(key.key_data())?,
-                    Format::Openssh,
-                    encrypted,
-                )
-            })
+            match read() {
+                Err(e) => match openssh_ecdsa(block, pass)? {
+                    Some((secret, comment, encrypted)) => Ok(Parsed {
+                        comment,
+                        ..parsed(secret, Format::Openssh, encrypted)
+                    }),
+                    None => Err(e),
+                },
+                read => read,
+            }
         }
         "PRIVATE KEY" => Ok(parsed(from_pkcs8(der()?.as_bytes())?, Format::Pkcs8, false)),
         "ENCRYPTED PRIVATE KEY" => {
