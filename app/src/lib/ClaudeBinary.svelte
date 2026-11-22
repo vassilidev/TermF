@@ -12,7 +12,7 @@
 </script>
 
 {#if summary || old || others.length}
-  <div class="binary">
+  <div class="binary" class:alone={!summary}>
     {#if summary && b.install}
       <p class="install"><code>{b.install.path}</code><span class="muted">{about(b.install)}</span></p>
     {:else if summary}
@@ -38,6 +38,10 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .alone {
+    margin-bottom: 12px;
   }
 
   .install {
