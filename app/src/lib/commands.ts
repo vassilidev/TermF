@@ -100,7 +100,7 @@ export function nextWaiting() {
   const agent = (id: number) => `agent:${id}`;
   const order = [...app.sessions.map((s) => tile(s.id)), ...agents.sessions.map((a) => agent(a.id))];
   const waiting = [...waitingSessions().map((s) => tile(s.id)), ...waitingAgents().map((a) => agent(a.id))];
-  const shown = ui.view === "conversations" && !agents.creating ? (conversation()?.id ?? null) : null;
+  const shown = onScreen("conversations") && !agents.creating ? (conversation()?.id ?? null) : null;
   const active = activeSession();
   const next = nextAfter(order, waiting, shown !== null ? agent(shown) : active !== null ? tile(active) : null);
   if (!next) return;
