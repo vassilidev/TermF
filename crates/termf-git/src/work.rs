@@ -25,8 +25,10 @@ pub const MAX_FILE_COMMITS: usize = 5000;
 
 /// Options that make `git diff` the same whatever the user's config: no color, no external or text-converting
 /// driver (their output would not apply back), the usual prefixes and context.
-const DIFF_ARGS: [&str; 6] = [
+const DIFF_ARGS: [&str; 7] = [
     "--no-color",
+    // `diff.submodule = log|diff` would show a submodule as a log or as its own diff, with no line of ours.
+    "--submodule=short",
     "--no-ext-diff",
     "--no-textconv",
     "--src-prefix=a/",
@@ -479,7 +481,12 @@ pub(crate) fn parse_diff(out: &str, max_lines: usize) -> Vec<FileDiff> {
                     ["diff --git ", "index ", "--- ", "+++ "]
                         .iter()
                         .any(|p| h.starts_with(p))
-                });
+                })
+                // A submodule's "Subproject commit" lines have no index line when only dirty, mode 160000 else.
+                && file
+                    .header
+                    .iter()
+                    .any(|h| h.starts_with("index ") && !h.ends_with(" 160000"));
             file.id = hash(&[raw.text.as_bytes()]);
             file
         })

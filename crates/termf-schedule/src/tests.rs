@@ -784,3 +784,81 @@ fn reads_claude_desktop_tasks() {
     assert_eq!(tasks[1].prompt, "Summarize today's meetings.");
     assert!(tasks[1].path.ends_with("SKILL.md"));
 }
+
+/// `cargo test -p termf-schedule -- --ignored real_launchd`: the real launchd loads a throwaway entry
+/// (`dev.termf.schedule.qa-<pid>`, its plist in a throwaway home), runs it at the next local minute, then forgets it.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore]
+fn real_launchd() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut env = Env::new("launchd");
+    let mut system = os::System::current(&env.root.join("data")).unwrap();
+    system.home = env.root.join("home");
+    env.scheduler.system = Some(system);
+    let mark = env.root.join("ran");
+    let termf = env.root.join("fake termf");
+    fs::write(
+        &termf,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n", mark.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&termf, fs::Permissions::from_mode(0o755)).unwrap();
+    let task = env.task(&format!("QA {}", std::process::id()), "* * * * *");
+    let id = env.scheduler.save(None, task, None).unwrap();
+
+    /// Unloads the entry even when an assertion fails first.
+    struct Uninstall<'a>(&'a Scheduler, &'a str);
+    impl Drop for Uninstall<'_> {
+        fn drop(&mut self) {
+            let _ = self.0.uninstall(self.1);
+        }
+    }
+    let guard = Uninstall(&env.scheduler, &id);
+    env.scheduler.install(&id, &termf).unwrap();
+    assert!(env.scheduler.installed(&id));
+    let fired = (0..80).any(|_| {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        mark.exists()
+    });
+    drop(guard);
+    let target = format!("gui/{}/dev.termf.schedule.{id}", termf_core::ipc::uid());
+    let loaded = std::process::Command::new("launchctl")
+        .args(["print", &target])
+        .output()
+        .unwrap()
+        .status
+        .success();
+    assert!(fired, "launchd never ran the entry");
+    assert_eq!(
+        fs::read_to_string(&mark).unwrap().lines().next(),
+        Some(format!("schedule run {id} --scheduled").as_str())
+    );
+    assert!(!loaded && !env.scheduler.installed(&id));
+}
+
+/// `cargo test -p termf-schedule -- --ignored real_headless`: the installed Claude Code answers a headless task
+/// (Haiku, 5 cents at most), its answer and cost saved with the run.
+#[test]
+#[ignore]
+fn real_headless() {
+    let env = Env::new("headless");
+    let mut task = env.task("Pong", "0 9 * * *");
+    task.prompt = "Reply with the single word: pong".into();
+    task.model = Some("haiku".into());
+    task.effort = None;
+    task.permissions = None;
+    task.budget = Some(0.05);
+    let id = env.scheduler.save(None, task.clone(), None).unwrap();
+    let run = env
+        .scheduler
+        .claim(&id, &task, Trigger::Manual, None, Host::Cli)
+        .unwrap()
+        .unwrap();
+    // Found where TermF looks for it (`termf_core::claude::binary`), as for a task of the app.
+    let done = env.scheduler.run_headless(&run, &task, "claude").unwrap();
+    assert_eq!(done.status, Status::Succeeded, "{done:?}");
+    let output = done.output.clone().unwrap_or_default().to_lowercase();
+    assert!(output.contains("pong"), "{done:?}");
+    assert!(done.cost.is_some_and(|c| c > 0.0 && c < 0.05), "{done:?}");
+}
