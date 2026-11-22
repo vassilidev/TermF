@@ -6,7 +6,7 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['site/**', '.github/scripts/minify.py', '.github/workflows/pages.yml']
+    paths: ['site/**', '.github/scripts/minify.py', '.github/scripts/features.py', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -26,10 +26,14 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
+      # The feature catalogue, its pages and the sitemap are built from site/features.toml
+      - name: Build the feature pages
+        run: python3 .github/scripts/features.py
+
       - name: Minify the pages
         run: |
           cp -R site _site
-          for page in site/*.html; do
+          for page in site/*.html site/features/*.html; do
             python3 .github/scripts/minify.py "$page" "_site/${page#site/}"
             printf '%s: %s → %s bytes\n' "$page" "$(wc -c < "$page")" "$(wc -c < "_site/${page#site/}")"
           done

@@ -1713,7 +1713,11 @@ fn the_cto_routes_asks_then_its_routing_waits_for_you() {
         "- staff: architect",
         "## The roles\n\n",
         "- cto: CTO, the user's one point of contact",
+        "- brand: Brand designer. Use for",
+        "- copy: UX writer. Use for",
+        "- motion: Motion designer and video maker. Use for",
         "The routing, as JSON: kind (urgent-bug, bug,",
+        "docs, brand, copy, motion, other)",
         "what the whole run should cost in US dollars, at most $15.00",
         "rulings (each decision you took, one a line: `Ruling: what — why — cost if wrong`)",
         "Each question you ask is an item of a questionnaire",
@@ -2585,6 +2589,9 @@ fn real_team() {
         "front",
         "secops",
         "reviewer",
+        "brand",
+        "copy",
+        "motion",
     ] {
         settings.push_str(&format!(
             "[roles.{role}]\nmodel = \"haiku\"\neffort = \"low\"\neffort_range = [\"low\", \"low\"]\n"

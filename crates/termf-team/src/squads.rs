@@ -180,8 +180,11 @@ mod tests {
                 "lead",
                 "architect",
                 "back",
+                "brand",
+                "copy",
                 "devops",
                 "front",
+                "motion",
                 "qa",
                 "seo",
                 "ux"
