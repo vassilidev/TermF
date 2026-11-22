@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import BellRing from "@lucide/svelte/icons/bell-ring";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Coffee from "@lucide/svelte/icons/coffee";
@@ -24,6 +25,7 @@
   import { showSettings } from "$lib/settings.svelte";
   import { app, onScreen, panes, setProject, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
   import { summary } from "$lib/sync.svelte";
+  import { tour } from "$lib/tour.svelte";
   import { views, type View } from "$lib/views";
   import Popover from "$lib/ui/Popover.svelte";
   import { isMac } from "$lib/files.svelte";
@@ -37,7 +39,10 @@
   let menu = $state<{ view: View; trigger: HTMLElement } | null>(null);
   let menuOpen = $state(false);
   let heading = $state<HTMLElement>();
+  let search = $state<HTMLButtonElement>();
+  let list = $state<HTMLUListElement>();
   let machineOpen = $state(storedMachine());
+  const unfolded = $derived(machineOpen || tour.machine);
   const besideKey = isMac ? "⌘" : "Ctrl";
 
   function storedMachine(): boolean {
@@ -57,9 +62,23 @@
     }
   }
 
-  // The view on screen is never folded away.
+  // A view of this machine coming on screen unfolds it; folded again by the user, it stays so.
+  let machineShown = false;
   $effect(() => {
-    if (machineViews.some((v) => onScreen(v.id))) machineOpen = true;
+    const shown = machineViews.some((v) => onScreen(v.id));
+    if (shown && !machineShown) machineOpen = true;
+    machineShown = shown;
+  });
+
+  // Switching project (⌃1…9, the search) may unfold its views out of sight.
+  $effect(() => {
+    void app.project;
+    tick().then(() => {
+      const project = list?.querySelector(".project[aria-current]");
+      project?.closest("li")?.scrollIntoView({ block: "nearest" });
+      // Taller than the list, the row shows its project first.
+      project?.scrollIntoView({ block: "nearest" });
+    });
   });
 
   function pick(e: MouseEvent, view: View) {
@@ -86,7 +105,7 @@
   const flagged = $derived(tone === "attention" || tone === "error");
   const settingsLabel = $derived(flagged ? `${t("settings")} · ${t("syncNeedsYou")}` : t("settings"));
   const machineLabel = $derived(
-    flagged && !machineOpen ? `${t("settingsContext")} · ${t("syncNeedsYou")}` : t("settingsContext"),
+    flagged && !unfolded ? `${t("settingsContext")} · ${t("syncNeedsYou")}` : t("settingsContext"),
   );
 
   // A remembered or current project that no longer exists falls back to every project.
@@ -153,15 +172,27 @@
     </button>
   {/if}
 
+  <!-- Out of the scrolling list, so that ⌘O's search always opens in sight, under it. -->
+  <div class="group" bind:this={heading}>
+    <h2>{t("projects")}</h2>
+    <button
+      bind:this={search}
+      class="icon-btn sm"
+      aria-haspopup="dialog"
+      aria-expanded={ui.switcher}
+      aria-keyshortcuts={aria("switch_project")}
+      aria-label={t("navSwitchProject")}
+      title={keys.switcher ? `${t("navSwitchProject")} (${keys.switcher})` : t("navSwitchProject")}
+      onclick={() => (ui.switcher = !ui.switcher)}
+    >
+      <Search size={14} aria-hidden="true" />
+    </button>
+    <button class="icon-btn sm" aria-label={t("newProject")} title={t("newProject")} onclick={() => editProject("")}>
+      <Plus size={14} aria-hidden="true" />
+    </button>
+  </div>
   <div class="scroll">
-    <!-- Where ⌘O's project search opens, and where the focus comes back to when it closes. -->
-    <div class="group" tabindex="-1" bind:this={heading}>
-      <h2>{t("projects")}</h2>
-      <button class="icon-btn sm" aria-label={t("newProject")} title={t("newProject")} onclick={() => editProject("")}>
-        <Plus size={14} aria-hidden="true" />
-      </button>
-    </div>
-    <ul class="projects">
+    <ul class="projects" bind:this={list}>
       {#each projects as project, i (project.id)}
         {@const open = app.project === project.id}
         <li>
@@ -191,10 +222,10 @@
 
   <div class="foot">
     <div class="row">
-      <button class="nav-item machine" aria-expanded={machineOpen} aria-label={machineLabel} title={machineLabel} onclick={toggleMachine}>
+      <button class="nav-item machine" aria-expanded={unfolded} aria-label={machineLabel} title={machineLabel} onclick={toggleMachine}>
         <Monitor size={16} aria-hidden="true" />
         <span class="label">{t("settingsContext")}</span>
-        {#if flagged && !machineOpen}<span class="dot {tone}" aria-hidden="true"></span>{/if}
+        {#if flagged && !unfolded}<span class="dot {tone}" aria-hidden="true"></span>{/if}
         <ChevronRight class="chev" size={14} aria-hidden="true" />
       </button>
       {#if app.keepAwake?.active}
@@ -217,7 +248,7 @@
         <SquareTerminal size={16} aria-hidden="true" />
       </button>
     </div>
-    {#if machineOpen}
+    {#if unfolded}
       <ul class="views" aria-label={t("settingsContext")}>
         {#each machineViews as view (view.id)}
           {@render item(view)}
@@ -227,7 +258,7 @@
   </div>
 </nav>
 
-<ProjectSwitcher anchor={heading} />
+<ProjectSwitcher trigger={search} anchor={heading} />
 
 <Popover bind:open={menuOpen} trigger={menu?.trigger} label={menu ? t(menu.view.label) : ""} width={240}>
   {#if menu}
@@ -320,14 +351,15 @@
 
   .group {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
-    justify-content: space-between;
+    gap: 2px;
     margin: 14px 0 2px;
     padding: 0 2px 0 8px;
-    border-radius: var(--radius-sm);
   }
 
   .group h2 {
+    flex: 1;
     margin: 0;
     color: var(--muted);
     font-size: var(--text-xs);

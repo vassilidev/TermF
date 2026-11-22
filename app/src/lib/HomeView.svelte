@@ -96,7 +96,9 @@
     void setup.project;
     if (!visible || !id) return;
     invoke<Onboarding>("onboarding_state", { project: id }).then(
-      (state) => (onboarding[id] = state),
+      (state) => {
+        onboarding[id] = state;
+      },
       () => {},
     );
   });

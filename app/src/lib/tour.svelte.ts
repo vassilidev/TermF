@@ -3,7 +3,8 @@ import { app, ui } from "$lib/state.svelte";
 
 const seen = "termf.tour";
 
-export const tour = $state({ step: null as number | null });
+/** `machine`: the step shows "This machine" unfolded, whatever the user left it as. */
+export const tour = $state({ step: null as number | null, machine: false });
 
 export function startTour() {
   ui.help = false;
@@ -13,6 +14,7 @@ export function startTour() {
 /** Finished or skipped: remembered either way. */
 export function endTour() {
   tour.step = null;
+  tour.machine = false;
   try {
     localStorage.setItem(seen, "1");
   } catch {

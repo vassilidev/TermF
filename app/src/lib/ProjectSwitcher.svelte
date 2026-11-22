@@ -17,8 +17,8 @@
   import { editProject, tallies } from "$lib/project.svelte";
   import { app, setProject, ui } from "$lib/state.svelte";
 
-  /** The navigation's project list, which the search (⌘O) opens over; Escape gives the focus back to it. */
-  let { anchor }: { anchor: HTMLElement | undefined } = $props();
+  /** The navigation's search button, which Escape gives the focus back to; `anchor`: the title row it opens under. */
+  let { trigger, anchor }: { trigger: HTMLElement | undefined; anchor: HTMLElement | undefined } = $props();
 
   let list = $state<HTMLUListElement>();
   let query = $state("");
@@ -50,7 +50,7 @@
     setProject(id);
     ui.switcher = false;
     await tick();
-    anchor?.parentElement?.querySelector<HTMLElement>(".project[aria-current]")?.focus();
+    trigger?.closest("nav")?.querySelector<HTMLElement>(".project[aria-current]")?.focus();
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -66,7 +66,7 @@
   }
 </script>
 
-<Popover bind:open={ui.switcher} trigger={anchor} label={t("projects")} width={352}>
+<Popover bind:open={ui.switcher} {trigger} {anchor} label={t("projects")} width={352}>
   <div class="search">
     <Search size={14} aria-hidden="true" />
     <input
