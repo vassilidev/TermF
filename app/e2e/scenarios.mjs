@@ -200,10 +200,11 @@ export const scenarios = [
       await t.ready();
       await t.project();
       await t.view("vault");
-      await s.waitFor(`${pane} form.unlock`);
-      const fields = await s.findAll(`${pane} form.unlock input[type=password]`);
-      check(fields.length === 2, `the creation form has ${fields.length} password fields`);
-      for (const f of fields) await s.cmd("POST", `/element/${f}/value`, { text: password });
+      const field = `${pane} form.unlock input[type=password]`;
+      await s.waitFor(field);
+      const count = await s.exec((css) => document.querySelectorAll(css).length, field);
+      check(count === 2, `the creation form has ${count} password fields`);
+      for (const i of [0, 1]) await s.type(field, password, i);
       await s.click(`${pane} form.unlock button[type=submit]:not([disabled])`);
       await s.click(`${pane} .recovery input[type=checkbox]`);
       await s.click(`${pane} .recovery .btn.primary:not([disabled])`);

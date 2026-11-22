@@ -1,6 +1,4 @@
 // A W3C WebDriver client on Node's fetch, for tauri-driver: just what the scenarios use.
-const ELEMENT = "element-6066-11e4-a52e-4f735466cecc";
-
 export const Key = { enter: "\uE007", escape: "\uE00C", ctrl: "\uE009", shift: "\uE008", end: "\uE010", tab: "\uE004" };
 
 export class Session {
@@ -23,33 +21,35 @@ export class Session {
     return this.cmd("POST", "/execute/sync", { script: `return (${fn}).apply(null, arguments)`, args });
   }
 
-  /** Every element matching `css`. */
-  async findAll(css) {
-    const found = await this.cmd("POST", "/elements", { using: "css selector", value: css });
-    return found.map((f) => f[ELEMENT]);
+  /** Where a click on the `index`-th match of `css` lands, once it shows and nothing covers it. */
+  point(css, index = 0) {
+    const find = (c, i) => {
+      const el = document.querySelectorAll(c)[i];
+      if (!el || !el.getClientRects().length || getComputedStyle(el).visibility === "hidden") return null;
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const r = el.getBoundingClientRect();
+      const [x, y] = [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)];
+      const top = document.elementFromPoint(x, y);
+      return top && (top === el || el.contains(top)) ? { x, y } : null;
+    };
+    return this.wait(() => this.exec(find, css, index), { what: `${css} to be visible and uncovered` });
   }
 
-  /** The first element matching `css`, or null. */
-  async find(css) {
-    const found = await this.cmd("POST", "/elements", { using: "css selector", value: css });
-    return found.length ? found[0][ELEMENT] : null;
+  /** A real click (pointer actions, so trusted events) in the middle of the element. */
+  async click(css, index = 0) {
+    const { x, y } = await this.point(css, index);
+    const actions = [
+      { type: "pointerMove", origin: "viewport", x, y, duration: 0 },
+      { type: "pointerDown", button: 0 },
+      { type: "pointerUp", button: 0 },
+    ];
+    await this.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] });
   }
 
-  async must(css, what = css) {
-    return (await this.wait(() => this.find(css), { what: `${what} to be there` }));
-  }
-
-  async click(css) {
-    const el = await this.wait(() => this.exec(visibleOrNull, css).then((ok) => ok && this.find(css)), {
-      what: `${css} to be visible`,
-    });
-    await this.cmd("POST", `/element/${el}/click`, {});
-  }
-
-  /** Types into the element, which takes the focus first; `text` may hold `Key` characters. */
-  async type(css, text) {
-    const el = await this.must(css);
-    await this.cmd("POST", `/element/${el}/value`, { text, value: [...text] });
+  /** Clicks into the element, then types `text` there. */
+  async type(css, text, index = 0) {
+    await this.click(css, index);
+    await this.keys(text);
   }
 
   /** Types `text` (which may hold `Key` characters) on whatever has the focus, as a keyboard would. */
