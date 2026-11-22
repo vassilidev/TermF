@@ -16,8 +16,8 @@ const GRACE: Duration = Duration::from_secs(120);
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct KeepAwakeState {
-    mode: Mode,
-    display_on: bool,
+    pub(crate) mode: Mode,
+    pub(crate) display_on: bool,
     /// Sleep is blocked right now.
     active: bool,
     /// Why the system refused to stay awake.

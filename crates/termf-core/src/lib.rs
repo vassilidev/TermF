@@ -94,6 +94,33 @@ pub struct Settings {
     pub vault: VaultSettings,
     pub memory: MemorySettings,
     pub api: ApiSettings,
+    pub tray: TraySettings,
+}
+
+/// `[tray]` in `termf.toml`: the icon in the menu bar or the notification area, and the count on the dock or taskbar
+/// icon, both of what waits for the user.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct TraySettings {
+    pub icon: bool,
+    pub badge: bool,
+}
+
+impl Default for TraySettings {
+    fn default() -> Self {
+        Self {
+            icon: true,
+            badge: true,
+        }
+    }
+}
+
+pub fn save_tray(config_dir: &Path, tray: TraySettings) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        let table = table_in(doc.as_table_mut(), "tray");
+        table.insert("icon", value(tray.icon));
+        table.insert("badge", value(tray.badge));
+    })
 }
 
 /// `[api]` in `termf.toml`: the local API the `termf` CLI talks to.
@@ -316,6 +343,7 @@ impl Default for Settings {
             vault: VaultSettings::default(),
             memory: MemorySettings::default(),
             api: ApiSettings::default(),
+            tray: TraySettings::default(),
         }
     }
 }
@@ -1221,6 +1249,18 @@ mod tests {
         fs::write(dir.join("termf.toml"), "vault = \"odd\"\n").unwrap();
         save_vault_auto_lock(&dir, 25).unwrap();
         assert_eq!(load_settings(&dir).unwrap().vault.auto_lock_minutes, 25);
+    }
+
+    #[test]
+    fn saves_the_tray_settings() {
+        let dir = temp_dir("tray");
+        assert_eq!(load_settings(&dir).unwrap().tray, TraySettings::default());
+        let off = TraySettings {
+            icon: false,
+            badge: true,
+        };
+        save_tray(&dir, off).unwrap();
+        assert_eq!(load_settings(&dir).unwrap().tray, off);
     }
 
     #[test]

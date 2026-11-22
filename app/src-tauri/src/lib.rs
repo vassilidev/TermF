@@ -22,6 +22,7 @@ mod ssh;
 mod sync;
 mod team;
 mod tickets;
+mod tray;
 mod vault;
 mod visual;
 mod worktree;
@@ -272,6 +273,7 @@ pub fn run() {
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             // The UI and the terminals work without the local API.
             let (api, listener) = api::Api::new(settings.api.confirm_cli);
+            app.manage(tray::Tray::new(settings.tray));
             app.manage(ci::CiState::new(config_dir.clone(), data_dir.clone()));
             app.manage(claude::ClaudeState::new(&data_dir));
             app.manage(claude_native::NativeState::new(&data_dir));
@@ -447,6 +449,9 @@ pub fn run() {
             remote::remote_set,
             remote::remote_cut_all,
             remote::remote_policy_save,
+            tray::tray_update,
+            tray::tray_settings,
+            tray::tray_settings_set,
             tickets::tickets_sources,
             tickets::tickets_sources_save,
             tickets::tickets_source_test,
