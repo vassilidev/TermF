@@ -11,7 +11,6 @@ function check(ok, message) {
   if (!ok) throw new Error(message);
 }
 
-/** Opens a view of the acme project and checks it shows, settled and clean. */
 const viewOnly = (id, title, extra) => ({
   name: title,
   views: [id],
@@ -23,7 +22,6 @@ const viewOnly = (id, title, extra) => ({
   },
 });
 
-/** Records every status the tile of session `id` shows from now on. */
 function watchStatus(id) {
   const tile = document.querySelector(`.tile[data-session="${id}"]`);
   const seen = (window.__e2e.statuses = []);
@@ -97,6 +95,7 @@ export const scenarios = [
       await t.command(`repo-shell-${box.acme}`);
       await s.waitFor(t.shown("terminals"));
       const id = await t.tile();
+      await t.prompt(id);
       // The answer is not in the command line, so it can only come from the shell.
       const [command, answer] = t.windows ? ['"e2e-" + 6*7', "e2e-42"] : ["echo e2e-$((6*7))", "e2e-42"];
       await t.typeIn(id, command + Key.enter);

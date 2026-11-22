@@ -60,6 +60,23 @@ function turn(sid, prompt, schema) {
   ];
 }
 
+// Options that take a value, so that value is never taken for the prompt (the variadic ones end at `--`).
+const VALUED = new Set(
+  "--output-format --input-format --json-schema --model --fallback-model --effort --max-budget-usd --max-turns --session-id --resume --settings --plugin-dir --append-system-prompt --append-system-prompt-file --system-prompt --permission-mode --permission-prompt-tool --allowedTools --allowed-tools --disallowedTools --disallowed-tools --tools --add-dir --mcp-config --remote-control".split(" "),
+);
+
+/** The prompt given as an argument: after `--`, else the last word that is neither an option nor its value. */
+export function positional(list = args) {
+  const dash = list.indexOf("--");
+  if (dash >= 0) return list.slice(dash + 1).join(" ") || undefined;
+  let found;
+  for (let i = 0; i < list.length; i++) {
+    if (VALUED.has(list[i])) i++;
+    else if (!list[i].startsWith("-")) found = list[i];
+  }
+  return found;
+}
+
 function promptOf(line) {
   const content = JSON.parse(line).message?.content;
   return typeof content === "string" ? content : (content ?? []).map((c) => c.text ?? "").join(" ");
@@ -80,8 +97,7 @@ async function headless() {
     }
     return;
   }
-  const last = args.at(-1);
-  const prompt = last && !last.startsWith("-") && args.at(-2) !== "--json-schema" ? last : readFileSync(0, "utf8");
+  const prompt = positional() ?? readFileSync(0, "utf8");
   const events = turn(sid, prompt.trim(), schema);
   if (flag("--output-format") === "stream-json") events.forEach(say);
   else if (flag("--output-format") === "json") say(events.at(-1));

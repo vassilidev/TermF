@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { APP, helpers, viewIds } from "./harness.mjs";
 import { measure, report } from "./perf.mjs";
 import { assertSafe, createSandbox } from "./sandbox.mjs";
+import { Session } from "./webdriver.mjs";
 import { scenarios } from "./scenarios.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,27 +43,31 @@ async function artifacts(t, name, error) {
     if (existsSync(join(t.box.root, file))) copyFileSync(join(t.box.root, file), join(dir, file));
   }
   if (!t.app) return;
+  // Without the scenario's signal, which is aborted when it ran out of time.
+  const s = new Session(t.s.base, t.s.id);
   const steps = [
-    async () => writeFileSync(join(dir, "screenshot.png"), await t.s.screenshot()),
-    async () => writeFileSync(join(dir, "page.html"), await t.s.source()),
-    async () => writeFileSync(join(dir, "text.txt"), (await t.s.exec(() => document.body.innerText)) ?? ""),
-    async () => writeFileSync(join(dir, "errors.json"), JSON.stringify(await t.s.exec(() => window.__e2e), null, 2)),
+    async () => writeFileSync(join(dir, "screenshot.png"), await s.screenshot()),
+    async () => writeFileSync(join(dir, "page.html"), await s.source()),
+    async () => writeFileSync(join(dir, "text.txt"), (await s.exec(() => document.body.innerText)) ?? ""),
+    async () => writeFileSync(join(dir, "errors.json"), JSON.stringify(await s.exec(() => window.__e2e), null, 2)),
   ];
   for (const step of steps) await step().catch(() => {});
 }
 
 async function attempt(scenario) {
   const box = createSandbox(scenario.sandbox);
-  const t = helpers(box, port);
-  let timer;
+  const abort = new AbortController();
+  const t = helpers(box, port, abort.signal);
+  // Past its time, the scenario fails at its next command or wait; its app and sandbox go only once it has stopped.
+  const timer = setTimeout(() => abort.abort(new Error("the scenario took over 3 minutes")), 180_000);
   try {
     await t.start(scenario.launch);
-    const timeout = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error("the scenario took over 3 minutes")), 180_000)));
-    await Promise.race([scenario.run(t), timeout]);
+    await scenario.run(t);
     return null;
   } catch (e) {
-    await artifacts(t, scenario.name, e);
-    return e;
+    const error = abort.signal.aborted ? abort.signal.reason : e;
+    await artifacts(t, scenario.name, error);
+    return error;
   } finally {
     clearTimeout(timer);
     await t.stop().catch(() => {});
@@ -72,6 +77,10 @@ async function attempt(scenario) {
 
 rmSync(outDir, { recursive: true, force: true });
 const chosen = scenarios.filter((s) => (!s.only || s.only === platform) && (!filter || s.name.includes(filter)));
+if (filter && filter !== "perf" && !chosen.length) {
+  console.error(`No scenario matches "${filter}" on ${platform}.`);
+  process.exit(1);
+}
 const results = [];
 if (filter !== "perf") {
   for (const scenario of chosen) {

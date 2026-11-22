@@ -1,6 +1,5 @@
 // Starts the real app through tauri-driver in a sandbox, and the helpers every scenario uses.
 import { spawn, execFileSync } from "node:child_process";
-import { once } from "node:events";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,12 +21,10 @@ const block = (lang) => {
 /** The camelCase keys of the interface texts: one of them shown as is means a text that was never translated. */
 export const rawKeys = [...block("fr").matchAll(/^ {2}([A-Za-z_]\w*):/gm)].map((m) => m[1]).filter((k) => /^[a-z]+[A-Z0-9]/.test(k));
 
-/** The interface text of `key` in `lang`, for the one-line texts. */
 export function text(lang, key) {
   return block(lang).match(new RegExp(`^ {2}${key}: "(.*)",$`, "m"))?.[1];
 }
 
-/** The ids of `views.ts`: every view the navigation and the palette know. */
 export const viewIds = (() => {
   const src = readFileSync(join(here, "../src/lib/views.ts"), "utf8");
   return [...src.slice(src.indexOf("export const views")).matchAll(/^ {4}id: "(\w+)",$/gm)].map((m) => m[1]);
@@ -55,7 +52,6 @@ function prepare() {
   };
 }
 
-/** What is wrong on screen: errors caught in the page, untranslated texts, visible error notices. */
 function inspect(keys) {
   const set = new Set(keys);
   const raw = new Set();
@@ -85,16 +81,13 @@ function visible(css) {
 }
 
 function kill(driver) {
-  if (driver.exitCode !== null || driver.signalCode !== null) return;
+  if (!driver.pid || driver.exitCode !== null || driver.signalCode !== null) return;
   if (windows) execFileSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"], { stdio: "ignore" });
   else process.kill(-driver.pid, "SIGKILL");
 }
 
-/**
- * The app started in `box`, driven through tauri-driver on `port` (its native driver on `port + 1`). `args` go to
- * the app on Linux, to WebView2 on Windows.
- */
-export async function launch(box, port, { args = [] } = {}) {
+/** tauri-driver on `port`, its native driver on `port + 1`. `args` go to the app on Linux, to WebView2 on Windows. */
+export async function launch(box, port, { args = [] } = {}, signal) {
   const log = join(box.root, "app.log");
   const fd = openSync(log, "a");
   const driver = spawn(tauriDriver(), ["--port", String(port), "--native-port", String(port + 1)], {
@@ -103,15 +96,17 @@ export async function launch(box, port, { args = [] } = {}) {
     detached: !windows,
   });
   closeSync(fd);
-  const exited = once(driver, "exit");
+  let failed = null;
+  const exited = new Promise((resolve) => driver.once("exit", resolve).once("error", (e) => resolve((failed = e))));
   const base = `http://127.0.0.1:${port}`;
   try {
-    await new Session(base, "").wait(() => fetch(`${base}/status`).then((r) => r.ok, () => false), {
+    await new Session(base, "", signal).wait(() => failed || fetch(`${base}/status`).then((r) => r.ok, () => false), {
       what: "tauri-driver to listen",
       timeout: 30_000,
     });
+    if (failed) throw new Error(`cannot run tauri-driver: ${failed.message}`);
     const asked = Date.now();
-    const s = await Session.create(base, { browserName: "wry", "tauri:options": { application: APP, args } });
+    const s = await Session.create(base, { browserName: "wry", "tauri:options": { application: APP, args } }, signal);
     await s.exec(prepare);
     return {
       s,
@@ -131,8 +126,8 @@ export async function launch(box, port, { args = [] } = {}) {
   }
 }
 
-/** The helpers a scenario gets as `t`; `port()` gives a free pair of ports for each start of the app. */
-export function helpers(box, port) {
+/** `port()`: a free pair of ports for each start of the app. `signal`: the scenario is past its time. */
+export function helpers(box, port, signal) {
   let app = null;
   const t = {
     box,
@@ -149,7 +144,8 @@ export function helpers(box, port) {
     sel: (attr, value) => `[${attr}=${JSON.stringify(value)}]`,
 
     async start(options) {
-      app = await launch(box, port(), options);
+      signal?.throwIfAborted();
+      app = await launch(box, port(), options, signal);
       return app;
     },
     async stop() {
@@ -160,7 +156,7 @@ export function helpers(box, port) {
       return t.start(options);
     },
 
-    /** The window is up and the workspace read. At the first launch the tour shows: skipped unless `keepTour`. */
+    /** The tour shows once the workspace is read, at the first launch only. */
     async ready({ keepTour = false } = {}) {
       const s = t.s;
       await s.waitFor(".nav", { timeout: 60_000 });
@@ -178,7 +174,7 @@ export function helpers(box, port) {
       await t.s.waitFor("dialog.palette");
     },
 
-    /** Runs a palette command by its id (`commands.ts`). */
+    /** `id`: as in `commands.ts`. */
     async command(id) {
       await t.palette();
       await t.s.click(t.sel("data-testid", `command-${id}`));
@@ -190,7 +186,6 @@ export function helpers(box, port) {
       await t.s.waitFor(`.nav ${t.sel("data-project", id)}[aria-current="true"]`);
     },
 
-    /** Shows a view from the palette, waits for it to settle, and checks it is clean. */
     async view(id, { allow } = {}) {
       if (!(await t.s.exec(visible, t.shown(id)))) await t.command(`view-${id}`);
       await t.s.waitFor(t.shown(id));
@@ -198,7 +193,6 @@ export function helpers(box, port) {
       await t.clean({ allow });
     },
 
-    /** No spinner left in the view's panel. */
     settled(view) {
       const css = `${t.shown(view)} .spin`;
       return t.s.wait(() => t.s.exec((c) => ![...document.querySelectorAll(c)].some((e) => e.getClientRects().length), css), {
@@ -207,7 +201,6 @@ export function helpers(box, port) {
       });
     },
 
-    /** Fails on an error in the page, an untranslated text, an error shown, or a panic of the backend. */
     async clean({ allow = [] } = {}) {
       const found = await t.s.exec(inspect, rawKeys);
       const ok = (text) => allow.some((re) => re.test(text));
@@ -222,7 +215,6 @@ export function helpers(box, port) {
       if (problems.length) throw new Error(problems.join("\n"));
     },
 
-    /** The id of the session whose terminal shows, once it shows. */
     tile() {
       return t.s.wait(
         () => t.s.exec(() => document.querySelector(".tile[data-session]:not([hidden]) .xterm-rows")?.closest(".tile").dataset.session),
@@ -230,12 +222,19 @@ export function helpers(box, port) {
       );
     },
 
-    /** The text of the terminal in the tile of session `id` (xterm's DOM renderer). */
+    /** Read from xterm's DOM renderer, which `prepare` keeps. */
     terminal(id) {
       return t.s.exec((sid) => document.querySelector(`.tile[data-session="${sid}"] .xterm-rows`)?.innerText ?? "", id);
     },
 
-    /** Clicks into a tile's terminal, then types `text` there. */
+    /** The shell's prompt is drawn (`$ ` from the sandbox's profile, `PS …>` for PowerShell). */
+    prompt(id) {
+      return t.s.wait(
+        async () => /(\$|>)\s*$/.test((await t.terminal(id)).trimEnd().split("\n").at(-1) ?? ""),
+        { what: `the prompt in terminal ${id}`, timeout: 30_000 },
+      );
+    },
+
     async typeIn(id, text) {
       await t.s.click(`.tile[data-session="${id}"] .xterm-screen`);
       await t.s.keys(text);

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { fill } from "./fakes/claude.mjs";
+import { fill, positional } from "./fakes/claude.mjs";
 import { answer } from "./fakes/gh.mjs";
 
 const claude = join(dirname(fileURLToPath(import.meta.url)), "fakes", "claude.mjs");
@@ -26,12 +26,20 @@ test("fill gives the smallest value a JSON schema accepts", () => {
   assert.deepEqual(fill(schema), { kind: "questions", items: ["xx"], note: "", n: 3, ref: false });
 });
 
+test("an option's value is never taken for the prompt", () => {
+  assert.equal(positional(["-p", "--max-budget-usd", "0.25", "--output-format", "json"]), undefined);
+  assert.equal(positional(["-p", "--model", "haiku", "hello"]), "hello");
+  assert.equal(positional(["-p", "--allowedTools", "Read", "Grep", "--", "the prompt"]), "the prompt");
+});
+
 test("the fake claude answers --version and a structured -p call", () => {
   assert.equal(run(["--version"]).stdout.trim(), "2.1.330 (Claude Code)");
-  const out = run(["-p", "--output-format", "json", "--json-schema", '{"type":"object","required":["ok"],"properties":{"ok":{"type":"boolean"}}}', "hi"]);
+  const schema = '{"type":"object","required":["ok"],"properties":{"ok":{"type":"boolean"}}}';
+  const out = run(["-p", "--output-format", "json", "--max-budget-usd", "0.25", "--json-schema", schema], "from stdin");
   const result = JSON.parse(out.stdout.trim().split("\n").at(-1));
   assert.equal(result.type, "result");
   assert.deepEqual(result.structured_output, { ok: false });
+  assert.match(result.result, /from stdin/);
 });
 
 test("the fake claude runs a stream-json conversation", () => {

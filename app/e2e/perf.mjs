@@ -21,7 +21,6 @@ export const measures = {
 const SESSIONS = 5;
 const IDLE_SECONDS = 10;
 
-// Process facts: `{pid, ppid, name, mem (bytes), cpu (seconds), started (epoch ms)}` for every process.
 function processesLinux() {
   const tick = Number(execFileSync("getconf", ["CLK_TCK"], { encoding: "utf8" })) || 100;
   const uptime = Number(readFileSync("/proc/uptime", "utf8").split(" ")[0]);
@@ -58,7 +57,6 @@ function processesWindows() {
 
 const processes = () => (windows ? processesWindows() : processesLinux());
 
-/** The app under `driver` and every process it started, with its own first. */
 function appTree(driverPid, only = () => true) {
   const all = processes();
   const children = (pid) => all.filter((p) => p.ppid === pid);
@@ -88,7 +86,6 @@ function onPage(sid) {
   return sid;
 }
 
-/** Runs every measure and returns `{key: value}`; `port()` as for the scenarios. */
 export async function measure(port, log) {
   const out = {};
   const starts = [];
@@ -103,10 +100,13 @@ export async function measure(port, log) {
       async () => (await t.s.exec(() => !!document.querySelector('.nav [data-project="acme"]'))) && Date.now(),
       { what: "the window to be usable", timeout: 60_000, every: 10 },
     );
-    starts.push(shown - appTree(app.driver.pid)[0].started);
+    const started = appTree(app.driver.pid)[0].started;
+    starts.push(shown - started);
+    // Where the time goes: the backend and the webview until the page starts loading, then the page.
+    const page = await t.s.exec(() => performance.timeOrigin);
+    log(`cold start ${i + 1}: ${Math.round(shown - started)} ms (page from ${Math.round(page - started)} ms)`);
   }
   out.coldStart = median(starts);
-  log(`cold starts: ${starts.map(Math.round).join(", ")} ms`);
   try {
     const driver = t.app.driver.pid;
     await t.ready();
@@ -127,6 +127,7 @@ export async function measure(port, log) {
           return tiles.length === n && tiles[n - 1].dataset.session;
         }, i + 1),
       );
+      await t.prompt(id);
       await t.typeIn(id, fill + Key.enter);
       await t.s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === "10000"), { what: "10,000 lines", timeout: 60_000 });
     }
@@ -137,7 +138,7 @@ export async function measure(port, log) {
     const id = await t.s.wait(() =>
       t.s.exec((n) => document.querySelectorAll(".tile[data-session]")[n]?.dataset.session, SESSIONS),
     );
-    await t.s.waitFor(`.tile[data-session="${id}"] .xterm-rows`);
+    await t.prompt(id);
     await t.s.exec(onPage, id);
     await t.s.click(`.tile[data-session="${id}"] .xterm-screen`);
     for (let i = 1; i <= 30; i++) {
@@ -154,7 +155,6 @@ export async function measure(port, log) {
   return out;
 }
 
-/** The table of the results, in Markdown, and whether one is past its limit. */
 export function report(values, platform) {
   const rows = Object.entries(measures).map(([key, m]) => {
     const v = values[key];

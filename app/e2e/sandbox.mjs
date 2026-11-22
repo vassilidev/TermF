@@ -67,7 +67,10 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     ? windowsDirs()
     : { configDir: join(home, ".config", "termf"), dataDir: join(home, ".local", "share", "dev.termf.app") };
   if (windows) for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
-  for (const d of [bin, acme, dirs.configDir, join(dirs.configDir, "projects")]) mkdirSync(d, { recursive: true });
+  // Child processes (git, shells, the fakes) follow these; the app itself reads the system's, so the config goes to both.
+  const appData = { APPDATA: join(root, "appdata", "roaming"), LOCALAPPDATA: join(root, "appdata", "local") };
+  const configDirs = windows ? [dirs.configDir, join(appData.APPDATA, "termf")] : [dirs.configDir];
+  for (const d of [bin, acme, ...configDirs.map((c) => join(c, "projects"))]) mkdirSync(d, { recursive: true });
 
   for (const name of ["claude", "gh"]) {
     if (windows) copyFileSync(windowsShim(), join(bin, `${name}.exe`));
@@ -93,7 +96,8 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     GIT_CONFIG_NOSYSTEM: "1",
     TERMF_E2E_LOG: join(root, "calls.log"),
   });
-  if (!windows) {
+  if (windows) Object.assign(env, appData);
+  else {
     Object.assign(env, {
       XDG_CONFIG_HOME: join(home, ".config"),
       XDG_DATA_HOME: join(home, ".local", "share"),
@@ -121,11 +125,13 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
   git(acme, env, "remote", "add", "origin", "https://github.com/acme/api.git");
 
   const toml = (s) => JSON.stringify(s);
-  writeFileSync(
-    join(dirs.configDir, "termf.toml"),
-    `roots = [${toml(code)}]\nscan_depth = 3\nkeep_awake = "off"\n\n[agents]\nclaude = "claude"\n`,
-  );
-  if (project) writeFileSync(join(dirs.configDir, "projects", "acme.toml"), `name = "acme"\n\n[[repos]]\npath = ${toml(acme)}\n`);
+  for (const dir of configDirs) {
+    writeFileSync(
+      join(dir, "termf.toml"),
+      `roots = [${toml(code)}]\nscan_depth = 3\nkeep_awake = "off"\n\n[agents]\nclaude = "claude"\n`,
+    );
+    if (project) writeFileSync(join(dir, "projects", "acme.toml"), `name = "acme"\n\n[[repos]]\npath = ${toml(acme)}\n`);
+  }
 
   return {
     root,

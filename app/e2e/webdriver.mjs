@@ -1,19 +1,21 @@
 // A W3C WebDriver client on Node's fetch, for tauri-driver: just what the scenarios use.
 export const Key = { enter: "\uE007", escape: "\uE00C", ctrl: "\uE009", shift: "\uE008", end: "\uE010", tab: "\uE004" };
 
+/** `signal`: once aborted (a scenario past its time), every command and every wait fails at once. */
 export class Session {
-  constructor(base, id) {
+  constructor(base, id, signal) {
     this.base = base;
     this.id = id;
+    this.signal = signal;
   }
 
-  static async create(base, capabilities) {
-    const value = await call(base, "POST", "/session", { capabilities: { alwaysMatch: capabilities } });
-    return new Session(base, value.sessionId);
+  static async create(base, capabilities, signal) {
+    const value = await call(base, "POST", "/session", { capabilities: { alwaysMatch: capabilities } }, signal);
+    return new Session(base, value.sessionId, signal);
   }
 
   cmd(method, path, body) {
-    return call(this.base, method, `/session/${this.id}${path}`, body);
+    return call(this.base, method, `/session/${this.id}${path}`, body, this.signal);
   }
 
   /** Runs `fn(...args)` in the page; `fn` must not close over anything. */
@@ -21,7 +23,7 @@ export class Session {
     return this.cmd("POST", "/execute/sync", { script: `return (${fn}).apply(null, arguments)`, args });
   }
 
-  /** Where a click on the `index`-th match of `css` lands, once it shows and nothing covers it. */
+  /** Where a click on the `index`-th match of `css` lands, once it shows, stands still and nothing covers it. */
   point(css, index = 0) {
     const find = (c, i) => {
       const el = document.querySelectorAll(c)[i];
@@ -32,10 +34,18 @@ export class Session {
       const top = document.elementFromPoint(x, y);
       return top && (top === el || el.contains(top)) ? { x, y } : null;
     };
-    return this.wait(() => this.exec(find, css, index), { what: `${css} to be visible and uncovered` });
+    let before = null;
+    // Twice at the same place: a card sliding into position would take the click elsewhere.
+    const still = async () => {
+      const at = await this.exec(find, css, index);
+      const same = at && before && at.x === before.x && at.y === before.y;
+      before = at;
+      return same && at;
+    };
+    return this.wait(still, { what: `${css} to be visible, still and uncovered` });
   }
 
-  /** A real click (pointer actions, so trusted events) in the middle of the element. */
+  /** Pointer actions, not a script: the page gets trusted events, as from a mouse. */
   async click(css, index = 0) {
     const { x, y } = await this.point(css, index);
     const actions = [
@@ -46,19 +56,17 @@ export class Session {
     await this.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] });
   }
 
-  /** Clicks into the element, then types `text` there. */
   async type(css, text, index = 0) {
     await this.click(css, index);
     await this.keys(text);
   }
 
-  /** Types `text` (which may hold `Key` characters) on whatever has the focus, as a keyboard would. */
+  /** On whatever has the focus; `text` may hold `Key` characters. */
   async keys(text) {
     const actions = [...text].flatMap((value) => [{ type: "keyDown", value }, { type: "keyUp", value }]);
     await this.cmd("POST", "/actions", { actions: [{ type: "key", id: "keyboard", actions }] });
   }
 
-  /** A chord such as Ctrl+K, pressed on whatever has the focus. */
   async press(...keys) {
     const down = keys.map((value) => ({ type: "keyDown", value }));
     const up = keys.toReversed().map((value) => ({ type: "keyUp", value }));
@@ -70,11 +78,11 @@ export class Session {
     return this.exec((s) => document.querySelector(s)?.innerText ?? null, css);
   }
 
-  /** Polls `check` until it returns something truthy, which it returns; fails after `timeout` with `what`. */
   async wait(check, { timeout = 15_000, what = "the condition", every = 50 } = {}) {
     const deadline = Date.now() + timeout;
     let last;
     for (;;) {
+      this.signal?.throwIfAborted();
       try {
         const value = await check();
         if (value) return value;
@@ -86,7 +94,6 @@ export class Session {
     }
   }
 
-  /** Waits for `css` to match a visible element, or for the predicate run in the page to hold. */
   waitFor(css, opts = {}) {
     return this.wait(() => this.exec(visibleOrNull, css), { what: `${css} to be visible`, ...opts });
   }
@@ -103,8 +110,9 @@ export class Session {
     return this.cmd("GET", "/source");
   }
 
+  /** Even past the scenario's time: the app is asked to close before its process is killed. */
   async close() {
-    await this.cmd("DELETE", "");
+    await call(this.base, "DELETE", `/session/${this.id}`);
   }
 }
 
@@ -113,15 +121,16 @@ function visibleOrNull(css) {
   return !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
 }
 
-async function call(base, method, path, body) {
+async function call(base, method, path, body, signal) {
+  const timeout = AbortSignal.timeout(60_000);
   const res = await fetch(base + path, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(60_000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.value?.error) {
+  if (!res.ok) {
     const v = json.value ?? {};
     throw new Error(`${method} ${path}: ${v.error ?? res.status} ${v.message ?? ""}`.trim());
   }
