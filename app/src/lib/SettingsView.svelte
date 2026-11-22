@@ -23,6 +23,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ci, type CiNotify } from "$lib/ci.svelte";
   import { claudeView, loadArtifacts, type Artifacts, type ClaudeBinary as Binary } from "$lib/claude.svelte";
+  import { latest } from "$lib/claude-logic";
   import { t } from "$lib/i18n";
   import { actions } from "$lib/keymap-logic";
   import { hasWords } from "$lib/nav-logic";
@@ -89,17 +90,21 @@
   });
 
   let binary = $state<Binary | null>(null);
+  const binaryAsked = latest();
 
   $effect(() => {
     if (settings.section === "claude" && !claudeView.artifacts) loadArtifacts();
   });
 
+  // Read again at each visit (`claude update` changes it); an answer that comes after leaving is ignored.
   $effect(() => {
-    if (settings.section !== "claude" || binary) return;
+    if (settings.section !== "claude") return;
+    const id = binaryAsked.next();
     invoke<Binary>("claude_binary").then(
-      (b) => (binary = b),
-      (e) => (error = String(e)),
+      (b) => binaryAsked.isLast(id) && (binary = b),
+      (e) => binaryAsked.isLast(id) && (error = String(e)),
     );
+    return () => binaryAsked.next();
   });
 
   const tone = $derived(summary(app.sync).tone);
