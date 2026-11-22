@@ -87,8 +87,8 @@ test("one state for a ticket and its team", () => {
   assert.deepEqual(shown(ticket(), team([], "stopped")), { status: "stopped", label: null });
   assert.deepEqual(shown(ticket(), team([], "done")), { status: "waiting", label: null });
   assert.deepEqual(shown(ticket({ status: "delivered", prUrl: "u" }), team([], "done")), { status: "delivered", label: null });
-  assert.deepEqual(shown(ticket({ status: "delivered", prUrl: "u", prState: "merged" })), { status: "delivered", label: "ticketsUiReady" });
-  assert.deepEqual(shown(ticket({ status: "delivered", prUrl: "u", prState: "closed" })), { status: "delivered", label: "uxfT1ClosedReady" });
+  assert.deepEqual(shown(ticket({ status: "delivered", prUrl: "u", prState: "merged" })), { status: "delivered", label: "ticketsUiReady", hint: "uxfT1ReadyHint" });
+  assert.deepEqual(shown(ticket({ status: "delivered", prUrl: "u", prState: "closed" })), { status: "delivered", label: "uxfT1ClosedReady", hint: "uxfT2ClosedHint" });
   assert.deepEqual(shown(ticket({ status: "failed" }), waiting), { status: "failed", label: null });
   assert.deepEqual(shown(ticket({ status: "closed" }), waiting), { status: "closed", label: null });
   assert.deepEqual(shown(ticket()), { status: "running", label: null });
