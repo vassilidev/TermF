@@ -88,7 +88,7 @@ async fn workspace(
     Ok(Workspace {
         config_dir: state.config_dir.to_string_lossy().into_owned(),
         home: termf_core::expand_tilde("~").to_string_lossy().into_owned(),
-        agents: settings.agents.keys().cloned().collect(),
+        agents: settings.agents_found().into_keys().collect(),
         projects,
         repos: discovery.repos,
         scan_truncated: discovery.truncated,

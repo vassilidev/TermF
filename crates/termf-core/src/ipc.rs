@@ -734,18 +734,22 @@ pub fn is_typing(input: &[u8]) -> bool {
     !report
 }
 
-/// Status a Claude Code hook event means, or `None` when it says nothing about the state.
+/// Status a Claude Code hook event means, or `None` when it says nothing about the state. Also Gemini CLI's hooks
+/// and Codex CLI's `notify` (`cli_agents`).
 pub fn hook_status(event: &str, payload: &Value) -> Option<Status> {
     let field = |key| payload.get(key).and_then(Value::as_str).unwrap_or_default();
     match event {
         "UserPromptSubmit" | "PreToolUse" | "PostToolUse" => Some(Status::Working),
+        "BeforeAgent" | "BeforeTool" | "AfterTool" => Some(Status::Working),
+        "AfterAgent" | crate::cli_agents::CODEX_TURN_DONE => Some(Status::Idle),
         "PermissionRequest" => Some(Status::Waiting),
         "Notification" => match field("notification_type") {
             "permission_prompt"
             | "elicitation_dialog"
             | "elicitation_url_dialog"
             | "agent_needs_input"
-            | "quota_auto_resume_stale" => Some(Status::Waiting),
+            | "quota_auto_resume_stale"
+            | "ToolPermission" => Some(Status::Waiting),
             // Also the only sign of a turn interrupted with Esc, which fires no Stop.
             "idle_prompt" => Some(Status::Idle),
             _ => None,
@@ -926,6 +930,22 @@ mod tests {
         );
         assert_eq!(hook_status("PreToolUse", &none), Some(Status::Working));
         assert_eq!(hook_status("PostToolUse", &none), Some(Status::Working));
+        // Gemini CLI's hooks and Codex CLI's notify.
+        for working in ["BeforeAgent", "BeforeTool", "AfterTool"] {
+            assert_eq!(hook_status(working, &none), Some(Status::Working));
+        }
+        assert_eq!(hook_status("AfterAgent", &none), Some(Status::Idle));
+        assert_eq!(
+            hook_status("agent-turn-complete", &none),
+            Some(Status::Idle)
+        );
+        assert_eq!(
+            hook_status(
+                "Notification",
+                &json!({"notification_type": "ToolPermission", "message": "Allow?"})
+            ),
+            Some(Status::Waiting)
+        );
         assert_eq!(
             hook_status("PermissionRequest", &none),
             Some(Status::Waiting)

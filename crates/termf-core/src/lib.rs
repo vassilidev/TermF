@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 
 pub mod claude;
+pub mod cli_agents;
 pub mod context;
 pub mod ipc;
 pub mod process;
@@ -257,6 +258,21 @@ impl Settings {
             "the agent {name} does not run Claude Code, which ticket runs need"
         );
         Ok(name.to_owned())
+    }
+
+    /// `[agents]`, with `codex` and `gemini` added when they are installed and no entry runs them yet: the
+    /// launcher offers them without a line in termf.toml.
+    pub fn agents_found(&self) -> BTreeMap<String, String> {
+        let mut agents = self.agents.clone();
+        for tool in [claude::Tool::Codex, claude::Tool::Gemini] {
+            let name = tool.program();
+            let listed = agents.contains_key(name)
+                || agents.values().any(|c| claude::Tool::of(c) == Some(tool));
+            if !listed && claude::find(name).install.is_some() {
+                agents.insert(name.into(), name.into());
+            }
+        }
+        agents
     }
 
     /// The program of the first Claude Code agent, else `claude`, for headless runs (`claude -p`).

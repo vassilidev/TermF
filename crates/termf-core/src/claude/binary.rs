@@ -1,9 +1,10 @@
 //! Which Claude Code TermF runs. A bare `claude` is looked for where Claude Code's installer puts it, then on the
 //! login shell's PATH, then where an interactive shell finds it (`.zshrc` may add it: npm under nvm…): the
-//! newest found wins. A path set in `[agents]` is always the one run.
+//! newest found wins. A path set in `[agents]` is always the one run. Codex CLI and Gemini CLI are found the
+//! same way, without a native install folder.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -18,8 +19,77 @@ use serde::Serialize;
 /// `claude plugin install --accept-command` (2.1.271), `--json` on `claude plugin install…` (2.1.268),
 /// `--restricted` (2.1.248).
 pub const MIN_VERSION: &str = "2.1.288";
+/// The releases whose documentation TermF's options were checked against (docs/AGENTS-CLI.md, 2026-11-22): `exec
+/// --json` with `thread.started`, `exec resume`, `developer_instructions`, `notify`, MCP `env_vars`.
+pub const CODEX_MIN_VERSION: &str = "0.171.0";
+/// The same for Gemini CLI: `--output-format stream-json`, `--session-id`, `--resume`, `--policy`, hooks.
+pub const GEMINI_MIN_VERSION: &str = "0.70.0";
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// An agent CLI TermF finds, checks and drives (docs/AGENTS-CLI.md).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum Tool {
+    Claude,
+    Codex,
+    Gemini,
+}
+
+impl Tool {
+    pub const ALL: [Tool; 3] = [Tool::Claude, Tool::Codex, Tool::Gemini];
+
+    /// The tool an `[agents]` command runs, by its program's name: `codex`, `/opt/bin/gemini --yolo`…
+    pub fn of(command: &str) -> Option<Tool> {
+        let program = command.split_whitespace().next()?;
+        let stem = Path::new(program).file_stem()?;
+        Tool::ALL.into_iter().find(|t| stem == t.program())
+    }
+
+    pub fn program(self) -> &'static str {
+        match self {
+            Tool::Claude => "claude",
+            Tool::Codex => "codex",
+            Tool::Gemini => "gemini",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Tool::Claude => "Claude Code",
+            Tool::Codex => "Codex CLI",
+            Tool::Gemini => "Gemini CLI",
+        }
+    }
+
+    /// The oldest version with everything TermF runs.
+    pub fn minimum(self) -> &'static str {
+        match self {
+            Tool::Claude => MIN_VERSION,
+            Tool::Codex => CODEX_MIN_VERSION,
+            Tool::Gemini => GEMINI_MIN_VERSION,
+        }
+    }
+
+    fn update(self) -> &'static str {
+        match self {
+            Tool::Claude => "claude update",
+            Tool::Codex => "npm install -g @openai/codex@latest",
+            Tool::Gemini => "npm install -g @google/gemini-cli@latest",
+        }
+    }
+
+    /// Where the tool's own installer puts it, before the PATH.
+    fn native(self, home: &Path) -> Vec<PathBuf> {
+        match self {
+            Tool::Claude => vec![
+                home.join(".local").join("bin"),
+                home.join(".claude").join("local"),
+            ],
+            Tool::Codex | Tool::Gemini => Vec::new(),
+        }
+    }
+}
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -60,36 +130,40 @@ pub struct Found {
     pub minimum: &'static str,
     /// The one TermF runs is older than [`MIN_VERSION`].
     pub too_old: bool,
+    #[serde(skip)]
+    pub tool: Tool,
 }
 
 impl Default for Found {
     fn default() -> Self {
-        Found::new(None, Vec::new())
+        Found::new(Tool::Claude, None, Vec::new())
     }
 }
 
 impl Found {
-    fn new(install: Option<Install>, others: Vec<Install>) -> Self {
+    fn new(tool: Tool, install: Option<Install>, others: Vec<Install>) -> Self {
         let too_old = install
             .as_ref()
             .and_then(|i| i.version.as_deref())
-            .is_some_and(|v| numbers(v) < numbers(MIN_VERSION));
+            .is_some_and(|v| numbers(v) < numbers(tool.minimum()));
         Found {
             install,
             others,
-            minimum: MIN_VERSION,
+            minimum: tool.minimum(),
             too_old,
+            tool,
         }
     }
 
     /// The install to run, refused when too old. None found: `program` itself, so that running it says so.
     pub fn usable(self, program: &str) -> Result<Install> {
+        let tool = self.tool;
         if let Some(old) = self.install.as_ref().filter(|_| self.too_old) {
             let newer = self
                 .others
                 .iter()
-                .filter(|o| rank(o).0 == 2)
-                .max_by_key(|o| rank(o));
+                .filter(|o| rank(tool, o).0 == 2)
+                .max_by_key(|o| rank(tool, o));
             let unknown = self.others.iter().find(|o| o.version.is_none());
             let such = match (newer, unknown) {
                 (Some(n), _) => format!(", such as {n}"),
@@ -97,8 +171,12 @@ impl Found {
                 (None, None) => String::new(),
             };
             bail!(
-                "Claude Code {old} is too old: TermF needs {MIN_VERSION} or later. Update it (`claude update`), or set \
-                 `claude` in termf.toml [agents] to the path of a recent install{such}"
+                "{} {old} is too old: TermF needs {} or later. Update it (`{}`), or set `{}` in termf.toml [agents] \
+                 to the path of a recent install{such}",
+                tool.label(),
+                tool.minimum(),
+                tool.update(),
+                tool.program(),
             );
         }
         Ok(self.install.unwrap_or_else(|| Install {
@@ -111,37 +189,49 @@ impl Found {
 
 /// What `program`, the first word of an `[agents]` command, runs on this machine.
 pub fn find(program: &str) -> Found {
-    find_in(program, dirs::home_dir().as_deref(), &search_path())
+    let tool = Tool::of(program).unwrap_or(Tool::Claude);
+    find_in(program, dirs::home_dir().as_deref(), &search_path_for(tool))
 }
 
 /// The login shell's PATH, then the folder of the `claude` an interactive login shell runs, as a tile's.
 pub fn search_path() -> OsString {
+    search_path_for(Tool::Claude)
+}
+
+/// [`search_path`] with the folder of the `tool` an interactive login shell runs.
+pub fn search_path_for(tool: Tool) -> OsString {
     let path = crate::shell::login_path()
         .map(OsStr::to_os_string)
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default();
-    let Some(dir) = interactive().and_then(|c| c.parent().map(Path::to_path_buf)) else {
+    let Some(dir) = interactive(tool).and_then(|c| c.parent().map(Path::to_path_buf)) else {
         return path;
     };
     std::env::join_paths(std::env::split_paths(&path).chain([dir])).unwrap_or(path)
 }
 
 /// Asked again until a shell answered in time.
-fn interactive() -> Option<PathBuf> {
-    static FOUND: Mutex<Option<Option<PathBuf>>> = Mutex::new(None);
-    if let Some(found) = FOUND.lock().unwrap().clone() {
-        return found;
+fn interactive(tool: Tool) -> Option<PathBuf> {
+    static FOUND: Mutex<Option<HashMap<Tool, Option<PathBuf>>>> = Mutex::new(None);
+    if let Some(found) = FOUND.lock().unwrap().as_ref().and_then(|f| f.get(&tool)) {
+        return found.clone();
     }
     let shell = std::env::var_os("SHELL").filter(|_| cfg!(unix))?;
-    let found = interactive_in(Path::new(&shell)).ok()?;
-    *FOUND.lock().unwrap() = Some(found.clone());
+    let found = interactive_in(Path::new(&shell), tool).ok()?;
+    let mut cache = FOUND.lock().unwrap();
+    cache.get_or_insert_default().insert(tool, found.clone());
     found
 }
 
-/// The `claude` the interactive login shell `shell` runs; `Err` when it did not answer in time.
-fn interactive_in(shell: &Path) -> Result<Option<PathBuf>> {
+/// The `tool` the interactive login shell `shell` runs; `Err` when it did not answer in time.
+fn interactive_in(shell: &Path, tool: Tool) -> Result<Option<PathBuf>> {
     let mut cmd = Command::new(shell);
-    cmd.args(["-l", "-i", "-c", "command -v claude"]);
+    cmd.args([
+        "-l",
+        "-i",
+        "-c",
+        &format!("command -v {}", tool.program()),
+    ]);
     let (_, out, _) = crate::process::run(cmd, b"", PROBE_TIMEOUT)?;
     // Profiles may print their own lines first; an alias or a function is no path.
     Ok(String::from_utf8_lossy(&out)
@@ -159,33 +249,33 @@ pub fn find_in(program: &str, home: Option<&Path>, path: &OsStr) -> Found {
 
 /// `others`: also look for the installs a path set in `[agents]` leaves aside.
 fn search(program: &str, home: Option<&Path>, path: &OsStr, others: bool) -> Found {
-    if !super::is_claude(program) {
+    let Some(tool) = Tool::of(program) else {
         let install = Install {
             path: program.into(),
             version: None,
             origin: Origin::Setting,
         };
-        return Found::new(Some(install), Vec::new());
-    }
+        return Found::new(Tool::Claude, Some(install), Vec::new());
+    };
     let set = (Path::new(program).components().count() > 1).then(|| crate::expand_tilde(program));
-    let exe = format!("claude{}", std::env::consts::EXE_SUFFIX);
+    let exe = format!("{}{}", tool.program(), std::env::consts::EXE_SUFFIX);
     let native = home
         .into_iter()
-        .flat_map(|h| {
-            [
-                h.join(".local").join("bin"),
-                h.join(".claude").join("local"),
-            ]
-        })
+        .flat_map(|h| tool.native(h))
         .map(|dir| (dir.join(&exe), Origin::Native));
     // npm puts a `claude.cmd` on Windows.
-    let names: &[&str] = if cfg!(windows) {
-        &["claude.exe", "claude.cmd"]
-    } else {
-        &["claude"]
+    let names: Vec<String> = match cfg!(windows) {
+        true => [".exe", ".cmd"]
+            .map(|ext| format!("{}{ext}", tool.program()))
+            .to_vec(),
+        false => vec![tool.program().to_owned()],
     };
-    let on_path = std::env::split_paths(path)
-        .flat_map(|dir| names.iter().map(move |n| (dir.join(n), Origin::Path)));
+    let on_path = std::env::split_paths(path).flat_map(|dir| {
+        names
+            .iter()
+            .map(move |n| (dir.join(n), Origin::Path))
+            .collect::<Vec<_>>()
+    });
     let look = others || set.is_none();
     let mut seen = HashSet::new();
     let mut all: Vec<Install> = set
@@ -203,17 +293,17 @@ fn search(program: &str, home: Option<&Path>, path: &OsStr, others: bool) -> Fou
         Some(0)
     } else {
         // The first of the best ranked.
-        (0..all.len()).min_by_key(|&i| Reverse(rank(&all[i])))
+        (0..all.len()).min_by_key(|&i| Reverse(rank(tool, &all[i])))
     };
     let install = chosen.map(|i| all.remove(i));
-    Found::new(install, all)
+    Found::new(tool, install, all)
 }
 
 /// The newest of those recent enough, then one whose version could not be read (it may be recent), then the
 /// newest of the older ones.
-fn rank(install: &Install) -> (u8, Vec<u64>) {
+fn rank(tool: Tool, install: &Install) -> (u8, Vec<u64>) {
     match install.version.as_deref().map(numbers) {
-        Some(v) if v >= numbers(MIN_VERSION) => (2, v),
+        Some(v) if v >= numbers(tool.minimum()) => (2, v),
         None => (1, Vec::new()),
         Some(v) => (0, v),
     }
@@ -221,7 +311,8 @@ fn rank(install: &Install) -> (u8, Vec<u64>) {
 
 /// What `program` runs, refused before it runs when it is too old (see [`Found::usable`]).
 pub fn binary(program: &str) -> Result<Install> {
-    resolve(program, dirs::home_dir().as_deref(), &search_path())
+    let tool = Tool::of(program).unwrap_or(Tool::Claude);
+    resolve(program, dirs::home_dir().as_deref(), &search_path_for(tool))
 }
 
 /// A path set is run without asking the other installs their version, unless it is too old: then a newer one is
@@ -319,13 +410,7 @@ fn version_within(path: &Path, search: &OsStr, timeout: Duration) -> Option<Stri
         .as_ref()
         .ok()
         .filter(|(status, ..)| status.success())
-        .and_then(|(_, out, _)| {
-            let text = String::from_utf8_lossy(out);
-            let word = text.lines().next()?.split_whitespace().next()?;
-            let word = word.strip_prefix('v').unwrap_or(word);
-            word.starts_with(|c: char| c.is_ascii_digit())
-                .then(|| word.to_owned())
-        });
+        .and_then(|(_, out, _)| read_version(&String::from_utf8_lossy(out)));
     if probed.is_ok() {
         CACHE
             .lock()
@@ -333,6 +418,16 @@ fn version_within(path: &Path, search: &OsStr, timeout: Duration) -> Option<Stri
             .insert(key, (modified, version.clone()));
     }
     version
+}
+
+/// The first word of the first line that is a version: `2.1.330 (Claude Code)`, `codex-cli 0.98.0`, `v0.30.0`.
+fn read_version(text: &str) -> Option<String> {
+    text.lines()
+        .next()?
+        .split_whitespace()
+        .map(|w| w.strip_prefix('v').unwrap_or(w))
+        .find(|w| w.starts_with(|c: char| c.is_ascii_digit()))
+        .map(str::to_owned)
 }
 
 #[cfg(all(test, unix))]
@@ -605,9 +700,16 @@ mod tests {
                 nvm.display()
             ),
         );
-        assert_eq!(interactive_in(&shell).unwrap(), Some(nvm.clone()));
+        assert_eq!(
+            interactive_in(&shell, Tool::Claude).unwrap(),
+            Some(nvm.clone())
+        );
         let shell = b.script("shell", "echo 'claude: aliased to npx claude'");
-        assert_eq!(interactive_in(&shell).unwrap(), None, "an alias is no path");
+        assert_eq!(
+            interactive_in(&shell, Tool::Claude).unwrap(),
+            None,
+            "an alias is no path"
+        );
         // Its folder after the login PATH: recent there, it is run rather than an older one refused.
         b.claude("brew/bin/claude", "2.0.1");
         let found = b.find("claude", &["brew/bin", "nvm/bin"]);
