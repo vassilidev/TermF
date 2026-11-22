@@ -854,9 +854,11 @@ fn launch(
             Meta {
                 title: title.clone(),
                 // Codex CLI and Gemini CLI start at their prompt.
-                status: hooks
-                    .is_some()
-                    .then_some(if is_claude { Status::Starting } else { Status::Idle }),
+                status: hooks.is_some().then_some(if is_claude {
+                    Status::Starting
+                } else {
+                    Status::Idle
+                }),
                 since: Instant::now(),
                 remote_control,
                 agent_session_id: None,
