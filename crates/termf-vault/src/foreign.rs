@@ -301,6 +301,13 @@ fn csv_rows(text: &str) -> Zeroizing<Vec<Vec<String>>> {
     rows
 }
 
+/// Would a spreadsheet run it, once the apostrophes TermF's CSV export puts first are taken off: the export
+/// adds one, the import of a TermF export takes it back, so any value goes and comes back as it was.
+pub(crate) fn formula(text: &str) -> bool {
+    text.trim_start_matches('\'')
+        .starts_with(['=', '+', '-', '@', '\t', '\r'])
+}
+
 fn csv(text: &str) -> Result<Parsed> {
     let rows = csv_rows(text);
     let unknown = "TermF does not recognize this file: export it from your password manager as CSV, JSON, .1pux or KeePass XML";
@@ -345,10 +352,25 @@ fn csv(text: &str) -> Result<Parsed> {
         candidates: Vec::new(),
         unsupported: 0,
     };
+    let termf = has("termf_export");
     for row in rows.iter().skip(1) {
         if row.iter().all(|f| f.trim().is_empty()) {
             continue;
         }
+        let unguarded;
+        let row = if termf {
+            unguarded = Zeroizing::new(
+                row.iter()
+                    .map(|c| match c.strip_prefix('\'') {
+                        Some(rest) if formula(c) => rest.to_owned(),
+                        _ => c.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            &*unguarded
+        } else {
+            row
+        };
         let [
             title_at,
             url,
