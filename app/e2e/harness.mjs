@@ -16,8 +16,10 @@ export const APP =
   process.env.TERMF_E2E_APP ?? join(repo, "target", "debug", windows ? "termf-app.exe" : "termf-app");
 
 const i18n = readFileSync(join(here, "../src/lib/i18n.ts"), "utf8");
+// `const en: Record<Key, string> = {` as well as `const fr = {`.
 const block = (lang) => {
-  const start = i18n.indexOf(`const ${lang} = {`);
+  const start = i18n.search(new RegExp(`^const ${lang}\\b[^=]*= \\{`, "m"));
+  if (start < 0) throw new Error(`no "${lang}" block in i18n.ts`);
   return i18n.slice(start, i18n.indexOf("\n};", start));
 };
 

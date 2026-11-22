@@ -1,5 +1,5 @@
-// A throwaway world for one run of the app: home, config, data, a git repository "acme", and fake `claude` and
-// `gh` first on the PATH. Nothing of the machine's own config, keyring or accounts is reachable from it.
+// A throwaway world for one run of the app: home, config, data, a git repository "acme", and fake `claude`, `gh`
+// and `curl` first on the PATH. Nothing of the machine's own config, keyring or accounts is reachable from it.
 import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -75,7 +75,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
   if (windows) for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
   for (const d of [bin, acme, join(dirs.configDir, "projects")]) mkdirSync(d, { recursive: true });
 
-  for (const name of ["claude", "gh"]) {
+  for (const name of ["claude", "gh", "curl"]) {
     if (windows) copyFileSync(windowsShim(), join(bin, `${name}.exe`));
     else {
       const file = join(bin, name);
@@ -98,6 +98,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     GIT_CONFIG_GLOBAL: gitconfig,
     GIT_CONFIG_NOSYSTEM: "1",
     TERMF_E2E_LOG: join(root, "calls.log"),
+    TERMF_E2E_RELEASES: join(root, "releases.json"),
   });
   if (!windows) {
     Object.assign(env, {

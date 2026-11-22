@@ -2,6 +2,7 @@
 // `views.ts` (and the pages beside them) the scenario is about; every view of `views.ts` needs one.
 import { createHmac } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { text } from "./harness.mjs";
 import { Key } from "./webdriver.mjs";
@@ -243,10 +244,8 @@ export const scenarios = [
       const { box } = t;
       const auto = `${t.shown("settings")} .keep-awake input[value="auto"]`;
       // The settings open on Claude: the keep-awake choice has its own section.
-      const sections = `${t.shown("settings")} .sections .item`;
       const awake = async () => {
-        const at = await t.s.exec((css, label) => [...document.querySelectorAll(css)].findIndex((b) => b.textContent.trim() === label), sections, text("en", "keepAwake"));
-        await t.s.click(sections, at);
+        await t.s.click(`${t.shown("settings")} [data-testid="section-awake"]`);
         await t.s.waitFor(auto);
       };
       await t.ready();
@@ -522,6 +521,75 @@ export const scenarios = [
       });
       check(/claude \["-p","--input-format","stream-json"/.test(read(box.calls)), "the CTO is not a headless session");
       await t.settled("home");
+      await t.clean();
+    },
+  },
+  {
+    name: "Ops: an SSH connection added to the project, kept in its config",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("ops");
+      await t.ready();
+      await t.project();
+      await t.view("ops");
+      await s.click(`${pane} .btn.primary`);
+      await s.type(`${pane} form.form input.field`, "acme-staging", 0);
+      await s.type(`${pane} form.form input.field`, "staging.acme.test", 1);
+      await s.click(`${pane} form.form button[type=submit]:not([disabled])`);
+      await s.waitGone(`${pane} form.form`);
+      await s.wait(async () => (await s.text(`${pane}`))?.includes("acme-staging"), { what: "the connection in the list" });
+      const saved = read(join(box.configDir, "projects", "acme.toml"));
+      check(saved.includes("acme-staging") && saved.includes("staging.acme.test"), `the connection is not in acme.toml:\n${saved}`);
+      await t.clean();
+    },
+  },
+  {
+    name: "updates: a newer release on a fake server is offered, with its notes",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      // The release list as GitHub gives it (fake curl), its latest.json on a local server, as tauri-action makes it.
+      const server = createServer((req, res) => {
+        const url = `http://127.0.0.1:${server.address().port}/termf.tar.gz`;
+        const platforms = Object.fromEntries(
+          ["darwin-aarch64", "darwin-x86_64", "linux-x86_64", "linux-aarch64", "windows-x86_64", "windows-aarch64"].map((p) => [p, { signature: "e2e", url }]),
+        );
+        res.writeHead(req.url === "/latest.json" ? 200 : 404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ version: "9.9.9", notes: "From latest.json", pub_date: "2026-11-21T10:00:00Z", platforms }));
+      });
+      await new Promise((r) => server.listen(0, "127.0.0.1", r));
+      try {
+        const manifest = `http://127.0.0.1:${server.address().port}/latest.json`;
+        writeFileSync(
+          join(box.root, "releases.json"),
+          JSON.stringify([
+            { tag_name: "v9.9.9", draft: false, prerelease: false, body: "Faster terminals in e2e.", assets: [{ name: "latest.json", browser_download_url: manifest }] },
+            { tag_name: "v0.1.0", draft: false, prerelease: true, body: "", assets: [] },
+          ]),
+        );
+        await t.ready();
+        await t.command("release-check");
+        await s.waitFor("#update-title");
+        const shown = await s.text(t.shown("settings"));
+        check(shown.includes("9.9.9") && shown.includes("Faster terminals in e2e."), `the offer does not show the release:\n${shown.slice(0, 600)}`);
+        check(/curl \[.*api\.github\.com\/repos\/vassilidev\/TermF\/releases/.test(read(box.calls)), "the releases were not asked to curl");
+        await t.clean();
+      } finally {
+        server.close();
+      }
+    },
+  },
+  {
+    name: "updates: up to date when no release is newer",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      writeFileSync(join(box.root, "releases.json"), JSON.stringify([{ tag_name: "v0.0.9", draft: false, prerelease: false, assets: [] }]));
+      await t.ready();
+      await t.command("release-check");
+      await s.wait(async () => (await s.text(t.shown("settings")))?.includes(text("en", "releaseUpToDate")), { what: "up to date" });
+      check(!(await s.exec(() => !!document.querySelector("#update-title"))), "an update is offered");
       await t.clean();
     },
   },
