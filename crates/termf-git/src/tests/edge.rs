@@ -16,15 +16,12 @@ fn pick(hunk: usize, lines: &[usize]) -> Pick {
 fn odd_paths_are_listed_diffed_staged_and_blamed() {
     let sb = Sandbox::new("edge-odd paths");
     let repo = sb.clone("dépôt acmé");
-    let names = [
-        "dossier é/fichier à.txt",
-        "-rf",
-        "*.txt",
-        "tab\there.txt",
-        "quote\"d.txt",
-        "日本語.md",
-    ];
-    for name in names {
+    let mut names = vec!["dossier é/fichier à.txt", "-rf", "日本語.md"];
+    // Not valid file names on Windows.
+    if cfg!(unix) {
+        names.extend(["*.txt", "tab\there.txt", "quote\"d.txt"]);
+    }
+    for &name in &names {
         if let Some(dir) = std::path::Path::new(name).parent() {
             fs::create_dir_all(repo.join(dir)).unwrap();
         }
@@ -41,11 +38,11 @@ fn odd_paths_are_listed_diffed_staged_and_blamed() {
         .map(|c| c.path.as_str())
         .collect();
     listed.sort();
-    let mut expected = names.to_vec();
+    let mut expected = names.clone();
     expected.sort();
     assert_eq!(listed, expected);
 
-    for name in names {
+    for &name in &names {
         let diff = sb.git.diff(&repo, name, None, false).unwrap();
         assert_eq!(diff.path, name);
         assert_eq!(diff.hunks.len(), 1, "{name}: {diff:?}");
@@ -65,12 +62,14 @@ fn odd_paths_are_listed_diffed_staged_and_blamed() {
         assert_eq!(history.commits.len(), 1, "{name}: {history:?}");
     }
     // `*.txt` staged alone: a pathspec would have taken every .txt file.
-    sb.git.stage(&repo, "*.txt", None, None).unwrap();
-    let staged = sb
-        .git
-        .diff(&repo, "dossier é/fichier à.txt", None, true)
-        .unwrap();
-    assert_eq!(staged.added, 1);
+    if cfg!(unix) {
+        sb.git.stage(&repo, "*.txt", None, None).unwrap();
+        let staged = sb
+            .git
+            .diff(&repo, "dossier é/fichier à.txt", None, true)
+            .unwrap();
+        assert_eq!(staged.added, 1);
+    }
 }
 
 #[test]
