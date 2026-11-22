@@ -42,17 +42,19 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
             println!("The vault is ready. termf vault unlock opens it in TermF.");
         }
         ["unlock"] => {
+            let mut client = app()?;
             let password = prompt("Master password: ")?;
-            app(VaultCall::Unlock {
+            print_status(&client.call(Call::Vault(VaultCall::Unlock {
                 password: password.expose().into(),
-            })?;
+            }))?);
         }
-        ["lock"] => app(VaultCall::Lock)?,
-        ["status"] if vault.initialized() => {
-            if let Err(e) = app(VaultCall::Status) {
-                println!("vault       locked in TermF ({e})");
-            }
-        }
+        ["lock"] => print_status(&app()?.call(Call::Vault(VaultCall::Lock))?),
+        ["status"] if vault.initialized() => match Client::connect(None) {
+            Ok(mut client) => print_status(&client.call(Call::Vault(VaultCall::Status))?),
+            Err(e) => println!(
+                "TermF       not reachable ({e:#}); the other vault commands ask for the master password themselves"
+            ),
+        },
         ["status"] => println!("No vault yet: termf vault init creates one."),
         ["ls"] => {
             open(&vault, &actor)?;
@@ -117,14 +119,11 @@ fn open(vault: &Vault, actor: &Actor) -> Result<()> {
     Ok(())
 }
 
-fn app(call: VaultCall) -> Result<()> {
-    let status = Client::connect(None)
-        .context(
-            "TermF is not running; the other vault commands ask for the master password themselves",
-        )?
-        .call(Call::Vault(call))?;
-    print_status(&status);
-    Ok(())
+/// TermF, before asking anything: its vault session is the one these commands act on.
+fn app() -> Result<Client> {
+    Client::connect(None).context(
+        "TermF is not reachable; the other vault commands ask for the master password themselves",
+    )
 }
 
 fn print_status(status: &Value) {

@@ -112,14 +112,40 @@ pub fn write_plugin(dir: &Path, termf: &Path, guard: bool) -> Result<()> {
 }
 
 /// Denied to every Claude Code session TermF starts (ARCHITECTURE §12.2): secret files under its folder and
-/// dumps of its environment. Deny rules of every settings scope add up, so the user's own still hold.
+/// dumps of its environment. Defense in depth, not a guarantee: a rule does not see a program called by its
+/// path elsewhere, inside `sh -c`, or a script the agent writes. Deny rules of every settings scope add up, so
+/// the user's own still hold.
 pub const SECRET_DENY: &[&str] = &[
     "Read(**/.env*)",
     "Read(**/*.pem)",
     "Read(**/id_*)",
-    "Bash(*printenv*)",
+    "Read(//proc/**/environ)",
+    "Bash(printenv)",
+    "Bash(printenv *)",
+    "Bash(*/printenv*)",
     "Bash(env)",
+    "Bash(env *)",
+    "Bash(export)",
+    "Bash(export -p*)",
+    "Bash(set)",
+    "Bash(declare -p*)",
+    "Bash(declare -x*)",
+    "Bash(cat *.env*)",
 ];
+
+/// Settings holding only [`SECRET_DENY`], for a session without TermF's hooks. The same for every session, so
+/// one file, replaced whole.
+pub fn write_deny_settings(dir: &Path) -> Result<PathBuf> {
+    fs::create_dir_all(dir)?;
+    let file = dir.join("claude-deny.json");
+    let tmp = dir.join(format!(".claude-deny.{}.tmp", std::process::id()));
+    fs::write(
+        &tmp,
+        serde_json::to_string_pretty(&json!({ "permissions": { "deny": SECRET_DENY } }))?,
+    )?;
+    fs::rename(&tmp, &file)?;
+    Ok(file)
+}
 
 /// Adds `more` to session settings: objects merged key by key, lists joined, as Claude Code merges its scopes.
 pub fn merge_settings(base: &mut Value, more: &Value) {
@@ -253,10 +279,23 @@ mod tests {
             &root.join("home"),
         )
         .unwrap();
-        let mut settings: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
-        assert_eq!(
-            settings["permissions"],
-            json!({"deny": ["Read(**/.env*)", "Read(**/*.pem)", "Read(**/id_*)", "Bash(*printenv*)", "Bash(env)"]})
+        let read = |file: PathBuf| -> Value {
+            serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap()
+        };
+        let mut settings = read(file);
+        let denied = settings["permissions"]["deny"].clone();
+        assert_eq!(denied, json!(SECRET_DENY));
+        for rule in [
+            "Read(**/.env*)",
+            "Read(**/*.pem)",
+            "Read(**/id_*)",
+            "Bash(env)",
+        ] {
+            assert!(denied.as_array().unwrap().contains(&json!(rule)), "{rule}");
+        }
+        assert!(
+            !SECRET_DENY.iter().any(|r| r.contains("*printenv*")),
+            "`grep -r printenv src/` stays allowed"
         );
         assert!(settings["statusLine"]["command"].is_string());
 
@@ -264,11 +303,20 @@ mod tests {
             &mut settings,
             &json!({"permissions": {"deny": ["Bash", "Edit"], "defaultMode": "plan"}, "model": "haiku"}),
         );
-        assert_eq!(settings["permissions"]["deny"].as_array().unwrap().len(), 7);
-        assert_eq!(settings["permissions"]["deny"][5], "Bash");
+        let deny = settings["permissions"]["deny"].as_array().unwrap();
+        assert_eq!(deny.len(), SECRET_DENY.len() + 2);
+        assert_eq!(deny[SECRET_DENY.len()], "Bash");
         assert_eq!(settings["permissions"]["defaultMode"], "plan");
         assert_eq!(settings["model"], "haiku");
         assert!(settings["statusLine"]["command"].is_string());
+
+        let alone = read(write_deny_settings(&root.join("data")).unwrap());
+        assert_eq!(alone, json!({"permissions": {"deny": SECRET_DENY}}));
+        assert_eq!(
+            fs::read_dir(root.join("data")).unwrap().count(),
+            1,
+            "no temporary file left"
+        );
         fs::remove_dir_all(&root).unwrap();
     }
 

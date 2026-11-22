@@ -280,12 +280,7 @@ pub fn run() {
                 config_dir.clone(),
                 data_dir.clone(),
             ));
-            app.manage(vault::start(
-                app.handle(),
-                config_dir.clone(),
-                &data_dir,
-                settings.vault.auto_lock_minutes,
-            ));
+            app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
             app.manage(AppState {
                 config_dir,
                 sessions: api.sessions(app.handle().clone()),

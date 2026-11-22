@@ -33,8 +33,10 @@ impl Masker {
     /// Also a value known only while it is used, such as a resolved reference.
     pub fn add(&mut self, value: &Secret) {
         let value = value.expose();
-        // A value on several lines (a PEM key) also hides each of its lines.
-        for v in std::iter::once(value).chain(value.lines().map(str::trim)) {
+        // A value on several lines (a PEM key) also hides those of its lines that hold key material, never
+        // its armor nor a JSON file's ordinary lines.
+        let lines = value.lines().map(str::trim).filter(|l| key_material(l));
+        for v in std::iter::once(value).chain(lines) {
             if v.len() >= MIN && !self.values.iter().any(|known| known.expose() == v) {
                 self.values.push(Secret::new(v.into()));
             }
@@ -58,4 +60,15 @@ impl Masker {
         count += text.matches(MASK).count().saturating_sub(before);
         Masked { text, count }
     }
+}
+
+/// A long run of base64 or random-looking characters, letters and digits mixed: a PEM body line, a token.
+fn key_material(line: &str) -> bool {
+    line.len() >= 16
+        && !line.starts_with("-----")
+        && line
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+/=_-.".contains(c))
+        && line.chars().any(|c| c.is_ascii_digit())
+        && line.chars().any(|c| c.is_ascii_alphabetic())
 }

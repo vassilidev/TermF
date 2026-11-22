@@ -26,22 +26,33 @@ pub struct VaultState {
     config_dir: PathBuf,
 }
 
-pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path, minutes: u32) -> VaultState {
+pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultState {
     termf_vault::harden_process();
+    let told = app.clone();
     let vault = Vault::new(
         data_dir,
         Box::new(OsKeyStore(KEYCHAIN)),
         Box::new(SystemClock::default()),
-    );
-    let _ = vault.set_auto_lock(minutes);
+    )
+    .on_lock(move |status| {
+        let _ = told.emit("vault-status", status);
+    });
     let vault = Arc::new(vault);
-    let (app, background) = (app.clone(), vault.clone());
+    let (background, config) = (vault.clone(), config_dir.clone());
     std::thread::spawn(move || {
+        // `[vault]` changes by hand or through the sync too: applied whenever termf.toml does.
+        let mut seen = None;
         loop {
-            std::thread::sleep(TICK);
-            if background.check() {
-                emit(&app, &background);
+            let file = config.join("termf.toml");
+            let modified = fs::metadata(&file).and_then(|m| m.modified()).ok();
+            if modified != seen {
+                seen = modified;
+                if let Ok(settings) = termf_core::load_settings(&config) {
+                    let _ = background.set_auto_lock(settings.vault.auto_lock_minutes);
+                }
             }
+            background.check();
+            std::thread::sleep(TICK);
         }
     });
     VaultState { vault, config_dir }

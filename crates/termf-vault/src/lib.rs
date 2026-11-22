@@ -439,12 +439,15 @@ pub struct Vault {
     data_dir: PathBuf,
     store: Box<dyn KeyStore>,
     clock: Box<dyn Clock>,
-    /// `PATH` for the external managers' CLIs; `None`: the login shell's, which an app opened from the Finder
-    /// or a desktop menu lacks.
+    /// `PATH` for the external managers' CLIs, which keep this process's environment; `None`: the login shell's
+    /// `PATH` and the variables each manager needs, which an app opened from the Finder or a desktop menu lacks.
     path: Option<OsString>,
     auto_lock: AtomicU64,
     session: Mutex<Option<Session>>,
+    on_lock: Option<Told>,
 }
+
+type Told = Box<dyn Fn(&Status) + Send + Sync>;
 
 impl Vault {
     /// `store`: `termf_sync::OsKeyStore(KEYCHAIN)`, the system keychain.
@@ -457,11 +460,18 @@ impl Vault {
             path: None,
             auto_lock: AtomicU64::new(u64::from(DEFAULT_AUTO_LOCK_MINUTES) * 60),
             session: Mutex::new(None),
+            on_lock: None,
         }
     }
 
     pub fn with_path(mut self, path: Option<OsString>) -> Self {
         self.path = path;
+        self
+    }
+
+    /// Told when the vault locks itself (idle, sleep), whatever call noticed it first.
+    pub fn on_lock(mut self, told: impl Fn(&Status) + Send + Sync + 'static) -> Self {
+        self.on_lock = Some(Box::new(told));
         self
     }
 
@@ -583,16 +593,23 @@ impl Vault {
         };
         *session = None;
         drop(session);
+        // Locked whatever happens to its entry: a lock is never refused.
         let _ = self.record(Event {
             detail: Some(reason.into()),
             ..Event::new(&Actor::termf(), Action::Lock)
         });
+        if let (Some(told), Ok(status)) = (&self.on_lock, self.status()) {
+            told(&status);
+        }
         true
     }
 
     fn start(&self, id: &str, key: &Key, typed: bool) {
         let now = self.now();
-        *self.session.lock().unwrap() = Some(Session {
+        let mut session = self.session.lock().unwrap();
+        // The old key unlocks its memory page when dropped, which may be the new one's: gone first.
+        *session = None;
+        *session = Some(Session {
             id: id.into(),
             key: LockedKey::new(key),
             last: now,
@@ -635,8 +652,13 @@ impl Vault {
         file.seal(&data_key, &Content::default())?;
         file.remembered = remember && self.store.set(&file.id, kek.as_ref()).is_ok();
         self.write(&file)?;
+        // No entry, no vault.
+        if let Err(e) = self.record(Event::new(actor, Action::Init)) {
+            let _ = fs::remove_file(self.dir.join(FILE));
+            let _ = self.store.delete(&file.id);
+            return Err(e);
+        }
         self.start(&file.id, &data_key, true);
-        self.record(Event::new(actor, Action::Init))?;
         self.status()
     }
 
@@ -670,6 +692,10 @@ impl Vault {
             bail!("wrong master password");
         };
         file.open(&data_key)?;
+        self.record(Event {
+            detail: password.is_none().then(|| "keychain".into()),
+            ..Event::new(actor, Action::Unlock)
+        })?;
         if let Some(remember) = remember {
             let _lock = self.exclusive()?;
             let mut file = self.read()?;
@@ -682,16 +708,13 @@ impl Vault {
             self.write(&file)?;
         }
         self.start(&file.id, &data_key, password.is_some());
-        self.record(Event {
-            detail: password.is_none().then(|| "keychain".into()),
-            ..Event::new(actor, Action::Unlock)
-        })?;
         self.status()
     }
 
+    /// Never refused: locked even when its audit entry cannot be written.
     pub fn lock(&self, actor: &Actor) -> Result<Status> {
         if self.session.lock().unwrap().take().is_some() {
-            self.record(Event::new(actor, Action::Lock))?;
+            let _ = self.record(Event::new(actor, Action::Lock));
         }
         self.status()
     }
@@ -710,10 +733,10 @@ impl Vault {
             let _ = self.record(Event::new(actor, Action::ReauthFailed));
             bail!("wrong master password");
         }
+        self.record(Event::new(actor, Action::Reauth))?;
         if let Some(session) = self.session.lock().unwrap().as_mut() {
             session.prod = Some(self.now());
         }
-        self.record(Event::new(actor, Action::Reauth))?;
         self.status()
     }
 
@@ -747,7 +770,8 @@ impl Vault {
         file.open(&key)
     }
 
-    fn modify<T>(&self, change: impl FnOnce(&mut Content) -> Result<T>) -> Result<T> {
+    /// `event` is recorded once the change is made and before it is written: no entry, no change.
+    fn modify<T>(&self, event: Event, change: impl FnOnce(&mut Content) -> Result<T>) -> Result<T> {
         let (id, key) = self.key()?;
         let _lock = self.exclusive()?;
         let mut file = self.read()?;
@@ -755,6 +779,7 @@ impl Vault {
         let mut content = file.open(&key)?;
         let out = change(&mut content)?;
         file.seal(&key, &content)?;
+        self.record(event)?;
         self.write(&file)?;
         Ok(out)
     }
@@ -785,14 +810,12 @@ impl Vault {
         ensure!(!value.is_empty(), "the value is empty");
         ensure!(value.len() <= MAX_VALUE, "the value is longer than 64 KiB");
         self.prod_gate(actor, id)?;
-        let size = value.len() as u64;
-        let info = self.put(id, description, Some(value), None)?;
-        self.record(Event {
+        let event = Event {
             target: Some(id.clone()),
-            size: Some(size),
+            size: Some(value.len() as u64),
             ..Event::new(actor, Action::Write)
-        })?;
-        Ok(info)
+        };
+        self.put(id, description, Some(value), None, event)
     }
 
     /// Creates or replaces a reference to an external manager, checked but not resolved.
@@ -806,13 +829,12 @@ impl Vault {
         id.check()?;
         reference::check(uri)?;
         self.prod_gate(actor, id)?;
-        let info = self.put(id, description, None, Some(uri.into()))?;
-        self.record(Event {
+        let event = Event {
             target: Some(id.clone()),
             detail: Some(uri.into()),
             ..Event::new(actor, Action::Reference)
-        })?;
-        Ok(info)
+        };
+        self.put(id, description, None, Some(uri.into()), event)
     }
 
     fn put(
@@ -821,9 +843,10 @@ impl Vault {
         description: Option<&str>,
         value: Option<Secret>,
         reference: Option<String>,
+        event: Event,
     ) -> Result<SecretInfo> {
         let now = self.clock.wall();
-        self.modify(|content| {
+        self.modify(event, |content| {
             let i = match content.secrets.iter().position(|s| s.is(id)) {
                 Some(i) => i,
                 None => {
@@ -853,17 +876,16 @@ impl Vault {
 
     pub fn delete(&self, actor: &Actor, id: &SecretId) -> Result<()> {
         self.prod_gate(actor, id)?;
-        self.modify(|content| {
+        let event = Event {
+            target: Some(id.clone()),
+            ..Event::new(actor, Action::Delete)
+        };
+        self.modify(event, |content| {
             let before = content.secrets.len();
             content.secrets.retain(|s| !s.is(id));
             ensure!(content.secrets.len() < before, "no secret {id}");
             Ok(())
-        })?;
-        self.record(Event {
-            target: Some(id.clone()),
-            ..Event::new(actor, Action::Delete)
-        })?;
-        Ok(())
+        })
     }
 
     /// A secret's value, or what its reference resolves to. Audited before it is returned: no entry, no value.
@@ -891,12 +913,7 @@ impl Vault {
             (Some(value), _) if access == Access::Reveal => (value, Action::Reveal, None),
             (Some(value), _) => (value, Action::Read, None),
             (None, Some(uri)) => (
-                reference::resolve(
-                    uri,
-                    self.path
-                        .as_deref()
-                        .or_else(|| termf_core::shell::login_path()),
-                )?,
+                reference::resolve(uri, self.path.as_deref())?,
                 Action::Resolve,
                 Some(format!("{use_} {uri}")),
             ),

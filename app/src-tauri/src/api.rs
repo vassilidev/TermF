@@ -628,6 +628,14 @@ fn launch(
                 ));
             }
         }
+        // Without TermF's hooks (no local API, no termf CLI), the secret files stay denied all the same.
+        if is_claude && hooks.is_none() {
+            let settings = claude::write_deny_settings(&termf_core::default_data_dir()?)?;
+            extra.push(format!(
+                "--settings {}",
+                shell_quote(&settings.to_string_lossy())
+            ));
+        }
         if remote_control {
             extra.push(format!("--remote-control {}", shell_quote(&title)));
         }

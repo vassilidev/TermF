@@ -4,6 +4,7 @@
 use std::ffi::OsStr;
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -15,7 +16,9 @@ use zeroize::Zeroizing;
 use crate::{MAX_VALUE, Secret};
 
 /// Long enough to approve a 1Password or Bitwarden unlock prompt.
-const TIMEOUT: Duration = Duration::from_secs(120);
+const TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 3 } else { 120 });
+/// How long the output may take to end once the CLI has.
+const GRACE: Duration = Duration::from_secs(1);
 const FORMS: &str = "a reference is op://vault/item[/section]/field, bw://item[/password|username|notes|totp|uri], \
      doppler://project/config/NAME, aws-sm://secret-id or vault://path#field";
 
@@ -81,7 +84,64 @@ pub fn check(uri: &str) -> Result<()> {
     command(uri).map(drop)
 }
 
-/// Runs the manager's CLI. Its output stays in memory (never in a file), and is wiped once read.
+/// What each manager's CLI reads from its environment, which an app opened from the Dock or a desktop menu
+/// lacks: only these come from the login shell, never the whole environment.
+fn variables(program: &str) -> &'static [&'static str] {
+    match program {
+        "op" => &[
+            "OP_ACCOUNT",
+            "OP_SERVICE_ACCOUNT_TOKEN",
+            "OP_CONNECT_HOST",
+            "OP_CONNECT_TOKEN",
+            "OP_CONFIG_DIR",
+        ],
+        "bw" => &["BW_SESSION", "BITWARDENCLI_APPDATA_DIR"],
+        "doppler" => &["DOPPLER_TOKEN", "DOPPLER_CONFIG_DIR"],
+        "aws" => &[
+            "AWS_PROFILE",
+            "AWS_REGION",
+            "AWS_DEFAULT_REGION",
+            "AWS_CONFIG_FILE",
+            "AWS_SHARED_CREDENTIALS_FILE",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+        ],
+        "vault" => &[
+            "VAULT_ADDR",
+            "VAULT_TOKEN",
+            "VAULT_NAMESPACE",
+            "VAULT_CACERT",
+        ],
+        _ => &[],
+    }
+}
+
+type Shared = Arc<Mutex<Zeroizing<Vec<u8>>>>;
+
+/// Reads `from` in the background, `limit` bytes and one more at most, into a buffer sized up front (no copy
+/// left behind in a freed one) and wiped once dropped. The receiver hears when it reached the end.
+fn drain(mut from: impl Read + Send + 'static, limit: usize) -> (Shared, mpsc::Receiver<()>) {
+    let buf: Shared = Arc::new(Mutex::new(Zeroizing::new(Vec::with_capacity(limit + 1))));
+    let (done, ended) = mpsc::channel();
+    let shared = buf.clone();
+    thread::spawn(move || {
+        let mut chunk = Zeroizing::new([0u8; 4096]);
+        while let Ok(n @ 1..) = from.read(chunk.as_mut()) {
+            let mut buf = shared.lock().unwrap();
+            let room = (limit + 1).saturating_sub(buf.len());
+            buf.extend_from_slice(&chunk[..n.min(room)]);
+            if n > room {
+                break;
+            }
+        }
+        let _ = done.send(());
+    });
+    (buf, ended)
+}
+
+/// Runs the manager's CLI, within one deadline for it and its output. The output stays in memory (never in a
+/// file) and is wiped once read. `path`: `None` takes the login shell's `PATH` and the manager's variables.
 pub(crate) fn resolve(uri: &str, path: Option<&OsStr>) -> Result<Secret> {
     let (program, args) = command(uri)?;
     let mut cmd = Command::new(program);
@@ -89,26 +149,28 @@ pub(crate) fn resolve(uri: &str, path: Option<&OsStr>) -> Result<Secret> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(path) = path {
-        cmd.env("PATH", path);
+    match path {
+        Some(path) => {
+            cmd.env("PATH", path);
+        }
+        None => {
+            if let Some(path) = termf_core::shell::login_path() {
+                cmd.env("PATH", path);
+            }
+            let missing: Vec<&str> = variables(program)
+                .iter()
+                .copied()
+                .filter(|name| std::env::var_os(name).is_none())
+                .collect();
+            cmd.envs(termf_core::shell::login_vars(&missing));
+        }
     }
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => anyhow!("{program} is not installed or not on the PATH"),
         _ => anyhow!("cannot run {program}: {e}"),
     })?;
-    let stdout = child.stdout.take().expect("piped");
-    let stderr = child.stderr.take().expect("piped");
-    let out = thread::spawn(move || {
-        // Sized up front, so reading never leaves a copy behind in a freed buffer.
-        let mut buf = Zeroizing::new(Vec::with_capacity(MAX_VALUE + 64));
-        let _ = stdout.take(MAX_VALUE as u64 + 1).read_to_end(&mut buf);
-        buf
-    });
-    let err = thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stderr.take(64 << 10).read_to_end(&mut buf);
-        buf
-    });
+    let (out, out_done) = drain(child.stdout.take().expect("piped"), MAX_VALUE);
+    let (err, err_done) = drain(child.stderr.take().expect("piped"), 64 << 10);
     let deadline = Instant::now() + TIMEOUT;
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -121,8 +183,13 @@ pub(crate) fn resolve(uri: &str, path: Option<&OsStr>) -> Result<Secret> {
         }
         thread::sleep(Duration::from_millis(50));
     };
-    let out = out.join().unwrap_or_default();
-    let err = err.join().unwrap_or_default();
+    // A helper it left running (an agent caching the session) may keep the pipes open: what the CLI printed
+    // before it ended is read by then.
+    for done in [&out_done, &err_done] {
+        let _ = done.recv_timeout(GRACE.min(deadline.saturating_duration_since(Instant::now())));
+    }
+    let out = std::mem::take(&mut *out.lock().unwrap());
+    let err = std::mem::take(&mut *err.lock().unwrap());
     if !status.success() {
         let why = mask_text(&tail(&String::from_utf8_lossy(&err)));
         bail!("{program} could not read {uri} ({status}): {why}");
@@ -188,5 +255,22 @@ mod tests {
         ] {
             assert!(check(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn names_the_variables_each_manager_needs() {
+        for (uri, needed) in [
+            ("op://a/b/c", "OP_SERVICE_ACCOUNT_TOKEN"),
+            ("bw://item", "BW_SESSION"),
+            ("doppler://p/c/N", "DOPPLER_TOKEN"),
+            ("aws-sm://id", "AWS_PROFILE"),
+            ("aws-sm://id", "AWS_REGION"),
+            ("vault://p#f", "VAULT_ADDR"),
+            ("vault://p#f", "VAULT_TOKEN"),
+        ] {
+            let (program, _) = command(uri).unwrap();
+            assert!(variables(program).contains(&needed), "{uri}: {needed}");
+        }
+        assert!(variables("sh").is_empty());
     }
 }

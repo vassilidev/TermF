@@ -464,11 +464,13 @@ fn masks_the_values_it_knows_then_what_looks_like_a_secret() {
     let vault = env.vault();
     vault.init(&human(), PASSWORD, false).unwrap();
     let pem = "-----BEGIN KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END KEY-----";
+    let account = "{\n  \"type\": \"service_account\",\n  \"project_id\": \"acme\",\n  \"private_key_id\": \"0a1b2c3d4e5f60718293a4b5c6d7e8f9\"\n}";
     for (name, value) in [
         ("DB", VALUE),
         ("PIN", "123"),
         ("KEY", pem),
         ("WORD", "acme-prod"),
+        ("ACCOUNT", account),
     ] {
         vault
             .set(
@@ -492,6 +494,12 @@ fn masks_the_values_it_knows_then_what_looks_like_a_secret() {
         )
     );
     assert_eq!(masked.count, 4);
+    let ordinary = "-----BEGIN KEY-----\n  \"type\": \"service_account\",\n}";
+    assert_eq!(
+        masker.mask(ordinary).text,
+        ordinary,
+        "the armor and a JSON file's ordinary lines stay visible"
+    );
     masker.add(&Secret::new("resolved-from-op".into()));
     assert_eq!(masker.mask("x resolved-from-op").count, 1);
 }
@@ -566,6 +574,8 @@ fn resolves_references_with_the_managers_cli_and_never_keeps_the_value() {
         format!(
             "#!/bin/sh\necho \"$@\" >> '{}'\n\
              if [ \"$2\" = op://acme/db/password ]; then printf 'from-op-0123456789\\n'; exit 0; fi\n\
+             if [ \"$2\" = op://acme/agent/password ]; then /bin/sleep 30 & printf 'kept-open-0123456789\\n'; exit 0; fi\n\
+             if [ \"$2\" = op://acme/hang/password ]; then exec /bin/sleep 30; fi\n\
              echo \"[ERROR] not found, token=ghp_0123456789abcdefghij0123456789abcd\" >&2; exit 1\n",
             log.display()
         ),
@@ -633,6 +643,115 @@ fn resolves_references_with_the_managers_cli_and_never_keeps_the_value() {
         .unwrap();
     let err = vault.value(&human(), &bw, Access::Use).unwrap_err();
     assert_eq!(err.to_string(), "bw is not installed or not on the PATH");
+
+    // A helper left running with the output pipe open, then a CLI that never ends: one deadline for both.
+    let kept = id("KEPT", Scope::Dev);
+    vault
+        .set_reference(&human(), &kept, "op://acme/agent/password", None)
+        .unwrap();
+    let start = std::time::Instant::now();
+    assert_eq!(
+        vault.value(&human(), &kept, Access::Use).unwrap().expose(),
+        "kept-open-0123456789"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        start.elapsed()
+    );
+    let hang = id("HANG", Scope::Dev);
+    vault
+        .set_reference(&human(), &hang, "op://acme/hang/password", None)
+        .unwrap();
+    let start = std::time::Instant::now();
+    let err = vault.value(&human(), &hang, Access::Use).unwrap_err();
+    assert_eq!(err.to_string(), "op did not answer within 3 s");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
+fn records_before_it_changes_anything_and_always_locks() {
+    let env = Env::new("audit-first");
+    // The audit cannot be written: a folder where the database goes.
+    fs::create_dir_all(env.data().join("termf.db")).unwrap();
+    let vault = env.vault();
+    assert!(vault.init(&human(), PASSWORD, true).is_err());
+    assert!(!vault.initialized(), "no entry, no vault");
+    assert!(env.store.0.lock().unwrap().is_empty());
+    fs::remove_dir(env.data().join("termf.db")).unwrap();
+
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let dev = id("TOKEN", Scope::Dev);
+    vault
+        .set(&human(), &dev, Secret::new(VALUE.into()), None)
+        .unwrap();
+    let saved = env.root.join("saved");
+    fs::create_dir_all(&saved).unwrap();
+    let break_audit = || {
+        for suffix in ["", "-wal", "-shm"] {
+            let file = env.data().join(format!("termf.db{suffix}"));
+            if file.exists() {
+                fs::rename(&file, saved.join(format!("termf.db{suffix}"))).unwrap();
+            }
+        }
+        fs::create_dir_all(env.data().join("termf.db")).unwrap();
+    };
+    let mend_audit = || {
+        fs::remove_dir(env.data().join("termf.db")).unwrap();
+        for entry in fs::read_dir(&saved).unwrap() {
+            let entry = entry.unwrap();
+            fs::rename(entry.path(), env.data().join(entry.file_name())).unwrap();
+        }
+    };
+    break_audit();
+    assert!(
+        vault
+            .set(&human(), &dev, Secret::new("other-value".into()), None)
+            .is_err()
+    );
+    assert!(vault.delete(&human(), &dev).is_err());
+    assert!(vault.value(&human(), &dev, Access::Reveal).is_err());
+    assert!(
+        !vault.lock(&human()).unwrap().unlocked,
+        "locked all the same"
+    );
+    assert!(vault.unlock(&human(), Some(PASSWORD), None).is_err());
+    assert!(!vault.status().unwrap().unlocked, "no entry, no unlock");
+    mend_audit();
+
+    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    assert_eq!(
+        vault
+            .value(&human(), &dev, Access::Reveal)
+            .unwrap()
+            .expose(),
+        VALUE,
+        "unchanged, not deleted"
+    );
+    assert!(vault.verify().unwrap().ok);
+}
+
+#[test]
+fn tells_when_it_locks_itself() {
+    let env = Env::new("on-lock");
+    let told = Arc::new(Mutex::new(Vec::new()));
+    let seen = told.clone();
+    let vault = env
+        .vault()
+        .on_lock(move |status| seen.lock().unwrap().push(status.unlocked));
+    vault.init(&human(), PASSWORD, false).unwrap();
+    vault.lock(&human()).unwrap();
+    assert!(told.lock().unwrap().is_empty(), "not when asked to");
+    vault.unlock(&human(), Some(PASSWORD), None).unwrap();
+    env.clock.awake(11 * 60);
+    assert!(vault.list(None, None).is_err());
+    assert_eq!(*told.lock().unwrap(), [false], "a command noticed it first");
+    assert!(!vault.check());
+    assert_eq!(told.lock().unwrap().len(), 1);
 }
 
 #[cfg(unix)]
