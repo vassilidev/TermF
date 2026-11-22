@@ -1,12 +1,12 @@
 ---
 name: python
 description: >-
-  Writes, changes and checks Python code the way the project's Python version and tools expect: modules
-  and packages, pyproject.toml and dependencies with uv, poetry or pip, typing, ruff lint and format, type
-  checking, asyncio, scripts and command-line tools, moves to a newer Python version. Use when a task
-  touches Python code, .py files, pyproject.toml, uv.lock, poetry.lock, requirements files or
-  .python-version. Not for writing tests (the pytest skill) and not for
-  Django or FastAPI specifics, which their own skills cover.
+  Writes, changes and checks Python code the way the project's Python version and tools expect: modules and
+  packages, pyproject.toml and dependencies with uv, poetry or pip, typing, ruff lint and format, type checking,
+  asyncio, scripts and command-line tools, moves to a newer Python version. Use it before answering whenever a
+  task or a question is about Python code or its tools: .py files, pyproject.toml, uv.lock, poetry.lock,
+  requirements files, .python-version, or the uv, pip, ruff and type checker commands. Not for writing tests
+  (the pytest skill) and not for Django or FastAPI specifics, which their own skills cover.
 paths: "**/*.py, **/pyproject.toml, **/uv.lock, **/poetry.lock, **/requirements*.txt, **/.python-version"
 license: MIT
 metadata:
