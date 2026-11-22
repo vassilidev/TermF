@@ -325,7 +325,7 @@ fn logs_tail_runs_through_ssh_masked_and_the_injection_stays_text() {
     let plan = crate::plan(
         &recipe("logs-tail"),
         &conn,
-        &[conn.clone()],
+        std::slice::from_ref(&conn),
         &params(&[("grep", &grep), ("unit", "api.service")]),
     )
     .unwrap();
@@ -440,7 +440,7 @@ args = ["sleep", "30"]
         "project",
     )
     .unwrap();
-    let plan = crate::plan(&slow, &conn, &[conn.clone()], &BTreeMap::new()).unwrap();
+    let plan = crate::plan(&slow, &conn, std::slice::from_ref(&conn), &BTreeMap::new()).unwrap();
     let started = std::time::Instant::now();
     let raw = env.runner().run(&plan, &|_| unreachable!()).unwrap();
     assert!(started.elapsed() < Duration::from_secs(10));
@@ -464,7 +464,7 @@ args = ["yes", "a line of output"]
         "project",
     )
     .unwrap();
-    let plan = crate::plan(&big, &conn, &[conn.clone()], &BTreeMap::new()).unwrap();
+    let plan = crate::plan(&big, &conn, std::slice::from_ref(&conn), &BTreeMap::new()).unwrap();
     let raw = env.runner().run(&plan, &|_| unreachable!()).unwrap();
     assert!(
         raw.stopped
@@ -608,7 +608,7 @@ url = "https://loki.acme.test"
     );
     let checks = env
         .runner()
-        .test(&loki, &[loki.clone()], &|_| unreachable!())
+        .test(&loki, std::slice::from_ref(&loki), &|_| unreachable!())
         .unwrap();
     assert_eq!(checks.len(), 1);
     assert!(
@@ -618,7 +618,7 @@ url = "https://loki.acme.test"
     let ssh = env.connection(PROD_SSH);
     let checks = env
         .runner()
-        .test(&ssh, &[ssh.clone()], &|_| unreachable!())
+        .test(&ssh, std::slice::from_ref(&ssh), &|_| unreachable!())
         .unwrap();
     let journal = checks.iter().find(|c| c.code == "journal").unwrap();
     assert!(
@@ -628,7 +628,7 @@ url = "https://loki.acme.test"
     env.fake("journalctl", "true");
     let checks = env
         .runner()
-        .test(&ssh, &[ssh.clone()], &|_| unreachable!())
+        .test(&ssh, std::slice::from_ref(&ssh), &|_| unreachable!())
         .unwrap();
     assert!(checks.iter().all(|c| c.ok), "{checks:?}");
     env.fake(
@@ -637,7 +637,7 @@ url = "https://loki.acme.test"
     );
     let checks = env
         .runner()
-        .test(&ssh, &[ssh.clone()], &|_| unreachable!())
+        .test(&ssh, std::slice::from_ref(&ssh), &|_| unreachable!())
         .unwrap();
     let connect = checks.iter().find(|c| c.code == "connect").unwrap();
     assert!(

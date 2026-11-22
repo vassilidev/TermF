@@ -60,11 +60,14 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// A request, and where its answer goes when an agent waits for it.
+type Pending = (Request, Option<mpsc::Sender<bool>>);
+
 /// The requests that wait for the user, and the answers the agents wait for.
 #[derive(Default)]
 pub struct Approvals {
     next: AtomicU64,
-    pending: Mutex<BTreeMap<u64, (Request, Option<mpsc::Sender<bool>>)>>,
+    pending: Mutex<BTreeMap<u64, Pending>>,
 }
 
 impl Approvals {
