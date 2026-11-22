@@ -6,6 +6,7 @@
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleQuestionMark from "@lucide/svelte/icons/circle-question-mark";
   import Eye from "@lucide/svelte/icons/eye";
+  import KeyRound from "@lucide/svelte/icons/key-round";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
@@ -22,6 +23,7 @@
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import OpsRequest from "$lib/OpsRequest.svelte";
+  import AgentEnvRequest from "$lib/AgentEnvRequest.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
@@ -34,6 +36,7 @@
   import { ago, t } from "$lib/i18n";
   import { analyzing, openSetup, setup } from "$lib/onboarding.svelte";
   import { ops } from "$lib/ops.svelte";
+  import { agentEnv } from "$lib/agentenv.svelte";
   import type { Step } from "$lib/onboarding-logic";
   import { newProject } from "$lib/newproject.svelte";
   import { sessionProjects, tallies } from "$lib/project.svelte";
@@ -226,6 +229,10 @@
       const title = t(r.kind === "approve" ? "opsWaitTitle" : "opsWaitPropose", { recipe: r.plan.recipe });
       return { icon: r.kind === "approve" ? ShieldAlert : ServerCog, title, context: `${r.plan.connection} · ${r.plan.env}` };
     }
+    if (w.kind === "secret") {
+      const r = agentEnv.requests.find((x) => x.id === w.id);
+      return { icon: KeyRound, title: r ? t("agentenvWaitTitle", { variable: r.variable }) : "", context: r ? (r.agent.role ?? r.agent.title) : "" };
+    }
     const d = "run" in w ? decisionsOf(null).find((x) => x.run.run === w.run && x.step === w.step) : undefined;
     if (!d) return { icon: BellRing, title: "", context: "" };
     const title = !d.ask
@@ -400,6 +407,9 @@
   {#each placed.rest as key (key)}{@render cards(key)}{/each}
   {#each ops.requests.filter((r) => r.project === project?.id) as r (r.id)}
     <div class="decision"><OpsRequest request={r} primary={main === null} /></div>
+  {/each}
+  {#each agentEnv.requests.filter((r) => r.project === project?.id) as r (r.id)}
+    <div class="decision"><AgentEnvRequest request={r} primary={main === null} /></div>
   {/each}
 {/snippet}
 

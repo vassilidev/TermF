@@ -8,10 +8,12 @@
   import Folder from "@lucide/svelte/icons/folder";
   import FolderSync from "@lucide/svelte/icons/folder-sync";
   import Keyboard from "@lucide/svelte/icons/keyboard";
+  import KeySquare from "@lucide/svelte/icons/key-square";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Search from "@lucide/svelte/icons/search";
   import Workflow from "@lucide/svelte/icons/workflow";
+  import AgentEnvSettings from "$lib/AgentEnvSettings.svelte";
   import ClaudeBinary from "$lib/ClaudeBinary.svelte";
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import ContextReset from "$lib/ContextReset.svelte";
@@ -60,6 +62,12 @@
       label: "claudeViewTitle",
       icon: Bot,
       words: ["claudebinTitle", "claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"],
+    },
+    {
+      id: "agentenv",
+      label: "agentenvSettings",
+      icon: KeySquare,
+      words: ["agentenvSettingsHelp", "agentenvAllow", "agentenvBase", "agentenvAllowHelp"],
     },
     {
       id: "config",
@@ -229,6 +237,8 @@
               {t("claudeRedesignSkipConfirm")}
             </label>
             <p class="help">{t("claudeRedesignSkipConfirmHelp")}</p>
+          {:else if settings.section === "agentenv"}
+            <AgentEnvSettings />
           {:else if settings.section === "config"}
             <h2>{t("settingsConfig")}</h2>
             {#if app.workspace}

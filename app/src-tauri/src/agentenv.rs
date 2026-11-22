@@ -374,7 +374,10 @@ fn settings(config_dir: &Path) -> Settings {
     Settings {
         inherit,
         allow,
-        base: agent_env::BASE.to_vec(),
+        base: match cfg!(windows) {
+            true => [agent_env::BASE, agent_env::WINDOWS].concat(),
+            false => agent_env::BASE.to_vec(),
+        },
         problems,
     }
 }

@@ -16,7 +16,7 @@ use crate::claude::Tool;
 /// What `termf agent-env` keeps beyond the allowlist: `<tool>;<pattern>,<pattern>…`.
 pub const SPEC: &str = "TERMF_AGENT_ENV";
 
-/// Every agent gets these, when TermF has them. Windows' own are there for cmd.exe and Node to start.
+/// Every agent gets these, when TermF has them, and [`WINDOWS`].
 pub const BASE: &[&str] = &[
     "PATH",
     "HOME",
@@ -42,6 +42,10 @@ pub const BASE: &[&str] = &[
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+];
+
+/// What cmd.exe and Node need to start under Windows (names there ignore case).
+pub const WINDOWS: &[&str] = &[
     "SYSTEMROOT",
     "SYSTEMDRIVE",
     "WINDIR",
@@ -349,6 +353,7 @@ pub fn check_variable(name: &str) -> Result<()> {
     );
     let owned = BASE
         .iter()
+        .chain(WINDOWS)
         .chain(Tool::ALL.iter().flat_map(|t| own(*t)))
         .chain(CLOUDS.iter().flat_map(|(_, p)| p.iter()))
         .chain(DENIED);
@@ -368,6 +373,7 @@ impl AgentEnv {
         };
         let listed = BASE
             .iter()
+            .chain(WINDOWS)
             .chain(tool.map_or(&[][..], own))
             .copied()
             .chain(self.allow.iter().map(String::as_str));
