@@ -247,8 +247,7 @@ impl Agents {
         let store = inner.store()?;
         let live = inner.live.lock().unwrap();
         ensure!(
-            live.get(&id)
-                .is_none_or(|e| e.process.is_none() && !e.busy),
+            live.get(&id).is_none_or(|e| e.process.is_none() && !e.busy),
             "a process of this session still runs: it must end first"
         );
         let mut spec = store.session(id)?.spec;

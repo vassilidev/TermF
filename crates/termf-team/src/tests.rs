@@ -2419,7 +2419,9 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     };
     env.team.start(target, options).unwrap();
     let first = env.until("T1's first session", |r| {
-        r.steps.iter().any(|s| s.key == "implement:T1" && s.session.is_some())
+        r.steps
+            .iter()
+            .any(|s| s.key == "implement:T1" && s.session.is_some())
     });
     let session = env.step(&first, "implement:T1").session.unwrap();
     let launched = env.agents.session(session).unwrap().spec;
@@ -2439,7 +2441,11 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     let resumed = env.agents.session(session).unwrap();
     assert!(
         !launched.disallowed_tools.iter().any(|t| t == "WebFetch")
-            && resumed.spec.disallowed_tools.iter().any(|t| t == "WebFetch"),
+            && resumed
+                .spec
+                .disallowed_tools
+                .iter()
+                .any(|t| t == "WebFetch"),
         "{:?}",
         resumed.spec.disallowed_tools
     );
@@ -2542,7 +2548,10 @@ fn a_sensitive_ticket_never_goes_the_short_way() {
         ),
     ] {
         let (env, target) = small_run(name, "direct", hints, ticket);
-        env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+        env.script(
+            "implement:T1",
+            "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+        );
         env.team.start(target, Options::default()).unwrap();
         let run = env.until("the delivery", delivery);
         let routing = run.routing.as_ref().unwrap();
@@ -2555,7 +2564,10 @@ fn a_sensitive_ticket_never_goes_the_short_way() {
             security.paths.is_empty() && !security.sessions.is_empty(),
             "the security review runs"
         );
-        assert!(!env.step(&run, "plan").sessions.is_empty(), "its lead plans it");
+        assert!(
+            !env.step(&run, "plan").sessions.is_empty(),
+            "its lead plans it"
+        );
         let events = env.team.events(1, 0).unwrap();
         let guard = events.iter().find(|e| e.kind == "guard").unwrap();
         assert!(
@@ -2573,7 +2585,12 @@ fn a_sensitive_ticket_never_goes_the_short_way() {
     }
 
     // A small ticket whose task ends up changing a sensitive file gets the security review all the same.
-    let (env, target) = small_run("guard-changed", "direct", &["src/api/a.txt"], "# Export\n\n1. A CSV.");
+    let (env, target) = small_run(
+        "guard-changed",
+        "direct",
+        &["src/api/a.txt"],
+        "# Export\n\n1. A CSV.",
+    );
     env.script(
         "implement:T1",
         "mkdir -p src/api; echo T1 > src/api/a.txt; echo key > src/api/Tokens.txt\n",
@@ -2596,7 +2613,10 @@ fn a_trivial_ticket_is_delivered_on_its_checks() {
         &["src/api/a.txt"],
         "# Rename the export\n\n## Acceptance criteria\n\n1. The file is named a.txt.",
     );
-    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+    );
     env.team.start(target, Options::default()).unwrap();
     let run = env.until("the delivery", delivery);
     assert!(!run.steps.iter().any(|s| s.key == "review"));
@@ -2633,7 +2653,10 @@ fn a_task_is_prepared_off_the_lock_once_a_checkout() {
         "plan.json",
         env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[])])),
     );
-    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+    );
     env.team
         .start(env.target.clone(), options("nogate"))
         .unwrap();
@@ -2703,7 +2726,10 @@ fn auto_checked(name: &str, eslint: &str, tsc: &str) -> Env {
         "plan.json",
         env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[])])),
     );
-    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+    );
     fs::write(
         env.config.join("library/workflows/checked.toml"),
         "extends = \"nogate\"\n[steps.checks]\ntype = \"shell\"\nneeds = [\"implement\"]\nrun = \"{{ repo.checks }}\"\n\
@@ -2719,7 +2745,11 @@ fn an_automatic_check_holds_the_run_only_when_it_passes_on_the_base() {
     // whose generated tsconfig is missing, errors already on main, a typecheck of another version.
     for (name, eslint, tsc) in [
         ("auto-eslint9", "[ ! -f eslint.config.js ]", "false"),
-        ("auto-sveltekit", "false", "[ ! -f .svelte-kit/tsconfig.json ]"),
+        (
+            "auto-sveltekit",
+            "false",
+            "[ ! -f .svelte-kit/tsconfig.json ]",
+        ),
         ("auto-main", "false", "true"),
         ("auto-version", "true", "false"),
     ] {
@@ -2742,7 +2772,11 @@ fn an_automatic_check_holds_the_run_only_when_it_passes_on_the_base() {
     }
 
     // What passes on the base and fails once the task is merged goes back to the task.
-    let env = auto_checked("auto-holds", "false", "[ -f src/api/a.txt ] && [ ! -f src/api/typed ]");
+    let env = auto_checked(
+        "auto-holds",
+        "false",
+        "[ -f src/api/a.txt ] && [ ! -f src/api/typed ]",
+    );
     env.script(
         "implement:T1",
         "mkdir -p src/api; echo T1 > src/api/a.txt; if [ \"$1\" = 2 ]; then touch src/api/typed; fi\n",
@@ -2774,7 +2808,10 @@ fn a_failed_check_the_tasks_do_not_come_before_waits_for_you() {
         "plan.json",
         env.plan(json!([task("T1", "back", &["src/api/a.txt"], &[])])),
     );
-    env.script("implement:T1", "mkdir -p src/api; echo T1 > src/api/a.txt\n");
+    env.script(
+        "implement:T1",
+        "mkdir -p src/api; echo T1 > src/api/a.txt\n",
+    );
     env.team
         .start(env.target.clone(), options("beside"))
         .unwrap();
@@ -2783,7 +2820,10 @@ fn a_failed_check_the_tasks_do_not_come_before_waits_for_you() {
             .iter()
             .any(|s| s.key == "lint" && s.state == StepState::Blocked)
     });
-    assert!(!env.kinds().iter().any(|k| k == "revised"), "no task sent back");
+    assert!(
+        !env.kinds().iter().any(|k| k == "revised"),
+        "no task sent back"
+    );
     assert_ne!(env.step(&run, "lint").state, StepState::Running);
 }
 
@@ -5470,7 +5510,11 @@ fn a_plan_over_two_repositories_works_in_each() {
     // The workflow has no code review, which the project asks for: the delivery waits for the team.
     let file = env.config.join("projects/acme.toml");
     let project = fs::read_to_string(&file).unwrap();
-    fs::write(&file, format!("{project}[team]\ndone = [\"checks\", \"review\"]\n")).unwrap();
+    fs::write(
+        &file,
+        format!("{project}[team]\ndone = [\"checks\", \"review\"]\n"),
+    )
+    .unwrap();
     let mut front = task("T2", "front", &["web.txt"], &[]);
     front["repo"] = "web".into();
     env.answer(

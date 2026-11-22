@@ -930,12 +930,18 @@ mod tests {
         let french = "Critères d'acceptation :\n- [ ] le bouton s'affiche\n- [x] il exporte\n";
         assert_eq!(
             ids(french),
-            [pair("AC1", "le bouton s'affiche"), pair("AC2", "il exporte")]
+            [
+                pair("AC1", "le bouton s'affiche"),
+                pair("AC2", "il exporte")
+            ]
         );
         let own = "## Expected\n\n- AC3: a 409 on a conflict\n- **AC4** — the README says so\n";
         assert_eq!(
             ids(own),
-            [pair("AC3", "a 409 on a conflict"), pair("AC4", "the README says so")]
+            [
+                pair("AC3", "a 409 on a conflict"),
+                pair("AC4", "the README says so")
+            ]
         );
         assert_eq!(
             ids("Some text.\nAC1: it works\nAC2 - it is fast\n"),

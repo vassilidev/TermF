@@ -696,10 +696,16 @@ mod tests {
     fn a_sensitive_ticket_is_told_by_its_words() {
         for (text, word) in [
             ("Reset the PASSWORD of a user", "password*"),
-            ("Only admins with the right permissions can share", "permission*"),
+            (
+                "Only admins with the right permissions can share",
+                "permission*",
+            ),
             ("Partage d'une liste avec des rôles", "rôle*"),
             ("Store the API key in the vault", "api key*"),
-            ("Edits are lost when two devices save at the same time", "same time"),
+            (
+                "Edits are lost when two devices save at the same time",
+                "same time",
+            ),
             ("Add a migration for the version column", "migration*"),
             ("Le paiement échoue", "paiement*"),
             ("Fix the OAuth callback", "oauth*"),

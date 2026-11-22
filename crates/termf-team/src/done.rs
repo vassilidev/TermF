@@ -175,9 +175,15 @@ fn check(run: &TeamRun, id: &str, named: bool) -> Result<String, String> {
                     true,
                     "the workflow has no code review, nor checks to stand for it",
                 )?;
-                return Ok("no code review in this workflow: its checks passed and stand for it".into());
+                return Ok(
+                    "no code review in this workflow: its checks passed and stand for it".into(),
+                );
             }
-            let steps = over(reviews.into_iter(), false, "the workflow has no code review")?;
+            let steps = over(
+                reviews.into_iter(),
+                false,
+                "the workflow has no code review",
+            )?;
             let mut open = 0;
             let mut left = 0;
             for step in steps {

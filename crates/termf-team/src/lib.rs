@@ -1966,7 +1966,8 @@ impl Inner {
                 None => return Ok(None),
             },
         };
-        let full = match run.workflow == routing.workflow || DIRECT.contains(&run.workflow.as_str()) {
+        let full = match run.workflow == routing.workflow || DIRECT.contains(&run.workflow.as_str())
+        {
             true => "default".to_owned(),
             false => run.workflow.clone(),
         };
@@ -2509,7 +2510,10 @@ impl Inner {
         let (planners, repos) = (self.planners(run), self.repo_names(run));
         let mut problems = plan::check_plan(&plan, &names, &planners, &repos, &squads);
         if !plan.tasks.is_empty() && plan.acceptance.is_empty() {
-            problems.push("the plan has no acceptance criterion: list the ticket's, the tasks cover them".into());
+            problems.push(
+                "the plan has no acceptance criterion: list the ticket's, the tasks cover them"
+                    .into(),
+            );
         }
         problems.extend(plan.tasks.iter().filter_map(|task| {
             let why = self.elsewhere(run, &task.role)?;
@@ -3805,7 +3809,12 @@ impl Inner {
     /// task goes on without it.
     fn ready(&self, run: &mut TeamRun, i: usize) -> Result<bool> {
         let key = run.steps[i].key.clone();
-        if self.preparing.lock().unwrap().contains(&(run.run, key.clone())) {
+        if self
+            .preparing
+            .lock()
+            .unwrap()
+            .contains(&(run.run, key.clone()))
+        {
             return Ok(false);
         }
         if run.steps[i].worktree.is_some() && run.steps[i].prepared {
@@ -3846,13 +3855,17 @@ impl Inner {
         let step = &mut run.steps[i];
         step.prepared = false;
         step.note = Some("its worktree is being prepared".into());
-        self.preparing.lock().unwrap().insert((run.run, key.clone()));
+        self.preparing
+            .lock()
+            .unwrap()
+            .insert((run.run, key.clone()));
         let (setup, tx, id) = (self.setup(), self.tx.lock().unwrap().clone(), run.run);
         let extra = self.env.clone();
         std::thread::spawn(move || {
             let report = setup.run(&worktree);
             if let Some(baseline) = baseline {
-                let mut env: Vec<(String, String)> = setup.env(&worktree.path).into_iter().collect();
+                let mut env: Vec<(String, String)> =
+                    setup.env(&worktree.path).into_iter().collect();
                 env.extend(extra);
                 baseline(&worktree.path, env);
             }
@@ -4317,7 +4330,9 @@ impl Inner {
                 if std::mem::take(&mut run.steps[i].goes_on)
                     && let (Some(session), Some(feedback)) =
                         (run.steps[i].session, run.steps[i].feedback.clone())
-                    && self.reopen(store, run, i, session, &feedback, budget).is_ok()
+                    && self
+                        .reopen(store, run, i, session, &feedback, budget)
+                        .is_ok()
                 {
                     return Ok(true);
                 }
@@ -4342,7 +4357,10 @@ impl Inner {
         feedback: &str,
         budget: Option<f64>,
     ) -> Result<()> {
-        let path = run.steps[i].worktree.clone().context("the task has no worktree")?;
+        let path = run.steps[i]
+            .worktree
+            .clone()
+            .context("the task has no worktree")?;
         let old = self.agents.session(session)?;
         ensure!(old.spec.cwd == path, "its session worked elsewhere");
         let denied = self.disallowed(run, i);
@@ -4593,7 +4611,9 @@ impl Inner {
         let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
         Ok(match route::flag(&project, "auto_checks")? {
             Some(on) => on,
-            None => route::flag(&self.config_dir.join("termf.toml"), "auto_checks")?.unwrap_or(true),
+            None => {
+                route::flag(&self.config_dir.join("termf.toml"), "auto_checks")?.unwrap_or(true)
+            }
         })
     }
 
@@ -4626,23 +4646,25 @@ impl Inner {
             return Ok(None);
         }
         let (files, claimed) = (self.data_dir.join("team-baselines"), self.baselines.clone());
-        Ok(Some(Box::new(move |dir: &Path, env: Vec<(String, String)>| {
-            let _ = fs::create_dir_all(&files);
-            for command in termf_library::stack::checks(dir, &login_path()) {
-                let name: String = command
-                    .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                    .collect();
-                let file = files.join(format!("{base}-{name}"));
-                let key = file.to_string_lossy().into_owned();
-                if file.exists() || !claimed.lock().unwrap().insert(key.clone()) {
-                    continue;
+        Ok(Some(Box::new(
+            move |dir: &Path, env: Vec<(String, String)>| {
+                let _ = fs::create_dir_all(&files);
+                for command in termf_library::stack::checks(dir, &login_path()) {
+                    let name: String = command
+                        .chars()
+                        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                        .collect();
+                    let file = files.join(format!("{base}-{name}"));
+                    let key = file.to_string_lossy().into_owned();
+                    if file.exists() || !claimed.lock().unwrap().insert(key.clone()) {
+                        continue;
+                    }
+                    let (passed, _) = run_check(&command, dir, &env, &AtomicBool::new(false));
+                    let _ = fs::write(&file, if passed { "pass" } else { "fail" });
+                    claimed.lock().unwrap().remove(&key);
                 }
-                let (passed, _) = run_check(&command, dir, &env, &AtomicBool::new(false));
-                let _ = fs::write(&file, if passed { "pass" } else { "fail" });
-                claimed.lock().unwrap().remove(&key);
-            }
-        })))
+            },
+        )))
     }
 
     /// Runs the `shell` step's commands one after the other, each in its worktree, until one that holds the step
