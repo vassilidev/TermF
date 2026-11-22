@@ -114,7 +114,7 @@ limits = [
 ]
 tried = "Its tools were run with a real Claude Code (Haiku) through automated tests. The conversation in the app has been checked with a simulated backend."
 related = ["triage", "home", "expert"]
-read = "team.html#cto"
+read = "team.html#role-cto"
 
 [[features]]
 slug = "triage"
@@ -201,7 +201,7 @@ commands = [["termf team squads", "every role of a project with its settings and
 limits = ["A repository can only pick a model or an effort and add to what is denied.", "The descriptions of the shipped roles are in English even in the French interface."]
 tried = "Run with a real Claude Code (Haiku) from the plan to the tasks' reports, through automated tests."
 related = ["squads", "code-review", "creative"]
-read = "team.html#roles"
+read = "team.html#contact"
 
 [[features]]
 slug = "squads"
@@ -311,7 +311,7 @@ limits = [
 ]
 tried = "Run with a real Claude Code (Haiku) through automated tests, the memory served by a fake TermF."
 related = ["cto", "roles", "library"]
-read = "team.html#expert"
+read = "team.html#role-expert"
 
 [[features]]
 slug = "budgets"
