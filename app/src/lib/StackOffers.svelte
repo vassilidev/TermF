@@ -84,7 +84,9 @@
             {source.repo}<ExternalLink size={12} aria-hidden="true" />
           </button>
           <span class="badge">{source.for}</span>
-          <span class="muted">{t("stackLicense", { license: source.license })}</span>
+          <span class="muted">
+            {source.license ? t("stackLicense", { license: source.license }) : t("stackNoLicense")}
+          </span>
           <code>{source.command}</code>
         </div>
         <button class="btn sm quiet" onclick={() => copy(source.command)}>
@@ -202,7 +204,7 @@
     padding: 0;
     border: 0;
     background: none;
-    color: var(--accent-text);
+    color: var(--accent-ink);
     font: inherit;
     font-weight: 600;
     cursor: pointer;

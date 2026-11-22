@@ -2008,6 +2008,7 @@ const fr = {
   stackOfficialHint:
     "Publiées par les éditeurs de ta stack, à installer depuis leur dépôt : TermF n'en redistribue aucune. Lis-les avant de les activer.",
   stackLicense: "Licence : {license}",
+  stackNoLicense: "Aucune licence déclarée",
   stackCopy: "Copier la commande",
   stackCopied: "Copiée",
   stackNothing: "Rien à proposer pour cette stack.",
@@ -4015,6 +4016,7 @@ const en: Record<Key, string> = {
   stackOfficialHint:
     "Published by the vendors of your stack, to install from their repository: TermF redistributes none. Read them before you turn them on.",
   stackLicense: "License: {license}",
+  stackNoLicense: "No license declared",
   stackCopy: "Copy the command",
   stackCopied: "Copied",
   stackNothing: "Nothing to offer for this stack.",

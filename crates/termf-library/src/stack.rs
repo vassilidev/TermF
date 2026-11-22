@@ -1354,6 +1354,7 @@ pub struct SkillSource {
     pub r#for: String,
     pub url: String,
     pub command: String,
+    /// SPDX, as the repository or its skills declare it; empty when they declare none.
     pub license: &'static str,
 }
 
@@ -1426,7 +1427,7 @@ const MCP: [(&str, &str, &str, &str, bool); 9] = [
 
 /// Vendor repositories by tag: a Claude Code marketplace when they have one, else the `skills` CLI.
 const SOURCES: [(&str, &str, bool, &str); 16] = [
-    ("angular", "angular/skills", false, "MIT (frontmatter)"),
+    ("angular", "angular/skills", false, "MIT"),
     ("dotnet", "dotnet/skills", true, "MIT"),
     ("terraform", "hashicorp/agent-skills", true, "MPL-2.0"),
     ("android", "android/skills", true, "Apache-2.0"),
@@ -1434,19 +1435,14 @@ const SOURCES: [(&str, &str, bool, &str); 16] = [
     ("redis", "redis/agent-skills", true, "MIT"),
     ("mongodb", "mongodb/agent-skills", true, "Apache-2.0"),
     ("postgres", "supabase/agent-skills", true, "MIT"),
-    (
-        "react",
-        "vercel-labs/agent-skills",
-        false,
-        "MIT (frontmatter)",
-    ),
+    ("react", "vercel-labs/agent-skills", false, "MIT"),
     ("nextjs", "vercel/next.js", true, "MIT"),
     ("docker", "docker/skills", true, "Apache-2.0"),
     ("gcp", "google/skills", true, "Apache-2.0"),
     ("azure", "microsoft/skills", true, "MIT"),
     ("svelte", "sveltejs/ai-tools", true, "MIT"),
     ("prisma", "prisma/skills", false, "MIT"),
-    ("laravel", "laravel/agent-skills", true, "none declared"),
+    ("laravel", "laravel/agent-skills", true, ""),
 ];
 
 /// What the vendors of the repository's stack offer: MCP servers, and skills to install from their repositories.
