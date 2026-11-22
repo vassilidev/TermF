@@ -41,15 +41,17 @@
   const total = $derived(version.screens.length);
   const position = $derived(total - cards.length + 1);
 
-  let stage = $state<ReturnType<typeof ReviewStage>>();
-  let pic = $state<HTMLElement>();
+  // By card: a card going away clears its own binding, never the next card's.
+  const stages: Record<string, ReturnType<typeof ReviewStage> | null> = $state({});
+  const stage = () => (card ? stages[card.id] : null);
   let busy = $state(false);
   let error = $state("");
   let composing = $state(false);
   let draft = $state<{ comment: string; pins: Pin[] }>({ comment: "", pins: [] });
   let before = $state(false);
   let zoomed = $state(false);
-  let drag = $state<{ dx: number; dy: number } | null>(null);
+  /** The card moved by a gesture, and the size of its picture, which sets how far a gesture must go. */
+  let drag = $state<{ dx: number; dy: number; w: number; h: number } | null>(null);
   let leaving = $state<Swipe>("skip");
   let confirming = $state(false);
   let said = $state("");
@@ -70,10 +72,17 @@
       for (const kind of ["before", "after"] as const) if (s[kind]) image(review.id, version.n, s.id, kind).catch(() => {});
   });
 
+  // A new card starts on its "after" image, whole.
+  $effect(() => {
+    void card?.id;
+    zoomed = false;
+    before = false;
+  });
+
   const stamp = $derived.by(() => {
-    if (!drag || !pic) return null;
+    if (!drag) return null;
     const kind = Math.abs(drag.dx) >= Math.abs(drag.dy) ? (drag.dx > 0 ? "approved" : "rejected") : drag.dy < 0 ? "changes" : "skip";
-    const reach = Math.abs(drag.dx) >= Math.abs(drag.dy) ? Math.abs(drag.dx) / Math.min(170, pic.clientWidth * 0.25) : Math.abs(drag.dy) / Math.min(130, pic.clientHeight * 0.2);
+    const reach = Math.abs(drag.dx) >= Math.abs(drag.dy) ? Math.abs(drag.dx) / Math.min(170, drag.w * 0.25) : Math.abs(drag.dy) / Math.min(130, drag.h * 0.2);
     return { kind: kind as Swipe, opacity: reach < 0.2 ? 0 : Math.min(1, reach) };
   });
 
@@ -151,9 +160,9 @@
 
   /** A drag, a flick or a touch moves the card; a click that did not move pins a comment there. */
   function down(e: PointerEvent) {
-    if (e.button > 0 || busy || !card || !pic) return;
+    if (e.button > 0 || busy || !card) return;
     const el = e.currentTarget as HTMLElement;
-    const [sx, sy, w, h] = [e.clientX, e.clientY, pic.clientWidth, pic.clientHeight];
+    const [sx, sy, w, h] = [e.clientX, e.clientY, el.clientWidth, el.clientHeight];
     let [last, lx, ly, vx, vy, moved] = [e.timeStamp, sx, sy, 0, 0, false];
     el.setPointerCapture(e.pointerId);
     const move = (m: PointerEvent) => {
@@ -161,14 +170,14 @@
       if (dt > 0) [vx, vy, last, lx, ly] = [(m.clientX - lx) / dt, (m.clientY - ly) / dt, m.timeStamp, m.clientX, m.clientY];
       const [dx, dy] = [m.clientX - sx, m.clientY - sy];
       if (!moved && !composing && Math.hypot(dx, dy) > 8) moved = true;
-      if (moved) drag = { dx, dy };
+      if (moved) drag = { dx, dy, w, h };
     };
     const up = (u: PointerEvent) => {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", up);
       if (!moved) {
-        const at = u.type === "pointerup" ? stage?.pointAt(u.clientX, u.clientY) : null;
+        const at = u.type === "pointerup" ? stage()?.pointAt(u.clientX, u.clientY) : null;
         if (at) openComposer({ x: at.x, y: at.y, comment: "" });
         return;
       }
@@ -190,7 +199,7 @@
       if (e.ctrlKey || busy || composing || !card) return;
       e.preventDefault();
       sum = { dx: sum.dx - e.deltaX, dy: sum.dy - e.deltaY };
-      drag = { ...sum };
+      drag = { ...sum, w: node.clientWidth, h: node.clientHeight };
       clearTimeout(timer);
       timer = window.setTimeout(() => {
         const kind = swipeKind(sum.dx, sum.dy, 0, 0, node.clientWidth, node.clientHeight);
@@ -207,8 +216,8 @@
   }
 
   function toggleZoom() {
-    stage?.toggleZoom();
-    zoomed = !!stage?.zoomed();
+    stage()?.toggleZoom();
+    zoomed = !!stage()?.zoomed();
   }
 
   function keydown(e: KeyboardEvent) {
@@ -258,7 +267,8 @@
     </div>
 
     <div class="pile">
-      {#key card.id}
+      <!-- One card at a time; each keeps its own screen while it flies out. -->
+      {#each cards.slice(0, 1) as c (c.id)}
         <article
           class="card"
           class:dragging={!!drag}
@@ -269,24 +279,25 @@
         >
           <header>
             <div class="title">
-              <b class="mono">{screenTitle(card)}</b>
-              <span class="muted">{screenMeta(card)}</span>
+              <b class="mono">{screenTitle(c)}</b>
+              <span class="muted">{screenMeta(c)}</span>
+              <span class="side" class:before>{t(before ? "review5bBefore" : "review5bAfter")}</span>
             </div>
           </header>
           <div class="body">
             <!-- svelte-ignore a11y_no_static_element_interactions (every gesture has its button and its key) -->
-            <div class="pic" bind:this={pic} onpointerdown={down} {@attach trackpad}>
+            <div class="pic" onpointerdown={down} {@attach trackpad}>
               <ReviewStage
-                bind:this={stage}
+                bind:this={stages[c.id]}
                 {review}
                 {version}
-                screen={card}
+                screen={c}
                 mode="single"
                 {before}
                 contain
                 free={false}
                 controls={false}
-                pins={composing ? draft.pins : card.pins}
+                pins={composing ? draft.pins : c.pins}
                 onpin={(x, y) => openComposer({ x, y, comment: "" })}
               />
               {#if stamp && stamp.opacity}
@@ -294,7 +305,7 @@
               {/if}
             </div>
             <aside>
-              <ReviewContext {review} {version} screen={card} />
+              <ReviewContext {review} {version} screen={c} />
             </aside>
           </div>
           {#if composing}
@@ -332,7 +343,7 @@
             </form>
           {/if}
         </article>
-      {/key}
+      {/each}
     </div>
 
     <div class="gestures">
@@ -360,7 +371,7 @@
       <button class="btn" onclick={() => act("skip")} disabled={busy}>
         <ArrowDown size={15} aria-hidden="true" />{t("review5bSkip")}
       </button>
-      <button class="btn approve" onclick={() => act("approved")} disabled={busy}>
+      <button class="btn primary" onclick={() => act("approved")} disabled={busy}>
         {t("teamRunsValidate")}<ArrowRight size={15} aria-hidden="true" />
       </button>
     </div>
@@ -480,6 +491,20 @@
     flex-wrap: wrap;
     align-items: baseline;
     gap: 4px 12px;
+  }
+
+  .side {
+    margin-left: auto;
+    padding: 1px 10px;
+    border-radius: var(--radius-pill);
+    background: var(--selected);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+
+  .side.before {
+    background: var(--waiting);
+    color: var(--waiting-text);
   }
 
   .title b {
@@ -623,12 +648,6 @@
 
   .btn.reject {
     color: var(--danger);
-  }
-
-  .btn.approve {
-    border-color: var(--done);
-    background: var(--done);
-    color: #fff;
   }
 
   .recap {

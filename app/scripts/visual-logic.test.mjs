@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clamp, deck, diffStats, fit, outcome, percent, settles, swipeFirst, swipeKind, toImage, zoomAt } from "../src/lib/visual-logic.ts";
+import { clamp, deck, diffStats, fit, focus, outcome, percent, settles, swipeFirst, swipeKind, toImage, zoomAt } from "../src/lib/visual-logic.ts";
 
 const screen = (id, decision = "pending") => ({ id, decision });
 const version = (screens, state = "ready") => ({ state, screens });
@@ -52,6 +52,21 @@ test("zoom keeps the point under the pointer, and clicks map to image pixels", (
   assert.deepEqual(toImage(view, 350, 50, 1400, 3000), { x: 700, y: 100 });
   assert.equal(toImage(view, -1, 50, 1400, 3000), null);
   assert.equal(zoomAt(view, 0, 0, 1000).scale, 8);
+});
+
+test("the changes come first: zoomed in and scrolled to, never past 1:1", () => {
+  const base = fit(300, 600, 1440, 3000);
+  const button = [{ x: 1052, y: 1600, w: 196, h: 68 }];
+  const view = focus(button, 300, 600, 1440, 3000, base);
+  assert.ok(view.scale > base.scale && view.scale <= 1);
+  const at = toImage(view, 150, 300, 1440, 3000);
+  assert.ok(Math.abs(at.x - 1150) < 2 && Math.abs(at.y - 1634) < 2, "the middle of the frame is the middle of the change");
+  assert.equal(focus([], 300, 600, 1440, 3000, base), null);
+  const everything = focus([{ x: 0, y: 0, w: 1440, h: 3000 }], 300, 600, 1440, 3000, base);
+  assert.equal(everything.scale, base.scale, "never smaller than the whole width");
+  const short = fit(300, 300, 1440, 3000);
+  const spread = focus([{ x: 0, y: 2500, w: 400, h: 400 }, ...button], 300, 300, 1440, 3000, short);
+  assert.deepEqual(spread, focus(button, 300, 300, 1440, 3000, short), "too far apart: the first change from the top");
 });
 
 test("panning never leaves an empty band, and a small image stays centered", () => {

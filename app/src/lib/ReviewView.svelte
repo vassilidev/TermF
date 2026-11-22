@@ -57,9 +57,13 @@
     if (vkey && !layouts[vkey] && version?.state !== "capturing") layouts[vkey] = { layout: swipeFirst(version) ? "swipe" : "detail" };
   });
 
-  const setPage = (change: Partial<{ version: number; mode: Mode }>) => (pages[id] = { ...page, ...change });
-  const setLayout = (change: Partial<{ layout: "swipe" | "detail"; screen: string }>) =>
-    (layouts[vkey] = { ...layouts[vkey], layout: change.layout ?? layout, ...(change.screen ? { screen: change.screen } : {}) });
+  function setPage(change: Partial<{ version: number; mode: Mode }>) {
+    pages[id] = { ...page, ...change };
+  }
+
+  function setLayout(change: Partial<{ layout: "swipe" | "detail"; screen: string }>) {
+    layouts[vkey] = { ...layouts[vkey], layout: change.layout ?? layout, ...(change.screen ? { screen: change.screen } : {}) };
+  }
 
   let comment = $state("");
   let pins = $state<Pin[]>([]);
@@ -307,8 +311,8 @@
               <div class="buttons">
                 <span class="where">{t("review5bLeft", { count: waiting.length })}</span>
                 {#if screen.decision !== "pending"}
-                  <button class="btn quiet" onclick={() => send("pending")} disabled={!!busy}>
-                    <Undo2 size={14} aria-hidden="true" />{t("review5bRetake")}
+                  <button class="icon-btn" onclick={() => send("pending")} disabled={!!busy} aria-label={t("review5bRetake")} title={t("review5bRetake")}>
+                    <Undo2 size={15} aria-hidden="true" />
                   </button>
                 {/if}
                 <button class="btn reject" aria-pressed={screen.decision === "rejected"} onclick={() => choose("rejected")} disabled={!!busy}>
@@ -329,6 +333,13 @@
         </section>
 
         <aside class="side">
+          {#if !decidable && screen.comment}
+            <section class="pins">
+              <h4>{t("review5bComment")}</h4>
+              <p class="said">« {screen.comment} »</p>
+            </section>
+          {/if}
+          {#if decidable || pins.length}
           <section class="pins" aria-labelledby="review-pins">
             <h4 id="review-pins">{t("review5bPins", { count: pins.length })}</h4>
             {#if pins.length}
@@ -369,8 +380,8 @@
                 <MapPin size={14} aria-hidden="true" />{t("review5bPinAdd")}
               </button>
             {/if}
-            {#if !decidable && screen.comment}<p class="said">« {screen.comment} »</p>{/if}
           </section>
+          {/if}
           <ReviewContext {review} {version} {screen} files />
         </aside>
       </div>

@@ -143,6 +143,28 @@ export function clamp(view: View, frameW: number, frameH: number, imageW: number
   };
 }
 
+/**
+ * The changed areas in the middle of the frame, with some of the page around them, as large as the frame allows but
+ * never past 1:1 nor smaller than `base`: a change far down a tall page shows at once. Null without changed areas.
+ */
+export function focus(rects: Rect[], frameW: number, frameH: number, imageW: number, imageH: number, base: View, contain = false): View | null {
+  if (!rects.length || !frameW || !frameH) return null;
+  const pad = 96;
+  const box = (list: Rect[]) => [
+    Math.max(0, Math.min(...list.map((r) => r.x)) - pad),
+    Math.max(0, Math.min(...list.map((r) => r.y)) - pad),
+    Math.min(imageW, Math.max(...list.map((r) => r.x + r.w)) + pad),
+    Math.min(imageH, Math.max(...list.map((r) => r.y + r.h)) + pad),
+  ];
+  let [x0, y0, x1, y1] = box(rects);
+  // Changes all over a page do not fit together: the first one, from the top.
+  if ((y1 - y0) * base.scale > frameH || (x1 - x0) * base.scale > frameW)
+    [x0, y0, x1, y1] = box([rects.reduce((a, r) => (r.y < a.y || (r.y === a.y && r.x < a.x) ? r : a))]);
+  const scale = Math.max(base.scale, Math.min(frameW / (x1 - x0), frameH / (y1 - y0), 1));
+  const view = { scale, x: frameW / 2 - ((x0 + x1) / 2) * scale, y: frameH / 2 - ((y0 + y1) / 2) * scale };
+  return clamp(view, frameW, frameH, imageW, imageH, contain);
+}
+
 /** A point of the frame, in pixels of the image, or null off the image. */
 export function toImage(view: View, px: number, py: number, imageW: number, imageH: number): { x: number; y: number } | null {
   const x = Math.round((px - view.x) / view.scale);

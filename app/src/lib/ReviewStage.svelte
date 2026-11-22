@@ -2,10 +2,11 @@
   import { untrack } from "svelte";
   import Minus from "@lucide/svelte/icons/minus";
   import Plus from "@lucide/svelte/icons/plus";
+  import Maximize from "@lucide/svelte/icons/maximize";
   import Scan from "@lucide/svelte/icons/scan";
   import { t } from "$lib/i18n";
   import { image } from "$lib/visual.svelte";
-  import { clamp, fit, toImage, zoomAt, type Mode, type Pin, type Review, type Screen, type Version, type View } from "$lib/visual-logic";
+  import { clamp, fit, focus, toImage, zoomAt, type Mode, type Pin, type Review, type Screen, type Version, type View } from "$lib/visual-logic";
 
   /**
    * A screen's captures in one of the modes, every frame on the same zoom and position. Boxes mark what changed; pins
@@ -73,8 +74,11 @@
   });
 
   const base = $derived(fit(frameW, frameH, size.w, size.h, contain));
-  const view = $derived(own ?? base);
+  const changes = $derived(focus(screen.rects, frameW, frameH, size.w, size.h, base, contain));
+  // The page opens on what changed; the quick mode's card shows the whole screen, its zoom goes to the changes.
+  const view = $derived(own ?? (contain ? base : (changes ?? base)));
   const percent = $derived(Math.round(view.scale * 100));
+  const whole = $derived(view.scale === base.scale && view.x === base.x && view.y === base.y);
 
   function set(v: View) {
     own = clamp(v, frameW, frameH, size.w, size.h, contain);
@@ -92,6 +96,7 @@
 
   export function toggleZoom() {
     if (own) reset();
+    else if (changes) own = changes;
     else zoom(2);
   }
 
@@ -224,10 +229,6 @@
   {/if}
 {/snippet}
 
-{#snippet badge(label: string, end = false)}
-  <span class="badge" class:end>{label}</span>
-{/snippet}
-
 <div class="stage">
   {#if controls}
     <p id="{uid}-keys" class="sr-only">{t("review5bStageKeys")}</p>
@@ -251,9 +252,23 @@
         <button class="icon-btn sm" onclick={() => zoom(1.25)} aria-label={t("review5bZoomIn")} title={t("review5bZoomIn")}>
           <Plus size={14} aria-hidden="true" />
         </button>
-        <button class="btn sm quiet" onclick={reset} disabled={!own}><Scan size={14} aria-hidden="true" />{t("review5bFit")}</button>
+        {#if changes}
+          <button class="btn sm quiet" aria-pressed={!own} onclick={reset}><Scan size={14} aria-hidden="true" />{t("review5bFocus")}</button>
+        {/if}
+        <button class="btn sm quiet" aria-pressed={whole} onclick={() => (own = base)}><Maximize size={14} aria-hidden="true" />{t("review5bFit")}</button>
       </div>
     </div>
+    {#if mode !== "heatmap"}
+      <div class="captions" class:two={mode === "side"} aria-hidden="true">
+        {#if mode === "side"}
+          <span>{t("review5bBefore")}</span><span>{t("review5bAfter")}</span>
+        {:else if mode === "slider"}
+          <span class="ends"><span>← {t("review5bBefore")}</span><span>{t("review5bAfter")} →</span></span>
+        {:else}
+          <span>{t("review5bOverlayBadge", { percent: Math.round(alpha * 100) })}</span>
+        {/if}
+      </div>
+    {/if}
   {/if}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (the keys pan, zoom and pin: a focusable picture) -->
   <div
@@ -270,13 +285,11 @@
       <div class="frame" class:grab={free || own} bind:clientWidth={frameW} bind:clientHeight={frameH} onpointerdown={(e) => down(e, false)} {@attach wheel}>
         {@render picture("before", t("review5bBefore"))}
         {@render marks(false)}
-        {@render badge(t("review5bBefore"))}
       </div>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="frame" class:grab={free || own} bind:this={pinFrame} onpointerdown={(e) => down(e, true)} {@attach wheel}>
         {@render picture("after", t("review5bAfter"))}
         {@render marks(true)}
-        {@render badge(t("review5bAfter"))}
       </div>
     {:else}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -305,12 +318,6 @@
         {#if mode === "slider"}
           <!-- svelte-ignore a11y_no_static_element_interactions (the range above is its keyboard twin) -->
           <span class="handle" style:left="{split * 100}%" onpointerdown={dragSplit}></span>
-          {@render badge(t("review5bBefore"))}
-          {@render badge(t("review5bAfter"), true)}
-        {:else if mode === "single"}
-          {@render badge(t(before ? "review5bBefore" : "review5bAfter"))}
-        {:else if mode === "overlay"}
-          {@render badge(t("review5bOverlayBadge", { percent: Math.round(alpha * 100) }))}
         {/if}
       </div>
     {/if}
@@ -359,7 +366,7 @@
   }
 
   .range input {
-    width: 160px;
+    width: 110px;
     accent-color: var(--accent);
   }
 
@@ -465,22 +472,24 @@
     outline-offset: 1px;
   }
 
-  .badge {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    padding: 2px 8px;
-    border-radius: var(--radius-pill);
-    background: rgb(15 18 30 / 0.72);
-    color: #fff;
+  .captions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 600;
-    pointer-events: none;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
-  .badge.end {
-    right: 8px;
-    left: auto;
+  .captions.two {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .ends {
+    display: flex;
+    justify-content: space-between;
   }
 
   .handle {
