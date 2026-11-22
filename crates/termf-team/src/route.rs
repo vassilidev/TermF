@@ -274,6 +274,28 @@ fn check_steps(
     for id in routing.skip.iter().filter(|id| routing.add.contains(id)) {
         problems.push(format!("step {id} is both skipped and added"));
     }
+    // TermF runs what `skip` says: a ruling that skips a step `skip` keeps would run a step the journal says it left out.
+    for ruling in &routing.rulings {
+        let what = ruling.trim().trim_start_matches("Ruling:").trim();
+        let what = what.split(" — ").next().unwrap_or(what).to_lowercase();
+        let Some(named) = what.strip_prefix("skip ") else {
+            continue;
+        };
+        let words: Vec<&str> = named
+            .split(|c: char| !c.is_alphanumeric() && c != '-')
+            .collect();
+        for (id, step) in &workflow.steps {
+            if step.optional
+                && step.enabled
+                && !routing.skip.contains(id)
+                && words.contains(&id.as_str())
+            {
+                problems.push(format!(
+                    "a ruling skips step {id}, but skip does not list it: put it in skip, or rule to keep it"
+                ));
+            }
+        }
+    }
     for id in &routing.add {
         if let Some(needed) = workflow.steps.get(id).and_then(|s| s.role.as_deref())
             && !role(needed)
@@ -458,6 +480,39 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
+        let ruled = |skip: &[&str], ruling: &str| Routing {
+            skip: skip.iter().map(|s| s.to_string()).collect(),
+            rulings: vec![ruling.into()],
+            ..routing()
+        };
+        let skips_frame = "Ruling: skip frame (po) — the ticket lists its criteria — cost if wrong: a missed edge case";
+        assert_eq!(
+            check(&ruled(&[], skips_frame), &workflows, &team, any),
+            [
+                "a ruling skips step frame, but skip does not list it: put it in skip, or rule to keep it"
+            ]
+        );
+        for (skip, ruling) in [
+            (&["frame"][..], skips_frame),
+            (
+                &[],
+                "Ruling: keep frame (po) at low effort — confirms the criteria — cost if wrong: cents",
+            ),
+            (
+                &[],
+                "Ruling: skip prd, architecture, seo — off anyway — cost if wrong: none",
+            ),
+            (
+                &[],
+                "Ruling: budget $1 — skip nothing — cost if wrong: a top-up",
+            ),
+        ] {
+            assert!(
+                check(&ruled(skip, ruling), &workflows, &team, any).is_empty(),
+                "{ruling}"
+            );
+        }
+
         let efforts = Routing {
             skip: vec!["frame".into()],
             efforts: vec![

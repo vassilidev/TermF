@@ -245,8 +245,8 @@ function typecheck(cwd) {
   const tsc = join(ROOT, "app", "node_modules", "typescript", "bin", "tsc");
   if (!existsSync(tsc) || !existsSync(join(cwd, "tsconfig.json"))) return null;
   const r = sh("node", [tsc, "-p", "tsconfig.json"], { cwd, timeout: 180_000 });
-  const errors = (r.stdout.match(/error TS\d+/g) ?? []).length;
-  return { ok: r.status === 0, errors };
+  const lines = r.stdout.split("\n").filter((l) => /error TS\d+/.test(l));
+  return { ok: r.status === 0, errors: lines.length, first: lines.slice(0, 3) };
 }
 
 const VERDICT = {
@@ -374,6 +374,7 @@ export function summarize(rows) {
         sessions: mean(rs.map((r) => r.sessions ?? 1)),
         hidden_pct: mean(rs.map((r) => (r.hidden.total ? (100 * r.hidden.pass) / r.hidden.total : 0))),
         own_tests_green: mean(rs.map((r) => (r.own_tests.ok ? 100 : 0))),
+        own_tests: mean(rs.map((r) => r.own_tests.tests)),
         original_green: mean(rs.filter((r) => r.original_tests).map((r) => (r.original_tests.fail === 0 && r.original_tests.pass > 0 ? 100 : 0))),
         criteria_met_pct: met.length ? (100 * met.filter((c) => c.verdict === "met").length) / met.length : null,
         judge_overall: mean(rs.map((r) => r.judge?.overall).filter((x) => x !== undefined)),
@@ -392,12 +393,12 @@ export function summarize(rows) {
 /** Markdown tables, ready for docs/BENCHMARK.md. */
 function print(summary) {
   const f = (x, d = 0) => (x === null || x === undefined ? "–" : x.toFixed(d));
-  const cols = ["", "arm", "n", "time (s)", "cost ($)", "sessions", "hidden tests %", "own tests green %", "AC met %", "judge /10", "findings", "high", "out of scope", "lines", "typecheck ok %", "docs %"];
+  const cols = ["", "arm", "n", "time (s)", "cost ($)", "sessions", "hidden tests %", "own tests green %", "AC met %", "judge /10", "findings", "high", "out of scope", "lines", "typecheck ok %", "docs %", "project tests"];
   for (const part of ["tickets", "kinds", "all"]) {
     console.log(`\n| ${cols.join(" | ")} |\n|${cols.map(() => "---").join("|")}|`);
     for (const s of summary[part].sort((a, b) => a.name.localeCompare(b.name) || a.arm.localeCompare(b.arm))) {
       const cells = [s.name, s.arm, s.trials, f(s.wall_s), f(s.cost_usd, 2), f(s.sessions, 1), f(s.hidden_pct), f(s.own_tests_green), f(s.criteria_met_pct)];
-      cells.push(f(s.judge_overall, 1), f(s.findings, 1), f(s.findings_high, 1), f(s.out_of_scope, 1), f(s.lines), f(s.typecheck_ok), f(s.docs_ok));
+      cells.push(f(s.judge_overall, 1), f(s.findings, 1), f(s.findings_high, 1), f(s.out_of_scope, 1), f(s.lines), f(s.typecheck_ok), f(s.docs_ok), f(s.own_tests));
       console.log(`| ${cells.join(" | ")} |`);
     }
   }
