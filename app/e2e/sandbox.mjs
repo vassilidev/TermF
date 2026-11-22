@@ -1,7 +1,7 @@
 // A throwaway world for one run of the app: home, config, data, a git repository "acme", and fake `claude` and
 // `gh` first on the PATH. Nothing of the machine's own config, keyring or accounts is reachable from it.
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,7 +57,8 @@ function git(cwd, env, ...args) {
 
 /** `lang`: the system language the app sees ("en" or "fr"). `project`: an "acme" project with the repository. */
 export function createSandbox({ lang = "en", project = true, dark = false } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "termf-e2e-"));
+  // The long form: Windows gives the temporary folder as RUNNER~1, which the app would not show the same.
+  const root = mkdtempSync(join(realpathSync.native(tmpdir()), "termf-e2e-"));
   const home = join(root, "home");
   const bin = join(root, "bin");
   const code = join(home, "code");
@@ -65,7 +66,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
   const dirs = windows
     ? windowsDirs()
     : { configDir: join(home, ".config", "termf"), dataDir: join(home, ".local", "share", "dev.termf.app") };
-  if (windows) for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true });
+  if (windows) for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
   for (const d of [bin, acme, dirs.configDir, join(dirs.configDir, "projects")]) mkdirSync(d, { recursive: true });
 
   for (const name of ["claude", "gh"]) {
