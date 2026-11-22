@@ -4,7 +4,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { t } from "$lib/i18n";
   import { budgetError, editRouting, routeBudget, runs, type Routing, type TeamRun, type WorkflowView } from "$lib/team-run-logic";
-  import { upsertRun } from "$lib/team.svelte";
+  import { stepTitle, upsertRun } from "$lib/team.svelte";
 
   /** Changes the CTO's routing before it applies: the workflow, its optional steps, the squads, the budget. */
   let { run, routing, onclose }: { run: TeamRun; routing: Routing; onclose: () => void } = $props();
@@ -92,7 +92,7 @@
         {#each optional as step (step.id)}
           <label class="chip" class:on={running.includes(step.id)}>
             <input type="checkbox" checked={running.includes(step.id)} onchange={() => (running = toggle(running, step.id))} />
-            <span class="mono">{step.id}</span>{#if step.role && step.role !== step.id}<span class="muted">{step.role}</span>{/if}
+            <span>{stepTitle(step.id)}</span>{#if step.role && step.role !== step.id}<span class="muted">{step.role}</span>{/if}
           </label>
         {/each}
       </div>

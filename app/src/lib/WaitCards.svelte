@@ -1,3 +1,8 @@
+<script module lang="ts">
+  /** What the user writes back, by run and step: kept when the page or the card goes, until it is sent. */
+  const drafts = $state<Record<string, string>>({});
+</script>
+
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import BellRing from "@lucide/svelte/icons/bell-ring";
@@ -34,8 +39,6 @@
   /** The action under way: `<command>:<step>`. */
   let busy = $state("");
   let error = $state("");
-  /** What the user writes back, by step. */
-  let drafts = $state<Record<string, string>>({});
   /** The step whose "ask for changes" field is open. */
   let changing = $state<string | null>(null);
   let refusing = $state(false);
@@ -68,9 +71,11 @@
 
   const approve = (key: string) => act(`approve:${key}`, "team_approve", { step: key });
 
+  const draftOf = (key: string) => `${run.run}:${key}`;
+
   async function revise(key: string) {
-    if (await act(`revise:${key}`, "team_revise", { step: key, feedback: (drafts[key] ?? "").trim() })) {
-      drafts[key] = "";
+    if (await act(`revise:${key}`, "team_revise", { step: key, feedback: (drafts[draftOf(key)] ?? "").trim() })) {
+      drafts[draftOf(key)] = "";
       changing = null;
     }
   }
@@ -144,7 +149,7 @@
   {@const key = ask.step.key}
   <label class="labelled">
     <span>{label}</span>
-    <textarea class="field" rows="3" placeholder={t(ask.kind === "questions" ? "teamRunsAnswersHint" : "teamRunsFeedbackHint")} bind:value={drafts[key]}></textarea>
+    <textarea class="field" rows="3" placeholder={t(ask.kind === "questions" ? "teamRunsAnswersHint" : "teamRunsFeedbackHint")} bind:value={drafts[draftOf(key)]}></textarea>
   </label>
   <div class="acts">
     {#if changing === key}
@@ -154,7 +159,7 @@
         {@render spinner(`approve:${key}`)}{t("teamRunsAccept")}
       </button>
     {/if}
-    <button class="btn sm primary" disabled={!!busy || (!(drafts[key] ?? "").trim() && ask.step.kind !== "shell")} onclick={() => revise(key)}>
+    <button class="btn sm primary" disabled={!!busy || (!(drafts[draftOf(key)] ?? "").trim() && ask.step.kind !== "shell")} onclick={() => revise(key)}>
       {@render spinner(`revise:${key}`)}{submit}
     </button>
   </div>
@@ -182,11 +187,21 @@
   </button>
 {/snippet}
 
-{#snippet deliverButton(onclick: () => void, name: string)}
-  <button class="btn sm primary" disabled={!!busy} {onclick}>
-    {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
-    {t("runDeliver")}
-  </button>
+{#snippet deliverCard(onclick: () => void, name: string)}
+  <!-- Nothing to read before it: the preview that follows shows what the delivery sends. -->
+  <article class="ask">
+    <header>
+      <BellRing size={15} aria-hidden="true" />
+      <b>{t("teamRunsAskDeliver")}</b>
+      <span class="end">
+        <button class="btn sm primary" disabled={!!busy} {onclick}>
+          {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
+          {t("runDeliver")}
+        </button>
+      </span>
+    </header>
+    {#if context}<p class="where"><span class="mono">{ticketKey(run.target.ticket)}</span> · {run.target.title}</p>{/if}
+  </article>
 {/snippet}
 
 {#if waits.length || late || delivering || error}
@@ -194,7 +209,9 @@
     {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
     {#each waits as ask (ask.step.key)}
       {@const key = ask.step.key}
-      {#if !(ask.kind === "deliver" && delivering)}
+      {#if ask.kind === "deliver"}
+        {#if !delivering}{@render deliverCard(() => deliver(key), `approve:${key}`)}{/if}
+      {:else}
         <article class="ask">
           {@render head(title(ask), ask.step)}
           {#if ask.kind === "route" && run.routing}
@@ -267,17 +284,13 @@
                     <X size={14} aria-hidden="true" />{t("teamRunsRefuse")}
                   </button>
                 {/if}
-                {#if ask.kind === "deliver"}
-                  {@render deliverButton(() => deliver(key), `approve:${key}`)}
-                {:else}
-                  <button class="btn sm" disabled={!!busy} onclick={() => (changing = key)}>
-                    <MessageSquareText size={14} aria-hidden="true" />{t("teamRunsAskChanges")}
-                  </button>
-                  {@render approveButton(
-                    key,
-                    t(ask.kind === "plan" ? "teamRunsApprovePlan" : ask.kind === "visual" ? "teamRunsValidate" : "teamRunsApprove"),
-                  )}
-                {/if}
+                <button class="btn sm" disabled={!!busy} onclick={() => (changing = key)}>
+                  <MessageSquareText size={14} aria-hidden="true" />{t("teamRunsAskChanges")}
+                </button>
+                {@render approveButton(
+                  key,
+                  t(ask.kind === "plan" ? "teamRunsApprovePlan" : ask.kind === "visual" ? "teamRunsValidate" : "teamRunsApprove"),
+                )}
               </div>
             {/if}
           {/if}
@@ -287,10 +300,7 @@
     {#if delivering && ticket}
       <Delivery run={ticket} onclose={() => (delivering = false)} />
     {:else if late}
-      <article class="ask">
-        {@render head(t("teamRunsAskDeliver"))}
-        <div class="acts">{@render deliverButton(() => (delivering = true), "")}</div>
-      </article>
+      {@render deliverCard(() => (delivering = true), "deliver")}
     {/if}
   </div>
 {/if}

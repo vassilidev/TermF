@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { beside, clamp, close, decode, encode, go, slots } from "../src/lib/panes-logic.ts";
+import { beside, clamp, close, decode, encode, go, leave, slots } from "../src/lib/panes-logic.ts";
 
 const one = { view: "terminals", other: null, active: 0, size: 0.5 };
 const known = ["terminals", "tickets", "files"];
@@ -71,4 +71,14 @@ test("kept from one launch to the next: two known views, else nothing", () => {
     size: 0.75,
   });
   assert.equal(decode(JSON.stringify({ left: "files", right: "tickets", size: "x" }), known).size, 0.5);
+});
+
+test("leaving a page goes back in its own panel, or closes it when where it came from is beside it", () => {
+  const alone = { view: "run", other: null, active: 0, size: 0.5 };
+  assert.equal(leave(alone, "run", "tickets"), "back");
+  const two = { view: "run", other: "terminals", active: 0, size: 0.5 };
+  assert.equal(leave(two, "run", "tickets"), "back");
+  assert.equal(leave(two, "run", "terminals"), "close");
+  assert.equal(leave({ ...two, view: "terminals", other: "run" }, "run", "tickets"), "close");
+  assert.equal(leave({ ...two, view: "tickets" }, "run", "tickets"), null);
 });

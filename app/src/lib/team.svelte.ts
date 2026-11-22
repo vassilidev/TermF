@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import type { Item } from "$lib/library.svelte";
 import { t } from "$lib/i18n";
+import { stepLabel } from "$lib/run-logic";
 import { app, ui } from "$lib/state.svelte";
 import { asks, notices, upsert, type Notice, type TeamRun } from "$lib/team-run-logic";
 
@@ -25,6 +26,12 @@ export function showTeam() {
 
 /** A team run shows on its ticket run's page. */
 export { showRun as showTeamRun } from "$lib/commands";
+
+/** A step as the user reads it, wherever it shows: a task by its id, a shipped step by its name, any other by its id. */
+export function stepTitle(key: string, task: string | null = null): string {
+  const label = stepLabel(key, task);
+  return "name" in label ? t(label.name) : label.text;
+}
 
 /** The current project's team runs, most recent first. */
 export function scopedRuns(): TeamRun[] {
@@ -71,7 +78,7 @@ export function watchTeam(): () => void {
     const list = notices(before, payload);
     if (!list.length || document.hasFocus()) return;
     const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
-    const body = list.map((n) => t(notes[n.kind], { step: n.step ?? "" })).join("\n");
+    const body = list.map((n) => t(notes[n.kind], { step: n.step ? stepTitle(n.step) : "" })).join("\n");
     if (granted) sendNotification({ title: `${payload.target.ticket} · ${payload.target.title}`, body });
   });
   return () => void stop.then((f) => f());

@@ -112,7 +112,8 @@
           <Panel view="project"><ProjectView /></Panel>
         {/key}
       {/if}
-      {#if onScreen("run") && tickets.selected !== null}
+      <!-- Kept once left, like the views: an answer being written or a delivery preview open is still there on return. -->
+      {#if tickets.selected !== null}
         {#key tickets.selected}
           <Panel view="run"><RunView id={tickets.selected} /></Panel>
         {/key}
