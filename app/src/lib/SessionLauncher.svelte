@@ -155,11 +155,12 @@
         </label>
       {/each}
     </div>
-    <label class="rc" title={t("remoteControlOn")} class:off={agent === null}>
+    <label class="rc" title={t("uxfT3RemoteHint")} class:off={agent === null}>
       <Smartphone size={14} aria-hidden="true" />
       <span>{t("remoteControl")}</span>
-      <input class="switch" type="checkbox" role="switch" disabled={agent === null} bind:checked={launch.remoteControl} />
+      <input class="switch" type="checkbox" role="switch" aria-describedby="{uid}-rc" disabled={agent === null} bind:checked={launch.remoteControl} />
     </label>
+    <span id="{uid}-rc" class="sr-only">{t("uxfT3RemoteHint")}</span>
     <button class="btn open" class:primary={count > 0} disabled={!count} onclick={open}>
       {agent ? t("open", { agent, count }) : t("openShell", { count })}
     </button>

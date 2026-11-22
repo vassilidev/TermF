@@ -48,7 +48,8 @@ pub enum ParamKind {
     Path,
     /// A unit, a pod, a container: letters, digits and `@ . _ : / -`.
     Name,
-    /// A query of the SQL console, which comes in a later TermF: refused until then.
+    /// A query of the SQL console: one statement that only reads ([`crate::sql::analyze`]), alone in its argument,
+    /// on Postgres or MySQL, run in a read-only transaction; its result is a table.
     Sql,
 }
 
@@ -91,7 +92,7 @@ pub struct Limits {
     /// The client is killed after it.
     #[serde(default = "timeout")]
     pub timeout_s: u64,
-    /// Rows of a query, for the SQL console to come.
+    /// Rows of a query: its `LIMIT` when it has none, and the rows kept ([`crate::sql::ROWS`] by default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rows: Option<usize>,
 }
@@ -170,6 +171,12 @@ pub struct Recipe {
     pub approval: Approval,
     #[serde(default)]
     pub redact: Vec<Redact>,
+    /// Its output is a `.env`: each value masked, revealed one by one; an agent gets only the names of the keys.
+    #[serde(default)]
+    pub env: bool,
+    /// It runs until stopped (`journalctl -f`), followed live in the Ops view; never by an agent.
+    #[serde(default)]
+    pub follow: bool,
     pub run: Vec<Variant>,
     /// `shipped` or `project`, set when read.
     #[serde(default, skip_deserializing)]
@@ -373,6 +380,7 @@ impl Recipe {
                 );
             }
         }
+        self.validate_shape()?;
         for p in self.params.iter().filter(|p| p.kind == ParamKind::Command) {
             for value in &p.values {
                 for word in value.split_whitespace() {
@@ -390,12 +398,87 @@ impl Recipe {
         }
         Ok(())
     }
+
+    /// A `.env` or a stream only reads; a query only reads too, alone in its argument, where TermF wraps it.
+    fn validate_shape(&self) -> Result<()> {
+        ensure!(
+            !(self.env && self.follow),
+            "a recipe is a .env or a stream, not both"
+        );
+        if self.env || self.follow {
+            ensure!(self.mode == Mode::Read, "a .env or a stream only reads");
+        }
+        if let Some(rows) = self.limits.rows {
+            ensure!(
+                (1..=MAX_LINES).contains(&rows),
+                "limits: rows 1 to {MAX_LINES}"
+            );
+        }
+        let sql: Vec<&Param> = self
+            .params
+            .iter()
+            .filter(|p| p.kind == ParamKind::Sql)
+            .collect();
+        let Some(query) = sql.first() else {
+            return Ok(());
+        };
+        ensure!(sql.len() == 1, "a recipe takes one sql parameter at most");
+        ensure!(
+            self.mode == Mode::Read && !self.env && !self.follow,
+            "a sql parameter is for a recipe that reads, once"
+        );
+        let hole = format!("{{{}}}", query.name);
+        for v in &self.run {
+            ensure!(
+                matches!(v.kind, Kind::Postgres | Kind::Mysql),
+                "{hole} runs on postgres or mysql only"
+            );
+            let alone = v
+                .args
+                .iter()
+                .filter(|a| matches!(a, Arg::One(t) if *t == hole))
+                .count();
+            let anywhere = v
+                .args
+                .iter()
+                .chain(v.pipe.iter().flatten())
+                .flat_map(|a| match a {
+                    Arg::One(t) => vec![t],
+                    Arg::Group(g) => g.iter().collect(),
+                })
+                .chain(&v.keep)
+                .filter(|t| t.contains(&hole))
+                .count();
+            ensure!(
+                alone == 1 && anywhere == 1,
+                "{hole} stands alone, once, in the args of each [[run]]: TermF wraps it in a read-only transaction"
+            );
+        }
+        Ok(())
+    }
 }
 
 /// A parameter's value as the client gets it, or why it is refused.
 pub fn check(p: &Param, raw: &str) -> Result<String> {
     let value = raw.trim();
     ensure!(!value.is_empty(), "{} is empty", p.name);
+    if p.kind == ParamKind::Sql {
+        // Lines, tabs and a leading `--` comment belong to a query, analyzed once its database is known.
+        let max = p.max_len.unwrap_or(10_000);
+        ensure!(
+            value.chars().count() <= max,
+            "{} has {max} characters at most",
+            p.name
+        );
+        ensure!(
+            !value
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')),
+            "{} holds a control character",
+            p.name
+        );
+        return Ok(value.to_owned());
+    }
     ensure!(
         !value.chars().any(char::is_control),
         "{} holds a control character (a new line, a tab…)",
@@ -481,7 +564,7 @@ pub fn check(p: &Param, raw: &str) -> Result<String> {
             );
             value.to_owned()
         }
-        ParamKind::Sql => bail!("SQL queries come with the SQL console, in a later TermF"),
+        ParamKind::Sql => unreachable!("checked above"),
     })
 }
 
@@ -515,11 +598,20 @@ pub struct Plan {
     pub(crate) args: Vec<String>,
     #[serde(skip)]
     pub(crate) keep: Option<String>,
+    /// The output is a query's table, or a `.env`.
+    #[serde(skip)]
+    pub(crate) table: bool,
+    #[serde(skip)]
+    pub(crate) dotenv: bool,
+    /// It runs until stopped.
+    #[serde(skip)]
+    pub(crate) follow: bool,
 }
 
 struct Values<'a> {
     given: &'a BTreeMap<String, String>,
     conn: &'a Connection,
+    timeout_s: u64,
 }
 
 impl Values<'_> {
@@ -550,6 +642,18 @@ impl Values<'_> {
         for arg in args {
             match arg {
                 Arg::One(t) => {
+                    let query = t
+                        .strip_prefix('{')
+                        .and_then(|t| t.strip_suffix('}'))
+                        .and_then(|name| recipe.param(name))
+                        .filter(|p| p.kind == ParamKind::Sql);
+                    if let Some(p) = query {
+                        let Some(sql) = self.given.get(&p.name) else {
+                            bail!("{} is needed", p.name)
+                        };
+                        out.extend(crate::sql::args(self.conn.kind, sql, self.timeout_s));
+                        continue;
+                    }
                     let command = t
                         .strip_prefix('{')
                         .and_then(|t| t.strip_suffix('}'))
@@ -622,11 +726,16 @@ pub fn plan(
         );
     }
     let mut values = BTreeMap::new();
+    let rows = recipe.limits.rows.unwrap_or(crate::sql::ROWS);
     for p in &recipe.params {
         let raw = given.get(&p.name).filter(|v| !v.trim().is_empty());
         match raw.or(p.default.as_ref()) {
             Some(raw) => {
-                values.insert(p.name.clone(), check(p, raw)?);
+                let mut value = check(p, raw)?;
+                if p.kind == ParamKind::Sql {
+                    value = crate::sql::analyze(&value, conn.kind, rows)?;
+                }
+                values.insert(p.name.clone(), value);
             }
             None => ensure!(!p.required, "{} is needed", p.name),
         }
@@ -645,6 +754,7 @@ pub fn plan(
     let filled = Values {
         given: &values,
         conn,
+        timeout_s: recipe.limits.timeout_s,
     };
     let mut args = filled.args(recipe, &variant.args)?;
     let base = exec::base(conn, all, recipe.mode, recipe.limits.timeout_s)?;
@@ -710,5 +820,8 @@ pub fn plan(
         base,
         args,
         keep,
+        table: recipe.params.iter().any(|p| p.kind == ParamKind::Sql),
+        dotenv: recipe.env,
+        follow: recipe.follow,
     })
 }

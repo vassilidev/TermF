@@ -1176,7 +1176,8 @@ fn hashes_an_entry_without_an_item_as_before() {
     assert!(!json.contains("\"item\""), "{json}");
 }
 
-const PIN: &str = "4242";
+// Not hexadecimal: the audit holds hex fingerprints, where a PIN of digits alone can show up by chance.
+const PIN: &str = "42k42";
 
 fn err(result: Result<impl Sized>) -> String {
     result.map(|_| ()).unwrap_err().to_string()

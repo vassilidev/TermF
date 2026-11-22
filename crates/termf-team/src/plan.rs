@@ -262,8 +262,16 @@ pub fn question_schema() -> Value {
         "why": { "type": "string" },
         "kind": { "type": "string", "enum": ["choice", "multi", "bool", "text"] },
         "options": strings(),
-        "proposed": strings(),
-        "implications": strings(),
+        "proposed": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Options word for word; for bool, yes or no (in English, whatever the language of the rest)",
+        },
+        "implications": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "What each option implies, in the order of options (for bool: yes then no), or none",
+        },
     }))
 }
 
@@ -542,10 +550,19 @@ pub fn check_questions(questions: &[Question]) -> Vec<String> {
         if q.kind != QuestionKind::Multi && q.proposed.len() > 1 {
             problems.push(format!("question {id} proposes more than one answer"));
         }
-        if !q.implications.is_empty() && q.implications.len() != q.options.len() {
-            problems.push(format!(
-                "question {id}: give one implication per option, or none"
-            ));
+        // A yes/no question lists no options: its implications are yes's, then no's. A free text's are only read.
+        let choices = match q.kind {
+            QuestionKind::Bool => Some(2),
+            QuestionKind::Text => None,
+            _ => Some(q.options.len()),
+        };
+        if !q.implications.is_empty() && choices.is_some_and(|n| q.implications.len() != n) {
+            problems.push(match q.kind {
+                QuestionKind::Bool => {
+                    format!("question {id}: give two implications (yes, then no), or none")
+                }
+                _ => format!("question {id}: give one implication per option, or none"),
+            });
         }
     }
     problems
@@ -1139,6 +1156,13 @@ paths = ["services/**"]
         );
         let public = question("public", QuestionKind::Bool, &[], &["no"]);
         let name = question("name", QuestionKind::Text, &[], &[]);
+        // What the real Claude Code writes for a yes/no question: what yes implies, then no.
+        let mut weighed = question("weighed", QuestionKind::Bool, &[], &["yes"]);
+        weighed.implications = vec!["a public link".into(), "signed-in users only".into()];
+        // And for a free text: what its proposal and another answer would imply.
+        let mut titled = question("titled", QuestionKind::Text, &[], &["Multiply"]);
+        titled.implications = vec!["matches the page".into(), "the user writes it".into()];
+        assert_eq!(check_questions(&[weighed, titled]), Vec::<String>::new());
         let good = [
             format.clone(),
             columns.clone(),
@@ -1146,6 +1170,11 @@ paths = ["services/**"]
             name.clone(),
         ];
         assert_eq!(check_questions(&good), Vec::<String>::new());
+        let schema = question_schema().to_string();
+        assert!(
+            schema.contains("yes or no") && schema.contains("yes then no"),
+            "{schema}"
+        );
 
         let mut odd = question("format", QuestionKind::Choice, &["CSV"], &["PDF"]);
         odd.theme = "mood".into();
@@ -1153,6 +1182,7 @@ paths = ["services/**"]
         odd.implications = vec!["a".into(), "b".into()];
         let mut two = question("x y", QuestionKind::Bool, &[], &["maybe", "no"]);
         two.question = String::new();
+        two.implications = vec!["only one".into()];
         let all = check_questions(&[format.clone(), odd, two]).join("\n");
         for expected in [
             "two questions are named format",
@@ -1161,6 +1191,7 @@ paths = ["services/**"]
             "question format offers fewer than two options",
             "question format: \"PDF\" is not an answer it takes",
             "one implication per option",
+            "question x y: give two implications (yes, then no), or none",
             "question id \"x y\" is not made of",
             "question x y: \"maybe\" is not an answer it takes",
             "question x y proposes more than one answer",
