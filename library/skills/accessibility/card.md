@@ -1,12 +1,10 @@
-### Accessibility — skill `accessibility`
-- Version: target WCAG 2.2 level AA (W3C Recommendation, 2023-10-05) and WAI-ARIA 1.2; skill verified on 2026-11-22 with axe-core@4.14.1.
-- Docs: https://www.w3.org/WAI/WCAG22/quickref/ (criteria by number), https://www.w3.org/WAI/ARIA/apg/ (widget patterns).
+- Version: read it in the ticket or the project's accessibility statement; WCAG 2.2 level AA and WAI-ARIA 1.2 when none is given.
+- Docs for this version: https://www.w3.org/WAI/WCAG22/quickref/ (criteria by number), https://www.w3.org/WAI/ARIA/apg/ (widget patterns).
 - Verify: the project's lint and test scripts (a11y lint rules, axe scans); keyboard-only pass, 200 % zoom and 320 px width by hand.
-- Pitfalls:
-  - Native element first; ARIA only as an APG pattern prescribes, with every key it lists.
-  - New in 2.2 and often missed: 2.4.11 focus hidden by sticky bars, 2.5.7 drag needs a click alternative, 2.5.8 targets 24 by 24 CSS px, 3.3.8 allow paste and password managers. 4.1.1 is gone.
-  - Site navigation is links plus disclosure buttons, never `role="menu"`.
-  - `aria-label` on a plain div or span is unreliable (naming prohibited); the accessible name contains the visible label (2.5.3).
-  - Dialogs: `<dialog>` + `showModal()`, named, Escape closes, focus returns to the opener.
-  - axe finds only part of WCAG (its 2.5.8 rule is off by default): report the manual checks done.
-- Read skill `accessibility` when building or changing interactive UI, forms or custom widgets, or fixing an a11y finding.
+- Native element first; ARIA only as an APG pattern prescribes, with every key it lists.
+- New in 2.2 and often missed: 2.4.11 focus hidden by sticky bars, 2.5.7 drag needs a click alternative, 2.5.8 targets 24 by 24 CSS px, 3.3.8 allow paste and password managers. 4.1.1 is gone.
+- Site navigation is links plus disclosure buttons, never `role="menu"`.
+- `aria-label` on a plain div or span is unreliable (naming prohibited); the accessible name contains the visible label (2.5.3).
+- Dialogs: `<dialog>` + `showModal()`, named, Escape closes, focus returns to the opener.
+- axe finds only part of WCAG (its 2.5.8 rule is off by default): report the manual checks done.
+- Read the skill `accessibility` before building or changing interactive UI, forms or custom widgets, or fixing an a11y finding.
