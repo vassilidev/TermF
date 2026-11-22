@@ -1278,6 +1278,52 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
 }
 
 #[test]
+fn a_role_that_allows_the_browser_gets_it_from_termf_mcp() {
+    let env = Env::new("browser-tools");
+    env.agents.serve_mcp(
+        |id| Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string()}})),
+        |_| {},
+    );
+    let start = |allowed: &[&str]| {
+        let spec = SessionSpec {
+            allowed_tools: allowed.iter().map(|t| t.to_string()).collect(),
+            ..env.spec()
+        };
+        let id = env.agents.start(spec, Some("say hello")).unwrap().id;
+        env.settle(id, 1, State::Idle);
+        let args = env.args().pop().unwrap();
+        let config = arg_after(&args, "--mcp-config").map(|file| {
+            let config: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+            config["mcpServers"]["termf"]["env"].clone()
+        });
+        (args, config)
+    };
+    let (args, env_of) = start(&[crate::BROWSER, crate::ASK_EXPERT]);
+    let env_of = env_of.unwrap();
+    assert_eq!(
+        env_of["TERMF_MCP_TOOLS"],
+        "ask_expert,browser_open,browser_snapshot,browser_click,browser_fill,browser_wait,browser_console,browser_network,browser_screenshot"
+    );
+    assert_eq!(
+        env_of["TERMF_CONFIG_DIR"],
+        json!(env.root.join("config").to_string_lossy())
+    );
+    assert!(env_of["TERMF_DATA_DIR"].as_str().is_some());
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["--allowedTools", "mcp__termf__browser_*"]),
+        "allowed without a prompt"
+    );
+    let (_, env_of) = start(&["mcp__termf__browser_snapshot"]);
+    assert_eq!(env_of.unwrap()["TERMF_MCP_TOOLS"], "browser_snapshot");
+    let (args, env_of) = start(&["Read"]);
+    assert!(
+        env_of.is_none() && !args.contains(&"--mcp-config".into()),
+        "no browser unless allowed"
+    );
+}
+
+#[test]
 fn termf_notices_reach_the_agent_apart_from_the_user() {
     let env = Env::new("notices");
     let notice = |about: &str, text: &str| Notice {

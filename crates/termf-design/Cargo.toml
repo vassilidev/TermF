@@ -1,0 +1,16 @@
+[package]
+name = "termf-design"
+description = "A repository's design system read from its files alone: tokens by family, components, inconsistencies, and its brand guidelines with their PDF export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+# Guidelines images inlined as data URIs, and the PDF Chrome sends; already used by termf-visual.
+base64ct = { version = "1.8.3", features = ["alloc"] }
+# The walk that honours .gitignore, already used by termf-files.
+ignore = "0.4.34"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+termf-visual = { path = "../termf-visual" }

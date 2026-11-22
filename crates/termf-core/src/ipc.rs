@@ -34,6 +34,21 @@ pub const MCP_READ: [&str; 7] = [
 ];
 /// The project expert's own tools: searching and reading the project memory.
 pub const MCP_EXPERT: [&str; 2] = ["memory_search", "memory_read"];
+/// The browser `termf mcp` runs itself for its session (never through TermF's socket): a headless Chrome on a
+/// throwaway profile, kept to the worktree's dev server, localhost and the origins the project allows.
+pub const MCP_BROWSER: [&str; 8] = [
+    "browser_open",
+    "browser_snapshot",
+    "browser_click",
+    "browser_fill",
+    "browser_wait",
+    "browser_console",
+    "browser_network",
+    "browser_screenshot",
+];
+/// TermF's folders, for the browser of `termf mcp`: the project's config, the worktree's ports.
+pub const ENV_CONFIG_DIR: &str = "TERMF_CONFIG_DIR";
+pub const ENV_DATA_DIR: &str = "TERMF_DATA_DIR";
 pub const MCP_ACTIONS: [&str; 6] = [
     "start_team_run",
     "answer",

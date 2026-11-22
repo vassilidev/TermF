@@ -63,6 +63,16 @@ pub struct Login {
     pub wait: Option<String>,
 }
 
+/// `[browser]`: the agents' browser (crate::agent). It always reaches localhost and the worktree's dev server.
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct Browsing {
+    /// More origins it may reach, such as `https://staging.acme.test`.
+    pub origins: Vec<String>,
+    /// The project's terminal sessions get it too, not only the agents whose role asks for it.
+    pub tiles: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub project: String,
@@ -71,6 +81,7 @@ pub struct Config {
     pub dev: Option<String>,
     pub storybook: Option<String>,
     pub settings: Settings,
+    pub browser: Browsing,
 }
 
 pub fn load(config_dir: &Path, repo: &Path) -> Result<Config> {
@@ -113,6 +124,13 @@ pub fn load(config_dir: &Path, repo: &Path) -> Result<Config> {
             .with_context(|| format!("invalid [visual] in {}", file.display()))?,
         None => Settings::default(),
     };
+    let browser = match table.get("browser") {
+        Some(browser) => browser
+            .clone()
+            .try_into()
+            .with_context(|| format!("invalid [browser] in {}", file.display()))?,
+        None => Browsing::default(),
+    };
     Ok(Config {
         project,
         repo: name,
@@ -120,6 +138,7 @@ pub fn load(config_dir: &Path, repo: &Path) -> Result<Config> {
         dev: command("dev"),
         storybook: command("storybook"),
         settings,
+        browser,
     })
 }
 
