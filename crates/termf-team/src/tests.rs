@@ -4222,3 +4222,160 @@ fn a_team_done_is_updated_with_its_base_on_request() {
         "{refused}"
     );
 }
+
+/// The real Claude Code on Haiku: the base fixed the greeting's punctuation while the run trimmed the name, on the
+/// same line; the integrator keeps both, and TermF concludes the merge.
+#[test]
+#[ignore]
+fn real_integrator() {
+    let root = std::env::temp_dir().join(format!("termf-team-integrator-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let (repo, config, data) = (root.join("repo"), root.join("config"), root.join("data"));
+    fs::create_dir_all(&repo).unwrap();
+    let env: Vec<(String, String)> = [
+        ("GIT_AUTHOR_NAME", "alex"),
+        ("GIT_AUTHOR_EMAIL", "alex@example.invalid"),
+        ("GIT_COMMITTER_NAME", "alex"),
+        ("GIT_COMMITTER_EMAIL", "alex@example.invalid"),
+    ]
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .to_vec();
+    let greet = |line: &str| format!("export function greet(name) {{\n  {line}\n}}\n");
+    let commit = |dir: &Path, text: String, message: &str| {
+        fs::write(dir.join("greet.js"), text).unwrap();
+        git(dir, &env, &["add", "-A"]);
+        git(dir, &env, &["commit", "-q", "-m", message]);
+    };
+    git(&repo, &env, &["init", "-q", "-b", "main"]);
+    commit(&repo, greet("return \"Hello \" + name;"), "init");
+    let worktree = data.join("worktrees/run1");
+    let path = worktree.to_string_lossy().into_owned();
+    git(
+        &repo,
+        &env,
+        &["worktree", "add", "-q", "-b", "termf/1-trim", &path],
+    );
+    commit(
+        &worktree,
+        greet("return \"Hello \" + name.trim();"),
+        "acme/web#1 T1: trim the name before greeting",
+    );
+    commit(
+        &repo,
+        greet("return \"Hello, \" + name + \"!\";"),
+        "Greeting: a comma after Hello and an exclamation mark",
+    );
+    let put = |path: PathBuf, text: String| {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    put(
+        config.join("termf.toml"),
+        "[agents]\nclaude = \"claude\"\n[team]\ntriage = false\n[roles.integrator]\nmodel = \"haiku\"\n\
+         effort = \"low\"\neffort_range = [\"low\", \"low\"]\n"
+            .into(),
+    );
+    put(
+        config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\nname = \"web\"\npath = \"{}\"\n[team]\ndone = []\n",
+            repo.display()
+        ),
+    );
+    put(
+        config.join("library/workflows/real.toml"),
+        "budget_usd = 0.5\n[steps.update-base]\ntype = \"update\"\nrole = \"integrator\"\n\
+         [steps.deliver]\ntype = \"connector\"\nneeds = [\"update-base\"]\n"
+            .into(),
+    );
+    let target = Target {
+        run: 1,
+        project: "acme".into(),
+        repo: "web".into(),
+        repo_path: repo.clone(),
+        worktree: worktree.clone(),
+        ticket: "acme/web#1".into(),
+        title: "Trim the name".into(),
+        brief: "<ticket source=\"https://example.invalid/1\">\n# Trim the name\n\ngreet() must ignore the spaces \
+                around the name.\n</ticket>"
+            .into(),
+    };
+    let (notifier, inbox) = channel();
+    let agents = Agents::build(config.clone(), data.clone(), Vec::new(), move |u| {
+        if let termf_agents::Update::Session(s) = u {
+            notifier.session(s.id);
+        }
+    });
+    let termf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/termf");
+    assert!(
+        termf.is_file(),
+        "build the CLI first: cargo build -p termf-cli"
+    );
+    agents.serve_guard(termf);
+    let team = Team::build(
+        config.clone(),
+        data.clone(),
+        agents.clone(),
+        inbox,
+        env.clone(),
+        |_| {},
+    );
+    team.start(
+        target,
+        Options {
+            workflow: Some("real".into()),
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(600);
+    let run = loop {
+        let run = team.run(1).unwrap();
+        if !matches!(run.state, RunState::Running) || Instant::now() > deadline {
+            break run;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let merged = fs::read_to_string(worktree.join("greet.js")).unwrap_or_default();
+    let parents = git(&worktree, &env, &["log", "-1", "--format=%P"]);
+    let folders: Vec<PathBuf> = agents
+        .sessions()
+        .unwrap()
+        .into_iter()
+        .map(|s| s.spec.cwd)
+        .collect();
+    let events: Vec<String> = team
+        .events(1, 0)
+        .unwrap()
+        .iter()
+        .map(|e| format!("{} {:?} {}", e.kind, e.step, e.message))
+        .collect();
+    team.shutdown();
+    agents.shutdown();
+    for folder in folders {
+        let _ = Command::new("claude")
+            .args(["purge", &folder.to_string_lossy(), "-y"])
+            .output();
+    }
+    let _ = fs::remove_dir_all(&root);
+
+    let update = run.steps.iter().find(|s| s.key == "update-base").unwrap();
+    eprintln!(
+        "real_integrator: run ${:.4}; {:?} {:?}\n{merged}\n{:?}\n{events:#?}",
+        run.cost,
+        update.state,
+        update.note,
+        update.report.as_ref().map(|r| &r.summary)
+    );
+    assert_eq!(update.state, StepState::Done, "{events:#?}");
+    assert_eq!(update.files, ["greet.js"]);
+    assert_eq!(parents.split(' ').count(), 2, "a merge commit: {parents}");
+    assert!(
+        !merged.contains("<<<<<<<") && !merged.contains(">>>>>>>"),
+        "{merged}"
+    );
+    assert!(
+        merged.contains("trim()") && merged.contains("Hello, ") && merged.contains('!'),
+        "both intents kept: {merged}"
+    );
+}
