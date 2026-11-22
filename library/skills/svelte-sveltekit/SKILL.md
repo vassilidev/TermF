@@ -11,7 +11,7 @@ license: MIT
 metadata:
   termf-stacks: "svelte sveltekit"
   termf-roles: "front qa"
-  termf-versions: "svelte>=5 @sveltejs/kit>=2"
+  termf-versions: ">=5"
   termf-verified: "2026-11-22 svelte@5.59.1 @sveltejs/kit@3.4.0"
   termf-sources: "https://svelte.dev/docs/kit/migrating-to-sveltekit-3 https://svelte.dev/docs/kit/configuration https://svelte.dev/docs/ai/overview https://svelte.dev/docs/ai/cli https://svelte.dev/llms.txt https://github.com/sveltejs/ai-tools"
 ---

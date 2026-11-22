@@ -39,3 +39,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Skills — lot A
+
+Some skills in `library/skills/` adapt short passages from the MIT-licensed works below, rewritten and shortened. Each skill that does lists its sources in `metadata.credits` in its frontmatter.
+
+| Source | Commit | License | Files adapted | Used in |
+|---|---|---|---|---|
+| https://github.com/mattpocock/skills | abeeaf95660ba9e8b7c753eb38f441ca707a8823 | MIT | `skills/engineering/tdd/SKILL.md`, `skills/engineering/tdd/tests.md`, `skills/engineering/tdd/mocking.md` | `skills/tests-from-criteria/SKILL.md` |
+
+Copyright (c) 2026 Matt Pocock (mattpocock/skills), under the MIT License whose text is reproduced above.

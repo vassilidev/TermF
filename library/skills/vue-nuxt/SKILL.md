@@ -11,7 +11,7 @@ license: MIT
 metadata:
   termf-stacks: "vue nuxt"
   termf-roles: "front qa"
-  termf-versions: "vue>=3.4 nuxt>=3.12"
+  termf-versions: ">=3.4"
   termf-verified: "2026-11-22 vue@3.5.46 nuxt@4.6.4 vue-tsc@3.3.14"
   termf-sources: "https://vuejs.org/llms.txt https://nuxt.com/llms.txt https://nuxt.com/docs/4.x/getting-started/upgrade https://nuxt.com/docs/4.x/guide/ai/mcp https://nuxt.com/docs/4.x/api/commands/typecheck https://github.com/vuejs/language-tools/issues/5381"
 ---

@@ -13,7 +13,7 @@ license: MIT
 metadata:
   termf-stacks: "vitest jest"
   termf-roles: "qa front back"
-  termf-versions: "vitest>=4 jest>=29"
+  termf-versions: ">=4 <6 || >=29"
   termf-verified: "2026-11-22 vitest@5.1.1 jest@30.5.2"
   termf-sources: "https://vitest.dev/llms.txt https://vitest.dev/guide/migration.md https://vitest.dev/guide/learn/writing-tests-with-ai.md https://jestjs.io/docs/upgrading-to-jest30 https://testing-library.com/docs/queries/about/"
 ---
