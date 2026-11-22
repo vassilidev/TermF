@@ -3477,6 +3477,48 @@ const fr = {
   adaptersCodex: "Codex CLI",
   adaptersGemini: "Gemini CLI",
   adaptersTurnTokens: "ce tour {input} jetons en entrée · {output} en sortie",
+  tickets2Gitlab: "GitLab",
+  tickets2GitlabHelp:
+    "Les issues ouvertes des dépôts GitLab du projet. TermF passe par glab s'il est installé et connecté à cet hôte (glab auth login --hostname <hôte>), sinon par un jeton d'accès.",
+  tickets2GitlabNoRepo: "Aucun dépôt du projet sur cet hôte GitLab : indique le projet des issues.",
+  tickets2GitlabHost: "Hôte",
+  tickets2GitlabHostPlaceholder: "gitlab.com ou gitlab.acme.com",
+  tickets2GitlabRepo: "Projet des issues (facultatif)",
+  tickets2GitlabRepoPlaceholder: "groupe/projet",
+  tickets2GitlabComment: "À la livraison, commenter l'issue avec le lien de la merge request",
+  tickets2GitlabToken: "Jeton d'accès (inutile si glab est connecté)",
+  tickets2GitlabTokenHelp:
+    "Crée-le dans GitLab, Préférences → Jetons d'accès, avec le scope api. Il reste dans le trousseau du système, jamais dans la config.",
+  tickets2Linear: "Linear",
+  tickets2LinearWorkspace: "Espace de travail",
+  tickets2LinearWorkspacePlaceholder: "acme, comme dans linear.app/acme",
+  tickets2LinearToken: "Clé d'API personnelle",
+  tickets2LinearTokenHelp:
+    "Crée-la dans Linear, Settings → Security & access → Personal API keys. Elle reste dans le trousseau du système, jamais dans la config.",
+  tickets2LinearTeam: "Clé de l'équipe (facultatif)",
+  tickets2LinearTeamPlaceholder: "ENG",
+  tickets2LinearStates: "États à afficher",
+  tickets2LinearStatesAll: "Tous sauf terminés et annulés",
+  tickets2Azure: "Azure DevOps",
+  tickets2AzureOrg: "Organisation",
+  tickets2AzureOrgPlaceholder: "acme, comme dans dev.azure.com/acme",
+  tickets2AzureProject: "Projet",
+  tickets2AzureToken: "Jeton d'accès personnel (PAT)",
+  tickets2AzureTokenHelp:
+    "Crée-le dans Azure DevOps, User settings → Personal access tokens, avec Work Items en lecture et écriture. Il reste dans le trousseau du système, jamais dans la config.",
+  tickets2AzureWiql: "WIQL de l'inbox",
+  tickets2MetaMr: "MR",
+  tickets2DeliverHowMr:
+    "Les fichiers sont commités sur {branch}, la branche est poussée sur origin, puis une merge request est ouverte vers {target}.",
+  tickets2DeliverHowAgainMr:
+    "Les fichiers sont commités sur {branch} et poussés sur origin : la merge request existante se met à jour.",
+  tickets2DeliveredMr: "Livré : la merge request est ouverte.",
+  tickets2DeliveredAgainMr: "Livré : la merge request est mise à jour.",
+  tickets2EventMr: "MR ouverte : {url}",
+  tickets2EventCommentedMr: "Lien de la MR commenté sur le ticket",
+  tickets2SetupGitlab: "Les issues GitLab de {repos} qui te sont assignées arrivent dans la boîte du projet.",
+  tickets2SetupKeys:
+    "Des clés {keys} apparaissent dans les commits : si elles viennent de Linear ou de Jira, ajoute la source dans l'assistant.",
 };
 
 type Key = keyof typeof fr;
@@ -6933,6 +6975,46 @@ const en: Record<Key, string> = {
   adaptersCodex: "Codex CLI",
   adaptersGemini: "Gemini CLI",
   adaptersTurnTokens: "this turn {input} input tokens · {output} output",
+  tickets2Gitlab: "GitLab",
+  tickets2GitlabHelp:
+    "The open issues of the project's GitLab repositories. TermF goes through glab when it is installed and signed in to this host (glab auth login --hostname <host>), else through an access token.",
+  tickets2GitlabNoRepo: "No repository of the project on this GitLab host: name the project of the issues.",
+  tickets2GitlabHost: "Host",
+  tickets2GitlabHostPlaceholder: "gitlab.com or gitlab.acme.com",
+  tickets2GitlabRepo: "Project of the issues (optional)",
+  tickets2GitlabRepoPlaceholder: "group/project",
+  tickets2GitlabComment: "On delivery, comment on the issue with the merge request's link",
+  tickets2GitlabToken: "Access token (not needed when glab is signed in)",
+  tickets2GitlabTokenHelp:
+    "Create it in GitLab, Preferences → Access tokens, with the api scope. It stays in the system's keychain, never in the config.",
+  tickets2Linear: "Linear",
+  tickets2LinearWorkspace: "Workspace",
+  tickets2LinearWorkspacePlaceholder: "acme, as in linear.app/acme",
+  tickets2LinearToken: "Personal API key",
+  tickets2LinearTokenHelp:
+    "Create it in Linear, Settings → Security & access → Personal API keys. It stays in the system's keychain, never in the config.",
+  tickets2LinearTeam: "Team key (optional)",
+  tickets2LinearTeamPlaceholder: "ENG",
+  tickets2LinearStates: "States to show",
+  tickets2LinearStatesAll: "All but done and canceled",
+  tickets2Azure: "Azure DevOps",
+  tickets2AzureOrg: "Organization",
+  tickets2AzureOrgPlaceholder: "acme, as in dev.azure.com/acme",
+  tickets2AzureProject: "Project",
+  tickets2AzureToken: "Personal access token (PAT)",
+  tickets2AzureTokenHelp:
+    "Create it in Azure DevOps, User settings → Personal access tokens, with Work Items read and write. It stays in the system's keychain, never in the config.",
+  tickets2AzureWiql: "Inbox WIQL",
+  tickets2MetaMr: "Merge request",
+  tickets2DeliverHowMr:
+    "The files are committed on {branch}, the branch is pushed to origin, then a merge request is opened to {target}.",
+  tickets2DeliverHowAgainMr: "The files are committed on {branch} and pushed to origin: the open merge request updates.",
+  tickets2DeliveredMr: "Delivered: the merge request is open.",
+  tickets2DeliveredAgainMr: "Delivered: the merge request is updated.",
+  tickets2EventMr: "Merge request opened: {url}",
+  tickets2EventCommentedMr: "Merge request link commented on the ticket",
+  tickets2SetupGitlab: "The GitLab issues of {repos} assigned to you come into the project's inbox.",
+  tickets2SetupKeys: "{keys} keys show in the commits: if they come from Linear or Jira, add the source in the assistant.",
 };
 
 const messages = { fr, en };

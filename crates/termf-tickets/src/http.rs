@@ -123,7 +123,9 @@ impl Http {
         let key = format!(
             "{method} {}{path} {}",
             self.base,
-            body.as_ref().map(|b| b.value.to_string()).unwrap_or_default()
+            body.as_ref()
+                .map(|b| b.value.to_string())
+                .unwrap_or_default()
         );
         let kept = self.answers.lock().unwrap().get(&key).cloned();
         let kept = kept.filter(|_| !fresh);
@@ -191,7 +193,9 @@ impl Http {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .with_context(|| format!("cannot run curl, which TermF needs to reach {}", self.name))?;
+            .with_context(|| {
+                format!("cannot run curl, which TermF needs to reach {}", self.name)
+            })?;
         // A curl that exits early says why on stderr, which a broken pipe would hide.
         if let Some(mut stdin) = child.stdin.take()
             && let Err(e) = stdin.write_all(config.as_bytes())

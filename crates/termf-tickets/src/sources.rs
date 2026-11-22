@@ -513,7 +513,10 @@ pub fn write_trackers(doc: &mut DocumentMut, trackers: &Trackers) -> Result<()> 
             let t = table(root, "azure")?;
             text(t, "organization", Some(&a.organization));
             text(t, "project", Some(&a.project));
-            let wiql = a.wiql.as_deref().filter(|q| q.trim() != azure::DEFAULT_WIQL);
+            let wiql = a
+                .wiql
+                .as_deref()
+                .filter(|q| q.trim() != azure::DEFAULT_WIQL);
             text(t, "wiql", wiql);
             flag(t, "comment", a.comment, false);
             text(t, "transition", a.transition.as_deref());
@@ -568,9 +571,15 @@ impl Tickets {
             target.is_some_and(|t| self.has_token(kind, t).unwrap_or(false))
         };
         let tokens = Tokens {
-            linear: has("linear", trackers.linear.as_ref().map(|l| l.workspace.as_str())),
+            linear: has(
+                "linear",
+                trackers.linear.as_ref().map(|l| l.workspace.as_str()),
+            ),
             gitlab: has("gitlab", trackers.gitlab.as_ref().map(|g| g.host.as_str())),
-            azure: has("azure", trackers.azure.as_ref().map(|a| a.organization.as_str())),
+            azure: has(
+                "azure",
+                trackers.azure.as_ref().map(|a| a.organization.as_str()),
+            ),
         };
         Ok(Sources {
             gitlab_repos: info.gitlab_slugs(),

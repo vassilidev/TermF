@@ -52,7 +52,9 @@ pub(crate) fn base(organization: &str) -> Result<String> {
 /// The keychain account of a personal access token: one per organization.
 pub(crate) fn account(organization: &str) -> Result<String> {
     let base = base(organization)?;
-    let name = base.rsplit_once("dev.azure.com/").map_or(base.as_str(), |(_, n)| n);
+    let name = base
+        .rsplit_once("dev.azure.com/")
+        .map_or(base.as_str(), |(_, n)| n);
     Ok(format!("azure:{name}"))
 }
 
@@ -92,7 +94,10 @@ pub(crate) fn parse(input: &str) -> Option<(Option<String>, u64)> {
     let host = host.to_ascii_lowercase();
     let mut parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
     let site = if host == "dev.azure.com" && !parts.is_empty() {
-        format!("https://dev.azure.com/{}", parts.remove(0).to_ascii_lowercase())
+        format!(
+            "https://dev.azure.com/{}",
+            parts.remove(0).to_ascii_lowercase()
+        )
     } else if let Some(org) = host.strip_suffix(".visualstudio.com") {
         format!("https://dev.azure.com/{org}")
     } else if crate::http::local(&format!("{scheme}://{host}")) {
@@ -262,14 +267,21 @@ impl Azure {
     }
 
     /// The work items `wiql` finds, in its order, at most `limit`.
-    pub(crate) fn issues(&self, wiql: &str, limit: Option<usize>, fresh: bool) -> Result<Vec<TicketSummary>> {
+    pub(crate) fn issues(
+        &self,
+        wiql: &str,
+        limit: Option<usize>,
+        fresh: bool,
+    ) -> Result<Vec<TicketSummary>> {
         let top = limit.unwrap_or(MAX_ITEMS).min(MAX_ITEMS);
         let path = format!(
             "/{}/_apis/wit/wiql?{VERSION}&$top={top}",
             encode(&self.project)
         );
         let query = json!({ "query": wiql });
-        let found = self.http.read("POST", &path, Some(Body::json(&query)), fresh)?;
+        let found = self
+            .http
+            .read("POST", &path, Some(Body::json(&query)), fresh)?;
         let ids: Vec<u64> = found["workItems"]
             .as_array()
             .into_iter()
@@ -285,13 +297,17 @@ impl Azure {
                 "errorPolicy": "Omit",
             });
             let path = format!("/_apis/wit/workitemsbatch?{VERSION}");
-            let batch = self.http.read("POST", &path, Some(Body::json(&asked)), fresh)?;
+            let batch = self
+                .http
+                .read("POST", &path, Some(Body::json(&asked)), fresh)?;
             for item in batch["value"].as_array().into_iter().flatten() {
                 let fields = &item["fields"];
                 let Some(id) = item["id"].as_u64() else {
                     continue;
                 };
-                let project = fields["System.TeamProject"].as_str().unwrap_or(&self.project);
+                let project = fields["System.TeamProject"]
+                    .as_str()
+                    .unwrap_or(&self.project);
                 tickets.push(TicketSummary {
                     reference: reference(&self.organization, project, id)?,
                     title: fields["System.Title"].as_str().unwrap_or_default().into(),
@@ -308,7 +324,8 @@ impl Azure {
     }
 
     fn id(ticket: &TicketRef) -> Result<u64> {
-        number(&ticket.key).with_context(|| format!("not an Azure DevOps work item: {}", ticket.key))
+        number(&ticket.key)
+            .with_context(|| format!("not an Azure DevOps work item: {}", ticket.key))
     }
 
     fn item(&self, id: u64, relations: bool) -> Result<Value> {
@@ -341,7 +358,9 @@ impl TicketProvider for Azure {
         let id = Self::id(ticket)?;
         let item = self.item(id, false)?;
         let fields = &item["fields"];
-        let project = fields["System.TeamProject"].as_str().unwrap_or(&self.project);
+        let project = fields["System.TeamProject"]
+            .as_str()
+            .unwrap_or(&self.project);
         let path = format!(
             "/{}/_apis/wit/workItems/{id}/comments?{COMMENTS_VERSION}&$top=200&order=asc",
             encode(project)
@@ -361,7 +380,10 @@ impl TicketProvider for Azure {
         for (field, title) in [
             ("System.Description", ""),
             ("Microsoft.VSTS.TCM.ReproSteps", "Repro steps"),
-            ("Microsoft.VSTS.Common.AcceptanceCriteria", "Acceptance criteria"),
+            (
+                "Microsoft.VSTS.Common.AcceptanceCriteria",
+                "Acceptance criteria",
+            ),
         ] {
             let part = text(fields[field].as_str().unwrap_or_default());
             if part.is_empty() {
@@ -395,7 +417,9 @@ impl TicketProvider for Azure {
     fn comment(&self, ticket: &TicketRef, body: &str) -> Result<()> {
         let id = Self::id(ticket)?;
         let item = self.item(id, false)?;
-        let project = item["fields"]["System.TeamProject"].as_str().unwrap_or(&self.project);
+        let project = item["fields"]["System.TeamProject"]
+            .as_str()
+            .unwrap_or(&self.project);
         let path = format!(
             "/{}/_apis/wit/workItems/{id}/comments?{COMMENTS_VERSION}",
             encode(project)

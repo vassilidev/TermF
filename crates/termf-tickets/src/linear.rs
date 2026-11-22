@@ -152,7 +152,10 @@ impl Linear {
             None => self.http.call("POST", "/graphql", Some(body)),
         };
         let answer = answer.map_err(|e| {
-            if format!("{e:#}").to_ascii_lowercase().contains("authenticat") {
+            if format!("{e:#}")
+                .to_ascii_lowercase()
+                .contains("authenticat")
+            {
                 anyhow::anyhow!("{}", self.http.refused)
             } else {
                 e
@@ -344,11 +347,7 @@ impl TicketProvider for Linear {
     fn link_pr(&self, ticket: &TicketRef, url: &str) -> Result<()> {
         let key = Self::key(ticket)?;
         let title = crate::gitlab::request_title(url);
-        let data = self.graphql(
-            LINK,
-            json!({ "id": key, "url": url, "title": title }),
-            None,
-        )?;
+        let data = self.graphql(LINK, json!({ "id": key, "url": url, "title": title }), None)?;
         ensure!(
             data["attachmentLinkURL"]["success"] == true,
             "Linear did not link {url} to {key}"

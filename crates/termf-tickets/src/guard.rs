@@ -33,7 +33,7 @@ pub fn guard(line: &str) -> Option<String> {
             let refused = match program(word) {
                 "git" => git_subcommand(rest) == Some("push"),
                 "git-push" => true,
-                "gh" => gh_writes(rest),
+                "gh" | "glab" => gh_writes(rest),
                 "termf" if rest.first().is_some_and(|a| a == "ops") => {
                     return Some(format!(
                         "`{}` is refused. {OPS_REASON}",
@@ -184,9 +184,10 @@ fn git_subcommand(args: &[String]) -> Option<&str> {
     None
 }
 
+/// `gh`, and `glab`, whose merge requests are `mr` and whose `api` reads the same flags.
 fn gh_writes(args: &[String]) -> bool {
     match args.first().map(String::as_str) {
-        Some("pr") => true,
+        Some("pr" | "mr") => true,
         Some("issue") => !matches!(
             args.get(1).map(String::as_str),
             None | Some("list" | "view" | "status")
@@ -205,6 +206,10 @@ fn drives_ci(program: &str, args: &[String]) -> bool {
             !matches!(arg(1), None | Some("list" | "view" | "watch" | "download"))
         }
         ("gh", Some("workflow")) => !matches!(arg(1), None | Some("list" | "view")),
+        ("glab", Some("ci")) => !matches!(
+            arg(1),
+            None | Some("list" | "view" | "status" | "get" | "trace" | "lint")
+        ),
         ("termf", Some("ci")) => matches!(arg(1), Some("rerun" | "cancel" | "dispatch")),
         _ => false,
     }
@@ -425,6 +430,13 @@ mod tests {
             "termf ci cancel 5 --repo .",
             "cd api && termf ci dispatch deploy.yml --input level=high",
             "bash -c 'gh run rerun 5'",
+            "glab mr create --fill",
+            "glab mr merge 7",
+            "glab issue note 42 -m hi",
+            "glab api -X POST projects/1/issues/42/notes",
+            "glab api projects/1/merge_requests -f title=x",
+            "glab ci retry 5",
+            "glab ci run",
         ] {
             let reason = guard(refused).unwrap_or_else(|| panic!("{refused} let through"));
             assert!(reason.contains("is refused"), "{reason}");
@@ -470,6 +482,9 @@ mod tests {
             "gh run view 5 --log-failed",
             "gh run watch 5",
             "gh workflow list",
+            "glab issue view 42",
+            "glab api projects/1/issues/42",
+            "glab ci view",
             "termf ci runs --pr 7",
             "termf ci logs 9 --errors",
             "cargo test --workspace",

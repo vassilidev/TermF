@@ -757,9 +757,8 @@ impl Tickets {
             .collect();
         let head = git.run(dir, &["rev-parse", "HEAD"])?;
         let origin = git.run(dir, &["config", "--get", "remote.origin.url"]);
-        let merge_request = origin.is_ok_and(|o| {
-            matches!(self.forge(&run.project, &o), Ok(Forge::GitLab(..)))
-        });
+        let merge_request =
+            origin.is_ok_and(|o| matches!(self.forge(&run.project, &o), Ok(Forge::GitLab(..))));
         Ok(Snapshot {
             preview: DeliveryPreview {
                 files,

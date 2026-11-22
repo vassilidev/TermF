@@ -16,10 +16,10 @@ export type TicketSummary = TicketRef & {
   /** ISO 8601. */
   updated: string;
   project: string | null;
-  /** `github`, `githubProject`, `jira` or `mcp:<name>`. */
+  /** `github`, `githubProject`, `gitlab`, `jira`, `linear`, `azure` or `mcp:<name>`. */
   source: string;
 };
-/** `source`: `github`, `githubProject`, `jira` or `mcp:<name>`. */
+/** `source`: `github`, `githubProject`, `gitlab`, `jira`, `linear`, `azure` or `mcp:<name>`. */
 export type SourceError = { source: string; message: string };
 export type Inbox = { tickets: TicketSummary[]; errors: SourceError[] };
 export type Resolution = {
@@ -70,6 +70,8 @@ export type DeliveryPreview = {
   files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; from: string | null }[];
   commits: { commit: string; subject: string }[];
   fingerprint: string;
+  /** origin is on GitLab: the delivery opens a merge request. */
+  mergeRequest?: boolean;
   /** What the definition of done misses, when the run's team stopped short of its delivery gate. */
   done?: Done | null;
 };

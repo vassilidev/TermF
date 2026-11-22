@@ -33,7 +33,7 @@
     type TeamEdit,
     type Trackers,
   } from "$lib/onboarding-logic";
-  import { derive, githubSlugs, projectId, unique, type Card } from "$lib/setup-logic";
+  import { derive, githubSlugs, gitlabRepos, projectId, unique, type Card } from "$lib/setup-logic";
   import { app, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
   import { added } from "$lib/team-logic";
 
@@ -94,9 +94,13 @@
   const name = $derived((typed ?? "").trim() || suggested);
   const clash = $derived(typed !== null && !!typed.trim() && unique(typed.trim(), taken) !== typed.trim());
   const github = $derived(githubSlugs(chosenCards));
-  const trackers = $derived<Trackers | null>(
-    github.length ? githubIssues({ github: null, jira: null, mcp: {}, implicit: true }) : null,
-  );
+  const gitlab = $derived(gitlabRepos(chosenCards));
+  const trackers = $derived.by<Trackers | null>(() => {
+    if (!github.length && !gitlab) return null;
+    const none: Trackers = { github: null, jira: null, mcp: {}, implicit: false };
+    const proposed = github.length ? githubIssues({ ...none, implicit: true }) : none;
+    return gitlab ? { ...proposed, gitlab: { host: gitlab.host, repo: null, mine: true, comment: false } } : proposed;
+  });
   const detected = $derived(chosen.map((p) => found[p]).filter((d): d is Detected => !!d && typeof d !== "string"));
   const recipe = $derived(
     recipeLines(Object.fromEntries(chosenCards.flatMap((c) => (typeof found[c.path] === "object" ? [[c.name, (found[c.path] as Detected).recipe]] : [])))),
@@ -240,7 +244,7 @@
     if (writes.trackers)
       await attempt(async () => {
         await invoke("tickets_sources_save", { project, trackers: writes.trackers });
-        await decide("tickets", github.join(", "));
+        await decide("tickets", [...github, ...(gitlab?.slugs ?? [])].join(", "));
       });
     if (!aside.includes("worktree"))
       await attempt(async () => {
@@ -390,8 +394,10 @@
                         <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("setupProposing")}</p>
                       {/if}
                     {:else if block === "tickets"}
-                      <p>{github.length ? t("setupTicketsGithub", { repos: github.join(", ") }) : t("obTicketsNone")}</p>
-                      {#if keys.length}<p class="note">{t("setupTicketsKeys", { keys: keys.map((k) => `${k}-…`).join(", ") })}</p>{/if}
+                      {#if github.length}<p>{t("setupTicketsGithub", { repos: github.join(", ") })}</p>{/if}
+                      {#if gitlab}<p>{t("tickets2SetupGitlab", { repos: gitlab.slugs.join(", ") })}</p>{/if}
+                      {#if !github.length && !gitlab}<p>{t("obTicketsNone")}</p>{/if}
+                      {#if keys.length}<p class="note">{t("tickets2SetupKeys", { keys: keys.map((k) => `${k}-…`).join(", ") })}</p>{/if}
                     {:else if block === "worktree"}
                       <ul class="recipe">
                         {#each recipe as line (line.repo)}

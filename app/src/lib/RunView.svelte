@@ -59,7 +59,7 @@
   import { closeRun, showReview } from "$lib/commands";
   import { reviewOf } from "$lib/visual.svelte";
   import { ago, lang, t } from "$lib/i18n";
-  import { expected, named, prName, shown, soloNames, stageNames, stages, type StageState } from "$lib/run-logic";
+  import { expected, mergeRequest, named, prName, shown, soloNames, stageNames, stages, type StageState } from "$lib/run-logic";
   import { repoName, shortPath } from "$lib/state.svelte";
   import { TRIAGE, budgetError, progress, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun } from "$lib/team.svelte";
@@ -153,13 +153,13 @@
       case "pushed":
         return t("eventPushed", { branch: e.branch, commit: short(e.commit) });
       case "pr_opened":
-        return t("eventPr", { url: e.url });
+        return t(mergeRequest(e.url) ? "tickets2EventMr" : "eventPr", { url: e.url });
       case "pr_merged":
         return t("ticketsUiEventMerged");
       case "pr_closed":
         return t("ticketsUiEventPrClosed");
       case "ticket_commented":
-        return t("eventCommented");
+        return t(mergeRequest(e.url) ? "tickets2EventCommentedMr" : "eventCommented");
       case "ticket_moved":
         return t("ticketsUiEventMoved", { to: e.to });
       case "closed":
@@ -186,7 +186,8 @@
   }
 
   const stageLabel = (stage: string) => {
-    const key = named(stageNames, stage) ?? named(soloNames, stage);
+    const mr = stage === "pr" && !!run?.prUrl && !!mergeRequest(run.prUrl);
+    const key = mr ? "tickets2MetaMr" : (named(stageNames, stage) ?? named(soloNames, stage));
     return key ? t(key) : stage;
   };
   const stageStatus: Record<StageState, [typeof CircleCheck, Parameters<typeof t>[0]]> = {
@@ -498,7 +499,7 @@
                 <dt>{t("runMetaBranch")}</dt>
                 <dd class="mono">{run.branch}</dd>
               {/if}
-              <dt>{t("runMetaPr")}</dt>
+              <dt>{t(run.prUrl && mergeRequest(run.prUrl) ? "tickets2MetaMr" : "runMetaPr")}</dt>
               <dd>
                 {#if run.prUrl}
                   {@const url = run.prUrl}
@@ -514,7 +515,7 @@
             </dl>
           </section>
 
-          {#if run.prUrl}
+          {#if run.prUrl && !mergeRequest(run.prUrl)}
             <div class="panel ci"><CiChecks {run} {session} /></div>
           {/if}
 

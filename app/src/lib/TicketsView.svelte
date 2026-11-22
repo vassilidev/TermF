@@ -67,6 +67,9 @@
     github: "ticketsGithubIssues",
     githubProject: "ticketsGithubProject",
     jira: "ticketsJira",
+    gitlab: "tickets2Gitlab",
+    linear: "tickets2Linear",
+    azure: "tickets2Azure",
   };
   const sourceName = (id: string) =>
     id in sourceNames ? t(sourceNames[id]) : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });

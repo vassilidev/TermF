@@ -10,6 +10,7 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import DoneCriteria from "$lib/DoneCriteria.svelte";
   import { t } from "$lib/i18n";
+  import { mergeRequest } from "$lib/run-logic";
   import { openUrl, upsert, type Delivery, type DeliveryPreview, type Run } from "$lib/tickets.svelte";
 
   /** The delivery in two guarded steps: what it would send, then the confirmation of exactly that. */
@@ -69,7 +70,13 @@
 
 {#if delivered}
   <section class="card done" role="status">
-    <p class="ok"><Check size={14} aria-hidden="true" />{t(delivered.again ? "deliveredAgain" : "delivered")}</p>
+    <p class="ok">
+      <Check size={14} aria-hidden="true" />{t(
+        run.prUrl && mergeRequest(run.prUrl)
+          ? delivered.again ? "tickets2DeliveredAgainMr" : "tickets2DeliveredMr"
+          : delivered.again ? "deliveredAgain" : "delivered",
+      )}
+    </p>
     {#if run.prUrl}
       <span class="link-row">
         <span class="mono">{run.prUrl}</span>
@@ -124,8 +131,11 @@
       {/if}
       <p class="how">
         {run.prUrl
-          ? t("deliverHowAgain", { branch: run.branch ?? "" })
-          : t("deliverHow", { branch: run.branch ?? "", target: (run.base ?? "").replace(/^origin\//, "") })}
+          ? t(p.mergeRequest ? "tickets2DeliverHowAgainMr" : "deliverHowAgain", { branch: run.branch ?? "" })
+          : t(p.mergeRequest ? "tickets2DeliverHowMr" : "deliverHow", {
+              branch: run.branch ?? "",
+              target: (run.base ?? "").replace(/^origin\//, ""),
+            })}
       </p>
       <p class="how muted">{t("deliverFingerprint", { fingerprint: p.fingerprint.split(":").map(short).join(":") })}</p>
     {/if}

@@ -34,7 +34,9 @@ pub(crate) fn base(site: &str) -> Result<String> {
 /// `gitlab.com`, as `glab` and the keychain name it.
 pub(crate) fn host(site: &str) -> Result<String> {
     let base = base(site)?;
-    Ok(base.split_once("://").map_or(base.clone(), |(_, h)| h.to_owned()))
+    Ok(base
+        .split_once("://")
+        .map_or(base.clone(), |(_, h)| h.to_owned()))
 }
 
 /// The keychain account of an access token: one per host.
@@ -183,13 +185,17 @@ fn strings(list: &Value) -> Vec<String> {
 
 impl GitLab {
     fn host(&self) -> &str {
-        self.base
-            .split_once("://")
-            .map_or(&self.base, |(_, h)| h)
+        self.base.split_once("://").map_or(&self.base, |(_, h)| h)
     }
 
     /// One call to the API, `path` under `/api/v4/`; `fresh` is `None` for a write.
-    fn api(&self, method: &str, path: &str, body: Option<&Value>, fresh: Option<bool>) -> Result<Value> {
+    fn api(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        fresh: Option<bool>,
+    ) -> Result<Value> {
         match &self.via {
             Via::Token(http) => {
                 let path = format!("/{path}");
@@ -401,7 +407,10 @@ impl TicketProvider for GitLab {
 
     /// `query` names a project, `group/project`: its open issues assigned to the user.
     fn search(&self, query: &str) -> Result<Vec<TicketSummary>> {
-        ensure!(valid_slug(query.trim()), "{query:?} is not a GitLab project");
+        ensure!(
+            valid_slug(query.trim()),
+            "{query:?} is not a GitLab project"
+        );
         self.issues(&[query.trim().to_owned()], true, None, false)
     }
 

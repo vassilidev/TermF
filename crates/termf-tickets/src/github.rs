@@ -153,8 +153,8 @@ const GITHUB_HOSTS: &[&str] = &["github.com", "www.github.com", "ssh.github.com"
 /// is GitHub. Other hosts and local paths are refused.
 pub(crate) fn remote_slug(url: &str, ssh: &Ssh) -> Result<String> {
     let url = url.trim();
-    let (host, path) =
-        remote_parts(url).ok_or_else(|| anyhow!("{url} is a local path, not a GitHub repository"))?;
+    let (host, path) = remote_parts(url)
+        .ok_or_else(|| anyhow!("{url} is a local path, not a GitHub repository"))?;
     let server = if GITHUB_HOSTS.contains(&host.as_str()) {
         host.clone()
     } else {

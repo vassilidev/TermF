@@ -42,8 +42,8 @@ pub use run::{
 };
 pub use secrets::{Keychain, Secrets};
 pub use sources::{
-    AzureTracker, Configured, GithubTracker, GitlabTracker, JiraTracker, LinearTracker,
-    McpTracker, Sources, Tokens, Trackers, write_trackers,
+    AzureTracker, Configured, GithubTracker, GitlabTracker, JiraTracker, LinearTracker, McpTracker,
+    Sources, Tokens, Trackers, write_trackers,
 };
 pub use store::{Event, Run, RunEvent, RunStatus, utc};
 
@@ -343,7 +343,11 @@ impl ProjectInfo {
         }
         let host = self.gitlab_host().unwrap_or_default();
         let mut found: Vec<String> = Vec::new();
-        for repo in self.repos.iter().filter(|r| r.name.eq_ignore_ascii_case(name)) {
+        for repo in self
+            .repos
+            .iter()
+            .filter(|r| r.name.eq_ignore_ascii_case(name))
+        {
             if let Some((_, slug)) = repo.gitlab.iter().find(|(h, _)| *h == host) {
                 found.push(slug.clone());
             }
@@ -434,7 +438,10 @@ impl ProjectInfo {
             .filter(|r| {
                 slug.is_some_and(|slug| {
                     let gitlab = r.gitlab.iter().map(|(_, s)| s);
-                    r.slugs.iter().chain(gitlab).any(|s| s.eq_ignore_ascii_case(slug))
+                    r.slugs
+                        .iter()
+                        .chain(gitlab)
+                        .any(|s| s.eq_ignore_ascii_case(slug))
                 })
             })
             .collect();
@@ -493,9 +500,8 @@ fn unplaced(input: &str) -> Option<String> {
         ));
     }
     let (site, _, _) = gitlab::parse_url(input)?;
-    site.contains("gitlab").then(|| {
-        format!("{input} is in no project: add a GitLab source for {site} to a project")
-    })
+    site.contains("gitlab")
+        .then(|| format!("{input} is in no project: add a GitLab source for {site} to a project"))
 }
 
 /// A ticket's address as the inbox compares them: no scheme, no `www.`, no fragment, no trailing slash, any
@@ -728,7 +734,10 @@ impl Tickets {
             Some(ticket) => {
                 let (slug, number) = github::split(&ticket.key)?;
                 let holding = projects.iter().filter(|p| p.holds(slug));
-                (number, holding.map(|p| (slug.to_owned(), p, false)).collect())
+                (
+                    number,
+                    holding.map(|p| (slug.to_owned(), p, false)).collect(),
+                )
             }
             None => {
                 let (repo, number) = input
@@ -787,7 +796,9 @@ impl Tickets {
                 .iter()
                 .filter(|p| {
                     let azure = p.trackers.azure.as_ref();
-                    azure.is_some_and(|a| site.is_none() || azure::base(&a.organization).ok() == site)
+                    azure.is_some_and(|a| {
+                        site.is_none() || azure::base(&a.organization).ok() == site
+                    })
                 })
                 .collect();
             // `AB#123` may still be the issue 123 of a repository named AB.
@@ -795,7 +806,11 @@ impl Tickets {
                 return Ok(None);
             }
             let p = one(input, fitting, String::new())?;
-            let a = p.trackers.azure.as_ref().context("no Azure DevOps source")?;
+            let a = p
+                .trackers
+                .azure
+                .as_ref()
+                .context("no Azure DevOps source")?;
             let ticket = azure::reference(&a.organization, &a.project, id)?;
             return Ok(Some(p.resolution(ticket, None)));
         }
@@ -1190,7 +1205,10 @@ impl Tickets {
     }
 
     pub fn has_token(&self, kind: &str, target: &str) -> Result<bool> {
-        Ok(self.secrets.get(&Self::token_account(kind, target)?)?.is_some())
+        Ok(self
+            .secrets
+            .get(&Self::token_account(kind, target)?)?
+            .is_some())
     }
 
     /// Keeps a Linear, GitLab or Azure DevOps token in the keychain, for every project that names the same
