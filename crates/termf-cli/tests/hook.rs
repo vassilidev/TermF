@@ -128,3 +128,61 @@ fn runs_your_status_line_with_the_same_input() {
     request.join().unwrap();
     std::fs::remove_file(chained).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn codex_notify_reports_the_end_of_a_turn_then_runs_yours() {
+    let (socket, request) = fake_termf("codex", Value::Null);
+    let dir = std::env::temp_dir().join(format!("termf-test-notify-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let yours = dir.join("notify.sh");
+    let got = dir.join("got");
+    std::fs::write(
+        &yours,
+        format!("#!/bin/sh\nprintf '%s|' \"$@\" > '{}'\n", got.display()),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&yours, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let payload = r#"{"type":"agent-turn-complete","thread-id":"t1","turn-id":"u1","cwd":"/src","last-assistant-message":"Done."}"#;
+    let printed = termf(
+        &[
+            "hook",
+            "agent-turn-complete",
+            yours.to_str().unwrap(),
+            "--quiet",
+            payload,
+        ],
+        &socket,
+        "",
+    );
+    assert_eq!(printed, "", "Codex reads nothing back");
+    let request = request.join().unwrap();
+    assert_eq!(request["params"]["event"], "agent-turn-complete");
+    assert_eq!(request["params"]["payload"]["thread-id"], "t1");
+    assert_eq!(
+        std::fs::read_to_string(&got).unwrap(),
+        format!("--quiet|{payload}|"),
+        "your notify gets the same JSON"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn gemini_session_start_gets_the_librarys_instructions() {
+    let (socket, request) = fake_termf("gemini", Value::Null);
+    let prompt = std::env::temp_dir().join(format!("termf-test-prompt-{}", std::process::id()));
+    std::fs::write(&prompt, "## Role: docs").unwrap();
+    let start = json!({"session_id": "g1", "hook_event_name": "SessionStart", "source": "startup"});
+    let printed = termf(
+        &["hook", "SessionStart", prompt.to_str().unwrap()],
+        &socket,
+        &start.to_string(),
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&printed).unwrap(),
+        json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "## Role: docs"}})
+    );
+    assert_eq!(request.join().unwrap()["params"]["payload"], start);
+    std::fs::remove_file(prompt).unwrap();
+}

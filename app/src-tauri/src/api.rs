@@ -15,7 +15,8 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_claude::artifacts::Policy;
-use termf_core::claude;
+use termf_core::claude::{self, Tool};
+use termf_core::cli_agents;
 use termf_core::context::{self, Gauge, Limits, Next, Phase, Reset};
 use termf_core::ipc::{
     self, AgentCall, Call, Reply, Request, Reserved, SessionSummary, Status, StatusEvent,
@@ -42,8 +43,13 @@ struct Meta {
     policy: Option<Policy>,
     /// The switch of a Claude Code tile that reports to TermF; `remote_control` says how the others started.
     remote: Option<Tile>,
+    /// A Codex CLI terminal's prompt: Codex says when a turn ends, not when one starts.
+    typed: Option<ipc::Typed>,
 }
 
+/// How often a Codex turn TermF guessed is checked, and how long a quiet terminal takes to end it.
+const QUIET_CHECK: Duration = Duration::from_secs(5);
+const QUIET_AFTER: Duration = Duration::from_secs(20);
 /// Lets the agent get back to its prompt before TermF types in it.
 const TYPE_AFTER: Duration = Duration::from_millis(1500);
 /// How long a step of the reset may take: writing the handoff, or reacting to what TermF typed.
@@ -751,18 +757,60 @@ impl Api {
 
     /// Typing into a waiting session answers it (e.g. approves a tool), which no hook reports right away.
     /// Typing otherwise stops a reset under way, and keeps one from typing over a draft.
+    /// At Codex CLI's prompt, a message sent starts a turn, and Esc during one stops it.
     pub fn input(&self, app: &AppHandle, id: u32, input: &[u8]) {
-        let waiting = self
-            .meta
-            .lock()
-            .unwrap()
-            .get(&id)
-            .is_some_and(|m| m.status == Some(Status::Waiting));
-        if waiting && ipc::answers_prompt(input) {
+        let (waiting, sent, stopped) = {
+            let mut meta = self.meta.lock().unwrap();
+            let Some(m) = meta.get_mut(&id) else {
+                return;
+            };
+            let status = m.status;
+            let sent = m.typed.as_mut().is_some_and(|t| t.send(input));
+            let stopped = m.typed.is_some() && status == Some(Status::Working) && input == b"\x1b";
+            (
+                status == Some(Status::Waiting),
+                sent && status == Some(Status::Idle),
+                stopped,
+            )
+        };
+        if (waiting && ipc::answers_prompt(input)) || sent {
             self.set_status(app, id, Status::Working);
+            if sent {
+                self.watch_quiet(app, id);
+            }
+        } else if stopped {
+            self.set_status(app, id, Status::Idle);
         } else if !waiting && ipc::is_typing(input) {
             self.reset(app, id, Reset::typed);
         }
+    }
+
+    /// A Codex turn TermF saw start ends on its own once the terminal stays quiet: Codex redraws its timer every
+    /// second while it works, and an interrupted turn sends no end.
+    fn watch_quiet(&self, app: &AppHandle, id: u32) {
+        let since = self.meta.lock().unwrap().get(&id).map(|m| m.since);
+        let app = app.clone();
+        thread::spawn(move || {
+            loop {
+                thread::sleep(QUIET_CHECK);
+                let state = app.state::<AppState>();
+                let same =
+                    state.api.meta.lock().unwrap().get(&id).is_some_and(|m| {
+                        m.status == Some(Status::Working) && Some(m.since) == since
+                    });
+                if !same {
+                    return;
+                }
+                if state
+                    .sessions
+                    .quiet_for(id)
+                    .is_some_and(|q| q >= QUIET_AFTER)
+                {
+                    state.api.set_status(&app, id, Status::Idle);
+                    return;
+                }
+            }
+        });
     }
 
     /// The process ended: an agent that reports its status is done.
@@ -967,7 +1015,7 @@ fn agent_command(state: &AppState, agent: Option<&str>) -> Result<Option<String>
         return Ok(None);
     };
     let settings = termf_core::load_settings(&state.config_dir)?;
-    let command = settings.agents.get(name).cloned();
+    let command = settings.agent(name);
     Ok(Some(
         command.ok_or_else(|| anyhow!("unknown agent {name}"))?,
     ))
@@ -1040,6 +1088,7 @@ pub fn spawn_command(
                 hidden: false,
                 policy: None,
                 remote: None,
+                typed: None,
             },
         );
         Ok(SpawnSpec {
@@ -1082,7 +1131,8 @@ fn launch(
     guard: bool,
     args: &[String],
 ) -> Result<SessionSummary> {
-    let is_claude = command.as_deref().is_some_and(claude::is_claude);
+    let tool = command.as_deref().and_then(Tool::of);
+    let is_claude = tool == Some(Tool::Claude);
     // TermF's own tasks never get Remote Control.
     let remote_tile = is_claude && task.is_none();
     let (project, policy) = match remote_tile {
@@ -1110,11 +1160,26 @@ fn launch(
     }
     // Session folders live with the local API, which clears them at startup.
     let sessions_dir = match &state.api.endpoint {
-        Some(endpoint) if is_claude => Some(endpoint.data_dir.join("sessions")),
+        Some(endpoint) if tool.is_some() => Some(endpoint.data_dir.join("sessions")),
         _ => None,
     };
+    // A Codex CLI or Gemini CLI older than TermF needs runs as it is, saying so in its terminal.
+    let (codex_or_gemini, old) = match tool {
+        Some(tool @ (Tool::Codex | Tool::Gemini)) => {
+            let program = command.as_deref().unwrap_or_default();
+            let program = program.split_whitespace().next().unwrap_or_default();
+            (
+                Some(tool),
+                claude::binary(program).err().map(|e| format!("{e:#}")),
+            )
+        }
+        _ => (None, None),
+    };
     // Status needs the local API and the CLI the hooks run.
-    let hooks = sessions_dir.as_ref().and_then(|_| termf_binary());
+    let hooks = sessions_dir
+        .as_ref()
+        .filter(|_| old.is_none())
+        .and_then(|_| termf_binary());
     ensure!(
         !guard || hooks.is_some(),
         "a ticket run needs its guard hook, which this session cannot get"
@@ -1133,20 +1198,45 @@ fn launch(
             id,
             Meta {
                 title: title.clone(),
-                status: hooks.is_some().then_some(Status::Starting),
+                // Codex CLI and Gemini CLI start at their prompt.
+                status: hooks.is_some().then_some(if is_claude {
+                    Status::Starting
+                } else {
+                    Status::Idle
+                }),
                 since: Instant::now(),
                 remote_control,
                 agent_session_id: None,
                 dir: dir.clone(),
-                reset: hooks.is_some().then(Reset::default),
+                reset: (hooks.is_some() && is_claude).then(Reset::default),
                 hidden: task.is_some_and(|t| t.hidden),
                 policy: task.and_then(|t| t.policy.clone()),
                 remote: None,
+                typed: (hooks.is_some() && tool == Some(Tool::Codex)).then(ipc::Typed::default),
             },
         );
         let mut extra = Vec::new();
         let mut settings_file = None;
-        if let Some(dir) = &dir {
+        let mut env: Vec<(String, String)> = run
+            .as_ref()
+            .map(|r| r.env.clone().into_iter().collect())
+            .unwrap_or_default();
+        let mut warnings: Vec<String> = old.iter().cloned().collect();
+        if let (Some(tool), None) = (codex_or_gemini, &old) {
+            let prompt = dir.as_ref().and_then(|dir| library(state, &cwd, dir, None));
+            let tile = cli_agents::tile(
+                tool,
+                command.as_deref().unwrap_or_default(),
+                dir.as_deref(),
+                hooks.as_deref(),
+                prompt.as_deref(),
+                &termf_core::default_data_dir()?,
+            )?;
+            extra.extend(tile.args.iter().map(|a| shell_quote(a)));
+            env.extend(tile.env);
+            warnings.extend(tile.warnings);
+        }
+        if let Some(dir) = dir.as_ref().filter(|_| is_claude) {
             let plugin = dir.join("plugin");
             if let Some(termf) = &hooks {
                 claude::write_plugin(&plugin, termf, guard)?;
@@ -1228,10 +1318,6 @@ fn launch(
             ));
             extra.extend(after.iter().cloned());
         }
-        let env: Vec<(String, String)> = run
-            .as_ref()
-            .map(|r| r.env.clone().into_iter().collect())
-            .unwrap_or_default();
         if remote_tile
             && hooks.is_some()
             && let Some(m) = state.api.meta.lock().unwrap().get_mut(&id)
@@ -1274,9 +1360,12 @@ fn launch(
         });
         // Last: a path with a space would be cut by `after_program`.
         let command = match command {
-            Some(c) if is_claude => Some(claude::in_command(&c, shell_quote)?.0),
+            Some(c) if tool.is_some() && old.is_none() => {
+                Some(claude::in_command(&c, shell_quote)?.0)
+            }
             other => other,
         };
+        let command = command.map(|c| cli_agents::after_lines(&c, &warnings, shell_quote));
         let (program, args) = shell_command(command.as_deref());
         Ok(SpawnSpec {
             title: title.clone(),

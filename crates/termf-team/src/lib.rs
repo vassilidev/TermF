@@ -16,6 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use termf_agents::{AgentEvent, Agents, Outcome, SessionSpec, State};
+use termf_core::claude::Tool;
 use termf_core::squads::{Membership, Squad, Team as Squads, canonical_role, same_role};
 use termf_library::{Kind, Layer, Scope};
 
@@ -1548,6 +1549,24 @@ impl Inner {
         }
     }
 
+    /// Why `role` cannot play a step: its `[roles.<name>] agent` runs another CLI than Claude Code, and a step
+    /// needs what only Claude Code gives (docs/AGENTS-CLI.md).
+    fn elsewhere(&self, run: &TeamRun, role: &str) -> Option<String> {
+        let scope = self.scope(run, &run.target.worktree).ok()?;
+        let item = termf_library::role(&self.config_dir, &scope, role).ok()?;
+        let agent = item.meta.get("agent")?.as_str()?;
+        let settings = termf_core::load_settings(&self.config_dir).ok()?;
+        let tool = settings.agent(agent).and_then(|c| Tool::of(&c));
+        let runs = tool.map_or("no agent TermF knows", Tool::label);
+        (tool != Some(Tool::Claude)).then(|| {
+            format!(
+                "role {role} runs the agent {agent} ({runs}), and a team's step needs Claude Code: its answer follows \
+                 a JSON schema and its commands go through TermF's guard; give the task to a role on Claude Code, or \
+                 set [roles.{role}] agent to a Claude Code agent"
+            )
+        })
+    }
+
     fn scope(&self, run: &TeamRun, cwd: &Path) -> Result<Scope> {
         Scope::new(
             &self.config_dir,
@@ -2178,7 +2197,11 @@ impl Inner {
         };
         let roles = self.roles(run, &squads).unwrap_or_default();
         let names: Vec<String> = roles.into_iter().map(|(n, _)| n).collect();
-        let problems = plan::check_plan(&plan, &names, &run.target.repo, &squads);
+        let mut problems = plan::check_plan(&plan, &names, &run.target.repo, &squads);
+        problems.extend(plan.tasks.iter().filter_map(|task| {
+            let why = self.elsewhere(run, &task.role)?;
+            Some(format!("task {}: {why}", task.id))
+        }));
         if !problems.is_empty() {
             return self.retry(
                 store,

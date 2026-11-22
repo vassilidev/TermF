@@ -14,3 +14,7 @@ toml_edit = "0.25"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
+
+# Only to check the rules TermF writes for Gemini CLI; already in Cargo.lock.
+[dev-dependencies]
+regex = "1.13.2"

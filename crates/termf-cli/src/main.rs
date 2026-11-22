@@ -8,6 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use interprocess::local_socket::{GenericFilePath, Stream, prelude::*};
 use serde_json::Value;
+use termf_core::cli_agents::CODEX_TURN_DONE;
 use termf_core::ipc::{self, Call, Reply, Request, SessionSummary};
 use termf_core::remote;
 use termf_library::archive::{self, Action, Status};
@@ -250,6 +251,31 @@ fn main() -> ExitCode {
     match args.as_slice() {
         ["hook", event] => {
             hook(event);
+            return ExitCode::SUCCESS;
+        }
+        // Codex CLI's `notify`: its JSON last, after the user's own `notify`, run next with it.
+        ["hook", CODEX_TURN_DONE, yours @ .., raw] => {
+            let payload = serde_json::from_str(raw).unwrap_or(Value::Null);
+            let (done, wait) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = forward(CODEX_TURN_DONE.into(), payload);
+                let _ = done.send(());
+            });
+            let _ = wait.recv_timeout(Duration::from_secs(2));
+            if let [program, args @ ..] = yours {
+                let _ = std::process::Command::new(program)
+                    .args(args)
+                    .arg(raw)
+                    .status();
+            }
+            return ExitCode::SUCCESS;
+        }
+        // Gemini CLI's `SessionStart`: the library's instructions become the session's context.
+        ["hook", event @ "SessionStart", prompt] => {
+            hook(event);
+            if let Some(context) = termf_core::cli_agents::gemini_context(Path::new(prompt)) {
+                println!("{context}");
+            }
             return ExitCode::SUCCESS;
         }
         ["statusline", chained @ ..] if chained.len() < 2 => {

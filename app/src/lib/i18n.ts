@@ -3514,6 +3514,10 @@ const fr = {
   remoteTrayAwake: "Rester éveillé",
   remoteTrayQuit: "Quitter TermF",
   remoteTrayTooltip: "TermF : {count} t'attend",
+  adaptersTool: "Outil",
+  adaptersCodex: "Codex CLI",
+  adaptersGemini: "Gemini CLI",
+  adaptersTurnTokens: "ce tour {input} jetons en entrée · {output} en sortie",
 };
 
 type Key = keyof typeof fr;
@@ -7007,6 +7011,10 @@ const en: Record<Key, string> = {
   remoteTrayAwake: "Stay awake",
   remoteTrayQuit: "Quit TermF",
   remoteTrayTooltip: "TermF: {count} waiting",
+  adaptersTool: "Tool",
+  adaptersCodex: "Codex CLI",
+  adaptersGemini: "Gemini CLI",
+  adaptersTurnTokens: "this turn {input} input tokens · {output} output",
 };
 
 const messages = { fr, en };
