@@ -9,12 +9,15 @@
     label,
     value,
     onchange,
+    optionLabel = (option: string) => option,
   }: {
     kind: "choice" | "multi" | "bool" | "text";
     options: string[];
     label: string;
     value: string[];
     onchange: (value: string[]) => void;
+    /** How a choice's option reads. */
+    optionLabel?: (option: string) => string;
   } = $props();
 </script>
 
@@ -34,7 +37,7 @@
   <div class="segmented" role="radiogroup" aria-label={label}>
     {#each choices as option (option)}
       <button type="button" role="radio" aria-checked={value[0] === option} onclick={() => onchange(pick({ kind, options }, value, option))}>
-        {kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : option}
+        {kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : optionLabel(option)}
       </button>
     {/each}
   </div>

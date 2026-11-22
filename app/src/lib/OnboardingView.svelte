@@ -13,6 +13,7 @@
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import Conventions from "$lib/Conventions.svelte";
+  import OnboardingTeam from "$lib/OnboardingTeam.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import QuestionInput from "$lib/ui/QuestionInput.svelte";
@@ -36,7 +37,17 @@
   } from "$lib/onboarding-logic";
   import { app, shortPath } from "$lib/state.svelte";
 
-  type Facts = { name: string; path: string; stack: string[]; workflows: string[]; instructions: string[]; claude: string[] };
+  type Facts = {
+    name: string;
+    path: string;
+    stack: string[];
+    workflows: string[];
+    instructions: string[];
+    claude: string[];
+    parts?: { path: string; name: string; role: string }[];
+    tests?: string[];
+    infra?: string[];
+  };
   type Analysis = {
     at: number;
     lang: string;
@@ -110,7 +121,13 @@
   };
   const notifyLabel = { mine: "ciNotifyMine", all: "ciNotifyAll", off: "ciNotifyOff" } as const;
   const notifyOptions: Notify[] = ["mine", "all", "off"];
-  const logLabel = { tickets: "obTicketsTitle", worktree: "obRecipeTitle", ci: "obCiTitle", trust: "obTrustTitle" } as const;
+  const logLabel = {
+    tickets: "obTicketsTitle",
+    worktree: "obRecipeTitle",
+    ci: "obCiTitle",
+    trust: "obTrustTitle",
+    team: "obTeamTitle",
+  } as const;
 
   onMount(async () => {
     if (!project) return closeSetup();
@@ -246,12 +263,32 @@
     if (!error) await decide("ci", "accepted", notify);
   }
 
+  type Key = Parameters<typeof t>[0];
+  const teamOptions: Record<string, Key> = {
+    one: "obTeamOneSquad",
+    split: "obTeamPerPart",
+    own: "obTeamQOwn",
+    sonnet: "obTeamQThrifty",
+    opus: "obTeamQQuality",
+  };
+  // TermF's own questions come as translation keys and option codes, Claude Code's as text.
+  const ours = (q: Question) => q.id.startsWith("team-");
+  const qText = (q: Question) => (ours(q) ? t(q.text as Key) : q.text);
+  const optionText = (q: Question, option: string) =>
+    ours(q) && option in teamOptions ? t(teamOptions[option]) : option;
   const none = (list: string[]) => (list.length ? list.join(", ") : t("obNothing"));
   /** A repository's facts that are there; an empty one says nothing. */
   const rows = (r: Facts) =>
-    ([["obCi", r.workflows], ["obInstructions", r.instructions], ["obClaudeConfig", r.claude]] as const).filter(
-      ([, list]) => list.length,
-    );
+    (
+      [
+        ["obCi", r.workflows],
+        ["obInstructions", r.instructions],
+        ["obClaudeConfig", r.claude],
+        ["obTeamParts", (r.parts ?? []).map((p) => `${p.path || r.name} (${p.role})`)],
+        ["obTeamTests", r.tests ?? []],
+        ["obTeamInfra", r.infra ?? []],
+      ] as const
+    ).filter(([, list]) => list.length);
 </script>
 
 {#snippet decided(proposal: string)}
@@ -317,7 +354,14 @@
 {/snippet}
 
 {#snippet answer(q: Question)}
-  <QuestionInput kind={q.kind} options={q.options} label={q.text} value={answers[q.id] ?? q.default} onchange={(v) => (answers[q.id] = v)} />
+  <QuestionInput
+    kind={q.kind}
+    options={q.options}
+    label={qText(q)}
+    optionLabel={(o) => optionText(q, o)}
+    value={answers[q.id] ?? q.default}
+    onchange={(v) => (answers[q.id] = v)}
+  />
 {/snippet}
 
 <div class="onboarding">
@@ -388,7 +432,7 @@
                 <legend>{t(themeLabel[theme])}</legend>
                 {#each list as q (q.id)}
                   <div class="question">
-                    <span class="q-text">{q.text}</span>
+                    <span class="q-text">{qText(q)}</span>
                     {@render answer(q)}
                   </div>
                 {/each}
@@ -416,6 +460,8 @@
             <p class="hint">{t("obLibraryHint")}</p>
             <Conventions {project} only="onboarding" />
           </article>
+
+          <OnboardingTeam project={project.id} decision={ob.decisions.team} ondecided={(s) => (ob = s as Onboarding)} />
 
           <article class="proposal">
             <h3><Ticket size={15} aria-hidden="true" />{t("obTicketsTitle")} {@render decided("tickets")}</h3>
