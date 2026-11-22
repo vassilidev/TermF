@@ -234,10 +234,13 @@ fn real_cto() {
     std::fs::create_dir_all(&config).unwrap();
     std::fs::write(config.join("termf.toml"), "[agents]\nclaude = \"claude\"\n").unwrap();
     let agents = Agents::build(config, root.join("data"), Vec::new(), |_| {});
-    agents.serve_mcp(move |id| {
-        Ok(json!({"type": "stdio", "command": env!("CARGO_BIN_EXE_termf"), "args": ["mcp"],
-                  "env": {"TERMF_SOCKET": socket, "TERMF_MCP_TOKEN": TOKEN, "TERMF_MCP_SESSION": id.to_string()}}))
-    });
+    agents.serve_mcp(
+        move |id| {
+            Ok(json!({"type": "stdio", "command": env!("CARGO_BIN_EXE_termf"), "args": ["mcp"],
+                      "env": {"TERMF_SOCKET": socket, "TERMF_MCP_TOKEN": TOKEN, "TERMF_MCP_SESSION": id.to_string()}}))
+        },
+        |_| {},
+    );
     let spec = SessionSpec {
         cwd: dir,
         role: Some("cto".into()),

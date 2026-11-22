@@ -218,7 +218,13 @@ export function nextAfter(order: string[], waiting: string[], current: string | 
 /** `@role message` to one of `roles`: who it goes to and what; null for a message to the CTO itself. */
 export function addressed(draft: string, roles: string[]): { role: string; text: string } | null {
   const m = /^@([\w-]+)\s+(\S[\s\S]*)$/.exec(draft.trim());
-  return m && roles.includes(m[1]) ? { role: m[1], text: m[2].trim() } : null;
+  const role = m?.[1].toLowerCase() ?? "";
+  return m && roles.includes(role) ? { role, text: m[2].trim() } : null;
+}
+
+/** For display only: the CTO conversations first, the rest in the order given. */
+export function pinnedFirst<T extends { mcp?: boolean }>(list: T[]): T[] {
+  return [...list.filter((s) => s.mcp), ...list.filter((s) => !s.mcp)];
 }
 
 /** While the draft is `@` and the start of a role's name: the roles it may be, in their order. */

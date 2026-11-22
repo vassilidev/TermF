@@ -65,6 +65,16 @@ impl Endpoint {
         ipc::access(&request.token, &self.token, &sessions, &mcp)
             .is_some_and(|a| a.allows(&request.call))
     }
+
+    /// A fresh token for one process of the session, which voids the one before.
+    fn issue_mcp(&self, session: i64) -> Result<String> {
+        let token = random_token()?;
+        self.mcp_tokens
+            .lock()
+            .unwrap()
+            .insert(session, token.clone());
+        Ok(token)
+    }
 }
 
 pub struct Api {
@@ -424,12 +434,7 @@ impl Api {
         let termf = termf_binary().context(
             "TermF's tools need the termf CLI next to TermF (`pnpm bundle`, or `cargo build -p termf-cli` in development)",
         )?;
-        let token = random_token()?;
-        endpoint
-            .mcp_tokens
-            .lock()
-            .unwrap()
-            .insert(session, token.clone());
+        let token = endpoint.issue_mcp(session)?;
         let env = serde_json::Map::from_iter([
             (
                 ipc::ENV_SOCKET.to_owned(),
@@ -444,6 +449,13 @@ impl Api {
             "args": ["mcp"],
             "env": env,
         }))
+    }
+
+    /// The process of agent session `session` ended: its `termf mcp` token no longer opens anything.
+    pub fn revoke_mcp(&self, session: i64) {
+        if let Some(endpoint) = &self.endpoint {
+            endpoint.mcp_tokens.lock().unwrap().remove(&session);
+        }
     }
 }
 
@@ -1002,5 +1014,38 @@ mod tests {
             no_api.contains("local API") && no_api.contains("cannot listen"),
             "{no_api}"
         );
+    }
+
+    #[test]
+    fn a_termf_mcp_token_lives_as_long_as_its_process() {
+        let api = Api {
+            endpoint: Some(Endpoint {
+                data_dir: PathBuf::new(),
+                socket: String::new(),
+                token: "user".into(),
+                session_tokens: Arc::default(),
+                mcp_tokens: Mutex::default(),
+            }),
+            error: None,
+            meta: Mutex::default(),
+            watchers: Mutex::default(),
+            limits: Mutex::default(),
+        };
+        let endpoint = api.endpoint.as_ref().unwrap();
+        let tool = |token: &str| Request {
+            token: token.into(),
+            call: Call::Mcp {
+                session: 7,
+                tool: ipc::McpCall::TeamRuns {},
+            },
+        };
+        let first = endpoint.issue_mcp(7).unwrap();
+        assert!(endpoint.allows(&tool(&first)));
+        let second = endpoint.issue_mcp(7).unwrap();
+        assert_ne!(first, second);
+        assert!(!endpoint.allows(&tool(&first)), "never used again");
+        assert!(endpoint.allows(&tool(&second)));
+        api.revoke_mcp(7);
+        assert!(!endpoint.allows(&tool(&second)), "its process ended");
     }
 }

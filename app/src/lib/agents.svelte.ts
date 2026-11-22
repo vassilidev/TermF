@@ -61,9 +61,9 @@ export function waitingAgents(): AgentSession[] {
   return agents.sessions.filter((a) => a.state === "waiting");
 }
 
-/** The sessions the view lists: the current project's, its CTO conversation pinned first, then most recent first. */
+/** The sessions the view lists: the current project's, most recent first. */
 export function listed(): AgentSession[] {
-  return agents.sessions.filter(inScope).sort((a, b) => Number(!!b.mcp) - Number(!!a.mcp) || b.id - a.id);
+  return agents.sessions.filter(inScope).sort((a, b) => b.id - a.id);
 }
 
 /** The project's CTO conversation, once it exists. */

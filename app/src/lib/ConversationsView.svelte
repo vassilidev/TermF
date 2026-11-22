@@ -14,12 +14,14 @@
   import { agents, conversation, ctoOf, listed, showCto, upsert, usd, type AgentSession } from "$lib/agents.svelte";
   import { currentProject, isMac, scopeRepos } from "$lib/files.svelte";
   import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
+  import { pinnedFirst } from "$lib/conversation-logic";
   import { ago, t } from "$lib/i18n";
   import type { Item } from "$lib/library.svelte";
   import { mostRecent } from "$lib/nav-logic";
   import { app, shortPath } from "$lib/state.svelte";
 
-  const sessions = $derived(listed());
+  // Pinned for display only: without a pick, the view and ⌘J still start from the most recent.
+  const sessions = $derived(pinnedFirst(listed()));
   const current = $derived(conversation());
   const creating = $derived(agents.creating || !current);
   const repos = $derived([...scopeRepos()].sort((a, b) => a.name.localeCompare(b.name)));

@@ -156,6 +156,7 @@
   function said(n: NoticeFields): string {
     const vars = { run: n.run ?? "", step: n.step ?? "", role: n.role ?? "" };
     const keys = { waiting: "ctoNoticeWaiting", blocked: "ctoNoticeBlocked", step: "ctoNoticeStep", direct: "ctoNoticeDirect" } as const;
+    if (n.about === "direct" && n.run) return t("ctoNoticeBusy", vars);
     return n.about in keys ? t(keys[n.about as keyof typeof keys], vars) : n.text;
   }
 

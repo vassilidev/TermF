@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addressed, blocked, mentioned, merge, nextAfter, pending, stream, summary, thread } from "../src/lib/conversation-logic.ts";
+import { addressed, blocked, mentioned, merge, nextAfter, pending, pinnedFirst, stream, summary, thread } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -116,10 +116,17 @@ test("@role sends to a role of the project, anything else goes to the CTO", () =
   const roles = ["back", "front", "qa", "ux-writer"];
   assert.deepEqual(addressed("@back is /users ready?", roles), { role: "back", text: "is /users ready?" });
   assert.deepEqual(addressed("  @ux-writer  two\nlines ", roles), { role: "ux-writer", text: "two\nlines" });
+  assert.deepEqual(addressed("@Back hi", roles), { role: "back", text: "hi" }, "as @B offers back");
   assert.equal(addressed("@back", roles), null, "nothing to send yet");
   assert.equal(addressed("@nobody hi", roles), null, "not a role of the project");
   assert.equal(addressed("ask @back about it", roles), null, "only at the start");
   assert.equal(addressed("where is the team?", roles), null);
+});
+
+test("the CTO conversation shows first, the order stays otherwise", () => {
+  const list = [{ id: 9 }, { id: 8, mcp: true }, { id: 7 }];
+  assert.deepEqual(pinnedFirst(list).map((s) => s.id), [8, 9, 7]);
+  assert.deepEqual(list.map((s) => s.id), [9, 8, 7], "the list itself, the most recent first, is untouched");
 });
 
 test("typing @ offers the project's roles", () => {

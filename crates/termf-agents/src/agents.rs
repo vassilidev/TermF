@@ -21,8 +21,12 @@ use crate::{
     State, StoredEvent, Update, now,
 };
 
-/// The `termf mcp` server of a session with TermF's tools, as `--mcp-config` takes one.
-type McpServer = Box<dyn Fn(i64) -> Result<Value> + Send + Sync>;
+/// The `termf mcp` server of a session with TermF's tools, one per process: what `--mcp-config` takes, and what
+/// voids its token once the process ends.
+struct McpServer {
+    server: Box<dyn Fn(i64) -> Result<Value> + Send + Sync>,
+    revoke: Box<dyn Fn(i64) + Send + Sync>,
+}
 
 /// How long a process may take to end once its stdin is closed, then once killed.
 const STOP_WAIT: Duration = Duration::from_secs(10);
@@ -130,9 +134,17 @@ impl Agents {
         }
     }
 
-    /// What gives a session with TermF's tools its `termf mcp` server (`command`, `args`, `env`), set once.
-    pub fn serve_mcp(&self, server: impl Fn(i64) -> Result<Value> + Send + Sync + 'static) {
-        let _ = self.inner.mcp.set(Box::new(server));
+    /// What gives each process of a session with TermF's tools its `termf mcp` server (`command`, `args`, `env`,
+    /// a token of its own), and what voids that token once the process ends or cannot start. Set once.
+    pub fn serve_mcp(
+        &self,
+        server: impl Fn(i64) -> Result<Value> + Send + Sync + 'static,
+        revoke: impl Fn(i64) + Send + Sync + 'static,
+    ) {
+        let _ = self.inner.mcp.set(McpServer {
+            server: Box::new(server),
+            revoke: Box::new(revoke),
+        });
     }
 
     /// A new session with no process yet: its first message starts one.
@@ -562,10 +574,10 @@ impl Inner {
         let plugin = dir.join("plugin");
         let resume = store.started(id)?;
         let (mcp, dirs) = match session.spec.mcp {
-            true => (
-                Some(self.mcp_config(id, &dir)?),
-                other_repos(&self.config_dir, &session.spec)?,
-            ),
+            true => {
+                let dirs = other_repos(&self.config_dir, &session.spec)?;
+                (Some(self.mcp_config(id, &dir)?), dirs)
+            }
             false => (None, Vec::new()),
         };
         let args = self.runtime.headless_args(
@@ -599,12 +611,16 @@ impl Inner {
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
         #[cfg(windows)]
         std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-        let mut child = cmd.spawn().context("cannot start the agent")?;
-        let (Some(stdin), Some(stdout), Some(stderr)) =
-            (child.stdin.take(), child.stdout.take(), child.stderr.take())
-        else {
-            bail!("the agent's process has no pipes");
-        };
+        let started = cmd
+            .spawn()
+            .context("cannot start the agent")
+            .and_then(|mut child| {
+                match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+                    (Some(stdin), Some(stdout), Some(stderr)) => Ok((child, stdin, stdout, stderr)),
+                    _ => bail!("the agent's process has no pipes"),
+                }
+            });
+        let (child, stdin, stdout, stderr) = started.inspect_err(|_| self.end_mcp(id, &dir))?;
         let pid = child.id();
         entry.generation += 1;
         let generation = entry.generation;
@@ -757,12 +773,11 @@ impl Inner {
     /// Writes the `--mcp-config` of the session's `termf mcp`, readable by the user only: it holds the
     /// session's token.
     fn mcp_config(&self, id: i64, dir: &Path) -> Result<PathBuf> {
-        let server = self
+        let mcp = self
             .mcp
             .get()
-            .context("TermF's tools cannot be served here: the conversation needs the app")?(
-            id
-        )?;
+            .context("TermF's tools cannot be served here: the conversation needs the app")?;
+        let server = (mcp.server)(id)?;
         let file = dir.join("mcp.json");
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
@@ -772,8 +787,17 @@ impl Inner {
         options
             .open(&file)
             .and_then(|mut f| f.write_all(config.to_string().as_bytes()))
-            .with_context(|| format!("cannot write {}", file.display()))?;
+            .with_context(|| format!("cannot write {}", file.display()))
+            .inspect_err(|_| self.end_mcp(id, dir))?;
         Ok(file)
+    }
+
+    /// Voids the token of the session's `termf mcp` and removes its config: no process of it runs any more.
+    fn end_mcp(&self, id: i64, dir: &Path) {
+        if let Some(mcp) = self.mcp.get() {
+            (mcp.revoke)(id);
+        }
+        let _ = fs::remove_file(dir.join("mcp.json"));
     }
 
     fn exited(
@@ -798,6 +822,10 @@ impl Inner {
         }
         self.ended.notify_all();
         let store = self.opened(store)?;
+        // A newer process has a token of its own; none outlives the last one.
+        if entry.process.is_none() {
+            self.end_mcp(id, &store.dir(id).join("session"));
+        }
         store.clear_pid(id, pid)?;
         self.record(store, id, AgentEvent::Exited { code });
         if !current {

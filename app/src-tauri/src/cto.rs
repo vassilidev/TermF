@@ -73,8 +73,33 @@ pub struct Addressed {
     pub session: AgentSession,
     /// `step`: the session of the role's step at work in a team run; `direct`: a conversation with the role.
     pub via: &'static str,
+    /// The step: the one that got the message, or, with `direct`, the one in the middle of a turn that could not.
     pub run: Option<i64>,
     pub step: Option<String>,
+}
+
+/// Where `@role` goes: the session of the role's step at work when it takes the message now, between two turns;
+/// else the direct conversation, the busy step kept to say so. A message is never lost.
+#[derive(Debug, PartialEq)]
+enum Route {
+    Step {
+        run: i64,
+        step: String,
+        session: i64,
+    },
+    Direct {
+        busy: Option<(i64, String)>,
+    },
+}
+
+fn route(at_work: Option<(i64, String, i64)>, send: impl FnOnce(i64) -> bool) -> Route {
+    match at_work {
+        Some((run, step, session)) if send(session) => Route::Step { run, step, session },
+        Some((run, step, _)) => Route::Direct {
+            busy: Some((run, step)),
+        },
+        None => Route::Direct { busy: None },
+    }
 }
 
 /// The repository named `repo` (its name, else its path), by default the project's first.
@@ -95,8 +120,8 @@ fn repo_path(project: &Project, repo: Option<&str>) -> Result<PathBuf> {
     })
 }
 
-/// Sends `text` to the session of `role`'s step at work in one of the project's team runs, else to the direct
-/// conversation with `role` in `repo`, which starts the first time.
+/// Sends `text` to the session of `role`'s step at work in one of the project's team runs when it is between two
+/// turns, else to the direct conversation with `role` in `repo`, which starts the first time.
 pub fn address(
     app: &AppHandle,
     id: &str,
@@ -107,15 +132,18 @@ pub fn address(
     ensure!(!text.trim().is_empty(), "the message is empty");
     let agents = agents(app);
     let project = project(app, id)?;
-    if let Some((run, step, session)) = step_at_work(&team::team(app).runs()?, id, role) {
-        agents.send(session, text)?;
-        return Ok(Addressed {
-            session: agents.session(session)?,
-            via: "step",
-            run: Some(run),
-            step: Some(step),
-        });
-    }
+    let at_work = step_at_work(&team::team(app).runs()?, id, role);
+    let busy = match route(at_work, |session| agents.send(session, text).is_ok()) {
+        Route::Step { run, step, session } => {
+            return Ok(Addressed {
+                session: agents.session(session)?,
+                via: "step",
+                run: Some(run),
+                step: Some(step),
+            });
+        }
+        Route::Direct { busy } => busy,
+    };
     let cwd = repo_path(&project, repo)?;
     let session = match direct_conversation(agents.sessions()?, id, role, &cwd) {
         Some(session) => {
@@ -135,11 +163,12 @@ pub fn address(
             agents.start(spec, Some(text))?
         }
     };
+    let (run, step) = busy.unzip();
     Ok(Addressed {
         session,
         via: "direct",
-        run: None,
-        step: None,
+        run,
+        step,
     })
 }
 
@@ -180,16 +209,16 @@ fn tell(app: &AppHandle, project: &str, role: &str, text: &str, to: &Addressed) 
     let Some(cto) = conversation(&agents, project)? else {
         return Ok(());
     };
-    let said = match (to.run, to.step.as_deref()) {
-        (Some(run), Some(step)) => format!(
-            "The user wrote to {role}, at its step {step} of team run {run} (conversation {}): {text}",
-            to.session.id
+    let (id, cwd) = (to.session.id, to.session.spec.cwd.display());
+    let said = match (to.via, to.run, to.step.as_deref()) {
+        ("step", Some(run), Some(step)) => format!(
+            "The user wrote to {role}, at its step {step} of team run {run} (conversation {id}): {text}"
         ),
-        _ => format!(
-            "The user wrote to {role} directly, in conversation {} ({}): {text}",
-            to.session.id,
-            to.session.spec.cwd.display()
+        (_, Some(run), Some(step)) => format!(
+            "The user wrote to {role} directly, in conversation {id} ({cwd}), its step {step} of team run {run} \
+             being in the middle of a turn: {text}"
         ),
+        _ => format!("The user wrote to {role} directly, in conversation {id} ({cwd}): {text}"),
     };
     let notice = Notice {
         about: to.via.into(),
@@ -228,15 +257,18 @@ fn relay(app: &AppHandle, event: &TeamEvent, about: &str) -> Result<()> {
     let Some(cto) = conversation(&agents, &run.target.project)? else {
         return Ok(());
     };
+    agents.notify(cto.id, notice_of(event, &run, about), true)
+}
+
+/// The notice of a gate or a blocked step. The event says why; the run, read without the team's lock and maybe
+/// before the change is saved, only gives the ticket, the step's role and its session.
+fn notice_of(event: &TeamEvent, run: &TeamRun, about: &str) -> Notice {
     let step = run
         .steps
         .iter()
         .find(|s| Some(&s.key) == event.step.as_ref());
     // A command's output may hold a secret: none goes to an agent.
-    let detail = step
-        .and_then(|s| s.note.clone())
-        .unwrap_or_else(|| event.message.clone());
-    let detail = mask_text(&detail);
+    let detail = mask_text(&event.message);
     let key = event.step.clone().unwrap_or_default();
     let what = match about {
         "waiting" => format!("the gate {key} waits for the user's approval"),
@@ -244,19 +276,18 @@ fn relay(app: &AppHandle, event: &TeamEvent, about: &str) -> Result<()> {
     };
     let text = format!(
         "Team run {} ({} · {}): {what}. {detail}",
-        run.run, run.target.ticket, run.target.title
+        event.run, run.target.ticket, run.target.title
     );
-    let notice = Notice {
+    Notice {
         about: about.into(),
-        run: Some(run.run),
+        run: Some(event.run),
         step: event.step.clone(),
         role: step.and_then(|s| s.role.clone()),
         conversation: step.and_then(|s| s.session),
         // A gate says nothing more than that it waits; a blocked step says why.
         detail: (about == "blocked").then_some(detail),
         text: mask_text(&text),
-    };
-    agents.notify(cto.id, notice, true)
+    }
 }
 
 /// A tool of `termf mcp`, for agent session `session` and within its project only. Nothing that looks like a
@@ -627,5 +658,68 @@ mod tests {
             "the newest in that repository"
         );
         assert!(direct_conversation(sessions, "acme", "cto", cwd).is_none());
+    }
+
+    #[test]
+    fn a_message_to_a_step_in_the_middle_of_a_turn_goes_to_the_direct_conversation() {
+        let at_work = || Some((3, "implement:t2".to_string(), 8));
+        assert_eq!(
+            route(at_work(), |s| s == 8),
+            Route::Step {
+                run: 3,
+                step: "implement:t2".into(),
+                session: 8
+            }
+        );
+        assert_eq!(
+            route(at_work(), |_| false),
+            Route::Direct {
+                busy: Some((3, "implement:t2".into()))
+            },
+            "refused by the step's session: never lost, and the busy step is said"
+        );
+        let mut asked = false;
+        assert_eq!(
+            route(None, |_| {
+                asked = true;
+                true
+            }),
+            Route::Direct { busy: None }
+        );
+        assert!(!asked);
+    }
+
+    #[test]
+    fn a_relayed_step_says_why_from_the_event_not_from_the_stored_run() {
+        let mut stale = step("implement:t2", "back", "running", Some(8));
+        stale["note"] = json!("an older reason");
+        let run = run(3, "acme", "running", json!([stale]));
+        let event = TeamEvent {
+            id: 1,
+            run: 3,
+            at: 0,
+            step: Some("implement:t2".into()),
+            kind: "step_blocked".into(),
+            message:
+                "the report is blocked: which table? token ghp_0123456789abcdefghijklmnopqrstuvwxyz"
+                    .into(),
+        };
+        let notice = notice_of(&event, &run, "blocked");
+        let detail = notice.detail.unwrap();
+        assert!(
+            detail.starts_with("the report is blocked: which table?"),
+            "{detail}"
+        );
+        assert!(
+            !detail.contains("ghp_") && !notice.text.contains("ghp_"),
+            "masked"
+        );
+        assert!(!notice.text.contains("older"));
+        assert_eq!(
+            (notice.role.as_deref(), notice.conversation),
+            (Some("back"), Some(8))
+        );
+        let gate = notice_of(&event, &run, "waiting");
+        assert_eq!(gate.detail, None);
     }
 }

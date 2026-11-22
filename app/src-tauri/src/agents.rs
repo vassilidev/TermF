@@ -38,11 +38,18 @@ pub fn state(
             }
         };
     });
-    let app = app.clone();
-    agents.serve_mcp(move |session| {
-        let state = app.try_state::<AppState>().context("TermF is starting")?;
-        state.api.mcp_server(session)
-    });
+    let (app, gone) = (app.clone(), app.clone());
+    agents.serve_mcp(
+        move |session| {
+            let state = app.try_state::<AppState>().context("TermF is starting")?;
+            state.api.mcp_server(session)
+        },
+        move |session| {
+            if let Some(state) = gone.try_state::<AppState>() {
+                state.api.revoke_mcp(session);
+            }
+        },
+    );
     AgentsState(agents)
 }
 

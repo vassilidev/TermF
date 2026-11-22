@@ -963,9 +963,19 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     let error = env.agents.start(spec.clone(), Some("hi")).unwrap_err();
     assert!(error.to_string().contains("needs the app"), "{error}");
 
-    env.agents.serve_mcp(|id| {
-        Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string(), "TERMF_MCP_TOKEN": "cap"}}))
-    });
+    // Each process gets a token of its own; `live` holds the ones not voided yet.
+    let live: Arc<Mutex<Vec<(i64, u32)>>> = Arc::default();
+    let issued = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let (given, gone) = (live.clone(), live.clone());
+    env.agents.serve_mcp(
+        move |id| {
+            let n = issued.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            given.lock().unwrap().retain(|(s, _)| *s != id);
+            given.lock().unwrap().push((id, n));
+            Ok(json!({"command": "termf", "args": ["mcp"], "env": {"TERMF_MCP_SESSION": id.to_string(), "TERMF_MCP_TOKEN": format!("cap-{n}")}}))
+        },
+        move |id| gone.lock().unwrap().retain(|(s, _)| *s != id),
+    );
     let session = env.agents.create(spec).unwrap();
     assert_eq!(
         session.state,
@@ -1009,6 +1019,22 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     let error = env.agents.takeover(id).unwrap_err();
     assert!(error.to_string().contains("stays in TermF"), "{error}");
     assert_eq!(env.session(id).state, State::Idle);
+
+    assert_eq!(*live.lock().unwrap(), [(id, 1)]);
+    env.agents.stop(id).unwrap();
+    env.until("the token voided", || live.lock().unwrap().is_empty());
+    assert!(!file.exists(), "its config goes with the process");
+    env.agents.send(id, "say hello").unwrap();
+    env.settle(id, 2, State::Idle);
+    assert_eq!(
+        *live.lock().unwrap(),
+        [(id, 2)],
+        "a new token, never the old one"
+    );
+    // A process that ends on its own takes its token with it.
+    env.agents.send(id, "crash").unwrap();
+    env.until("the crash", || env.session(id).state == State::Error);
+    env.until("the token voided", || live.lock().unwrap().is_empty());
 
     let plain = env.agents.start(env.spec(), Some("say hello")).unwrap();
     env.settle(plain.id, 1, State::Idle);
