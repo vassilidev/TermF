@@ -1,0 +1,44 @@
+# A command that only reads, from a fixed list, on a server reached by SSH.
+name = "ssh-run-readonly"
+description = "A command that only reads, from a fixed list (uptime, disk, memory, a service's status, containers…), on a server reached by SSH"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.command]
+type = "command"
+description = "What to run"
+required = true
+values = [
+  "uptime",
+  "df -h",
+  "free -m",
+  "systemctl status --no-pager {unit}",
+  "systemctl --failed --no-pager",
+  "docker ps",
+  "docker stats --no-stream",
+  "ps aux --sort=-%cpu",
+  "uname -a",
+  "cat /etc/os-release",
+  "journalctl --disk-usage",
+  "du -sh {path}",
+  "ls -la {path}",
+]
+
+[params.unit]
+type = "name"
+description = "The systemd unit, for systemctl status"
+
+[params.path]
+type = "path"
+description = "The folder, for du and ls"
+
+[limits]
+lines = 500
+bytes = 131072
+timeout_s = 30
+
+[[run]]
+kind = "ssh"
+args = ["{command}"]

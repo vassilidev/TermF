@@ -18,6 +18,7 @@ mod ci;
 mod claude;
 mod mcp;
 mod memory;
+mod ops;
 mod review;
 mod schedule;
 mod scout;
@@ -210,6 +211,18 @@ usage:
   termf vault item <id> [password|totp|seed|notes]
                                         print a login's password (by default), its TOTP code now, its TOTP
                                         secret or the notes
+  termf ops connections [--project <id>]
+                                        the project's connections (default: the project of this folder):
+                                        kind, environment, what agents may see, where each reaches
+  termf ops test <connection> [--project <id>]
+                                        what works and what is missing: the client, the vault's secrets,
+                                        reaching it, and for a database whether its user can write
+  termf ops recipes [--project <id>]    the recipes and their parameters
+  termf ops run <recipe> --connection <name> [--<param> <value>]... [--project <id>]
+                                        run a recipe without an agent: its exact command, then its output,
+                                        masked and audited; one that writes asks you to type the
+                                        environment's name (e.g. termf ops run logs-tail --connection
+                                        acme-prod --since 1h --grep ERROR)
   termf vault audit [--limit <n>] [--jsonl] | termf vault audit verify
                                         who read or changed what, or check the log's hash chain
   termf vault export -o <file> [--project <id>]
@@ -341,6 +354,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["team", rest @ ..] => team::run(rest.to_vec())?,
         ["claude", rest @ ..] => claude::run(rest.to_vec())?,
         ["vault", rest @ ..] => vault::run(rest.to_vec())?,
+        ["ops", rest @ ..] => ops::run(rest.to_vec())?,
         ["mcp"] => mcp::serve()?,
         ["mcp", "--reaper"] => mcp::reap()?,
         ["review", rest @ ..] => review::run(rest.to_vec())?,

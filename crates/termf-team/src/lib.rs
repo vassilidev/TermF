@@ -411,6 +411,10 @@ pub struct Options {
     pub budget: Option<f64>,
     /// Stop once the plan is made.
     pub plan_only: bool,
+    /// Started by a conversation that read prod data: the run is marked before its first session, which so has
+    /// no way out (the trifecta rule, `termf_core::taint`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub read_prod: bool,
 }
 
 enum Msg {
@@ -542,6 +546,9 @@ impl Team {
         let inner = &self.inner;
         let _lock = inner.lock.lock().unwrap();
         let store = inner.store()?;
+        if options.read_prod {
+            termf_core::taint::mark_run(&inner.data_dir, target.run)?;
+        }
         let mut run = match store.get(target.run)? {
             Some(run) if run.state.active() => {
                 bail!("the team of run {} is already at work", run.run)
@@ -3739,11 +3746,17 @@ impl Inner {
             // Nobody watches a step to approve each edit; the role says otherwise when it must.
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
-            // A review changes nothing, whatever its role may do in a task.
+            // A review changes nothing, whatever its role may do in a task. Once a recipe read prod for the run,
+            // its next sessions have no way out (the trifecta rule, ARCHITECTURE §12.4).
             disallowed_tools: DENIED
                 .iter()
                 .chain(if step.kind == StepKind::Review {
                     &READ_ONLY[..]
+                } else {
+                    &[]
+                })
+                .chain(if termf_core::taint::run(&self.data_dir, run.target.run) {
+                    termf_core::taint::EGRESS_DENY
                 } else {
                     &[]
                 })

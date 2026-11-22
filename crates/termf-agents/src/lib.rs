@@ -20,7 +20,9 @@ mod store;
 mod tests;
 
 pub use agents::{Agents, Takeover};
-pub use claude::{ASK_EXPERT, BROWSER, ClaudeCode, EXPERT, TOOL_OUTPUT, mcp_settings, mcp_tools};
+pub use claude::{
+    ASK_EXPERT, BROWSER, ClaudeCode, EXPERT, OPS, TOOL_OUTPUT, mcp_settings, mcp_tools,
+};
 pub use cli::{Codex, Gemini};
 pub use store::{events, sessions};
 

@@ -149,6 +149,11 @@ fn import_bytes(path: &str) -> anyhow::Result<Zeroizing<Vec<u8>>> {
     Ok(bytes)
 }
 
+/// The app's vault, for what uses it apart from its commands (Ops).
+pub fn shared(app: &AppHandle) -> Arc<Vault> {
+    app.state::<VaultState>().vault.clone()
+}
+
 /// The vault's values to hide from what TermF stores or hands an agent; none while it is locked.
 pub fn masker(app: &AppHandle) -> Option<termf_vault::Masker> {
     app.try_state::<VaultState>()?.vault.masker().ok()
