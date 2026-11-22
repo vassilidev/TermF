@@ -1,0 +1,1093 @@
+# The feature catalogue of the website: .github/scripts/features.py builds features.html, features/<slug>.html and
+# sitemap.xml from this file. Every claim here comes from docs/STATUS.md, docs/ARCHITECTURE.md or the README; what is
+# not verified says so. Text fields may hold inline HTML (code, kbd, links).
+
+[[groups]]
+id = "team"
+name = "The CTO and the team"
+intro = "One agent you talk to, a team of role agents that does the work, and you at the gates."
+article = "team.html"
+article_title = "The CTO and the team"
+not_yet = ["Runs across several repositories (one repository per run today)", "A squad editor outside the setup assistant, and the leads' sub-plans", "Re-planning after repeated failures, a daily budget, one scheduler for every team at work"]
+
+[[groups]]
+id = "projects"
+name = "Projects, tickets and runs"
+intro = "A project groups repositories. A ticket becomes a run, with a page of its own, until the pull request."
+article = "how-it-works.html"
+article_title = "How a ticket becomes a pull request"
+
+[[groups]]
+id = "terminals"
+name = "Terminals"
+intro = "Every Claude Code session in view, Ghostty style, with its state and its context."
+
+[[groups]]
+id = "worktrees"
+name = "Worktrees"
+intro = "A worktree per run, with its dependencies, its environment, its database and its ports."
+
+[[groups]]
+id = "library"
+name = "Library and skills"
+intro = "Roles, rules, skills, workflows and commands in layers, matched to your stack."
+
+[[groups]]
+id = "claude"
+name = "Claude Code, artifacts and the scheduler"
+intro = "Everything Claude Code knows on this machine, in one view, and Claude tasks on a schedule."
+
+[[groups]]
+id = "ci"
+name = "CI/CD"
+intro = "GitHub Actions without leaving the app, through the GitHub CLI."
+
+[[groups]]
+id = "visual"
+name = "Visual review"
+intro = "Before and after captures of every changed screen, as a gate of the team."
+not_yet = ["The review page: side by side, slider, overlay, heatmap, pins and a swipe mode"]
+
+[[groups]]
+id = "machine"
+name = "Keys, vault and sync"
+intro = "The chores of a developer's machine, done properly."
+not_yet = ["The vault's interface, Touch ID and Windows Hello, changing the master password", "S3 and WebDAV remotes for the sync; syncing the vault and the SSH keys"]
+
+[[groups]]
+id = "security"
+name = "Security"
+intro = "Defense in depth on one machine, and plain words about what it does not cover."
+article = "security.html"
+article_title = "Security, and its limits"
+
+[[groups]]
+id = "cli"
+name = "The termf command line"
+intro = "Everything the app does, from any terminal. It ships inside the app."
+
+# ---------------------------------------------------------------------------------------------------------------- team
+
+[[features]]
+slug = "cto"
+group = "team"
+name = "The CTO's conversation"
+tagline = "One agent you talk to, on every project's Home."
+keywords = "chat assistant conversation home @role cards approval ask"
+problem = '''<p>With several Claude Code sessions on several repositories, you end up being the one who relays everything. TermF gives each project one permanent conversation, with the CTO: you ask it where something lives, where a run is at, or for a piece of work in your own words, and it turns that into the right run for the team.</p><p>It is for anyone who would rather describe the work once than drive each agent by hand.</p>'''
+how = [
+  "You write to the CTO on the project's Home, or press <kbd>⌘⇧H</kbd> from anywhere.",
+  "It reads the repositories, the runs, the tickets and what waits for you, then answers in place.",
+  "When something needs doing, it asks through a card: start a team run, answer a question, approve a step, stop a run.",
+  "You approve or deny the card; <code>@role</code> writes to a role at work and <code>@expert</code> to the project expert.",
+]
+visual = "conversation"
+caption = "The CTO's conversation, with a plan to approve and a permission to grant. Sample data."
+default = [
+  "Reads with Read, Grep and Glob only; no shell, no network.",
+  "Acts only through TermF's tools, and every action waits on your approval card.",
+  "Each gate of a run wakes it for one turn, so it can tell you what the gate is about.",
+  "Runs on opus at high effort.",
+]
+tune = [
+  "Its model and effort: <code>[roles.cto]</code>.",
+  "Switch the conversation to the expert with the CTO / Expert toggle.",
+  "Every shortcut can be remapped.",
+]
+commands = [["termf team status <run>", "where a run is at, from any terminal"], ["termf team stop", "the emergency stop"]]
+limits = [
+  "The conversation has no budget of its own, and every gate costs it one turn.",
+  "Notices waiting for it do not survive a restart of the app (they stay on screen).",
+  "Text from tickets and agents reaches it as data; each action still waits on your card.",
+]
+tried = "Its tools were run with a real Claude Code (Haiku) through automated tests. The conversation in the app has been checked with a simulated backend."
+related = ["triage", "home", "expert"]
+read = "team.html#cto"
+
+[[features]]
+slug = "triage"
+group = "team"
+name = "Triage and the path"
+tagline = "The CTO reads each request and picks how the team handles it."
+keywords = "routing route workflow budget squads hotfix kind size"
+problem = '''<p>A typo fix and an epic should not go through the same process. Before a team run starts, the CTO reads the request and the project and proposes the path: what kind of work it is, how big, which workflow, which optional steps, which squads, what budget. You approve it before anything starts.</p>'''
+how = [
+  "The run starts with a triage step, the CTO on opus.",
+  "It returns the kind (bug, feature, epic, refactor, infra, SEO, docs…), the size (S, M, L), the workflow, the steps to add or skip, the effort per step, the squads and the budget, with its rulings and their reasons.",
+  "If something is unclear, it asks its questions first, with proposed answers.",
+  "TermF checks everything it proposed, then the path waits for you: Approve the path, Change or Refuse.",
+]
+visual = "path"
+caption = "The path as the run shows it, before anything starts. Sample data."
+default = [
+  "On for every team run, and the path waits for your approval.",
+  "The <code>hotfix</code> workflow applies its path at once; if the CTO routes a default launch to a workflow with fewer gates, the gate opens anyway.",
+  "The CTO's budget advice can only lower the run's budget.",
+]
+tune = [
+  "<code>[team] triage</code> and <code>approve_route</code>, per project or for every project.",
+  "Change the path before approving: workflow, optional steps, squads, run budget.",
+]
+commands = [["termf team route <run>", "the decision, its reason, steps, squads and budget"], ["termf team run --request <text>", "start the team on a request written in your own words"]]
+limits = ["Every gate wakes the CTO for one turn: a cost to know about."]
+tried = "The triage ran with a real Claude Code (Haiku) through automated tests; the gate in the app was checked with a simulated backend."
+related = ["cto", "questionnaire", "workflows"]
+read = "how-it-works.html#triage"
+
+[[features]]
+slug = "questionnaire"
+group = "team"
+name = "Questions with proposed answers"
+tagline = "When an agent has doubts, you get a form, already filled in."
+keywords = "questions answers form doubts clarification po plan"
+problem = '''<p>Agents that guess get things wrong; agents that ask in a wall of text waste your time. In TermF, the triage, the product owner, the plan or any blocked step ask in one form: each question has a theme, the reason it is asked, its options and a proposed answer. You only change what does not suit you.</p>'''
+how = [
+  "An agent reports questions instead of guessing, each with a theme, a reason, options and a proposed answer.",
+  "The run stops on a card in the run and on the Home; the proposed answers are already selected.",
+  "You change what is wrong, add another answer or a note, and send them all at once, or answer in free text.",
+  "The step runs again with your answers, and they travel into every later brief of the run.",
+]
+visual = "questionnaire"
+caption = "The plan has questions; the proposed answers are filled in. Sample data."
+default = [
+  "One mechanism for the triage, the product manager, the product owner, the plan and any blocked step.",
+  "Questions are grouped by theme: product, scope, interface, technical, security, delivery.",
+]
+tune = ["Answer in the app, or from a terminal with <code>termf team answer</code>."]
+commands = [["termf team answer <run> <step> <id>=<answer>…", "answer a step's questions"], ["termf team status <run>", "each question with its reason, options and proposal"]]
+limits = ["The review's questions are written in English for the CTO and the API, and shown translated in the French interface."]
+tried = "Run with a real Claude Code (Haiku) through the triage; the form was checked with a simulated backend."
+related = ["triage", "roles", "runs"]
+read = "how-it-works.html#questions"
+
+[[features]]
+slug = "roles"
+group = "team"
+name = "Fourteen roles"
+tagline = "From the product owner to the security reviewer, each a file you can change."
+keywords = "agents roles cto lead po pm architect ux front back devops qa seo secops reviewer expert model effort"
+problem = '''<p>One general agent doing everything drifts. TermF ships fourteen roles, each with a mission, a model, an effort and permissions: cto, lead, po, pm, architect, ux, front, back, devops, qa, seo, secops, reviewer and expert. Planners and reviewers run on opus, builders on sonnet.</p>'''
+how = [
+  "The plan gives each task a role and a size.",
+  "TermF starts a fresh Claude Code session for the step, with the role's instructions and a brief: the task, the criteria, your answers, the earlier reports.",
+  "The size sets the effort, medium, high or extra high, within the role's range; turns are capped at 60, 120 or 240.",
+  "The step ends with a report in a fixed shape, and the next step starts from it.",
+]
+visual = "roster"
+caption = "Some of the roles, with their model and effort. From library/roles."
+default = [
+  "Fourteen roles ship in <code>library/roles/</code>, each a Markdown file in the format of Claude Code's agents.",
+  "Steps run in <code>acceptEdits</code> mode; the roles that only read cannot edit a file.",
+  "secops runs at extra high effort.",
+]
+tune = [
+  "<code>[roles.&lt;role&gt;]</code> for every project, one project, one squad or one repository: model, effort, range, permission mode, skills, preferences, write paths, denied tools (<code>+x</code> adds, <code>-x</code> removes).",
+  "<code>[team] max_turns</code>.",
+  "Write your own roles in the library.",
+]
+commands = [["termf team squads", "every role of a project with its settings and where each comes from"]]
+limits = ["A repository can only pick a model or an effort and add to what is denied.", "The descriptions of the shipped roles are in English even in the French interface."]
+tried = "Run with a real Claude Code (Haiku) from the plan to the tasks' reports, through automated tests."
+related = ["squads", "code-review", "library"]
+read = "team.html#roles"
+
+[[features]]
+slug = "squads"
+group = "team"
+name = "Squads"
+tagline = "Split a bigger project into teams with their own scope."
+keywords = "squads teams staff lead parallel repositories paths domains"
+problem = '''<p>On a project with several repositories or areas, one flat team steps on its own toes. Squads give each area its lead, its members and how many of each, its repositories, its paths and how many tasks it runs at once. The roles that serve every squad form the staff.</p>'''
+how = [
+  "Declare squads in the project's file, or accept the ones the setup assistant proposes.",
+  "A run that spans one squad is planned by its lead; one that spans several is planned by the CTO, squad by squad.",
+  "Each task stays inside its squad's repositories and paths, and the scheduler respects each squad's limits.",
+]
+visual = "squads"
+caption = "Two squads and their limits in the project's Configuration. Sample data."
+default = [
+  "No squad declared: one implicit squad with every role and no limit, so nothing changes for a small project.",
+]
+tune = [
+  "<code>[team] staff</code> and <code>[[squads]]</code>: id, lead, roles with counts, repos, paths, domains, max_parallel.",
+  "Role settings per squad: <code>[squads.roles.&lt;role&gt;]</code>.",
+]
+commands = [["termf team squads [<project>]", "the squads, the staff and each member's settings"]]
+limits = ["Squads are read-only in the app outside the setup assistant.", "Squads per repository only really pay off with runs across repositories, which are not built yet."]
+tried = "Tested with automated tests; the squads view was checked with a simulated backend."
+related = ["roles", "projects", "triage"]
+read = "team.html#squads"
+
+[[features]]
+slug = "code-review"
+group = "team"
+name = "Code review and security review"
+tagline = "Each finding goes back to the task that owns it."
+keywords = "review reviewer secops security owasp findings rounds nits"
+problem = '''<p>An agent reviewing its own work is not a review. In every run, a reviewer reads the integrated diff against the criteria, the contracts between tasks and the project's conventions, and sends each finding back to the task that must fix it. Then the security reviewer goes over the same diff.</p>'''
+how = [
+  "After the tasks and the checks, the reviewer reads the run's whole diff; each finding has its file and line, the scenario that breaks and the fix.",
+  "Important findings go back to their task in a fresh session; the reviewer looks again, up to two rounds.",
+  "A finding with no clear owner, or still open after the last round, becomes a question for you.",
+  "secops reviews the diff for vulnerabilities, abuse cases and dependencies, in two passes: find, then confirm.",
+]
+visual = "workflow"
+caption = "Review and security come after the tasks and the checks, in the default workflow."
+default = [
+  "On, up to two rounds; the CTO cannot skip it.",
+  "Nits are reported, not fixed.",
+  "secops runs on opus at extra high effort, citing the OWASP Top 10 categories.",
+]
+tune = ["<code>[team] review</code>, <code>review_rounds</code> (1 to 10), <code>review_nits = \"report\" | \"fix\"</code>."]
+commands = [["termf team events <run>", "the run's events, the review rounds included"]]
+limits = ["A finding is tied to a task by its id or by the role of a single task, never by its file.", "The reviewer is asked to check each finding on its own; TermF does not check them."]
+tried = "The review loop ran with a real Claude Code (Haiku), clean on its first round, through automated tests."
+related = ["roles", "workflows", "visual-review"]
+read = "how-it-works.html#review"
+
+[[features]]
+slug = "expert"
+group = "team"
+name = "The project expert"
+tagline = "Answers about the project from its memory, with sources."
+keywords = "expert memory search index history decisions ask sources"
+problem = '''<p>Why is it built this way, where does this live, what did we decide last month? The expert answers questions about the project from a local memory of it, then from the code, and gives its sources. The team calls it instead of searching on its own.</p>'''
+how = [
+  "TermF indexes the project's memory on your machine: Claude Code conversations of its repositories, agents' conversations and run logs, the library, <code>CLAUDE.md</code> and rules, docs, the last 2,000 commits.",
+  "Secrets are masked before anything is written.",
+  "You ask on the Home (switch the conversation to Expert) or with <code>termf ask</code>; the PO, PM, architect and CTO ask it too.",
+  "It searches the memory, reads the code if needed, and answers with its sources.",
+]
+visual = "expert"
+caption = "The expert answering with its sources. Sample data."
+default = [
+  "On; indexed a minute after start, every 15 minutes and before each question.",
+  "Read-only: no shell, no web.",
+  "A question from an agent is capped at one dollar.",
+]
+tune = ["<code>[memory] enabled</code>, and <code>exclude</code> per source."]
+commands = [["termf ask <question>", "ask from any terminal"], ["termf memory search <query>", "search the index"], ["termf memory reindex", "index again now"]]
+limits = [
+  "The index stays on your machine, but the passages the expert reads go to the model, as in any Claude Code session.",
+  "claude.ai artifacts are indexed by title and link only.",
+  "Not yet tried on a big project: the time of the first indexing and the size of the base are not measured.",
+]
+tried = "Run with a real Claude Code (Haiku) through automated tests, the memory served by a fake TermF."
+related = ["cto", "roles", "library"]
+read = "team.html#expert"
+
+[[features]]
+slug = "budgets"
+group = "team"
+name = "Budgets, stop and take over"
+tagline = "A run never spends without a limit, and you can step in at any time."
+keywords = "budget cost dollars stop emergency takeover hand back pause terminal"
+problem = '''<p>Agents left alone can loop and spend. Each run has a budget split across its steps, an emergency stop stops everything at once, and you can take any step's conversation into a terminal and hand it back.</p>'''
+how = [
+  "The run starts with its budget; each step gets the smaller of its own budget and its share of what is left.",
+  "When it is spent, the agents stop and the run waits for you.",
+  "Emergency stop interrupts the agents, stops them and kills their commands.",
+  "Between two turns, Take over opens a step's conversation in a terminal with the same model and settings; Hand back returns it.",
+]
+default = [
+  "15 dollars per run in the default workflow.",
+  "After a restart, a working team is paused: nothing spends without you.",
+  "Never two processes on one conversation.",
+]
+tune = ["The workflow's <code>budget_usd</code>, or the budget at launch.", "Change the run's budget when you change its path."]
+commands = [["termf team stop [<run>]", "stop one team, or every team"], ["termf agent takeover <id>", "take a conversation into a terminal"], ["termf agent handback <id>", "give it back"]]
+limits = ["A shell command started before a restart is not always killed.", "Take over is refused for the CTO and the expert, and once the budget is spent."]
+tried = "Budgets and the emergency stop were tested with a fake Claude Code; taking over with the guard, by the code only."
+related = ["runs", "cto", "terminals"]
+read = "team.html#control"
+
+# ------------------------------------------------------------------------------------------------------------ projects
+
+[[features]]
+slug = "projects"
+group = "projects"
+name = "Projects and the setup assistant"
+tagline = "A new project reads itself, then proposes its setup, item by item."
+keywords = "project onboarding setup assistant trust repositories conventions"
+problem = '''<p>Setting up agents for a codebase means writing conventions, picking skills, wiring tickets and CI. When you create a project from a few repositories, TermF's setup assistant reads them without changing anything, asks only what it cannot find, then proposes the whole setup for you to review.</p>'''
+how = [
+  "Create a project with the + next to Projects; the assistant opens once.",
+  "It reads the repositories: stack, CI workflows, <code>CLAUDE.md</code> and agents files, Claude Code settings and MCP servers, existing skills and commands.",
+  "Claude Code then reads them read-only and asks up to ten questions; TermF adds its own on team size, squads and model.",
+  "It proposes conventions, ticket sources, worktree recipe, CI notifications, the team and the stack's skills; you accept, change or drop each.",
+]
+default = [
+  "TermF finds the git repositories on your machine and sorts them by activity.",
+  "Trusting the repositories in Claude Code is opt-in: the box is unchecked.",
+]
+tune = ["Run the assistant again from the project's Configuration.", "Projects are plain files, <code>projects/&lt;id&gt;.toml</code>, which you can edit by hand."]
+commands = [["termf project trust <id> [--off]", "trust the project's repositories in Claude Code, or stop"]]
+limits = ["The analysis has not yet run with a real Claude Code, only a fake one.", "A repository added to the project later is not trusted by itself."]
+tried = "Trust was checked with a real Claude Code 2.1.330; the assistant, with a simulated backend and throwaway repositories."
+related = ["home", "squads", "skills"]
+read = "how-it-works.html#ask"
+
+[[features]]
+slug = "home"
+group = "projects"
+name = "The project's Home"
+tagline = "Where a project opens: the CTO, and everything that waits for you."
+keywords = "home waiting for you on duty runs navigation ⌘J next"
+problem = '''<p>The question is always the same: what needs me now? Each project opens on its Home, with the CTO's conversation and the decisions in place, and beside it what waits for you, who is on duty and the runs under way. <kbd>⌘J</kbd> jumps to the next thing waiting, in any project.</p>'''
+how = [
+  "Choose the project in the navigation (<kbd>⌘O</kbd>, or <kbd>⌃1</kbd>…<kbd>⌃9</kbd>); its views unfold under it.",
+  "The Home shows the conversation, then Waiting for you, On duty, the runs and the first tickets of the inbox.",
+  "Plans, questions, permissions and deliveries are cards you answer in place.",
+  "<kbd>⌘J</kbd> goes to the next thing waiting: terminals first, then agents, then team runs.",
+]
+visual = "nav"
+caption = "Navigation by project, with what waits for you. Sample data."
+default = ["The Home is a project's first view; “This machine” holds the settings and the tools that are not tied to a project."]
+tune = ["Every shortcut can be remapped in Settings."]
+commands = [["termf inbox", "the tickets waiting, from a terminal"]]
+limits = ["Checked with a simulated backend, not yet in the app's real window."]
+tried = "The Home and the navigation were checked with a simulated backend."
+related = ["cto", "runs", "terminals"]
+
+[[features]]
+slug = "tickets"
+group = "projects"
+name = "Ticket sources"
+tagline = "GitHub Issues, GitHub Projects, Jira Cloud and any MCP server."
+keywords = "tickets issues jira github projects mcp inbox sources linear"
+problem = '''<p>Tickets live where your team keeps them. A project can follow several sources at once, and their inbox shows in the app. Any ticket can go to the team, or open in a Claude Code session in its own worktree.</p>'''
+how = [
+  "Add the project's sources in its Configuration, or accept the ones the setup assistant found.",
+  "The inbox lists your tickets; a failing source does not block the others.",
+  "Pick one, or paste a URL, <code>owner/repo#42</code>, <code>#42</code> or <code>ACME-123</code>.",
+  "With the team starts a team run; Launch opens a Claude Code session in the ticket's worktree.",
+]
+default = [
+  "GitHub Issues through the GitHub CLI, with no setting at all.",
+  "Nothing written back to the tracker: no comment, no transition.",
+  "<kbd>⌘⇧L</kbd> launches a ticket.",
+]
+tune = [
+  "GitHub Projects v2, Jira Cloud (token in the system keychain), any MCP server read-only.",
+  "<code>[trackers.*]</code>: board, columns, mine, comment, transition.",
+]
+commands = [["termf inbox", "the tickets of every source"], ["termf run <ticket>", "open a ticket's run (waits for your confirmation)"]]
+limits = ["GitHub Projects has no conditional requests, so it is read again in full.", "The ETag of GitHub's issue search has not been checked against GitHub."]
+tried = "A ticket opened in its worktree has run with a real Claude Code; the sources were tested with fake gh and curl."
+related = ["runs", "delivery", "home"]
+read = "how-it-works.html#ask"
+
+[[features]]
+slug = "runs"
+group = "projects"
+name = "The run page"
+tagline = "One page per ticket, from launch to merge, with or without the team."
+keywords = "run timeline steps resume restart cleanup merge log"
+problem = '''<p>A run is a ticket being worked on, in its own worktree. Its page shows where it is, what waits for you and what happened, and it survives restarts of the app and cleans up after the merge.</p>'''
+how = [
+  "The timeline shows the steps: triage, path, framing, plan, tasks, review, delivery.",
+  "The cards that wait for you appear on it and on the Home.",
+  "After a restart, Resume picks up the same conversation, with the same environment, ports and guard.",
+  "Once the pull request is merged, the run closes itself if nothing would be lost.",
+]
+visual = "run"
+caption = "A run's timeline, stopped at the plan. Sample data."
+default = [
+  "Pull requests checked 30 seconds after start, then every 15 minutes.",
+  "A closed pull request, or a busy session, is only flagged “Ready to clean up”.",
+]
+tune = ["<code>[tickets] cleanup = auto | ask | off</code> (auto by default)."]
+commands = [["termf runs", "the runs and their state"], ["termf run resume <run>", "resume after a restart"], ["termf close <run>", "close a run (waits for your confirmation)"]]
+limits = ["Resume and cleanup have not yet run with a real Claude Code or a real GitHub.", "A <code>claude --resume</code> started outside TermF on the same conversation is not detected."]
+tried = "Tested with a fake Claude Code and a fake gh; the page was checked with a simulated backend."
+related = ["delivery", "workflows", "worktrees"]
+read = "how-it-works.html#after"
+
+[[features]]
+slug = "workflows"
+group = "projects"
+name = "Workflows and rules"
+tagline = "The steps of a run and the rules it follows, as files you can change."
+keywords = "workflow steps gates rules scope-strict no-text-changes visual-review hotfix extends toml"
+problem = '''<p>Each team has its own process. A workflow is a list of typed steps, agents, gates, checks, rules, review, delivery, written in TOML. Rules add instructions, an automatic check and a level to every run. Three workflows and three rules ship; you change them with files.</p>'''
+how = [
+  "The project picks a default workflow; the CTO may route a run to another and add or skip optional steps.",
+  "Gates stop the run for you; checks run the repository's commands; rules check the diff.",
+  "A variant writes only what changes, starting from another with <code>extends</code>.",
+  "A rule's level goes from advise (instructions only) to block (a deviation fails the step).",
+]
+visual = "workflow"
+caption = "The default workflow, step by step."
+default = [
+  "<code>default</code>: frame, plan (gate), tasks, checks, rules, review, security review, delivery (gate); up to four agents at once, a 15 dollar budget.",
+  "Product manager, architect, UX and SEO steps ship turned off, for the CTO to add.",
+  "<code>hotfix</code>: no path or plan gate, one review round on bugs only. <code>squads</code>: the CTO plans every squad.",
+  "The three shipped rules, scope-strict, no-text-changes and visual-review, are off until you switch them on.",
+]
+tune = [
+  "Your own workflows, globally, per project or per repository; <code>[workflows] default</code>.",
+  "Rule levels from the library to <code>[rules]</code> of the project, then per ticket (<code>--rule visual-review=block</code>) and per task.",
+  "Your own rules, with a check of your own.",
+]
+commands = [["termf team rules <run> …", "change a run's rules"], ["termf library explain <name>", "why an item applies, and at which level"]]
+limits = ["A repository's workflow cannot set commands, a budget or rules.", "The text-changes check reads the diff line by line, not with a parser.", "Rules with a custom check, and the secrets check, have not been run yet."]
+tried = "Gates and rules were tested with a fake Claude Code."
+related = ["triage", "code-review", "visual-review"]
+read = "how-it-works.html#checks"
+
+[[features]]
+slug = "delivery"
+group = "projects"
+name = "Delivery in two steps"
+tagline = "See exactly what will be sent, then send it."
+keywords = "delivery pull request pr push commit preview fingerprint closes"
+problem = '''<p>Nothing should reach GitHub behind your back. A run's delivery always happens in two steps: a preview of what will be sent, then your confirmation. No agent can push or open a pull request in a run.</p>'''
+how = [
+  "When the team is done, the run is ready to deliver; you approve that gate.",
+  "Deliver… shows the files to commit, the commits not pushed yet and a fingerprint of that preview.",
+  "Deliver commits exactly that, pushes the branch and opens the pull request, with <code>Closes #N</code> for a GitHub issue.",
+  "If the worktree changed since the preview, the delivery is refused.",
+]
+visual = "delivery"
+caption = "The delivery's preview, before anything is sent. Sample data."
+default = ["Always two steps; the guard keeps agents from pushing or opening a pull request.", "Optional tracker writes (a comment, a transition) are tried once each."]
+tune = ["Tracker writes per source: <code>comment</code>, <code>transition</code>."]
+commands = [["termf deliver <run>", "deliver from a terminal (waits for your confirmation in the app)"]]
+limits = ["Delivery by the team itself is not built: after the team's gate, you deliver from the run."]
+tried = "Tested with a fake gh and a bare remote."
+related = ["guard", "runs", "local-api"]
+read = "how-it-works.html#deliver"
+
+# ----------------------------------------------------------------------------------------------------------- terminals
+
+[[features]]
+slug = "terminals"
+group = "terminals"
+name = "Tabs and splits"
+tagline = "Every Claude Code in view, Ghostty style."
+keywords = "terminal tabs splits panes ghostty layouts broadcast shortcuts"
+problem = '''<p>Several Claude Code sessions in several windows get lost. TermF's terminals are tabs, each a tree of free splits, with Claude Code or any shell in any repository, and every action has a shortcut.</p>'''
+how = [
+  "<kbd>⌘T</kbd> opens a session: Claude Code or a shell, in any repository.",
+  "<kbd>⌘D</kbd> splits right, <kbd>⌘⇧D</kbd> down; <kbd>⌥⌘</kbd> + arrows move between splits, <kbd>⌘↵</kbd> zooms one.",
+  "Arrange a tab: one per tab, side by side, 2 × 2, auto grid or focus.",
+  "Save layouts with their tabs and splits; broadcast a message to the sessions you tick.",
+]
+visual = "terminals"
+caption = "Tabs and splits, two Claude Code sessions and a shell. Sample data."
+default = ["A question before closing a running session.", "Tabs reorder by dragging, rename by double-click."]
+tune = ["Every shortcut, per system: <code>[keys.macos]</code>, <code>[keys.linux]</code>, <code>[keys.windows]</code>.", "Other agents in <code>[agents]</code>: any command-line agent opens in a terminal."]
+commands = [["termf ls", "the sessions"], ["termf open <path> [--agent claude]", "open a session (an agent waits for your confirmation)"], ["termf say <session> <text>", "type into a session (waits for your confirmation)"]]
+limits = ["On Linux and Windows, Ctrl+letter goes to the shell inside a terminal: TermF's shortcuts there need Shift.", "Dragging tabs and split handles has only been checked with a simulated backend."]
+tried = "Checked with a simulated backend, not yet in the app's real window."
+related = ["status", "panels", "files"]
+
+[[features]]
+slug = "status"
+group = "terminals"
+name = "State, gauge and context reset"
+tagline = "Working, waiting for you or done, and a context that never overflows."
+keywords = "status hooks notifications context gauge reset handoff clear canary"
+problem = '''<p>You should not have to watch every session to know which one needs you. Each Claude Code session shows its state, read from Claude Code's own hooks, and its context gauge; a notification tells you when one waits or finishes. When a context fills up, TermF can hand it off, clear it and resume.</p>'''
+how = [
+  "TermF hooks into each Claude Code session it starts: starting, working, waiting for you, idle, done.",
+  "The gauge comes from Claude Code's status line, chained after your own.",
+  "Past the threshold, at the end of a turn, the agent writes a handoff, TermF sends <code>/clear</code>, and the agent resumes from the handoff.",
+  "The reset stops if you typed, if the agent asked for approval or went back to work, or if a task runs in the background.",
+]
+visual = "terminals"
+caption = "Each pane says whether its session works or waits for you, with its gauge. Sample data."
+default = ["Warns at 50 % of the context, resets at 70 %.", "Notifications for “Waiting for you” and “Finished”."]
+tune = ["<code>context_reset</code>, <code>context_reset_at</code>, <code>context_warning_at</code>.", "The canary preference, off by default: every reply starts with your first name, so a degraded context shows at once."]
+commands = [["termf watch", "print each session's state changes, live"], ["termf statusline", "the status line TermF chains after yours"]]
+limits = ["After Escape, the state goes back to idle only after about a minute.", "The reset is not wired to the team's headless sessions yet."]
+tried = "The context reset ran with a real Claude Code 2.1.330 through a terminal harness."
+related = ["terminals", "home", "budgets"]
+
+[[features]]
+slug = "panels"
+group = "terminals"
+name = "Two panels, help and the tour"
+tagline = "Any two views side by side, and every shortcut one key away."
+keywords = "panels split view help shortcuts tour palette onboarding"
+problem = '''<p>Reading a run while an agent works, or the CTO beside the terminals: a second panel opens any view beside the current one. Help, the palette and a short tour make the rest findable.</p>'''
+how = [
+  "<kbd>⌘\\</kbd> opens the second panel, <kbd>⌥⌘\\</kbd> moves between them; ⌘-click or right-click opens a view beside.",
+  "Type <kbd>?</kbd> for help and every shortcut.",
+  "<kbd>⌘K</kbd> opens the palette, grouped by view.",
+  "A four-step tour opens at first launch, and again from the help.",
+]
+default = ["The tour shows once, at first launch."]
+tune = ["Every shortcut can be remapped, with conflicts flagged."]
+commands = []
+limits = ["<kbd>⌘\\</kbd> on an AZERTY keyboard, and WebKit's own context menu, have not been tried in the real window."]
+tried = "Checked with a simulated backend."
+related = ["terminals", "home", "files"]
+
+[[features]]
+slug = "files"
+group = "terminals"
+name = "Files, quick terminal, keep awake"
+tagline = "A small editor next to the agents, and a shell at hand."
+keywords = "files editor codemirror fuzzy finder search diff quick terminal keep awake sleep"
+problem = '''<p>Sometimes you need to look at a file, not open your editor. TermF has a file explorer with a fuzzy finder, project search, a CodeMirror editor and git diffs, a quick terminal, and keeps the machine awake while agents work.</p>'''
+how = [
+  "<kbd>⌘P</kbd> finds a file, <kbd>⌘⇧F</kbd> searches the project; edit, diff, or open in your external editor.",
+  "<kbd>Ctrl</kbd> + <kbd>`</kbd> opens the quick terminal.",
+  "While an agent works, and two minutes after, the machine does not sleep.",
+]
+default = ["Keep awake: automatic; the display may still sleep.", "The quick terminal has no global shortcut until you set one."]
+tune = ["<code>keep_awake</code>, <code>keep_display_on</code>, <code>editor</code>, the quick terminal's global shortcut."]
+commands = []
+limits = ["<kbd>⌘Q</kbd> does not protect unsaved tabs.", "A tool defined only in <code>.zshrc</code> is not found for the external editor."]
+tried = "Built in the first phases; the views were checked by eye."
+related = ["terminals", "panels", "status"]
+
+# ----------------------------------------------------------------------------------------------------------- worktrees
+
+[[features]]
+slug = "worktrees"
+group = "worktrees"
+name = "Worktrees ready to run"
+tagline = "A worktree per run, with its dependencies, environment, database and ports."
+keywords = "worktree git dependencies env database postgres mysql sqlite ports compose recipe isolation parallel"
+problem = '''<p>Two tickets at once in one checkout do not mix. Each run gets a git worktree, and the project's recipe makes it ready to run: dependencies installed without being copied raw, <code>.env</code> files pointed at it, its own copy of the local database and its own ports, so several runs work side by side.</p>'''
+how = [
+  "The run's worktree is created inside the repository, so Claude Code's trust carries over.",
+  "The recipe copies the ignored files it needs, clones the dependency folders copy-on-write, then installs offline first.",
+  "It repoints the <code>.env</code> files, copies the local database for the worktree, and gives it its own ports and Compose project name.",
+  "When the run closes, the database copy is dropped and the ports go back.",
+]
+visual = "recipe"
+caption = "The steps of a worktree recipe."
+default = [
+  "<code>&lt;repo&gt;/.claude/worktrees/termf-&lt;run&gt;-…</code>, added once to <code>.git/info/exclude</code>.",
+  "Without a saved recipe, the recipe detected from the stack runs.",
+  "Postgres, MySQL or MariaDB, and SQLite; a remote database is refused.",
+  "The preparation agent is off.",
+]
+tune = [
+  "Library › Worktrees: edit the recipe, or Propose with Claude, read-only.",
+  "The preparation agent: a Claude Code in Claude Code's sandbox, writing only in the worktree and caches.",
+  "<code>[tickets] worktrees = \"data\"</code> keeps them in TermF's data folder.",
+]
+commands = [["termf worktree setup [<path>]", "prepare a worktree"], ["termf worktree teardown [<path>]", "undo it"]]
+limits = [
+  "Tools that ignore git's ignore files can see the worktrees from the main checkout; from a worktree, tools that walk up the folders see the main copy. Use <code>worktrees = \"data\"</code> then.",
+  "The worktrees of the team's tasks are not prepared by the recipe yet.",
+]
+tried = "Covered by automated tests; not yet tried by hand on a real project."
+related = ["runs", "skills", "projects"]
+
+# ------------------------------------------------------------------------------------------------------------- library
+
+[[features]]
+slug = "library"
+group = "library"
+name = "The layered library"
+tagline = "Roles, rules, skills, workflows and commands, from shipped to repository."
+keywords = "library layers global project repository plugin export import config"
+problem = '''<p>What an agent gets should be visible and yours to change. TermF's library holds roles, rules, skills, preferences, workflows and commands in layers, shipped, packages, global, project, repository, and tells you why each one applies.</p>'''
+how = [
+  "Each item lives in a layer; the most specific one wins.",
+  "A repository can neither switch itself on nor hide another level.",
+  "What a session gets goes in as a Claude Code plugin and a system prompt file.",
+  "Export your setup to one archive, with a preview and a choice per item, and import it elsewhere.",
+]
+default = ["Shipped items are off until switched on, except the skills of your stack.", "Your global and project items are on.", "The archive holds no secret."]
+tune = ["Switch any item on or off; see why it applies.", "Import from <code>~/.claude</code>."]
+commands = [["termf library ls | explain | enable | disable", "the library from a terminal"], ["termf config export | import --dry-run", "your setup in one archive"]]
+limits = ["The archive is not signed.", "The shipped rules are written in French, the rest in English."]
+tried = "The library view was checked by eye in the app."
+related = ["skills", "conventions", "roles"]
+
+[[features]]
+slug = "skills"
+group = "library"
+name = "38 skills by stack"
+tagline = "The stack of each repository turns on the matching skills."
+keywords = "skills stack react laravel rails django terraform kubernetes typescript rust go python packages npm composer"
+problem = '''<p>An agent works better when it knows the framework and its version. TermF reads each repository's stack and versions and turns on the matching skills: 38 ship, from React and Laravel to Terraform and Kubernetes. Skills that your installed packages bring are picked up too.</p>'''
+how = [
+  "TermF reads the manifests and lockfiles: frameworks, test runners, databases, infrastructure, and their versions.",
+  "Each skill names the stacks it is for; the matching ones switch on, and <code>tests-from-criteria</code> is always on.",
+  "A Stack card goes into every session's system prompt.",
+  "Skills shipped inside npm packages, a Python virtualenv or Composer vendors switch on once you trust the repository.",
+]
+visual = "skills"
+caption = "The 38 skills that ship with TermF."
+default = ["Stack skills on for the matching repositories; package skills only for trusted repositories.", "Vendors' MCP servers are offered, added only on your click."]
+tune = ["Switch any skill off, or on for a stack it does not match."]
+commands = [["termf library ls", "what is on, and where from"]]
+limits = ["A manifest changed without a commit is seen at the next commit or restart.", "Package skills only for npm, a virtualenv and Composer for now.", "The skills have not yet run with a real Claude Code."]
+tried = "Tested with automated tests and a fake Claude Code."
+related = ["library", "projects", "worktrees"]
+
+[[features]]
+slug = "conventions"
+group = "library"
+name = "Conventions in plain words"
+tagline = "Write your rules as sentences; TermF proposes how to enforce each."
+keywords = "conventions rules preferences ai assisted plain language"
+problem = '''<p>Your team's rules live in people's heads. Write them as sentences; Claude Code reads the repositories, read-only, and proposes for each a rule, a check, a skill or a tool setting, for you to review one by one.</p>'''
+how = [
+  "Write the conventions in plain words.",
+  "Claude Code reads the repositories read-only and proposes an item for each.",
+  "You review each proposal; its impact is measured in a sandbox before anything is applied.",
+  "The change is journaled; each sentence keeps an on and off switch and a level.",
+]
+default = ["Runs on opus at high effort."]
+tune = ["<code>[conventions]</code> model and effort."]
+commands = []
+limits = ["The impact is measured on macOS only (its sandbox); elsewhere it says “not measured”.", "Hooks it writes are shell scripts, not for Windows."]
+tried = "Checked by eye in the app; not yet run with opus on a big project."
+related = ["library", "scout", "workflows"]
+
+[[features]]
+slug = "scout"
+group = "library"
+name = "The library scout"
+tagline = "A sourced review of your library, against the web."
+keywords = "scout watch review web sources critique proposals"
+problem = '''<p>Skills and rules go stale. The scout reads each item of your library against the web, with sources, and proposes changes you review like the conventions.</p>'''
+how = [
+  "A Claude Code with only web search and fetch reads your items.",
+  "It writes a sourced critique and proposals, item by item.",
+  "You review; anything that can run code needs your explicit confirmation.",
+  "What you refuse is remembered.",
+]
+default = ["sonnet, three dollars per run."]
+tune = ["<code>[scout]</code> model and budget."]
+commands = [["termf library scout", "start a review"]]
+limits = ["Not yet run with a real Claude Code.", "No way to cancel a run once started."]
+tried = "Tested with a fake Claude Code."
+related = ["library", "conventions", "skills"]
+
+# -------------------------------------------------------------------------------------------------------------- claude
+
+[[features]]
+slug = "claude-view"
+group = "claude"
+name = "The Claude Code view"
+tagline = "All of Claude Code's setup on this machine, by scope."
+keywords = "claude code settings permissions hooks mcp plugins skills agents memory sessions usage limits account"
+problem = '''<p>Claude Code's setup is spread over several files and scopes. The Claude view shows all of it in one place, says which scope decides, and lets you change the simple things through a preview.</p>'''
+how = [
+  "Settings, permissions, hooks and environment, by scope, with the one that decides.",
+  "MCP servers, plugins and marketplaces; skills, agents, commands, output styles, rules, memory files.",
+  "Past sessions: resume, duplicate, purge; usage and limits; account and version.",
+  "Simple settings are edited through a diff preview; secrets are masked.",
+]
+default = ["A marketplace command is shown with its hash and runs only after you accept."]
+tune = ["Edit from the view, or with the command line."]
+commands = [["termf claude settings get | set | unset", "settings by scope"], ["termf claude mcp add | remove", "MCP servers"], ["termf claude sessions", "past sessions"]]
+limits = ["Renaming a Claude session from TermF is not built."]
+tried = "<code>claude doctor</code> ran with a real Claude Code 2.1.330; the view was checked with a simulated backend."
+related = ["artifacts", "scheduler", "library"]
+
+[[features]]
+slug = "artifacts"
+group = "claude"
+name = "claude.ai artifacts"
+tagline = "A sortable, filterable table of your artifacts."
+keywords = "artifacts claude.ai table share delete"
+problem = '''<p>Artifacts pile up in claude.ai. TermF lists yours in a table you can sort and filter, to open, copy, share, edit or delete them.</p>'''
+how = [
+  "New artifacts are indexed as Claude Code publishes them.",
+  "The account's list is read by a hidden, restricted session.",
+  "Deleting goes through a session that may only delete those artifacts, after your confirmation.",
+]
+default = ["Refreshed every six hours.", "Deleting always asks first."]
+tune = ["<code>[artifacts] refresh_hours</code>."]
+commands = []
+limits = ["The expert indexes artifacts by title and link only."]
+tried = "Checked with a simulated backend."
+related = ["claude-view", "expert", "scheduler"]
+
+[[features]]
+slug = "scheduler"
+group = "claude"
+name = "The scheduler"
+tagline = "Claude tasks on a cron, even while TermF is closed."
+keywords = "scheduler cron schedule tasks launchd systemd task scheduler headless"
+problem = '''<p>Some work should happen every morning without you. The scheduler runs Claude tasks on a cron, headless or in a terminal, with their model, effort, permissions and budget, and runs them even when TermF is closed.</p>'''
+how = [
+  "Write the task: prompt, cron, model, effort, permissions, budget.",
+  "TermF installs it with the system's scheduler: launchd, systemd or the Task Scheduler.",
+  "At its time, <code>termf schedule run</code> starts it; one missed slot is caught up, never two at once.",
+]
+default = ["A task runs only on the machine that created it.", "Five-field cron in local time, daylight saving time included."]
+tune = ["Each task's settings; install or uninstall the system schedule."]
+commands = [["termf schedule list | add | edit | rm", "the tasks"], ["termf schedule run <id>", "run one now"], ["termf schedule history", "past runs"]]
+limits = ["A task runs at most two hours."]
+tried = "Checked with a simulated backend."
+related = ["claude-view", "ci", "artifacts"]
+
+# ------------------------------------------------------------------------------------------------------------------ ci
+
+[[features]]
+slug = "ci"
+group = "ci"
+name = "CI/CD"
+tagline = "GitHub Actions runs, logs and the failure sent back to the agent."
+keywords = "ci cd github actions runs logs rerun cancel workflow dispatch checks"
+problem = '''<p>Switching to the browser to read a CI log breaks the flow. TermF shows GitHub Actions runs by repository, branch or pull request, cleans the logs and points at the errors, and sends a failure back to the agent that caused it.</p>'''
+how = [
+  "Runs, jobs and steps, through the GitHub CLI.",
+  "Logs cleaned, errors pinpointed.",
+  "Run again, failed jobs only, cancel, or start a workflow with its inputs.",
+  "In a run, the pull request's checks show beside the work; Send the failure to the agent types a framed excerpt into its session.",
+]
+default = ["Notifications for the runs that concern you.", "The guard keeps a run's agents from starting or cancelling CI."]
+tune = ["<code>[ci] notify = mine | all | off</code>."]
+commands = [["termf ci runs | view | logs --errors", "runs and logs"], ["termf ci rerun [--failed] | cancel | dispatch", "act on them"]]
+limits = ["Needs the GitHub CLI signed in."]
+tried = "Checked with a simulated backend."
+related = ["runs", "guard", "scheduler"]
+
+# -------------------------------------------------------------------------------------------------------------- visual
+
+[[features]]
+slug = "visual-review"
+group = "visual"
+name = "Visual review"
+tagline = "Before and after captures of each changed screen."
+keywords = "visual review screenshots before after diff chrome gate ui"
+problem = '''<p>A diff does not show what a screen looks like. TermF's capture engine starts the project's dev server for the run and for its base, captures each changed screen with the system's Chrome, and compares the pixels and the texts. As a gate, it stops the run when the interface changed.</p>'''
+how = [
+  "The dev server runs on its own port, for the run and for its base.",
+  "The screens come from your routes, the screens the agents declared, and changed stories.",
+  "Chrome captures them before and after; TermF diffs the pixels and the texts.",
+  "With the visual-review rule on, the run waits for you: approve, ask for changes, or refuse.",
+]
+default = ["Desktop and light theme only, until you add more.", "Skipped until the visual-review rule is on."]
+tune = ["<code>[visual]</code>: routes, viewports (desktop, tablet, mobile), themes, threshold, login, images on the pull request."]
+commands = [["termf review start | show | decide | pr", "reviews from a terminal"]]
+limits = ["The review page is not built: the gate asks you to look at the result in the run's worktree.", "Chrome on Linux and Windows has not been tried."]
+tried = "The engine ran with a real Chrome on macOS through automated tests."
+related = ["workflows", "code-review", "delivery"]
+read = "how-it-works.html#visual"
+
+# ------------------------------------------------------------------------------------------------------------- machine
+
+[[features]]
+slug = "ssh-keys"
+group = "machine"
+name = "SSH and keys"
+tagline = "Every key format, with the agent and ~/.ssh/config."
+keywords = "ssh keys ed25519 rsa ecdsa putty jwk pkcs8 agent config rotation"
+problem = '''<p>Keys are the chore nobody wants. TermF lists your keys, the agent and your <code>~/.ssh/config</code>, generates keys by use in every common format, converts them, tests them and rotates them.</p>'''
+how = [
+  "The inventory reads <code>~/.ssh</code>, TermF's own files and the files you pick, nothing else.",
+  "Generate by use, SSH, signing, encryption, TLS: Ed25519, ECDSA, RSA, X25519.",
+  "Export as OpenSSH, PuTTY, JWK, PKCS#8, SEC1, PKCS#1 or SPKI; convert; reveal a private key on click, with the clipboard cleared.",
+  "Edit <code>~/.ssh/config</code> through a diff preview; one key per repository; test, rotate, trash.",
+]
+default = ["Reveals mask themselves again after a while."]
+tune = ["Everything from the view, or the command line."]
+commands = [["termf ssh ls | gen | test", "keys"], ["termf ssh agent-add | assign | trash", "agent, repositories, trash"]]
+limits = ["Hardware keys (<code>-sk</code>), GitLab, certificate requests are not built.", "Clearing the clipboard is not verified on Windows and Linux."]
+tried = "Tested with automated tests; never tried in the app's real window."
+related = ["sync", "vault", "security-input"]
+
+[[features]]
+slug = "vault"
+group = "machine"
+name = "The vault"
+tagline = "Secrets by scope, encrypted, from the command line."
+keywords = "vault secrets encryption argon2 xchacha audit 1password bitwarden doppler aws"
+problem = '''<p>Secrets do not belong in agents' contexts or in plain files. The vault keeps them encrypted, by scope, with an audit log, and agents can never reveal a value. For now it works from the command line.</p>'''
+how = [
+  "<code>termf vault init</code> sets a master password.",
+  "Secrets live in dev, staging or prod scopes, globally or per project; prod asks the password again.",
+  "References point to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.",
+  "A hash-chained audit log records what happens to the secrets.",
+]
+default = ["Argon2id and XChaCha20-Poly1305.", "Locks after 10 minutes, and on sleep."]
+tune = ["<code>[vault] auto_lock_minutes</code>."]
+commands = [["termf vault init | unlock | lock | status", "the vault"], ["termf vault set | ref | reveal | rm | audit", "secrets and the audit"]]
+limits = ["No interface yet, no Touch ID or Windows Hello, no password change: a forgotten password means a lost vault.", "On Linux and Windows, a key kept in the keychain can be read by any process of the user."]
+tried = "Command line tried in a throwaway home folder; never in the app."
+related = ["ssh-keys", "sync", "security-input"]
+
+[[features]]
+slug = "sync"
+group = "machine"
+name = "Encrypted sync"
+tagline = "Your settings on every machine, encrypted end to end."
+keywords = "sync settings encryption recovery key git remote folder merge devices"
+problem = '''<p>Setting up a second machine should not mean starting over. TermF syncs your settings, projects and conventions through a git remote or a synced folder, encrypted end to end, with a recovery key.</p>'''
+how = [
+  "Set a password; TermF gives you a recovery key.",
+  "Pick a git remote or a synced folder.",
+  "Changes merge three ways, key by key for TOML files; conflicts show side by side.",
+  "<code>local.toml</code> never leaves the machine.",
+]
+default = ["Encrypted with Argon2id and XChaCha20-Poly1305; file names masked.", "Syncs in the background."]
+tune = ["What syncs: config, projects, conventions."]
+commands = [["termf sync setup | status | push | pull", "the sync"], ["termf sync recover | change-password", "keys and passwords"]]
+limits = ["The vault and SSH keys are not synced yet.", "S3 and WebDAV remotes are not built."]
+tried = "Tested with automated tests."
+related = ["vault", "ssh-keys", "library"]
+
+# ------------------------------------------------------------------------------------------------------------ security
+
+[[features]]
+slug = "guard"
+group = "security"
+name = "The run guard"
+tagline = "No push, no pull request, no tracker write from a run's agents."
+keywords = "guard hook push pull request tracker refuse pretooluse safety"
+problem = '''<p>An agent in a run should never push or open a pull request on its own. Every session of a run carries <code>termf guard</code>, a Claude Code hook that refuses those commands, and a run does not start without it.</p>'''
+how = [
+  "TermF starts each run session, team step and takeover with the guard as a <code>PreToolUse</code> hook.",
+  "It refuses <code>git push</code>, <code>gh pr</code>, writes to GitHub issues and to CI, and <code>termf deliver</code>, <code>close</code> and <code>run</code>, also inside <code>sh -c</code>, <code>eval</code> and <code>$(…)</code>.",
+  "The agent gets the reason, and tells you its work is ready.",
+]
+visual = "guard"
+caption = "What an agent sees when it tries to push in a run. Sample data, the guard's own words."
+default = ["On, for every run: it is not optional."]
+tune = ["Nothing to set."]
+commands = [["termf guard", "the hook itself; Claude Code calls it, not you"]]
+limits = ["Defense in depth, not a sandbox: a script the agent writes and then runs, a git alias or another tool still pass.", "Managed settings that allow only managed hooks, or disable all hooks, would turn it off."]
+tried = "Its refusal of <code>git -C . push</code> was checked with a real Claude Code 2.1.330."
+related = ["delivery", "local-api", "security-input"]
+read = "security.html#guard"
+
+[[features]]
+slug = "local-api"
+group = "security"
+name = "The isolated local API"
+tagline = "A narrow key per session, and the actions that matter wait for you."
+keywords = "api token capability confirmation banner cli socket"
+problem = '''<p>Agents can run the <code>termf</code> command line, so the command line must not be a back door. Each session gets its own narrow key on TermF's local API, yours stays out of their reach, and the actions that matter wait for your confirmation in the app.</p>'''
+how = [
+  "Each terminal and each headless session gets its own token, revoked when it ends.",
+  "Your own token lives outside the agents' folders and is denied to their tools.",
+  "A reserved action from the command line shows a banner in the app: it waits for Allow, five minutes at most, and is dropped if the caller leaves.",
+]
+visual = "banner"
+caption = "The banner a termf command raises before a reserved action. Sample data."
+default = ["Confirmation on for starting a run or a team, delivering, closing, approving a gate, accepting a permission, typing into a session, opening an agent.", "Refused even if you confirm: an agent session without the guard, with all permissions bypassed, or with TermF's tools."]
+tune = ["<code>[api] confirm_cli</code>, read at start."]
+commands = [["termf deliver <run>", "an example of a command that waits for you"]]
+limits = ["The banner cannot tell who asks: your command line and an agent running it look the same.", "A process set on it can still find the token file by a pattern, then use everything but the reserved actions."]
+tried = "Checked with a real Claude Code that an agent cannot print its own token; the banner, with a simulated backend."
+related = ["guard", "cli", "security-input"]
+read = "security.html#api"
+
+[[features]]
+slug = "security-input"
+group = "security"
+name = "Secrets and untrusted input"
+tagline = "Tickets are data, not orders; secrets stay out of the sessions."
+keywords = "secrets env private keys untrusted prompt injection tickets local-first telemetry"
+problem = '''<p>A ticket is written by someone else and may say anything. And a session should not read your <code>.env</code>. TermF frames every ticket as untrusted data, denies secrets to the sessions it starts, and keeps everything on your machine.</p>'''
+how = [
+  "A ticket reaches the agent as a framed file marked untrusted, never as instructions; earlier reports too.",
+  "Every session TermF starts is denied <code>.env</code> files, private keys and environment dumps.",
+  "The CTO's conversation reads the repositories but has no shell and no network.",
+]
+default = ["No TermF server, no telemetry: your code goes where Claude Code sends it, to the model, as it would without TermF."]
+tune = ["Add to a role's <code>deny</code> list."]
+commands = []
+limits = ["The deny rules do not see every way around them, such as <code>python -c</code>, <code>sh -c</code> or a copy of the file.", "The tool sessions TermF runs for itself (scout, conventions, recipe, setup assistant) keep their own settings, without these denials."]
+tried = "See the security page for what was verified, and how."
+related = ["guard", "local-api", "vault"]
+read = "security.html#input"
+
+# ----------------------------------------------------------------------------------------------------------------- cli
+
+[[features]]
+slug = "cli"
+group = "cli"
+name = "The termf command line"
+tagline = "Everything the app does, from any terminal."
+keywords = "cli command line termf terminal scripting"
+problem = '''<p>The app and the command line are two views of the same thing. <code>termf</code> ships inside the app and drives sessions, tickets, the team, agents, the library, keys, sync, the vault, CI, schedules, worktrees and visual reviews.</p>'''
+how = [
+  "Link it on your <code>PATH</code>: it is inside <code>TermF.app/Contents/MacOS/</code> on macOS, in <code>/usr/bin</code> with the deb and rpm, next to the app on Windows.",
+  "<code>termf help</code> lists every command.",
+  "Commands that start a run or a team, deliver or close, approve a gate, accept a permission or type into a session wait for your confirmation in the app.",
+]
+visual = "cli"
+caption = "termf watch in a terminal. Sample data."
+default = ["Talks to the running app through its local API."]
+tune = ["<code>[api] confirm_cli</code>."]
+commands = [["termf ls | open | say | watch", "sessions"], ["termf inbox | run | runs | deliver | close", "tickets and runs"], ["termf team … | agent … | ask", "the team, the agents, the expert"]]
+limits = ["<code>termf team answer</code> and a few others do not wait for confirmation: see the security page."]
+tried = "The command line is covered by automated tests."
+related = ["local-api", "runs", "budgets"]
+read = "download.html#cli"
+
+# -------------------------------------------------------------------------------------------------------- the visuals
+# HTML reproductions of the app's interface, drawn with the app's tokens (site.css, .app) and its English labels.
+
+[visuals]
+conversation = '''<div class="app">
+  <div class="bar"><span class="badge">CTO</span><b>CTO</b><span class="sub">Your way in to the team</span><span class="seg"><span class="on">CTO</span><span>Expert</span></span></div>
+  <div class="body">
+    <div class="msg"><p>Two runs are moving:</p><ul><li>#57 CSV export of invoices: the plan is ready, 3 tasks (back, front, qa). It waits for your approval.</li><li>#311 Date filter: front is fixing DateRange.tsx.</li></ul></div>
+    <div class="card"><h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</h4><p class="ref">acme/platform#57 <span>· Export invoices to CSV in the accountant's format</span></p><p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p><div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div></div>
+    <div class="me">Start the team on #482 too, in api.</div>
+    <div class="card"><h4><svg aria-hidden="true"><use href="#i-shield"/></svg>The CTO asks for your approval: Start a team run</h4><p class="ref">acme/api#482 <span>· Cursor pagination on GET /invoices</span></p><div class="acts"><span class="field">Reason for refusing (optional)</span><span class="btn"><svg aria-hidden="true"><use href="#i-shield"/></svg>Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div></div>
+  </div>
+  <div class="compose"><div class="composer">Message to the CTO… (@role for someone else, Enter sends)</div></div>
+</div>'''
+
+path = '''<div class="app"><div class="body"><div class="card">
+  <h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The CTO proposes this path</h4>
+  <p class="help">Nothing starts before you agree. Change it if needed, or refuse: the team stops.</p>
+  <dl class="kv"><dt>Workflow</dt><dd>default</dd><dt>Steps added</dt><dd>ux</dd><dt>Steps skipped</dt><dd>none</dd><dt>Squads</dt><dd>web</dd><dt>Run budget (USD)</dt><dd>15</dd></dl>
+  <div class="acts"><span class="grow">Why this path</span><span class="btn">Change</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the path</span></div>
+</div></div></div>'''
+
+questionnaire = '''<div class="app">
+  <div class="steps"><span class="s done"><svg aria-hidden="true"><use href="#i-done"/></svg>Framing</span><i></i><span class="s now"><svg aria-hidden="true"><use href="#i-bell"/></svg>Plan</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Tasks</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Review</span></div>
+  <div class="body"><div class="card">
+    <h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan has questions</h4>
+    <p class="help">The proposed answers are filled in: change what does not suit you, then send them all at once.</p>
+    <div class="q"><span class="theme">Scope</span><p>Is the default period “last 30 days” everywhere?</p><p class="why">Why: DateRange also reads the period saved in the user's preferences.</p><span class="opts"><span class="on">Last 30 days everywhere</span><span>The period from the preferences</span></span><div class="acts"><span class="field">Another answer (optional)</span></div></div>
+    <div class="q" style="margin-top:10px"><span class="theme">Interface</span><p>Should the customer filter reset too?</p><span class="opts"><span>Yes</span><span class="on">No</span></span></div>
+    <div class="acts" style="margin-top:12px"><span class="grow"></span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Answer in free text</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-send"/></svg>Send the answers</span></div>
+  </div></div>
+</div>'''
+
+roster = '''<div class="app"><div class="list">
+  <div class="row"><span class="ini">CT</span><span class="t"><b>cto</b><span>The one point of contact; triages every run, never codes</span></span><span class="chip">opus · high</span></div>
+  <div class="row"><span class="ini">LE</span><span class="t"><b>lead</b><span>Plans a squad's work as tasks per role</span></span><span class="chip">opus · high</span></div>
+  <div class="row"><span class="ini">PO</span><span class="t"><b>po</b><span>Frames the ticket: criteria, out of scope, questionnaire</span></span><span class="chip">opus · high</span></div>
+  <div class="row"><span class="ini">FR</span><span class="t"><b>front</b><span>Screens, components, styles, client logic, accessibility</span></span><span class="chip">sonnet · high</span></div>
+  <div class="row"><span class="ini">BA</span><span class="t"><b>back</b><span>API, business logic, database and migrations, with tests</span></span><span class="chip">sonnet · high</span></div>
+  <div class="row"><span class="ini">QA</span><span class="t"><b>qa</b><span>Checks each criterion with evidence, adds regression tests</span></span><span class="chip">sonnet · high</span></div>
+  <div class="row"><span class="ini">RE</span><span class="t"><b>reviewer</b><span>Reviews the integrated diff against criteria and conventions</span></span><span class="chip">opus · high</span></div>
+  <div class="row"><span class="ini">SE</span><span class="t"><b>secops</b><span>Reviews the run's diff for vulnerabilities and abuse</span></span><span class="chip">opus · xhigh</span></div>
+</div></div>'''
+
+squads = '''<div class="app"><div class="squads">
+  <div class="sq"><h5>billing <span>At most 2 at once</span></h5><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">back ×2</span></dd><dt>Repositories</dt><dd class="mono">billing-service</dd><dt>Paths</dt><dd class="mono">src/**, tests/**</dd><dt>Domains</dt><dd>billing</dd></dl></div>
+  <div class="sq"><h5>web <span>At most 1 at once</span></h5><dl><dt>Lead</dt><dd><span class="chip acc">lead</span></dd><dt>Members</dt><dd><span class="chip">front</span></dd><dt>Repositories</dt><dd class="mono">web-dashboard</dd><dt>Paths</dt><dd class="mono">web/**</dd><dt>Domains</dt><dd>interface</dd></dl></div>
+</div></div>'''
+
+expert = '''<div class="app">
+  <div class="bar"><span class="badge">EX</span><b>Expert</b><span class="sub">Expert · Acme platform</span><span class="seg"><span>CTO</span><span class="on">Expert</span></span></div>
+  <div class="body">
+    <div class="me">Why do invoices keep their own copy of the customer's address?</div>
+    <div class="msg"><p>Because an invoice must show the address at the time it was issued: the team decided it when the billing service was split from the API, so a customer moving does not change past invoices.</p><p>Sources:</p><ul><li><span class="mono">docs/billing.md</span>, “Snapshots”</li><li>commit <span class="mono">3f2a91c</span>, “Copy the address onto invoices”</li><li>run #212, the product owner's framing</li></ul></div>
+  </div>
+</div>'''
+
+nav = '''<div class="app" style="display:flex"><div class="nav-a">
+  <span class="w"><svg aria-hidden="true"><use href="#i-bell"/></svg>3 waiting<kbd>⌘J</kbd></span>
+  <span class="h">PROJECTS</span>
+  <span class="i"><span class="av">A</span><b>Acme platform</b><span class="n wait">2</span></span>
+  <a class="sub on"><svg aria-hidden="true"><use href="#i-home"/></svg>Home<span class="n wait">2</span></a>
+  <a class="sub"><svg aria-hidden="true"><use href="#i-grid"/></svg>Terminals</a>
+  <a class="sub"><svg aria-hidden="true"><use href="#i-ticket"/></svg>Tickets<span class="n">8</span></a>
+  <a class="sub"><svg aria-hidden="true"><use href="#i-files"/></svg>Files</a>
+  <a class="sub"><svg aria-hidden="true"><use href="#i-ci"/></svg>CI/CD</a>
+  <a class="sub"><svg aria-hidden="true"><use href="#i-sliders"/></svg>Configuration</a>
+  <span class="i"><span class="av muted">D</span>Docs</span>
+  <span class="i"><span class="av muted">M</span>Mobile<span class="n wait">1</span></span>
+  <span class="i"><svg aria-hidden="true"><use href="#i-layers"/></svg>All projects</span>
+  <span class="i" style="margin-top:14px"><svg aria-hidden="true"><use href="#i-monitor"/></svg>This machine</span>
+</div><div class="list" style="flex:1;min-width:0">
+  <div class="row"><b style="flex:1">Waiting for you</b><kbd>⌘J</kbd></div>
+  <div class="row"><span class="ico"><svg aria-hidden="true"><use href="#i-bell"/></svg></span><span class="t"><b>The plan waits for your approval</b><span>#57 Export invoices to CSV in the accountant's format</span></span></div>
+  <div class="row"><span class="ico"><svg aria-hidden="true"><use href="#i-shield"/></svg></span><span class="t"><b>Start a team run</b><span>CTO · acme/api#482</span></span></div>
+  <div class="row"><b style="flex:1">On duty</b></div>
+  <div class="row"><span class="ini">BA</span><span class="t"><b>back</b><span>api</span></span><span class="pill-s working"><svg aria-hidden="true"><use href="#i-spin"/></svg>working</span></div>
+  <div class="row"><span class="ini">FR</span><span class="t"><b>front</b><span>web-dashboard</span></span><span class="pill-s waiting"><svg aria-hidden="true"><use href="#i-bell"/></svg>waiting for you</span></div>
+</div></div>'''
+
+run = '''<div class="app">
+  <div class="steps"><span class="s done"><svg aria-hidden="true"><use href="#i-done"/></svg>Framing</span><i></i><span class="s now"><svg aria-hidden="true"><use href="#i-bell"/></svg>Plan</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Tasks</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Review</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Delivery</span></div>
+  <div class="body"><div class="card"><h4><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</h4><p class="ref">acme/web-dashboard#311 <span>· The date filter does not reset when the search is cleared</span></p><p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p><div class="inset">Put the date filter back to its default when the search is cleared.<small>1 task</small></div><div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div></div></div>
+</div>'''
+
+delivery = '''<div class="app"><div class="body"><div>
+  <p class="h5">What the delivery will send</p>
+  <p class="h5">Files to commit (3)</p>
+  <ul class="fl"><li><b class="m">M</b>src/routes/invoices.ts</li><li><b class="a">A</b>src/export/csv.ts</li><li><b class="a">A</b>tests/export-csv.test.ts</li></ul>
+  <p class="h5">Commits already made, not pushed yet (2)</p>
+  <ul class="fl"><li>a41c9e2 CSV writer with the accountant's columns</li><li>7d03b5f Export button on the Invoices page</li></ul>
+  <p class="note">The files are committed on termf/57-export-invoices-csv, the branch is pushed to origin, then a pull request is opened to main.</p>
+  <div class="acts"><span class="grow"></span><span class="btn">New preview</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-send"/></svg>Deliver</span></div>
+</div></div></div>'''
+
+terminals = '''<div class="app">
+  <div class="tabs"><span class="tab on">api <kbd>3</kbd></span><span class="tab"><i class="dot"></i>web-dashboard <kbd>⌘2</kbd></span><span class="tab">billing-service <kbd>⌘3</kbd></span><span class="tab">+</span></div>
+  <div class="panes">
+    <div class="pane focus"><div class="ph"><span class="pill-s working"><svg aria-hidden="true"><use href="#i-spin"/></svg>working</span><b>api</b><span class="tool">claude</span><span class="gauge" style="--g:34%"><i></i>34%</span></div>
+<pre class="pt term"><span class="d">&gt;</span> Add cursor pagination to GET /invoices
+
+<span class="k">●</span> Read(src/routes/customers.ts)
+  <span class="d">⎿</span> Read 214 lines
+
+<span class="k">●</span> Update(src/routes/invoices.ts)
+  <span class="d">⎿</span> Updated with <span class="g">38 additions</span> and <span class="r">6 removals</span>
+
+<span class="k">●</span> Bash(pnpm vitest run tests/invoices)
+  <span class="d">⎿</span> Tests  12 passed (12)
+
+<span class="o">✻ Pondering…</span> <span class="d">(42s · esc to interrupt)</span></pre></div>
+    <div class="stack">
+      <div class="pane"><div class="ph"><span class="pill-s waiting"><svg aria-hidden="true"><use href="#i-bell"/></svg>waiting for you</span><b>web-dashboard</b><span class="tool">claude</span><span class="gauge" style="--g:12%"><i></i>12%</span></div>
+<pre class="pt term"><span class="k">●</span> Update(src/filters/DateRange.tsx)
+  <span class="d">⎿</span> Updated with <span class="g">4 additions</span>
+
+Do you want to run <span class="k">pnpm test</span>?
+<span class="k">❯ 1. Yes</span>
+  2. No</pre></div>
+      <div class="pane"><div class="ph"><b>api</b><span class="tool">shell</span></div>
+<pre class="pt term">alex@mbp api % pnpm vitest run
+ <span class="g">✓</span> tests/invoices.test.ts (12 tests)
+
+ Tests  <span class="g">12 passed</span> (12)
+alex@mbp api % </pre></div>
+    </div>
+  </div>
+</div>'''
+
+banner = '''<div class="app"><div class="body"><div class="card">
+  <h4><svg aria-hidden="true"><use href="#i-shield"/></svg>A termf command asks for your go-ahead</h4>
+  <p class="help">A termf command asks to deliver run 57 (commit, push and pull request). If it was not you (an agent can run termf), deny it.</p>
+  <div class="acts"><span class="grow"></span><span class="btn">Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div>
+</div></div></div>'''
+
+guard = '''<div class="app"><pre class="pt term" style="padding:14px 16px"><span class="k">●</span> Bash(git push -u origin termf/57-export-invoices-csv)
+  <span class="d">⎿</span> <span class="r">`git push -u origin termf/57-export-invoices-csv` is refused.</span>
+    <span class="r">In a TermF run, pushing, pull requests and writes to the</span>
+    <span class="r">tracker wait until the user delivers the run. Commit your</span>
+    <span class="r">work if you like, then tell the user it is ready.</span>
+
+<span class="k">●</span> The work is committed on the run's branch and ready
+  for you to deliver.</pre></div>'''
+
+cli = '''<div class="app"><pre class="pt term" style="padding:14px 16px">alex@mbp ~ % termf watch
+   3  working   api · claude
+   4  waiting   web-dashboard · claude
+   3  idle      api · claude
+   4  working   web-dashboard · claude
+   4  done      web-dashboard · claude</pre></div>'''
+
+skills = '''<ul class="tags" aria-label="The 38 skills that ship with TermF"><li>accessibility</li><li>angular</li><li>cloud</li><li>csharp-dotnet</li><li>css-tailwind</li><li>django</li><li>docker</li><li>fastapi</li><li>github-actions</li><li>go</li><li>java-spring</li><li>javascript-node</li><li>junit</li><li>kotlin-android</li><li>kubernetes</li><li>mongodb</li><li>mysql</li><li>nextjs</li><li>pest</li><li>php-laravel</li><li>playwright</li><li>pytest</li><li>python</li><li>react</li><li>redis</li><li>rspec</li><li>ruby-rails</li><li>rust</li><li>security-web</li><li>seo</li><li>sql-postgres</li><li>svelte-sveltekit</li><li>swift-ios</li><li>terraform</li><li>testing-js</li><li>tests-from-criteria</li><li>typescript</li><li>vue-nuxt</li></ul>'''
+
+workflow = '''<div class="bay"><p class="plate">Default workflow</p><ol class="strips">
+  <li class="strip" data-state="waiting"><span class="cs">Triage<small>cto</small></span><span class="what">Picks the workflow, steps, squads, budget</span><span class="st">You approve the path</span></li>
+  <li class="strip" data-state="working"><span class="cs">Frame<small>po</small></span><span class="what">Criteria, what is out of scope, the questions</span><span class="st">Reads only</span></li>
+  <li class="strip" data-state="waiting"><span class="cs">Plan<small>lead</small></span><span class="what">Tasks per role, with what each covers and needs</span><span class="st">You approve the plan</span></li>
+  <li class="strip" data-state="working"><span class="cs">Tasks<small>front, back, qa…</small></span><span class="what">In parallel, up to four at once, each in its own worktree</span><span class="st">Your agents work</span></li>
+  <li class="strip" data-state="working"><span class="cs">Checks<small>shell, rules</small></span><span class="what">The repository's checks, then the project's rules</span><span class="st">Automatic</span></li>
+  <li class="strip" data-state="working"><span class="cs">Review<small>reviewer, secops</small></span><span class="what">Findings back to their task; then the security review</span><span class="st">Up to two rounds</span></li>
+  <li class="strip" data-state="waiting"><span class="cs">Deliver<small>you</small></span><span class="what">What it will send, then the pull request</span><span class="st">You confirm</span></li>
+</ol></div>'''
+
+recipe = '''<div class="bay"><p class="plate">Recipe</p><ol class="strips">
+  <li class="strip" data-state="done"><span class="cs">Include<small>.worktreeinclude</small></span><span class="what">The ignored files the worktree needs</span><span class="st">Copied</span></li>
+  <li class="strip" data-state="done"><span class="cs">Deps<small>copy-on-write</small></span><span class="what">Dependency folders cloned, then installed offline first</span><span class="st">Never raw</span></li>
+  <li class="strip" data-state="done"><span class="cs">Database<small>local only</small></span><span class="what">Its own copy; every <code>.env*</code> naming it repointed</span><span class="st">Dropped at close</span></li>
+  <li class="strip" data-state="done"><span class="cs">Env<small>ports</small></span><span class="what"><code>PORT</code>, <code>TERMF_PORT_*</code>, <code>COMPOSE_PROJECT_NAME</code></span><span class="st">Per run</span></li>
+  <li class="strip" data-state="done"><span class="cs">Commands<small>yours</small></span><span class="what">Whatever else the project needs to run</span><span class="st">In order</span></li>
+  <li class="strip"><span class="cs">Agent<small>opt-in</small></span><span class="what">A Claude Code in a sandbox for what a recipe cannot guess</span><span class="st">Off by default</span></li>
+</ol></div>'''
