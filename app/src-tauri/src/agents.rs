@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
-use termf_agents::{AgentSession, Agents, SessionSpec, StoredEvent, Update};
+use termf_agents::{AgentEvent, AgentSession, Agents, SessionSpec, StoredEvent, Update};
 use termf_core::ipc::{AgentCall, SessionSummary};
 
 use crate::tickets::blocking;
@@ -65,6 +65,34 @@ pub fn shutdown(app: &AppHandle) {
     if let Some(state) = app.try_state::<AgentsState>() {
         state.0.shutdown();
     }
+}
+
+/// What a permission request of `session` asks, as the user sees it before allowing it from elsewhere: the
+/// session, the tool, its input.
+pub fn permission(app: &AppHandle, session: i64, request: &str) -> Vec<(&'static str, String)> {
+    let agents = agents(app);
+    let mut about = Vec::new();
+    if let Ok(s) = agents.session(session) {
+        about.push(("title", s.spec.title));
+    }
+    let asked = agents.events(session, 0).unwrap_or_default();
+    if let Some((tool, input, description)) = asked.into_iter().rev().find_map(|e| match e.event {
+        AgentEvent::Permission {
+            request: r,
+            tool,
+            input,
+            description,
+        } if r == request => Some((tool, input, description)),
+        _ => None,
+    }) {
+        about.push(("tool", tool));
+        about.extend(description.map(|d| ("description", d)));
+        about.push((
+            "input",
+            serde_json::to_string_pretty(&input).unwrap_or_default(),
+        ));
+    }
+    about
 }
 
 /// A terminal session ended: it may hold a conversation taken over.

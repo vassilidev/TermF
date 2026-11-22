@@ -108,6 +108,9 @@ pub struct SessionSpec {
     /// same hook.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub guard: bool,
+    /// `--max-turns`: the most model calls one message may take before its turn ends on an error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_turns: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]

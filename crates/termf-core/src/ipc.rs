@@ -1,7 +1,7 @@
 //! Local API shared by the app and the `termf` CLI: one JSON object per line over a local socket.
 //! Every request carries a token; a watch request turns the connection into an event stream.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -391,13 +391,20 @@ pub fn encode<T: Serialize>(msg: &T) -> String {
     line
 }
 
-/// Folder holding the socket and the token, private to the user.
+/// Folder holding the socket, private to the user.
 pub fn run_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("run")
 }
 
-pub fn token_file(data_dir: &Path) -> PathBuf {
-    run_dir(data_dir).join("token")
+/// The folder of the user's token, away from the data folder the sessions are given (the socket's); the
+/// settings of every Claude Code session TermF starts deny it, and so does `termf guard`.
+pub const USER_TOKEN_DIR: &str = "dev.termf.cli";
+
+pub fn user_token_file() -> Result<PathBuf> {
+    Ok(dirs::data_local_dir()
+        .context("no local data directory on this system")?
+        .join(USER_TOKEN_DIR)
+        .join("token"))
 }
 
 /// A socket file path on Unix, a named pipe path on Windows (derived from the per-user data dir).
@@ -461,11 +468,28 @@ pub fn private_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn read_token(data_dir: &Path) -> Result<String> {
-    let file = token_file(data_dir);
+pub fn read_user_token() -> Result<String> {
+    let file = user_token_file()?;
     let token = fs::read_to_string(&file)
         .with_context(|| format!("cannot read {} (is TermF running?)", file.display()))?;
     Ok(token.trim().to_owned())
+}
+
+pub fn write_token(file: &Path, token: &str) -> Result<()> {
+    let dir = file.parent().context("the token file has no folder")?;
+    #[cfg(unix)]
+    private_dir(dir)?;
+    #[cfg(not(unix))]
+    fs::create_dir_all(dir)?;
+    let _ = fs::remove_file(file);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options
+        .open(file)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, token.as_bytes()))
+        .with_context(|| format!("cannot write {}", file.display()))
 }
 
 /// Constant-time comparison, so response timing does not leak how much of a guess was right.
@@ -478,8 +502,8 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
             == 0
 }
 
-/// What a token allows: the user's token (in the token file) everything, a session's token only its own hooks,
-/// an agent session's `termf mcp` token only its tools for that session.
+/// What a token allows: the user's token (in the token file) everything but a session's tools, a session's token
+/// only its own hooks, an agent session's `termf mcp` token only its tools for that session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Full,
@@ -490,11 +514,147 @@ pub enum Access {
 impl Access {
     pub fn allows(self, call: &Call) -> bool {
         match (self, call) {
+            // A session's actions wait for the user's approval in that session, which a call of its tool skips.
+            (Access::Full, Call::Mcp { .. }) => false,
             (Access::Full, _) => true,
             (Access::Session(id), Call::Hook { session, .. }) => *session == id,
             (Access::Mcp(id), Call::Mcp { session, .. }) => *session == id,
             _ => false,
         }
+    }
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Reserved {
+    pub action: &'static str,
+    /// What the user sees before deciding, in full.
+    pub args: BTreeMap<&'static str, String>,
+}
+
+/// A call the user confirms in the app when it comes through the local API: the CLI cannot tell them from an
+/// agent that runs it.
+pub fn reserved(call: &Call) -> Option<Reserved> {
+    let text = |v: &Value| v.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    let (action, args): (_, Vec<(_, Option<String>)>) = match call {
+        Call::Run {
+            ticket,
+            project,
+            repo,
+        } => (
+            "run",
+            vec![
+                ("ticket", Some(ticket.clone())),
+                ("project", project.clone()),
+                ("repo", repo.clone()),
+            ],
+        ),
+        Call::Resume { run } => ("resume", vec![("run", Some(run.to_string()))]),
+        // Typing in a session can answer its permission or trust prompt.
+        Call::Say { session, text } => (
+            "say",
+            vec![
+                ("session", Some(session.clone())),
+                ("text", Some(text.clone())),
+            ],
+        ),
+        // A shell tile does nothing until something types in it; an agent's runs with the user's settings.
+        Call::Open {
+            path,
+            agent: Some(agent),
+        } => (
+            "open",
+            vec![("agent", Some(agent.clone())), ("cwd", Some(path.clone()))],
+        ),
+        Call::Deliver { run, .. } => ("deliver", vec![("run", Some(run.to_string()))]),
+        Call::Close { run, force } => {
+            let action = if *force { "closeForce" } else { "close" };
+            (action, vec![("run", Some(run.to_string()))])
+        }
+        Call::Team(TeamCall::Start { run: Some(run), .. }) => {
+            ("team", vec![("run", Some(run.to_string()))])
+        }
+        Call::Team(TeamCall::Start { request, .. }) => {
+            let request = request.clone().unwrap_or_default();
+            (
+                "teamRequest",
+                vec![
+                    ("request", text(&request["text"])),
+                    ("project", text(&request["project"])),
+                    ("repo", text(&request["repo"])),
+                ],
+            )
+        }
+        Call::Team(TeamCall::Approve { run, step }) => (
+            "approve",
+            vec![("run", Some(run.to_string())), ("step", Some(step.clone()))],
+        ),
+        // Anything but a refusal or changes, as `termf_visual::Decision::parse` reads them, may let the gate pass.
+        Call::Review(ReviewCall::Decide {
+            review,
+            screen,
+            decision,
+            ..
+        }) if !matches!(
+            decision.trim().to_lowercase().as_str(),
+            "reject" | "rejected" | "changes" | "change"
+        ) =>
+        {
+            (
+                "review",
+                vec![
+                    ("review", Some(review.to_string())),
+                    ("screen", Some(screen.clone())),
+                ],
+            )
+        }
+        Call::Agent(AgentCall::Answer {
+            session,
+            allow: true,
+            ..
+        }) => ("allow", vec![("session", Some(session.to_string()))]),
+        Call::Agent(AgentCall::Start { spec, prompt }) => {
+            let tools: Vec<&str> = spec["allowedTools"]
+                .as_array()
+                .map(|t| t.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            (
+                "agentStart",
+                vec![
+                    ("cwd", text(&spec["cwd"])),
+                    ("role", text(&spec["role"])),
+                    ("mode", text(&spec["permissionMode"])),
+                    ("tools", Some(tools.join(", ")).filter(|t| !t.is_empty())),
+                    ("model", text(&spec["model"])),
+                    ("prompt", prompt.clone().filter(|p| !p.is_empty())),
+                ],
+            )
+        }
+        _ => return None,
+    };
+    Some(Reserved {
+        action,
+        args: args
+            .into_iter()
+            .filter_map(|(k, v)| Some((k, v?)))
+            .collect(),
+    })
+}
+
+/// Why the local API never makes `call`, whoever confirms it: a headless session started from outside the app
+/// keeps TermF's guard, asks before what its permissions do not allow, and never gets TermF's own tools.
+pub fn refused(call: &Call) -> Option<&'static str> {
+    let Call::Agent(AgentCall::Start { spec, .. }) = call else {
+        return None;
+    };
+    let mode = spec["permissionMode"].as_str().unwrap_or_default();
+    if !matches!(spec["mcp"], Value::Null | Value::Bool(false)) {
+        Some("a session with TermF's tools only starts from TermF itself")
+    } else if mode.trim().eq_ignore_ascii_case("bypassPermissions") {
+        Some("bypassPermissions is refused through the local API")
+    } else if spec["guard"] != true {
+        Some("a session started through the local API needs TermF's guard (\"guard\": true)")
+    } else {
+        None
     }
 }
 
@@ -844,6 +1004,10 @@ mod tests {
         assert!(access.allows(&tool(7)));
         assert!(!access.allows(&tool(8)), "another session's tools");
         assert!(!Access::Session(1).allows(&tool(7)));
+        assert!(
+            !Access::Full.allows(&tool(7)),
+            "the user's token skips no approval"
+        );
         for call in [
             Call::List,
             Call::Deliver {
@@ -863,6 +1027,173 @@ mod tests {
         ] {
             assert!(!access.allows(&call), "{call:?}");
         }
+    }
+
+    #[test]
+    fn what_acts_for_the_user_waits_for_the_app() {
+        let action = |call: Call| reserved(&call).map(|r| (r.action, r.args));
+        let args = |pairs: &[(&'static str, &str)]| -> BTreeMap<&'static str, String> {
+            pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+        };
+        assert_eq!(
+            action(Call::Deliver {
+                run: 12,
+                confirm: "f".into()
+            }),
+            Some(("deliver", args(&[("run", "12")])))
+        );
+        assert_eq!(
+            action(Call::Run {
+                ticket: "#42".into(),
+                project: Some("acme".into()),
+                repo: Some("api".into())
+            }),
+            Some((
+                "run",
+                args(&[("ticket", "#42"), ("project", "acme"), ("repo", "api")])
+            )),
+            "where it runs is part of what you allow"
+        );
+        assert_eq!(
+            action(Call::Resume { run: 7 }),
+            Some(("resume", args(&[("run", "7")])))
+        );
+        assert_eq!(
+            action(Call::Say {
+                session: "api".into(),
+                text: "1".into()
+            }),
+            Some(("say", args(&[("session", "api"), ("text", "1")]))),
+            "typing can answer a permission prompt"
+        );
+        assert_eq!(
+            action(Call::Open {
+                path: "/src/api".into(),
+                agent: Some("claude".into())
+            }),
+            Some(("open", args(&[("agent", "claude"), ("cwd", "/src/api")])))
+        );
+        assert_eq!(
+            action(Call::Close {
+                run: 3,
+                force: true
+            })
+            .unwrap()
+            .0,
+            "closeForce"
+        );
+        assert_eq!(
+            action(Call::Team(TeamCall::Approve {
+                run: 3,
+                step: "plan".into()
+            })),
+            Some(("approve", args(&[("run", "3"), ("step", "plan")])))
+        );
+        let request = json!({"text": "x".repeat(5000), "project": "acme"});
+        let (kind, said) = action(Call::Team(TeamCall::Start {
+            run: None,
+            request: Some(request),
+            options: json!({}),
+        }))
+        .unwrap();
+        assert_eq!(kind, "teamRequest");
+        assert_eq!(said["request"].len(), 5000, "never cut");
+        assert_eq!(said["project"], "acme");
+        assert_eq!(
+            action(Call::Team(TeamCall::Start {
+                run: Some(4),
+                request: None,
+                options: json!({})
+            }))
+            .unwrap()
+            .0,
+            "team"
+        );
+        let decide = |decision: &str| {
+            action(Call::Review(ReviewCall::Decide {
+                review: 2,
+                screen: "home".into(),
+                decision: decision.into(),
+                comment: None,
+                pins: None,
+            }))
+        };
+        for approves in ["approve", "Approved", " APPROVE ", "approved\n"] {
+            assert_eq!(decide(approves).unwrap().0, "review", "{approves:?}");
+        }
+        for not in ["reject", "Rejected", "changes", " CHANGE "] {
+            assert_eq!(decide(not), None, "{not:?}");
+        }
+        let answer = |allow| {
+            action(Call::Agent(AgentCall::Answer {
+                session: 5,
+                request: "r1".into(),
+                allow,
+                message: None,
+            }))
+        };
+        assert_eq!(answer(true).unwrap().0, "allow");
+        assert_eq!(answer(false), None, "refusing needs no confirmation");
+        let start = |spec: Value| {
+            Call::Agent(AgentCall::Start {
+                spec,
+                prompt: Some("fix the build".into()),
+            })
+        };
+        let spec = json!({"cwd": "/src/api", "role": "back", "permissionMode": "acceptEdits",
+                          "allowedTools": ["Bash(npm *)", "Edit"], "guard": true});
+        assert_eq!(
+            action(start(spec.clone())),
+            Some((
+                "agentStart",
+                args(&[
+                    ("cwd", "/src/api"),
+                    ("role", "back"),
+                    ("mode", "acceptEdits"),
+                    ("tools", "Bash(npm *), Edit"),
+                    ("prompt", "fix the build"),
+                ])
+            ))
+        );
+        assert_eq!(refused(&start(spec.clone())), None);
+        for (key, value) in [
+            ("guard", json!(false)),
+            ("guard", Value::Null),
+            ("mcp", json!(true)),
+            ("permissionMode", json!(" BypassPermissions")),
+        ] {
+            let mut spec = spec.clone();
+            spec[key] = value.clone();
+            assert!(refused(&start(spec)).is_some(), "{key}: {value}");
+        }
+        for call in [
+            Call::List,
+            Call::Watch,
+            Call::Open {
+                path: "/src/api".into(),
+                agent: None,
+            },
+            Call::Team(TeamCall::Stop { run: None }),
+            Call::Vault(VaultCall::Lock),
+        ] {
+            assert_eq!(reserved(&call), None, "{call:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_user_token_is_private_and_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("termf-token-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let file = root.join(USER_TOKEN_DIR).join("token");
+        write_token(&file, "old").unwrap();
+        write_token(&file, "new").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new");
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), 0o600);
+        assert_eq!(mode(file.parent().unwrap()), 0o700);
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
