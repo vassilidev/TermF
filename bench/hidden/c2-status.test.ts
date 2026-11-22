@@ -89,7 +89,7 @@ test("AC2: the done column is replaced by status", async () => {
   assert.ok(columns.includes("status"), `columns: ${columns}`);
   assert.ok(!columns.includes("done"), `columns: ${columns}`);
   assert.ok(user_version > 1);
-  assert.deepEqual(sql(path, "SELECT status FROM tasks"), [{ status: "doing" }]);
+  assert.deepEqual(sql(path, "SELECT status FROM tasks").map((r) => r.status), ["doing"]);
 });
 
 test("AC3: an existing database is migrated without losing anything", async () => {

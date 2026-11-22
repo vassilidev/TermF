@@ -1,0 +1,194 @@
+{
+  "ticket": "c3-accounts",
+  "arm": "solo",
+  "n": 1,
+  "model": "sonnet",
+  "kind": "complex",
+  "at": "2026-11-22T17:16:26.256Z",
+  "state": "done",
+  "wall_s": 124.478,
+  "cost_usd": 0.3782495,
+  "sessions": 1,
+  "turns": 10,
+  "tokens": {
+    "input": 20,
+    "output": 20764,
+    "cache_read": 327935,
+    "cache_creation": 34444
+  },
+  "said": "Accounts are in and all 21 tests pass (the existing ones now sign in first). I didn't commit anything. I haven't clicked through the page in a browser, only syntax-checked `public/app.js`. There's no TypeScript compiler installed, so I couldn't type-check.\n\n**What changed**\n- **Database (`src/db.ts`):** A new migration adds `users` and `sessions` tables and a nullable `user_id` on `tasks`. Tasks from before accounts keep `user_id` NULL, so no query returns them.\n- **Accounts (`src/users.ts`):** Passwords are salted and hashed with scrypt, and compared in constant time. Tokens are 32 random bytes, and only their SHA-256 is stored.\n- **Sign-in:** An unknown username does the same scrypt work as a wrong password, and both give the same 401.\n- **Routes (`src/app.ts`):**\n  - `POST /api/users`, `POST /api/sessions` and `DELETE /api/sessions` behave as the ticket specifies.\n  - Anything under `/api/tasks` is authenticated before routing, so an anonymous caller can't tell whether a task exists.\n  - Every task query filters on the owner, so another user's task gets the same 404 as a missing one.\n  - Task responses don't include `user_id`.\n- **Page:** It has sign-up and sign-in, sends the bearer token on every request, and has a sign-out button. If the server rejects the token, the page returns to the sign-in form.\n- **Tests and README:** The new tests cover validation, auth, isolation, sign-out, no leaks of passwords or hashes, hashed storage, and legacy tasks. The README documents accounts and the API.\n\n**Beyond the ticket**\n- **JSON handling:** Malformed JSON or a non-object body now returns 400 instead of 500. Bodies over 64 KiB return 413, and 500 errors no longer expose the internal message.\n- **Task input:** `POST` and `PATCH` validate `title` (a non-empty string) and `done` (a boolean).\n- **`?done=false` fix:** It used to return the done tasks, because the string `\"false\"` counted as true. Any other `?done=` value is now a 400.\n- **Headers:** API responses carry `Cach",
+  "hidden": {
+    "pass": 11,
+    "fail": 0,
+    "tests": 11,
+    "failed": [],
+    "total": 11
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 21,
+    "fail": 0,
+    "tests": 21,
+    "failed": []
+  },
+  "original_tests": null,
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 32,
+      "removed": 5
+    },
+    {
+      "path": "public/app.js",
+      "added": 80,
+      "removed": 5
+    },
+    {
+      "path": "public/index.html",
+      "added": 19,
+      "removed": 3
+    },
+    {
+      "path": "src/app.ts",
+      "added": 96,
+      "removed": 23
+    },
+    {
+      "path": "src/db.ts",
+      "added": 15,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 25,
+      "removed": 14
+    },
+    {
+      "path": "src/users.ts",
+      "added": 105,
+      "removed": 0
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 260,
+      "removed": 6
+    }
+  ],
+  "lines_added": 632,
+  "lines_removed": 56,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "POST /api/users normalizes, validates username/password, returns 201/400/409 as specified; tests cover cases."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST /api/sessions returns 201 {token}; same 401 for both failures, with dummy-hash for equal work."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "All /api/tasks and /api/tasks/* routes check the bearer header first and answer 401 authentication required; tested with many malformed headers."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "All queries are scoped by user_id; other users' tasks give 404 task not found; tested for GET/PATCH/DELETE."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "DELETE /api/sessions returns 204 and removes only that token hash; tested."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "scrypt with random salt, timingSafeEqual, 32 random bytes token, SHA-256 hash stored; a test inspects the DB."
+      },
+      {
+        "id": 7,
+        "verdict": "met",
+        "why": "Migration adds nullable user_id; legacy rows have NULL and are never matched; tested against an old DB."
+      },
+      {
+        "id": 8,
+        "verdict": "met",
+        "why": "Page has sign-up/sign-in form, sends the Bearer token, and has a sign-out button."
+      },
+      {
+        "id": 9,
+        "verdict": "met",
+        "why": "Extensive API tests added, existing ones switched to a signed-in user, README documents accounts."
+      }
+    ],
+    "scores": {
+      "correctness": 8,
+      "security": 8,
+      "readability": 8,
+      "tests": 9,
+      "error_handling": 8,
+      "edge_cases": 7,
+      "scope": 6
+    },
+    "findings": [
+      {
+        "severity": "medium",
+        "category": "scope",
+        "file": "src/app.ts",
+        "what": "Unrequested changes: CSP/nosniff headers, cache-control no-store, 64KiB body limit, 413/400 JSON error handling, new task title/done/?done validation. They are reasonable hardening, but go beyond the ticket and change existing behaviour (e.g. ?done=maybe now 400, blank title now 400)."
+      },
+      {
+        "severity": "medium",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "readJson counts string length, not bytes, and the 413 is thrown mid-stream without draining the request. Multibyte bodies can exceed the limit by up to 4x. A client may also see a connection reset instead of the 413."
+      },
+      {
+        "severity": "medium",
+        "category": "edge-case",
+        "file": "src/users.ts",
+        "what": "authenticate lowercases the username without validating it. No DoS guard on password length: scrypt is run on arbitrarily long passwords (limited only by the 64KiB body). Sign-in has no rate limit, though the README says so."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/users.ts",
+        "what": "verifyPassword trusts the N/r/p values parsed from the stored hash with maxmem of 256MB. A malformed stored row would throw, and it would be a 500."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/users.ts",
+        "what": "Authorization regex uses /i, so a lowercase 'bearer' scheme is accepted. That is harmless and arguably correct. The token is capped at 256 characters."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "No test covers the front-end, and there is no test that the 409 path survives a race. The tests rely on a shared in-memory server with a counter, which is fine."
+      },
+      {
+        "severity": "low",
+        "category": "over-engineering",
+        "file": "public/app.js",
+        "what": "Auto sign-out handling on 401 and extra helper abstractions are slightly more than required, but still small."
+      }
+    ],
+    "over_engineering": "some",
+    "overall": 8,
+    "summary": "The diff meets every acceptance criterion with sound auth design (scrypt, hashed tokens, owner-scoped queries, uniform 401/404 answers) and unusually thorough tests. Its main weaknesses are scope creep (CSP headers, new validation of existing task inputs, body limits) and a few small edge cases around body-size counting and unbounded password length.",
+    "cost_usd": 0.10041040000000001
+  }
+}

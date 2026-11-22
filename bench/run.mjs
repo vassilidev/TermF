@@ -188,9 +188,10 @@ const EXCLUDE = [":(exclude).claude", ":(exclude).bench-hidden", ":(exclude).ben
 /** Tests, typecheck, scope and the diff of the final tree against `base`. */
 function measure(ticket, final, base, dir, work) {
   git(final, "add", "-A");
-  const patch = git(final, "diff", "--cached", "-U5", base, "--", ".", ...EXCLUDE);
+  // Not trimmed: a last context line may be a lone space.
+  const patch = sh("git", ["-C", final, "diff", "--cached", "-U5", base, "--", ".", ...EXCLUDE], { env: gitEnv }).stdout;
   const numstat = git(final, "diff", "--cached", "--numstat", base, "--", ".", ...EXCLUDE);
-  writeFileSync(join(dir, "diff.patch"), patch + "\n");
+  writeFileSync(join(dir, "diff.patch"), patch);
   const files = numstat
     ? numstat.split("\n").map((l) => {
         const [added, removed, path] = l.split("\t");
@@ -411,7 +412,7 @@ function remeasure(results) {
     const work = mkdtempSync(join(tmpdir(), "termf-bench-remeasure-"));
     const { repo, base } = prepare(work);
     const patch = readFileSync(join(dir, "diff.patch"), "utf8");
-    if (patch.trim()) git(repo, "apply", "--whitespace=nowarn", join(dir, "diff.patch"));
+    if (patch.trim()) git(repo, "apply", "--recount", "--whitespace=nowarn", join(dir, "diff.patch"));
     const log = join(dir, "solo.log");
     if (r.arm === "solo" && existsSync(log)) {
       const text = readFileSync(log, "utf8");

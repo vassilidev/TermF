@@ -1,0 +1,301 @@
+diff --git a/README.md b/README.md
+index 57803ed..50805a9 100644
+--- a/README.md
++++ b/README.md
+@@ -13,16 +13,21 @@ npm test         # the API tests (node:test)
+ Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z" }`.
+ 
+ | Method and path | What it does | Answers |
+ |---|---|---|
+ | `GET /api/tasks` | Lists the tasks, oldest first; `?done=true` or `?done=false` keeps the done or the open ones | 200, an array of tasks |
+-| `POST /api/tasks` | Creates a task from `{ "title": "…" }` | 201, the task |
++| `POST /api/tasks` | Creates a task from `{ "title": "…" }` | 201, the task, or 400 |
+ | `GET /api/tasks/:id` | Reads a task | 200, or 404 `{ "error": "task not found" }` |
+-| `PATCH /api/tasks/:id` | Changes `title` and / or `done` | 200, the task, or 404 |
++| `PATCH /api/tasks/:id` | Changes `title` and / or `done` | 200, the task, or 400 or 404 |
+ | `DELETE /api/tasks/:id` | Deletes a task | 204, or 404 |
+ 
+-Errors answer `{ "error": "<message>" }`.
++Errors answer `{ "error": "<message>" }`:
++
++- 400 `{ "error": "title is required" }`: on `POST` and on `PATCH` with a `title`, when it is missing, not a string, or empty after trimming.
++- 400 `{ "error": "title must be at most 200 characters" }`: the trimmed title is over 200 characters. Titles are saved trimmed.
++- 400 `{ "error": "invalid JSON body" }`: the body is not valid JSON, or not a JSON object.
++- 500 `{ "error": "internal error" }`: any other failure; the details are logged on the server only.
+ 
+ ## Layout
+ 
+ - `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied).
+ - `src/tasks.ts`: the queries.
+diff --git a/public/app.js b/public/app.js
+index c5c1b09..bc34437 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -42,13 +42,17 @@ function taskItem(task) {
+   return item;
+ }
+ 
+ form.addEventListener("submit", async (event) => {
+   event.preventDefault();
+-  await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: title.value }) });
+-  form.reset();
+-  await render();
++  try {
++    await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: title.value }) });
++    form.reset();
++    await render();
++  } catch (err) {
++    show(err);
++  }
+ });
+ 
+ filter.addEventListener("change", () => render().catch(show));
+ 
+ render().catch(show);
+diff --git a/src/app.ts b/src/app.ts
+index 78a93d6..8332b1f 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -11,11 +11,16 @@ const STATIC: Record<string, [string, string]> = {
+ 
+ /** The HTTP server of the app, not listening yet. `dbPath` is a SQLite file, or `:memory:`. */
+ export function createServer(dbPath = ":memory:") {
+   const db = openDb(dbPath);
+   const server = createHttpServer((req: any, res: any) => {
+-    handle(db, req, res).catch((err: Error) => send(res, 500, { error: err.message }));
++    handle(db, req, res).catch((err: unknown) => {
++      if (res.headersSent) return void res.end();
++      if (err instanceof tasks.ValidationError) return send(res, 400, { error: err.message });
++      console.error(err);
++      send(res, 500, { error: "internal error" });
++    });
+   });
+   server.on("close", () => db.close());
+   return server;
+ }
+ 
+@@ -36,11 +41,11 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+       const done = url.searchParams.get("done") ?? undefined;
+       return send(res, 200, tasks.listTasks(db, { done }));
+     }
+     if (method === "POST") {
+       const body = await readJson(req);
+-      return send(res, 201, tasks.createTask(db, body.title));
++      return send(res, 201, tasks.createTask(db, tasks.parseTitle(body.title)));
+     }
+     return send(res, 405, { error: "method not allowed" });
+   }
+ 
+   const match = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);
+@@ -50,11 +55,12 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+       const task = tasks.getTask(db, id);
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "PATCH") {
+       const body = await readJson(req);
+-      const task = tasks.updateTask(db, id, { title: body.title, done: body.done });
++      const title = Object.hasOwn(body, "title") ? tasks.parseTitle(body.title) : undefined;
++      const task = tasks.updateTask(db, id, { title, done: body.done });
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "DELETE") {
+       return tasks.deleteTask(db, id) ? send(res, 204) : send(res, 404, { error: "task not found" });
+     }
+@@ -65,11 +71,21 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+ }
+ 
+ async function readJson(req: any): Promise<any> {
+   let text = "";
+   for await (const chunk of req) text += chunk;
+-  return text ? JSON.parse(text) : {};
++  if (!text) return {};
++  let value: unknown;
++  try {
++    value = JSON.parse(text);
++  } catch {
++    throw new tasks.ValidationError("invalid JSON body");
++  }
++  if (typeof value !== "object" || value === null || Array.isArray(value)) {
++    throw new tasks.ValidationError("invalid JSON body");
++  }
++  return value;
+ }
+ 
+ function send(res: any, status: number, body?: unknown): void {
+   if (body === undefined) {
+     res.writeHead(status);
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4fd5acb..6f4bfef 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -14,10 +14,23 @@ interface Row {
+   created_at: string;
+ }
+ 
+ const toTask = (row: Row): Task => ({ ...row, done: row.done === 1 });
+ 
++/** A client error: answered with HTTP 400 and its message. */
++export class ValidationError extends Error {}
++
++const MAX_TITLE = 200;
++
++/** The trimmed title, or a ValidationError when it is not a string, empty, or too long. */
++export function parseTitle(value: unknown): string {
++  const title = typeof value === "string" ? value.trim() : "";
++  if (!title) throw new ValidationError("title is required");
++  if (title.length > MAX_TITLE) throw new ValidationError("title must be at most 200 characters");
++  return title;
++}
++
+ export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
+   if (filter.done === undefined) {
+     return (db.prepare("SELECT * FROM tasks ORDER BY id").all() as Row[]).map(toTask);
+   }
+   const rows = db.prepare("SELECT * FROM tasks WHERE done = ? ORDER BY id").all(filter.done ? 1 : 0) as Row[];
+@@ -27,19 +40,19 @@ export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
+ export function getTask(db: Db, id: number): Task | undefined {
+   const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Row | undefined;
+   return row && toTask(row);
+ }
+ 
+-export function createTask(db: Db, title: string): Task {
+-  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title) VALUES (?)").run(title);
++export function createTask(db: Db, title: unknown): Task {
++  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title) VALUES (?)").run(parseTitle(title));
+   return getTask(db, Number(lastInsertRowid))!;
+ }
+ 
+ export function updateTask(db: Db, id: number, changes: { title?: string; done?: boolean }): Task | undefined {
+   const task = getTask(db, id);
+   if (!task) return undefined;
+-  const title = changes.title ?? task.title;
++  const title = changes.title === undefined ? task.title : parseTitle(changes.title);
+   const done = changes.done ?? task.done;
+   db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, done ? 1 : 0, id);
+   return getTask(db, id);
+ }
+ 
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 1fa1bd8..25ed0ee 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -1,7 +1,11 @@
+-import { after, before, test } from "node:test";
++import { after, before, mock, test } from "node:test";
+ import assert from "node:assert/strict";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { DatabaseSync } from "node:sqlite";
+ import { createServer } from "../src/app.ts";
+ 
+ let server: any;
+ let base = "";
+ 
+@@ -69,5 +73,106 @@ test("lists only the done tasks with ?done=true", async () => {
+ test("serves the page", async () => {
+   const res = await fetch(base + "/");
+   assert.equal(res.status, 200);
+   assert.match(await res.text(), /<h1>Tasks<\/h1>/);
+ });
++
++async function raw(method: string, path: string, text: string) {
++  const res = await fetch(base + path, { method, headers: { "content-type": "application/json" }, body: text });
++  return { status: res.status, body: await res.json() };
++}
++
++const REQUIRED = { error: "title is required" };
++const TOO_LONG = { error: "title must be at most 200 characters" };
++const BAD_JSON = { error: "invalid JSON body" };
++const badTitles: unknown[] = [undefined, "", "   ", null, 123, ["a"]];
++
++test("POST without a usable title is a 400 and creates nothing", async () => {
++  const before = (await call("GET", "/api/tasks")).body.length;
++  for (const title of badTitles) {
++    const res = await call("POST", "/api/tasks", title === undefined ? {} : { title });
++    assert.equal(res.status, 400, JSON.stringify(title));
++    assert.deepEqual(res.body, REQUIRED);
++  }
++  assert.equal((await call("GET", "/api/tasks")).body.length, before);
++});
++
++test("POST title length: 201 is refused, 200 is accepted, titles are trimmed", async () => {
++  const long = await call("POST", "/api/tasks", { title: "a".repeat(201) });
++  assert.equal(long.status, 400);
++  assert.deepEqual(long.body, TOO_LONG);
++  assert.equal((await call("POST", "/api/tasks", { title: "a".repeat(200) })).status, 201);
++  const spaced = await call("POST", "/api/tasks", { title: `  ${"b".repeat(200)}  ` });
++  assert.equal(spaced.status, 201);
++  assert.equal(spaced.body.title, "b".repeat(200));
++  const padded = await call("POST", "/api/tasks", { title: "  padded  " });
++  assert.equal(padded.body.title, "padded");
++  const list = await call("GET", "/api/tasks");
++  assert.ok(list.body.some((t: any) => t.title === "padded"));
++});
++
++test("PATCH with a bad title is a 400 and changes nothing", async () => {
++  const created = await call("POST", "/api/tasks", { title: "Keep me" });
++  const path = `/api/tasks/${created.body.id}`;
++  for (const title of badTitles.filter((t) => t !== undefined)) {
++    const res = await call("PATCH", path, { title });
++    assert.equal(res.status, 400, JSON.stringify(title));
++    assert.deepEqual(res.body, REQUIRED);
++  }
++  const long = await call("PATCH", path, { title: "a".repeat(201) });
++  assert.equal(long.status, 400);
++  assert.deepEqual(long.body, TOO_LONG);
++  assert.deepEqual((await call("GET", path)).body, created.body);
++});
++
++test("PATCH saves a valid title trimmed and works without a title", async () => {
++  const created = await call("POST", "/api/tasks", { title: "Old" });
++  const path = `/api/tasks/${created.body.id}`;
++  assert.equal((await call("PATCH", path, { title: "  New  " })).body.title, "New");
++  const done = await call("PATCH", path, { done: true });
++  assert.equal(done.status, 200);
++  assert.equal(done.body.title, "New");
++  assert.equal((await call("PATCH", path, {})).status, 200);
++});
++
++test("PATCH validates the body before looking the task up", async () => {
++  const res = await call("PATCH", "/api/tasks/9999", { title: "" });
++  assert.equal(res.status, 400);
++  assert.deepEqual(res.body, REQUIRED);
++});
++
++test("a body that is not a JSON object is a 400 on POST and PATCH", async () => {
++  const created = await call("POST", "/api/tasks", { title: "Json" });
++  for (const text of ["{bad", "null", "[]", "5", '"x"']) {
++    for (const [method, path] of [["POST", "/api/tasks"], ["PATCH", `/api/tasks/${created.body.id}`]]) {
++      const res = await raw(method, path, text);
++      assert.equal(res.status, 400, `${method} ${text}`);
++      assert.deepEqual(res.body, BAD_JSON);
++    }
++  }
++});
++
++test("an unexpected error is a 500 without the internal message, and is logged", async () => {
++  const dir = mkdtempSync(join(tmpdir(), "tasks-"));
++  const file = join(dir, "t.db");
++  const broken: any = createServer(file);
++  await new Promise<void>((resolve) => broken.listen(0, "127.0.0.1", resolve));
++  const other = new DatabaseSync(file);
++  other.exec("DROP TABLE tasks");
++  other.close();
++  const logged = mock.method(console, "error", () => {});
++  try {
++    const res = await fetch(`http://127.0.0.1:${broken.address().port}/api/tasks`, {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ title: "x" }),
++    });
++    const text = await res.text();
++    assert.equal(res.status, 500);
++    assert.equal(text, '{"error":"internal error"}');
++    assert.equal(logged.mock.callCount(), 1);
++  } finally {
++    logged.mock.restore();
++    await new Promise((resolve) => broken.close(resolve));
++    rmSync(dir, { recursive: true, force: true });
++  }
++});

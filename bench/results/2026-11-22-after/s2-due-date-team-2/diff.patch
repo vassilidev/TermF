@@ -1,0 +1,332 @@
+diff --git a/README.md b/README.md
+index 57803ed..4603870 100644
+--- a/README.md
++++ b/README.md
+@@ -8,24 +8,26 @@ npm start        # http://localhost:3000, data in tasks.db (PORT and DB_PATH cha
+ npm test         # the API tests (node:test)
+ ```
+ 
+ ## API
+ 
+-Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z" }`.
++Every body is JSON. A task is `{ "id": 1, "title": "Buy milk", "done": false, "created_at": "2026-01-31T09:00:00.000Z", "due_date": null }`.
++`due_date` is a calendar date as a `YYYY-MM-DD` string, or `null` when the task has none (the default).
+ 
+ | Method and path | What it does | Answers |
+ |---|---|---|
+ | `GET /api/tasks` | Lists the tasks, oldest first; `?done=true` or `?done=false` keeps the done or the open ones | 200, an array of tasks |
+-| `POST /api/tasks` | Creates a task from `{ "title": "…" }` | 201, the task |
++| `POST /api/tasks` | Creates a task from `{ "title": "…", "due_date": "2026-03-01" }` (`due_date` is optional) | 201, the task, or 400 |
+ | `GET /api/tasks/:id` | Reads a task | 200, or 404 `{ "error": "task not found" }` |
+-| `PATCH /api/tasks/:id` | Changes `title` and / or `done` | 200, the task, or 404 |
++| `PATCH /api/tasks/:id` | Changes `title`, `done` and / or `due_date` (`null` clears it; leaving it out keeps it) | 200, the task, 400, or 404 |
+ | `DELETE /api/tasks/:id` | Deletes a task | 204, or 404 |
+ 
+-Errors answer `{ "error": "<message>" }`.
++Errors answer `{ "error": "<message>" }`. A `due_date` that is not a real `YYYY-MM-DD` date (`2026-1-5`, `tomorrow`,
++`2026-02-30`, a number…) answers 400 `{ "error": "due_date must be a date in YYYY-MM-DD format" }` and saves nothing.
+ 
+ ## Layout
+ 
+-- `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied).
++- `src/db.ts`: opens the database and runs the migrations (`PRAGMA user_version` counts those applied; the second adds the nullable `due_date` column).
+ - `src/tasks.ts`: the queries.
+ - `src/app.ts`: the HTTP server and its routes.
+ - `public/`: the page.
+ - `test/`: the API tests, against a server on a random port with an in-memory database.
+diff --git a/public/app.js b/public/app.js
+index c5c1b09..fdfe58c 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -1,9 +1,10 @@
+ const list = document.querySelector("#tasks");
+ const form = document.querySelector("#new-task");
+ const title = document.querySelector("#title");
+-const filter = document.querySelector("#filter");
++const dueDate = document.querySelector("#due-date");
++const filter =document.querySelector("#filter");
+ const error = document.querySelector("#error");
+ 
+ async function api(path, options = {}) {
+   const res = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
+   const body = res.status === 204 ? null : await res.json();
+@@ -36,19 +37,32 @@ function taskItem(task) {
+   const remove = document.createElement("button");
+   remove.textContent = "Delete";
+   remove.addEventListener("click", () => {
+     api(`/api/tasks/${task.id}`, { method: "DELETE" }).then(render, show);
+   });
+-  item.append(box, label, remove);
++  item.append(box, label);
++  if (task.due_date) {
++    const due = document.createElement("time");
++    due.dateTime = task.due_date;
++    due.textContent = `Due ${task.due_date}`;
++    item.append(due);
++  }
++  item.append(remove);
+   return item;
+ }
+ 
+ form.addEventListener("submit", async (event) => {
+   event.preventDefault();
+-  await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: title.value }) });
+-  form.reset();
+-  await render();
++  const payload = { title: title.value };
++  if (dueDate.value) payload.due_date = dueDate.value;
++  try {
++    await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
++    form.reset();
++    await render();
++  } catch (err) {
++    show(err);
++  }
+ });
+ 
+ filter.addEventListener("change", () => render().catch(show));
+ 
+ render().catch(show);
+diff --git a/public/index.html b/public/index.html
+index 3179186..8fc9926 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -5,11 +5,14 @@
+     <meta name="viewport" content="width=device-width, initial-scale=1" />
+     <title>Tasks</title>
+     <style>
+       body { font: 16px/1.5 system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+       form, .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+-      input[type="text"] { flex: 1; }
++      form { flex-wrap: wrap; align-items: center; }
++      input[type="text"] { flex: 1; min-width: 10rem; }
++      .due-field { display: flex; align-items: center; gap: 0.25rem; }
++      li time { color: #595959; font-size: 0.875rem; white-space: nowrap; }
+       ul { list-style: none; padding: 0; }
+       li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+       li span { flex: 1; }
+       #error { color: #b00020; min-height: 1.5em; }
+     </style>
+@@ -17,10 +20,14 @@
+   <body>
+     <h1>Tasks</h1>
+     <form id="new-task">
+       <label for="title" hidden>Title</label>
+       <input id="title" type="text" placeholder="What needs doing?" />
++      <span class="due-field">
++        <label for="due-date">Due date (optional)</label>
++        <input id="due-date" type="date" />
++      </span>
+       <button type="submit">Add</button>
+     </form>
+     <div class="toolbar">
+       <label for="filter">Show</label>
+       <select id="filter">
+diff --git a/src/app.ts b/src/app.ts
+index 78a93d6..ffea8a9 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -11,11 +11,13 @@ const STATIC: Record<string, [string, string]> = {
+ 
+ /** The HTTP server of the app, not listening yet. `dbPath` is a SQLite file, or `:memory:`. */
+ export function createServer(dbPath = ":memory:") {
+   const db = openDb(dbPath);
+   const server = createHttpServer((req: any, res: any) => {
+-    handle(db, req, res).catch((err: Error) => send(res, 500, { error: err.message }));
++    handle(db, req, res).catch((err: Error) =>
++      err instanceof tasks.ValidationError ? send(res, 400, { error: err.message }) : send(res, 500, { error: err.message }),
++    );
+   });
+   server.on("close", () => db.close());
+   return server;
+ }
+ 
+@@ -36,11 +38,11 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+       const done = url.searchParams.get("done") ?? undefined;
+       return send(res, 200, tasks.listTasks(db, { done }));
+     }
+     if (method === "POST") {
+       const body = await readJson(req);
+-      return send(res, 201, tasks.createTask(db, body.title));
++      return send(res, 201, tasks.createTask(db, body.title, tasks.parseDueDate(body.due_date)));
+     }
+     return send(res, 405, { error: "method not allowed" });
+   }
+ 
+   const match = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);
+@@ -50,11 +52,12 @@ async function handle(db: Db, req: any, res: any): Promise<void> {
+       const task = tasks.getTask(db, id);
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "PATCH") {
+       const body = await readJson(req);
+-      const task = tasks.updateTask(db, id, { title: body.title, done: body.done });
++      const due_date = tasks.parseDueDate(body.due_date);
++      const task = tasks.updateTask(db, id, { title: body.title, done: body.done, due_date });
+       return task ? send(res, 200, task) : send(res, 404, { error: "task not found" });
+     }
+     if (method === "DELETE") {
+       return tasks.deleteTask(db, id) ? send(res, 204) : send(res, 404, { error: "task not found" });
+     }
+diff --git a/src/db.ts b/src/db.ts
+index f44186d..eb92372 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -8,10 +8,11 @@ const migrations: string[] = [
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )`,
++  `ALTER TABLE tasks ADD COLUMN due_date TEXT`,
+ ];
+ 
+ export function openDb(path = ":memory:"): Db {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA foreign_keys = ON");
+diff --git a/src/tasks.ts b/src/tasks.ts
+index 4fd5acb..15ad176 100644
+--- a/src/tasks.ts
++++ b/src/tasks.ts
+@@ -3,20 +3,37 @@ import type { Db } from "./db.ts";
+ export interface Task {
+   id: number;
+   title: string;
+   done: boolean;
+   created_at: string;
++  due_date: string | null;
+ }
+ 
+ interface Row {
+   id: number;
+   title: string;
+   done: number;
+   created_at: string;
++  due_date: string | null;
+ }
+ 
+-const toTask = (row: Row): Task => ({ ...row, done: row.done === 1 });
++export class ValidationError extends Error {}
++
++const DUE_DATE_MESSAGE = "due_date must be a date in YYYY-MM-DD format";
++
++/** undefined (absent) and null (none) pass through; a string must be a real YYYY-MM-DD date; anything else throws. */
++export function parseDueDate(value: unknown): string | null | undefined {
++  if (value === undefined || value === null) return value;
++  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
++    const [y, m, d] = value.split("-").map(Number);
++    const date = new Date(Date.UTC(y, m - 1, d));
++    if (date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d) return value;
++  }
++  throw new ValidationError(DUE_DATE_MESSAGE);
++}
++
++const toTask = (row: Row): Task => ({ ...row, done: row.done === 1, due_date: row.due_date ?? null });
+ 
+ export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
+   if (filter.done === undefined) {
+     return (db.prepare("SELECT * FROM tasks ORDER BY id").all() as Row[]).map(toTask);
+   }
+@@ -27,21 +44,22 @@ export function listTasks(db: Db, filter: { done?: string } = {}): Task[] {
+ export function getTask(db: Db, id: number): Task | undefined {
+   const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Row | undefined;
+   return row && toTask(row);
+ }
+ 
+-export function createTask(db: Db, title: string): Task {
+-  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title) VALUES (?)").run(title);
++export function createTask(db: Db, title: string, due_date: string | null = null): Task {
++  const { lastInsertRowid } = db.prepare("INSERT INTO tasks (title, due_date) VALUES (?, ?)").run(title, due_date);
+   return getTask(db, Number(lastInsertRowid))!;
+ }
+ 
+-export function updateTask(db: Db, id: number, changes: { title?: string; done?: boolean }): Task | undefined {
++export function updateTask(db: Db, id: number, changes: { title?: string; done?: boolean; due_date?: string | null }): Task | undefined {
+   const task = getTask(db, id);
+   if (!task) return undefined;
+   const title = changes.title ?? task.title;
+   const done = changes.done ?? task.done;
+-  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, done ? 1 : 0, id);
++  const due_date = changes.due_date === undefined ? task.due_date : changes.due_date;
++  db.prepare("UPDATE tasks SET title = ?, done = ?, due_date = ? WHERE id = ?").run(title, done ? 1 : 0, due_date, id);
+   return getTask(db, id);
+ }
+ 
+ export function deleteTask(db: Db, id: number): boolean {
+   return db.prepare("DELETE FROM tasks WHERE id = ?").run(id).changes > 0;
+diff --git a/test/tasks.test.ts b/test/tasks.test.ts
+index 1fa1bd8..bb1582b 100644
+--- a/test/tasks.test.ts
++++ b/test/tasks.test.ts
+@@ -1,8 +1,11 @@
+ import { after, before, test } from "node:test";
+ import assert from "node:assert/strict";
++import { DatabaseSync } from "node:sqlite";
+ import { createServer } from "../src/app.ts";
++import { migrate } from "../src/db.ts";
++import { getTask } from "../src/tasks.ts";
+ 
+ let server: any;
+ let base = "";
+ 
+ before(async () => {
+@@ -69,5 +72,59 @@ test("lists only the done tasks with ?done=true", async () => {
+ test("serves the page", async () => {
+   const res = await fetch(base + "/");
+   assert.equal(res.status, 200);
+   assert.match(await res.text(), /<h1>Tasks<\/h1>/);
+ });
++
++const BAD = "due_date must be a date in YYYY-MM-DD format";
++
++test("a task has a null due_date by default", async () => {
++  const created = await call("POST", "/api/tasks", { title: "No date" });
++  assert.equal(created.body.due_date, null);
++  assert.equal((await call("GET", `/api/tasks/${created.body.id}`)).body.due_date, null);
++});
++
++test("creates a task with a due date, leap day included", async () => {
++  const created = await call("POST", "/api/tasks", { title: "Dated", due_date: "2024-02-29" });
++  assert.equal(created.status, 201);
++  assert.equal(created.body.due_date, "2024-02-29");
++});
++
++test("PATCH sets, keeps and clears the due date", async () => {
++  const { body: t } = await call("POST", "/api/tasks", { title: "Patch me" });
++  assert.equal((await call("PATCH", `/api/tasks/${t.id}`, { due_date: "2026-03-01" })).body.due_date, "2026-03-01");
++  assert.equal((await call("PATCH", `/api/tasks/${t.id}`, { done: true })).body.due_date, "2026-03-01");
++  const cleared = await call("PATCH", `/api/tasks/${t.id}`, { due_date: null });
++  assert.equal(cleared.status, 200);
++  assert.equal(cleared.body.due_date, null);
++});
++
++for (const bad of ["2026-1-5", "tomorrow", "2026-02-30", "2025-02-29", "", 20260301, true]) {
++  test(`POST rejects due_date ${JSON.stringify(bad)} and saves nothing`, async () => {
++    const before = (await call("GET", "/api/tasks")).body.length;
++    const res = await call("POST", "/api/tasks", { title: "Bad", due_date: bad });
++    assert.equal(res.status, 400);
++    assert.deepEqual(res.body, { error: BAD });
++    assert.equal((await call("GET", "/api/tasks")).body.length, before);
++  });
++
++  test(`PATCH rejects due_date ${JSON.stringify(bad)} and changes nothing`, async () => {
++    const { body: t } = await call("POST", "/api/tasks", { title: "Keep", due_date: "2026-05-05" });
++    const res = await call("PATCH", `/api/tasks/${t.id}`, { title: "Changed", done: true, due_date: bad });
++    assert.equal(res.status, 400);
++    assert.deepEqual(res.body, { error: BAD });
++    assert.deepEqual((await call("GET", `/api/tasks/${t.id}`)).body, t);
++  });
++}
++
++test("migrating a version-1 database keeps its rows with a null due_date", () => {
++  const db = new DatabaseSync(":memory:");
++  db.exec(`CREATE TABLE tasks (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
++    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`);
++  db.exec("INSERT INTO tasks (title) VALUES ('old')");
++  db.exec("PRAGMA user_version = 1");
++  migrate(db);
++  assert.equal(getTask(db, 1)?.due_date, null);
++  assert.equal(getTask(db, 1)?.title, "old");
++  db.close();
++});

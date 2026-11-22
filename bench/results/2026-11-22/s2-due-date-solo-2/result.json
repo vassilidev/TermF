@@ -1,0 +1,167 @@
+{
+  "ticket": "s2-due-date",
+  "arm": "solo",
+  "n": 2,
+  "model": "sonnet",
+  "kind": "simple",
+  "at": "2026-11-22T17:17:32.256Z",
+  "state": "done",
+  "wall_s": 28.813,
+  "cost_usd": 0.10839939999999999,
+  "sessions": 1,
+  "turns": 4,
+  "tokens": {
+    "input": 8,
+    "output": 4729,
+    "cache_read": 79614,
+    "cache_creation": 13283
+  },
+  "said": "Tasks now have an optional `due_date`, and all 12 tests pass (the 7 new ones cover the field). I haven't opened the page in a browser, so the page changes are untested.\n\n- **API:** `due_date` is a `YYYY-MM-DD` string or `null`, and `null` is the default. `POST` accepts it. `PATCH` sets it, clears it with `null`, or leaves it alone when the field is left out.\n- **Validation:** `src/tasks.ts` and `src/app.ts` check that the date is real, including leap years. A bad value gets a `400` with `{\"error\": \"due_date must be a date in YYYY-MM-DD format\"}`, and the check runs before anything is saved. Besides the cases in the ticket, it also rejects non-string values like `20260105` and timestamps like `2026-01-05T10:00`.\n- **Migration:** a new second migration, `ALTER TABLE tasks ADD COLUMN due_date TEXT`, so existing rows come out as `null`. One test builds a version-1 database with a row in it and checks that the row gets `null` after migrating.\n- **Page:** a task shows \"Due 2026-12-01\" next to its title when it has a date, and the add form has an optional date input.\n- **README:** it now documents the field, how `PATCH` handles it, and the `400` error.\n\nIf a `PATCH` has both a bad `due_date` and an id that doesn't exist, it answers `400` rather than `404`, because validation runs first.\n\nI haven't committed anything.",
+  "hidden": {
+    "pass": 8,
+    "fail": 0,
+    "tests": 8,
+    "failed": [],
+    "total": 8
+  },
+  "own_tests": {
+    "ok": true,
+    "pass": 12,
+    "fail": 0,
+    "tests": 12,
+    "failed": []
+  },
+  "original_tests": {
+    "pass": 7,
+    "fail": 0,
+    "tests": 7,
+    "failed": []
+  },
+  "typecheck": {
+    "ok": true,
+    "errors": 0,
+    "first": []
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "added": 5,
+      "removed": 4
+    },
+    {
+      "path": "public/app.js",
+      "added": 12,
+      "removed": 2
+    },
+    {
+      "path": "public/index.html",
+      "added": 3,
+      "removed": 0
+    },
+    {
+      "path": "src/app.ts",
+      "added": 11,
+      "removed": 2
+    },
+    {
+      "path": "src/db.ts",
+      "added": 1,
+      "removed": 0
+    },
+    {
+      "path": "src/tasks.ts",
+      "added": 25,
+      "removed": 4
+    },
+    {
+      "path": "test/tasks.test.ts",
+      "added": 62,
+      "removed": 0
+    }
+  ],
+  "lines_added": 119,
+  "lines_removed": 12,
+  "tests_changed": 1,
+  "out_of_scope": [],
+  "docs_updated": true,
+  "docs_needed": true,
+  "judge": {
+    "criteria": [
+      {
+        "id": 1,
+        "verdict": "met",
+        "why": "The migration adds a nullable due_date column, and Task and Row carry it. Tasks are returned via SELECT *, so every task has the field, defaulting to null."
+      },
+      {
+        "id": 2,
+        "verdict": "met",
+        "why": "POST passes due_date ?? null. PATCH keeps the old value when due_date is undefined and sets null or a date otherwise."
+      },
+      {
+        "id": 3,
+        "verdict": "met",
+        "why": "The strict regex plus a month and leap-year check rejects 2026-1-5, tomorrow, 2026-02-30 and non-strings. It returns 400 with the exact message, and validation runs before any write."
+      },
+      {
+        "id": 4,
+        "verdict": "met",
+        "why": "A new ALTER TABLE ADD COLUMN migration is appended, so old rows get NULL. A test covers it, assuming migrate is exported from db.ts."
+      },
+      {
+        "id": 5,
+        "verdict": "met",
+        "why": "app.js renders a <time> element after the title when due_date is set. index.html adds an optional type=date input that is sent only when filled."
+      },
+      {
+        "id": 6,
+        "verdict": "met",
+        "why": "Tests cover the default, create, PATCH set/keep/clear, invalid values with nothing saved, and the migration. The README documents the field, the PATCH semantics and the 400 error."
+      }
+    ],
+    "scores": {
+      "correctness": 9,
+      "security": 9,
+      "readability": 9,
+      "tests": 8,
+      "error_handling": 8,
+      "edge_cases": 8,
+      "scope": 10
+    },
+    "findings": [
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "test/tasks.test.ts",
+        "what": "The migration test imports `migrate` from src/db.ts. The diff does not show it being exported, so the test breaks if it isn't. It also hard-codes the schema and user_version = 1 instead of using the real first migration."
+      },
+      {
+        "severity": "low",
+        "category": "tests",
+        "file": "public/app.js",
+        "what": "The UI changes (due date display and the date input) have no test. The existing page test only checks the h1."
+      },
+      {
+        "severity": "low",
+        "category": "error-handling",
+        "file": "public/app.js",
+        "what": "The submit handler has no catch. If the server returns a 400, the rejection is unhandled and the user sees nothing. The date input normally prevents this, but the failure path stays silent."
+      },
+      {
+        "severity": "low",
+        "category": "readability",
+        "file": "src/tasks.ts",
+        "what": "The validity check is hand-written leap-year arithmetic. A Date round-trip would be shorter. The current code is correct, only longer than needed."
+      },
+      {
+        "severity": "low",
+        "category": "edge-case",
+        "file": "src/app.ts",
+        "what": "A JSON body of `null` makes `body.due_date` throw. This was already true for `body.title`, so it is not a regression. Year 0000 is accepted as valid."
+      }
+    ],
+    "over_engineering": "none",
+    "overall": 9,
+    "summary": "The diff meets every criterion with a small, focused change: strict validation before any write, correct PATCH keep/clear semantics, an additive migration, UI and README updates. The weak spots are the migration test's reliance on an export that the diff doesn't show, no UI test, and no catch in the form handler for a failed POST.",
+    "cost_usd": 0.0503344
+  }
+}
