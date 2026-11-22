@@ -192,6 +192,30 @@ pub struct Report {
     /// With `blocked`: what the agent needs to know to go on.
     #[serde(default)]
     pub questions: Vec<Question>,
+    /// A task's: its work changes what users or other programs rely on (the definition of done then asks for the
+    /// documentation to follow).
+    #[serde(default)]
+    pub public_change: bool,
+    /// A security review's: each vulnerability it confirmed.
+    #[serde(default)]
+    pub vulnerabilities: Vec<String>,
+}
+
+impl Report {
+    /// A report TermF writes itself: a status and a summary.
+    pub(crate) fn said(status: ReportStatus, summary: String) -> Report {
+        Report {
+            status,
+            summary,
+            covers: Vec::new(),
+            text_changes: Vec::new(),
+            affected_views: Vec::new(),
+            out_of_scope_findings: Vec::new(),
+            questions: Vec::new(),
+            public_change: false,
+            vulnerabilities: Vec::new(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,6 +295,24 @@ pub fn plan_schema() -> Value {
 }
 
 pub fn report_schema() -> Value {
+    object(report_properties())
+}
+
+/// A task's report: whether its work changes the public behaviour, too.
+pub fn task_report_schema() -> Value {
+    let mut properties = report_properties();
+    properties["public_change"] = json!({ "type": "boolean" });
+    object(properties)
+}
+
+/// A security review's report: the vulnerabilities it confirmed, too.
+pub fn security_report_schema() -> Value {
+    let mut properties = report_properties();
+    properties["vulnerabilities"] = strings();
+    object(properties)
+}
+
+fn report_properties() -> Value {
     let change = object(json!({
         "file": { "type": "string" },
         "text": { "type": "string" },
@@ -281,7 +323,7 @@ pub fn report_schema() -> Value {
         "state": { "type": "string" },
         "viewports": strings(),
     }));
-    object(json!({
+    json!({
         "status": { "type": "string", "enum": ["done", "blocked", "failed"] },
         "summary": { "type": "string" },
         "covers": strings(),
@@ -289,7 +331,7 @@ pub fn report_schema() -> Value {
         "affected_views": { "type": "array", "items": view },
         "out_of_scope_findings": strings(),
         "questions": questions_schema(),
-    }))
+    })
 }
 
 /// The answer of a turn: what the schema gave, else JSON in its text, alone or in a fenced block.

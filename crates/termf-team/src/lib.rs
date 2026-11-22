@@ -19,6 +19,8 @@ use termf_agents::{AgentEvent, Agents, Outcome, SessionSpec, State};
 use termf_core::squads::{Membership, Squad, Team as Squads, canonical_role, same_role};
 use termf_library::{Kind, Layer, Scope};
 
+pub mod done;
+pub mod escalate;
 mod git;
 pub mod plan;
 pub mod review;
@@ -34,7 +36,7 @@ pub use plan::{Plan, Question, Report, Task};
 pub use review::Review;
 pub use route::Routing;
 pub use rules::{Level, Violation};
-pub use store::{events, run, runs};
+pub use store::{Decision, decisions, events, run, runs};
 pub use workflow::StepKind;
 
 use git::Git;
@@ -194,6 +196,15 @@ pub struct Step {
     /// A `review` step's rounds before the user last sent the work back: its rounds count from there.
     #[serde(default)]
     pub review_base: u32,
+    /// An escalation step: the step it decides on, as the CTO.
+    #[serde(default)]
+    pub escalates: Option<String>,
+    /// It went to the CTO once: the next time it fails, the user decides.
+    #[serde(default)]
+    pub escalated: bool,
+    /// The user accepted it as it is, after it failed or got blocked.
+    #[serde(default)]
+    pub accepted: bool,
     /// The agent session of the current attempt, and of every attempt.
     pub session: Option<i64>,
     pub sessions: Vec<i64>,
@@ -235,6 +246,9 @@ impl Step {
             effort: None,
             rounds: None,
             review_base: 0,
+            escalates: None,
+            escalated: false,
+            accepted: false,
             session: None,
             sessions: Vec::new(),
             after: 0,
@@ -295,6 +309,9 @@ pub struct TeamRun {
     /// Every round of the code review, in order.
     #[serde(default)]
     pub reviews: Vec<Review>,
+    /// The definition of done as the delivery gate read it.
+    #[serde(default)]
+    pub done: Option<done::Done>,
     /// A task changed the interface while a rule asks for a visual review.
     pub ui_changed: bool,
     pub steps: Vec<Step>,
@@ -356,7 +373,8 @@ pub struct TeamEvent {
     pub step: Option<String>,
     /// `started`, `step_started`, `step_done`, `step_waiting`, `step_blocked`, `step_skipped`, `retry`,
     /// `plan`, `violation`, `approved`, `revised`, `rules`, `resumed`, `paused`, `stopped`, `budget`, `done`,
-    /// `routed`, `answered`, `review` (a round of the code review).
+    /// `routed`, `answered`, `review` (a round of the code review), `escalated` (to the CTO), `decision` (one more
+    /// in the project's journal).
     pub kind: String,
     pub message: String,
 }
@@ -560,8 +578,39 @@ impl Team {
         Ok(run)
     }
 
-    /// Lets a gate pass, or accepts a blocked step as it is.
+    /// Lets a gate pass, or accepts a blocked step as it is. The delivery gate passes only when the definition of
+    /// done is met.
     pub fn approve(&self, id: i64, key: &str) -> Result<TeamRun> {
+        self.pass(id, key, None)
+    }
+
+    /// Lets the delivery gate pass although the definition of done is not met: the user's decision, kept with
+    /// `reason` in the project's decisions.
+    pub fn approve_anyway(&self, id: i64, key: &str, reason: &str) -> Result<TeamRun> {
+        self.pass(id, key, Some(reason))
+    }
+
+    /// Refuses the delivery of run `id` while its team's definition of done is not met and the user did not pass
+    /// over it at the delivery gate. A run without a team, or whose workflow has no delivery gate, goes.
+    pub fn check_delivery(&self, id: i64) -> Result<()> {
+        let inner = &self.inner;
+        let Some(run) = inner.store()?.get(id)? else {
+            return Ok(());
+        };
+        let gate = run.steps.iter().any(|s| s.kind == StepKind::Connector);
+        if !gate || run.done.as_ref().is_some_and(|d| d.overridden.is_some()) {
+            return Ok(());
+        }
+        let done = done::evaluate(&run, &inner.done_criteria(&run)?);
+        ensure!(
+            done.passes(),
+            "the definition of done is not met: {}. The team's delivery gate lets you deliver anyway, with your reason",
+            done.unmet()
+        );
+        Ok(())
+    }
+
+    fn pass(&self, id: i64, key: &str, reason: Option<&str>) -> Result<TeamRun> {
         let inner = &self.inner;
         let _lock = inner.lock.lock().unwrap();
         let store = inner.store()?;
@@ -575,6 +624,9 @@ impl Team {
         let i = run.index(key)?;
         let step = &run.steps[i];
         match step.state {
+            StepState::Waiting if step.kind == StepKind::Connector => {
+                inner.pass_done(&store, &mut run, i, reason)?
+            }
             StepState::Waiting => {}
             StepState::Blocked if step.plan => {
                 bail!(
@@ -586,29 +638,8 @@ impl Team {
                     "the triage has no routing to approve, or questions: answer them, revise it, or set the routing yourself"
                 )
             }
-            StepState::Blocked => {
-                if step.kind == StepKind::Task && !step.integrated && step.worktree.is_some() {
-                    let conflict = inner.integrate(&mut run, i).with_context(|| {
-                        format!(
-                            "{key} cannot be merged into the run's worktree as it is: revise it"
-                        )
-                    })?;
-                    if let Some(why) = conflict {
-                        inner.block(&store, &mut run, i, &why);
-                        inner.save(&store, &mut run)?;
-                        bail!(
-                            "{key} conflicts with the work merged meanwhile: revise it, its agent resolves the conflict"
-                        );
-                    }
-                    run.steps[i].integrated = true;
-                    inner.drop_worktree(&run, i);
-                    run.steps[i].worktree = None;
-                }
-            }
+            StepState::Blocked => inner.accept(&store, &mut run, i)?,
             _ => bail!("step {key} does not wait for you"),
-        }
-        if run.steps[i].kind == StepKind::Review {
-            inner.settle_review(&mut run, i, review::Fate::Left);
         }
         let step = &mut run.steps[i];
         step.state = StepState::Done;
@@ -665,6 +696,7 @@ impl Team {
         routing.changed = true;
         // The CTO's rulings were about its own routing, not this one.
         routing.rulings.clear();
+        routing.replaces.clear();
         run.steps[t].report = None;
         inner.normalize(&run, &mut routing);
         run.routing = Some(routing);
@@ -717,9 +749,14 @@ impl Team {
         };
         let at = now();
         let mut lines = Vec::new();
+        let mut decided = Vec::new();
         for q in questions {
             let answer = answers.get(&q.id).cloned().unwrap_or_default();
             lines.push(format!("- {} → {}", q.question, answered(&answer)));
+            // What the scope or the delivery of this ticket was is no rule for the runs to come.
+            if decisions.is_none() && DURABLE.contains(&q.theme.as_str()) {
+                decided.push(format!("{} → {}", q.question, answered(&answer)));
+            }
             run.answers.push(Answer {
                 step: key.to_owned(),
                 question: q,
@@ -733,8 +770,11 @@ impl Team {
         }
         let text = lines.join("\n");
         inner.event(&store, &run, Some(key), "answered", &text);
+        for decision in decided {
+            inner.decide(&store, &run, key, "you", &decision, None);
+        }
         match decisions {
-            Some(decisions) => inner.decide_review(&store, &mut run, i, decisions)?,
+            Some(decisions) => inner.decide_review(&store, &mut run, i, decisions, "you")?,
             None => {
                 inner.revise_step(&store, &mut run, i, &format!("The user's answers:\n{text}"))?
             }
@@ -948,6 +988,406 @@ impl Inner {
         self.tick(store, run)
     }
 
+    /// Accepts the blocked step `i` as it is: a task's work merged into the run's (refused on a conflict, which its
+    /// agent then resolves), a review's findings left as they are.
+    fn accept(&self, store: &Store, run: &mut TeamRun, i: usize) -> Result<()> {
+        let key = run.steps[i].key.clone();
+        let step = &run.steps[i];
+        if step.kind == StepKind::Task && !step.integrated && step.worktree.is_some() {
+            let conflict = self.integrate(run, i).with_context(|| {
+                format!("{key} cannot be merged into the run's worktree as it is: revise it")
+            })?;
+            if let Some(why) = conflict {
+                self.block(store, run, i, &why);
+                self.save(store, run)?;
+                bail!(
+                    "{key} conflicts with the work merged meanwhile: revise it, its agent resolves the conflict"
+                );
+            }
+            run.steps[i].integrated = true;
+            self.drop_worktree(run, i);
+            run.steps[i].worktree = None;
+        }
+        if run.steps[i].kind == StepKind::Review {
+            self.settle_review(run, i, review::Fate::Left);
+        }
+        run.steps[i].accepted = true;
+        Ok(())
+    }
+
+    /// The criteria of the definition of done: `[team] done` of the project's file, else of `termf.toml`.
+    fn done_criteria(&self, run: &TeamRun) -> Result<Vec<String>> {
+        let project = termf_core::project_file(&self.config_dir, &run.target.project)?;
+        done::criteria(&[&project, &self.config_dir.join("termf.toml")])
+    }
+
+    /// The delivery gate `i` passes when the definition of done is met; else only with the user's reason, which joins
+    /// the project's decisions.
+    fn pass_done(
+        &self,
+        store: &Store,
+        run: &mut TeamRun,
+        i: usize,
+        reason: Option<&str>,
+    ) -> Result<()> {
+        let mut done = done::evaluate(run, &self.done_criteria(run)?);
+        if !done.passes() {
+            let unmet = done.unmet();
+            let reason = reason
+                .map(str::trim)
+                .filter(|r| !r.is_empty())
+                .with_context(|| {
+                    format!(
+                        "the definition of done is not met: {unmet}. Give your reason to deliver anyway"
+                    )
+                })?;
+            done.overridden = Some(reason.to_owned());
+            let key = run.steps[i].key.clone();
+            self.decide(
+                store,
+                run,
+                &key,
+                "you",
+                &format!("Delivered without the definition of done ({unmet}): {reason}"),
+                None,
+            );
+        }
+        run.done = Some(done);
+        Ok(())
+    }
+
+    /// One more decision in the project's journal, and its event.
+    fn decide(
+        &self,
+        store: &Store,
+        run: &TeamRun,
+        step: &str,
+        by: &str,
+        text: &str,
+        replaces: Option<i64>,
+    ) {
+        match store.decide(&run.target.project, run.run, step, by, text, replaces) {
+            Ok(d) => {
+                let replaced = d
+                    .replaces
+                    .map(|r| format!(" (replaces D{r})"))
+                    .unwrap_or_default();
+                let message = format!("D{}{replaced}: {}", d.id, d.text);
+                self.event(store, run, Some(step), "decision", &message)
+            }
+            Err(e) => eprintln!("termf: team of run {}: decision not saved: {e:#}", run.run),
+        }
+    }
+
+    /// The project's decisions in force that other runs made, the latest first.
+    fn standing(&self, store: &Store, run: &TeamRun) -> Result<Vec<Decision>> {
+        Ok(store
+            .decisions(&run.target.project)?
+            .into_iter()
+            .filter(|d| d.replaced_by.is_none() && d.run != run.run)
+            .collect())
+    }
+
+    /// The step `i`, which failed or whose review still holds findings at its last round, goes to the CTO before the
+    /// user: a new step of the CTO decides on it, and it waits for that step.
+    fn escalate(&self, store: &Store, run: &mut TeamRun, i: usize, why: &str) {
+        let situation = match self.situation(run, i, why) {
+            Ok(situation) => situation,
+            Err(e) => {
+                let why = format!("{why}\n(the CTO could not be asked: {e:#})");
+                return self.block(store, run, i, &why);
+            }
+        };
+        let target = run.steps[i].key.clone();
+        let key = format!("escalate-{}", target.replace(':', "-"));
+        let mut cto = Step::new(key.clone(), StepKind::Agent);
+        cto.role = Some("cto".into());
+        cto.escalates = Some(target.clone());
+        cto.prompt = Some(situation);
+        run.steps.push(cto);
+        let step = &mut run.steps[i];
+        step.escalated = true;
+        step.state = StepState::Pending;
+        step.note = Some(why.to_owned());
+        step.needs.push(key);
+        self.event(
+            store,
+            run,
+            Some(&target),
+            "escalated",
+            &format!("to the CTO, before you: {why}"),
+        );
+    }
+
+    /// What the CTO reads of the step `i` it decides on.
+    fn situation(&self, run: &TeamRun, i: usize, why: &str) -> Result<String> {
+        let step = &run.steps[i];
+        let mut text = String::from("## The escalation\n\n");
+        if step.kind == StepKind::Review {
+            let last = run
+                .reviews
+                .iter()
+                .rev()
+                .find(|r| r.step == step.key)
+                .context("the review has no round")?;
+            text.push_str(&format!(
+                "The code review `{}` ended its last round with findings still open; TermF asks you before the \
+                 user.\n\nThe open findings:\n",
+                step.key
+            ));
+            for f in last.findings.iter().filter(|f| f.fate == review::Fate::Asked) {
+                text.push_str(&format!(
+                    "- {} {:?} {}:{}: {} Fix expected: {} (the reviewer named: {})\n",
+                    f.id,
+                    f.severity,
+                    f.file,
+                    f.line,
+                    f.scenario,
+                    f.fix,
+                    match f.task.trim() {
+                        "" => "no task",
+                        task => task,
+                    }
+                ));
+            }
+            text.push_str("\nThe tasks that may fix them:\n");
+            for task in fixable(run) {
+                text.push_str(&format!(
+                    "- {} ({}): {}\n",
+                    task.id,
+                    task.role,
+                    task.goal.lines().next().unwrap_or_default()
+                ));
+            }
+            return Ok(text);
+        }
+        let task = run
+            .plan
+            .as_ref()
+            .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()))
+            .context("the task is not in the plan")?;
+        text.push_str(&format!(
+            "Task {} (role {}, size {:?}) did not get through {ATTEMPTS} attempts; TermF asks you before the \
+             user.\n\nIts goal: {}\n\nWhat went wrong the last time: {why}\n",
+            task.id, task.role, task.size, task.goal
+        ));
+        if let Some(report) = &step.report {
+            text.push_str(&format!("\nWhat its agent reported: {}\n", report.summary));
+        }
+        if !step.files.is_empty() {
+            text.push_str(&format!("\nFiles it changed: {}\n", step.files.join(", ")));
+        }
+        let roles = self.roles(run, &self.squads(run)?)?;
+        let roles: Vec<String> = roles.iter().map(|(n, d)| format!("- {n}: {d}")).collect();
+        text.push_str(&format!(
+            "\nThe roles that may take it over:\n{}\n",
+            roles.join("\n")
+        ));
+        Ok(text)
+    }
+
+    /// The CTO's verdict on the step its escalation step `i` decides on, checked, then applied.
+    fn take_escalation(
+        &self,
+        store: &Store,
+        run: &mut TeamRun,
+        i: usize,
+        structured: Option<&serde_json::Value>,
+        text: Option<&str>,
+    ) {
+        use escalate::Decision;
+        let verdict: escalate::Verdict = match plan::answer(structured, text) {
+            Ok(verdict) => verdict,
+            Err(e) => {
+                let why = format!("the decision is not valid JSON for its schema: {e}");
+                return self.retry(store, run, i, &why);
+            }
+        };
+        let Some(t) = run.steps[i]
+            .escalates
+            .clone()
+            .and_then(|k| run.index(&k).ok())
+        else {
+            return self.done(store, run, i, "the step it decided on is gone");
+        };
+        let review = run.steps[t].kind == StepKind::Review;
+        let open: Vec<String> = run
+            .reviews
+            .iter()
+            .rev()
+            .find(|r| r.step == run.steps[t].key)
+            .map(|r| {
+                r.findings
+                    .iter()
+                    .filter(|f| f.fate == review::Fate::Asked)
+                    .map(|f| f.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let tasks: Vec<String> = fixable(run).into_iter().map(|t| t.id).collect();
+        let squads = match self.squads(run) {
+            Ok(squads) => squads,
+            Err(e) => return self.block(store, run, i, &format!("{e:#}")),
+        };
+        let roles: Vec<String> = self
+            .roles(run, &squads)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        let current = run.steps[t].role.clone().unwrap_or_default();
+        let mut problems = escalate::check(
+            &verdict,
+            review.then_some((open.as_slice(), tasks.as_slice())),
+            &roles,
+            &current,
+        );
+        let mut plan = run.plan.clone();
+        if problems.is_empty() && verdict.decision == Decision::Reassign {
+            let id = run.steps[t].task.clone();
+            if let Some(task) = plan
+                .as_mut()
+                .and_then(|p| p.tasks.iter_mut().find(|x| Some(&x.id) == id.as_ref()))
+            {
+                task.role = verdict.role.trim().to_owned();
+            }
+            if let Some(plan) = &plan {
+                problems.extend(plan::check_plan(plan, &roles, &run.target.repo, &squads));
+            }
+        }
+        if !problems.is_empty() {
+            let why = format!("the decision is not valid:\n- {}", problems.join("\n- "));
+            return self.retry(store, run, i, &why);
+        }
+        let summary = escalate::describe(&verdict);
+        run.steps[i].report = Some(Report::said(ReportStatus::Done, summary.clone()));
+        self.done(store, run, i, &summary);
+        let why = run.steps[t].note.take().unwrap_or_default();
+        let key = run.steps[t].key.clone();
+        let ruling = verdict.ruling.trim().to_owned();
+        if verdict.decision == Decision::Ask {
+            let note = format!("the CTO leaves it to you: {ruling}\n{why}");
+            return self.block(store, run, t, &note);
+        }
+        if review {
+            let decisions: Vec<(String, Result<String, String>)> = match verdict.decision {
+                Decision::Retry => verdict
+                    .findings
+                    .iter()
+                    .map(|p| match p.task == review::LEAVE {
+                        true => (p.id.clone(), Err(ruling.clone())),
+                        false => (p.id.clone(), Ok(p.task.clone())),
+                    })
+                    .collect(),
+                _ => open
+                    .iter()
+                    .map(|id| (id.clone(), Err(ruling.clone())))
+                    .collect(),
+            };
+            if let Err(e) = self.decide_review(store, run, t, decisions, "cto") {
+                self.block(store, run, t, &format!("{e:#}"));
+            }
+            return;
+        }
+        if verdict.decision == Decision::Accept {
+            if let Err(e) = self.accept(store, run, t) {
+                return self.block(store, run, t, &format!("{e:#}"));
+            }
+            self.done(store, run, t, &format!("accepted as it is by the CTO: {ruling}"));
+            return self.decide(store, run, &key, "cto", &ruling, None);
+        }
+        let instructions = verdict.instructions.trim();
+        let feedback = if verdict.decision == Decision::Reassign {
+            run.plan = plan;
+            // The new role starts from the run's work, not from what the other one left.
+            self.drop_worktree(run, t);
+            let step = &mut run.steps[t];
+            step.worktree = None;
+            step.base = None;
+            step.role = Some(verdict.role.trim().to_owned());
+            format!(
+                "This task failed with the role {current}: {why}\n\nThe CTO gives it to you: {instructions}"
+            )
+        } else {
+            format!("{why}\n\nThe CTO looked at your attempts and decided: {instructions}")
+        };
+        let step = &mut run.steps[t];
+        step.state = StepState::Pending;
+        step.attempt = 0;
+        step.feedback = Some(feedback);
+        let message = format!("again, as the CTO decided: {summary}");
+        self.event(store, run, Some(&key), "revised", &message);
+    }
+
+    /// The paths the role of step `i` may not change: its `Edit(<path>)` denied tools, as the layers make them.
+    fn denied(&self, run: &TeamRun, i: usize) -> Result<Vec<String>> {
+        let step = &run.steps[i];
+        let Some(role) = step.role.as_deref() else {
+            return Ok(Vec::new());
+        };
+        let cwd = step
+            .worktree
+            .clone()
+            .unwrap_or_else(|| run.target.worktree.clone());
+        let task = run
+            .plan
+            .as_ref()
+            .and_then(|p| p.tasks.iter().find(|t| Some(&t.id) == step.task.as_ref()));
+        let squad = match task {
+            Some(task) => self.squad_of(run, task)?.map(|s| s.id),
+            None => None,
+        };
+        let scope = Scope {
+            squad,
+            ..self.scope(run, &cwd)?
+        };
+        let role = termf_library::role(&self.config_dir, &scope, role)?;
+        let mut tools = list(role.meta.get("deny"));
+        tools.extend(list(role.meta.get("disallowedTools")));
+        Ok(rules::denied_paths(&tools))
+    }
+
+    /// The files the agent of step `i` tried to change in its turn (`events`) although its role may not: Claude Code
+    /// refused them.
+    fn refused(&self, run: &TeamRun, i: usize, events: &[termf_agents::StoredEvent]) -> Vec<String> {
+        let denied = self.denied(run, i).unwrap_or_default();
+        if denied.is_empty() {
+            return Vec::new();
+        }
+        let cwd = run.steps[i]
+            .worktree
+            .clone()
+            .unwrap_or_else(|| run.target.worktree.clone());
+        let bases = [cwd.clone(), cwd.canonicalize().unwrap_or(cwd)];
+        let mut files = Vec::new();
+        for e in events {
+            let AgentEvent::ToolUse { name, input, .. } = &e.event else {
+                continue;
+            };
+            if !["Edit", "Write", "MultiEdit", "NotebookEdit"].contains(&name.as_str()) {
+                continue;
+            }
+            let Some(path) = input["file_path"]
+                .as_str()
+                .or_else(|| input["notebook_path"].as_str())
+            else {
+                continue;
+            };
+            let path = Path::new(path);
+            let relative = match path.is_relative() {
+                true => Some(path),
+                false => bases.iter().find_map(|b| path.strip_prefix(b).ok()),
+            };
+            let Some(relative) = relative.map(|r| r.to_string_lossy().replace('\\', "/")) else {
+                continue;
+            };
+            if denied.iter().any(|d| rules::denies(d, &relative)) && !files.contains(&relative) {
+                files.push(relative);
+            }
+        }
+        files
+    }
+
     fn get(&self, store: &Store, id: i64) -> Result<TeamRun> {
         store
             .get(id)?
@@ -1042,6 +1482,7 @@ impl Inner {
             workflow_chosen: options.workflow.is_some(),
             answers: Vec::new(),
             reviews: Vec::new(),
+            done: None,
             ui_changed: false,
             steps,
             note: None,
@@ -1105,6 +1546,14 @@ impl Inner {
         let role = |name: &str| termf_library::role(&self.config_dir, &scope, name).is_ok();
         let mut problems = route::check(routing, &workflows, &team, role);
         problems.extend(plan::check_questions(&routing.questions));
+        let in_force: Vec<i64> = self
+            .store()?
+            .decisions(&run.target.project)?
+            .into_iter()
+            .filter(|d| d.replaced_by.is_none())
+            .map(|d| d.id)
+            .collect();
+        problems.extend(route::check_replaces(routing, &in_force));
         Ok(problems)
     }
 
@@ -1166,15 +1615,7 @@ impl Inner {
         }
         // The CTO's rulings are its step's report: the run's detail shows them, the later steps read them.
         if !rulings.is_empty() {
-            run.steps[i].report = Some(Report {
-                status: ReportStatus::Done,
-                summary: rulings.clone(),
-                covers: Vec::new(),
-                text_changes: Vec::new(),
-                affected_views: Vec::new(),
-                out_of_scope_findings: Vec::new(),
-                questions: Vec::new(),
-            });
+            run.steps[i].report = Some(Report::said(ReportStatus::Done, rulings.clone()));
             summary = format!("{summary}\n{rulings}");
         }
         self.done(store, run, i, &summary);
@@ -1294,6 +1735,13 @@ impl Inner {
             "routed",
             &format!("{}{budget}{by}", route::describe(&routing)),
         );
+        // Applied, the CTO's rulings bind the runs to come.
+        for ruling in &routing.rulings {
+            self.decide(store, run, TRIAGE, "cto", ruling, None);
+        }
+        for replace in &routing.replaces {
+            self.decide(store, run, TRIAGE, "cto", &replace.ruling, replace.id());
+        }
         Ok(())
     }
 
@@ -1463,12 +1911,11 @@ impl Inner {
         ) {
             return Ok(false);
         }
-        let end = self
-            .agents
-            .events(id, step.after)?
-            .into_iter()
+        let events = self.agents.events(id, step.after)?;
+        let end = events
+            .iter()
             .rev()
-            .find_map(|e| match e.event {
+            .find_map(|e| match e.event.clone() {
                 AgentEvent::TurnEnd {
                     outcome,
                     result,
@@ -1496,6 +1943,16 @@ impl Inner {
         // A new session for each step: this one is over.
         let _ = self.agents.stop(id);
         self.costs(run);
+        let refused = self.refused(run, i, &events);
+        if !refused.is_empty() {
+            let why = format!(
+                "its role may not change {}: Claude Code refused it. Revise the step without it, or give the work to \
+                 a role that may",
+                refused.join(", ")
+            );
+            self.block(store, run, i, &why);
+            return Ok(true);
+        }
         match outcome {
             Outcome::Done => {}
             Outcome::Budget => {
@@ -1514,6 +1971,8 @@ impl Inner {
         }
         if run.steps[i].kind == StepKind::Review {
             self.take_review(store, run, i, structured.as_ref(), result.as_deref());
+        } else if run.steps[i].escalates.is_some() {
+            self.take_escalation(store, run, i, structured.as_ref(), result.as_deref());
         } else if run.steps[i].key == TRIAGE {
             self.take_routing(store, run, i, structured.as_ref(), result.as_deref());
         } else if run.steps[i].plan {
@@ -1795,17 +2254,13 @@ impl Inner {
         let at_last = format!("This was the review's last round ({nth} of {most}): you decide.");
         let questions = review::questions(&asked, &tasks, &at_last);
         let waits = !asked.is_empty();
+        let status = match waits {
+            true => ReportStatus::Blocked,
+            false => ReportStatus::Done,
+        };
         run.steps[i].report = Some(Report {
-            status: match waits {
-                true => ReportStatus::Blocked,
-                false => ReportStatus::Done,
-            },
-            summary: answer.summary.clone(),
-            covers: Vec::new(),
-            text_changes: Vec::new(),
-            affected_views: Vec::new(),
-            out_of_scope_findings: Vec::new(),
             questions,
+            ..Report::said(status, answer.summary.clone())
         });
         let tally = review::tally(&findings);
         let mut message = format!("round {round} ({nth} of {most}): {tally}");
@@ -1826,6 +2281,9 @@ impl Inner {
                 "the code review needs you: {asked} finding(s) without a clear task, or still there at its last \
                  round; say which task fixes each, or leave it with your reason"
             );
+            if last && !run.steps[i].escalated {
+                return self.escalate(store, run, i, &note);
+            }
             return self.block(store, run, i, &note);
         }
         self.done(store, run, i, &format!("round {round}: {tally}"));
@@ -1950,11 +2408,13 @@ impl Inner {
         run: &mut TeamRun,
         i: usize,
         decisions: Vec<(String, Result<String, String>)>,
+        by: &str,
     ) -> Result<()> {
         let key = run.steps[i].key.clone();
         let Some(r) = run.reviews.iter().rposition(|r| r.step == key) else {
             bail!("the review has no round to decide");
         };
+        let mut left = Vec::new();
         for (id, decision) in decisions {
             let Some(f) = run.reviews[r].findings.iter_mut().find(|f| f.id == id) else {
                 continue;
@@ -1965,16 +2425,27 @@ impl Inner {
                     f.to = Some(task);
                 }
                 Err(reason) => {
+                    left.push(format!(
+                        "The code review's finding {} ({}:{}: {}) stays as it is: {reason}",
+                        f.id, f.file, f.line, f.scenario
+                    ));
                     f.fate = review::Fate::Left;
                     f.reason = Some(reason);
                 }
             }
         }
+        for text in left {
+            self.decide(store, run, &key, by, &text, None);
+        }
         if let Some(report) = run.steps[i].report.as_mut() {
             report.status = ReportStatus::Done;
         }
         let tally = review::tally(&run.reviews[r].findings);
-        self.done(store, run, i, &format!("decided by you: {tally}"));
+        let by = match by {
+            "you" => "you",
+            _ => "the CTO",
+        };
+        self.done(store, run, i, &format!("decided by {by}: {tally}"));
         if run.reviews[r]
             .findings
             .iter()
@@ -2027,6 +2498,21 @@ impl Inner {
         let kept = git.set_aside_managed(&worktree, asked)?;
         self.commit(run, i)?;
         let (files, diff, lines) = git.changes(&worktree, &base)?;
+        let denied = self.denied(run, i)?;
+        let forbidden: Vec<&str> = files
+            .iter()
+            .filter(|f| denied.iter().any(|d| rules::denies(d, f)))
+            .map(String::as_str)
+            .collect();
+        if !forbidden.is_empty() {
+            let why = format!(
+                "its role may not change {}. Revise the task without it, or give the work to a role that may",
+                forbidden.join(", ")
+            );
+            run.steps[i].files = files.clone();
+            self.block(store, run, i, &why);
+            return Ok(());
+        }
         let report = run.steps[i]
             .report
             .clone()
@@ -2211,12 +2697,24 @@ impl Inner {
             step.state = StepState::Pending;
             step.feedback = Some(why.to_owned());
             self.event(store, run, Some(&key), "retry", why);
+        } else if step.kind == StepKind::Task && !step.escalated {
+            self.escalate(store, run, i, why);
         } else {
             self.block(store, run, i, why);
         }
     }
 
     fn block(&self, store: &Store, run: &mut TeamRun, i: usize, why: &str) {
+        if let Some(target) = run.steps[i].escalates.clone() {
+            // The CTO could not decide: the user does, as without it.
+            self.skip(store, run, i, &format!("the CTO could not decide: {why}"));
+            if let Ok(t) = run.index(&target) {
+                let before = run.steps[t].note.take().unwrap_or_default();
+                let note = format!("the CTO could not decide ({why}); {before}");
+                self.block(store, run, t, &note);
+            }
+            return;
+        }
         let step = &mut run.steps[i];
         step.state = StepState::Blocked;
         step.note = Some(why.to_owned());
@@ -2324,10 +2822,24 @@ impl Inner {
                 self.wait(store, run, i, "waiting for your approval");
             }
             StepKind::Connector => {
-                let note = format!(
+                let done = match self.done_criteria(run) {
+                    Ok(ids) => done::evaluate(run, &ids),
+                    Err(e) => {
+                        self.block(store, run, i, &format!("{e:#}"));
+                        return Ok(true);
+                    }
+                };
+                let mut note = format!(
                     "approve, then deliver the run as usual: `termf deliver {}` shows what it sends first",
                     run.run
                 );
+                if !done.passes() {
+                    note = format!(
+                        "the definition of done is not met: {}. Deliver anyway only with your reason; or {note}",
+                        done.unmet()
+                    );
+                }
+                run.done = Some(done);
                 self.wait(store, run, i, &note);
             }
             StepKind::Visual => {
@@ -2400,6 +2912,7 @@ impl Inner {
                 };
                 let step = &mut run.steps[i];
                 step.state = StepState::Running;
+                step.accepted = false;
                 step.started = Some(now());
                 self.event(store, run, Some(&key), "step_started", &command);
                 self.shell(run.run, key, command, run.target.worktree.clone());
@@ -2803,10 +3316,16 @@ impl Inner {
             rules: levels,
             json_schema: Some(if step.kind == StepKind::Review {
                 review::schema()
+            } else if step.escalates.is_some() {
+                escalate::schema()
             } else if step.key == TRIAGE {
                 route::schema()
             } else if step.plan {
                 plan::plan_schema()
+            } else if step.kind == StepKind::Task {
+                plan::task_report_schema()
+            } else if canonical_role(&role_name) == "secops" {
+                plan::security_report_schema()
             } else {
                 plan::report_schema()
             }),
@@ -2819,6 +3338,7 @@ impl Inner {
         let step = &mut run.steps[i];
         step.attempt += 1;
         step.state = StepState::Running;
+        step.accepted = false;
         step.session = Some(session.id);
         step.sessions.push(session.id);
         step.after = 0;
@@ -2961,6 +3481,26 @@ impl Inner {
                 answers.join("\n")
             ));
         }
+        let standing = self.standing(&self.store()?, run)?;
+        if !standing.is_empty() {
+            // shortcut: the latest 40 only, to keep the brief short; a project with more needs them grouped.
+            let lines: Vec<String> = standing
+                .iter()
+                .take(40)
+                .rev()
+                .map(|d| format!("- D{} (run {}, {}): {}", d.id, d.run, d.by, d.text))
+                .collect();
+            let replace = match step.key == TRIAGE {
+                true => " (here, at the triage: name it in replaces, with the ruling that takes its place)",
+                false => "",
+            };
+            text.push_str(&format!(
+                "\n## The project's decisions\n\nWhat the user or the CTO decided in earlier runs of this project: it \
+                 stands. Build on it and never go back on a decision silently: when your work needs another choice, \
+                 stop and ask{replace}.\n\n{}\n",
+                lines.join("\n")
+            ));
+        }
         let rounds: Vec<&Review> = run.reviews.iter().filter(|r| r.step == step.key).collect();
         if !rounds.is_empty() {
             text.push_str("\n## Your earlier rounds\n");
@@ -2971,7 +3511,9 @@ impl Inner {
                 }
             }
         }
-        let answer = if step.kind == StepKind::Review {
+        let answer = if step.escalates.is_some() {
+            escalate::ANSWER.to_owned()
+        } else if step.kind == StepKind::Review {
             format!(
                 "\n## What to answer\n\nChange nothing. Your review, as JSON: summary (what you checked and what you \
                  did not), and findings, each with its severity (important or nit), the file (relative to the \
@@ -2991,7 +3533,15 @@ impl Inner {
                  summary, the ids of the criteria it covers (covers: AC1…, never prose), each visible text you \
                  added or changed (text_changes, with the criterion that justifies it), the screens and states you \
                  touched (affected_views), and the problems you saw out of scope (out_of_scope_findings): report \
-                 them, never fix them.\n\n{OBSTACLES}\n\n{SUMMARY}\n"
+                 them, never fix them.{}\n\n{OBSTACLES}\n\n{SUMMARY}\n",
+                match step.kind == StepKind::Task {
+                    true => " Say in public_change whether your work changes what users or other programs rely on \
+                             (an API, a command, a setting, how a screen behaves).",
+                    false if canonical_role(role) == "secops" => " List each vulnerability you confirmed in \
+                             vulnerabilities, one line each with its category, location and effect; none: an empty \
+                             list.",
+                    false => "",
+                }
             )
         };
         if let Some(r) = run.routing.as_ref().filter(|_| step.key != TRIAGE) {
@@ -3025,14 +3575,31 @@ impl Inner {
                 labelled("; its domains: ", &squad.domains),
             ));
         }
+        let denied = self.denied(run, i)?;
+        if !denied.is_empty() {
+            text.push_str(&format!(
+                "\nYour role may not change these paths: {}. Claude Code refuses it; when the work needs it, stop there \
+                 and report blocked.\n",
+                denied.join(", ")
+            ));
+        }
         if let Some(prompt) = &step.prompt {
             text.push_str(&format!("\n{prompt}\n"));
         }
         if let Some(feedback) = &step.feedback {
             text.push_str(&format!("\n## To address in this attempt\n\n{feedback}\n"));
         }
+        if step.plan || step.kind == StepKind::Task {
+            let ids = self.done_criteria(run)?;
+            if !ids.is_empty() {
+                text.push_str(&format!(
+                    "\n## The definition of done\n\nTermF delivers the run only when {}.\n",
+                    done::describe(&ids)
+                ));
+            }
+        }
         text.push_str(&answer);
-        if step.kind != StepKind::Review {
+        if step.kind != StepKind::Review && step.escalates.is_none() {
             text.push_str(QUESTIONNAIRE);
         }
         Ok(text)
@@ -3127,12 +3694,16 @@ impl Inner {
              leave out, or to turn on), efforts (agent steps of that workflow whose effort you set: low, medium, \
              high, xhigh or max), squads ({squads}), questions (what the user must answer before you can route; \
              empty when nothing blocks), budget_usd (what the whole run should cost in US dollars{cap}; 0 when \
-             you cannot tell) and rulings (each decision you took, one a line: `Ruling: what — why — cost if \
-             wrong`).\n",
+             you cannot tell), rulings (each decision you took, one a line: `Ruling: what — why — cost if \
+             wrong`) and replaces (each decision of the project you go back on, by its id, with the ruling that \
+             takes its place; empty when none).\n",
             route::KINDS.join(", ")
         ))
     }
 }
+
+/// The themes of the answers that join the project's decisions; the scope and the delivery are the ticket's own.
+const DURABLE: [&str; 4] = ["product", "interface", "technical", "security"];
 
 /// How every step asks the user: one questionnaire, the same everywhere.
 const QUESTIONNAIRE: &str = "\nEach question you ask is an item of a questionnaire the user answers at once: an \

@@ -160,6 +160,31 @@ pub fn covers(hint: &str, path: &str) -> bool {
     !hint.is_empty() && (hint == path || path.starts_with(&format!("{hint}/")) || glob(hint, path))
 }
 
+/// The paths of the `Edit(<path>)` rules among a role's denied tools: what it may not change.
+pub fn denied_paths(tools: &[String]) -> Vec<String> {
+    tools
+        .iter()
+        .filter_map(|t| t.trim().strip_prefix("Edit(")?.strip_suffix(')'))
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && *p != "*" && *p != "**")
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether Claude Code's `Edit(<pattern>)` deny rule covers `path`, relative to the session's folder. Its patterns
+/// follow gitignore: `/x` and `./x` start there, any other may sit at any depth (a single-segment one does).
+// shortcut: wider than gitignore for a multi-segment pattern, and `//`, `~/` never match; Claude Code enforces the
+// rule, this only says which refusal or change it was.
+pub fn denies(pattern: &str, path: &str) -> bool {
+    if pattern.starts_with("//") || pattern.starts_with("~/") {
+        return false;
+    }
+    match pattern.strip_prefix("./").or_else(|| pattern.strip_prefix('/')) {
+        Some(anchored) => covers(anchored, path),
+        None => covers(pattern, path) || covers(&format!("**/{pattern}"), path),
+    }
+}
+
 /// Whether two tasks may touch the same files. A task without hints may touch anything.
 pub fn overlap(a: &[String], b: &[String]) -> bool {
     let fixed = |h: &str| {
@@ -513,7 +538,30 @@ mod tests {
             affected_views: vec![],
             out_of_scope_findings: vec![],
             questions: vec![],
+            public_change: false,
+            vulnerabilities: vec![],
         }
+    }
+
+    #[test]
+    fn a_denied_path_as_claude_code_reads_it() {
+        let rules = [
+            "Edit(**/migrations/**)".to_owned(),
+            "Bash(git push:*)".into(),
+            "Edit".into(),
+            "Edit(.github/workflows/**)".into(),
+            "Read(**/.env*)".into(),
+        ];
+        let denied = denied_paths(&rules);
+        assert_eq!(denied, ["**/migrations/**", ".github/workflows/**"]);
+        assert!(denies("**/migrations/**", "db/migrations/001.sql"));
+        assert!(denies("**/migrations/**", "migrations/001.sql"));
+        assert!(!denies("**/migrations/**", "src/migrations.rs"));
+        assert!(denies("migrations", "api/migrations/x.sql"), "one segment: any depth");
+        assert!(denies("*.sql", "db/x.sql"));
+        assert!(denies("/infra/**", "infra/main.tf"));
+        assert!(!denies("/infra/**", "web/infra/main.tf"), "anchored at the folder");
+        assert!(!denies("//etc/**", "etc/hosts"));
     }
 
     #[test]
