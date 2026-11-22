@@ -21,14 +21,13 @@
 <meta name="twitter:description" content="TermF for macOS, Windows and Linux, free and open source: the latest release, checksums, install steps and the termf command line.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
-<meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f15" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
-<link rel="preload" href="fonts/archivo-condensed.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
 <script type="application/ld+json">
@@ -123,102 +122,102 @@
 <main id="main">
 <header class="page-head">
   <div class="wrap">
+    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><span>Download</span></p>
     <h1>Download TermF</h1>
-    <p class="lead">Free and open source, for macOS, Windows and Linux. Every file comes from the <a href="https://github.com/vassilidev/TermF/releases">GitHub releases</a>, built by CI from the public source. Early development: the builds are unsigned pre-releases.</p>
+    <p class="lead">Free and open source, for macOS, Windows and Linux. Every file comes from the <a href="https://github.com/vassilidev/TermF/releases">GitHub releases</a>, built by CI from the public source. Early version: the builds are pre-releases and not signed yet.</p>
   </div>
 </header>
-
 <div class="wrap">
-  <div class="dl-main">
+  <div class="dl">
     <section class="dl-card" aria-labelledby="dl-title" aria-live="polite">
       <h2 id="dl-title">TermF for <span id="dl-os">macOS</span></h2>
       <p class="meta" id="dl-meta">Looking for the latest release on GitHub…</p>
       <noscript><p class="ns">This page reads the release with JavaScript: every file is on the <a href="https://github.com/vassilidev/TermF/releases">releases page</a>.</p></noscript>
       <a class="pill big" id="dl-get" href="https://github.com/vassilidev/TermF/releases"><span>Releases on GitHub</span><i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+      <div id="dl-line" hidden><p class="status">Or in a terminal, in one command:</p><div class="cmd"><code id="dl-cmd"></code></div></div>
       <p class="alts" id="dl-alts"><a href="#all">Every platform and file</a><a href="#source">Build it from source</a></p>
       <p class="sha" id="dl-sha"><span>SHA-256</span><code>shown once the release is read</code></p>
     </section>
-    <section aria-labelledby="req">
-      <h2 id="req" class="vh">What you need</h2>
-      <dl class="reqs one">
-        <div><dt>Claude Code</dt><dd>Installed and signed in. The CTO and the team run on it.</dd></div>
-        <div><dt>git</dt><dd>For worktrees, branches and deliveries.</dd></div>
-        <div><dt>GitHub CLI</dt><dd>Signed in, for GitHub tickets, pull requests and CI.</dd></div>
-        <div><dt>macOS</dt><dd>Apple Silicon or Intel.</dd></div>
-        <div><dt>Windows</dt><dd>64-bit.</dd></div>
-        <div><dt>Linux</dt><dd>x86_64, with WebKitGTK 4.1.</dd></div>
-      </dl>
-    </section>
+    <dl class="reqs" aria-labelledby="req">
+      <h2 id="req">What you need</h2>
+      <div><dt>Claude Code</dt><dd>2.1.288 or later, signed in. The CTO and the team run on it.</dd></div>
+      <div><dt>git</dt><dd>For worktrees, branches and deliveries.</dd></div>
+      <div><dt>GitHub CLI</dt><dd>Signed in, for GitHub tickets, pull requests and CI. Optional otherwise.</dd></div>
+      <div><dt>macOS</dt><dd>Apple Silicon or Intel.</dd></div>
+      <div><dt>Windows</dt><dd>64-bit.</dd></div>
+      <div><dt>Linux</dt><dd>x86_64, with WebKitGTK 4.1.</dd></div>
+    </dl>
   </div>
 
-  <section id="all" aria-labelledby="all-h">
-    <h2 id="all-h">Every platform</h2>
-    <p class="lead" id="all-state">The files of the latest release, with their size and SHA-256.</p>
-    <div class="board files" style="margin-top:28px">
-      <div class="bay" id="macos"><p class="plate">macOS</p><ol class="strips" data-files="mac"></ol></div>
-      <div class="bay" id="windows"><p class="plate">Windows</p><ol class="strips" data-files="windows"></ol></div>
-      <div class="bay" id="linux"><p class="plate">Linux</p><ol class="strips" data-files="linux"></ol></div>
+  <section class="section" id="all" aria-labelledby="all-h">
+    <div class="sec-head">
+      <h2 id="all-h">Every platform</h2>
+      <p id="all-state">The files of the latest release, with their size and SHA-256, and how to open them the first time.</p>
     </div>
-  </section>
-
-  <section id="install" aria-labelledby="install-h">
-    <h2 id="install-h">Install</h2>
-    <p class="lead">The builds are not signed yet, so the first launch asks for one extra step.</p>
-    <div class="os-steps" style="margin-top:32px">
-      <div>
-        <h3>macOS</h3>
-        <ol><li>Open the <code>.dmg</code> and drag TermF to Applications.</li><li>Clear the quarantine once, in a terminal:</li></ol>
+    <div class="oses" id="install">
+      <section class="os" id="macos" aria-labelledby="os-mac">
+        <h3 id="os-mac">macOS</h3>
+        <ul class="files" data-files="mac"></ul>
+        <ol>
+          <li>Open the <code>.dmg</code> and drag TermF to Applications.</li>
+          <li>The app is not signed yet, so macOS blocks the first launch. Clear the quarantine once, in a terminal:</li>
+        </ol>
         <div class="cmd"><code>xattr -dr com.apple.quarantine /Applications/TermF.app</code></div>
-        <p class="status">Or right-click the app, Open, then Open again.</p>
-      </div>
-      <div>
-        <h3>Windows</h3>
-        <ol><li>Run <code>TermF_*_x64-setup.exe</code>, or the <code>.msi</code>.</li><li>On the SmartScreen warning, click More info, then Run anyway.</li></ol>
-      </div>
-      <div>
-        <h3>Linux</h3>
+        <p class="status">Or open it once, then in System Settings, Privacy &amp; Security, click Open Anyway.</p>
+      </section>
+      <section class="os" id="windows" aria-labelledby="os-win">
+        <h3 id="os-win">Windows</h3>
+        <ul class="files" data-files="windows"></ul>
+        <ol>
+          <li>Run <code>TermF_*_x64-setup.exe</code>, or the <code>.msi</code>.</li>
+          <li>The app is not signed yet: on the SmartScreen warning, click More info, then Run anyway.</li>
+        </ol>
+      </section>
+      <section class="os" id="linux" aria-labelledby="os-linux">
+        <h3 id="os-linux">Linux</h3>
+        <ul class="files" data-files="linux"></ul>
         <div data-linux></div>
-      </div>
+      </section>
     </div>
   </section>
 
-  <section id="cli" aria-labelledby="cli-h">
+  <section class="section" id="cli" aria-labelledby="cli-h">
     <div class="split">
       <div class="text">
         <h2 id="cli-h">The termf command line</h2>
-        <p>It ships with the app, there is nothing else to install. Put it on your <code>PATH</code>, then <code>termf help</code> lists every command. Commands that start a run or a team, deliver, approve a gate or type into a session wait for your confirmation in the app.</p>
+        <p>It ships inside the app: there is nothing else to install. Put it on your <code>PATH</code>, then <code>termf help</code> lists every command. Commands that start a run, deliver, approve a step or type into a session wait for your confirmation in the app.</p>
         <p><a class="more" href="features/cli.html">What the command line does</a></p>
       </div>
       <div>
         <h3>macOS</h3>
         <div class="cmd"><code>sudo ln -s /Applications/TermF.app/Contents/MacOS/termf /usr/local/bin/termf</code></div>
-        <h3>Linux</h3>
+        <h3 style="margin-top:22px">Linux</h3>
         <p class="status">The <code>.deb</code> and <code>.rpm</code> install it as <code>/usr/bin/termf</code>.</p>
-        <h3>Windows</h3>
+        <h3 style="margin-top:22px">Windows</h3>
         <p class="status"><code>termf.exe</code> sits next to the app: add its folder to your <code>PATH</code>.</p>
       </div>
     </div>
   </section>
 
-  <section id="verify" aria-labelledby="verify-h">
+  <section class="section" id="verify" aria-labelledby="verify-h">
     <div class="split">
       <div class="text">
         <h2 id="verify-h">Check a download</h2>
         <p>Compare the file's SHA-256 with the one listed above, which GitHub computes for each file of the release.</p>
       </div>
       <div>
-        <h3>macOS</h3><div class="cmd"><code>shasum -a 256 TermF_*_aarch64.dmg</code></div>
-        <h3>Linux</h3><div class="cmd"><code>sha256sum TermF_*_amd64.AppImage</code></div>
-        <h3>Windows</h3><div class="cmd"><code>Get-FileHash .\TermF_*_x64-setup.exe -Algorithm SHA256</code></div>
+        <div class="cmd"><code>shasum -a 256 TermF_*_aarch64.dmg</code></div>
+        <div class="cmd"><code>sha256sum TermF_*_amd64.AppImage</code></div>
+        <div class="cmd"><code>Get-FileHash .\TermF_*_x64-setup.exe -Algorithm SHA256</code></div>
       </div>
     </div>
   </section>
 
-  <section id="source" aria-labelledby="source-h">
+  <section class="section" id="source" aria-labelledby="source-h">
     <div class="split">
       <div class="text">
         <h2 id="source-h">Build it from source</h2>
-        <p>You need Rust (stable), Node 22 or later, pnpm and the <a href="https://tauri.app/start/prerequisites/">Tauri prerequisites</a> for your system. <code>pnpm bundle</code> builds the installers for your system with the command line inside.</p>
+        <p>You need Rust (stable), Node 22 or later, pnpm and the <a href="https://tauri.app/start/prerequisites/">Tauri prerequisites</a> for your system. <code>pnpm bundle</code> builds the installers for your system, with the command line inside.</p>
       </div>
       <div>
         <div class="cmd"><code>git clone https://github.com/vassilidev/TermF.git</code></div>
@@ -228,7 +227,7 @@
     </div>
   </section>
 
-  <section id="notes" aria-labelledby="notes-h">
+  <section class="section" id="notes" aria-labelledby="notes-h">
     <div class="split">
       <div class="text">
         <h2 id="notes-h">Release notes</h2>
@@ -236,13 +235,12 @@
         <p><a class="more" href="https://github.com/vassilidev/TermF/releases">All releases on GitHub</a></p>
       </div>
       <div>
-        <div class="notes" id="notes-text" tabindex="0" aria-label="Release notes">Looking for the latest release on GitHub…</div>
+        <div class="notes" id="notes-text" tabindex="0" role="region" aria-label="Release notes">Looking for the latest release on GitHub…</div>
         <ul class="releases" id="releases" aria-label="Every release"></ul>
       </div>
     </div>
   </section>
 </div>
-
 <script>
 const REPO = 'https://github.com/vassilidev/TermF';
 const COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
@@ -279,19 +277,34 @@ const sha = a => a?.digest?.replace(/^sha256:/, '');
 const copyBtn = (text, label) => `<button class="copy" type="button" data-copy="${esc(text)}" aria-label="${esc(label)}">${COPY}<span>Copy</span></button>`;
 const fallback = () => failed ? `${REPO}/releases` : release?.html_url ?? `${REPO}/releases`;
 
-function strip(f) {
+function item(f) {
   const a = find(f), h = sha(a);
-  const name = a ? `<a href="${esc(a.browser_download_url)}">${esc(a.name)}</a>` : `<code>${esc(f.name)}</code>`;
-  const hash = h ? `<span class="hash"><code title="${esc(h)}">${esc(h)}</code>${copyBtn(h, 'Copy the SHA-256 of ' + a.name)}</span>`
-    : `<small>${failed ? 'GitHub could not be reached: see the releases page' : release === null ? 'Loading…' : a ? 'No checksum listed' : 'Not published yet'}</small>`;
+  const name = a ? `<a href="${esc(a.browser_download_url)}">${esc(a.name)}</a>` : esc(f.name);
+  const hash = h ? `<span class="hash"><code title="${esc(h)}">${esc(h)}</code>${copyBtn(h, 'Copy the SHA-256 of ' + a.name)}</span>` : '';
+  const state = failed ? 'GitHub could not be reached: see the releases page' : release === null ? 'Loading…' : a ? (h ? '' : 'No checksum listed') : 'Not published yet';
   const get = a ? `<a class="get" href="${esc(a.browser_download_url)}" aria-label="Download ${esc(a.name)}">Download</a>` : `<a class="get" href="${esc(fallback())}" aria-label="Releases, for ${esc(f.what)}">Releases</a>`;
-  return `<li class="strip" data-state="${a ? 'done' : 'queued'}"><span class="cs">${esc(f.what)}<small>${a ? mb(a.size) : '—'}</small></span><span class="what">${name}${hash}</span><span class="st">${get}</span></li>`;
+  return `<li><span class="fname">${esc(f.what)} · ${name}</span>${get}<small>${a ? mb(a.size) : ''}${state ? (a ? ' · ' : '') + state : ''}</small>${hash}</li>`;
+}
+
+// One command that downloads the visitor's file from the release and opens or installs it
+function oneLine(a) {
+  if (!a) return '';
+  const u = a.browser_download_url, n = a.name;
+  if (os === 'windows') return `iwr ${u} -OutFile ${n}; .\\${n}`;
+  if (os === 'linux') return /\.deb$/.test(n) ? `curl -fLO ${u} && sudo apt install ./${n}` : `curl -fLO ${u} && chmod +x ${n} && ./${n}`;
+  return `curl -fLO ${u} && open ${n}`;
 }
 
 function render() {
-  for (const box of document.querySelectorAll('[data-files]')) box.innerHTML = FILES[box.dataset.files].map(strip).join('');
+  for (const box of document.querySelectorAll('[data-files]')) box.innerHTML = FILES[box.dataset.files].map(item).join('');
   document.querySelector('[data-linux]').innerHTML = FILES.linux.map(f => `<p class="status">${esc(f.how)}</p><div class="cmd"><code>${esc(f.run(find(f)?.name ?? f.name))}</code></div>`).join('');
-  for (const c of document.querySelectorAll('.cmd')) if (!c.querySelector('.copy')) c.insertAdjacentHTML('beforeend', copyBtn(c.textContent, 'Copy the command'));
+  const line = !mobile && release ? oneLine(find(os === 'mac' ? FILES.mac.find(f => f.arch === (arch ?? 'arm')) : os === 'linux' ? FILES.linux[1] : FILES.windows[0])) : '';
+  document.getElementById('dl-line').hidden = !line;
+  document.getElementById('dl-cmd').textContent = line;
+  for (const c of document.querySelectorAll('.cmd')) {
+    c.querySelector('.copy')?.remove();
+    c.insertAdjacentHTML('beforeend', copyBtn(c.querySelector('code').textContent, 'Copy the command'));
+  }
 
   // The main card: the visitor's system, and on a Mac the build for its chip when the browser tells it
   const files = FILES[os], pick = os === 'mac' ? files.find(f => f.arch === (arch ?? 'arm')) : files[0];
