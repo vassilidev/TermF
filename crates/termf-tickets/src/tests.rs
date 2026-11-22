@@ -541,6 +541,50 @@ fn a_gh_that_exits_without_reading_its_input_says_why() {
     assert!(format!("{error:#}").contains("HTTP 403"), "{error:#}");
 }
 
+/// GitHub's search answers with no ETag (`Cache-Control: no-cache`, seen on 2026-11-22): its answer is read again
+/// for a minute without asking, unless refreshed. A gh signed in without a token it can read makes `@me` nobody:
+/// told as such, not as "HTTP 422".
+#[cfg(unix)]
+#[test]
+fn a_search_is_kept_a_minute_and_a_token_gh_cannot_read_is_told() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new("search-cache");
+    let gh = sb.root.join("gh");
+    let script = format!(
+        "#!/bin/sh\necho x >> '{log}'\n[ -e '{root}/locked' ] && {{ printf 'HTTP/2.0 422\\n\\n%s\\n' \
+         '{{\"message\":\"Validation Failed\",\"errors\":[{{\"message\":\"The listed users cannot be searched either \
+         because the users do not exist or you do not have permission to view the users.\"}}]}}'; \
+         echo 'gh: Validation Failed (HTTP 422)' >&2; exit 1; }}\n\
+         printf 'HTTP/2.0 200 OK\\nCache-Control: no-cache\\n\\n%s\\n' '{{\"total_count\":0,\"items\":[]}}'\n",
+        log = sb.root.join("calls").display(),
+        root = sb.root.display()
+    );
+    fs::write(&gh, script).unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    let github = GitHub {
+        program: gh,
+        env: vec![],
+        board: None,
+        etags: Default::default(),
+    };
+    let calls = || {
+        fs::read_to_string(sb.root.join("calls"))
+            .unwrap()
+            .lines()
+            .count()
+    };
+    let query = "is:issue is:open assignee:@me";
+    assert!(github.issues(query, false).unwrap().is_empty());
+    assert!(github.issues(query, false).unwrap().is_empty());
+    assert_eq!(calls(), 1, "the second read within a minute asks nothing");
+    github.issues(query, true).unwrap();
+    assert_eq!(calls(), 2, "a refresh asks again");
+
+    fs::write(sb.root.join("locked"), "").unwrap();
+    let error = format!("{:#}", github.issues(query, true).unwrap_err());
+    assert!(error.contains("gh auth status"), "{error}");
+}
+
 /// A clone of `acme/front` whose GitHub address leads to a local bare repository, and git may reach nothing
 /// else (GIT_ALLOW_PROTOCOL). Returns the clone and the bare repository.
 #[cfg(unix)]
