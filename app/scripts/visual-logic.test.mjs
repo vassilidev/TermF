@@ -1,10 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clamp, deck, diffStats, fit, focus, outcome, percent, settles, swipeFirst, swipeKind, toImage, zoomAt } from "../src/lib/visual-logic.ts";
+import { clamp, deck, diffStats, fit, focus, outcome, percent, serial, settles, swipeFirst, swipeKind, toImage, zoomAt } from "../src/lib/visual-logic.ts";
 
 const screen = (id, decision = "pending") => ({ id, decision });
 const version = (screens, state = "ready") => ({ state, screens });
 const ids = (list) => list.map((s) => s.id).join(" ");
+
+test("writes go one at a time, in the order asked, a failed one not stopping the next", async () => {
+  const write = serial();
+  const done = [];
+  const wait = (ms, name) => () => new Promise((resolve) => setTimeout(() => resolve(done.push(name)), ms));
+  const first = write(wait(30, "pin"));
+  const failed = write(() => Promise.reject(new Error("paused")));
+  const last = write(wait(1, "decision"));
+  await assert.rejects(failed, /paused/);
+  await Promise.all([first, last]);
+  assert.deepEqual(done, ["pin", "decision"], "the slow first write still lands first");
+});
 
 test("the quick mode comes first only when several screens wait", () => {
   assert.equal(swipeFirst(version([screen("a"), screen("b")])), true);

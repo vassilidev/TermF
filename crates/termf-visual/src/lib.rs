@@ -949,34 +949,50 @@ impl Visual {
         let (Some(before), Some(after)) = (&v.before, &v.after) else {
             return Ok(Vec::new());
         };
-        let (env, repo) = (&self.inner.env, &review.repo_path);
-        let names = env::git(env, repo, &["diff", "--name-only", "-z", before, after])?;
-        let patch = env::git(
-            env,
-            repo,
-            &["diff", "--no-color", "--no-ext-diff", before, after],
-        )?;
-        // Both lists come from the same diff, in the same order: one `diff --git` section per name.
-        let mut diffs: Vec<String> = Vec::new();
-        for line in patch.lines() {
-            if line.starts_with("diff --git ") {
-                diffs.push(String::new());
-            }
-            if let Some(d) = diffs.last_mut() {
-                d.push_str(line);
-                d.push('\n');
-            }
-        }
-        Ok(names
-            .split('\0')
-            .filter(|n| !n.is_empty())
-            .zip(diffs)
-            .map(|(path, diff)| FileDiff {
-                path: path.to_owned(),
-                diff,
-            })
-            .collect())
+        file_diffs(&self.inner.env, &review.repo_path, before, after)
     }
+}
+
+pub(crate) fn file_diffs(
+    env: &[(String, String)],
+    repo: &Path,
+    before: &str,
+    after: &str,
+) -> Result<Vec<FileDiff>> {
+    let names = env::git(env, repo, &["diff", "--name-only", "-z", before, after])?;
+    // `--submodule=short`: a `diff.submodule = log` config would print a submodule without its `diff --git` header.
+    let patch = env::git(
+        env,
+        repo,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--submodule=short",
+            before,
+            after,
+        ],
+    )?;
+    // Both lists come from the same diff, in the same order: one `diff --git` section per name.
+    let mut diffs: Vec<String> = Vec::new();
+    for line in patch.lines() {
+        if line.starts_with("diff --git ") {
+            diffs.push(String::new());
+        }
+        if let Some(d) = diffs.last_mut() {
+            d.push_str(line);
+            d.push('\n');
+        }
+    }
+    Ok(names
+        .split('\0')
+        .filter(|n| !n.is_empty())
+        .zip(diffs)
+        .map(|(path, diff)| FileDiff {
+            path: path.to_owned(),
+            diff,
+        })
+        .collect())
 }
 
 pub fn folder(data_dir: &Path, id: i64, version: u32) -> PathBuf {

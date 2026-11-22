@@ -23,7 +23,7 @@
   import { t } from "$lib/i18n";
   import { ui } from "$lib/state.svelte";
   import { decide, decisionLabel, image, outcomeText, screenMeta, screenTitle } from "$lib/visual.svelte";
-  import { deck, settles, swipeKind, type Pin, type Review, type Screen, type Version } from "$lib/visual-logic";
+  import { deck, pending, settles, swipeKind, type Pin, type Review, type Screen, type Version } from "$lib/visual-logic";
 
   /**
    * The quick review (ARCHITECTURE §8.2): one card per screen still to decide, one gesture each — right approves, left
@@ -39,7 +39,9 @@
   const card = $derived<Screen | undefined>(cards[0]);
   const history = $derived(decks[key]?.history ?? []);
   const total = $derived(version.screens.length);
-  const position = $derived(total - cards.length + 1);
+  // The card's place in the version, so passing over a card moves on; the bar, what is answered.
+  const position = $derived(version.screens.findIndex((s) => s.id === card?.id) + 1);
+  const answered = $derived(total - pending(version).length);
 
   // By card: a card going away clears its own binding, never the next card's.
   const stages: Record<string, ReturnType<typeof ReviewStage> | null> = $state({});
@@ -89,7 +91,7 @@
 
   function openComposer(pin?: Pin) {
     if (!card) return;
-    if (!composing) draft = { comment: card.comment, pins: [...card.pins] };
+    if (!composing) draft = { comment: card.comment, pins: $state.snapshot(card.pins) };
     composing = true;
     if (pin) draft.pins.push(pin);
   }
@@ -105,7 +107,7 @@
     if (kind === "skip") {
       const m = memory();
       m.skipped = [...m.skipped.filter((id) => id !== s.id), s.id];
-      m.history.push({ id: s.id, kind });
+      remember(s.id, kind);
       leaving = kind;
       closeComposer();
       said = `${t("review5bSkip")} · ${screenTitle(s)}`;
@@ -119,13 +121,20 @@
     await send(s, kind);
   }
 
+  /** One entry by screen, its last answer: U takes back what was said last. */
+  function remember(id: string, kind: Swipe) {
+    const m = memory();
+    m.history = [...m.history.filter((h) => h.id !== id), { id, kind }];
+  }
+
   async function send(s: Screen, kind: Exclude<Swipe, "skip">) {
     busy = true;
     leaving = kind;
+    // Before the answer: a paused team keeps the decision yet answers with an error, and U must take it back.
+    remember(s.id, kind);
     try {
       const changes = kind === "changes";
-      await decide(review.id, s.id, kind, changes ? draft.comment.trim() : undefined, changes ? draft.pins : undefined);
-      memory().history.push({ id: s.id, kind });
+      await decide(review.id, s.id, kind, changes ? draft.comment.trim() : undefined, changes ? $state.snapshot(draft.pins) : undefined);
       closeComposer();
       before = false;
       said = `${t(decisionLabel[kind])} · ${screenTitle(s)}`;
@@ -142,7 +151,8 @@
     const last = m.history.at(-1);
     if (!last || busy || version.state !== "ready") return;
     error = "";
-    if (last.kind !== "skip") {
+    // A decision that never landed has nothing to take back.
+    if (last.kind !== "skip" && version.screens.find((s) => s.id === last.id)?.decision !== "pending") {
       busy = true;
       try {
         await decide(review.id, last.id, "pending");
@@ -170,8 +180,9 @@
       const dt = m.timeStamp - last;
       if (dt > 0) [vx, vy, last, lx, ly] = [(m.clientX - lx) / dt, (m.clientY - ly) / dt, m.timeStamp, m.clientX, m.clientY];
       const [dx, dy] = [m.clientX - sx, m.clientY - sy];
-      if (!moved && !composing && Math.hypot(dx, dy) > 8) moved = true;
-      if (moved) drag = { dx, dy, w, h };
+      if (!moved && Math.hypot(dx, dy) > 8) moved = true;
+      // Writing a change, the card stays: a drag neither swipes nor pins.
+      if (moved && !composing) drag = { dx, dy, w, h };
     };
     const up = (u: PointerEvent) => {
       el.removeEventListener("pointermove", move);
@@ -261,7 +272,7 @@
   {#if card}
     <div class="top">
       <span class="count">{t("review5bCard", { at: position, count: total })}</span>
-      <span class="track" aria-hidden="true"><span style:width="{((position - 1) / total) * 100}%"></span></span>
+      <span class="track" aria-hidden="true"><span style:width="{(answered / total) * 100}%"></span></span>
       <button class="btn sm quiet" onclick={undo} disabled={!history.length || busy}>
         <Undo2 size={14} aria-hidden="true" />{t("review5bUndo")}<kbd>U</kbd>
       </button>
@@ -387,7 +398,7 @@
             <span class="what">
               <b class="mono">{screenTitle(s)}</b>
               <span class="muted">{screenMeta(s)}</span>
-              {#if s.comment}<span class="comment">« {s.comment} »</span>{/if}
+              {#if s.comment}<span class="comment">{t("review5bQuote", { text: s.comment })}</span>{/if}
               {#each s.pins as pin, i (i)}
                 <span class="comment"><span class="n" aria-hidden="true">{i + 1}</span>{pin.comment || t("review5bPinLabel", { n: i + 1 })}</span>
               {/each}

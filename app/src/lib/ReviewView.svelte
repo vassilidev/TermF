@@ -31,7 +31,7 @@
   import { closeReview } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { decide, decisionLabel, outcomeText, screenMeta, screenTitle, upsertReview, visual } from "$lib/visual.svelte";
-  import { pending, settles, swipeFirst, type Decision, type Pin, type Review, type Screen } from "$lib/visual-logic";
+  import { pending, serial, settles, swipeFirst, type Decision, type Pin, type Review, type Screen } from "$lib/visual-logic";
 
   /** A visual review, one version at a time (ARCHITECTURE §8.2): the quick mode when several screens wait, else screen by screen. */
   let { id }: { id: number } = $props();
@@ -116,11 +116,16 @@
     }
   }
 
-  /** Pins and comment go with the review at once, whatever the screen's decision. */
+  /** Every write of the page, one at a time: an older answer never lands after a newer one. */
+  const write = serial();
+
+  /** Pins and comment go with the review at once, whatever the screen's decision, in the background: the buttons stay. */
   function save() {
     if (!decidable || !screen) return;
-    const s = screen;
-    run("save", () => decide(id, s.id, s.decision, comment.trim(), $state.snapshot(pins)));
+    const [sid, text, list] = [screen.id, comment.trim(), $state.snapshot(pins)];
+    // The decision as it is when this write goes: a decision sent meanwhile is kept.
+    const now = () => version?.screens.find((x) => x.id === sid)?.decision ?? "pending";
+    write(() => decide(id, sid, now(), text, list)).catch((e) => (error = String(e)));
   }
 
   function pin(x: number, y: number) {
@@ -148,7 +153,8 @@
   async function send(decision: Decision) {
     const s = screen;
     if (!s) return;
-    if (!(await run(decision, () => decide(id, s.id, decision, comment.trim(), $state.snapshot(pins))))) return;
+    const [text, kept] = [comment.trim(), $state.snapshot(pins)];
+    if (!(await run(decision, () => write(() => decide(id, s.id, decision, text, kept))))) return;
     if (decision === "pending" || !version) return;
     // On to the next screen still to decide.
     const list = version.screens;
@@ -160,7 +166,7 @@
   /** The last answer again: the engine settles the version and hands it to the team once more. */
   function resend() {
     const last = version?.screens.filter((s) => s.decided !== null).sort((a, b) => (b.decided ?? 0) - (a.decided ?? 0))[0];
-    if (last) run("resend", () => decide(id, last.id, last.decision, last.comment, last.pins));
+    if (last) run("resend", () => write(() => decide(id, last.id, last.decision, last.comment, last.pins)));
   }
 
   function retry(r: Review) {
@@ -336,7 +342,7 @@
           {#if !decidable && screen.comment}
             <section class="pins">
               <h4>{t("review5bComment")}</h4>
-              <p class="said">« {screen.comment} »</p>
+              <p class="said">{t("review5bQuote", { text: screen.comment })}</p>
             </section>
           {/if}
           {#if decidable || pins.length}

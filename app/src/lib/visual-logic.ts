@@ -74,6 +74,16 @@ export function deck(v: Version, skipped: string[]): Screen[] {
   return [...left.filter((s) => at(s) < 0), ...left.filter((s) => at(s) >= 0).sort((a, b) => at(a) - at(b))];
 }
 
+/** Runs the work handed to it one at a time, in the order asked: the last write asked is the last one done. */
+export function serial() {
+  let last: Promise<unknown> = Promise.resolve();
+  return <T>(work: () => Promise<T>): Promise<T> => {
+    const next = last.then(work);
+    last = next.catch(() => {});
+    return next;
+  };
+}
+
 /** What a version whose every screen is decided becomes, as the engine settles it. */
 export function outcome(screens: Pick<Screen, "decision">[]): Decision {
   if (screens.some((s) => s.decision === "rejected")) return "rejected";

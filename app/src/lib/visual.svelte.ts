@@ -40,7 +40,7 @@ export const visual = $state({
 export function upsertReview(review: Review) {
   const at = visual.reviews.findIndex((r) => r.id === review.id);
   if (at < 0) visual.reviews.unshift(review);
-  else if (visual.reviews[at].updated <= review.updated) visual.reviews[at] = review;
+  else if (visual.reviews[at].updated < review.updated) visual.reviews[at] = review;
 }
 
 export function watchVisual(): () => void {

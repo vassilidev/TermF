@@ -71,7 +71,8 @@
   const showing = $derived(waits.length > 0 || late || delivering || !!error);
   const review = $derived(reviewOf(run.run));
   const lastReview = $derived(review?.versions.at(-1));
-  const reviewDecides = $derived(!!lastReview && lastReview.state !== "failed");
+  // The review takes the gate while it captures or waits; failed or settled, the gate's own buttons are back.
+  const reviewDecides = $derived(lastReview?.state === "capturing" || lastReview?.state === "ready");
   const reviewLine = $derived.by(() => {
     if (!review || !lastReview) return "";
     const left = lastReview.screens.filter((s) => s.decision === "pending").length;

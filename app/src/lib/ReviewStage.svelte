@@ -200,7 +200,7 @@
       src={urls[kind]}
       alt="{label} · {screen.path}"
       draggable="false"
-      onload={kind === "after" || (kind === "before" && !screen.after) ? loaded : undefined}
+      onload={kind !== "before" || !screen.after ? loaded : undefined}
       style:opacity
       style:transform="translate({view.x}px, {view.y}px) scale({view.scale})"
     />
@@ -248,7 +248,7 @@
         <button class="icon-btn sm" onclick={() => zoom(0.8)} aria-label={t("review5bZoomOut")} title={t("review5bZoomOut")}>
           <Minus size={14} aria-hidden="true" />
         </button>
-        <span class="mono" aria-live="polite">{percent} %</span>
+        <span class="mono" aria-live="polite">{t("review5bZoomLevel", { percent })}</span>
         <button class="icon-btn sm" onclick={() => zoom(1.25)} aria-label={t("review5bZoomIn")} title={t("review5bZoomIn")}>
           <Plus size={14} aria-hidden="true" />
         </button>

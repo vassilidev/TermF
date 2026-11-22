@@ -89,7 +89,7 @@
           <li class={text.change}>
             <span class="sign" aria-hidden="true">{text.change === "added" ? "+" : "−"}</span>
             <span class="sr-only">{t(text.change === "added" ? "review5bAdded" : "review5bRemoved")}</span>
-            <span class="text">« {text.text} »</span>
+            <span class="text">{t("review5bQuote", { text: text.text })}</span>
             <span class="by" class:missing={text.justifiedBy === null}>↳ {justification(text.justifiedBy)}</span>
             {#if text.flagged}
               <span class="flag"><TriangleAlert size={12} aria-hidden="true" />{t("review5bFlagged")}</span>

@@ -377,7 +377,7 @@ fn keeps_pins_takes_a_decision_back_and_lists_the_files() {
     );
 
     // A decision taken back, then the version settled by the last screen.
-    visual
+    let approved = visual
         .decide(review.id, first, Decision::Approved, None, None)
         .unwrap();
     let back = visual
@@ -395,6 +395,10 @@ fn keeps_pins_takes_a_decision_back_and_lists_the_files() {
         (VersionState::Ready, Decision::Pending)
     );
     assert_eq!(v.screens[0].pins[0].comment, "8px more");
+    assert!(
+        saved.updated < approved.updated && approved.updated < back.updated,
+        "each save is newer than the one before, even within a millisecond"
+    );
     visual
         .decide(review.id, second, Decision::Approved, None, None)
         .unwrap();
@@ -411,6 +415,34 @@ fn keeps_pins_takes_a_decision_back_and_lists_the_files() {
         "{}",
         files[0].diff
     );
+    let _ = fs::remove_dir_all(&env.root);
+}
+
+#[test]
+fn lists_a_submodule_and_the_files_after_it_whatever_the_diff_config() {
+    let env = Env::new("submodule", "");
+    let before = git(&env.repo, &env.env, &["rev-parse", "HEAD"]);
+    git(
+        &env.repo,
+        &env.env,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{before},lib"),
+        ],
+    );
+    fs::write(env.repo.join("z.txt"), "new\n").unwrap();
+    git(&env.repo, &env.env, &["add", "z.txt"]);
+    git(&env.repo, &env.env, &["commit", "-q", "-m", "submodule"]);
+    git(&env.repo, &env.env, &["config", "diff.submodule", "log"]);
+    let after = git(&env.repo, &env.env, &["rev-parse", "HEAD"]);
+
+    let files = crate::file_diffs(&env.env, &env.repo, &before, &after).unwrap();
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["lib", "z.txt"]);
+    assert!(files[0].diff.contains("Subproject commit"), "{files:#?}");
+    assert!(files[1].diff.contains("+new"), "{files:#?}");
     let _ = fs::remove_dir_all(&env.root);
 }
 
