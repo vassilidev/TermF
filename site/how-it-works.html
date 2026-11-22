@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How a ticket becomes a pull request · TermF</title>
+<meta name="description" content="Step by step, what TermF does between the moment you ask the CTO for something and the moment a pull request opens: triage, framing, questions, plan, tasks in parallel, checks, review, delivery, and where you decide.">
+<link rel="canonical" href="https://vassilidev.github.io/TermF/how-it-works.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="TermF">
+<meta property="og:title" content="How a ticket becomes a pull request, with TermF">
+<meta property="og:description" content="You ask the CTO. It picks the path, a team of Claude Code agents does the ticket in parallel worktrees, and the run stops for you at the path, the plan and the delivery.">
+<meta property="og:url" content="https://vassilidev.github.io/TermF/how-it-works.html">
+<meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="How a ticket becomes a pull request, with TermF">
+<meta name="twitter:description" content="You ask the CTO. It picks the path, a team of Claude Code agents does the ticket in parallel worktrees, and the run stops for you at the path, the plan and the delivery.">
+<meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
+<meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
+<link rel="preload" href="fonts/archivo-condensed.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="site.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "TechArticle",
+      "headline": "How a ticket becomes a pull request",
+      "description": "Step by step, from the conversation with the CTO to the pull request: triage, framing, questions, plan, tasks in parallel, checks, review and delivery.",
+      "url": "https://vassilidev.github.io/TermF/how-it-works.html",
+      "datePublished": "2026-11-22",
+      "dateModified": "2026-11-22",
+      "inLanguage": "en",
+      "image": "https://vassilidev.github.io/TermF/og.png",
+      "author": {
+        "@type": "Organization",
+        "name": "TermF contributors",
+        "url": "https://github.com/vassilidev/TermF"
+      },
+      "about": {
+        "@type": "SoftwareApplication",
+        "name": "TermF",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Windows, Linux"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "TermF",
+          "item": "https://vassilidev.github.io/TermF/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "How it works",
+          "item": "https://vassilidev.github.io/TermF/how-it-works.html"
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="2.6 3"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7M17 12H7"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.63l-19 6.5a.5.5 0 0 0-.02.93l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
+  <symbol id="i-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2M13 17v2M13 11v2"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 5a2 2 0 0 0 2 2h3"/><path d="M3 3v13a2 2 0 0 0 2 2h3"/></symbol>
+  <symbol id="i-ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="16" r="1"/><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+</svg>
+
+<header class="nav" id="nav">
+  <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
+  <nav class="links" aria-label="Main">
+    <a href="features.html">Features</a>
+    <a href="how-it-works.html" aria-current="page">How it works</a>
+    <a href="security.html">Security</a>
+    <a href="./#faq">FAQ</a>
+    <a href="https://github.com/vassilidev/TermF">GitHub</a>
+  </nav>
+  <a class="pill" href="download.html">Download<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+</header>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><span>How it works</span></p>
+    <h1>How a ticket becomes a pull request</h1>
+    <p class="lead">What happens between the moment you ask the CTO for something and the moment a pull request opens, step by step: who does what, what ships by default, and every place where the run waits for you.</p>
+  </div>
+</header>
+
+<div class="wrap article">
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#ask">You ask the CTO</a></li>
+      <li><a href="#triage">The CTO picks the path</a></li>
+      <li><a href="#frame">The product owner frames it</a></li>
+      <li><a href="#questions">Questions, with answers</a></li>
+      <li><a href="#plan">The lead plans, you approve</a></li>
+      <li><a href="#tasks">The team works in parallel</a></li>
+      <li><a href="#checks">Checks and rules</a></li>
+      <li><a href="#review">Review and security</a></li>
+      <li><a href="#visual">The visual review</a></li>
+      <li><a href="#deliver">You deliver</a></li>
+      <li><a href="#after">After the merge</a></li>
+      <li><a href="#tried">What has been tried</a></li>
+    </ol>
+  </nav>
+
+  <article class="prose">
+    <p>TermF is not a model. It is the program around Claude Code that keeps the order of things: it starts each agent, gives it a brief, collects its report, holds the run at the gates and keeps the log. Agents never talk to each other directly. They talk through TermF, so everything they do is visible, can be interrupted, and has a cost you can see.</p>
+
+    <h2 id="ask">You ask the CTO</h2>
+    <p>Every project opens on its Home, and the Home opens on a conversation with the CTO. It is a Claude Code session that stays open for the project: it knows the repositories, the runs, the tickets and what waits for you. You can ask it where something lives, where a run is at, or for a piece of work in your own words. Write <code>@front</code> to reach the front-end role instead, or <code>@expert</code> for the project expert.</p>
+    <p>The CTO reads, but it does not act on its own. It has Read, Grep and Glob, no shell and no network, and it works through TermF's tools: starting a team run, answering a question, approving, stopping. Each of these actions comes to you as a card in the conversation.</p>
+    <figure>
+      <div class="screen" style="--h:var(--waiting)">
+        <p class="screen-cap">The project's Home · sample data</p>
+        <div class="app">
+          <div class="body">
+            <div class="me">Start the team on #482, in api.</div>
+            <div class="msg"><p>Starting the team on acme/api#482 with the project's workflow. I'll tell you as soon as the path is picked.</p></div>
+            <div class="card">
+              <p class="ct"><svg aria-hidden="true"><use href="#i-shield"/></svg>The CTO asks for your approval: Start a team run</p>
+              <p class="ref">acme/api#482 <span>· Cursor pagination on GET /invoices · repository api</span></p>
+              <div class="acts"><span class="field">Reason for refusing (optional)</span><span class="btn"><svg aria-hidden="true"><use href="#i-shield"/></svg>Deny</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Allow</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Every action the CTO takes waits on a card like this one.</figcaption>
+    </figure>
+    <p>You can also start from the ticket itself: Tickets lists the inbox of every source the project follows, GitHub Issues, GitHub Projects, Jira Cloud or an MCP server, and “With the team” sits next to each ticket. Pasting a URL or a key works too, and so does <code>termf team run</code> from a terminal, which waits for your confirmation in the app.</p>
+
+    <h2 id="triage">The CTO picks the path</h2>
+    <p>Every team run starts with a triage. The CTO reads the request and the project and decides how to handle it: what kind of work it is (a bug, a feature, an epic, a refactor, infrastructure, SEO, docs…), its size, which workflow fits, which optional steps to add or skip, the effort of each step, which squads take it, and the budget. It writes down its rulings with the reason and the cost of being wrong, and if something is unclear, it asks before it routes. TermF checks everything it proposes before using it.</p>
+    <figure>
+      <div class="screen" style="--h:var(--waiting)">
+        <p class="screen-cap">The path, as the run shows it · sample data</p>
+        <div class="app"><div class="body"><div class="card">
+          <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The CTO proposes this path</p>
+          <p class="help">Nothing starts before you agree. Change it if needed, or refuse: the team stops.</p>
+          <dl class="kv"><dt>Workflow</dt><dd>default</dd><dt>Steps added</dt><dd>none</dd><dt>Squads</dt><dd>main</dd><dt>Run budget (USD)</dt><dd>15</dd></dl>
+          <div class="acts"><span class="grow">Why this path</span><span class="btn">Change</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the path</span></div>
+        </div></div></div>
+      </div>
+      <figcaption>The first gate: the route the CTO picked, before anything starts.</figcaption>
+    </figure>
+    <p>That is the first gate. Nothing starts until you approve the path, change it, or refuse it. The <code>hotfix</code> workflow skips it for urgent fixes; if you launch with the default workflow and the CTO routes to a workflow with fewer gates, the gate opens anyway.</p>
+    <div class="aside"><b>Workflows are files.</b> The default one ships as <code>library/workflows/default.toml</code>. A project can write its own, starting from it with <code>extends</code> and writing only what changes, such as a different budget or a step turned off.</div>
+
+    <h2 id="frame">The product owner frames it</h2>
+    <p>With the path approved, the product owner reads the ticket and the code, changes nothing, and writes the acceptance criteria, each with its source, and the list of what is out of scope. It explores the implications and the side effects, settles what the evidence settles, and turns the rest into questions for you.</p>
+    <p>When a ticket needs more, the CTO can add steps that ship turned off: a product manager writes a short PRD for a vague epic, an architect settles a design decision that crosses modules, a UX designer specifies the screens and their states before anyone builds them. The product owner, the product manager and the architect ask the project expert before searching on their own; it answers from the project's memory, with its sources.</p>
+
+    <h2 id="questions">Questions, with proposed answers</h2>
+    <p>Whether they come from the triage, the product owner, the plan or a step that got stuck, questions reach you in one form. Each has a theme, the reason it is asked, the options, and a proposed answer already filled in. You change what does not suit you and send them all at once, or answer in free text. Your answers then travel with the run, into every brief that follows.</p>
+    <figure>
+      <div class="screen" style="--h:var(--waiting)">
+        <p class="screen-cap">A ticket's run page · sample data</p>
+        <div class="app">
+          <div class="steps"><span class="s done"><svg aria-hidden="true"><use href="#i-done"/></svg>Framing</span><i></i><span class="s now"><svg aria-hidden="true"><use href="#i-bell"/></svg>Plan</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Tasks</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Review</span><i></i><span class="s"><svg aria-hidden="true"><use href="#i-pending"/></svg>Delivery</span></div>
+          <div class="body"><div class="card">
+            <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan has questions</p>
+            <p class="help">The proposed answers are filled in: change what does not suit you, then send them all at once.</p>
+            <div class="q"><span class="theme">Scope</span><p>Is the default period “last 30 days” everywhere?</p><p class="why">Why: DateRange also reads the period saved in the user's preferences.</p><span class="opts"><span class="on">Last 30 days everywhere</span><span>The period from the preferences</span></span></div>
+            <div class="acts" style="margin-top:12px"><span class="grow"></span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Answer in free text</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-send"/></svg>Send the answers</span></div>
+          </div></div>
+        </div>
+      </div>
+      <figcaption>Questions come with a proposed answer: you only change what is wrong.</figcaption>
+    </figure>
+
+    <h2 id="plan">The lead plans, you approve</h2>
+    <p>The lead turns the criteria into tasks, one per role: what each task covers, which files it expects to touch, what it depends on and its size. Tasks of the same level can run together; a task that needs another waits for it. The size sets the effort of the agent that will do it, medium, high or extra high, within the range its role allows.</p>
+    <p>That is the second gate. The plan waits for your approval in the run and on the Home. If something is off, ask for changes: the lead plans again with your feedback, in a fresh session.</p>
+    <figure>
+      <div class="screen" style="--h:var(--waiting)">
+        <p class="screen-cap">The plan's gate · sample data</p>
+        <div class="app"><div class="body"><div class="card">
+          <p class="ct"><svg aria-hidden="true"><use href="#i-bell"/></svg>The plan waits for your approval</p>
+          <p class="ref">acme/platform#57 <span>· Export invoices to CSV in the accountant's format</span></p>
+          <p class="help">Nothing changes before you approve. Asking for changes makes the plan again with your feedback.</p>
+          <div class="inset">Export a period's invoices to CSV in the format the accounting firm expects, from the API and the Invoices page.<small>3 tasks</small></div>
+          <div class="acts"><span class="grow">See the plan</span><span class="btn"><svg aria-hidden="true"><use href="#i-msg"/></svg>Ask for changes</span><span class="btn"><svg aria-hidden="true"><use href="#i-check"/></svg>Approve the plan</span></div>
+        </div></div></div>
+      </div>
+      <figcaption>The second gate: nothing is written before the plan is approved.</figcaption>
+    </figure>
+
+    <h2 id="tasks">The team works in parallel</h2>
+    <p>Each task gets an agent of its role: a fresh Claude Code session, started by TermF with a brief that holds the criteria, your answers, the plan and the reports so far. The ticket itself reaches it as a framed file marked as untrusted data, never as instructions. A fresh session per step keeps each context small; the agent does not drag the whole history of the run along.</p>
+    <figure>
+      <div class="board">
+        <div class="bay"><p class="plate">On duty</p><ol class="strips" style="--cs-w:6.75rem;--st-w:8rem">
+          <li class="strip" data-state="working"><span class="cs">Back<small>sonnet · high</small></span><span class="what">CSV writer, accountant format<small>its own worktree</small></span><span class="st">Working</span></li>
+          <li class="strip" data-state="working"><span class="cs">Front<small>sonnet · high</small></span><span class="what">Export button, Invoices page<small>its own worktree</small></span><span class="st">Working</span></li>
+          <li class="strip"><span class="cs">QA<small>sonnet · high</small></span><span class="what">Checks AC1 to AC3<small>after back and front</small></span><span class="st">Waiting its turn</span></li>
+        </ol></div>
+      </div>
+      <figcaption>Two tasks at the same level run together; QA waits for them. Sample data.</figcaption>
+    </figure>
+    <p>Every task works in a worktree of its own. When it is done, TermF commits it and merges it into the run's worktree; a conflict goes back to the agent. Two tasks expected to touch the same files never run at the same time, and at most four agents work at once in the default workflow.</p>
+    <p>You keep a hand on all of it. Each agent shows its state and its cost; <code>@back</code> sends it a message between turns; Take over opens its conversation in a terminal with the same model and settings, and Hand back gives it to the team again. The run has a budget, 15 dollars in the default workflow, split across the steps that are left, and the emergency stop interrupts every agent at once. If TermF restarts in the middle, the team waits, paused, until you start it again.</p>
+
+    <h2 id="checks">Checks and rules</h2>
+    <p>When the tasks are merged, the repository's own checks run on the run's worktree, the lint, tests and build you declared for it, if any. Then come the project's rules. Three ship with TermF, off until you switch them on:</p>
+    <ul>
+      <li><strong>scope-strict</strong>: do only what the ticket asks; in doubt, stop and ask. Its check flags files changed outside the role's paths or the plan.</li>
+      <li><strong>no-text-changes</strong>: no change to a visible or editorial text that the ticket did not ask for. Its check reads the diff for changed texts.</li>
+      <li><strong>visual-review</strong>: a before and after review of every changed screen, as a gate.</li>
+    </ul>
+    <p>Each rule has a level, from advise (instructions in the briefs only) to block (a deviation fails the step), and you set it per project, per ticket or per task. You can write your own rules, with a check of your own.</p>
+
+    <h2 id="review">Review and security</h2>
+    <p>The reviewer reads the run's integrated diff against the criteria, the contracts between tasks and the project's conventions. Each finding has its file and line, the scenario that breaks and the fix, and it goes back to the task that owns it; then the reviewer looks again, up to two rounds by default. A finding with no clear owner, or one still open after the last round, becomes a question for you. The CTO cannot skip the review.</p>
+    <p>Then the security reviewer goes over the same diff for vulnerabilities, abuse cases and vulnerable dependencies, in two passes, finding then confirming, so false positives are dropped before they reach you.</p>
+
+    <h2 id="visual">The visual review, when it is on</h2>
+    <p>When the visual-review rule is on and the interface changed, the run stops once more. TermF's capture engine starts the project's dev server for the run and for its base, captures each changed screen with the system's Chrome, and compares the pixels and the texts. The page that shows those captures side by side is not built yet: today the gate asks you to look at the result in the run's worktree, then approve, ask for changes, or refuse.</p>
+
+    <h2 id="deliver">You deliver</h2>
+    <p>The last gate is the delivery, and it always happens in two steps. When the team is done, the run is ready to deliver. Deliver… shows you exactly what will be sent: the files to commit, the commits not pushed yet, and a fingerprint of that preview. Deliver commits that, pushes the branch and opens the pull request, with <code>Closes #57</code> for a GitHub issue. If the worktree changed since the preview, the delivery is refused and you look again.</p>
+    <figure>
+      <div class="screen" style="--h:var(--done)">
+        <p class="screen-cap">The delivery's preview · sample data</p>
+        <div class="app"><div class="body"><div>
+          <p class="h5">What the delivery will send</p>
+          <p class="h5">Files to commit (3)</p>
+          <ul class="fl"><li><b class="m">M</b>src/routes/invoices.ts</li><li><b class="a">A</b>src/export/csv.ts</li><li><b class="a">A</b>tests/export-csv.test.ts</li></ul>
+          <p class="h5">Commits already made, not pushed yet (2)</p>
+          <ul class="fl"><li>a41c9e2 CSV writer with the accountant's columns</li><li>7d03b5f Export button on the Invoices page</li></ul>
+          <p class="note">The files are committed on termf/57-export-invoices-csv, the branch is pushed to origin, then a pull request is opened to main.</p>
+          <div class="acts"><span class="grow"></span><span class="btn">New preview</span><span class="btn primary"><svg aria-hidden="true"><use href="#i-send"/></svg>Deliver</span></div>
+        </div></div></div>
+      </div>
+      <figcaption>What will be sent, before it is sent.</figcaption>
+    </figure>
+    <p>No agent can do this for you. Every session of a run carries TermF's guard, a Claude Code hook that refuses <code>git push</code>, pull requests and tracker writes, and a run does not start without it. From the command line, <code>termf deliver</code> waits for your confirmation in the app.</p>
+
+    <h2 id="after">After the merge</h2>
+    <p>TermF checks the pull request's state now and then. Once it is merged, the run is closed if nothing would be lost: its worktree, its local branch, its database copy and its ports go away. A pull request closed without a merge, or a session still busy, is only flagged as ready to clean up. And if the app restarted in the middle of a run, Resume picks up the same conversation, with the same environment, ports and guard.</p>
+
+    <h2 id="tried">What has been tried</h2>
+    <p>TermF is in early development, and this is what is known to work. The path from the plan to the tasks, their reports, the guard and the code review has run with a real Claude Code, on Haiku, through automated tests; so have the CTO's tools and the expert. The gates, the rules, resuming, the budget and the emergency stop have been tested with a fake Claude Code. The interface has been checked with a simulated backend rather than in the app's real window, and Windows and Linux have been built and tested in CI but not run by hand. The full list of what is not verified is in <a href="https://github.com/vassilidev/TermF/blob/main/docs/STATUS.md">docs/STATUS.md</a>, in French.</p>
+
+    <nav class="next-read" aria-label="Read next">
+      <a href="team.html"><span>Read next</span><b>The CTO and the team</b></a>
+      <a href="security.html"><span>Read next</span><b>Security, and its limits</b></a>
+    </nav>
+  </article>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="foot-about">
+        <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="28" height="28"><span>TermF</span></a>
+        <p>Talk only to the CTO: a team of Claude Code agents takes your tickets to pull requests. Free and open source, for macOS, Windows and Linux.</p>
+        <a class="pill soft" href="download.html">Download TermF<i><svg aria-hidden="true"><use href="#i-arrow"/></svg></i></a>
+      </div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="security.html">Security</a></li><li><a href="download.html">Download</a></li><li><a href="./#faq">FAQ</a></li></ul></div>
+      <div><h2>Project</h2><ul><li><a href="https://github.com/vassilidev/TermF">Source code</a></li><li><a href="https://github.com/vassilidev/TermF/releases">Releases</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/docs/ARCHITECTURE.md">Architecture</a></li><li><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a></li><li><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></li></ul></div>
+      <div><h2>Platforms</h2><ul><li><a href="download.html#macos">macOS</a></li><li><a href="download.html#windows">Windows</a></li><li><a href="download.html#linux">Linux</a></li><li><a href="download.html#cli">Command line</a></li></ul></div>
+    </div>
+    <p class="giant" aria-hidden="true">TermF</p>
+    <div class="foot-bottom"><span>© 2026 TermF contributors</span><span>Built by <a href="https://github.com/vassilidev">vassilidev</a></span></div>
+  </div>
+</footer>
+
+<script>
+const nav = document.getElementById('nav');
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), {passive: true});
+
+const toc = [...document.querySelectorAll('.toc a')];
+if (toc.length) {
+  const seen = new Map();
+  const mark = () => {
+    let on = toc[0];
+    for (const a of toc) if (seen.get(a.hash.slice(1))) { on = a; break; }
+    for (const a of toc) a.classList.toggle('on', a === on);
+  };
+  const io = new IntersectionObserver(es => { for (const e of es) seen.set(e.target.id, e.isIntersecting); mark(); }, {rootMargin: '-90px 0px -60% 0px'});
+  for (const a of toc) { const el = document.getElementById(a.hash.slice(1)); if (el) io.observe(el); }
+}
+</script>
+</body>
+</html>
