@@ -14,7 +14,7 @@ export type Transfer =
 export const settings = $state({
   /** Loaded once first shown, then kept mounted, like the other views. */
   loaded: false,
-  section: "awake" as Section,
+  section: "claude" as Section,
   /** What an export wrote, or an import's preview, shown in Configuration. */
   transfer: null as Transfer | null,
   busy: false,

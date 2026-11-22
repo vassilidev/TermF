@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import {
   bounded,
   clean,
@@ -10,12 +11,26 @@ import {
   refusal,
   runsOn,
   secondsLeft,
+  shippedTexts,
   shows,
   streamed,
   sortRows,
   target,
   tsv,
 } from "../src/lib/ops-logic.ts";
+
+test("every text of a shipped recipe has its translation, in French and in English", () => {
+  const dir = new URL("../../library/recipes/", import.meta.url);
+  const i18n = readFileSync(new URL("../src/lib/i18n.ts", import.meta.url), "utf8");
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".toml"))) {
+    for (const [, quoted] of readFileSync(new URL(file, dir), "utf8").matchAll(/^description = "(.*)"$/gm)) {
+      const text = quoted.replace(/\\"/g, '"');
+      const key = Object.hasOwn(shippedTexts, text) && shippedTexts[text];
+      assert.ok(key, `${file}: "${text}" has no key in shippedTexts`);
+      assert.equal(i18n.split(`\n  ${key}:`).length, 3, `${key} in both blocks`);
+    }
+  }
+});
 
 const recipe = (name, kinds, connection) => ({ name, connection, run: kinds.map((kind) => ({ kind })) });
 

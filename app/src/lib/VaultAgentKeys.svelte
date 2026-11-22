@@ -45,7 +45,7 @@
             <span class="line desc">
               <span class="mono to">→ {g.secret} · {g.scope}</span>
               {#if !g.project}<span class="badge">{t("agentenvGlobal")}</span>{/if}
-              {#if g.found === false}<span class="badge missing">{t("agentenvMissing")}</span>{/if}
+              {#if g.found === false}<span class="badge warn">{t("agentenvMissing")}</span>{/if}
             </span>
           </span>
           <button class="btn sm" aria-label={t("agentenvRemoveLabel", { variable: g.variable })} onclick={() => remove(g)}>
@@ -135,11 +135,6 @@
 
   .mono {
     font-family: var(--font-mono);
-  }
-
-  .badge.missing {
-    border-color: var(--warning);
-    color: var(--warning);
   }
 
   .fine {

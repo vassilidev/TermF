@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import BellDot from "@lucide/svelte/icons/bell-dot";
   import Bot from "@lucide/svelte/icons/bot";
   import CircleArrowUp from "@lucide/svelte/icons/circle-arrow-up";
@@ -31,7 +32,7 @@
   import SectionNav from "$lib/ui/SectionNav.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ci, type CiNotify } from "$lib/ci.svelte";
-  import { claudeView, loadArtifacts, type Artifacts, type ClaudeBinary as Binary } from "$lib/claude.svelte";
+  import { claudeView, loadArtifacts, showClaude, type Artifacts, type ClaudeBinary as Binary } from "$lib/claude.svelte";
   import { latest } from "$lib/claude-logic";
   import { t } from "$lib/i18n";
   import { actions } from "$lib/keymap-logic";
@@ -43,8 +44,21 @@
 
   type Key = Parameters<typeof t>[0];
 
-  /** Each section, with the texts the search looks into. */
+  /** Each section, with the texts the search looks into; the first ones are what most people come for. */
   const sections: { id: Section; label: Key; icon: Component; words: Key[] }[] = [
+    {
+      id: "claude",
+      label: "claudeViewTitle",
+      icon: Bot,
+      words: ["claudebinTitle", "claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"],
+    },
+    {
+      id: "keys",
+      label: "shortcuts",
+      icon: Keyboard,
+      words: ["settingsKeysHelp", ...actions.flatMap((a) => (a.help ? [a.label, a.help] : [a.label]))],
+    },
+    { id: "sync", label: "syncTitle", icon: FolderSync, words: ["syncIntro", "syncDevice", "syncRemote", "syncPassword"] },
     {
       id: "awake",
       label: "keepAwake",
@@ -58,19 +72,7 @@
       icon: RotateCcw,
       words: ["contextAuto", "contextResetAt", "contextWarningAt", "contextSettingsHelp"],
     },
-    {
-      id: "keys",
-      label: "shortcuts",
-      icon: Keyboard,
-      words: ["settingsKeysHelp", ...actions.flatMap((a) => (a.help ? [a.label, a.help] : [a.label]))],
-    },
     { id: "ci", label: "viewCi", icon: Workflow, words: ["ciNotify", "ciNotifyHelp", "ciNotifyMine", "ciNotifyAll"] },
-    {
-      id: "claude",
-      label: "claudeViewTitle",
-      icon: Bot,
-      words: ["claudebinTitle", "claudeViewTabArtifacts", "claudeViewAuto", "claudeRedesignSkipConfirm"],
-    },
     {
       id: "agentenv",
       label: "agentenvSettings",
@@ -83,7 +85,6 @@
       icon: Folder,
       words: ["configFolder", "reload", "configExportLong", "configImportLong"],
     },
-    { id: "sync", label: "syncTitle", icon: FolderSync, words: ["syncIntro", "syncDevice", "syncRemote", "syncPassword"] },
     {
       id: "updates",
       label: "releaseUpdates",
@@ -235,6 +236,9 @@
             <p class="help">{t("ciNotifyHelp")}</p>
           {:else if settings.section === "claude"}
             <h2>{t("claudeViewTitle")}</h2>
+            <button class="btn link more" onclick={() => showClaude()}>
+              {t("claudeViewShow")}<ArrowRight size={14} aria-hidden="true" />
+            </button>
             <section class="group" aria-label={t("claudebinTitle")}>
               <h3>{t("claudebinTitle")}</h3>
               {#if binary}<ClaudeBinary b={binary} summary />{/if}
@@ -382,6 +386,11 @@
 
   .labelled {
     max-width: 320px;
+  }
+
+  .more {
+    gap: 4px;
+    margin: -4px 0 20px;
   }
 
   .group {

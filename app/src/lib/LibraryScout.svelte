@@ -664,7 +664,9 @@
   }
 
   .card.rejected {
-    opacity: 0.65;
+    background: none;
+    box-shadow: none;
+    color: var(--muted);
   }
 
   .card header {

@@ -59,7 +59,7 @@
   </header>
   <p class="purpose">{t("agentenvFor", { purpose: r.purpose })}</p>
   {#if r.signupUrl && host}
-    <button class="link" onclick={() => invoke("open_url", { url: r.signupUrl }).catch((e) => (error = String(e)))}>
+    <button class="btn link signup" onclick={() => invoke("open_url", { url: r.signupUrl }).catch((e) => (error = String(e)))}>
       <ExternalLink size={13} aria-hidden="true" />{t("agentenvSignup", { host })}
     </button>
   {/if}
@@ -134,21 +134,8 @@
     overflow-wrap: anywhere;
   }
 
-  .link {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  .signup {
     align-self: flex-start;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .link:hover {
-    text-decoration: underline;
   }
 
   form {

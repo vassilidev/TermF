@@ -542,7 +542,7 @@
   }
 
   tr.off td:not(.check) {
-    opacity: 0.55;
+    color: var(--muted);
   }
 
   .title {
