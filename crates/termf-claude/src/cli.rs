@@ -86,7 +86,7 @@ pub(crate) fn failure(out: &Output) -> String {
     } else {
         &out.stderr
     };
-    mask::mask_text(&termf_core::process::tail(text))
+    mask::mask_text(&termf_core::process::excerpt(text))
 }
 
 #[derive(Serialize, Debug, PartialEq)]
