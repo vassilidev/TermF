@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::settings::Scope;
 use crate::{Env, native, sessions, usage};
@@ -322,6 +322,57 @@ fn reads_usage_from_the_status_line() {
     );
     assert!(reading.limits.seven_day.is_none());
     assert!(usage::read(&json!({})).limits.is_empty());
+}
+
+#[test]
+fn a_window_at_80_percent_is_nearly_used_and_the_fuller_one_wins() {
+    let limits = |five: f64, seven: f64| {
+        usage::read(&json!({"rate_limits": {
+            "five_hour": {"used_percentage": five, "resets_at": 100},
+            "seven_day": {"used_percentage": seven, "resets_at": 200},
+        }}))
+        .limits
+    };
+    assert!(limits(79.9, 12.0).pressure(usage::NEARLY_USED).is_none());
+    let at_80 = limits(80.0, 12.0);
+    let (name, w) = at_80.pressure(usage::NEARLY_USED).unwrap();
+    assert_eq!((name, w.resets_at), ("five_hour", Some(100)));
+    let fuller = limits(85.0, 97.0);
+    assert_eq!(fuller.pressure(usage::NEARLY_USED).unwrap().0, "seven_day");
+    // A spend limit is dollars a gateway allows, not the subscription's quota.
+    let spend = usage::read(&json!({"rate_limits": {"spend_limit": {"used_percentage": 99.0}}}));
+    assert!(spend.limits.pressure(usage::NEARLY_USED).is_none());
+}
+
+#[test]
+fn tells_a_subscription_from_an_api_key_and_a_cloud() {
+    let mode = |auth: Value| usage::billing(Some(&auth));
+    let max = mode(
+        json!({"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "max"}),
+    );
+    assert_eq!((max.mode, max.plan.as_deref()), ("subscription", Some("max")));
+    assert_eq!(
+        mode(json!({"loggedIn": true, "authMethod": "oauth_token"})).mode,
+        "subscription"
+    );
+    for key in ["api_key", "api_key_helper"] {
+        let api = mode(json!({"loggedIn": true, "authMethod": key, "subscriptionType": "max"}));
+        assert_eq!((api.mode, api.plan), ("api", None), "{key}");
+    }
+    assert_eq!(
+        mode(json!({"loggedIn": true, "authMethod": "third_party"})).mode,
+        "cloud"
+    );
+    assert_eq!(
+        mode(json!({"loggedIn": true, "authMethod": "api_key", "apiProvider": "bedrock"})).mode,
+        "cloud"
+    );
+    assert_eq!(
+        mode(json!({"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty"})).mode,
+        "none"
+    );
+    assert_eq!(mode(json!({"loggedIn": true})).mode, "unknown");
+    assert_eq!(usage::billing(None).mode, "unknown");
 }
 
 #[cfg(unix)]
