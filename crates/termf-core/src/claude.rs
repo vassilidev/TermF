@@ -33,6 +33,25 @@ pub fn is_claude(command: &str) -> bool {
         .is_some_and(|stem| stem == "claude")
 }
 
+/// What a Claude Code session gives the programs it runs (seen in 2.1.330's environment). A Claude Code started
+/// under them is a child of that session: it reports to it and saves no transcript ("Transcript saving is off —
+/// inherited CLAUDE_CODE_CHILD_SESSION marker"), so `--resume` and a hand-back lose its conversation. TermF may itself
+/// run under one (started from it); what TermF starts never gets them.
+pub const SESSION_MARKERS: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_CHILD_NOTES_DIR",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+];
+
 /// Inserts `args` right after the program word, so the rest of the command (pipes, redirections) is untouched.
 pub fn after_program(command: &str, args: &str) -> String {
     let command = command.trim_start();

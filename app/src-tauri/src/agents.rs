@@ -53,6 +53,10 @@ pub fn state(
             }
             Update::Session(session) => {
                 team.session(session.id);
+                if let Some(state) = handle.try_state::<AppState>() {
+                    let working = session.state == termf_agents::State::Working;
+                    state.keep_awake.agent(&handle, session.id, working);
+                }
                 handle.emit("agent-updated", session)
             }
         };
