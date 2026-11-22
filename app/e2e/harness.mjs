@@ -297,6 +297,21 @@ export function helpers(box, port, signal) {
       await t.s.waitFor(`.nav ${t.sel("data-project", id)}[aria-current="true"]`);
     },
 
+    /** A `<select>`'s option, as a pick in its list would. */
+    choose(css, value) {
+      return t.s.exec(
+        (c, v) => {
+          const el = document.querySelector(c);
+          el.value = v;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return el.value === v;
+        },
+        css,
+        value,
+      );
+    },
+
     async view(id, { allow } = {}) {
       if (!(await t.s.exec(visible, t.shown(id)))) await t.command(`view-${id}`);
       await t.s.waitFor(t.shown(id));

@@ -90,6 +90,40 @@ jobs:
           path: app/e2e/out/
           if-no-files-found: ignore
 
+  # The same scenarios on macOS, where no WebDriver exists: the app's e2e build drives its window through its bridge.
+  e2e-macos:
+    if: github.event_name == 'push'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e
+      - name: Build the e2e app and the CLI (debug)
+        working-directory: app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm e2e:build
+      - name: End-to-end scenarios and performance
+        working-directory: app
+        run: pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-macos
+          path: app/e2e/out/
+          if-no-files-found: ignore
+
   # site/install.sh and site/install.ps1, run dry against a fake GitHub API, then one real install in a throwaway home.
   install-scripts:
     if: github.event_name == 'push'

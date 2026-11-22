@@ -1,11 +1,29 @@
 // What a developer discovering TermF does, one scenario at a time, each in its own sandbox. `views`: the views of
 // `views.ts` (and the pages beside them) the scenario is about; every view of `views.ts` needs one.
-import { readFileSync, writeFileSync } from "node:fs";
+import { createHmac } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { text } from "./harness.mjs";
 import { Key } from "./webdriver.mjs";
 
 const read = (file) => readFileSync(file, "utf8");
+// macOS gives the webview the app's languages, not the environment's: set as for one app in its settings.
+const french = { sandbox: { lang: "fr" }, launch: { args: { win32: ["--lang=fr-FR"], darwin: ["-AppleLanguages", "(fr-FR)"] }[process.platform] ?? [] } };
+
+/** RFC 6238 with its defaults (SHA-1, 6 digits, 30 s), computed here to check the app's. */
+export function totp(secret, at = Date.now()) {
+  const bits = [...secret.replace(/=+$/, "").toUpperCase()].map((c) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".indexOf(c).toString(2).padStart(5, "0")).join("");
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
+  const mac = createHmac("sha1", key).update(counter).digest();
+  const offset = mac[19] & 15;
+  return String((mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, "0");
+}
+
+/** The lines of terminal `id` once one of them is exactly `line`. */
+const showsLine = (t, id, line) =>
+  t.s.wait(async () => (await t.terminal(id)).split("\n").some((l) => l.trim() === line), { what: `${line} in terminal ${id}`, timeout: 30_000 });
 
 function check(ok, message) {
   if (!ok) throw new Error(message);
@@ -237,9 +255,7 @@ export const scenarios = [
   {
     name: "language: with a French system the interface is in French",
     views: [],
-    sandbox: { lang: "fr" },
-    // macOS gives the webview the app's languages, not the environment's: set as for one app in its settings.
-    launch: { args: { win32: ["--lang=fr-FR"], darwin: ["-AppleLanguages", "(fr-FR)"] }[process.platform] ?? [] },
+    ...french,
     async run(t) {
       const { s } = t;
       await t.ready();
@@ -273,6 +289,196 @@ export const scenarios = [
       await t.s.waitFor(`${t.shown("settings")} [aria-current="page"]`);
       await t.settled("settings");
       await t.clean();
+    },
+  },
+  {
+    name: "terminals: a split beside the first shell, then one command broadcast to both",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      await t.command(`repo-shell-${box.acme}`);
+      const first = await t.tile();
+      await t.prompt(first);
+      await t.command("split-right");
+      await s.click("section.launcher .segmented.agents:not(.place) label:last-child span");
+      await s.click("section.launcher button.open:not([disabled])");
+      const ids = await s.wait(async () => {
+        const list = await s.exec(() => [...document.querySelectorAll(".tile[data-session]")].filter((e) => e.getClientRects().length).map((e) => e.dataset.session));
+        return list.length === 2 && list;
+      }, { what: "two tiles side by side" });
+      const second = ids.find((id) => id !== first);
+      await t.prompt(second);
+      const [a, b] = await s.exec(
+        (x, y) => [x, y].map((id) => document.querySelector(`.tile[data-session="${id}"]`).getBoundingClientRect().left),
+        first,
+        second,
+      );
+      check(b > a, `the split is not on the right (${a}, ${b})`);
+      await t.command("broadcast");
+      await s.click("form.broadcast .ticks button:first-child");
+      const line = t.windows ? '"b-" + (2+3)' : "echo b-$((2+3))";
+      await s.type("form.broadcast input.field", line + Key.enter);
+      for (const id of [first, second]) await showsLine(t, id, "b-5");
+      await t.clean();
+    },
+  },
+  {
+    name: "quick terminal: opens from the palette, runs a command, closes",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      await t.ready();
+      await t.command("quick");
+      await s.waitFor("section.quick.open .xterm-rows");
+      await s.wait(async () => /(\$|>)\s*$/.test((await s.exec(() => document.querySelector("section.quick .xterm-rows").innerText)).trimEnd()), {
+        what: "the quick terminal's prompt",
+        timeout: 30_000,
+      });
+      await s.exec(() => document.querySelector("section.quick .xterm-helper-textarea").focus());
+      await s.keys((t.windows ? '"q-" + 7*6' : "echo q-$((7*6))") + Key.enter);
+      await s.wait(async () => (await s.exec(() => document.querySelector("section.quick .xterm-rows").innerText)).split("\n").some((l) => l.trim() === "q-42"), {
+        what: "q-42 in the quick terminal",
+      });
+      await t.command("quick");
+      await s.waitGone("section.quick.open");
+      await t.clean();
+    },
+  },
+  {
+    name: "help and guided tour: both open from the palette, Escape closes the help",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      await t.ready();
+      await t.project();
+      await t.command("help");
+      await s.waitFor('dialog.help[open]');
+      await t.clean();
+      await s.press(Key.escape);
+      await s.waitGone("dialog.help[open]");
+      await t.command("tour");
+      await s.waitFor('[aria-labelledby="tour-title"]');
+      for (let step = 0; step < 4; step++) await s.click('[aria-labelledby="tour-title"] footer .primary');
+      await s.waitGone('[aria-labelledby="tour-title"]');
+      await t.clean();
+    },
+  },
+  {
+    name: "vault: the TOTP code is the one RFC 6238 gives, a wrong password is refused",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("vault");
+      const password = "correct horse battery staple";
+      const secret = "JBSWY3DPEHPK3PXP";
+      await t.ready();
+      await t.project();
+      await t.view("vault");
+      const field = `${pane} form.unlock input[type=password]`;
+      for (const i of [0, 1]) await s.type(field, password, i);
+      await s.click(`${pane} form.unlock button[type=submit]:not([disabled])`);
+      await s.click('[data-testid="vault-new"]');
+      await s.type(`${pane} form.form input.field`, "Acme 2FA");
+      await s.type(`${pane} #vault-password`, "s3cret-e2e");
+      await s.type(`${pane} #vault-totp`, secret);
+      await s.click(`${pane} form.form button[type=submit]:not([disabled])`);
+      await s.click(`${pane} .list .pick`);
+      const code = await s.wait(async () => (await s.text(`${pane} .totp .code`))?.replace(/\s/g, "").match(/^\d{6}$/)?.[0], { what: "the TOTP code" });
+      const now = Date.now();
+      check([now - 30_000, now, now + 30_000].some((at) => totp(secret, at) === code), `the app shows ${code}, RFC 6238 gives ${totp(secret, now)}`);
+      await s.click('[data-testid="vault-lock"]');
+      await s.type(`${pane} form.unlock input[type=password]`, "not the password" + Key.enter);
+      await s.wait(() => s.exec((css) => !!document.querySelector(css)?.textContent.trim(), `${pane} form.unlock [role=alert], ${pane} form.unlock .error`), {
+        what: "the refusal of a wrong password",
+      });
+      check(!(await s.exec((css) => !!document.querySelector(css), `${pane} .list`)), "the vault opened with a wrong password");
+      await s.exec((css) => (document.querySelector(css).value = ""), `${pane} form.unlock input[type=password]`);
+      await s.type(`${pane} form.unlock input[type=password]`, password + Key.enter);
+      await s.waitFor(`${pane} .list`);
+      await t.clean({ allow: [/password|mot de passe/i] });
+    },
+  },
+  {
+    name: "git: a change stashed, then applied back",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("git");
+      writeFileSync(join(box.acme, "README.md"), "# Acme API\n\nStashed by e2e.\n");
+      await t.ready();
+      await t.project();
+      await t.view("git");
+      await s.click(`${pane} button.tree.dirty`);
+      await s.click(`${pane} button.stash`);
+      await s.type(`${pane} form.inline-form input.field`, "e2e stash");
+      await s.click(`${pane} form.inline-form button.primary:not([disabled])`);
+      await s.wait(() => box.git("status", "--porcelain") === "" && box.git("stash", "list").includes("e2e stash"), { what: "the stash" });
+      await t.settled("git");
+      await t.clean();
+    },
+  },
+  {
+    name: "SSH keys: a new ed25519 key written in the throwaway home",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.command("ssh-generate");
+      await s.click(`${t.shown("ssh")} section.panel button[type=submit]:not([disabled])`);
+      await s.wait(() => existsSync(join(box.home, ".ssh", "id_ed25519")) && existsSync(join(box.home, ".ssh", "id_ed25519.pub")), {
+        what: "~/.ssh/id_ed25519 and its .pub",
+      });
+      check(read(join(box.home, ".ssh", "id_ed25519.pub")).startsWith("ssh-ed25519 "), "the public key is not an ed25519 one");
+      await t.settled("ssh");
+      await t.clean();
+    },
+  },
+  {
+    name: "scheduler: a task created in the form shows in the list",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("scheduler");
+      await t.ready();
+      await t.project();
+      await t.view("scheduler");
+      await s.click(`${pane} .btn.primary`);
+      await s.type(`${pane} form.form input.field`, "Nightly e2e");
+      await t.choose(`${pane} form.form select.field`, box.acme);
+      await s.type(`${pane} form.form textarea.prompt`, "Say hello");
+      await s.click(`${pane} form.form button[type=submit]:not([disabled])`);
+      await s.wait(async () => (await s.text(`${pane}`))?.includes("Nightly e2e") && !(await s.exec((c) => !!document.querySelector(c), `${pane} form.form`)), {
+        what: "the task in the list",
+      });
+      await t.clean();
+    },
+  },
+  {
+    name: "CTO: a message to the project's CTO reaches Claude Code (fake)",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      await t.view("home");
+      await s.type(`${t.shown("home")} form.composer textarea`, "Add a health check endpoint");
+      await s.click(`${t.shown("home")} form.composer button[type=submit]:not([disabled])`);
+      await s.wait(() => existsSync(box.calls) && read(box.calls).includes("Add a health check endpoint"), { what: "the message given to claude" });
+      await s.wait(async () => (await s.text(t.shown("home")))?.includes("Add a health check endpoint"), { what: "the message in the conversation" });
+      await t.settled("home");
+      await t.clean();
+    },
+  },
+  {
+    name: "French: every view of the project and of This machine, no English text",
+    views: [],
+    ...french,
+    async run(t) {
+      await t.ready();
+      await t.project();
+      for (const id of t.views) await t.view(id);
     },
   },
   viewOnly("ops", "Ops: the project's connections and recipes"),
