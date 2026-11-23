@@ -217,7 +217,7 @@ fn detects_and_proposes_before_the_project_exists() {
     assert_eq!(found.keys, ["WEB"]);
     assert!(found.tags.iter().any(|t| t.name == "react"));
 
-    let draft = draft(&config, std::slice::from_ref(&path)).unwrap();
+    let draft = draft(&config, std::slice::from_ref(&path), &Choices::default()).unwrap();
     let kept: Vec<&str> = draft
         .roles
         .iter()

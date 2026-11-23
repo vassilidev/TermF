@@ -27,6 +27,8 @@ pub use team::{
 pub const SLUG: &str = "onboarding";
 /// What one analysis may spend, in USD.
 const BUDGET: &str = "2";
+/// What the CTO's advice on one question may spend, in USD.
+const ADVICE_BUDGET: &str = "0.5";
 const MAX_QUESTIONS: usize = 10;
 const MAX_FINDINGS: usize = 8;
 const MAX_OPTIONS: usize = 8;
@@ -114,6 +116,12 @@ pub struct Question {
     pub options: Vec<String>,
     /// The proposed answer, in the shape of an answer.
     pub default: Vec<String>,
+    /// What the answer changes for the agents: why the owner is asked.
+    #[serde(default)]
+    pub why: String,
+    /// What the repositories hold that makes the proposed answer the likely one ("212 Vitest tests in api").
+    #[serde(default)]
+    pub proof: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -441,11 +449,7 @@ pub fn analyze_showing(
 ) -> Result<State> {
     let running = Running::start(file(config_dir, data_dir, project)?)?;
     let mut analysis = survey(config_dir, data_dir, project)?;
-    analysis.lang = if lang == "fr" { "fr" } else { "en" }.into();
-    let (model, effort) = conventions::settings(config_dir);
-    analysis.model = model.clone();
-    let asked = team::questions(&analysis.repos);
-    analysis.questions = asked.clone();
+    prepare(config_dir, &mut analysis, lang);
     change(config_dir, data_dir, project, |s| {
         if s.analysis.is_none() {
             s.analysis = Some(analysis.clone());
@@ -453,20 +457,99 @@ pub fn analyze_showing(
         }
         Ok(())
     })?;
-    let repos: Vec<(String, PathBuf)> = analysis
+    consult(config_dir, &mut analysis, claude, progress)?;
+    drop(running);
+    change(config_dir, data_dir, project, |s| {
+        s.answers = proposed(&analysis);
+        s.analysis = Some(analysis);
+        s.step = Step::Questions;
+        Ok(())
+    })
+}
+
+/// The analysis of repositories that are not a project yet, nothing written: the survey, then Claude Code. With
+/// `project`, the survey is that project's own (its repositories, library, tickets). When Claude Code fails, the
+/// survey comes back alone with the reason, so the setup can go on without its questions.
+pub fn analyze_draft(
+    config_dir: &Path,
+    data_dir: &Path,
+    repos: &[String],
+    project: Option<&str>,
+    lang: &str,
+    claude: &[String],
+    progress: &mut dyn FnMut(conventions::Progress),
+) -> Result<(Analysis, Option<String>)> {
+    let mut analysis = match project {
+        Some(project) => survey(config_dir, data_dir, project)?,
+        None => setup::survey(config_dir, repos)?,
+    };
+    prepare(config_dir, &mut analysis, lang);
+    let failed = consult(config_dir, &mut analysis, claude, progress).err();
+    Ok((analysis, failed.map(|e| format!("{e:#}"))))
+}
+
+/// An analysis made before the project existed becomes the project's, with its proposed answers.
+pub fn adopt(
+    config_dir: &Path,
+    data_dir: &Path,
+    project: &str,
+    analysis: Analysis,
+) -> Result<State> {
+    for q in &analysis.questions {
+        ensure!(
+            valid_id(&q.id) && accepts(q, &q.default),
+            "not a question of an analysis: {:?}",
+            q.id
+        );
+    }
+    change(config_dir, data_dir, project, |s| {
+        s.answers = proposed(&analysis);
+        s.analysis = Some(analysis);
+        s.step = Step::Questions;
+        Ok(())
+    })
+}
+
+fn proposed(analysis: &Analysis) -> BTreeMap<String, Vec<String>> {
+    analysis
+        .questions
+        .iter()
+        .map(|q| (q.id.clone(), q.default.clone()))
+        .collect()
+}
+
+/// The language, the model, and TermF's own questions on the team, there even when Claude Code fails.
+fn prepare(config_dir: &Path, analysis: &mut Analysis, lang: &str) {
+    analysis.lang = if lang == "fr" { "fr" } else { "en" }.into();
+    analysis.model = conventions::settings(config_dir).0;
+    analysis.questions = team::questions(&analysis.repos);
+}
+
+fn repo_dirs(analysis: &Analysis) -> Vec<(String, PathBuf)> {
+    analysis
         .repos
         .iter()
         .map(|r| (r.name.clone(), PathBuf::from(&r.path)))
-        .collect();
+        .collect()
+}
+
+/// Claude Code, read-only in the repositories: its findings, and its questions before TermF's own.
+fn consult(
+    config_dir: &Path,
+    analysis: &mut Analysis,
+    claude: &[String],
+    progress: &mut dyn FnMut(conventions::Progress),
+) -> Result<()> {
+    let (model, effort) = conventions::settings(config_dir);
     // Options before `-p` reach Claude Code like any other: the cap needs no change to the shared runner.
     let mut command = claude.to_vec();
     command.extend(["--max-budget-usd".into(), BUDGET.into()]);
     let (answer, cost) = conventions::ask_showing(
         &command,
-        &repos,
+        &repo_dirs(analysis),
         &model,
         &effort,
-        &prompt(&analysis),
+        &prompt(analysis),
         &schema(),
         progress,
     )?;
@@ -476,17 +559,103 @@ pub fn analyze_showing(
     analysis.cost = cost;
     analysis.findings = findings;
     analysis.dropped = dropped;
-    analysis.questions = questions.into_iter().chain(asked).collect();
-    drop(running);
-    change(config_dir, data_dir, project, |s| {
-        s.answers = analysis
-            .questions
-            .iter()
-            .map(|q| (q.id.clone(), q.default.clone()))
-            .collect();
-        s.analysis = Some(analysis);
-        s.step = Step::Questions;
-        Ok(())
+    let ours = std::mem::take(&mut analysis.questions);
+    analysis.questions = questions.into_iter().chain(ours).collect();
+    Ok(())
+}
+
+/// What the CTO would answer to a question of the setup, and why.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Advice {
+    pub answer: Vec<String>,
+    pub why: String,
+    pub cost: Option<f64>,
+}
+
+/// The CTO's advice on question `id` of `analysis`, for an owner who hesitates: Claude Code reads the repositories
+/// again if it needs to (read-only), then gives an answer the question accepts and why, in the analysis' language.
+pub fn advise(
+    config_dir: &Path,
+    analysis: &Analysis,
+    id: &str,
+    claude: &[String],
+    progress: &mut dyn FnMut(conventions::Progress),
+) -> Result<Advice> {
+    let q = analysis
+        .questions
+        .iter()
+        .find(|q| q.id == id)
+        .with_context(|| format!("no question {id:?}"))?;
+    ensure!(!analysis.repos.is_empty(), "no repository to read");
+    let (model, effort) = conventions::settings(config_dir);
+    let language = if analysis.lang == "fr" {
+        "French"
+    } else {
+        "English"
+    };
+    let found: Vec<String> = analysis
+        .findings
+        .iter()
+        .map(|f| format!("- {}: {}: {}", f.repo, f.label, f.value))
+        .collect();
+    let shape = match q.kind {
+        Kind::Choice => "a list of exactly one of the options",
+        Kind::Multi => "a list of any of the options",
+        Kind::Bool => "[\"yes\"] or [\"no\"]",
+        Kind::Text => "a list of one short text",
+    };
+    let prompt = format!(
+        "You are the CTO of the team of Claude Code agents TermF sets up on these repositories. The owner hesitates \
+         on a question of the setup. Read the repositories if you need to (read-only: Read, Grep and Glob; never \
+         modify anything), then advise.\n\nQuestion: {}\nOptions: {}\nProposed answer: {}\nWhat the analysis \
+         found:\n{}\n\nReturn `answer`, {shape}, and `why`: two or three short sentences in {language} for the \
+         owner, citing what you saw in the repositories.\n",
+        q.text,
+        or_none(&q.options),
+        or_none(&q.default),
+        if found.is_empty() {
+            "nothing".to_owned()
+        } else {
+            found.join("\n")
+        },
+    );
+    let text = json!({ "type": "string" });
+    let schema = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["answer", "why"],
+        "properties": { "answer": { "type": "array", "items": text }, "why": text },
+    });
+    let mut command = claude.to_vec();
+    command.extend(["--max-budget-usd".into(), ADVICE_BUDGET.into()]);
+    let (answer, cost) = conventions::ask_showing(
+        &command,
+        &repo_dirs(analysis),
+        &model,
+        &effort,
+        &prompt,
+        &schema,
+        progress,
+    )?;
+    let given: Vec<String> = answer["answer"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str().map(line))
+        .filter(|v| !(q.kind == Kind::Text && v.is_empty()))
+        .collect();
+    ensure!(
+        accepts(q, &given),
+        "the advice is not an answer the question accepts"
+    );
+    let why = line(answer["why"].as_str().unwrap_or_default())
+        .chars()
+        .take(MAX_ANSWER)
+        .collect();
+    Ok(Advice {
+        answer: given,
+        why,
+        cost,
     })
 }
 
@@ -534,7 +703,10 @@ fn prompt(analysis: &Analysis) -> String {
          proposed answer in `default`, the most likely one given the repositories: `choice` takes one of \
          `options` (2 to {MAX_OPTIONS}) and `default` is that one option; `multi` takes any of `options` and \
          `default` lists some; `bool` has no options and `default` is [\"yes\"] or [\"no\"]; `text` has no \
-         options and `default` is one short text or nothing. Prefer choice, multi and bool to text.\n\
+         options and `default` is one short text or nothing. Prefer choice, multi and bool to text. `why`: one \
+         short sentence on what the answer changes for the agents. `proof`: what you saw in the repositories that \
+         makes the proposed answer the likely one, with numbers when you can (such as \"212 Vitest tests in api\"), \
+         or an empty string.\n\
          Write labels, values, questions and options in {language}.\n"
     );
     p
@@ -566,7 +738,7 @@ fn schema() -> Value {
             "questions": { "type": "array", "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["id", "theme", "text", "kind", "options", "default"],
+                "required": ["id", "theme", "text", "kind", "options", "default", "why", "proof"],
                 "properties": {
                     "id": text,
                     "theme": { "enum": ["quality", "tests", "workflow", "agents", "other"] },
@@ -574,6 +746,8 @@ fn schema() -> Value {
                     "kind": { "enum": ["choice", "multi", "bool", "text"] },
                     "options": texts,
                     "default": texts,
+                    "why": text,
+                    "proof": text,
                 },
             }},
         },
@@ -649,6 +823,13 @@ fn validate(answer: &Value, repos: &[String]) -> (Vec<Finding>, Vec<Question>, V
                 q.text = line(&q.text);
                 q.options = q.options.iter().map(|o| line(o)).collect();
                 q.default = q.default.iter().map(|d| line(d)).collect();
+                // A help line too long to read is left out, not the question with it.
+                for help in [&mut q.why, &mut q.proof] {
+                    *help = line(help);
+                    if help.chars().count() > 200 {
+                        help.clear();
+                    }
+                }
                 let options_ok = match q.kind {
                     Kind::Choice | Kind::Multi => {
                         (2..=MAX_OPTIONS).contains(&q.options.len())

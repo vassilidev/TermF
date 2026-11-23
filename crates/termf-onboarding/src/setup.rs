@@ -79,6 +79,8 @@ pub struct SkillOn {
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
     pub choices: Choices,
+    /// Whether the front and the back can each have their squad.
+    pub splittable: bool,
     pub roles: Vec<RoleChoice>,
     /// The roles that are workflow steps rather than tasks.
     pub steps: Vec<String>,
@@ -356,9 +358,36 @@ pub fn detect(config_dir: &Path, path: &str) -> Result<Detected> {
     })
 }
 
+/// What TermF finds by itself in the repositories at `paths`, before they are a project: their facts and GitHub
+/// repositories, nothing of a project's own (library, tickets, recipe, conventions).
+pub(crate) fn survey(config_dir: &Path, paths: &[String]) -> Result<crate::Analysis> {
+    anyhow::ensure!(!paths.is_empty(), "no repository chosen");
+    let tests = team::test_globs(&library(config_dir, Vec::new())?);
+    let mut github: Vec<String> = Vec::new();
+    for p in paths {
+        let dir = Path::new(p);
+        anyhow::ensure!(dir.is_dir(), "{p} is not a folder");
+        if let Some(r) = remote_of(dir).filter(|r| r.host == "github.com") {
+            let slug = r.slug.to_lowercase();
+            if !github.contains(&slug) {
+                github.push(slug);
+            }
+        }
+    }
+    Ok(crate::Analysis {
+        at: crate::now(),
+        repos: paths
+            .iter()
+            .map(|p| facts_of(Path::new(p), &tests))
+            .collect(),
+        github,
+        ..crate::Analysis::default()
+    })
+}
+
 /// The team and skills TermF proposes for the repositories at `paths`, as the assistant would for a project
-/// that has only them: no answers yet, the library without a project layer.
-pub fn draft(config_dir: &Path, paths: &[String]) -> Result<Draft> {
+/// that has only them: the library without a project layer, `given` the owner's choices on the team so far.
+pub fn draft(config_dir: &Path, paths: &[String], given: &Choices) -> Result<Draft> {
     let stack: Vec<RepoStack> = paths
         .iter()
         .map(|p| {
@@ -374,7 +403,7 @@ pub fn draft(config_dir: &Path, paths: &[String]) -> Result<Draft> {
         .map(|p| facts_of(Path::new(p), &tests))
         .collect();
     let roles = team::roles(&items);
-    let (choices, roles_chosen, edit) = team::propose(&repos, &roles, &Choices::default());
+    let (choices, roles_chosen, edit) = team::propose(&repos, &roles, given);
     let skills = items
         .iter()
         .filter(|i| i.kind == ItemKind::Skill && i.active)
@@ -390,6 +419,7 @@ pub fn draft(config_dir: &Path, paths: &[String]) -> Result<Draft> {
         .collect();
     Ok(Draft {
         choices,
+        splittable: team::can_split(&repos),
         roles: roles_chosen,
         steps: roles
             .iter()

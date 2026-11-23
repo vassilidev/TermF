@@ -203,6 +203,136 @@ fn keeps_the_survey_when_claude_code_fails_and_a_failed_rerun_keeps_the_last_ana
     assert!(answer_(&config, &data, BTreeMap::new()).is_ok());
 }
 
+#[cfg(unix)]
+#[test]
+fn analyzes_repositories_before_they_are_a_project_and_the_project_adopts_it() {
+    let (dir, config, data) = setup("draft");
+    let paths: Vec<String> = ["api", "front"]
+        .map(|r| dir.join(r).to_string_lossy().into_owned())
+        .to_vec();
+    let mut tests_required = question("tests-required", "bool", &[], &["yes"]);
+    tests_required["why"] = json!("A missing test sends the change back to the agent.");
+    tests_required["proof"] = json!("x".repeat(201));
+    let answer = json!({
+        "findings": [{ "repo": "api", "label": "Tests", "value": "pnpm test" }],
+        "questions": [tests_required],
+    });
+    let mut read = 0;
+    let (analysis, error) = analyze_draft(
+        &config,
+        &data,
+        &paths,
+        None,
+        "en",
+        &fake_claude(&dir, &answer),
+        &mut |_| read += 1,
+    )
+    .unwrap();
+    assert_eq!(error, None);
+    assert!(analysis.asked && analysis.repos.len() == 2);
+    assert_eq!(analysis.github, ["acme/front"]);
+    assert!(analysis.tickets.is_empty() && analysis.library.is_empty());
+    assert_eq!(
+        analysis.questions[0].why,
+        "A missing test sends the change back to the agent."
+    );
+    assert_eq!(analysis.questions[0].proof, "", "too long to read");
+    assert_eq!(analysis.questions.last().unwrap().id, "team-model");
+    assert!(
+        !data.join("onboarding/acme.json").exists(),
+        "nothing written before the project is created"
+    );
+
+    let state = adopt(&config, &data, "acme", analysis.clone()).unwrap();
+    assert_eq!(state.analysis.as_ref(), Some(&analysis));
+    assert_eq!(state.answers["tests-required"], ["yes"]);
+    assert_eq!(state.step, Step::Questions);
+    let state = answer_(&config, &data, BTreeMap::new()).unwrap();
+    assert!(state.source.contains("pnpm test"), "{}", state.source);
+
+    let mut bad = analysis.clone();
+    bad.questions[0].default = vec!["maybe".into()];
+    assert!(adopt(&config, &data, "acme", bad).is_err());
+
+    let script = dir.join("broken.sh");
+    put(&script, "#!/bin/sh\ncat > /dev/null\nexit 3\n");
+    let broken = vec!["/bin/sh".into(), script.to_string_lossy().into_owned()];
+    let (alone, error) = analyze_draft(
+        &config,
+        &data,
+        &paths,
+        Some("acme"),
+        "fr",
+        &broken,
+        &mut |_| {},
+    )
+    .unwrap();
+    assert!(error.is_some(), "the reason Claude Code failed comes back");
+    assert!(!alone.asked && alone.lang == "fr");
+    assert_eq!(alone.tickets, ["github"], "the project's own survey");
+    assert!(
+        alone.questions.iter().all(|q| q.id.starts_with("team-")),
+        "TermF's own questions still"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_cto_advises_an_answer_the_question_accepts() {
+    let (dir, config, data) = setup("advise");
+    let mut analysis = survey(&config, &data, "acme").unwrap();
+    analysis.lang = "fr".into();
+    analysis.questions = vec![
+        serde_json::from_value(question(
+            "commits",
+            "choice",
+            &["conventional", "free"],
+            &["free"],
+        ))
+        .unwrap(),
+    ];
+    let advice = json!({ "answer": ["conventional"], "why": "Les 40 derniers commits  suivent feat:/fix:." });
+    let got = advise(
+        &config,
+        &analysis,
+        "commits",
+        &fake_claude(&dir, &advice),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(got.answer, ["conventional"]);
+    assert_eq!(got.why, "Les 40 derniers commits suivent feat:/fix:.");
+    let prompt = fs::read_to_string(dir.join("prompt.txt")).unwrap();
+    assert!(
+        prompt.contains("commits ?") && prompt.contains("in French"),
+        "{prompt}"
+    );
+    let args = fs::read_to_string(dir.join("args.txt")).unwrap();
+    assert!(args.contains("--max-budget-usd\n0.5\n"), "{args}");
+
+    let off = json!({ "answer": ["squash"], "why": "?" });
+    assert!(
+        advise(
+            &config,
+            &analysis,
+            "commits",
+            &fake_claude(&dir, &off),
+            &mut |_| {}
+        )
+        .is_err()
+    );
+    assert!(
+        advise(
+            &config,
+            &analysis,
+            "nope",
+            &fake_claude(&dir, &advice),
+            &mut |_| {}
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn refuses_a_second_analysis_of_a_project_while_one_runs() {
     let (_, config, data) = setup("running");
@@ -398,7 +528,7 @@ fn real_onboarding() {
         detected.scripts.iter().any(|s| s.run == "npm test"),
         "{detected:?}"
     );
-    setup::draft(&config, std::slice::from_ref(&path)).unwrap();
+    setup::draft(&config, std::slice::from_ref(&path), &Choices::default()).unwrap();
 
     let state = analyze(&config, &data, "acme", "fr", &claude).unwrap();
     let analysis = state.analysis.clone().unwrap();
