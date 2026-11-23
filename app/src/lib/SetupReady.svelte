@@ -33,7 +33,7 @@
     type TeamStatus,
     type Trackers,
   } from "$lib/onboarding-logic";
-  import { githubSlugs, gitlabRepos, projectId, type Card } from "$lib/setup-logic";
+  import { checkOf as commandOf, detectedAll, githubSlugs, gitlabRepos, projectId, type Card } from "$lib/setup-logic";
   import { app, load, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
   import { added } from "$lib/team-logic";
 
@@ -157,13 +157,7 @@
   );
   const workflowCount = $derived(chosen.reduce((n, c) => n + (typeof found[c.path] === "object" ? (found[c.path] as Detected).facts.workflows.length : 0), 0));
 
-  /** Each repository's check command: typed, else the project's, else the test command found. */
-  const checkOf = (c: Card) => {
-    if (c.path in draft.checks) return draft.checks[c.path];
-    if (project?.checks?.[c.path] !== undefined) return project.checks[c.path];
-    const d = found[c.path];
-    return typeof d === "object" ? (d.scripts.find((s) => s.kind === "test")?.run ?? "") : "";
-  };
+  const checkOf = (c: Card) => commandOf(c.path, draft.checks, project?.checks, found[c.path]);
   const checks = $derived(on("checks") ? Object.fromEntries(chosen.flatMap((c) => (checkOf(c).trim() ? [[c.path, checkOf(c).trim()]] : []))) : {});
   // Switched off for a project that exists: its checks are left as they are, not removed.
   const checksChanged = $derived(!!project && on("checks") && JSON.stringify(checks) !== JSON.stringify(project.checks ?? {}));
@@ -182,7 +176,7 @@
   });
 
   $effect(() => {
-    ready = !!proposal && !!name && paths.length > 0 && paths.every((p) => found[p] !== undefined);
+    ready = !!proposal && !!name && detectedAll(paths, found);
   });
 
   const why = (r: RoleChoice) => t(teamWhy[r.why as keyof typeof teamWhy] ?? "obTeamWhyOwn", { detail: r.detail.join(", ") });

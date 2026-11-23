@@ -26,7 +26,7 @@
   import { analyzing, readText, reads } from "$lib/onboarding.svelte";
   import { ownTeam, type Analysis } from "$lib/onboarding-logic";
   import { editProject } from "$lib/project.svelte";
-  import { derive, tagText, unique, type Card } from "$lib/setup-logic";
+  import { derive, detectedAll, tagText, unique, type Card } from "$lib/setup-logic";
   import { app, load, setProject, shortPath, ui } from "$lib/state.svelte";
 
   type StepId = "start" | "repos" | "understood" | "questions" | "ready" | "idea" | "review";
@@ -89,7 +89,7 @@
   const understood = $derived(draft.analysis !== null && draft.analyzed === selection);
   const questions = $derived(understood ? draft.analysis!.questions.filter((q) => !ownTeam(q)) : []);
   const waiting = $derived(!!analyzing[analysisKey] && !understood);
-  const detectedAll = $derived(draft.chosen.every((p) => found[p] !== undefined));
+  const detected = $derived(detectedAll(draft.chosen, found));
 
   // Each repository is read as soon as it is chosen: what it holds is there when the owner looks.
   $effect(() => detect(draft.chosen));
@@ -157,7 +157,7 @@
       case "repos":
         return !!draft.chosen.length && !!name;
       case "understood":
-        return detectedAll;
+        return detected;
       case "ready":
         return ready;
       case "idea":

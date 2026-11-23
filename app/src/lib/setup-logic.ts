@@ -81,6 +81,23 @@ export function tagText(tag: { name: string; version?: string | null }): string 
   return major ? `${name} ${major}` : name;
 }
 
+/**
+ * Whether every chosen repository was read (or failed to be): its test command is the check the team runs before
+ * delivering, so the setup goes on, and creates, only once each one is known.
+ */
+export function detectedAll(paths: string[], found: Record<string, unknown>): boolean {
+  return paths.length > 0 && paths.every((p) => found[p] !== undefined);
+}
+
+type Scripts = { scripts: { kind: string; run: string }[] };
+
+/** A repository's check command: typed by the owner, else the project's, else the test command found in it. */
+export function checkOf(path: string, typed: Record<string, string>, saved: Record<string, string> | undefined, found: Scripts | string | undefined): string {
+  if (path in typed) return typed[path];
+  if (saved?.[path] !== undefined) return saved[path];
+  return typeof found === "object" ? (found.scripts.find((s) => s.kind === "test")?.run ?? "") : "";
+}
+
 /** The words all the names start with: `acme` for `acme-api` and `acme-web`; "" when they share none. */
 export function sharedPrefix(names: string[]): string {
   const words = names.map((n) => n.split(/[-_.\s]+/).filter(Boolean));

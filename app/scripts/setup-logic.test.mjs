@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { byActivity, derive, forge, githubSlugs, gitlabRepos, groups, projectId, sharedPrefix, shown, tagText, unique } from "../src/lib/setup-logic.ts";
+import { byActivity, checkOf, derive, detectedAll, forge, githubSlugs, gitlabRepos, groups, projectId, sharedPrefix, shown, tagText, unique } from "../src/lib/setup-logic.ts";
 
 const H = "/Users/alex";
 const gh = (slug) => ({ host: "github.com", slug });
@@ -86,4 +86,15 @@ test("GitLab repositories, on the first one's host", () => {
   const other = card("tools", `${H}/code/acme/tools`, { host: "gitlab.acme.dev", slug: "acme/tools" });
   assert.equal(gitlabRepos([api, web]), null);
   assert.deepEqual(gitlabRepos([api, infra, other, { ...infra }]), { host: "gitlab.com", slugs: ["acme/infra"] });
+});
+
+test("the setup goes on, and creates, only once every chosen repository is read: its test command is the check", () => {
+  const node = { scripts: [{ kind: "build", run: "npm run build" }, { kind: "test", run: "npm test" }] };
+  assert.equal(detectedAll([], {}), false);
+  assert.equal(detectedAll(["/a", "/b"], { "/a": node }), false, "/b is still being read");
+  assert.equal(detectedAll(["/a", "/b"], { "/a": node, "/b": "cannot read /b" }), true, "a failed read does not hold the setup");
+  assert.equal(checkOf("/a", {}, undefined, node), "npm test");
+  assert.equal(checkOf("/a", {}, undefined, undefined), "", "nothing known yet");
+  assert.equal(checkOf("/a", {}, { "/a": "make check" }, node), "make check", "the project's own wins over the detected one");
+  assert.equal(checkOf("/a", { "/a": "" }, { "/a": "make check" }, node), "", "emptied by the owner");
 });
