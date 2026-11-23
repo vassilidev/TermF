@@ -165,7 +165,8 @@
     return typeof d === "object" ? (d.scripts.find((s) => s.kind === "test")?.run ?? "") : "";
   };
   const checks = $derived(on("checks") ? Object.fromEntries(chosen.flatMap((c) => (checkOf(c).trim() ? [[c.path, checkOf(c).trim()]] : []))) : {});
-  const checksChanged = $derived(!!project && JSON.stringify(checks) !== JSON.stringify(project.checks ?? {}));
+  // Switched off for a project that exists: its checks are left as they are, not removed.
+  const checksChanged = $derived(!!project && on("checks") && JSON.stringify(checks) !== JSON.stringify(project.checks ?? {}));
 
   const trusted = $derived(draft.trusted === selection);
   const allTrusted = $derived(!!proposal && trustState(proposal.trust) === "on");
