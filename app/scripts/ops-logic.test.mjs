@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import {
   asked,
+  openBlock,
   bounded,
   clean,
   completions,
@@ -216,6 +217,8 @@ test("the DBA's answer gives its query and its explanation apart, even while it 
   assert.equal(prose("Je lis\n```sql\nSELECT"), "Je lis");
   assert.equal(sqlBlock("```sql\nSELECT 1\n```\nthen\n```sql\nSELECT 2\n```"), "SELECT 2", "the last one");
   assert.equal(sqlBlock("no query"), null);
+  assert.equal(openBlock("Voici :\n```sql\nSELECT id\nFROM"), "SELECT id\nFROM");
+  assert.equal(openBlock("```sql\nSELECT 1\n```"), null);
 });
 
 test("what the user asked is read back from the message the DBA got", () => {

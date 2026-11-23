@@ -250,7 +250,7 @@
   .key {
     display: grid;
     place-items: center;
-    color: var(--waiting-text);
+    color: var(--warning);
   }
 
   .cname {

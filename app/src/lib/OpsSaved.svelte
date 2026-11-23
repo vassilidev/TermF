@@ -406,7 +406,7 @@
   }
 
   .tag {
-    color: var(--accent-text);
+    color: var(--accent-ink);
     font-size: var(--text-xs);
   }
 

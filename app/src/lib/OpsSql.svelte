@@ -31,7 +31,7 @@
   import OpsSchema from "$lib/OpsSchema.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import { isMac } from "$lib/files.svelte";
-  import { ago, t } from "$lib/i18n";
+  import { ago, lang, t } from "$lib/i18n";
   import {
     COPIES,
     EXPORTS,
@@ -367,7 +367,7 @@
         format: exportFormat,
         name,
       });
-      notice = t(done.truncated ? "opsdbExportedAllCut" : "opsdbExportedAll", { rows: done.rows.toLocaleString(), path });
+      notice = t(done.truncated ? "opsdbExportedAllCut" : "opsdbExportedAll", { rows: done.rows.toLocaleString(lang), path });
       loadHistory(project);
     } catch (e) {
       if (!ask(e, exportAll)) error = reason(e);
@@ -411,13 +411,6 @@
       {#if writes && conn}<p class="notice warn">{t("opsCheckReadonlyWarn", { subject: conn.user ?? "" })}</p>{/if}
       <div class="editor" use:editor></div>
       <div class="tools">
-        <div class="check" aria-live="polite">
-          {#if refused}
-            <p class="refused"><ShieldX size={14} aria-hidden="true" /><span>{t("opssqlRefused", { reason: refused })}</span></p>
-          {:else if plan}
-            <p class="ok"><Check size={14} aria-hidden="true" /><span>{t("opssqlChecked")}</span></p>
-          {/if}
-        </div>
         <div class="buttons">
           <button class="btn sm" disabled={!plan} onclick={() => dba?.ask("explain", ops.sql.query)}>
             <MessageCircleQuestion size={13} aria-hidden="true" />{t("opsdbExplain")}
@@ -437,7 +430,14 @@
           </button>
         </div>
       </div>
-      {#if plan && !refused}<pre class="sent">{plan.params[param]}</pre>{/if}
+      <div class="check" aria-live="polite">
+        {#if refused}
+          <p class="refused"><ShieldX size={14} aria-hidden="true" /><span>{t("opssqlRefused", { reason: refused })}</span></p>
+        {:else if plan}
+          <p class="ok"><Check size={14} aria-hidden="true" /><span>{t("opssqlChecked")}</span></p>
+          <pre>{plan.params[param]}</pre>
+        {/if}
+      </div>
       {#if flash}<p class="flash" role="status">{flash}</p>{/if}
       {#if error}<p class="notice error">{error}</p>{/if}
 
@@ -478,17 +478,21 @@
             </Popover>
           {/if}
           {#if exportOpen}
-            <Popover bind:open={exportOpen} trigger={exportButton} label={t("opsdbExport")} align="end" width={300}>
+            <Popover bind:open={exportOpen} trigger={exportButton} label={t("opsdbExport")} align="end" width={360}>
               <div class="menu" role="menu">
-                {#each EXPORTS as f (f)}<button role="menuitem" onclick={() => exportAs(f)}>{t(formats[f])}</button>{/each}
+                <div class="formats">
+                  {#each EXPORTS as f (f)}<button role="menuitem" onclick={() => exportAs(f)}>{t(formats[f])}</button>{/each}
+                </div>
                 <hr />
                 <div class="all">
-                  <select class="field" bind:value={exportFormat} aria-label={t("opsdbExport")}>
-                    {#each EXPORTS as f (f)}<option value={f}>{t(formats[f])}</option>{/each}
-                  </select>
-                  <button role="menuitem" class="strong" onclick={exportAll}>
-                    <Sparkles size={13} aria-hidden="true" />{t("opsdbExportAll", { rows: (100000).toLocaleString() })}
-                  </button>
+                  <div class="all-row">
+                    <button role="menuitem" class="strong" onclick={exportAll}>
+                      <Sparkles size={13} aria-hidden="true" />{t("opsdbExportAll", { rows: (100000).toLocaleString(lang) })}
+                    </button>
+                    <select class="field" bind:value={exportFormat} aria-label={t("opsdbExport")}>
+                      {#each EXPORTS as f (f)}<option value={f}>{t(formats[f])}</option>{/each}
+                    </select>
+                  </div>
                   <small class="muted">{t("opsdbExportAllHelp", { shown: rows })}</small>
                 </div>
               </div>
@@ -627,6 +631,10 @@
     overflow-y: auto;
   }
 
+  .main > * {
+    flex-shrink: 0;
+  }
+
   .intro {
     margin: 0;
     font-size: var(--text-sm);
@@ -711,8 +719,6 @@
   }
 
   .check {
-    flex: 1;
-    min-width: 200px;
     min-height: 22px;
     font-size: var(--text-sm);
   }
@@ -727,6 +733,10 @@
   .check :global(svg) {
     flex-shrink: 0;
     margin-top: 2px;
+  }
+
+  .check pre {
+    margin-top: 6px;
   }
 
   .ok {
@@ -840,6 +850,11 @@
     background: var(--hover);
   }
 
+  .formats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
   .menu hr {
     width: 100%;
     margin: 4px 0;
@@ -854,7 +869,18 @@
     padding: 4px;
   }
 
+  .all-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .all-row select {
+    width: 96px;
+  }
+
   .all .strong {
+    flex: 1;
     font-weight: 600;
   }
 

@@ -338,7 +338,7 @@
             </ul>
             <section class="detail" aria-live="polite">
               {#if ops.editing !== null}
-                { passwordForm()}
+                {@render passwordForm()}
                 {#key ops.editing}
                   <OpsForm
                     project={project.id}

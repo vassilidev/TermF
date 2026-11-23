@@ -273,6 +273,7 @@
         </p>
       {/if}
 
+      {#if !filled && !found}
       <div class="found">
         <p class="found-head"><Database size={13} aria-hidden="true" />{t("opsdbFound")}</p>
         <small class="muted">{t("opsdbFoundHelp")}</small>
@@ -283,7 +284,7 @@
         {:else}
           <ul>
             {#each fresh as x (x.id)}
-              <li class:refused={!x.connection} class:picked={found?.id === x.id}>
+              <li class:refused={!x.connection}>
                 <div class="what">
                   {#if x.connection}
                     <span class="kind">{kindLabel(x.connection.kind)}</span>
@@ -300,6 +301,7 @@
           </ul>
         {/if}
       </div>
+      {/if}
     </div>
   {/if}
 
@@ -364,6 +366,17 @@
       {/if}
     {/each}
     {#each FORM[c.kind].secrets as role (role)}
+      <label class="labelled">
+        <span>{t(secretLabels[role])}</span>
+        <input
+          class="field mono"
+          value={c.secrets?.[role] ?? ""}
+          placeholder="ACME_DB_PASSWORD"
+          autocomplete="off"
+          oninput={(e) => setSecret(role, e.currentTarget.value)}
+        />
+        <small class="muted">{t("opsSecretHelp", { env: c.env })}</small>
+      </label>
       {#if role === "password"}
         <label class="labelled">
           <span>{t("opsdbPassword")}</span>
@@ -381,17 +394,6 @@
           </small>
         </label>
       {/if}
-      <label class="labelled">
-        <span>{t(secretLabels[role])}</span>
-        <input
-          class="field mono"
-          value={c.secrets?.[role] ?? ""}
-          placeholder="ACME_DB_PASSWORD"
-          autocomplete="off"
-          oninput={(e) => setSecret(role, e.currentTarget.value)}
-        />
-        <small class="muted">{t("opsSecretHelp", { env: c.env })}</small>
-      </label>
     {/each}
   </div>
   <label class="labelled">
@@ -517,7 +519,7 @@
 
   .steps li.now .n {
     background: var(--accent);
-    color: var(--accent-ink);
+    color: var(--accent-text);
   }
 
   .start {
@@ -584,10 +586,6 @@
     border-radius: var(--radius);
     background: var(--panel);
     transition: border-color var(--dur-fast) var(--ease-out);
-  }
-
-  .found li.picked {
-    border-color: var(--accent);
   }
 
   .found li.refused {

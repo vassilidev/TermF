@@ -14,7 +14,7 @@
   import type { StoredEvent } from "$lib/conversation-logic";
   import { lang, t } from "$lib/i18n";
   import { blocks, type Span } from "$lib/markdown-logic";
-  import { asked, prose, sqlBlock, type Connection } from "$lib/ops-logic";
+  import { asked, openBlock, prose, sqlBlock, type Connection } from "$lib/ops-logic";
   import { ops } from "$lib/ops.svelte";
 
   /** The SQL console's DBA: a conversation with the `dba` role about one database, its answers streamed, each query
@@ -213,7 +213,7 @@
     {#if working}
       <div class="answer live">
         {#if streaming}
-          {@const partial = sqlBlock(streaming)}
+          {@const partial = sqlBlock(streaming) ?? openBlock(streaming)}
           {#if partial}<pre class="partial">{partial}</pre>{/if}
           <p class="stream">{prose(streaming)}<span class="caret" aria-hidden="true"></span></p>
         {:else}
