@@ -27,6 +27,7 @@
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import OpsRequest from "$lib/OpsRequest.svelte";
+  import SetupJobs from "$lib/SetupJobs.svelte";
   import AgentEnvRequest from "$lib/AgentEnvRequest.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -47,7 +48,7 @@
   import { ops } from "$lib/ops.svelte";
   import { agentEnv } from "$lib/agentenv.svelte";
   import type { Step } from "$lib/onboarding-logic";
-  import { newProject } from "$lib/newproject.svelte";
+  import { jobs as setupJobs, newProject } from "$lib/newproject.svelte";
   import { sessionProjects, tallies } from "$lib/project.svelte";
   import { checkTools, needs } from "$lib/release.svelte";
   import { missingRequired } from "$lib/release-logic";
@@ -410,6 +411,7 @@
 
 {#snippet setupCard()}
   {@const ob = project ? onboarding[project.id] : undefined}
+  {#if project}<SetupJobs project={project.id} />{/if}
   {#if project && ob && setupSteps.includes(ob.step)}
     {@const at = setupSteps.indexOf(ob.step)}
     <article class="setup" aria-labelledby="home-setup">
@@ -472,7 +474,7 @@
           <p class="lead">{waits.length ? t("aigLeadWaits") : working ? t("aigLeadWorks") : t("aigLeadIdle")}</p>
         </header>
 
-        {#if asking || (ob && setupSteps.includes(ob.step))}
+        {#if asking || (ob && setupSteps.includes(ob.step)) || setupJobs[project.id]?.length}
           <section class="waits" aria-labelledby="home-waits">
             <h3 id="home-waits" class="sr-only">{t("teamRunsWaits")}</h3>
             {@render setupCard()}

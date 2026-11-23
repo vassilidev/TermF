@@ -3,8 +3,65 @@
 export type Step = "analysis" | "questions" | "proposals" | "trust" | "done";
 export type Theme = "quality" | "tests" | "workflow" | "agents" | "other";
 export type Kind = "choice" | "multi" | "bool" | "text";
-export type Question = { id: string; theme: Theme; text: string; kind: Kind; options: string[]; default: string[] };
+/** `why`: what the answer changes for the agents; `proof`: what in the repositories backs the proposed answer. */
+export type Question = {
+  id: string;
+  theme: Theme;
+  text: string;
+  kind: Kind;
+  options: string[];
+  default: string[];
+  why?: string;
+  proof?: string;
+};
 export type RepoTrust = { name: string; path: string; root: string; trusted: boolean; allow: number; mcp: number };
+export type Facts = {
+  name: string;
+  path: string;
+  stack: string[];
+  workflows: string[];
+  instructions: string[];
+  claude: string[];
+  parts?: { path: string; name: string; role: string }[];
+  tests?: string[];
+  infra?: string[];
+};
+export type Finding = { repo: string; label: string; value: string };
+export type Analysis = {
+  at: number;
+  lang: string;
+  repos: Facts[];
+  github: string[];
+  tickets: string[];
+  library: string[];
+  recipe: boolean;
+  conventions: string[];
+  asked: boolean;
+  findings: Finding[];
+  questions: Question[];
+  dropped: string[];
+  model: string;
+  cost: number | null;
+};
+/** What the owner chose of the team: size (agents at once per code role), one squad or one per part, the model. */
+export type TeamChoices = { keep: Record<string, boolean>; split?: boolean | null; size?: number | null; model?: string | null };
+
+/** TermF's own questions on the team are asked with the team, not with Claude Code's. */
+export const ownTeam = (q: Question) => q.id.startsWith("team-");
+
+/** The answers to TermF's team questions that the team's choices give, for the convention and the next proposal. */
+export function teamAnswers(questions: Question[], c: TeamChoices): Record<string, string[]> {
+  const given: [string, string | null][] = [
+    ["team-size", c.size ? String(c.size) : null],
+    ["team-squads", c.split === undefined || c.split === null ? null : c.split ? "split" : "one"],
+    ["team-model", c.model === undefined || c.model === null ? null : c.model || "own"],
+  ];
+  const out: Record<string, string[]> = {};
+  for (const [id, value] of given) {
+    if (value !== null && questions.find((q) => q.id === id)?.options.includes(value)) out[id] = [value];
+  }
+  return out;
+}
 
 export const steps: Step[] = ["analysis", "questions", "proposals", "trust", "done"];
 const themes: Theme[] = ["quality", "tests", "workflow", "agents", "other"];

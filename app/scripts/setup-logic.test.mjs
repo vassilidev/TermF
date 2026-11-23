@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { byActivity, derive, forge, githubSlugs, gitlabRepos, groups, projectId, shown, unique } from "../src/lib/setup-logic.ts";
+import { byActivity, checkOf, checksToWrite, derive, detectedAll, withAnalysis, forge, githubSlugs, gitlabRepos, groups, projectId, sharedPrefix, shown, tagText, unique } from "../src/lib/setup-logic.ts";
 
 const H = "/Users/alex";
 const gh = (slug) => ({ host: "github.com", slug });
@@ -19,6 +19,23 @@ test("the name comes from the repository, then the GitHub owner, the folder, the
   assert.deepEqual(derive([api, blog], H), { name: "api", from: "first" });
   // The home folder names nothing.
   assert.deepEqual(derive([scratch, card("notes", `${H}/notes`)], H), { name: "scratch", from: "first" });
+});
+
+test("several repositories named alike give their shared start, not the folder that holds them", () => {
+  const front = card("acme-front", `${H}/code/acme-front`);
+  const back = card("acme-back", `${H}/code/acme-back`);
+  assert.deepEqual(derive([front, back], H), { name: "acme", from: "prefix" });
+  assert.equal(sharedPrefix(["shop_api", "shop_web", "Shop.admin"]), "shop");
+  assert.equal(sharedPrefix(["acme-cloud-api", "acme-cloud-web"]), "acme-cloud");
+  assert.equal(sharedPrefix(["api", "web-dashboard"]), "");
+  assert.equal(sharedPrefix(["a-api", "a-web"]), "", "one letter names nothing");
+});
+
+test("stack tags read as people write them", () => {
+  assert.equal(tagText({ name: "nextjs", version: "16.0.3" }), "Next.js 16");
+  assert.equal(tagText({ name: "typescript", version: "^5.9" }), "TypeScript 5");
+  assert.equal(tagText({ name: "github-actions", version: null }), "GitHub Actions");
+  assert.equal(tagText({ name: "css-tailwind" }), "css-tailwind");
 });
 
 test("a name already taken gets the next free number", () => {
@@ -69,4 +86,35 @@ test("GitLab repositories, on the first one's host", () => {
   const other = card("tools", `${H}/code/acme/tools`, { host: "gitlab.acme.dev", slug: "acme/tools" });
   assert.equal(gitlabRepos([api, web]), null);
   assert.deepEqual(gitlabRepos([api, infra, other, { ...infra }]), { host: "gitlab.com", slugs: ["acme/infra"] });
+});
+
+test("the setup goes on, and creates, only once every chosen repository is read: its test command is the check", () => {
+  const node = { scripts: [{ kind: "build", run: "npm run build" }, { kind: "test", run: "npm test" }] };
+  assert.equal(detectedAll([], {}), false);
+  assert.equal(detectedAll(["/a", "/b"], { "/a": node }), false, "/b is still being read");
+  assert.equal(detectedAll(["/a", "/b"], { "/a": node, "/b": "cannot read /b" }), true, "a failed read does not hold the setup");
+  assert.equal(checkOf("/a", {}, undefined, node), "npm test");
+  assert.equal(checkOf("/a", {}, undefined, undefined), "", "nothing known yet");
+  assert.equal(checkOf("/a", {}, { "/a": "make check" }, node), "make check", "the project's own wins over the detected one");
+  assert.equal(checkOf("/a", { "/a": "" }, { "/a": "make check" }, node), "", "emptied by the owner");
+});
+
+test("an analysis lands on the draft of its repositories, and a failure never leaves an older one in place", () => {
+  const old = { questions: [{ id: "old", default: ["a"] }] };
+  const draft = { chosen: ["/a", "/b"], analysis: old, analyzed: "/a", failed: "", answers: { old: ["a"] }, question: 2, step: 3 };
+  const fresh = { questions: [{ id: "tests", default: ["yes"] }] };
+  const landed = withAnalysis(draft, ["/a", "/b"], { analysis: fresh, error: null });
+  assert.deepEqual(landed, { ...draft, analysis: fresh, analyzed: "/a\n/b", failed: "", answers: { tests: ["yes"] }, question: 0 });
+  const failed = withAnalysis(draft, ["/a", "/b"], { failure: "Claude Code: error_max_budget_usd" });
+  assert.equal(failed.analysis, null, "not the analysis of /a alone");
+  assert.equal(failed.analyzed, "/a\n/b");
+  assert.equal(failed.failed, "Claude Code: error_max_budget_usd");
+  assert.equal(withAnalysis(draft, ["/a"], { analysis: fresh, error: null }), null, "the draft is of other repositories now");
+});
+
+test("a check command the owner empties is written empty, which removes it", () => {
+  const node = { scripts: [{ kind: "test", run: "npm test" }] };
+  const found = { "/a": node, "/b": node, "/c": { scripts: [] } };
+  assert.deepEqual(checksToWrite(["/a", "/b", "/c"], { "/b": " " }, { "/b": "make check" }, found), { "/a": "npm test", "/b": "" });
+  assert.deepEqual(checksToWrite(["/c"], {}, undefined, found), {}, "nothing to remove in a new project");
 });
