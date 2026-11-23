@@ -113,6 +113,8 @@ export const scenarios = [
       await s.click(go);
       await s.waitFor(`.nav ${t.sel("data-project", "acme")}[aria-current="true"]`, { timeout: 30_000 });
       await s.waitFor(t.shown("home"));
+      const said = (await s.text(".toast-card")) ?? "";
+      check(said.includes("acme"), `the creation's toast does not name the project: ${said}`);
       const toml = read(file);
       check(/name = "acme"/.test(toml) && toml.includes("acme"), `unexpected project file:\n${toml}`);
       // The test command found in package.json is what the team's checks run before delivering.

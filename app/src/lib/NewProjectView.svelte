@@ -273,8 +273,14 @@
   const understoodAnswer = $derived.by(() => {
     const done = draft.chosen.map((p) => found[p]).filter((d) => !!d && typeof d !== "string");
     const tags = [...new Set(done.flatMap((d) => (typeof d === "string" ? [] : d.tags.slice(0, 3).map((x) => tagText({ name: x.name })))))];
-    const tested = done.filter((d) => typeof d !== "string" && d.scripts.some((s) => s.kind === "test")).length;
-    return [tags.slice(0, 4).join(", "), t("cpTestsIn", { n: tested, total: draft.chosen.length })].filter(Boolean).join(". ");
+    const tests = done.flatMap((d) => (typeof d === "string" ? [] : d.scripts.filter((s) => s.kind === "test").map((s) => s.run)));
+    const said =
+      draft.chosen.length === 1
+        ? tests.length
+          ? t("cpSumTests", { command: tests[0] })
+          : t("cpSumNoTests")
+        : `${t("cpTestsIn", { n: tests.length, total: draft.chosen.length })}.`;
+    return [tags.slice(0, 4).join(", "), said].filter(Boolean).join(". ");
   });
   const lastRead = $derived(analyzing[analysisKey] ? reads[analysisKey]?.last.at(-1) : undefined);
   const folder = $derived.by(() => {
@@ -292,7 +298,7 @@
         if (lastRead) step.live = readText(lastRead);
       }
       if (id === "questions") {
-        step.answer = t("cpAnswered", { count: questions.length });
+        step.answer = questions.length ? t("cpAnswered", { count: questions.length }) : t("cpNoQuestion");
         step.hint = here === "questions" && questions.length ? t("cpQuestionOf", { n: draft.question + 1, total: questions.length }) : undefined;
         if (!lastRead && waiting) step.live = t("cpPreparing");
       }

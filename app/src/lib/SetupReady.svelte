@@ -211,6 +211,8 @@
     if (busy || !ready || !proposal) return;
     busy = true;
     error = "";
+    // The draft, and the name it gives, are gone once the setup ends.
+    const title = project?.name ?? name;
     let id = project?.id ?? null;
     if (!id) {
       try {
@@ -294,7 +296,7 @@
     setProject(projectId);
     ui.view = "home";
     busy = false;
-    toast(project ? t("cpApplied", { name: project.name }) : t("cpCreated", { name }), { kind: "ok" });
+    toast(t(project ? "cpApplied" : "cpCreated", { name: title }), { kind: "ok" });
   }
 
   const id = $derived(project?.id ?? projectId(name, (app.workspace?.projects ?? []).map((p) => p.id)));
