@@ -1,5 +1,8 @@
 <script lang="ts">
   import Columns2 from "@lucide/svelte/icons/columns-2";
+  import Copy from "@lucide/svelte/icons/copy";
+  import Equal from "@lucide/svelte/icons/equal";
+  import SquarePlus from "@lucide/svelte/icons/square-plus";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
@@ -11,15 +14,18 @@
   import ContextGauge from "$lib/ContextGauge.svelte";
   import RemoteSwitch from "$lib/RemoteSwitch.svelte";
   import SessionLoops from "$lib/SessionLoops.svelte";
-  import Terminal from "$lib/Terminal.svelte";
+  import Terminal, { selectionOf } from "$lib/Terminal.svelte";
+  import ContextMenu, { menuKey, menuPoint, type ContextItem } from "$lib/ui/ContextMenu.svelte";
   import { phase } from "$lib/remote-logic";
   import { setRemote, turnOn } from "$lib/remote.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
-  import { closeSplit, focusSession, keys, openLauncher, toggleMaximize } from "$lib/commands";
+  import { closeSplit, focusSession, keys, openLauncher, splitActive, toggleMaximize } from "$lib/commands";
+  import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
   import { display } from "$lib/keymap.svelte";
   import type { Rect, Side } from "$lib/split-logic";
-  import { activate, terminals } from "$lib/tabs.svelte";
+  import { activate, equalize, tabOf, terminals } from "$lib/tabs.svelte";
+  import { dropping } from "$lib/workspace.svelte";
   import { liveLoops, tileName } from "$lib/tile-logic";
   import { grid, loopClock, onScreen, resetContext, ticked, type Session } from "$lib/state.svelte";
 
@@ -44,6 +50,34 @@
     if (asking) confirm?.focus();
   });
 
+  let menuOpen = $state(false);
+  let menuAt = $state<{ x: number; y: number } | null>(null);
+  let menuTrigger = $state<HTMLElement>();
+  let menuItems = $state<ContextItem[]>([]);
+
+  /** A split's actions at the pointer: the same tool beside it in one gesture, or another session from the launcher. */
+  function openMenu(e: MouseEvent | KeyboardEvent) {
+    e.preventDefault();
+    const selection = selectionOf(session.id);
+    menuTrigger = (document.activeElement as HTMLElement | null) ?? undefined;
+    menuAt = menuPoint(e);
+    menuItems = [
+      ...(selection ? [{ label: t("wsCopy"), icon: Copy, kbd: isMac ? "⌘C" : "", run: () => void navigator.clipboard.writeText(selection) }] : []),
+      { label: t("t6aSplitRight"), icon: Columns2, kbd: display("split_right"), divider: true, run: () => splitActive("right", session.id) },
+      { label: t("t6aSplitDown"), icon: Rows2, kbd: display("split_down"), run: () => splitActive("down", session.id) },
+      { label: t("wsSplitWith"), icon: SquarePlus, run: () => split("right") },
+      ...(alone
+        ? []
+        : [
+            { label: zoomed ? t("unfocus") : t("focus"), icon: zoomed ? Minimize2 : Maximize2, kbd: keys.maximize, divider: true, run: () => toggleMaximize(session.id) },
+            { label: t("t6aEqualize"), icon: Equal, kbd: display("equalize_splits"), run: () => equalize(tabOf(session.id)) },
+          ]),
+      { label: t("close"), icon: X, kbd: display("close_split"), divider: true, run: () => closeSplit(session.id) },
+    ];
+    menuOpen = true;
+  }
+
+  /** From the launcher: another tool or folder beside this split. */
   function split(side: Side) {
     activate(session.id);
     openLauncher(side);
@@ -55,11 +89,13 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions (the context-menu key and Shift+F10 of its terminal) -->
 <section
   class="tile"
   class:waiting={session.running && session.status === "waiting"}
   class:ticked={ticked.has(session.id)}
   class:maximized={zoomed}
+  class:dropping={dropping.on === session.id}
   data-session={session.id}
   hidden={!rect}
   style:left="calc({pct(rect?.x ?? 0)} + 4px)"
@@ -68,6 +104,8 @@
   style:height="calc({pct(rect?.h ?? 1)} - 8px)"
   aria-label={session.title}
   onfocusin={() => activate(session.id)}
+  oncontextmenu={openMenu}
+  onkeydown={(e) => menuKey(e) && openMenu(e)}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions (a shortcut for the zoom button) -->
   <header
@@ -130,7 +168,7 @@
       {/if}
       <button
         class="icon-btn sm"
-        onclick={() => split("right")}
+        onclick={() => splitActive("right", session.id)}
         aria-label={t("t6aSplitRight")}
         title="{t('t6aSplitRight')} ({display('split_right')})"
       >
@@ -138,7 +176,7 @@
       </button>
       <button
         class="icon-btn sm"
-        onclick={() => split("down")}
+        onclick={() => splitActive("down", session.id)}
         aria-label={t("t6aSplitDown")}
         title="{t('t6aSplitDown')} ({display('split_down')})"
       >
@@ -180,7 +218,10 @@
     </div>
   {/if}
   <Terminal id={session.id} visible={!!rect && onScreen("terminals")} />
+  {#if dropping.on === session.id}<div class="drop-note" aria-hidden="true">{t("wsDropPath")}</div>{/if}
 </section>
+
+<ContextMenu bind:open={menuOpen} point={menuAt} trigger={menuTrigger} label={session.title} items={menuItems} />
 
 <style>
   .tile {
@@ -208,6 +249,25 @@
   .tile.ticked {
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  /* A file from the Finder over it: its path goes here once let go. */
+  .tile.dropping {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  .drop-note {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    padding: 4px 10px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    pointer-events: none;
   }
 
   .tile.waiting {

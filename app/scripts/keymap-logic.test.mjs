@@ -92,13 +92,32 @@ test("shortcuts on macOS", () => {
   assert.equal(press(key("0", "Digit0", { ctrlKey: true })), null);
   assert.deepEqual(press(key("o", "KeyO", { metaKey: true }), true), { id: "switch_project" });
   assert.deepEqual(press(key("t", "KeyT", { metaKey: true })), { id: "new_session" });
-  assert.equal(press(key("t", "KeyT", { metaKey: true, shiftKey: true })), null);
+  assert.deepEqual(press(key("t", "KeyT", { metaKey: true, shiftKey: true })), { id: "reopen_tab" });
+  assert.deepEqual(press(key("b", "KeyB", { metaKey: true }), true), { id: "toggle_nav" });
   assert.deepEqual(press(key("k", "KeyK", { metaKey: true }), true), { id: "palette" });
   assert.deepEqual(press(key("H", "KeyH", { metaKey: true, shiftKey: true }), true), { id: "talk_cto" });
   assert.equal(press(key("k", "KeyK", { ctrlKey: true })), null);
   assert.equal(press(key("1", "Digit1", { metaKey: true, altKey: true })), null);
   assert.deepEqual(press(key("`", "Backquote", { ctrlKey: true }), true), { id: "quick_terminal" });
   assert.deepEqual(press(key("Enter", "Enter", { metaKey: true, shiftKey: true })), { id: "broadcast" });
+});
+
+test("zoom follows the character typed, whatever the layout puts it on", () => {
+  const press = (k, current = mac, isMac = true) => match(k, current, { mac: isMac, inTerminal: true, view: "terminals", limits: nine });
+  assert.deepEqual(press(key("=", "Equal", { metaKey: true })), { id: "zoom_in" });
+  assert.deepEqual(press(key("+", "Equal", { metaKey: true, shiftKey: true })), { id: "zoom_in" });
+  assert.deepEqual(press(key("+", "NumpadAdd", { metaKey: true })), { id: "zoom_in" });
+  // French Mac AZERTY: - is on the US = key, = on the US / key.
+  assert.deepEqual(press(key("-", "Equal", { metaKey: true })), { id: "zoom_out" });
+  assert.deepEqual(press(key("=", "Slash", { metaKey: true })), { id: "zoom_in" });
+  // French PC AZERTY: - is on the 6, which stays the sixth tab; the keypad's - zooms out.
+  assert.deepEqual(press(key("-", "Digit6", { ctrlKey: true }), other, false), { id: "tile", n: 6 });
+  assert.deepEqual(press(key("-", "NumpadSubtract", { ctrlKey: true }), other, false), { id: "zoom_out" });
+  assert.deepEqual(press(key("à", "Digit0", { metaKey: true })), { id: "zoom_reset" });
+  assert.deepEqual(press(key("=", "Equal", { metaKey: true, ctrlKey: true })), { id: "equalize_splits" });
+  // Outside macOS, Ctrl+Shift+= stays the splits' equalizer.
+  assert.deepEqual(press(key("+", "Equal", { ctrlKey: true, shiftKey: true }), other, false), { id: "equalize_splits" });
+  assert.deepEqual(press(key("=", "Equal", { ctrlKey: true }), other, false), { id: "zoom_in" });
 });
 
 test("view shortcuts only in their view", () => {

@@ -18,6 +18,8 @@ export type KeyAction = {
   digits?: boolean;
   /** A character that also asks for it, typed outside text fields and terminals; not editable. */
   typed?: string;
+  /** Matched on the character typed, as browsers zoom: layouts move - and = (and + needs Shift on many). */
+  byCharacter?: boolean;
 };
 
 /** Every shortcut of the app. A key press handled anywhere else is a bug. */
@@ -71,6 +73,7 @@ export const actions: KeyAction[] = [
     scope: "global",
     defaults: { mac: "", other: "" },
   },
+  { id: "toggle_nav", label: "wsToggleNav", group: "general", scope: "app", defaults: { mac: "Cmd+B", other: "Ctrl+B" } },
   {
     id: "next_waiting",
     label: "nextWaiting",
@@ -85,6 +88,8 @@ export const actions: KeyAction[] = [
     scope: "app",
     defaults: { mac: "Cmd+T", other: "Ctrl+Shift+T" },
   },
+  // Ctrl+Shift+T is the new session outside macOS, where Ctrl+T stays the shell's.
+  { id: "reopen_tab", label: "wsReopenTab", group: "terminals", scope: "app", defaults: { mac: "Cmd+Shift+T", other: "Alt+Shift+T" } },
   {
     id: "tile",
     label: "t6aTab",
@@ -158,6 +163,10 @@ export const actions: KeyAction[] = [
     scope: "terminals",
     defaults: { mac: "Cmd+Shift+Enter", other: "Ctrl+Shift+Enter" },
   },
+  // After the splits' Ctrl+Shift+= outside macOS: the focused terminal's text, else the whole interface.
+  { id: "zoom_in", label: "wsZoomIn", group: "general", scope: "app", byCharacter: true, defaults: { mac: "Cmd+=", other: "Ctrl+=" } },
+  { id: "zoom_out", label: "wsZoomOut", group: "general", scope: "app", byCharacter: true, defaults: { mac: "Cmd+-", other: "Ctrl+-" } },
+  { id: "zoom_reset", label: "wsZoomReset", group: "general", scope: "app", defaults: { mac: "Cmd+0", other: "Ctrl+0" } },
   { id: "find_file", label: "filesFind", group: "files", scope: "files", defaults: { mac: "Cmd+P", other: "Ctrl+P" } },
   {
     id: "search_project",
@@ -386,11 +395,16 @@ export function match(e: Press, current: Record<string, string>, ctx: Context): 
     if (typed) return { id: typed.id };
   }
   const got = pressedCombo(e);
-  if (!got) return null;
+  const char = e.key === "+" ? "=" : e.key === "_" ? "-" : e.key.toUpperCase();
   for (const a of actions) {
     if (a.scope === "global" || (a.scope !== "app" && a.scope !== ctx.view)) continue;
     const want = parse(current[a.id] ?? "");
     if (!want) continue;
+    if (a.byCharacter) {
+      if (char === want.key && e.ctrlKey === want.ctrl && e.altKey === want.alt && e.metaKey === want.cmd) return { id: a.id };
+      continue;
+    }
+    if (!got) continue;
     if (a.digits ? !/^[1-9]$/.test(got.key) : want.key !== got.key) continue;
     want.key = got.key;
     if (got.ctrl !== want.ctrl || got.alt !== want.alt || got.cmd !== want.cmd) continue;

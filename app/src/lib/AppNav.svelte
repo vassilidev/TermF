@@ -7,6 +7,9 @@
   import Layers from "@lucide/svelte/icons/layers";
   import Monitor from "@lucide/svelte/icons/monitor";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import PanelLeftClose from "@lucide/svelte/icons/panel-left-close";
+  import PanelLeftOpen from "@lucide/svelte/icons/panel-left-open";
+  import Check from "@lucide/svelte/icons/check";
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
@@ -21,19 +24,20 @@
   import { waitingRuns } from "$lib/team.svelte";
   import { keys, nextWaiting } from "$lib/commands";
   import { t } from "$lib/i18n";
-  import { aria } from "$lib/keymap.svelte";
+  import { aria, display } from "$lib/keymap.svelte";
   import { validProject } from "$lib/nav-logic";
   import { newProject } from "$lib/newproject.svelte";
   import { tallies } from "$lib/project.svelte";
   import { showSettings } from "$lib/settings.svelte";
   import { app, onScreen, panes, setProject, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
   import { summary } from "$lib/sync.svelte";
-  import { tour } from "$lib/tour.svelte";
   import { views, type View } from "$lib/views";
   import Popover from "$lib/ui/Popover.svelte";
   import UsageGauge from "$lib/UsageGauge.svelte";
   import { isMac } from "$lib/files.svelte";
   import { closePanel, openBeside } from "$lib/panes.svelte";
+  import { NAV, dragNav } from "$lib/workspace-logic";
+  import { foldNav, nav, navRail, setNav, toggleNav } from "$lib/workspace.svelte";
 
   const machineKey = "termf.machine";
 
@@ -46,8 +50,45 @@
   let search = $state<HTMLButtonElement>();
   let list = $state<HTMLUListElement>();
   let machineOpen = $state(storedMachine());
-  const unfolded = $derived(machineOpen || tour.machine);
+  const unfolded = $derived(machineOpen);
   const besideKey = isMac ? "⌘" : "Ctrl";
+  const rail = $derived(navRail());
+  const foldLabel = $derived(rail ? t("wsUnfoldNav") : t("wsFoldNav"));
+  let foldMenu = $state(false);
+  let foldButton = $state<HTMLButtonElement>();
+  let navEl = $state<HTMLElement>();
+
+  /** Its right edge sizes it; let go under the snap, it folds to icons. Kept once let go. */
+  function dragEdge(e: PointerEvent) {
+    if (e.button !== 0) return;
+    const edge = e.currentTarget as HTMLElement;
+    const left = navEl?.getBoundingClientRect().left ?? 0;
+    edge.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => setNav(dragNav(nav, m.clientX - left), false);
+    const end = () => {
+      setNav(nav);
+      edge.removeEventListener("pointermove", move);
+      edge.removeEventListener("pointerup", end);
+      edge.removeEventListener("pointercancel", end);
+    };
+    edge.addEventListener("pointermove", move);
+    edge.addEventListener("pointerup", end);
+    edge.addEventListener("pointercancel", end);
+  }
+
+  function edgeKey(e: KeyboardEvent) {
+    const width = rail ? NAV.rail : nav.width;
+    const to = { ArrowLeft: width - 16, ArrowRight: width + 16, Home: NAV.min, End: NAV.max }[e.key];
+    if (e.key === "Enter") toggleNav();
+    else if (to !== undefined) setNav(dragNav(nav, Math.max(NAV.snap, to)));
+    else return;
+    e.preventDefault();
+  }
+
+  // ⌘O opens its search in the navigation, which shows again for it.
+  $effect(() => {
+    if (ui.switcher && nav.mode === "hidden") setNav({ ...nav, mode: "full" });
+  });
 
   function storedMachine(): boolean {
     try {
@@ -152,16 +193,33 @@
   </ul>
 {/snippet}
 
-<nav class="nav" aria-label={t("navLabel")}>
-  <button
-    class="find"
-    aria-haspopup="dialog"
-    aria-keyshortcuts={aria("palette")}
-    onclick={() => (ui.palette = true)}
-  >
-    <Search size={14} aria-hidden="true" /><span class="label">{t("navSearch")}</span>
-    {#if keys.palette}<kbd>{keys.palette}</kbd>{/if}
-  </button>
+<nav class="nav" class:rail bind:this={navEl} hidden={nav.mode === "hidden"} aria-label={t("navLabel")}>
+  <div class="top">
+    <button
+      class="find"
+      aria-haspopup="dialog"
+      aria-keyshortcuts={aria("palette")}
+      onclick={() => (ui.palette = true)}
+    >
+      <Search size={14} aria-hidden="true" /><span class="label">{t("navSearch")}</span>
+      {#if keys.palette}<kbd>{keys.palette}</kbd>{/if}
+    </button>
+    <button
+      bind:this={foldButton}
+      class="icon-btn fold"
+      aria-expanded={!rail}
+      aria-keyshortcuts={aria("toggle_nav")}
+      aria-label={foldLabel}
+      title="{foldLabel} ({display('toggle_nav')}) · {t('wsFoldHint')}"
+      onclick={toggleNav}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        foldMenu = true;
+      }}
+    >
+      {#if rail}<PanelLeftOpen size={16} aria-hidden="true" />{:else}<PanelLeftClose size={16} aria-hidden="true" />{/if}
+    </button>
+  </div>
   {#if waiting}
     <button
       class="wait"
@@ -271,7 +329,34 @@
       </ul>
     {/if}
   </div>
+  <!-- A focusable separator is a widget (WAI-ARIA window splitter): the arrows size it, Enter folds it. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div
+    class="edge"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label={t("wsNavWidth")}
+    aria-valuenow={rail ? NAV.rail : nav.width}
+    aria-valuemin={NAV.rail}
+    aria-valuemax={NAV.max}
+    tabindex="0"
+    title={t("wsNavWidthHint")}
+    onpointerdown={dragEdge}
+    ondblclick={() => setNav({ ...nav, mode: "full", width: NAV.width })}
+    onkeydown={edgeKey}
+  ></div>
 </nav>
+
+<Popover bind:open={foldMenu} trigger={foldButton} label={t("wsFoldAs")} width={260}>
+  <div class="menu" role="menu">
+    {#each [["rail", "wsFoldRail"], ["hidden", "wsHideNav"]] as const as [fold, label] (fold)}
+      <button class="item" role="menuitemradio" aria-checked={nav.fold === fold} onclick={() => ((foldMenu = false), foldNav(fold))}>
+        <span>{t(label)}</span>
+        {#if nav.fold === fold}<Check size={14} aria-hidden="true" />{/if}
+      </button>
+    {/each}
+  </div>
+</Popover>
 
 <ProjectSwitcher trigger={search} anchor={heading} />
 
@@ -294,6 +379,7 @@
 
 <style>
   .nav {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -597,116 +683,176 @@
     margin-top: 6px;
   }
 
-  /* --nav-width folds with it (app.css): icons only, each named by its tooltip and, for screen readers, its hidden label. */
-  @media (max-width: 1100px) {
-    .nav {
-      align-items: stretch;
-    }
+  .nav[hidden] {
+    display: none;
+  }
 
-    .find,
-    .wait {
-      justify-content: center;
-      padding: 0;
-    }
+  .top {
+    display: flex;
+    flex-shrink: 0;
+    align-items: flex-end;
+    gap: 4px;
+  }
 
-    .find kbd,
-    .wait kbd,
-    .group h2,
-    .nav :global(.side),
-    .nav :global(.tally),
-    .machine :global(.chev) {
-      display: none;
-    }
+  .top .find {
+    flex: 1;
+    min-width: 0;
+  }
 
-    .nav :global(.label) {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
-    }
+  .fold {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    color: var(--muted);
+  }
 
-    /* Stacked, both stay in reach: the search is also where Escape gives the focus back after ⌘O. */
-    .group {
-      flex-direction: column;
-      padding: 0;
-    }
+  /* Wider to grab than to see: a line over the border on hover, as the panels' handle. */
+  .edge {
+    position: absolute;
+    z-index: 7;
+    top: 0;
+    right: -4px;
+    bottom: 0;
+    width: 8px;
+    cursor: col-resize;
+    touch-action: none;
+  }
 
-    .nav :global(.nav-item) {
-      position: relative;
-      justify-content: center;
-      padding: 0;
-    }
+  .edge::after {
+    content: "";
+    position: absolute;
+    inset: 0 3px 0 4px;
+    transition: background-color var(--dur-fast) ease-out;
+  }
 
-    .views {
-      padding-left: 0;
-    }
+  .edge:hover::after,
+  .edge:active::after,
+  .edge:focus-visible::after {
+    background: var(--accent);
+  }
 
-    .views::before {
-      display: none;
-    }
+  .edge:focus-visible {
+    outline: none;
+  }
 
-    .views .nav-item {
-      padding-left: 0;
-    }
+  .rail .top {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
 
-    /* Under a project, its views; the thread is gone, so a line marks where they end. */
-    .projects .views {
-      padding-bottom: 4px;
-      border-bottom: 1px solid var(--border);
-    }
+  .rail .fold {
+    width: auto;
+  }
 
-    .count:not(.hot) {
-      display: none;
-    }
+  /* Folded (by hand, or a narrow window): icons only, each named by its tooltip and, for screen readers, its hidden label. */
 
-    .count.hot,
-    .views .dot {
-      position: absolute;
-      top: 2px;
-      right: 2px;
-      min-width: 16px;
-      padding: 0 4px;
-      font-size: var(--text-xs);
-      line-height: 16px;
-    }
+  .nav.rail {
+    align-items: stretch;
+  }
 
-    .views .dot {
-      top: 6px;
-      right: 8px;
-      min-width: 0;
-      padding: 0;
-    }
+  .rail .find,
+  .rail .wait {
+    justify-content: center;
+    padding: 0;
+  }
 
-    .row {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 1px;
-    }
+  .rail .find kbd,
+  .rail .wait kbd,
+  .rail .group h2,
+  .nav.rail :global(.side),
+  .nav.rail :global(.tally),
+  .rail .machine :global(.chev) {
+    display: none;
+  }
 
-    .row .nav-item {
-      flex: none;
-    }
+  .nav.rail :global(.label) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 
-    .row .icon-btn {
-      width: 100%;
-      height: 30px;
-    }
+  /* Stacked, both stay in reach: the search is also where Escape gives the focus back after ⌘O. */
+  .rail .group {
+    flex-direction: column;
+    padding: 0;
+  }
 
-    /* A scrollbar would take a third of the rail and push the icons off center. */
-    .scroll {
-      scrollbar-width: none;
-    }
+  .nav.rail :global(.nav-item) {
+    position: relative;
+    justify-content: center;
+    padding: 0;
+  }
 
-    /* Unfolded, this machine lists the settings already. */
-    .machine[aria-expanded="true"] ~ .gear {
-      display: none;
-    }
+  .rail .views {
+    padding-left: 0;
+  }
 
-    .gear .dot {
-      top: 6px;
-      right: 8px;
-    }
+  .rail .views::before {
+    display: none;
+  }
+
+  .rail .views .nav-item {
+    padding-left: 0;
+  }
+
+  /* Under a project, its views; the thread is gone, so a line marks where they end. */
+  .rail .projects .views {
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .rail .count:not(.hot) {
+    display: none;
+  }
+
+  .rail .count.hot,
+  .rail .views .dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: var(--text-xs);
+    line-height: 16px;
+  }
+
+  .rail .views .dot {
+    top: 6px;
+    right: 8px;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .rail .row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1px;
+  }
+
+  .rail .row .nav-item {
+    flex: none;
+  }
+
+  .rail .row .icon-btn {
+    width: 100%;
+    height: 30px;
+  }
+
+  /* A scrollbar would take a third of the rail and push the icons off center. */
+  .rail .scroll {
+    scrollbar-width: none;
+  }
+
+  /* Unfolded, this machine lists the settings already. */
+  .rail .machine[aria-expanded="true"] ~ .gear {
+    display: none;
+  }
+
+  .rail .gear .dot {
+    top: 6px;
+    right: 8px;
   }
 </style>
