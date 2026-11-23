@@ -100,7 +100,7 @@
     </script>
     <p class="meta">Free · open source · macOS, Windows, Linux</p>
     <figure class="win" id="reel" data-video>
-      <div class="win-bar"><i></i><i></i><i></i><button class="watch" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i>Watch with sound<small><span aria-hidden="true">·</span> 1:10</small></button><span aria-hidden="true">TermF</span><div class="tools"><button class="tool pause" type="button" aria-label="Pause the video" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button><button class="tool close" type="button" aria-label="Close the film" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><button class="tool full" type="button" aria-label="Watch in full screen, with sound" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button></div></div>
+      <div class="win-bar"><i></i><i></i><i></i><button class="watch" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i>Watch with sound<small><span aria-hidden="true">·</span> 1:08</small></button><span aria-hidden="true">TermF</span><div class="tools"><button class="tool pause" type="button" aria-label="Pause the video" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button><button class="tool close" type="button" aria-label="Close the film" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><button class="tool full" type="button" aria-label="Watch in full screen, with sound" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button></div></div>
       <video muted loop playsinline preload="none" poster="media/launch-poster.webp" width="1600" height="900" aria-label="TermF at work: you ask the CTO, a team of agents works on it live, and the pull request waits for you. Silent, sample data."><source src="media/launch.webm" type="video/webm"><source src="media/launch.mp4" type="video/mp4"></video>
     </figure>
   </section>
@@ -318,7 +318,7 @@ if ('video' in reel.dataset) {
       reel.classList.add('sound');
       delete video.dataset.film;
       Object.assign(video, {src: 'media/termf-launch.mp4', poster: 'media/termf-launch-poster.webp', muted: false, loop: false, controls: true});
-      video.setAttribute('aria-label', 'The TermF film, 70 seconds, with sound');
+      video.setAttribute('aria-label', 'The TermF film, 68 seconds, with sound');
       watch.hidden = pause.hidden = true; close.hidden = false;
     }
     video.play().catch(() => {});
