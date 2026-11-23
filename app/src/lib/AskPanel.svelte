@@ -10,6 +10,7 @@
   import TextSelect from "@lucide/svelte/icons/text-select";
   import X from "@lucide/svelte/icons/x";
   import Conversation from "$lib/Conversation.svelte";
+  import GitProposal from "$lib/GitProposal.svelte";
   import Avatar from "$lib/ui/Avatar.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
@@ -122,6 +123,8 @@
   const icons = { view: LayoutPanelLeft, object: FileText, selection: TextSelect };
 </script>
 
+{#snippet cleanupPlan(text: string)}<GitProposal {text} />{/snippet}
+
 {#snippet chipRow()}
   <div class="ctx">
     <ul aria-label={t("aigContext")}>
@@ -181,7 +184,7 @@
       </div>
     {:else if session}
       {#key session.id}
-        <Conversation {session} bare chips={chipRow} {outgoing} {placeholder} />
+        <Conversation {session} bare chips={chipRow} {outgoing} {placeholder} fences={{ "termf-cleanup": cleanupPlan }} />
       {/key}
     {:else if standing}
       <!-- Its conversation is being opened. -->

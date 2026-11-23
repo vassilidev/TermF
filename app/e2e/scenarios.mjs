@@ -820,6 +820,62 @@ export const scenarios = [
     },
   },
   {
+    name: "git: merged branches and a worktree cleaned up in one go, unpushed work kept, then all put back with Undo",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("git");
+      const folder = join(box.root, "acme-old");
+      const kept = join(box.root, "acme-kept");
+      const spike = join(box.root, "acme-spike");
+      const commitIn = (dir, file) => {
+        writeFileSync(join(dir, file), "not pushed\n");
+        box.git("-C", dir, "add", file);
+        box.git("-C", dir, "commit", "-q", "-m", `Work on ${file}`);
+      };
+      box.git("branch", "merged-one");
+      box.git("branch", "merged-two");
+      box.git("worktree", "add", "-q", "-b", "old-work", folder);
+      // A worktree whose branch holds an unpushed commit: its folder may go, its branch stays.
+      box.git("worktree", "add", "-q", "-b", "kept-work", kept);
+      commitIn(kept, "kept.txt");
+      // A detached worktree whose commit is on no branch: it loses that commit, so it is never picked for you.
+      box.git("worktree", "add", "-q", "--detach", spike);
+      commitIn(spike, "spike.txt");
+      box.git("switch", "-q", "-c", "wip");
+      commitIn(box.acme, "wip.txt");
+      box.git("switch", "-q", "main");
+      const has = (name) => box.git("branch", "--list", name).trim() !== "";
+      await t.ready();
+      await t.project();
+      await t.view("git");
+      await s.click(`${pane} [data-testid="git-clean"]:not([disabled])`);
+      await s.waitFor(`${pane} [data-testid="git-cleanup"] .item`);
+      const row = (text) =>
+        s.exec((css, text) => {
+          const li = [...document.querySelectorAll(css)].find((e) => e.textContent.includes(text));
+          return li ? { checked: li.querySelector("input").checked, text: li.textContent } : null;
+        }, `${pane} [data-testid="git-cleanup"] .item`, text);
+      const spikeRow = await row("acme-spike");
+      check(spikeRow && !spikeRow.checked && /1 commit/.test(spikeRow.text), `the detached worktree's commit is not said, or it is picked: ${JSON.stringify(spikeRow)}`);
+      // The suggestions are picked: what loses nothing. Add the worktree whose branch stays.
+      await s.exec((css) => [...document.querySelectorAll(css)].find((e) => e.textContent.includes("acme-kept"))?.querySelector("input").click(), `${pane} [data-testid="git-cleanup"] .item`);
+      await s.click(`${pane} [data-testid="git-cleanup-apply"]:not([disabled])`);
+      await s.wait(() => !has("merged-one") && !has("merged-two") && !has("old-work") && !existsSync(folder) && !existsSync(kept), {
+        what: "the branches and the worktrees gone",
+      });
+      check(has("wip") && has("kept-work"), "a branch with an unpushed commit was deleted");
+      check(existsSync(spike), "the detached worktree with its own commit was removed");
+      await s.exec(() => [...document.querySelectorAll(".toast-card button")].find((b) => b.querySelector("kbd"))?.click());
+      await s.wait(() => has("merged-one") && has("merged-two") && has("old-work") && existsSync(folder) && existsSync(kept), { what: "everything put back" });
+      // Back on the branch it had, not on a detached HEAD.
+      check(box.git("-C", kept, "branch", "--show-current").trim() === "kept-work", "the worktree came back detached");
+      check(box.git("-C", folder, "branch", "--show-current").trim() === "old-work", "the worktree came back off its branch");
+      await t.settled("git");
+      await t.clean();
+    },
+  },
+  {
     name: "git: a merge conflict resolved with the other branch's side, then the merge continued",
     views: [],
     async run(t) {

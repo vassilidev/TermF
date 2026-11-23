@@ -34,12 +34,17 @@
   import TagPlus from "@lucide/svelte/icons/tag-plus";
   import Trash from "@lucide/svelte/icons/trash";
   import Undo2 from "@lucide/svelte/icons/undo-2";
+  import BrushCleaning from "@lucide/svelte/icons/brush-cleaning";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import NextStep from "$lib/ui/NextStep.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
   import GitChanges from "$lib/GitChanges.svelte";
+  import GitCleanup from "$lib/GitCleanup.svelte";
   import GitDiff from "$lib/GitDiff.svelte";
   import GitFile from "$lib/GitFile.svelte";
   import { showRun } from "$lib/commands";
@@ -52,6 +57,7 @@
   import {
     git,
     type Branch,
+    type Cleanup,
     type Commit,
     type CommitDetail,
     type FileDiff,
@@ -70,17 +76,52 @@
     type Unique,
     type Worktree,
   } from "$lib/git.svelte";
-  import { lanes, localFor, onRemote, path, prFor, samePath, sorted, splitMessage, tally } from "$lib/git-logic";
-  import { provide } from "$lib/ask.svelte";
+  import {
+    cleanupContext,
+    lanes,
+    localFor,
+    nextStep,
+    onRemote,
+    path,
+    pickable,
+    planTarget,
+    prFor,
+    samePath,
+    sorted,
+    splitMessage,
+    tally,
+  } from "$lib/git-logic";
+  import { askAI, provide, type Chip } from "$lib/ask.svelte";
 
-  // The ⌘I panel: the project's expert reads the repository shown (read only).
-  $effect(() => provide("git", { repo: git.repo || undefined, chips: [] }));
+  // The ⌘I panel: the git expert reads the repository shown, what could be cleaned up and the commit open (read only).
+  $effect(() => {
+    const chips: Chip[] = [];
+    if (snap && git.repo) {
+      const text = cleanupContext(git.repo, snap, cleanup, graph?.commits ?? []);
+      chips.push({ id: "git-state", kind: "object", label: t("gitclChipState"), text });
+    }
+    const stopped = snap?.worktrees.find((w) => w.operation);
+    if (stopped?.operation) {
+      const op = stopped.operation;
+      const files = stopped.changes.filter((c) => c.conflict).map((c) => c.path);
+      const text = `A ${op.kind} is stopped in ${stopped.path} (theirs ${op.theirs ?? "?"}${op.onto ? `, onto ${op.onto}, step ${op.step} of ${op.total}` : ""}). Conflicted files: ${files.join(", ") || "none left"}.`;
+      chips.push({ id: "git-op", kind: "object", label: opTitle(op), text });
+    }
+    if (shown?.kind === "commit" && shown.commit) {
+      const c = shown.commit;
+      const d = detail?.commit.oid === c.oid ? detail : null;
+      const files = d ? `\nFiles: ${d.files.map((f) => `${f.path} (+${f.added} −${f.removed})`).join(", ")}` : "";
+      const text = `${c.oid} by ${c.author}, ${new Date(c.date * 1000).toISOString().slice(0, 10)}, parents ${c.parents.join(" ") || "none"}\n${d?.message ?? c.subject}${files}`;
+      chips.push({ id: "git-commit", kind: "selection", label: t("gitclChipCommit", { sha: short(c.oid) }), text });
+    }
+    return provide("git", { repo: git.repo || undefined, chips });
+  });
 
   /** Commits read at first, then each time more are asked for. */
   const STEP = 200;
   /** Lane spacing and row height of the graph, in pixels; lanes past `MAX_LANES` are cut off. */
   const LANE = 14;
-  const ROW = 28;
+  const ROW = 32;
   const MAX_LANES = 16;
 
   type Selection =
@@ -89,13 +130,18 @@
     | { kind: "commit"; oid: string }
     | { kind: "tag"; name: string }
     | { kind: "stash"; oid: string }
-    | { kind: "file"; dir: string; path: string; tab: "history" | "blame" };
-  type Notice = { kind: "ok" | "warn"; text: string; output?: string };
+    | { kind: "file"; dir: string; path: string; tab: "history" | "blame" }
+    | { kind: "cleanup" };
+  /** `diverged`: a pull that could not fast-forward, with the upstream to merge or rebase onto. */
+  type Notice = { kind: "ok" | "warn"; text: string; output?: string; diverged?: string };
   type Mode = "soft" | "mixed" | "hard";
 
   let snap = $state<GitState | null>(null);
   let graph = $state<Graph | null>(null);
   let prs = $state<Pr[]>([]);
+  /** What could be cleaned up, read after the state (it counts each branch's own commits). */
+  let cleanup = $state<Cleanup | null>(null);
+  let cleanupError = $state("");
   let limit = $state(STEP);
   let loading = $state(false);
   let loadError = $state("");
@@ -159,6 +205,7 @@
       if (stash) return { kind: "stash", stash } as const;
     }
     if (s?.kind === "file") return { kind: "file", file: s } as const;
+    if (s?.kind === "cleanup") return { kind: "cleanup" } as const;
     const branch = current ?? groups.local[0];
     if (branch) return { kind: "branch", branch } as const;
     return here ? ({ kind: "worktree", worktree: here } as const) : null;
@@ -197,7 +244,9 @@
     if (!repo) return;
     const r = ++request;
     loading = true;
-    if (!quiet) [snap, graph, prs, loadError, selected, limit, form] = [null, null, [], "", null, STEP, null];
+    // Another repository: the cleanup stays open on it.
+    const keep = selected?.kind === "cleanup" ? selected : null;
+    if (!quiet) [snap, graph, prs, cleanup, cleanupError, loadError, selected, limit, form] = [null, null, [], null, "", "", keep, STEP, null];
     try {
       const [s, g] = await Promise.all([
         invoke<GitState>("git_state", { repo }),
@@ -212,8 +261,56 @@
     } finally {
       if (r === request) loading = false;
     }
-    // gh is optional and slow: its answer comes after, and nothing when it fails.
-    invoke<Pr[]>("git_prs", { repo }).then((found) => repo === git.repo && (prs = found), () => {});
+    // gh is optional and slow: its answer comes after, and nothing when it fails. The cleanup then knows which
+    // branches GitHub merged (a squash leaves their commits out of the default branch).
+    const found = await invoke<Pr[]>("git_prs", { repo }).catch(() => [] as Pr[]);
+    if (r !== request) return;
+    prs = found;
+    readCleanup(r);
+  }
+
+  const suggested = $derived(cleanup ? pickable(cleanup).suggested.length : 0);
+  const openCleanup = () => ([selected, form] = [{ kind: "cleanup" }, null]);
+
+  /** The one next step under the branch's state, the most pressing first. */
+  const next = $derived.by(() => {
+    if (!snap || !here || shown?.kind === "cleanup") return null;
+    const changed = tally(here.changes, here.more).changed;
+    const [behind, ahead] = current?.upstream && !current.gone ? [current.behind, current.ahead] : [0, 0];
+    const kind = nextStep({ operation: !!here.operation, behind, changed, ahead, suggested });
+    const b = current;
+    if (kind === "pull" && b) return { text: t("gitclNextPull", { upstream: b.upstream ?? "", count: behind }), action: { label: t("gitPull"), run: () => pull(b) } };
+    if (kind === "commit") return { text: t("gitclNextCommit", { count: changed }), action: { label: t("gitclSeeChanges"), run: () => ([selected, form] = [{ kind: "worktree", path: here.path }, null]) } };
+    if (kind === "push" && b) return { text: t("gitclNextPush", { count: ahead }), action: { label: t("gitPush"), run: () => push(b) } };
+    if (kind === "cleanup") return { text: t("gitclNextCleanup", { count: suggested }), action: { label: t("gitclClean"), run: openCleanup } };
+    return null;
+  });
+
+  // A cleanup proposed in the ⌘I panel opens here, in its repository.
+  $effect(() => {
+    const p = git.plan;
+    untrack(() => {
+      if (!p) return;
+      // Never another repository's: its branch names could match this one's.
+      const repo = planTarget(p.repo, repos.map((r) => r.path));
+      if (!repo) {
+        git.plan = null;
+        toast(t("gitclPlanNoRepo"), { kind: "error" });
+        return;
+      }
+      [p.repo, git.repo] = [repo, repo];
+      openCleanup();
+    });
+  });
+
+  function readCleanup(r = request) {
+    const repo = git.repo;
+    // A merged pull request vouches for the commit it merged, never for a branch name.
+    const merged = prs.filter((p) => p.state === "MERGED" && p.head).map((p) => p.head);
+    invoke<Cleanup>("git_cleanup", { repo, merged }).then(
+      (c) => r === request && ([cleanup, cleanupError] = [c, ""]),
+      (e) => r === request && (cleanupError = String(e)),
+    );
   }
 
   // Through `load`, so a refresh meanwhile cannot bring back fewer commits than asked for.
@@ -222,10 +319,13 @@
     return load(true);
   }
 
-  async function act(name: string, run: (repo: string) => Promise<{ kind: "ok" | "warn"; text: string } | void>) {
+  async function act(name: string, run: (repo: string) => Promise<Notice | void>) {
     [busy, error, notice] = [name, "", null];
     try {
-      notice = (await run(git.repo)) ?? null;
+      const said = (await run(git.repo)) ?? null;
+      // A plain success is a toast; what needs reading or a choice stays above the view.
+      if (said?.kind === "ok" && !said.output) toast(said.text);
+      else notice = said;
     } catch (e) {
       error = String(e);
     } finally {
@@ -277,16 +377,16 @@
     graphEl?.querySelector(`[data-oid="${oid}"]`)?.scrollIntoView({ block: "nearest" });
   }
 
-  const merge = (b: Branch) =>
+  const merge = (name: string) =>
     act("merge", async (repo) =>
-      after(await invoke<Outcome>("git_merge", { repo, branch: b.name }), t("git2Merged", { branch: b.name, current: snap?.current ?? "" })),
+      after(await invoke<Outcome>("git_merge", { repo, branch: name }), t("git2Merged", { branch: name, current: snap?.current ?? "" })),
     );
 
-  async function askRebase(b: Branch) {
-    rebasing = { onto: b.name, plan: null, open: true };
+  async function askRebase(onto: string) {
+    rebasing = { onto, plan: null, open: true };
     const asked = rebasing;
     try {
-      const plan = await invoke<RebasePlan>("git_rebase_plan", { repo: git.repo, onto: b.name });
+      const plan = await invoke<RebasePlan>("git_rebase_plan", { repo: git.repo, onto });
       if (rebasing === asked) asked.plan = plan;
     } catch (e) {
       if (rebasing === asked) [asked.open, error] = [false, String(e)];
@@ -417,7 +517,7 @@
       const vars = { branch: branch.name, upstream: branch.upstream ?? "", ahead: p.ahead, behind: p.behind };
       if (p.outcome === "updated") return ok(t("gitPulled", vars));
       if (p.outcome === "upToDate") return ok(t("gitUpToDate", vars));
-      if (p.outcome === "diverged") return warn(t("gitDiverged", vars));
+      if (p.outcome === "diverged") return { ...warn(t("gitclDiverged", vars)), diverged: branch.upstream ?? "" };
       return warn(t(p.outcome === "gone" ? "gitPullGone" : "gitPullNoUpstream", vars));
     });
 
@@ -461,24 +561,36 @@
     });
   }
 
+  /** A branch whose commits are all elsewhere goes at once, with Undo; one that would lose commits asks first. */
   async function askRemoval(branch: Branch) {
-    removal = { branch, unique: null, typed: "", open: true };
-    const asked = removal;
+    busy = "delete";
+    let unique: Unique;
     try {
-      const unique = await invoke<Unique>("git_unique", { repo: git.repo, branch: branch.name });
-      if (removal === asked) asked.unique = unique;
+      unique = await invoke<Unique>("git_unique", { repo: git.repo, branch: branch.name });
     } catch (e) {
-      if (removal === asked) [asked.open, error] = [false, String(e)];
+      error = String(e);
+      return;
+    } finally {
+      busy = "";
     }
+    if (unique.total) removal = { branch, unique, typed: "", open: true };
+    else remove(branch);
   }
 
-  function remove() {
-    const branch = removal?.branch;
+  function remove(branch = removal?.branch) {
     if (!branch) return;
+    const { name, tip } = { name: branch.name, tip: branch.tip.oid };
     act("delete", async (repo) => {
-      await invoke("git_branch_delete", { repo, name: branch.name, tip: branch.tip.oid });
+      await invoke("git_branch_delete", { repo, name, tip });
       selected = null;
-      return ok(t("gitDeleted", { name: branch.name }));
+      // The commits stay in the repository: the branch comes back at the same commit.
+      toast(t("gitDeleted", { name }), {
+        undo: () =>
+          invoke("git_branch_create", { repo, name, from: tip, checkout: false }).then(
+            () => (toast(t("gitclRestored", { name })), load(true)),
+            (e) => (error = String(e)),
+          ),
+      });
     });
   }
 
@@ -561,10 +673,19 @@
       .join(" · ");
   }
 
-  /** The labels of a commit: its branches and tags, HEAD when it is detached there. */
+  /**
+   * The labels of a commit: its branches and tags, HEAD when it is detached there. A remote branch at the same commit
+   * as its local twin folds into it (`synced`), so a pushed branch takes one label, not two.
+   */
   function labels(commit: Commit) {
-    const list = commit.refs.map((r) => ({ ...r, head: r.kind === "local" && r.name === snap?.current }));
-    if (snap && snap.current === null && snap.head === commit.oid) list.unshift({ name: "HEAD", kind: "local", head: true });
+    const bare = (name: string) => onRemote({ name, remote: snap?.remotes.find((r) => name.startsWith(`${r}/`)) ?? null });
+    const local = new Set(commit.refs.filter((r) => r.kind === "local").map((r) => r.name));
+    // Local name → its remote twin at this commit.
+    const twins = new Map(commit.refs.filter((r) => r.kind === "remote" && local.has(bare(r.name))).map((r) => [bare(r.name), r.name]));
+    const list = commit.refs
+      .filter((r) => !(r.kind === "remote" && twins.get(bare(r.name)) === r.name))
+      .map((r) => ({ ...r, head: r.kind === "local" && r.name === snap?.current, synced: r.kind === "local" ? twins.get(r.name) : undefined }));
+    if (snap && snap.current === null && snap.head === commit.oid) list.unshift({ name: "HEAD", kind: "local", head: true, synced: undefined });
     return list.sort((a, b) => Number(b.head) - Number(a.head));
   }
 </script>
@@ -600,6 +721,11 @@
       <button class="btn sm primary" onclick={() => proceed(wt.path, "continue")} disabled={!!busy || conflicts > 0} title={conflicts ? t("git2ContinueHint") : undefined}>
         {#if busy === "op:continue"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<StepForward size={14} aria-hidden="true" />{/if}{t("git2Continue")}
       </button>
+      {#if conflicts}
+        <button class="btn sm quiet" onclick={() => askAI({ draft: t("gitclExplainConflictDraft") })}>
+          <Sparkles size={14} aria-hidden="true" />{t("gitclExplainConflict")}
+        </button>
+      {/if}
     </div>
     {#if opOutput}
       <details class="out">
@@ -648,6 +774,18 @@
       </label>
     {/if}
     {#snippet actions()}
+      <button
+        class="btn sm"
+        class:active={shown?.kind === "cleanup"}
+        aria-pressed={shown?.kind === "cleanup"}
+        onclick={() => (shown?.kind === "cleanup" ? (selected = null) : openCleanup())}
+        disabled={!snap}
+        title={t("gitclCleanHint")}
+        data-testid="git-clean"
+      >
+        <BrushCleaning size={14} aria-hidden="true" />{t("gitclClean")}{#if suggested}<span class="pill num">{suggested}</span>{/if}
+      </button>
+      <span class="sep" aria-hidden="true"></span>
       <button class="btn sm" onclick={fetchAll} disabled={!snap || !!busy} title={t("gitFetchHint")}>
         {#if busy === "fetch"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<CloudDownload size={14} aria-hidden="true" />{/if}{t("gitFetch")}
       </button>
@@ -657,8 +795,8 @@
       <button class="btn sm" onclick={() => current && push(current)} disabled={!current || !!busy} title={t("gitPushHint")}>
         {#if busy === `push:${current?.name}`}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<ArrowUpFromLine size={14} aria-hidden="true" />{/if}{t("gitPush")}
       </button>
-      <button class="btn sm" onclick={() => load(true)} disabled={!git.repo || loading}>
-        <RefreshCw size={14} aria-hidden="true" class={loading ? "spin" : ""} />{t("gitRefresh")}
+      <button class="icon-btn" onclick={() => load(true)} disabled={!git.repo || loading} aria-label={t("gitRefresh")} title={t("gitRefresh")}>
+        <RefreshCw size={14} aria-hidden="true" class={loading ? "spin" : ""} />
       </button>
     {/snippet}
   </ViewHeader>
@@ -685,12 +823,27 @@
 
   {#if snap && here?.operation}{@render opBox(here, here.operation)}{/if}
 
+  {#if next && !error && !notice}
+    <div class="next"><NextStep text={next.text} action={next.action} /></div>
+  {/if}
+
   {#if error || notice}
     <div class="banners">
       {#if error}<Banner kind="error" ondismiss={() => (error = "")}><span class="pre">{error}</span></Banner>{/if}
       {#if notice}
+        {@const upstream = notice.diverged}
         <Banner kind={notice.kind} ondismiss={() => (notice = null)}>
           {notice.text}
+          {#snippet action()}
+            {#if upstream}
+              <button class="btn sm" onclick={() => merge(upstream)} disabled={!!busy || !!here?.operation} data-testid="git-pull-merge">
+                <GitMerge size={14} aria-hidden="true" />{t("gitclMergeUpstream", { upstream })}
+              </button>
+              <button class="btn sm" onclick={() => askRebase(upstream)} disabled={!!busy || !!here?.operation} data-testid="git-pull-rebase">
+                <GitCompareArrows size={14} aria-hidden="true" />{t("gitclRebaseUpstream", { upstream })}
+              </button>
+            {/if}
+          {/snippet}
           {#if notice.output && !(notice.kind === "warn" && here?.operation)}
             <details class="out">
               <summary>{t("git2Output")}</summary>
@@ -787,8 +940,18 @@
         {/if}
       </nav>
 
-      <section class="detail" aria-live="polite">
-        {#if shown?.kind === "branch"}
+      <section class="detail" class:wide={shown?.kind === "cleanup"} aria-live={shown?.kind === "cleanup" ? undefined : "polite"}>
+        {#if shown?.kind === "cleanup"}
+          <GitCleanup
+            repo={git.repo}
+            {cleanup}
+            error={cleanupError}
+            plan={git.plan}
+            onchanged={() => load(true)}
+            onretry={() => readCleanup()}
+            onask={() => askAI({ draft: t("gitclAskDraft") })}
+          />
+        {:else if shown?.kind === "branch"}
           {@const b = shown.branch}
           {@const pr = prFor(b, prs, snap.remotes)}
           <header class="card-head">
@@ -840,10 +1003,10 @@
               </button>
             {/if}
             {#if !b.current && snap.current}
-              <button class="btn sm" onclick={() => merge(b)} disabled={!!busy || !!here?.operation} title={t("git2MergeHint", { branch: b.name, current: snap.current })}>
+              <button class="btn sm" onclick={() => merge(b.name)} disabled={!!busy || !!here?.operation} title={t("git2MergeHint", { branch: b.name, current: snap.current })}>
                 {#if busy === "merge"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<GitMerge size={14} aria-hidden="true" />{/if}{t("git2MergeInto", { current: snap.current })}
               </button>
-              <button class="btn sm" onclick={() => askRebase(b)} disabled={!!busy || !!here?.operation} title={t("git2RebaseHint", { branch: b.name, current: snap.current })}>
+              <button class="btn sm" onclick={() => askRebase(b.name)} disabled={!!busy || !!here?.operation} title={t("git2RebaseHint", { branch: b.name, current: snap.current })}>
                 <GitCompareArrows size={14} aria-hidden="true" />{t("git2RebaseOnto", { current: snap.current })}
               </button>
             {/if}
@@ -861,7 +1024,7 @@
               {/if}
               {#if !b.current && !b.worktree}
                 <button class="btn sm quiet danger" onclick={() => askRemoval(b)} disabled={!!busy}>
-                  <Trash size={14} aria-hidden="true" />{t("gitDelete")}
+                  {#if busy === "delete"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Trash size={14} aria-hidden="true" />{/if}{t("gitDelete")}
                 </button>
               {/if}
             {:else if !isDefault(b)}
@@ -946,6 +1109,9 @@
                 <Undo2 size={14} aria-hidden="true" />{t("git2Revert")}
               </button>
             {/if}
+            <button class="btn sm quiet" onclick={() => askAI({ draft: t("gitclExplainCommitDraft", { sha: short(c.oid) }) })}>
+              <Sparkles size={14} aria-hidden="true" />{t("gitclExplainCommit")}
+            </button>
             {#if snap.current && c.oid !== snap.head}
               <button class="btn sm quiet danger" onclick={() => askReset(c)} disabled={!!busy || !!here?.operation}>
                 <Rewind size={14} aria-hidden="true" />{t("git2ResetHere", { branch: snap.current })}
@@ -1077,6 +1243,9 @@
           </form>
         {/if}
 
+        {#if shown?.kind === "cleanup"}
+          <!-- The cleanup takes the whole pane. -->
+        {:else}
         <h3 class="history">{t("gitHistory")}</h3>
         {#if !graph.commits.length}
           <p class="muted small">{t("gitNoCommit")}</p>
@@ -1102,14 +1271,13 @@
                   </svg>
                   <span class="message">
                     {#each labels(commit) as ref (ref.kind + ref.name)}
-                      <span class="ref {ref.kind}" class:head={ref.head}>
-                        {#if ref.kind === "tag"}<Tag size={11} aria-hidden="true" />{:else if ref.kind === "remote"}<Cloud size={11} aria-hidden="true" />{:else}<GitBranch size={11} aria-hidden="true" />{/if}<span>{ref.name}</span>
+                      <span class="ref {ref.kind}" class:head={ref.head} title={ref.synced ? `${ref.name} = ${ref.synced}` : undefined}>
+                        {#if ref.kind === "tag"}<Tag size={11} aria-hidden="true" />{:else if ref.kind === "remote"}<Cloud size={11} aria-hidden="true" />{:else}<GitBranch size={11} aria-hidden="true" />{/if}<span>{ref.name}</span>{#if ref.synced}<Cloud size={11} aria-label={ref.synced} />{/if}
                       </span>
                     {/each}
                     <span class="subject" class:merge={commit.parents.length > 1}>{commit.subject}</span>
                   </span>
-                  <span class="author">{commit.author}</span>
-                  <span class="when">{ago(commit.date)}</span>
+                  <span class="when" title={commit.author}>{ago(commit.date)}</span>
                   <span class="sha mono">{short(commit.oid)}</span>
                 </button>
               </li>
@@ -1118,6 +1286,7 @@
           {#if graph.more}
             <button class="btn sm more" onclick={more}>{t("gitMore")}</button>
           {/if}
+        {/if}
         {/if}
       </section>
     </div>
@@ -1129,7 +1298,10 @@
   <ConfirmDialog
     bind:open={r.open}
     title={t("gitDeleteTitle", { name: r.branch.name })}
-    confirm={t("gitDelete")}
+    confirm={r.unique?.total
+      ? t("gitclDeleteLose", { loss: r.unique.total === 1 ? t("gitclCommitsOne") : t("gitclCommits", { count: r.unique.total }) })
+      : t("gitDelete")}
+    cancel={t("uiF1DialogKeep")}
     danger={!r.unique || r.unique.total > 0}
     disabled={!r.unique || (r.unique.total > 0 && r.typed !== r.branch.name)}
     onconfirm={remove}
@@ -1674,11 +1846,11 @@
 
   .commit {
     display: grid;
-    grid-template-columns: var(--graph) minmax(0, 1fr) minmax(0, 110px) 92px 60px;
+    grid-template-columns: var(--graph) minmax(0, 1fr) 96px 64px;
     align-items: center;
     gap: 12px;
     width: 100%;
-    height: 28px;
+    height: 32px;
     padding: 0 12px;
     border: 0;
     border-radius: var(--radius);
@@ -1794,7 +1966,7 @@
     font-weight: 600;
   }
 
-  .author,
+  .sha,
   .when {
     overflow: hidden;
     color: var(--muted);
@@ -1842,10 +2014,43 @@
       grid-template-columns: var(--graph) minmax(0, 1fr) 84px;
     }
 
-    .author,
     .sha {
       display: none;
     }
+  }
+
+  .next {
+    padding: 10px 14px 0;
+  }
+
+  .pill {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: var(--radius-pill);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    line-height: 17px;
+    text-align: center;
+  }
+
+  .sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 2px;
+    background: var(--border);
+  }
+
+  .btn.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+  }
+
+  /* The everyday actions first; what destroys something stands apart at the end. */
+  .actions > .btn:not(.danger) + .btn.danger {
+    margin-left: auto;
   }
 
   @container git (max-width: 700px) {
