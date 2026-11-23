@@ -121,9 +121,10 @@ impl Target {
     }
 }
 
-/// `<ticket …>…</ticket>` of a run's brief.
+/// `<ticket …>…</ticket>` of a run's brief. The frame's tag has attributes: the bare `<ticket>` before it is the
+/// preamble's, whose words ("reveal secrets") would make every ticket look sensitive.
 pub fn ticket_block(brief: &str) -> Option<&str> {
-    let start = brief.find("<ticket")?;
+    let start = brief.find("<ticket ")?;
     let end = brief.rfind("</ticket>")? + "</ticket>".len();
     (start < end).then(|| &brief[start..end])
 }
@@ -1041,6 +1042,24 @@ impl Team {
             stopped.push(run);
         }
         Ok(stopped)
+    }
+
+    /// The team of a run being closed or cleaned up stops with it, waiting at a gate or at work: its worktree is
+    /// about to go. Nothing for a team not at work.
+    pub fn run_closed(&self, id: i64) -> Result<()> {
+        let inner = &self.inner;
+        let _lock = inner.lock.lock().unwrap();
+        let store = inner.store()?;
+        let mut run = inner.get(&store, id)?;
+        if run.state.active() {
+            inner.halt(
+                &store,
+                &mut run,
+                RunState::Stopped,
+                "its ticket run was closed",
+            )?;
+        }
+        Ok(())
     }
 
     /// Rule levels for the ticket (`task: None`) or a task of the plan, for the steps that start from now.
@@ -3416,6 +3435,17 @@ impl Inner {
         });
         let writes = role.map(|r| list(r.meta.get("writes"))).unwrap_or_default();
         let paths = squad.map(|s| s.paths).unwrap_or_default();
+        // The shipped visual review follows a screen whoever builds it (the triage gives the page of a project without
+        // a front role to back), on what the plan and the report declare: for another role, a file alone may be a
+        // test or an e-mail template. A rule of the user's keeps its own roles.
+        if rules.iter().any(|r| {
+            r.shipped
+                && r.level >= Level::Warn
+                && r.check.as_deref() == Some("ui-changed")
+                && !r.applies(&task.role, squad_id.as_deref())
+        }) {
+            run.ui_changed |= task.ui_impact || !report.affected_views.is_empty();
+        }
         for rule in rules
             .iter()
             .filter(|r| r.level >= Level::Warn && r.applies(&task.role, squad_id.as_deref()))
@@ -4296,10 +4326,15 @@ impl Inner {
                     && run.steps[i].feedback.is_none()
                     && let Some(mut task) = run.routing.as_ref().and_then(|r| r.task.clone())
                 {
-                    // The ticket's numbered criteria, as the reports name them: AC1, AC2…
+                    // The ticket's numbered criteria, as the reports name them: AC1, AC2… A criterion given with its
+                    // text ("AC4: a JSON export") keeps the id alone, else no report could ever cover it.
+                    let mut said = Vec::new();
                     for c in &mut task.covers {
                         if !c.is_empty() && c.chars().all(|ch| ch.is_ascii_digit()) {
                             *c = format!("AC{c}");
+                        } else if let Some((id, text)) = plan::criterion_with_text(c) {
+                            said.push((id.clone(), text));
+                            *c = id;
                         }
                     }
                     let summary = run.routing.as_ref().map(|r| r.reason.clone());
@@ -4308,9 +4343,10 @@ impl Inner {
                     let mut acceptance = plan::ticket_criteria(&run.target.brief);
                     for c in &task.covers {
                         if !acceptance.iter().any(|a| &a.id == c) {
+                            let text = said.iter().find(|(id, _)| id == c).map(|(_, t)| t.clone());
                             acceptance.push(plan::Criterion {
                                 id: c.clone(),
-                                text: format!("{c} of the ticket"),
+                                text: text.unwrap_or_else(|| format!("{c} of the ticket")),
                             });
                         }
                     }

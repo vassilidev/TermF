@@ -9,7 +9,7 @@ import { app, onScreen, setProject, ui, waitingSessions } from "$lib/state.svelt
 import { ops } from "$lib/ops.svelte";
 import { agentEnv } from "$lib/agentenv.svelte";
 import { asks, type Ask, type TeamRun } from "$lib/team-run-logic";
-import { team } from "$lib/team.svelte";
+import { openRun, team } from "$lib/team.svelte";
 import { tickets } from "$lib/tickets.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { focusSession } from "$lib/commands";
@@ -37,6 +37,7 @@ export type Decision = { key: string; run: TeamRun; step: string; ask: Ask | nul
 export function decisions(project: string | null): Decision[] {
   return team.runs
     .filter((r) => project === null || r.target.project === project)
+    .filter(openRun)
     .flatMap((run) => {
       const list: Decision[] = asks(run).map((ask) => ({ key: askKey(run.run, ask.step.key), run, step: ask.step.key, ask }));
       const ticket = tickets.runs.find((r) => r.id === run.run);
