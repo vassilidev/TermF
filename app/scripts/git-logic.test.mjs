@@ -2,12 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   changeKind,
+  chosen,
+  cleanupContext,
   joinMessage,
+  keyOf,
   lanes,
   localFor,
+  matchPlan,
+  nextStep,
   onRemote,
   path,
+  pickable,
   picks,
+  planOf,
   prFor,
   runs,
   samePath,
@@ -186,4 +193,53 @@ test("a worktree's folder relative to the repository's", () => {
   assert.equal(within("/w/acme/", "/w/acme/.claude/worktrees/run-7"), ".claude/worktrees/run-7");
   assert.equal(within("C:\\w\\acme", "C:/w/acme/wt"), "wt");
   assert.equal(within("/w/acme", "/w/acme-other"), null);
+});
+
+const tip1 = { oid: "a1", author: "Alex", date: 1_700_000_000, subject: "Fix" };
+const br = (name, o = {}) => ({ name, tip: tip1, reasons: [], lost: 0, run: null, blocked: null, suggested: false, ...o });
+const wt = (path, o = {}) => ({ path, branch: null, head: "h", date: 0, subject: "", reasons: [], lost: 0, changes: 0, run: null, closeRun: false, blocked: null, suggested: false, ...o });
+const mess = {
+  defaultBranch: "origin/main",
+  branches: [br("merged", { reasons: ["merged"], suggested: true }), br("wip", { lost: 3 }), br("run-8", { blocked: "runOpen", lost: 1 })],
+  worktrees: [wt("/w/run-6", { branch: "termf/run-6", lost: 2, reasons: ["prMerged", "run"], suggested: true }), wt("/w/dirty", { changes: 4 })],
+};
+
+test("a cleanup selection: worktrees first, what it loses, blocked items never in it", () => {
+  const c = chosen(mess, new Set(["b:merged", "b:wip", "b:run-8", "w:/w/dirty", "w:/w/run-6"]));
+  assert.deepEqual(c.worktrees.map(keyOf), ["w:/w/run-6", "w:/w/dirty"]);
+  assert.deepEqual(c.branches.map(keyOf), ["b:merged", "b:wip"]);
+  assert.deepEqual([c.lost, c.changes, c.count], [5, 4, 4]);
+  assert.deepEqual(pickable(mess), { all: ["w:/w/run-6", "w:/w/dirty", "b:merged", "b:wip"], suggested: ["w:/w/run-6", "b:merged"] });
+});
+
+test("a cleanup proposed by the expert, matched against what can go", () => {
+  const text = "repo /w/acme\n- branch merged\nbranch `wip`\nworktree /w/run-6/\nbranch run-8\nbranch nope\nrm -rf /\nbranch merged";
+  const plan = planOf(text);
+  assert.equal(plan.repo, "/w/acme");
+  assert.deepEqual(plan.keys, ["b:merged", "b:wip", "w:/w/run-6/", "b:run-8", "b:nope"]);
+  // A blocked branch and an unknown one are not picked.
+  assert.deepEqual(matchPlan(mess, plan.keys), { keys: ["b:merged", "b:wip", "w:/w/run-6"], unknown: 2 });
+  assert.deepEqual(planOf("nothing here"), { repo: null, keys: [] });
+});
+
+test("the Git view's one next step, the most pressing first", () => {
+  const f = { operation: false, behind: 0, changed: 0, ahead: 0, suggested: 0 };
+  assert.equal(nextStep(f), null);
+  assert.equal(nextStep({ ...f, suggested: 2 }), "cleanup");
+  assert.equal(nextStep({ ...f, suggested: 2, ahead: 1 }), "push");
+  assert.equal(nextStep({ ...f, ahead: 1, changed: 3 }), "commit");
+  assert.equal(nextStep({ ...f, changed: 3, behind: 2 }), "pull");
+  assert.equal(nextStep({ ...f, behind: 2, operation: true }), null);
+});
+
+test("the expert reads what can go, what each loses, the history and how to propose a cleanup", () => {
+  const text = cleanupContext("/w/acme", { current: "main", defaultBranch: "origin/main" }, mess, [{ oid: "abcdef12", author: "Bo", date: 1_700_000_000, subject: "Ship it" }]);
+  assert.match(text, /- merged: merged · 0 commit\(s\) only here · last commit 2023-11-14 "Fix"/);
+  assert.match(text, /- wip: in progress · 3 commit\(s\) only here/);
+  assert.match(text, /- run-8: .* cannot go: its run is still open/);
+  assert.match(text, /- \/w\/run-6: branch termf\/run-6 goes with it · pull request merged, TermF run over · 0 uncommitted change\(s\) · 2 commit\(s\) lost/);
+  assert.match(text, /- \/w\/dirty: its branch stays · in progress · 4 uncommitted/);
+  assert.match(text, /- abcdef1 Ship it \(Bo, 2023-11-14\)/);
+  assert.match(text, /language is termf-cleanup/);
+  assert.doesNotMatch(cleanupContext("/w/acme", { current: null, defaultBranch: null }, null, []), /Local branches/);
 });

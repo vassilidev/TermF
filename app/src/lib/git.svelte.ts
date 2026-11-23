@@ -95,12 +95,50 @@ export type RebasePlan = { commits: Commit[]; total: number; pushed: number };
 export type ResetPlan = { branch: string; leaving: number; lost: Unique; changes: Change[] };
 export type ForcePlan = { remote: string; theirs: string; lost: Unique };
 
+/** Why a branch or a worktree can go. */
+export type Reason = "merged" | "prMerged" | "gone" | "stale" | "run" | "detached" | "prunable";
+/** Why it is listed but cannot be picked. */
+export type Blocked = "locked" | "runOpen";
+/** `lost`: the commits only it holds. `suggested`: done with, and what it loses is merged. */
+export type BranchCleanup = { name: string; tip: Tip; reasons: Reason[]; lost: number; run: number | null; blocked: Blocked | null; suggested: boolean };
+/**
+ * `branch`: deleted with it (else it stays), `head` its tip; `lost`: the commits lost with that branch; `changes`: the
+ * uncommitted ones lost with the folder; `closeRun`: cleaning it closes its run.
+ */
+export type WorktreeCleanup = {
+  path: string;
+  branch: string | null;
+  head: string | null;
+  date: number;
+  subject: string;
+  reasons: Reason[];
+  lost: number;
+  changes: number;
+  run: number | null;
+  closeRun: boolean;
+  blocked: Blocked | null;
+  suggested: boolean;
+};
+export type Cleanup = { defaultBranch: string | null; branches: BranchCleanup[]; worktrees: WorktreeCleanup[] };
+/** A cleanup proposed in the ⌘I panel: what it picks (`b:<branch>`, `w:<path>`), and whether to apply it at once. */
+export type Plan = { repo: string; keys: string[]; apply: boolean; id: number };
+
 export const git = $state({
   /** Loaded once first shown, then kept mounted. */
   loaded: false,
   /** The repository's path, one of the current project's. */
   repo: "",
+  /** The last cleanup proposed, for the view to show. */
+  plan: null as Plan | null,
 });
+
+let plans = 0;
+
+/** Opens the cleanup of the Git view with the items a proposal picked; `apply` goes on to apply them. */
+export function proposeCleanup(repo: string, keys: string[], apply: boolean) {
+  git.plan = { repo, keys, apply, id: ++plans };
+  showGit();
+}
 
 export function showGit() {
   ui.view = "git";
