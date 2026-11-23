@@ -41,6 +41,9 @@ pub enum Mode {
     Headless,
     /// An interactive session in a tile; needs TermF open.
     Tile,
+    /// The library scout (`termf library scout`) of the project whose repository `dir` is, else of the global
+    /// library; `model` and `budget` stand for `[scout]`'s, the prompt is not used.
+    Scout,
 }
 
 fn yes() -> bool {
@@ -216,7 +219,10 @@ fn check_word(what: &str, value: &Option<String>) -> Result<()> {
 fn checked(mut task: Task, previous: Option<&Task>, machine: &str) -> Result<Task> {
     task.name = task.name.trim().replace(['\n', '\r'], " ");
     ensure!(!task.name.is_empty(), "a task needs a name");
-    ensure!(!task.prompt.trim().is_empty(), "a task needs a prompt");
+    ensure!(
+        task.mode == Mode::Scout || !task.prompt.trim().is_empty(),
+        "a task needs a prompt"
+    );
     task.cron = task.cron.split_whitespace().collect::<Vec<_>>().join(" ");
     upcoming(&task.cron, now(), 1)?;
     for value in [
@@ -358,8 +364,8 @@ impl Scheduler {
         self.store()?.track(&id, &task, now())?;
         if self.installed(&id) {
             match (task.mode, termf) {
-                (Mode::Headless, Some(termf)) if here => self.install(&id, termf)?,
-                (Mode::Headless, None) if here => {}
+                (Mode::Headless | Mode::Scout, Some(termf)) if here => self.install(&id, termf)?,
+                (Mode::Headless | Mode::Scout, None) if here => {}
                 _ => self.uninstall(&id)?,
             }
         }
@@ -421,6 +427,12 @@ impl Scheduler {
 
     /// Runs a claimed headless run to its end with `agent`, the command of a Claude Code agent.
     pub fn run_headless(&self, run: &Execution, task: &Task, agent: &str) -> Result<Execution> {
+        if task.mode == Mode::Scout {
+            let outcome = self
+                .scout(task)
+                .unwrap_or_else(|e| run::failed(format!("{e:#}")));
+            return self.finish(run.id, &outcome);
+        }
         let store = self.store()?;
         let outcome = match termf_core::claude::in_command(agent, termf_term::shell_quote) {
             Ok((agent, claude)) => run::headless(
@@ -437,6 +449,54 @@ impl Scheduler {
             Err(e) => run::failed(format!("{e:#}")),
         };
         self.finish(run.id, &outcome)
+    }
+
+    /// A scheduled scout never replaces results the owner has not reviewed yet.
+    fn scout(&self, task: &Task) -> Result<Outcome> {
+        use termf_library::scout;
+        let dir = termf_core::expand_tilde(&task.dir);
+        let project = termf_core::load_projects(&self.config_dir)?
+            .into_iter()
+            .find(|p| p.repos.iter().any(|r| Path::new(&r.path) == dir))
+            .map(|p| p.id);
+        let project = project.as_deref();
+        if let Some(draft) = scout::state(&self.config_dir, project)?.draft {
+            return Ok(Outcome {
+                status: Status::Succeeded,
+                cost: None,
+                output: Some(format!(
+                    "Skipped: {} results of the last watch still wait for review in the Library.",
+                    draft.entries.len()
+                )),
+                error: None,
+            });
+        }
+        let options = scout::Options {
+            model: task.model.clone(),
+            budget: task.budget,
+            cancel: None,
+        };
+        let claude = termf_core::load_settings(&self.config_dir)
+            .unwrap_or_default()
+            .claude_program();
+        let draft = scout::run(
+            &self.config_dir,
+            project,
+            &[],
+            &options,
+            &[claude],
+            &mut |_| {},
+        )?;
+        Ok(Outcome {
+            status: Status::Succeeded,
+            cost: draft.cost,
+            output: Some(format!(
+                "{} results to review in the Library ({} dropped).",
+                draft.entries.len(),
+                draft.dropped.len()
+            )),
+            error: None,
+        })
     }
 
     /// Fails the runs left running whose process is gone, and those running for longer than a run may.
@@ -503,7 +563,7 @@ impl Scheduler {
         for id in system.installed_ids() {
             let task = tasks
                 .get(&id)
-                .filter(|t| t.mode == Mode::Headless && self.runs_here(t));
+                .filter(|t| t.mode != Mode::Tile && self.runs_here(t));
             let result = match task.map(|t| (t, Cron::parse(&t.cron))) {
                 Some((task, Ok(cron))) => {
                     let files = system.files(&id, &task.name, termf, &cron, task.catchup);

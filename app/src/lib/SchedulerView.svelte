@@ -414,7 +414,7 @@
               <dt>{t("schedulerMetaDir")}</dt>
               <dd class="mono">{shortPath(current.dir)}</dd>
               <dt>{t("schedulerMetaMode")}</dt>
-              <dd>{current.mode === "headless" ? t("schedulerModeHeadless") : t("schedulerModeTile")}</dd>
+              <dd>{current.mode === "scout" ? t("watchModeScout") : current.mode === "headless" ? t("schedulerModeHeadless") : t("schedulerModeTile")}</dd>
               <dt>{t("schedulerMetaModel")}</dt>
               <dd>{current.model ?? t("schedulerDefault")}</dd>
               <dt>{t("schedulerMetaEffort")}</dt>
@@ -423,7 +423,7 @@
               <dd>
                 {current.permissions ? (permissions[current.permissions] ? t(permissions[current.permissions]) : current.permissions) : t("schedulerDefault")}
               </dd>
-              {#if current.mode === "headless"}
+              {#if current.mode !== "tile"}
                 <dt>{budgetLabel(t("schedulerMetaBudget"))}</dt>
                 <dd>{current.budget !== null ? cost(current.budget) : "—"}</dd>
               {/if}
@@ -431,8 +431,12 @@
               <dd>{current.catchup ? t("schedulerCatchupOn") : t("schedulerCatchupOff")}</dd>
             </dl>
 
-            <h3>{t("schedulerPrompt")}</h3>
-            <pre class="prompt">{current.prompt}</pre>
+            {#if current.mode === "scout"}
+              <p class="muted">{t("watchModeScoutHelp")}</p>
+            {:else}
+              <h3>{t("schedulerPrompt")}</h3>
+              <pre class="prompt">{current.prompt}</pre>
+            {/if}
 
             <h3>{t("schedulerHistory")}</h3>
             <ol class="history">
@@ -452,7 +456,7 @@
                     {/if}
                     {#if run.output}
                       <pre class="output">{run.output}</pre>
-                    {:else if run.mode === "headless" && run.status !== "running" && !run.error}
+                    {:else if run.mode !== "tile" && run.status !== "running" && !run.error}
                       <p class="muted small">{t("schedulerNoOutput")}</p>
                     {/if}
                   </details>

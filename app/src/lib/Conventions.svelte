@@ -9,6 +9,8 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Plus from "@lucide/svelte/icons/plus";
+  import ScanSearch from "@lucide/svelte/icons/scan-search";
+  import Users from "@lucide/svelte/icons/users";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Sparkles from "@lucide/svelte/icons/sparkles";
@@ -23,6 +25,9 @@
   import { readText, type Read } from "$lib/onboarding.svelte";
   import type { Project } from "$lib/state.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
+  import { upsertRun } from "$lib/team.svelte";
+  import type { TeamRun } from "$lib/team-run-logic";
   import StatusPill from "$lib/ui/StatusPill.svelte";
 
   type ItemKind = "rule" | "hook" | "preference" | "skill" | "command" | "role" | "repo";
@@ -66,7 +71,7 @@
     diff: Diff[];
     active: string[];
   };
-  type Impact = { name: string; repo: string } & (
+  type Impact = { name: string; repo: string; changes: boolean } & (
     | { status: "done"; count: number; findings: string[] }
     | { status: "unsupported" }
     | { status: "failed"; message: string }
@@ -77,6 +82,7 @@
 
   let model = $state("");
   let effort = $state("");
+  let budget = $state(0);
   let list = $state<Convention[]>([]);
   let loaded = $state(false);
   let slug = $state("");
@@ -105,6 +111,8 @@
   const dirty = $derived(!!current && text !== current.source);
   const pending = $derived(draft?.items.filter((i) => i.review === "pending").length ?? 0);
   const accepted = $derived(draft?.items.filter((i) => i.review === "accepted").length ?? 0);
+  /** Accepted repository files, which the team may deliver instead. */
+  const toTeam = $derived(draft?.items.filter((i) => i.review === "accepted" && i.kind === "repo").length ?? 0);
 
   const kindInfo: Record<ItemKind, { icon: Component; label: Parameters<typeof t>[0] }> = {
     rule: { icon: ShieldCheck, label: "convRule" },
@@ -130,10 +138,10 @@
 
   onMount(async () => {
     try {
-      const data = await invoke<{ model: string; effort: string; list: Convention[] }>("conventions_list", {
+      const data = await invoke<{ model: string; effort: string; budget: number; list: Convention[] }>("conventions_list", {
         project: project.id,
       });
-      ({ model, effort, list } = data);
+      ({ model, effort, budget, list } = data);
       loaded = true;
       if (only) {
         select(only);
@@ -142,12 +150,86 @@
         if (current?.source.trim() && (!last || (last.from && last.from !== current.source))) await propose();
         return;
       }
-      select(list[0]?.slug ?? "");
+      // The to-do may name the convention to open, or ask for one drawn from the code.
+      const asked = library.convention;
+      const deducing = library.deduce;
+      Object.assign(library, { convention: null, deduce: false });
+      select(list.some((c) => c.slug === asked) ? (asked as string) : (list[0]?.slug ?? ""));
       creating = !list.length;
+      if (deducing) await deduce();
     } catch (e) {
       error = String(e);
     }
   });
+
+  /** A convention whose text says to follow what the code already does, proposed at once. */
+  async function deduce() {
+    const base = t("watchDeduceSlug");
+    let next = base;
+    for (let n = 2; list.some((c) => c.slug === next); n++) next = `${base}-${n}`;
+    slug = next;
+    if (!(await update("conventions_save", { source: t("watchDeduceText") }))) return;
+    select(next);
+    await propose();
+  }
+
+  async function discard() {
+    if (!(await update("conventions_discard"))) return;
+    const at = slug;
+    toast(t("watchConvDiscarded"), {
+      undo: async () => {
+        const back = await invoke<Convention>("conventions_restore", { project: project.id, slug: at }).catch((e) => {
+          toast(String(e), { kind: "error" });
+          return null;
+        });
+        if (back) {
+          put(back);
+          toast(t("watchConvRestored"), { kind: "info" });
+        }
+      },
+    });
+  }
+
+  /** The accepted repository files go to the team (one run per repository, delivered as a pull request); the
+   * rest applies here. */
+  async function handOff() {
+    if (!draft) return;
+    const files = draft.items.filter((i) => i.review === "accepted" && i.kind === "repo");
+    running = "team";
+    error = "";
+    try {
+      // Applied first: a file changed since the proposal stops everything, and once applied the draft is gone, so
+      // a run that fails below is never started twice by trying again.
+      const convention = await invoke<Convention>("conventions_apply", { project: project.id, slug, repos: false });
+      put(convention);
+      library.version++;
+      const repos = [...new Set(files.map((f) => f.repo))];
+      for (const repo of repos) {
+        const text = t("watchTeamConvRequest", {
+          repo,
+          slug,
+          files: files
+            .filter((f) => f.repo === repo)
+            .map((f) => t("watchTeamConvFile", { path: f.path, why: f.description, sentence: f.sentence, content: f.content.trimEnd() }))
+            .join("\n\n"),
+        });
+        const run = await invoke<TeamRun>("team_start", { run: null, request: { text, project: project.id, repo }, options: {} }).catch(
+          (e) => {
+            toast(t("watchTeamFailed", { repo, error: String(e) }), { kind: "error" });
+            return null;
+          },
+        );
+        if (run) {
+          upsertRun(run);
+          toast(t("watchTeamStarted", { run: run.run }));
+        }
+      }
+    } catch (e) {
+      error = String(e);
+    } finally {
+      running = "";
+    }
+  }
 
   function select(next: string) {
     slug = next;
@@ -269,7 +351,14 @@
         {#each results as r (r.repo)}
           <li>
             <span class="repo">{r.repo}</span>
-            {#if r.status === "done"}
+            {#if r.status === "done" && r.changes}
+              <span class:clean={!r.count} class:found={r.count} title={t("watchImpactChanges")}>
+                {r.count ? t("watchImpactRecent", { count: r.count }) : t("watchImpactRecentClean")}
+              </span>
+              {#if r.findings.length}
+                <pre class="findings">{r.findings.join("\n")}</pre>
+              {/if}
+            {:else if r.status === "done"}
               <span class:clean={!r.count} class:found={r.count}>
                 {r.count ? t("impactCount", { count: r.count }) : t("impactClean")}
               </span>
@@ -322,6 +411,17 @@
         <Sparkles size={20} aria-hidden="true" />
         <h2>{t("convIntroTitle")}</h2>
         <p>{t("convIntro")}</p>
+        <div class="deduce">
+          <div>
+            <h3>{t("watchDeduceTitle")}</h3>
+            <p>{t("watchDeduceHint")}</p>
+            <p class="model">{t("convModel", { model, effort })} · {t("watchConvBudget", { budget: money.format(budget) })}</p>
+          </div>
+          <button class="btn primary" onclick={deduce} disabled={!!running}>
+            <ScanSearch size={14} aria-hidden="true" />{t("watchDeduce")}
+          </button>
+        </div>
+        <p class="or">{t("watchOrWrite")}</p>
         <form class="new" onsubmit={create}>
           <input
             class="field"
@@ -333,7 +433,7 @@
           {#if list.length}
             <button type="button" class="btn" onclick={() => (creating = false)}>{t("cancel")}</button>
           {/if}
-          <button type="submit" class="btn primary" disabled={!slugify(newName)}>{t("convCreate")}</button>
+          <button type="submit" class="btn" disabled={!slugify(newName)}>{t("convCreate")}</button>
         </form>
       </div>
     {:else}
@@ -342,7 +442,7 @@
           <h2>{current.slug}</h2>
           <p class="model">
             <Sparkles size={13} aria-hidden="true" />
-            {t("convModel", { model, effort })}
+            {t("convModel", { model, effort })} · {t("watchConvBudget", { budget: money.format(budget) })}
             <span class="hint">{t("convModelHint")}</span>
           </p>
         </div>
@@ -594,9 +694,20 @@
               {t("convMeasure")}
             </button>
             <span class="muted small grow">{t("convMeasureHelp")}</span>
-            <button class="btn quiet" onclick={() => update("conventions_discard")} disabled={!!running}>
-              {t("convDiscard")}
+            <button class="btn quiet" onclick={discard} disabled={!!running}>
+              {t("cancel")}
             </button>
+            {#if toTeam}
+              <button
+                class="btn"
+                onclick={handOff}
+                disabled={!!running || pending > 0}
+                title={t("watchTeamConvHelp", { count: toTeam })}
+              >
+                {#if running === "team"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Users size={14} aria-hidden="true" />{/if}
+                {t("watchTeam")}
+              </button>
+            {/if}
             <button
               class="btn primary"
               onclick={() => update("conventions_apply")}
@@ -807,6 +918,52 @@
   .intro h2 {
     margin: 8px 0 6px;
     color: var(--text);
+  }
+
+  .deduce {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 24px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    box-shadow: var(--shadow-1);
+    text-align: left;
+  }
+
+  .deduce h3 {
+    color: var(--text);
+  }
+
+  .deduce p {
+    margin: 4px 0 0;
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+
+  .deduce .model {
+    color: var(--soft);
+    font-size: var(--text-xs);
+  }
+
+  .deduce .btn {
+    flex-shrink: 0;
+  }
+
+  .intro .deduce :global(svg) {
+    color: inherit;
+  }
+
+  .or {
+    margin: 20px 0 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .or + .new {
+    margin-top: 8px;
   }
 
   h2 {

@@ -588,6 +588,45 @@ fn run_tool(
         McpCall::MemoryRead { id: doc, offset } => {
             serde_json::to_value(memory::read(app, id, doc, offset.unwrap_or(0))?)?
         }
+        McpCall::ProposeConventions { text, name } => {
+            crate::library::mcp_propose(app, id, text, name)?
+        }
+        McpCall::RunScout { items } => crate::library::mcp_scout(app, id, &items)?,
+        McpCall::StartOnboarding { lang } => crate::onboarding::mcp_analyze(app, id, lang)?,
+        McpCall::ScheduleTask {
+            name,
+            cron,
+            prompt,
+            scout,
+            model,
+            budget,
+        } => {
+            let dir = project(app, id)?
+                .repos
+                .first()
+                .context("the project has no repository")?
+                .path
+                .clone();
+            let task = termf_schedule::Task {
+                name,
+                prompt: prompt.unwrap_or_default(),
+                dir,
+                cron,
+                mode: match scout {
+                    true => termf_schedule::Mode::Scout,
+                    false => termf_schedule::Mode::Headless,
+                },
+                model,
+                effort: None,
+                permissions: None,
+                budget,
+                machine: None,
+                enabled: true,
+                catchup: true,
+            };
+            let task = crate::schedule::save_here(app, task)?;
+            json!({ "task": task, "shown": "in TermF's Scheduler, where the user edits or deletes it" })
+        }
         McpCall::AskExpert { question } => {
             let answer = memory::ask(app, id, &question, None)?;
             json!({ "answer": answer.text, "conversation": answer.session, "cost": answer.cost })
