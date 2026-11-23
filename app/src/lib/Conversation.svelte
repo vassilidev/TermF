@@ -25,7 +25,7 @@
   import Action from "$lib/Action.svelte";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
-  import { changeOf, diffOf, question, within } from "$lib/ask-logic";
+  import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
   import { phrase as actPhrase } from "$lib/live-logic";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -415,16 +415,24 @@
     }
     if (!(await answer(ask, true))) return;
     const what = change ? shortPath(change.path) : asks(ask.tool);
-    if (at && before !== null) {
+    const after = before === null ? null : afterChange(ask.tool, ask.input, before);
+    if (at && before !== null && after !== null) {
       const text = before;
-      toast(t("aigApplied", { what }), {
-        undo: () =>
-          invoke("files_write", { repo: at.repo, path: at.rel, text }).then(
-            () => toast(t("aigUndone", { what }), { kind: "info" }),
-            (e) => toast(String(e), { kind: "error" }),
-          ),
-      });
+      toast(t("aigApplied", { what }), { undo: () => restore(at, text, after, what) });
     } else toast(t("aigAppliedFinal", { what }));
+  }
+
+  /** Puts a file back as it was, only while it is still as the change left it: a later change is never lost. */
+  async function restore(at: { repo: string; rel: string }, before: string, after: string, what: string) {
+    try {
+      const now = await invoke<{ kind: string; text?: string; stamp: unknown }>("files_read", { repo: at.repo, path: at.rel });
+      if (now.kind !== "text" || now.text !== after) return void toast(t("aigUndoChanged", { what }), { kind: "error" });
+      const saved = await invoke<{ kind: string }>("files_write", { repo: at.repo, path: at.rel, text: before, stamp: now.stamp });
+      if (saved.kind === "conflict") return void toast(t("aigUndoChanged", { what }), { kind: "error" });
+      toast(t("aigUndone", { what }), { kind: "info" });
+    } catch (e) {
+      toast(String(e), { kind: "error" });
+    }
   }
 
   function modify(ask: Permission) {

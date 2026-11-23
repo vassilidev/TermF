@@ -81,6 +81,24 @@ export function within(path: string, repos: string[]): { repo: string; rel: stri
   return repo ? { repo, rel: path.slice(repo.replace(/\/$/, "").length + 1) } : null;
 }
 
+/**
+ * The file as the change leaves it, from the file before: what an undo checks the file still is before putting it
+ * back. Null when the change would not apply as given (the text to replace is not there).
+ */
+export function afterChange(tool: string, input: unknown, before: string): string | null {
+  const i = (input ?? {}) as { old_string?: unknown; new_string?: unknown; replace_all?: unknown; content?: unknown; edits?: unknown };
+  if (tool === "Write") return typeof i.content === "string" ? i.content : null;
+  const edits = tool === "Edit" ? [i] : tool === "MultiEdit" && Array.isArray(i.edits) ? (i.edits as (typeof i)[]) : [];
+  if (!edits.length) return null;
+  let text = before;
+  for (const e of edits) {
+    if (typeof e.old_string !== "string" || typeof e.new_string !== "string" || !e.old_string || !text.includes(e.old_string)) return null;
+    const by = e.new_string;
+    text = e.replace_all === true ? text.split(e.old_string).join(by) : text.replace(e.old_string, () => by);
+  }
+  return text;
+}
+
 /** An edit as the lines it takes off and the lines it puts in, for the proposal's preview. */
 export function diffOf(tool: string, input: unknown): { del: string[]; add: string[] }[] {
   const i = (input ?? {}) as { old_string?: unknown; new_string?: unknown; content?: unknown; edits?: unknown };

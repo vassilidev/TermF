@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeOf, chipsOf, compose, diffOf, MAX_CONTEXT, question, roleFor, target, within } from "../src/lib/ask-logic.ts";
+import { afterChange, changeOf, chipsOf, compose, diffOf, MAX_CONTEXT, question, roleFor, target, within } from "../src/lib/ask-logic.ts";
 import { ciFailed, runNext, setup } from "../src/lib/guide-logic.ts";
 
 test("roleFor: the screen decides, what the screen gives wins, the CTO otherwise", () => {
@@ -59,6 +59,15 @@ test("proposals: a file change, its repository and its diff", () => {
   assert.deepEqual(diffOf("MultiEdit", { edits: [{ old_string: "x", new_string: "y" }] }), [{ del: ["x"], add: ["y"] }]);
   assert.deepEqual(diffOf("Write", { content: "new" }), [{ del: [], add: ["new"] }]);
   assert.deepEqual(diffOf("Bash", { command: "ls" }), []);
+});
+
+test("afterChange: the file as the change leaves it, null when it would not apply", () => {
+  assert.equal(afterChange("Edit", { old_string: "a", new_string: "$&b" }, "xax a"), "x$&bx a");
+  assert.equal(afterChange("Edit", { old_string: "a", new_string: "b", replace_all: true }, "xax a"), "xbx b");
+  assert.equal(afterChange("Edit", { old_string: "zz", new_string: "b" }, "xax"), null);
+  assert.equal(afterChange("MultiEdit", { edits: [{ old_string: "a", new_string: "b" }, { old_string: "b", new_string: "c" }] }, "a"), "c");
+  assert.equal(afterChange("Write", { content: "new" }, "old"), "new");
+  assert.equal(afterChange("Bash", { command: "ls" }, "x"), null);
 });
 
 test("setup: done items, a run says the earlier ones were done", () => {
