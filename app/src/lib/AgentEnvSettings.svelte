@@ -85,7 +85,7 @@
     <p class="help">{t("agentenvBaseHelp")}</p>
   </section>
 {:else if !error}
-  <Skeleton rows={4} />
+  <Skeleton shape="form" rows={4} />
 {/if}
 
 <style>

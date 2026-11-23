@@ -34,7 +34,7 @@
     {t("remoteTrayBadge")}
   </label>
 {:else if !error}
-  <Skeleton rows={2} />
+  <Skeleton shape="form" rows={2} />
 {/if}
 <p class="help">{t("remoteTrayHelp")}</p>
 {#if error}<p class="notice error" role="alert">{error}</p>{/if}

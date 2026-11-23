@@ -1,54 +1,76 @@
-@import "@fontsource-variable/inter/wght.css";
 @import "@fontsource-variable/jetbrains-mono/wght.css";
+
+/* The site's face, variable weight, Latin subset (fonts/OFL.txt). */
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("./fonts/instrument-sans.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
 
 :root {
   color-scheme: light;
 
-  /* Surfaces, from the ground up: main ground, chrome (top bar, sidebar), panels (tiles, fields, editor). */
-  --bg: #eef0f3;
-  --chrome: #f8f8fa;
+  /* Surfaces, from the ground up: main ground, chrome (navigation, bars), panels (cards, lists, fields), raised (dialogs, popovers), well (sunken: code, segments). */
+  --bg: #fbfbfd;
+  --chrome: #f4f4f8;
   --panel: #ffffff;
   --raised: #ffffff;
-  --hover: rgb(15 18 30 / 0.06);
-  --selected: rgb(15 18 30 / 0.09);
-  --border: #dfe2e7;
-  --border-strong: #c4c8d0;
-  --field-border: #8a909b;
+  --well: #f5f5f9;
+  --hover: rgb(13 13 20 / 0.045);
+  --selected: rgb(13 13 20 / 0.07);
+  --border: #e7e7ef;
+  --border-strong: #d2d2de;
+  --field-border: #8e8fa1;
 
-  --text: #17181c;
-  --muted: #5d626d;
+  --text: #0d0d14;
+  --soft: #474857;
+  --muted: #666775;
 
-  --accent: #4a4ad9;
-  --accent-hover: #3d3dc8;
+  --accent: #4446d6;
+  --accent-hover: #3a3cc4;
   --accent-text: #ffffff;
-  --accent-ink: #4040c8;
-  --accent-soft: rgb(74 74 217 / 0.1);
-  --focus: #4a4ad9;
+  --accent-ink: #4446d6;
+  --accent-soft: rgb(93 95 234 / 0.09);
+  --focus: #4446d6;
 
-  --working: #3d3dc4;
-  --working-soft: rgb(74 74 217 / 0.1);
-  --waiting: #f2a516;
-  --waiting-text: #2e1d00;
+  /* Agent states: indigo works, green is done, amber waits for the user and for nothing else. */
+  --working: #4446d6;
+  --working-soft: rgb(93 95 234 / 0.11);
+  --waiting: #f2b03d;
+  --waiting-text: #3a2600;
   --waiting-ring: #b87300;
-  --waiting-soft: #fff4dc;
-  --done: #1a6e3a;
-  --done-soft: rgb(26 110 58 / 0.1);
+  --waiting-soft: #fff6e3;
+  --waiting-line: #f0d9a8;
+  --done: #11703e;
+  --done-soft: rgb(98 207 142 / 0.16);
   --danger: #c42b1c;
-  --danger-soft: rgb(196 43 28 / 0.08);
+  --danger-soft: rgb(196 43 28 / 0.07);
+  --danger-line: #f1c9c4;
   --danger-text: #ffffff;
-  --warning: #9a6200;
+  --warning: #8a5800;
+
+  /* Role families, only on their avatars. */
+  --c-cto: #4040cc;
+  --c-product: #8338c9;
+  --c-build: #0d68ad;
+  --c-quality: #16733b;
+  --c-creative: #b8305f;
+  --c-specialists: #8c5300;
+  --c-ink: #ffffff;
 
   /* Matches the xterm theme in Terminal.svelte, dark in both app themes. */
   --term-bg: #111216;
 
-  --font-ui: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, Menlo, Consolas, monospace;
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 13px;
   --text-md: 14px;
   --text-lg: 16px;
-  --text-xl: 18px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -56,10 +78,21 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --space-7: 48px;
 
+  /* Controls: small, standard, wizard; rows: one line, two lines. */
+  --h-sm: 26px;
+  --h: 32px;
+  --h-lg: 40px;
+  --row: 40px;
+  --row-lg: 48px;
+
+  /* The radius grows with elevation: badge and key, control, card and list, popover and dialog, first-run window. */
   --radius-sm: 4px;
   --radius: 6px;
-  --radius-lg: 10px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-pill: 999px;
 
   --nav-width: 232px;
@@ -67,58 +100,76 @@
   /* Behind modal dialogs and the tour's spotlight; a ::backdrop repeats the value as fallback, older WebKit not inheriting it there. */
   --scrim: rgb(10 12 20 / 0.3);
 
-  --shadow-1: 0 1px 2px rgb(15 18 30 / 0.06);
-  --shadow-2: 0 4px 12px rgb(15 18 30 / 0.08), 0 1px 3px rgb(15 18 30 / 0.06);
-  --shadow-3: 0 16px 48px rgb(15 18 30 / 0.18), 0 2px 8px rgb(15 18 30 / 0.08);
+  /* Control; raised card and popover; dialog and toast. */
+  --shadow-1: 0 1px 2px rgb(13 13 20 / 0.05);
+  --shadow-2: 0 1px 2px rgb(13 13 20 / 0.05), 0 12px 32px -16px rgb(13 13 20 / 0.22);
+  --shadow-3: 0 2px 6px rgb(13 13 20 / 0.06), 0 28px 64px -20px rgb(13 13 20 / 0.32);
 
-  --dur-fast: 120ms;
-  --dur: 180ms;
-  --dur-slow: 240ms;
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Press; hover and switch; popover and panel; a wizard's step. Never ease-in. */
+  --dur-press: 120ms;
+  --dur-fast: 160ms;
+  --dur: 220ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
 
-    --bg: #0c0d10;
-    --chrome: #131418;
-    --panel: #18191e;
-    --raised: #1d1e24;
-    --hover: rgb(255 255 255 / 0.06);
-    --selected: rgb(255 255 255 / 0.09);
-    --border: #25272d;
-    --border-strong: #363942;
-    --field-border: #606572;
+    --bg: #0b0b12;
+    --chrome: #0e0e16;
+    --panel: #12121b;
+    --raised: #181823;
+    --well: #0f0f18;
+    --hover: rgb(255 255 255 / 0.05);
+    --selected: rgb(255 255 255 / 0.08);
+    --border: rgb(255 255 255 / 0.08);
+    --border-strong: rgb(255 255 255 / 0.15);
+    --field-border: rgb(255 255 255 / 0.36);
 
-    --text: #e7e8eb;
-    --muted: #9a9ea9;
+    --text: #ececf3;
+    --soft: #b9b9c6;
+    --muted: #8f8f9e;
 
-    --accent: #5b5de8;
+    --accent: #5d5fea;
     --accent-hover: #6b6df0;
     --accent-text: #ffffff;
     --accent-ink: #a3a5ff;
-    --accent-soft: rgb(116 118 245 / 0.16);
-    --focus: #8a8cff;
+    --accent-soft: rgb(93 95 234 / 0.18);
+    --focus: #9d9ffb;
 
     --working: #a3a5ff;
-    --working-soft: rgb(116 118 245 / 0.14);
+    --working-soft: rgb(93 95 234 / 0.2);
     --waiting: #f2b03d;
-    --waiting-text: #2e1d00;
+    --waiting-text: #3a2600;
     --waiting-ring: #f2b03d;
-    --waiting-soft: #2e2821;
+    --waiting-soft: rgb(242 176 61 / 0.1);
+    --waiting-line: rgb(242 176 61 / 0.32);
     --done: #62cf8e;
-    --done-soft: rgb(98 207 142 / 0.12);
+    --done-soft: rgb(98 207 142 / 0.14);
     --danger: #ff8178;
-    --danger-soft: rgb(255 129 120 / 0.12);
+    --danger-soft: rgb(255 129 120 / 0.1);
+    --danger-line: rgb(255 129 120 / 0.3);
     --danger-text: #2a0a07;
     --warning: #e3b341;
 
+    --c-cto: #a3a5ff;
+    --c-product: #c9a2ff;
+    --c-build: #7dc0f5;
+    --c-quality: #62cf8e;
+    --c-creative: #ff97bb;
+    --c-specialists: #f2b03d;
+    --c-ink: #0b0b12;
+
     --scrim: rgb(0 0 0 / 0.5);
 
-    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
-    --shadow-2: 0 6px 16px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.3);
-    --shadow-3: 0 20px 56px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.3);
+    /* A 1px light edge on top: in the dark, depth reads from light rather than from shadow. */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-2: 0 1px 2px rgb(0 0 0 / 0.4), 0 16px 40px -18px rgb(0 0 0 / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.04);
+    --shadow-3: 0 2px 6px rgb(0 0 0 / 0.5), 0 32px 72px -20px rgb(0 0 0 / 0.95), inset 0 1px 0 rgb(255 255 255 / 0.05);
   }
 }
 
@@ -129,8 +180,10 @@
   }
 }
 
+/* Nothing moves; a component keeps at most a change of opacity. */
 @media (prefers-reduced-motion: reduce) {
   :root {
+    --dur-press: 0ms;
     --dur-fast: 0ms;
     --dur: 0ms;
     --dur-slow: 0ms;
@@ -149,7 +202,6 @@ body {
   background: var(--bg);
   color: var(--text);
   font: var(--text-base) / 1.45 var(--font-ui);
-  font-feature-settings: "cv11";
   -webkit-font-smoothing: antialiased;
 }
 
@@ -181,7 +233,11 @@ input[type="radio"] {
 
 :focus-visible {
   outline: 2px solid var(--focus);
-  outline-offset: 1px;
+  outline-offset: 2px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 ::placeholder {
@@ -210,7 +266,6 @@ kbd {
   min-width: 18px;
   padding: 0 4px;
   border: 1px solid var(--border);
-  border-bottom-width: 2px;
   border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--muted);
@@ -235,54 +290,95 @@ kbd {
 /* Shared controls: one vocabulary for every button, field and notice. */
 .btn {
   display: inline-flex;
+  position: relative;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 30px;
+  height: var(--h);
   padding: 0 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--panel);
   color: var(--text);
+  box-shadow: var(--shadow-1);
   font-weight: 500;
   white-space: nowrap;
   transition:
-    background-color var(--dur-fast) ease-out,
-    border-color var(--dur-fast) ease-out;
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--hover);
+  background: color-mix(in srgb, var(--panel), var(--text) 4%);
+}
+
+/* Pressed: the button heard the click. */
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
 }
 
 .btn.primary {
-  border-color: var(--accent);
+  border-color: transparent;
   background: var(--accent);
   color: var(--accent-text);
+  box-shadow:
+    0 1px 2px rgb(13 13 20 / 0.15),
+    inset 0 1px 0 rgb(255 255 255 / 0.14);
   font-weight: 600;
 }
 
 .btn.primary:hover:not(:disabled) {
-  border-color: var(--accent-hover);
   background: var(--accent-hover);
 }
 
 .btn.danger {
-  border-color: var(--danger);
+  border-color: transparent;
   background: var(--danger);
   color: var(--danger-text);
   font-weight: 600;
 }
 
+.btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger), var(--text) 10%);
+}
+
 .btn.quiet {
   border-color: transparent;
   background: none;
+  box-shadow: none;
+  color: var(--soft);
+}
+
+.btn.quiet:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
 }
 
 .btn.sm {
-  height: 26px;
+  height: var(--h-sm);
   padding: 0 8px;
   font-size: var(--text-sm);
+}
+
+.btn.lg {
+  height: var(--h-lg);
+  padding: 0 18px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-md);
+}
+
+.btn kbd {
+  margin-left: 2px;
+}
+
+.btn.primary kbd,
+.btn.danger kbd {
+  border-color: transparent;
+  background: rgb(255 255 255 / 0.18);
+  color: inherit;
 }
 
 /* A destructive action that is not the main one: red text, no fill. */
@@ -295,6 +391,7 @@ kbd {
 
 .btn.quiet.danger:hover:not(:disabled) {
   background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* A button that reads as a link, inline in text or at a section's edge. */
@@ -303,6 +400,7 @@ kbd {
   padding: 0;
   border: 0;
   background: none;
+  box-shadow: none;
   color: var(--accent-ink);
   font-weight: 500;
   text-underline-offset: 2px;
@@ -343,37 +441,60 @@ kbd {
 
 .field {
   width: 100%;
-  height: 30px;
-  padding: 0 8px;
+  height: var(--h);
+  padding: 0 10px;
   border: 1px solid var(--field-border);
   border-radius: var(--radius);
   background: var(--panel);
   color: var(--text);
+  transition:
+    border-color var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
 }
 
+/* A solid ring in the focus color (it reads against the ground), then a soft halo. */
 .field:focus-visible {
   border-color: var(--focus);
-  outline: 1px solid var(--focus);
-  outline-offset: 0;
+  outline: none;
+  box-shadow:
+    0 0 0 1px var(--focus),
+    0 0 0 4px var(--accent-soft);
+}
+
+.field[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+/* In error and focused: the red edge stays, the focus ring goes around it. */
+.field[aria-invalid="true"]:focus-visible {
+  box-shadow:
+    0 0 0 1px var(--danger),
+    0 0 0 3px var(--panel),
+    0 0 0 5px var(--focus);
 }
 
 .segmented {
   display: inline-flex;
   padding: 2px;
   gap: 2px;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--hover);
+  background: var(--well);
 }
 
 .segmented button {
-  height: 22px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: 500;
+  transition:
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
 }
 
 .segmented button:hover {
@@ -553,13 +674,13 @@ input.switch {
   appearance: none;
   position: relative;
   flex-shrink: 0;
-  width: 28px;
-  height: 16px;
+  width: 30px;
+  height: 18px;
   margin: 0;
   border-radius: var(--radius-pill);
   background: var(--field-border);
   cursor: pointer;
-  transition: background-color var(--dur-fast) ease-out;
+  transition: background-color var(--dur-fast) ease;
 }
 
 input.switch::after {
@@ -567,11 +688,11 @@ input.switch::after {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: var(--shadow-1);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
   transition: transform var(--dur-fast) var(--ease-out);
 }
 
@@ -587,18 +708,21 @@ input.switch:disabled {
   cursor: default;
 }
 
+/* A label (a tag, a kind, a count); an agent's or a run's state is ui/StatusPill. */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  height: 18px;
+  height: 20px;
   padding: 0 6px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  color: var(--muted);
+  border-radius: var(--radius-sm);
+  background: var(--well);
+  color: var(--soft);
   font-size: var(--text-xs);
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
 }
@@ -629,4 +753,48 @@ input.switch:disabled {
 .badge.danger {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* A toast (ui/Toaster): dark in both themes, it floats above the work and is never part of it. */
+.toast-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 320px;
+  max-width: min(560px, calc(100vw - 48px));
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--radius-md);
+  background: #16161f;
+  color: #ececf3;
+  box-shadow: var(--shadow-3);
+}
+
+.toast-card > span:not(.btn) {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-card .btn {
+  border-color: transparent;
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: none;
+  color: #fff;
+}
+
+.toast-card .btn:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.toast-card kbd {
+  border-color: rgb(255 255 255 / 0.2);
+  background: transparent;
+  color: #b9b9c6;
+}
+
+@media (prefers-color-scheme: dark) {
+  .toast-card {
+    border: 1px solid rgb(255 255 255 / 0.08);
+    background: #23232f;
+  }
 }

@@ -439,10 +439,6 @@
       </div>
     </div>
   {/if}
-
-  {#if vault.notice}
-    <p class="toast" role="status">{vault.notice}</p>
-  {/if}
 </div>
 
 <ConfirmDialog
@@ -680,21 +676,5 @@
     flex-wrap: wrap;
     justify-content: center;
     gap: 8px;
-  }
-
-  .toast {
-    position: absolute;
-    bottom: 16px;
-    left: 50%;
-    z-index: 5;
-    max-width: calc(100% - 32px);
-    margin: 0;
-    padding: 8px 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-pill);
-    background: var(--raised);
-    box-shadow: var(--shadow-2);
-    font-size: var(--text-sm);
-    transform: translateX(-50%);
   }
 </style>
