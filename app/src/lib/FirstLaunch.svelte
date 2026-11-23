@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Check from "@lucide/svelte/icons/check";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
@@ -91,6 +91,13 @@
     if (step === 1 && checks[0] === null && !checking) check();
   });
 
+  // Enter continues: the keyboard waits on Continue, or on the page while the checks run.
+  $effect(() => {
+    void step;
+    const busy = checking;
+    tick().then(() => (dialog.querySelector<HTMLElement>("footer .primary:not(:disabled)") ?? (busy ? dialog : null))?.focus());
+  });
+
   function go(to: number) {
     if (to >= steps.length) endTour();
     else if (to >= 0) tour.step = to;
@@ -118,7 +125,7 @@
 </script>
 
 <!-- Escape skips it, as the button does: the introduction is remembered as seen either way. -->
-<dialog bind:this={dialog} class="intro" aria-labelledby="intro-title" oncancel={(e) => (e.preventDefault(), endTour())}>
+<dialog bind:this={dialog} class="intro" tabindex="-1" aria-labelledby="intro-title" oncancel={(e) => (e.preventDefault(), endTour())}>
   <Wizard
     title={t("wsIntroTitle")}
     {steps}

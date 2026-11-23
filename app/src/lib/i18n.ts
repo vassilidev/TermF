@@ -1852,15 +1852,6 @@ const fr = {
   t6bHelpOnboarding:
     "TermF analyse les dépôts du projet, te pose quelques questions, puis propose une configuration à accepter ou refuser, point par point.",
   t6bFilesNoRepo: "Les fichiers se parcourent dans les dépôts de tes projets : ajoutes-en un.",
-  t6bTour: "Visite guidée",
-  t6bTourStep: "{n} sur {total}",
-  t6bTourSkip: "Passer",
-  t6bTourBack: "Précédent",
-  t6bTourNext: "Suivant",
-  t6bTourDone: "Terminer",
-  t6bTour2Title: "Sessions, onglets et splits",
-  t6bTour2:
-    "Les Terminaux montrent tes agents Claude Code et tes shells. Chaque session s'ouvre dans un onglet ; divise-le pour en voir plusieurs côte à côte.",
   t6bSelectAll: "Tout sélectionner",
   t6bPick: "Sélectionner {name}",
   t6bChosen: "sélectionné",
@@ -2300,14 +2291,6 @@ const fr = {
     "Tout ce qui règle le projet, par section : nom et dépôts, mise en route, tickets, équipe, bibliothèque, worktrees, mémoire, confiance Claude Code. La recherche trouve une section ; Échap revient où tu étais.",
   ux3t4TipElsewhere:
     "Les conversations s'ouvrent depuis l'Accueil (« En service »), la bibliothèque depuis la Configuration ; la palette mène partout.",
-  ux3t4Tour1Title: "Tes projets",
-  ux3t4Tour1:
-    "Chaque projet a ses vues : Accueil, Terminaux, Tickets, Fichiers, Git, CI/CD, Configuration. Clique un projet pour y passer sans quitter la vue où tu es, ou cherche-le au clavier.",
-  ux3t4Tour2:
-    "Tu y parles au CTO, qui mène l'équipe, et tu règles sur place ce qui t'attend : questions, plans, autorisations, livraisons. Le raccourci t'emmène à la prochaine attente.",
-  ux3t4Tour4Title: "Cette machine, la palette et l'aide",
-  ux3t4Tour4:
-    "Réglages, Claude, clés SSH et planificateur valent pour toute la machine : ils sont rangés ici. La palette trouve tout au clavier ; appuie sur ? hors d'un terminal pour l'aide de la vue où tu es, cette visite s'y relance.",
   designView: "Design system",
   designShow: "Afficher le design system",
   designHelp:
@@ -6328,15 +6311,6 @@ const en: Record<Key, string> = {
   t6bHelpOnboarding:
     "TermF looks at the project's repositories, asks you a few questions, then proposes a setup to accept or decline, item by item.",
   t6bFilesNoRepo: "Files are browsed in your projects' repositories: add one.",
-  t6bTour: "Guided tour",
-  t6bTourStep: "{n} of {total}",
-  t6bTourSkip: "Skip",
-  t6bTourBack: "Back",
-  t6bTourNext: "Next",
-  t6bTourDone: "Done",
-  t6bTour2Title: "Sessions, tabs and splits",
-  t6bTour2:
-    "Terminals show your Claude Code agents and shells. Each session opens in a tab; split it to see several side by side.",
   t6bSelectAll: "Select all",
   t6bPick: "Select {name}",
   t6bChosen: "selected",
@@ -6775,14 +6749,6 @@ const en: Record<Key, string> = {
   ux3t4HelpConfig:
     "Everything that sets up the project, by section: name and repositories, setup, tickets, team, library, worktrees, memory, Claude Code trust. The search finds a section; Escape goes back where you were.",
   ux3t4TipElsewhere: "Conversations open from the Home (“On duty”), the library from the Configuration; the palette leads everywhere.",
-  ux3t4Tour1Title: "Your projects",
-  ux3t4Tour1:
-    "Each project has its views: Home, Terminals, Tickets, Files, Git, CI/CD, Configuration. Click a project to switch to it without leaving the view you are on, or find it from the keyboard.",
-  ux3t4Tour2:
-    "Talk to the CTO, who leads the team, and settle right there what waits for you: questions, plans, permissions, deliveries. The shortcut takes you to the next one.",
-  ux3t4Tour4Title: "This machine, the palette and help",
-  ux3t4Tour4:
-    "Settings, Claude, SSH keys and the scheduler apply to the whole machine: they are tucked away here. The palette finds everything from the keyboard; press ? outside a terminal for help on the view you are on, where this tour starts again.",
   designView: "Design system",
   designShow: "Show the design system",
   designHelp:

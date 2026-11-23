@@ -744,6 +744,10 @@
     width: auto;
   }
 
+  .rail .top .find {
+    flex: none;
+  }
+
   /* Folded (by hand, or a narrow window): icons only, each named by its tooltip and, for screen readers, its hidden label. */
 
   .nav.rail {
