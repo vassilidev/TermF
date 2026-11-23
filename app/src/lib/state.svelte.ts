@@ -105,7 +105,8 @@ export type ViewId =
   | "newProject"
   | "vault"
   | "vaultAll"
-  | "ops";
+  | "ops"
+  | "components";
 
 const projectKey = "termf.project";
 

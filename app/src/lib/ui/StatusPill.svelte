@@ -63,12 +63,20 @@
     flex-shrink: 0;
     height: 22px;
     padding: 0 8px 0 6px;
+    border: 1px solid var(--border);
     border-radius: var(--radius-pill);
-    background: var(--hover);
+    background: var(--well);
     color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: 500;
     white-space: nowrap;
+  }
+
+  .working,
+  .waiting,
+  .done,
+  .failed {
+    border-color: transparent;
   }
 
   /* One case for every state, whatever its text ("travaille", "En cours"); ::first-letter needs a block. */
@@ -85,9 +93,11 @@
     color: var(--working);
   }
 
+  /* The one filled state: someone waits for the user. */
   .waiting {
     background: var(--waiting);
     color: var(--waiting-text);
+    font-weight: 600;
   }
 
   .done {

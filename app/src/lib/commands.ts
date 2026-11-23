@@ -9,6 +9,7 @@ import CircleArrowUp from "@lucide/svelte/icons/circle-arrow-up";
 import CircleHelp from "@lucide/svelte/icons/circle-help";
 import Compass from "@lucide/svelte/icons/compass";
 import Images from "@lucide/svelte/icons/images";
+import Component from "@lucide/svelte/icons/component";
 import Keyboard from "@lucide/svelte/icons/keyboard";
 import Coffee from "@lucide/svelte/icons/coffee";
 import Columns2 from "@lucide/svelte/icons/columns-2";
@@ -591,5 +592,6 @@ export function commands(): Command[] {
   action({ id: "ssh-generate", label: t("sshGenerateLong"), icon: KeyRound, run: generateKey });
   action({ id: "keys-generate", label: t("keysGenerateLong"), icon: KeyRound, run: newKey });
   action({ id: "reload", label: t("reload"), icon: RefreshCw, run: load });
+  action({ id: "ui-components", label: t("uiF1Components"), icon: Component, run: () => (ui.view = "components") });
   return list;
 }

@@ -6,6 +6,7 @@
   import UpdateBanner from "$lib/UpdateBanner.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Panel from "$lib/ui/Panel.svelte";
+  import Toaster from "$lib/ui/Toaster.svelte";
   import { onShortcut } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
   import { MAX, MIN } from "$lib/panes-logic";
@@ -178,6 +179,11 @@
           {/await}
         {/key}
       {/if}
+      {#if onScreen("components")}
+        {#await import("$lib/ComponentsView.svelte") then { default: ComponentsView }}
+          <Panel view="components"><ComponentsView /></Panel>
+        {/await}
+      {/if}
       {#if panes.other !== null}
         <!-- A focusable separator is a widget (WAI-ARIA window splitter): the arrows move it. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -200,6 +206,7 @@
   </div>
 </div>
 
+<Toaster />
 {#if ui.palette}
   {#await import("$lib/CommandPalette.svelte") then { default: CommandPalette }}
     <CommandPalette />
