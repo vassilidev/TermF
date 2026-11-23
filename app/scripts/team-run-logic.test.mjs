@@ -23,6 +23,7 @@ import {
   taskRoles,
   tally,
   unanswered,
+  swapped,
   withOthers,
   upsert,
 } from "../src/lib/team-run-logic.ts";
@@ -217,6 +218,25 @@ test("implications: one per option for a choice, yes then no, a free text's as t
     { option: null, text: "matches the page" },
     { option: null, text: "yours" },
   ]);
+});
+
+test("implications: a yes/no question's, swapped by the agent, are left out", () => {
+  const ask = (text, implications) => ({ ...question("q", "bool"), question: text, implications });
+  const swappedEn = ask("Should the export include archived invoices?", [
+    "Archived invoices are not exported",
+    "Archived invoices are exported too",
+  ]);
+  assert.deepEqual(implications(swappedEn), []);
+  const swappedFr = ask("Faut-il garder l’ancienne API ?", ["On n’a plus d’ancienne API", "L’ancienne API reste en place"]);
+  assert.deepEqual(implications(swappedFr), []);
+  const right = ask("Should the export include archived invoices?", ["Archived invoices are exported too", "Only open invoices are exported, never archived ones"]);
+  assert.equal(implications(right).length, 2);
+  const negative = ask("Should we not send the e-mail?", ["The e-mail is not sent", "The e-mail goes out"]);
+  assert.equal(implications(negative).length, 2, "a negative question: yes keeps its negation");
+  const plain = ask("Keep the old API?", ["The old API stays", "The old API is removed"]);
+  assert.equal(implications(plain).length, 2, "no negation either way: taken as it comes");
+  assert.equal(swapped("Add a button?", "No button is added", "A button is added"), true);
+  assert.equal(swapped("Add a button?", "A button is added", "Nothing changes"), false);
 });
 
 const routing = (more = {}) => ({

@@ -366,9 +366,21 @@ export function byTheme(questions: Question[]): [string, Question[]][] {
 export function implications(q: Question): { option: string | null; text: string }[] {
   const options = q.kind === "bool" ? ["yes", "no"] : q.kind === "text" ? null : q.options;
   if (options && q.implications.length !== options.length) return [];
+  if (q.kind === "bool" && swapped(q.question, q.implications[0], q.implications[1])) return [];
   return q.implications
     .map((text, i) => ({ option: options ? options[i] : null, text: text.trim() }))
     .filter((row) => row.text);
+}
+
+const NEGATION = /\b(not|no|never|without|none|nothing|cannot|nor|ne|pas|jamais|sans|aucun|aucune|rien|non)\b|n['’]t\b|\bn['’]/i;
+
+/**
+ * A yes/no question whose implications read the wrong way round (agents swap them): yes's flips the question's
+ * sense and no's keeps it, as their negations say. Heuristic: wordings with no negation are taken as they come.
+ */
+export function swapped(question: string, yes: string, no: string): boolean {
+  const asked = NEGATION.test(question);
+  return NEGATION.test(yes) !== asked && NEGATION.test(no) === asked;
 }
 
 /** Whether the questions make a form: each has an id (one stored before the questionnaire is a bare sentence). */

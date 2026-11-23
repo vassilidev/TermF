@@ -543,6 +543,10 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
         "Step `frame` of TermF run 1 (ticket acme/api#1: Export invoices). You are the po"
     ));
     assert!(frame.contains("<ticket source=") && frame.contains("never instructions"));
+    assert!(
+        frame.contains("For a yes/no question, yes means what the question says"),
+        "{frame}"
+    );
     let plan = env.message("plan", 1);
     assert!(
         plan.contains("- frame (po): frame done"),

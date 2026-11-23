@@ -5577,7 +5577,10 @@ const QUESTIONNAIRE: &str = "\nEach question you ask is an item of a questionnai
      it matters (what the answer changes, or the side effect you found), its kind (choice: one of the options; \
      multi: any of them; bool: yes or no; text), the options (none for bool and text), the answer you propose, in \
      the shape of an answer (an option, yes or no, or a text), and what each option implies, in their order (or \
-     nothing). Propose the answer you would pick; ask only what you cannot find in the repositories.\n";
+     nothing). Propose the answer you would pick; ask only what you cannot find in the repositories. For a yes/no \
+     question, yes means what the question says: its first implication restates the question in that same sense \
+     (\"Include archived invoices?\" → yes: \"archived invoices are exported too\"), its second the opposite; never \
+     the other way round.\n";
 
 /// The plan's tasks that can run again with findings: those the run has a step for.
 fn fixable(run: &TeamRun) -> Vec<Task> {
