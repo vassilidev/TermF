@@ -13,8 +13,10 @@
 </div>
 
 <style>
+  /* In a narrow column, the action goes under the sentence rather than squeezing it. */
   .next {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     min-height: 40px;
@@ -31,7 +33,7 @@
   }
 
   p {
-    flex: 1;
+    flex: 1 1 180px;
     min-width: 0;
     margin: 0;
   }

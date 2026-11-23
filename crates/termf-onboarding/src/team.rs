@@ -805,6 +805,11 @@ fn units(repos: &[Facts]) -> Vec<(&str, &Part)> {
         .collect()
 }
 
+/// Whether the front and the back of `repos` can each have their squad.
+pub(crate) fn can_split(repos: &[Facts]) -> bool {
+    splittable(&units(repos))
+}
+
 /// Whether the front and the back can each have their squad: they are apart, in folders or repositories.
 fn splittable(units: &[(&str, &Part)]) -> bool {
     let has = |role: &str| units.iter().any(|(_, p)| p.role == role);
@@ -837,6 +842,8 @@ pub(crate) fn questions(repos: &[Facts]) -> Vec<Question> {
         kind: Kind::Choice,
         options: options.iter().map(|o| o.to_string()).collect(),
         default: vec![options[default].into()],
+        why: String::new(),
+        proof: String::new(),
     };
     let mut asked = vec![question(
         SIZE,

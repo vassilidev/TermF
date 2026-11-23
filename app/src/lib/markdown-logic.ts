@@ -9,7 +9,10 @@ export type Span =
 export type Block =
   | { kind: "paragraph"; spans: Span[] }
   | { kind: "list"; start: number | null; items: Span[][] }
-  | { kind: "code"; text: string; lang?: string };
+  | { kind: "code"; text: string; lang?: string }
+  | { kind: "heading"; level: number; spans: Span[] }
+  | { kind: "table"; align: Align[]; head: Span[][]; rows: Span[][][] };
+export type Align = "left" | "center" | "right" | null;
 
 // `code`, **bold** (no `*` inside), [label](http…), a bare http(s) address without the punctuation that ends a
 // sentence. An address may hold one level of balanced parentheses, as Wikipedia's do.
@@ -17,6 +20,28 @@ const inline =
   /`([^`\n]+)`|\*\*([^*\s](?:[^*\n]*[^*\s])?)\*\*|\[([^\]\n]+)\]\((https?:\/\/(?:[^\s()]|\([^\s()]*\))+)\)|https?:\/\/(?:[^\s<>"'`()]|\([^\s<>"'`()]*\))*(?:[^\s<>"'`().,;:!?\]»]|\([^\s<>"'`()]*\))/g;
 const item = /^\s*(?:[-*+]|(\d{1,9})[.)])\s+(.*)$/;
 const fence = /^\s*```/;
+const heading = /^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/;
+const delimiter = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/** A table row's cells; `\|` stays a bar inside a cell. */
+function cells(line: string): string[] {
+  const s = line.trim();
+  const out = [""];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "\\" && s[i + 1] === "|") out[out.length - 1] += s[++i];
+    else if (s[i] === "|") out.push("");
+    else out[out.length - 1] += s[i];
+  }
+  if (s.startsWith("|")) out.shift();
+  if (s.endsWith("|") && !s.endsWith("\\|") && out.length > 1) out.pop();
+  return out.map((c) => c.trim());
+}
+
+function align(cell: string): Align {
+  const left = cell.startsWith(":");
+  const right = cell.endsWith(":");
+  return left && right ? "center" : right ? "right" : left ? "left" : null;
+}
 
 export function spans(text: string): Span[] {
   const out: Span[] = [];
@@ -33,8 +58,11 @@ export function spans(text: string): Span[] {
   return out;
 }
 
-/** Light Markdown: paragraphs (their line breaks kept), lists, fenced code; anything else stays as it was written. */
-export function blocks(text: string): Block[] {
+/**
+ * Light Markdown: paragraphs (their line breaks kept), lists, fenced code, and with `rich` headings and tables;
+ * anything else stays as it was written.
+ */
+export function blocks(text: string, rich = false): Block[] {
   const out: Block[] = [];
   let para: string[] | null = null;
   let list: { start: number | null; items: string[] } | null = null;
@@ -57,6 +85,26 @@ export function blocks(text: string): Block[] {
     }
     if (!line.trim()) {
       close();
+      continue;
+    }
+    const h = rich ? heading.exec(line) : null;
+    if (h) {
+      close();
+      out.push({ kind: "heading", level: h[1].length, spans: spans(h[2]) });
+      continue;
+    }
+    const head = rich && line.includes("|") && delimiter.test(lines[i + 1] ?? "") ? cells(line) : null;
+    if (head && cells(lines[i + 1]).length === head.length) {
+      close();
+      const aligns = cells(lines[i + 1]).map(align);
+      const rows: Span[][][] = [];
+      while (i + 2 < lines.length && lines[i + 2].includes("|") && lines[i + 2].trim()) {
+        const row = cells(lines[i + 2]);
+        rows.push(head.map((_, j) => spans(row[j] ?? "")));
+        i++;
+      }
+      i++;
+      out.push({ kind: "table", align: aligns, head: head.map(spans), rows });
       continue;
     }
     const m = item.exec(line);

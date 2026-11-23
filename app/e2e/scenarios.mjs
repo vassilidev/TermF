@@ -1,5 +1,6 @@
 // What a developer discovering TermF does, one scenario at a time, each in its own sandbox. `views`: the views of
 // `views.ts` (and the pages beside them) the scenario is about; every view of `views.ts` needs one.
+import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -89,26 +90,42 @@ export const scenarios = [
     },
   },
   {
-    name: "new project: pick the repository, go through the setup, land on its home",
+    name: "new project: one guided setup, nothing written before its last step, then its home",
     views: ["newProject"],
     sandbox: { project: false },
     async run(t) {
       const { s, box } = t;
+      const go = ".new-project .wizard footer .go:not([disabled])";
+      const at = (step) => `.new-project .wizard .steps li:nth-child(${step}) [aria-current="step"]`;
+      const file = join(box.configDir, "projects", "acme.toml");
       await t.ready();
       await t.command("project-new");
       await s.waitFor(t.shown("newProject"));
+      // Focus mode: the navigation steps aside while the setup is open.
+      check(!(await s.exec(() => !!document.querySelector(".app .nav")?.offsetParent)), "the navigation stays during the setup");
+      await s.click(go);
+      await s.waitFor(at(2));
       const repo = `#repo-list li${t.sel("data-path", box.acme)}`;
       await s.click(repo);
       await s.waitFor(`${repo}[aria-selected="true"]`);
-      for (const step of [2, 3, 4, 5]) {
-        await s.click(".new-project .actions .go:not([disabled])");
-        await s.waitFor(`.new-project .stepper li:nth-child(${step}) [aria-current="step"]`);
+      // Left for later, then back: the choice is still there.
+      await s.exec(() => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await s.waitGone(t.shown("newProject"));
+      await t.command("project-new");
+      await s.waitFor(at(2));
+      await s.waitFor(`${repo}[aria-selected="true"]`);
+      for (const step of [3, 4, 5]) {
+        await s.click(go);
+        await s.waitFor(at(step), { timeout: 30_000 });
+        check(!existsSync(file), `written before the last step: ${file}`);
         await t.clean();
       }
-      await s.click(".new-project .actions .go:not([disabled])");
+      await s.click(go);
       await s.waitFor(`.nav ${t.sel("data-project", "acme")}[aria-current="true"]`, { timeout: 30_000 });
       await s.waitFor(t.shown("home"));
-      const toml = read(join(box.configDir, "projects", "acme.toml"));
+      const said = (await s.text(".toast-card")) ?? "";
+      check(said.includes("acme"), `the creation's toast does not name the project: ${said}`);
+      const toml = read(file);
       check(/name = "acme"/.test(toml) && toml.includes("acme"), `unexpected project file:\n${toml}`);
       // The test command found in package.json is what the team's checks run before delivering.
       check(toml.includes('checks = "npm test"'), `no checks in the project file:\n${toml}`);
@@ -117,13 +134,75 @@ export const scenarios = [
     },
   },
   {
-    name: "project assistant: opens on the project from the palette",
-    views: ["onboarding"],
+    name: "project setup of an existing project: everything accepted is in place after Apply",
+    views: [],
+    // A Next.js front with Prisma and docker-compose, and a PHP back, both already a project.
+    prepare(box) {
+      const put = (file, text) => (mkdirSync(join(file, ".."), { recursive: true }), writeFileSync(file, text));
+      const web = box.acme;
+      const pkg = { name: "acme-web", scripts: { dev: "next dev", build: "next build", test: "node --test" }, dependencies: { next: "16.0.3", react: "19.2.0", "@prisma/client": "6.2.1" }, devDependencies: { prisma: "6.2.1" } };
+      put(join(web, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+      put(join(web, "app", "page.tsx"), "export default function Page() { return <h1>Acme</h1>; }\n");
+      put(join(web, "prisma", "schema.prisma"), 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n');
+      put(join(web, ".env"), "DATABASE_URL=postgresql://acme:secret@localhost:5432/acme\n");
+      put(join(web, "docker-compose.yml"), "services:\n  db:\n    image: postgres:17\n    ports: ['5432:5432']\n");
+      put(join(web, "CLAUDE.md"), "# Acme web\n\nRun npm test before a commit.\n");
+      const api = join(web, "..", "acme-api");
+      put(join(api, "composer.json"), JSON.stringify({ name: "acme/api", require: { php: "^8.2", "laravel/framework": "^11.0" } }, null, 2) + "\n");
+      put(join(api, "artisan"), "#!/usr/bin/env php\n<?php\n");
+      put(join(api, "routes", "api.php"), "<?php\n");
+      for (const [dir, files] of [[web, ["-A"]], [api, ["-A"]]]) {
+        const run = (...args) => execFileSync("git", args, { cwd: dir, env: box.env });
+        if (dir === api) run("init", "-q", "-b", "main");
+        run("add", ...files);
+        run("commit", "-q", "-m", "Set up");
+      }
+      writeFileSync(join(box.configDir, "projects", "acme.toml"), `name = "acme"\n\n[[repos]]\npath = ${JSON.stringify(web)}\n\n[[repos]]\npath = ${JSON.stringify(api)}\n`);
+    },
+    async run(t) {
+      const { s, box } = t;
+      const go = ".new-project .wizard footer .go:not([disabled])";
+      const at = (step) => `.new-project .wizard .steps li:nth-child(${step}) [aria-current="step"]`;
+      await t.ready();
+      await t.project();
+      await t.command("project-setup");
+      await s.waitFor(at(2));
+      await s.click(go);
+      await s.waitFor(at(3), { timeout: 30_000 });
+      for (let i = 0; i < 12 && !(await s.exec(() => !!document.querySelector('.new-project .wizard .steps li:nth-child(4) [aria-current="step"]'))); i++) {
+        await s.click(go);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      await s.waitFor(at(4), { timeout: 30_000 });
+      await s.waitFor(".new-project .rows", { timeout: 30_000 });
+      // What the setup proposes for these repositories, each line kept by default.
+      const shown = (await s.text(".new-project .rows")) ?? "";
+      for (const what of ["next-devtools", "acme", "npm run dev", "CLAUDE.md"]) check(shown.includes(what), `"${what}" is not proposed:\n${shown}`);
+      await s.click(go);
+      await s.waitFor(t.shown("home"), { timeout: 30_000 });
+      const toml = read(join(box.configDir, "projects", "acme.toml"));
+      check(toml.includes("[mcp.next-devtools]"), `the Next.js MCP server is not given to the sessions:\n${toml}`);
+      check(toml.includes('dev = "next dev"') || toml.includes('dev = "npm run dev"'), `no dev server for the visual review:\n${toml}`);
+      check(/\[visual\][^[]*routes = \["\/"\]/.test(toml), `no page for the visual review:\n${toml}`);
+      check(toml.includes('checks = "npm test"'), `no checks for the front:\n${toml}`);
+      check(toml.includes('checks = "php artisan test"'), `no checks for the back:\n${toml}`);
+      check(/\[\[ops\.connections\]\][^[]*name = "acme"[^[]*env = "dev"/s.test(toml), `the declared database is not an Ops connection in dev:\n${toml}`);
+      check(!existsSync(join(box.home, ".claude", "settings.json")), "something was written in ~/.claude");
+      // The background work is followed on the Home.
+      await s.waitFor('[data-panel="home"] .jobs', { timeout: 30_000 });
+      await t.clean();
+    },
+  },
+  {
+    name: "project setup again: opens on the project from the palette, its repositories given",
+    views: [],
     async run(t) {
       await t.ready();
       await t.project();
       await t.command("project-setup");
-      await t.s.waitFor(t.shown("onboarding"));
+      await t.s.waitFor(t.shown("newProject"));
+      // It opens on what TermF understood, the repositories being the project's.
+      await t.s.waitFor('.new-project .wizard .steps li:nth-child(2) [aria-current="step"]');
       await t.clean();
     },
   },
@@ -811,23 +890,40 @@ export const scenarios = [
     },
   },
   {
-    name: "team: a step is told the skills that fit its ticket, and reads and tests without asking (fake claude)",
+    name: "team: the plan approved on its lane of the Run page, then a step is told the skills that fit its ticket, and reads and tests without asking (fake claude)",
     views: [],
     async run(t) {
       const { s, box } = t;
-      // No triage and no gate: the plan's one task starts on its own.
+      // No triage, one gate: the plan waits for the user on its lane, then its one task starts.
       mkdirSync(join(box.configDir, "library", "workflows"), { recursive: true });
       writeFileSync(
         join(box.configDir, "library", "workflows", "e2e.toml"),
-        '[steps.plan]\ntype = "agent"\nrole = "lead"\n\n[steps.implement]\ntype = "foreach"\nover = "plan.tasks"\nneeds = ["plan"]\n',
+        '[steps.plan]\ntype = "agent"\nrole = "lead"\n\n[steps.approve-plan]\ntype = "gate"\nneeds = ["plan"]\n\n' +
+          '[steps.implement]\ntype = "foreach"\nover = "plan.tasks"\nneeds = ["approve-plan"]\n',
       );
       const project = join(box.configDir, "projects", "acme.toml");
       writeFileSync(project, `${read(project)}\n[team]\ntriage = false\n\n[workflows]\ndefault = "e2e"\n`);
       await t.ready();
       await t.project();
       await t.view("tickets");
-      await s.wait(async () => (await s.text(t.shown("tickets")))?.includes("Fix the login button"), { what: "the issue in the inbox" });
-      await s.click(`${t.shown("tickets")} button[title$="with the agent team"]`);
+      const inbox = t.shown("tickets");
+      await s.wait(async () => (await s.text(inbox))?.includes("Fix the login button"), { what: "the issue in the inbox" });
+      // The oldest ticket is offered first.
+      check(/Fix the login button/.test(await s.text(`${inbox} .suggest`)), "the oldest ticket is not suggested");
+      await s.click(`${inbox} button[title$="with the agent team"]`);
+
+      // The Run page: its stages in a band under the title, no "Steps" block repeating them, the plan's gate on its lane.
+      const run = t.shown("run");
+      const lane = `${run} .live .ask.lane`;
+      await s.waitFor(lane, { timeout: 90_000 });
+      check(await s.exec((c) => !!document.querySelector(`${c} .run > ol.timeline`), run), "the stages are not a band under the title");
+      check(
+        !(await s.exec((c) => [...document.querySelectorAll(`${c} h3`)].some((h) => h.textContent.trim() === "Steps"), run)),
+        "a Steps block repeats the stages",
+      );
+      check(/lead/.test(await s.text(`${lane} .lane-head`)), "the lane does not say who waits");
+      check(/approve the plan/i.test(await s.text(`${run} .side .next`)), "the next step does not say what answering sets going");
+      await s.click(`${lane} .btn.primary`);
       const line = await s.wait(() => read(box.calls).split("\n").find((l) => l.startsWith("team-step implement:T1 ")), {
         what: "the task's step",
         timeout: 90_000,
@@ -837,6 +933,25 @@ export const scenarios = [
       check(line.includes(" missing=none told=true role=true "), `each one is the plugin's, and the brief and the role say to use them: ${line}`);
       // Only what is neither a read nor the repository's tests asks: installing a package, the network.
       check(line.includes(" asks=2/12 npm install left-pad | curl -s https://example.com"), `the acceptance run's commands: ${line}`);
+
+      // The fake's report has no summary: the task is blocked, answered on its lane too, accepted as it is.
+      const accept = () =>
+        s.exec((c) => {
+          const button = [...document.querySelectorAll(`${c} .ask.lane button`)].find((b) => b.textContent.trim() === "Accept as it is");
+          button?.click();
+          return !!button;
+        }, run);
+      await s.wait(accept, { what: "the blocked task's lane", timeout: 90_000 });
+      // Done, the delivery waits on a lane of its own; the tasks are listed, without a cost on each line.
+      await s.wait(async () => /Ready to deliver/.test((await s.text(`${run} .live`)) ?? ""), { what: "the delivery's lane", timeout: 90_000 });
+      check(/T1/.test(await s.text(`${run} .stage`)), "the plan's task is not listed");
+      check(!/\$/.test(await s.text(`${run} .stage`)), "a cost is repeated on the task's line");
+
+      // Back on the tickets, the ticket's run shows at a glance, and its row opens the Run page.
+      await t.view("tickets");
+      await s.waitFor(`${inbox} .runstate`);
+      await s.click(`${inbox} .runstate`);
+      await s.waitFor(lane);
       await t.clean();
     },
   },
@@ -1206,6 +1321,45 @@ export const scenarios = [
       // The fake's empty answer proposes nothing, which the page says.
       await s.waitGone(`${pane} .conventions .notice.working`);
       await t.clean({ allow: [/proposed nothing/] });
+    },
+  },
+  {
+    name: "conventions: drawn from the code in one gesture, from the empty page",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("library");
+      const source = join(box.configDir, "projects", "acme", "conventions", "code-conventions", "source.md");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.click(`${pane} [data-tab="conventions"]`);
+      await s.click(`${pane} .conventions .deduce button:not([disabled])`);
+      await s.wait(() => existsSync(source) && read(source).startsWith("Follow the conventions already in place"), { what: "the convention drawn from the code" });
+      // The fake's empty answer proposes nothing, which the page says.
+      await s.waitGone(`${pane} .conventions .notice.working`);
+      await t.clean({ allow: [/proposed nothing/] });
+    },
+  },
+  {
+    name: "library: the to-do schedules the weekly watch in one gesture, and its toast undoes it",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("library");
+      const file = join(box.configDir, "schedules.toml");
+      const scheduled = () => existsSync(file) && /mode = "scout"/.test(read(file));
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.click(`${pane} [data-tab="todo"]`);
+      const label = text("en", "watchTodoScheduleAction");
+      await s.wait(() => s.exec((css, l) => [...document.querySelectorAll(`${css} .todo button`)].some((b) => b.textContent.trim() === l), pane, label), { what: "the line of the watch never scheduled" });
+      await s.exec((css, l) => [...document.querySelectorAll(`${css} .todo button`)].find((b) => b.textContent.trim() === l).click(), pane, label);
+      await s.wait(scheduled, { what: "a scout task in schedules.toml" });
+      await s.exec(() => [...document.querySelectorAll(".toast-card button")].find((b) => b.querySelector("kbd"))?.click());
+      await s.wait(() => !scheduled(), { what: "the scout task gone again" });
+      await t.clean();
     },
   },
   {

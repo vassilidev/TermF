@@ -39,6 +39,7 @@ pub const WRITES: &[&str] = &[
     "conventions_revise",
     "conventions_review",
     "conventions_discard",
+    "conventions_restore",
     "conventions_apply",
     "conventions_switch",
     "vault_auto_lock_set",

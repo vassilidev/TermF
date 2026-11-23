@@ -37,17 +37,39 @@ pub async fn onboarding_analyze(
     lang: String,
 ) -> CmdResult<onboarding::State> {
     blocking(&state, move |dir| {
-        let progress = &mut |p: termf_library::conventions::Progress| {
-            let read = Read {
-                project: &project,
-                tool: p.tool,
-                target: p.target,
-            };
-            let _ = app.emit("onboarding-progress", read);
-        };
+        let progress = &mut reads(&app, &project);
         onboarding::analyze_showing(dir, &data_dir()?, &project, &lang, &claude(dir), progress)
     })
     .await
+}
+
+/// `start_onboarding` of the CTO's conversation: the analysis the assistant starts with, which the user then goes
+/// through there.
+pub(crate) fn mcp_analyze(
+    app: &AppHandle,
+    project: &str,
+    lang: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
+    use anyhow::Context as _;
+    use tauri::Manager as _;
+    let dir = app.state::<AppState>().config_dir.clone();
+    let progress = &mut |p: termf_library::conventions::Progress| {
+        let read = Read {
+            project,
+            tool: p.tool,
+            target: p.target,
+        };
+        let _ = app.emit("onboarding-progress", read);
+    };
+    let lang = lang.unwrap_or_else(|| "en".into());
+    let state =
+        onboarding::analyze_showing(&dir, &data_dir()?, project, &lang, &claude(&dir), progress)?;
+    let analysis = state.analysis.context("the analysis gave nothing")?;
+    Ok(serde_json::json!({
+        "findings": analysis.findings,
+        "questions": analysis.questions.len(),
+        "next": "The user answers its questions and applies what it proposes in TermF's setup assistant."
+    }))
 }
 
 /// A file Claude Code reads, or a search it makes, during a project's analysis.
@@ -56,6 +78,90 @@ struct Read<'a> {
     project: &'a str,
     tool: String,
     target: String,
+}
+
+fn reads<'a>(
+    app: &'a AppHandle,
+    key: &'a str,
+) -> impl FnMut(termf_library::conventions::Progress) + 'a {
+    move |p| {
+        let read = Read {
+            project: key,
+            tool: p.tool,
+            target: p.target,
+        };
+        let _ = app.emit("onboarding-progress", read);
+    }
+}
+
+#[derive(Serialize)]
+pub struct DraftAnalysis {
+    analysis: onboarding::Analysis,
+    /// Why Claude Code could not read the repositories: the survey came back alone.
+    error: Option<String>,
+}
+
+/// The new project setup's analysis, nothing written: `project` when the repositories already are one. Its reads
+/// reach `onboarding-progress` under `project`, or `""`.
+#[tauri::command]
+pub async fn setup_analyze(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repos: Vec<String>,
+    lang: String,
+    project: Option<String>,
+) -> CmdResult<DraftAnalysis> {
+    blocking(&state, move |dir| {
+        let key = project.clone().unwrap_or_default();
+        let (analysis, error) = onboarding::analyze_draft(
+            dir,
+            &data_dir()?,
+            &repos,
+            project.as_deref(),
+            &lang,
+            &claude(dir),
+            &mut reads(&app, &key),
+        )?;
+        Ok(DraftAnalysis { analysis, error })
+    })
+    .await
+}
+
+/// The analysis the setup made before the project existed becomes the project's.
+#[tauri::command]
+pub async fn onboarding_adopt(
+    state: State<'_, AppState>,
+    project: String,
+    analysis: onboarding::Analysis,
+) -> CmdResult<onboarding::State> {
+    onboarding::adopt(
+        &state.config_dir,
+        &data_dir().map_err(err)?,
+        &project,
+        analysis,
+    )
+    .map_err(err)
+}
+
+/// The CTO's advice on one question of the setup; its reads reach `onboarding-progress` under `advice:<question>`.
+#[tauri::command]
+pub async fn setup_advise(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    analysis: onboarding::Analysis,
+    question: String,
+) -> CmdResult<onboarding::Advice> {
+    blocking(&state, move |dir| {
+        let key = format!("advice:{question}");
+        onboarding::advise(
+            dir,
+            &analysis,
+            &question,
+            &claude(dir),
+            &mut reads(&app, &key),
+        )
+    })
+    .await
 }
 
 /// `replace`: the onboarding convention was edited in the library since, and the owner chose to replace it.
@@ -194,9 +300,13 @@ pub struct SetupDraft {
     trust: Vec<RepoTrust>,
 }
 
-/// What TermF proposes for the repositories of a project not created yet.
+/// What TermF proposes for the repositories of a project not created yet; `choices`: the owner's on the team so far.
 #[tauri::command]
-pub async fn setup_draft(state: State<'_, AppState>, repos: Vec<String>) -> CmdResult<SetupDraft> {
+pub async fn setup_draft(
+    state: State<'_, AppState>,
+    repos: Vec<String>,
+    choices: Option<onboarding::Choices>,
+) -> CmdResult<SetupDraft> {
     blocking(&state, move |dir| {
         let named: Vec<(String, PathBuf)> = repos
             .iter()
@@ -211,7 +321,7 @@ pub async fn setup_draft(state: State<'_, AppState>, repos: Vec<String>) -> CmdR
             })
             .collect();
         Ok(SetupDraft {
-            draft: setup::draft(dir, &repos)?,
+            draft: setup::draft(dir, &repos, &choices.unwrap_or_default())?,
             trust: trust::state(&trust::file(), &named)?,
         })
     })
@@ -226,9 +336,33 @@ pub async fn setup_preview(
     team: Option<onboarding::Edit>,
     trackers: Option<termf_tickets::Trackers>,
     checks: Option<BTreeMap<String, String>>,
+    extras: Option<setup::Extras>,
 ) -> CmdResult<String> {
     let checks = checks.unwrap_or_default();
-    setup::preview(&name, &repos, team.as_ref(), trackers.as_ref(), &checks).map_err(err)
+    let extras = extras.unwrap_or_default();
+    setup::preview(
+        &name,
+        &repos,
+        team.as_ref(),
+        trackers.as_ref(),
+        &checks,
+        &extras,
+    )
+    .map_err(err)
+}
+
+/// Writes what the setup kept besides the team and the trackers: the MCP servers the project's sessions get, the
+/// dev servers and the pages of the visual review.
+#[tauri::command]
+pub async fn setup_extras(
+    state: State<'_, AppState>,
+    project: String,
+    extras: setup::Extras,
+) -> CmdResult<()> {
+    blocking(&state, move |dir| {
+        setup::write_extras(dir, &project, &extras)
+    })
+    .await
 }
 
 /// What creating a project from an idea will do: its folder, its files and every command, before any runs.

@@ -19,6 +19,8 @@ import {
   passes,
   planned,
   progress,
+  projected,
+  liveCost,
   proposed,
   runs,
   rounds,
@@ -493,6 +495,28 @@ test("tell: a finished agent is offered only while the run is at rest or done", 
     assert.deepEqual(keys(run(steps, { state })), ["implement:T1", "frame"], state);
   }
   assert.deepEqual(keys(run(steps, { state: "done" }), false), ["implement:T1"], "closed: its worktree is gone");
+  const asking = [...steps, step("prd", "blocked", { session: 4 }), step("ux", "waiting", { session: 5 })];
+  assert.deepEqual(keys(run(asking, { state: "waiting" })), ["implement:T1", "frame"], "a step that waits is answered on its lane");
+});
+
+test("projected: the cost at the pace so far, only while the team works and something is left", () => {
+  const steps = [step("frame", "done"), step("plan", "done"), step("implement:T1", "running", { kind: "task" }), step("checks", "pending")];
+  assert.equal(projected(run(steps, { cost: 3 })), 6);
+  assert.equal(projected(run(steps, { cost: 3, state: "paused" })), null);
+  assert.equal(projected(run([step("frame", "running")], { cost: 1 })), null, "nothing over yet");
+  assert.equal(projected(run([step("frame", "done")], { cost: 1 })), null, "all over: the cost is the cost");
+  assert.equal(projected(run(steps, { cost: 3 }), 4), 8, "with what the steps at work spent this far");
+});
+
+test("liveCost: what the steps added up, and what their sessions at work spent since", () => {
+  const steps = [
+    step("frame", "done", { session: 1, cost: 1 }),
+    step("implement:T1", "running", { kind: "task", session: 2, cost: 0.5 }),
+    step("implement:T2", "running", { kind: "task", session: null }),
+  ];
+  const sessions = { 1: 1, 2: 2 };
+  assert.equal(liveCost(run(steps, { cost: 1.5 }), (s) => sessions[s] ?? 0), 3, "T1's session spent 1.5 more than its step counts");
+  assert.equal(liveCost(run(steps, { cost: 1.5 }), () => 0), 1.5, "a session not read yet adds nothing");
 });
 
 test("tell: the reply ends with its turn, or when the agent fails or exits", () => {

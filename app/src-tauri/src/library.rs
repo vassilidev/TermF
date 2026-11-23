@@ -1,6 +1,10 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, State};
+use anyhow::Context as _;
+use serde_json::{Value, json};
+use tauri::{AppHandle, Emitter, Manager, State};
 use termf_library::archive::{self, Exported, Preview};
 use termf_library::conventions::{self, Answer, Convention, Conventions, Impact, Level, Review};
 use termf_library::scout::{self, ItemRef, Scout};
@@ -294,12 +298,22 @@ pub async fn conventions_discard(
 }
 
 #[tauri::command]
-pub async fn conventions_apply(
+pub async fn conventions_restore(
     state: State<'_, AppState>,
     project: String,
     slug: String,
 ) -> CmdResult<Convention> {
-    conventions::apply(&state.config_dir, &project, &slug).map_err(err)
+    conventions::restore(&state.config_dir, &project, &slug).map_err(err)
+}
+
+#[tauri::command]
+pub async fn conventions_apply(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+    repos: Option<bool>,
+) -> CmdResult<Convention> {
+    conventions::apply_with(&state.config_dir, &project, &slug, repos.unwrap_or(true)).map_err(err)
 }
 
 #[tauri::command]
@@ -336,7 +350,147 @@ pub async fn scout_state(state: State<'_, AppState>, project: Option<String>) ->
     scout::state(&state.config_dir, project.as_deref()).map_err(err)
 }
 
-/// `items` empty: the whole library. What Claude Code searches and reads comes as `scout-progress` events.
+/// What stops the scout's launch in progress: one at a time, from the Library or the CTO, so a cancel never
+/// stops another.
+static SCOUT_CANCEL: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+
+/// Frees the launch slot however the launch ends.
+struct Launching;
+
+impl Drop for Launching {
+    fn drop(&mut self) {
+        *SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+}
+
+/// A launch of the scout, which `scout_cancel` stops; refused while another runs. What Claude Code searches and
+/// reads comes as `scout-progress` events.
+pub(crate) fn launch_scout(
+    app: &AppHandle,
+    dir: &Path,
+    project: Option<&str>,
+    items: &[ItemRef],
+) -> anyhow::Result<scout::Draft> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut slot = SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            slot.is_none(),
+            "the watch is already running: wait for it, or cancel it"
+        );
+        *slot = Some(cancel.clone());
+    }
+    let _launching = Launching;
+    let options = scout::Options {
+        cancel: Some(cancel),
+        ..scout::Options::default()
+    };
+    let progress = &mut |p: scout::Progress| {
+        let _ = app.emit("scout-progress", p);
+    };
+    scout::run(dir, project, items, &options, &claude(dir), progress)
+}
+
+/// `run_scout` of the CTO's conversation: the project's watch, as the Library launches it.
+pub(crate) fn mcp_scout(app: &AppHandle, project: &str, items: &[String]) -> anyhow::Result<Value> {
+    let dir = app.state::<AppState>().config_dir.clone();
+    let refs = items
+        .iter()
+        .map(|i| {
+            let (kind, name) = i
+                .split_once('/')
+                .with_context(|| format!("{i}: give kind/name"))?;
+            Ok(ItemRef {
+                kind: serde_json::from_value(json!(kind))?,
+                name: name.into(),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    // Results the user has not decided on yet are theirs: never replaced from here.
+    if let Some(draft) = scout::state(&dir, Some(project))?.draft {
+        let waiting = scout::would_replace(&draft, &refs);
+        anyhow::ensure!(
+            waiting == 0,
+            "{waiting} results of the last watch still wait for the user's decision in the Library, Watch tab: \
+             a new launch would replace them, so the user decides on them first"
+        );
+    }
+    let draft = launch_scout(app, &dir, Some(project), &refs)?;
+    let _ = app.emit("library-changed", ());
+    let results: Vec<Value> = draft
+        .entries
+        .iter()
+        .map(|e| {
+            json!({ "kind": e.kind, "name": e.name, "flaws": e.critique.iter().map(|f| &f.flaw).collect::<Vec<_>>(),
+                    "proposes": !e.content.is_empty() || !e.script.is_empty(), "summary": e.summary })
+        })
+        .collect();
+    Ok(json!({ "results": results, "cost": draft.cost,
+               "next": "The user reviews each result in the Library, Watch tab: accept, reject (remembered) or ask for a change, then apply." }))
+}
+
+/// `propose_conventions` of the CTO's conversation: always a new convention, never over one the user wrote.
+pub(crate) fn mcp_propose(
+    app: &AppHandle,
+    project: &str,
+    text: Option<String>,
+    name: Option<String>,
+) -> anyhow::Result<Value> {
+    let dir = app.state::<AppState>().config_dir.clone();
+    let text = text
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| conventions::FROM_CODE.to_owned());
+    let mut base: String = name
+        .unwrap_or_default()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    base.truncate(48);
+    if base.is_empty() {
+        base = "from-code".into();
+    }
+    let taken: Vec<String> = conventions::list(&dir, project)?
+        .list
+        .into_iter()
+        .map(|c| c.slug)
+        .collect();
+    let slug = (1..)
+        .map(|n| match n {
+            1 => base.clone(),
+            n => format!("{base}-{n}"),
+        })
+        .find(|s| !taken.contains(s))
+        .unwrap_or(base);
+    conventions::save_source(&dir, project, &slug, &text)?;
+    let mut progress = progress(app.clone(), project, &slug);
+    let proposed = conventions::propose_with(
+        &dir,
+        project,
+        &slug,
+        Vec::new(),
+        &claude(&dir),
+        &mut progress,
+    )?;
+    let _ = app.emit("library-changed", ());
+    let draft = proposed.draft.unwrap_or_default();
+    let items: Vec<Value> = draft
+        .items
+        .iter()
+        .map(|i| json!({ "kind": i.kind, "name": i.name, "description": i.description }))
+        .collect();
+    Ok(
+        json!({ "convention": slug, "questions": draft.questions, "items": items, "cost": draft.cost,
+               "next": "The user answers the questions, or reviews each item, then applies them, in the Library, Conventions tab." }),
+    )
+}
+
+/// `items` empty: the whole library.
 #[tauri::command]
 pub async fn scout_run(
     app: AppHandle,
@@ -345,21 +499,29 @@ pub async fn scout_run(
     items: Vec<ItemRef>,
 ) -> CmdResult<Scout> {
     blocking(&state, move |dir| {
-        let options = scout::Options::default();
-        let progress = &mut |p: scout::Progress| {
-            let _ = app.emit("scout-progress", p);
-        };
-        scout::run(
-            dir,
-            project.as_deref(),
-            &items,
-            &options,
-            &claude(dir),
-            progress,
-        )?;
+        launch_scout(&app, dir, project.as_deref(), &items)?;
         scout::state(dir, project.as_deref())
     })
     .await
+}
+
+#[tauri::command]
+pub fn scout_cancel() {
+    if let Some(cancel) = SCOUT_CANCEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        cancel.store(true, Ordering::SeqCst);
+    }
+}
+
+#[tauri::command]
+pub async fn scout_restore(
+    state: State<'_, AppState>,
+    project: Option<String>,
+) -> CmdResult<Scout> {
+    scout::restore(&state.config_dir, project.as_deref()).map_err(err)
 }
 
 #[tauri::command]

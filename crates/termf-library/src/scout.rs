@@ -11,6 +11,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -167,6 +169,10 @@ pub struct Scout {
     pub draft: Option<Draft>,
     /// The latest first.
     pub journal: Vec<Logged>,
+    /// The version of Claude Code the latest launch ran, at any scope: one newer since calls for another look.
+    pub claude: Option<String>,
+    /// Results set aside by [`discard`], which [`restore`] brings back.
+    pub discarded: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -180,6 +186,8 @@ pub struct ItemRef {
 pub struct Options {
     pub model: Option<String>,
     pub budget: Option<f64>,
+    /// Stops Claude Code once set: the launch then fails and keeps nothing.
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 /// What Claude Code is doing, as it goes.
@@ -225,12 +233,25 @@ pub fn settings(config_dir: &Path) -> (String, f64) {
 
 pub fn state(config_dir: &Path, project: Option<&str>) -> Result<Scout> {
     let (model, budget) = settings(config_dir);
+    let file = draft_file(config_dir, project)?;
     Ok(Scout {
         model,
         budget,
-        draft: read_draft(&draft_file(config_dir, project)?)?,
+        draft: read_draft(&file)?,
         journal: journal(config_dir),
+        claude: fs::read_to_string(config_dir.join(CLAUDE_SEEN))
+            .ok()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty()),
+        discarded: aside(&file).exists(),
     })
+}
+
+/// Where [`run`] keeps the version of Claude Code it ran.
+const CLAUDE_SEEN: &str = "scout/claude-version";
+
+fn aside(file: &Path) -> PathBuf {
+    file.with_extension("discarded.toml")
 }
 
 /// Asks Claude Code about the library at this scope, or only the items in `only`, whose results then replace
@@ -267,17 +288,22 @@ pub fn run(
         ensure!(b.is_finite() && b > 0.0, "the budget must be above zero");
         budget = b;
     }
+    let version = claude
+        .first()
+        .and_then(|program| termf_core::claude::binary(program).ok()?.version);
     let brief = Brief {
         all: &all,
         sent,
         rejected: read_rejected(config_dir)?.rejected,
+        claude: version.clone(),
     };
     let prompt = brief.prompt(None);
     ensure!(
         prompt.len() <= MAX_PROMPT,
         "too much to examine at once: choose fewer items"
     );
-    let (answer, cost) = ask(claude, &model, budget, &prompt, progress)?;
+    let cancel = options.cancel.clone().unwrap_or_default();
+    let (answer, cost) = ask(claude, &model, budget, &prompt, progress, &cancel)?;
     let mut next = Draft {
         model,
         budget,
@@ -302,7 +328,22 @@ pub fn run(
         saved.cost = add(old.cost, next.cost);
     }
     write_draft(&file, &saved)?;
+    let _ = fs::remove_file(aside(&file));
+    // Only a launch that gave results has seen this version.
+    if let Some(version) = &version {
+        write_file(&config_dir.join(CLAUDE_SEEN), version.as_bytes())?;
+    }
     Ok(next)
+}
+
+/// The entries still to decide that a launch on `only` (the whole library when empty) would replace.
+pub fn would_replace(draft: &Draft, only: &[ItemRef]) -> usize {
+    draft
+        .entries
+        .iter()
+        .filter(|e| e.review == Review::Pending)
+        .filter(|e| only.is_empty() || only.iter().any(|r| r.kind == e.kind && r.name == e.name))
+        .count()
 }
 
 /// Asks again for one entry only, following the owner's comment; the others stay as they are.
@@ -334,13 +375,21 @@ pub fn revise(
             .filter(|i| i.kind == item.kind && i.name == item.name)
             .collect(),
         rejected: read_rejected(config_dir)?.rejected,
+        claude: None,
     };
     let prompt = brief.prompt(Some((&draft.entries[index], comment)));
     ensure!(
         prompt.len() <= MAX_PROMPT,
         "this item is too long to examine"
     );
-    let (answer, cost) = ask(claude, &draft.model, draft.budget, &prompt, progress)?;
+    let (answer, cost) = ask(
+        claude,
+        &draft.model,
+        draft.budget,
+        &prompt,
+        progress,
+        &AtomicBool::new(false),
+    )?;
     let mut revised = Draft::default();
     brief.read(&answer, &mut revised)?;
     let Some(entry) = revised
@@ -466,15 +515,26 @@ pub fn apply(config_dir: &Path, project: Option<&str>) -> Result<Scout> {
     } else {
         write_draft(&file, &draft)?;
     }
+    let _ = fs::remove_file(aside(&file));
     state(config_dir, project)
 }
 
-/// Drops the results under review; nothing is remembered of them.
+/// Sets the results under review aside, decisions included; nothing is remembered of them, and [`restore`] brings
+/// them back until the next launch.
 pub fn discard(config_dir: &Path, project: Option<&str>) -> Result<Scout> {
-    match fs::remove_file(draft_file(config_dir, project)?) {
+    let file = draft_file(config_dir, project)?;
+    match fs::rename(&file, aside(&file)) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
         _ => {}
     }
+    state(config_dir, project)
+}
+
+pub fn restore(config_dir: &Path, project: Option<&str>) -> Result<Scout> {
+    let file = draft_file(config_dir, project)?;
+    ensure!(aside(&file).exists(), "no results to bring back");
+    ensure!(!file.exists(), "newer results are under review");
+    fs::rename(aside(&file), &file)?;
     state(config_dir, project)
 }
 
@@ -583,6 +643,8 @@ struct Brief<'a> {
     all: &'a [Item],
     sent: Vec<&'a Item>,
     rejected: Vec<Refusal>,
+    /// The version of Claude Code the owner runs.
+    claude: Option<String>,
 }
 
 impl Brief<'_> {
@@ -600,7 +662,7 @@ impl Brief<'_> {
              Answer with `entries`, one per item that deserves it:\n\
              1. `critique`: its flaws, each with `flaw` (vague; contradiction, within the item or with another; \
              redundancy with another item; outdated advice or feature; missing piece that matters), `text` (what \
-             is wrong), `practice` (the good practice) and `source` (the address of a page you read that states \
+             is wrong, naming the exact part of the item: its field, section or sentence), `practice` (the good practice) and `source` (the address of a page you read that states \
              it). No entry for an item without real flaws.\n\
              2. When the critique justifies it, `content`: the whole new file, frontmatter included, keeping its \
              format, language and purpose; `summary`: what it improves; `sources`: the addresses it rests on. \
@@ -695,6 +757,13 @@ impl Brief<'_> {
                  it; when they do not, critique the item (`outdated`) and propose it without the crutch. Those in \
                  the engine are for the owner: name them in the critique of the item closest to them.\n<<<\n{}\n>>>\n",
                 crutches.trim_end()
+            );
+        }
+        if let Some(version) = &self.claude {
+            p += &format!(
+                "\nThe owner runs Claude Code {version}: read its changelog for what changed up to this version \
+                 (frontmatter fields, new features, deprecations), and critique the items that should use or drop \
+                 it.\n"
             );
         }
         p
@@ -1067,6 +1136,7 @@ fn ask(
     budget: f64,
     prompt: &str,
     progress: &mut dyn FnMut(Progress),
+    cancel: &AtomicBool,
 ) -> Result<(Value, Option<f64>)> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
     let claude = termf_core::claude::binary(program)?;
@@ -1093,12 +1163,23 @@ fn ask(
         cmd.env("PATH", path);
     }
     termf_core::agent_env::current(None).apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
-    let ran = termf_core::process::stream(cmd, prompt.as_bytes(), TIMEOUT, &mut |line| {
+    let lines = &mut |line: &str| {
         for p in progress_of(line) {
             progress(p);
         }
-    });
+    };
+    let ran = termf_core::process::stream_until(
+        cmd,
+        prompt.as_bytes(),
+        TIMEOUT,
+        lines,
+        cancel,
+        MAX_PROMPT,
+    );
     let _ = fs::remove_dir_all(&cwd);
+    if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        bail!("stopped");
+    }
     let (status, stdout, stderr) =
         ran.with_context(|| format!("cannot run Claude Code {claude}"))?;
     termf_core::claude::structured_output(&claude, status, &stdout, &stderr)
@@ -1213,6 +1294,123 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn counts_what_a_launch_would_replace_and_notes_the_version_once_it_gave_results() {
+        use std::os::unix::fs::PermissionsExt;
+        let config = setup("scout-replace");
+        put(
+            &config.join("projects/acme/library/preferences/tone.md"),
+            "---\ndescription: Tone\n---\nBe kind.\n",
+        );
+        // Answers `--version` as Claude Code does, and fails any launch.
+        let failing = config.parent().unwrap().join("bin/claude");
+        put(
+            &failing,
+            "#!/bin/sh\n[ \"$1\" = --version ] && { echo '2.1.999 (Claude Code)'; exit 0; }\ncat > /dev/null\necho boom >&2\nexit 1\n",
+        );
+        fs::set_permissions(&failing, fs::Permissions::from_mode(0o755)).unwrap();
+        let claude = vec![failing.to_string_lossy().into_owned()];
+        assert!(
+            run(
+                &config,
+                Some("acme"),
+                &[],
+                &Options::default(),
+                &claude,
+                &mut |_| {}
+            )
+            .is_err()
+        );
+        assert_eq!(
+            state(&config, Some("acme")).unwrap().claude,
+            None,
+            "nothing came of it"
+        );
+
+        let answer = json!({ "entries": [entry("preference", "style", false, ""), entry("preference", "tone", false, "")] });
+        let claude = fake_claude(&config, &answer);
+        run(
+            &config,
+            Some("acme"),
+            &[],
+            &Options::default(),
+            &claude,
+            &mut |_| {},
+        )
+        .unwrap();
+        let tone = ItemRef {
+            kind: Kind::Preference,
+            name: "tone".into(),
+        };
+        review(&config, Some("acme"), &tone, Review::Rejected, false).unwrap();
+        let draft = state(&config, Some("acme")).unwrap().draft.unwrap();
+        assert_eq!(
+            would_replace(&draft, &[]),
+            1,
+            "the whole library: style still to decide"
+        );
+        assert_eq!(would_replace(&draft, &[tone]), 0, "tone is decided");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_launch_stops_when_cancelled_and_set_aside_results_come_back() {
+        let config = setup("scout-cancel");
+        let claude = fake_claude(
+            &config,
+            &json!({ "entries": [entry("preference", "style", false, "")] }),
+        );
+        run(
+            &config,
+            Some("acme"),
+            &[],
+            &Options::default(),
+            &claude,
+            &mut |_| {},
+        )
+        .unwrap();
+        let gone = discard(&config, Some("acme")).unwrap();
+        assert!(gone.draft.is_none() && gone.discarded);
+        let back = restore(&config, Some("acme")).unwrap();
+        assert_eq!(
+            (back.draft.unwrap().entries.len(), back.discarded),
+            (1, false)
+        );
+        assert!(
+            restore(&config, Some("acme")).is_err(),
+            "nothing set aside any more"
+        );
+
+        let slow = config.parent().unwrap().join("slow.sh");
+        put(&slow, "#!/bin/sh\ncat > /dev/null\nsleep 30\n");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let options = Options {
+            cancel: Some(cancel.clone()),
+            ..Options::default()
+        };
+        let stop = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let started = std::time::Instant::now();
+        let claude = vec!["/bin/sh".into(), slow.to_string_lossy().into_owned()];
+        let err = run(&config, Some("acme"), &[], &options, &claude, &mut |_| {}).unwrap_err();
+        stop.join().unwrap();
+        assert!(format!("{err:#}").contains("stopped"), "{err:#}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(
+            state(&config, Some("acme"))
+                .unwrap()
+                .draft
+                .unwrap()
+                .entries
+                .len(),
+            1,
+            "kept"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn asks_with_web_tools_only_and_reports_progress() {
         let config = setup("scout-flags");
         let claude = fake_claude(
@@ -1223,6 +1421,7 @@ mod tests {
         let options = Options {
             model: Some("opus".into()),
             budget: Some(1.5),
+            ..Options::default()
         };
         let only = [item(Kind::Command, "handoff")];
         let draft = run(&config, None, &only, &options, &claude, &mut |p| {

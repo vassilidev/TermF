@@ -30,7 +30,7 @@
     ssh: ["viewSsh", "t6bHelpSsh"],
     settings: ["settings", "t6bHelpSettings"],
     project: ["ux3t3Config", "ux3t4HelpConfig"],
-    onboarding: ["obConfigure", "t6bHelpOnboarding"],
+    newProject: ["newProject", "t6bHelpOnboarding"],
     vault: ["vaultTitle", "vaultHelp"],
     vaultAll: ["uxfT1VaultAll", "vaultHelp"],
     ops: ["opsView", "opsIntro"],

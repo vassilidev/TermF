@@ -1070,6 +1070,22 @@ impl Git {
         Ok(())
     }
 
+    /// What `dir` changed since it left `base`, committed or not, new files not yet added included: a ticket run's
+    /// work against the branch it started from, measured from their merge base so that `base` moving on adds nothing.
+    pub fn diff_since(&self, dir: &Path, base: &str) -> Result<Vec<FileDiff>> {
+        let base = checked_name(base)?;
+        let from = self.run(dir, &["merge-base", base, "HEAD"])?;
+        let mut args = vec!["diff", "-M"];
+        args.extend(DIFF_ARGS);
+        args.extend([from.trim(), "--"]);
+        let mut files = parse_diff(&self.run(dir, &args)?, MAX_DIFF_LINES);
+        for path in self.untracked(dir, ".")? {
+            files.push(self.untracked_diff(dir, &path, vec![path.clone()])?);
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(files)
+    }
+
     /// What a stash holds, untracked files included.
     pub fn stash_show(&self, dir: &Path, index: usize, oid: &str) -> Result<Vec<FileDiff>> {
         let name = self.stash_ref(dir, index, oid)?;

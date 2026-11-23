@@ -34,21 +34,32 @@
   import RunPlan from "$lib/RunPlan.svelte";
   import TeamRouting from "$lib/TeamRouting.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
-  import { showConversation, usd } from "$lib/agents.svelte";
+  import { showConversation } from "$lib/agents.svelte";
+  import { named, stageNames, stageOfStep, stuck } from "$lib/run-logic";
   import { ROUTE, asks, escalations, held, rounds, tally, type Finding, type Review, type TeamRun } from "$lib/team-run-logic";
 
-  /** A team run's own part of the Run page: why this path, the answers given, the plan and the steps. */
-  let { run }: { run: TeamRun } = $props();
+  /**
+   * A team run's own part of the Run page: the steps of one stage of its timeline (`stage`; the tasks by default, as a
+   * list), where a team no longer at work stopped if that is elsewhere, the plan, why this path and the answers given.
+   */
+  let { run, stage = "tasks" }: { run: TeamRun; stage?: string } = $props();
 
   const waits = $derived(asks(run));
-  /** A task under its foreach, the CTO's escalation under the step it decides on. */
-  const top = $derived(run.steps.filter((s) => s.kind !== "task" && !s.escalates));
+  /** The tasks stage lists its tasks; any other its steps, the CTO's escalation under the step it decides on. */
+  const inStage = (s: Step) => (stage === "tasks" ? s.kind === "task" : s.kind !== "task" && !s.escalates && stageOfStep(run, s) === stage);
+  const top = $derived(run.steps.filter(inStage));
+  /** Where a team no longer at work stopped, outside the stage shown: always in sight. */
+  const stopped = $derived(stuck(run).filter((s) => !s.escalates && !inStage(s)));
+  const stageName = (id: string) => {
+    const name = named(stageNames, id);
+    return name ? t(name) : id;
+  };
+  const waiting = (id: string) => run.steps.some((s) => s.task === id && s.state !== "done" && s.state !== "skipped");
   const planFirst = $derived(!run.steps.some((s) => s.kind === "task" && s.state !== "pending"));
   /** The plan waiting for approval is read in its card. */
   const planAsked = $derived(waits.some((a) => a.kind === "plan") && !!run.plan);
   const routed = $derived(run.routing && !run.routing.questions.length && !waits.some((a) => a.kind === "route") ? run.routing : null);
   const routeGate = $derived(run.steps.find((s) => s.key === ROUTE));
-  const tasksOf = (foreach: Step) => run.steps.filter((s) => s.kind === "task" && s.key.startsWith(`${foreach.key}:`));
   const taskOf = (step: Step) => (step.task === null ? undefined : run.plan?.tasks.find((task) => task.id === step.task));
 
   /** `waiting`: the round waits for the user, so nothing of it was sent yet. */
@@ -102,20 +113,26 @@
   {@const report = step.report}
   {@const task = taskOf(step)}
   {@const cto = escalations(run, step)}
+  {@const after = task && step.state === "pending" ? task.depends_on.filter(waiting) : []}
   <div class="step-head">
-    <span><StatusPill {status} {label} /></span>
     <span class="step-name">
-      <b>{stepName(step)}</b>
+      <b>{task ? task.id : stepName(step)}</b>
       {#if task}<span class="goal" title={task.goal}>{task.goal}</span>{/if}
+      <span class="sub">
+        {[
+          step.role,
+          task?.repo,
+          task?.squad ? t("teamRunsSquad", { name: task.squad }) : "",
+          step.attempt > 1 ? t("teamRunsAttempt", { n: step.attempt }) : "",
+          step.escalated ? t("disciplineEscalated") : "",
+          after.length ? t("uiRunStartsAfter", { tasks: after.join(", ") }) : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
     </span>
-    <span class="step-tags">
-      {#if step.attempt > 1}<span class="muted small">{t("teamRunsAttempt", { n: step.attempt })}</span>{/if}
-      {#if step.escalated}<span class="badge">{t("disciplineEscalated")}</span>{/if}
-      {#if task?.squad}<span class="badge">{t("teamRunsSquad", { name: task.squad })}</span>{/if}
-      {#if step.role}<span class="badge">{step.role}</span>{/if}
-    </span>
-    <span class="cost">{step.cost ? usd(step.cost) : ""}</span>
     <span class="open">{@render conversation(step)}</span>
+    <span class="pill"><StatusPill {status} {label} /></span>
   </div>
   {#if step.note && step.state !== "done"}<p class="note mono">{step.note}</p>{/if}
   {#if step.kind === "update" && step.state !== "done" && step.files.length}
@@ -211,33 +228,32 @@
   {/if}
 {/snippet}
 
-{#snippet stepsSection()}
-  <section class="panel" aria-labelledby="team-steps">
-    <h3 id="team-steps">{t("teamRunsSteps")}</h3>
-    <ol class="steps">
-      {#each top as step (step.key)}
-        <li class="step">
-          {@render stepRow(step)}
-          {#if step.kind === "foreach"}
-            <ol class="steps nested">
-              {#each tasksOf(step) as task (task.key)}
-                <li class="step">{@render stepRow(task)}</li>
-              {/each}
-            </ol>
-          {/if}
-        </li>
-      {/each}
-    </ol>
-  </section>
+{#snippet stepsSection(id: string, title: string, steps: Step[])}
+  {#if steps.length}
+    <section class="stage" aria-labelledby={id}>
+      <h3 {id} class="h-sec">{title} <span class="n">{steps.length}</span></h3>
+      <ol class="steps">
+        {#each steps as step (step.key)}
+          <li class="step">{@render stepRow(step)}</li>
+        {/each}
+      </ol>
+    </section>
+  {/if}
 {/snippet}
 
-<!-- Until a task starts, the plan is what to read; then the steps at work are. Why this path comes after. -->
-{#if planFirst}
+{#if stopped.length}{@render stepsSection("team-stopped", stageName(stageOfStep(run, stopped[0])), stopped)}{/if}
+
+<!-- Until a task starts, the plan is what to read (it lists the tasks); then the tasks at work are, the plan folded under them. -->
+{#if planFirst && stage === "tasks" && run.plan}
   {@render planSection()}
-  {@render stepsSection()}
 {:else}
-  {@render stepsSection()}
-  {@render planSection()}
+  {@render stepsSection("team-steps", stageName(stage), top)}
+  {#if !planAsked && run.plan && stage === "tasks"}
+    <details class="panel plan">
+      <summary>{t("teamRunsPlan")}</summary>
+      <RunPlan {run} />
+    </details>
+  {/if}
 {/if}
 
 {#if routed || run.answers?.length}
@@ -286,45 +302,41 @@
     font-size: var(--text-sm);
   }
 
+  .stage {
+    container-type: inline-size;
+  }
+
+  /* The steps of a stage as one list, like the tasks of the mock: a row each, the state on the right. */
   .steps {
     margin: 0;
     padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--panel);
     list-style: none;
   }
 
   .step {
-    padding: 8px 0;
+    padding: 10px 14px;
     border-top: 1px solid var(--border);
   }
 
-  .panel > .steps > .step:first-child {
+  .step:first-child {
     border-top: 0;
-    padding-top: 0;
   }
 
   .nested {
-    margin: 6px 0 0 18px;
-    padding-left: 12px;
-    border-left: 2px solid var(--border);
+    margin: 8px 0 0 18px;
+    border-radius: var(--radius);
   }
 
-  .nested .step:first-child {
-    border-top: 0;
-  }
-
-  /* Fixed columns on the right: costs and conversations line up, nested tasks included. */
   .step-head {
     display: grid;
-    grid-template-columns: minmax(96px, max-content) minmax(0, 1fr) auto 64px 124px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 10px;
     min-height: 28px;
-  }
-
-  .step-tags {
-    display: flex;
-    align-items: center;
-    gap: 6px;
   }
 
   .open {
@@ -334,20 +346,16 @@
 
   /* A narrow run page keeps the task's goal readable: the conversation button folds to its icon. */
   @container (max-width: 640px) {
-    .step-head {
-      grid-template-columns: minmax(96px, max-content) minmax(0, 1fr) auto 64px 30px;
-    }
-
     .open .label {
       display: none;
     }
   }
 
   .step-name {
-    display: flex;
-    flex: 1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: baseline;
-    gap: 8px;
+    column-gap: 8px;
     min-width: 0;
   }
 
@@ -358,17 +366,26 @@
 
   .goal {
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sub {
+    grid-column: 1 / -1;
+    overflow: hidden;
     color: var(--muted);
     font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .cost {
-    color: var(--muted);
-    font-size: var(--text-sm);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
+  .sub:empty {
+    display: none;
+  }
+
+  .plan summary {
+    color: var(--text);
+    font-weight: 600;
   }
 
   .note,

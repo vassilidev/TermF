@@ -27,6 +27,7 @@
   import BaseUpdate from "$lib/BaseUpdate.svelte";
   import CiChecks from "$lib/CiChecks.svelte";
   import Delivery from "$lib/Delivery.svelte";
+  import RunChanges from "$lib/RunChanges.svelte";
   import RunLive from "$lib/RunLive.svelte";
   import RunTell from "$lib/RunTell.svelte";
   import TeamOptions from "$lib/TeamOptions.svelte";
@@ -38,12 +39,13 @@
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { apiUsd, budgetUsd, usd } from "$lib/agents.svelte";
+  import { agents, apiUsd, budgetUsd } from "$lib/agents.svelte";
   import { budgetLabel, costHelp } from "$lib/usage.svelte";
   import { closeRun, showReview } from "$lib/commands";
   import { reviewOf } from "$lib/visual.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import {
+    defaultStage,
     expected,
     mergeRequest,
     named,
@@ -57,11 +59,12 @@
     type StageState,
   } from "$lib/run-logic";
   import { repoName, shortPath } from "$lib/state.svelte";
-  import { TRIAGE, asks, budgetError, progress, type TeamRun } from "$lib/team-run-logic";
+  import { TRIAGE, asks, budgetError, liveCost, progress, projected, type TeamRun } from "$lib/team-run-logic";
   import NextStep from "$lib/ui/NextStep.svelte";
   import { askAI, provide } from "$lib/ask.svelte";
   import { runNext } from "$lib/guide-logic";
-  import { team, upsertRun } from "$lib/team.svelte";
+  import { elapsed } from "$lib/live-logic";
+  import { laneOf, team, upsertRun } from "$lib/team.svelte";
   import { readyToClean, refusal, resumable } from "$lib/tickets-logic";
   import { openTile, openUrl, runSession, tickets, upsert, type Resumed, type Run, type RunEvent } from "$lib/tickets.svelte";
 
@@ -122,9 +125,52 @@
       chips: [{ id: "run", kind: "object", label, text: `Ticket run ${run.id} (${run.ticket.url}), ${run.status}${state}` }],
     });
   });
-  const firstAsk = $derived(teamRun ? asks(teamRun)[0] : undefined);
+  const waits = $derived(teamRun ? asks(teamRun) : []);
+  const firstAsk = $derived(waits[0]);
   const next = $derived(run ? runNext({ expected: wants, blocked: firstAsk?.kind === "blocked", working: teamRun?.state === "running" }) : null);
   const timeline = $derived(run ? stages(run, teamRun) : []);
+  /** The stage of the timeline whose steps show under it: one of this run picked, else where it stopped or its tasks. */
+  let picked = $state<{ run: number; stage: string } | null>(null);
+  const fallback = $derived(teamRun ? defaultStage(teamRun, timeline) : "tasks");
+  const stage = $derived(picked?.run === id ? picked.stage : fallback);
+  const pickStage = (s: string) => (picked = s === stage ? null : { run: id, stage: s });
+  const tasks = $derived(teamRun?.steps.filter((s) => s.kind === "task") ?? []);
+  /** The lanes: what waits and what works while the team is at work, the delivery once it is done. */
+  const live = $derived(
+    (!!teamRun && active ? waits.length + teamRun.steps.filter((s) => s.state === "running" && s.kind !== "foreach").length : 0) +
+      (wants === "deliver" ? 1 : 0),
+  );
+
+  /** What answering the first wait sets going: the step again, then the next stage of the timeline. */
+  const nextText = $derived.by(() => {
+    if (!teamRun || !firstAsk) return "";
+    const who = laneOf(teamRun, firstAsk.step);
+    if (firstAsk.kind === "plan") return t("uiRunNextPlan", { count: teamRun.plan?.tasks.length ?? 0 });
+    const at = timeline.findIndex((s) => s.state === "waiting");
+    const then = timeline.slice(at + 1).find((s) => s.state !== "done");
+    if (at < 0 || !then || firstAsk.kind === "deliver") return t("aigNextRunWaits", { role: who.role ?? who.title });
+    const step = firstAsk.step.task ?? who.title;
+    return firstAsk.kind === "blocked" || firstAsk.kind === "questions"
+      ? t("uiRunNextThen", { role: who.role ?? "TermF", step, next: stageLabel(then.id) })
+      : t("uiRunNextDecide", { step: who.title, next: stageLabel(then.id) });
+  });
+
+  // "25 min" in the header moves on while the team works.
+  let now = $state(Date.now() / 1000);
+  $effect(() => {
+    if (!active) return;
+    const timer = setInterval(() => (now = Date.now() / 1000), 30_000);
+    return () => clearInterval(timer);
+  });
+  // Measured to its end once the team no longer works.
+  const age = $derived.by(() => {
+    if (!run) return "";
+    const { key, vars } = elapsed((active || !teamRun ? now : teamRun.updated) - run.created);
+    return t(key as Parameters<typeof t>[0], vars);
+  });
+  /** What the steps at work spent this far counts before they add it up. */
+  const spentNow = $derived(teamRun ? liveCost(teamRun, (s) => agents.sessions.find((a) => a.id === s)?.cost ?? 0) : 0);
+  const pace = $derived(teamRun ? projected(teamRun, spentNow) : null);
   // A change over several repositories: each with its own pull request.
   const repos = $derived(repoRuns(tickets.runs, id));
   const repoLabel: Record<RepoState, [Status, Parameters<typeof t>[0]]> = {
@@ -334,6 +380,7 @@
     {/snippet}
     {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />{/if}
     {#snippet actions()}
+      {#if teamRun && !narrow}<span class="tally num" title={costHelp()}>{age} · {budgetUsd(spentNow)}</span>{/if}
       <!-- A narrow page keeps the delivery and the stop in the header, the rest goes to the menu. -->
       {#if run && session && !narrow}
         <button class="btn sm" onclick={() => openTile(run)}>
@@ -379,34 +426,31 @@
   </ViewHeader>
 
   {#if run}
+    <!-- The run's stages under its title, without a frame; a team's stage opens its steps below. -->
+    <ol class="timeline" aria-label={t("ux3t2Stages")}>
+      {#each timeline as s (s.id)}
+        {@const [Icon, said] = stageStatus[s.state]}
+        {@const label = stageLabel(s.id)}
+        {@const count =
+          s.id === "tasks" && tasks.length && s.state !== "done" && s.state !== "pending"
+            ? t("uiRunTasksDone", { done: tasks.filter((x) => x.state === "done").length, total: tasks.length })
+            : ""}
+        <li class={s.state} aria-current={s.state === "waiting" || s.state === "working" ? "step" : undefined}>
+          {#if teamRun}
+            <button class="st" class:picked={picked?.run === id && picked.stage === s.id} aria-pressed={stage === s.id} onclick={() => pickStage(s.id)} title={t("uiRunStageSteps", { stage: label })}>
+              <Icon size={14} aria-hidden="true" /><span class="label">{label}{count ? ` · ${count}` : ""}</span><span class="sr-only">, {t(said)}</span>
+            </button>
+          {:else}
+            <span class="st" title={label}>
+              <Icon size={14} aria-hidden="true" /><span class="label">{label}</span><span class="sr-only">, {t(said)}</span>
+            </span>
+          {/if}
+        </li>
+      {/each}
+    </ol>
     <div class="page">
       <div class="grid">
         <div class="main">
-          <ol class="timeline" aria-label={t("ux3t2Stages")}>
-            {#each timeline as stage (stage.id)}
-              {@const [Icon, said] = stageStatus[stage.state]}
-              {@const label = stageLabel(stage.id)}
-              <li class={stage.state} aria-current={stage.state === "waiting" || stage.state === "working" ? "step" : undefined} title={label}>
-                <span class="st">
-                  <Icon size={14} aria-hidden="true" /><span class="label">{label}</span><span class="sr-only">, {t(said)}</span>
-                </span>
-              </li>
-            {/each}
-          </ol>
-
-          {#if next === "failed"}
-            <NextStep
-              text={t("aigNextRunFailed")}
-              action={{ label: t("aigAskLead"), run: () => askAI({ role: "lead", draft: t("aigNextRunFailedDraft") }) }}
-            />
-          {:else if next === "answer"}
-            <NextStep text={t("aigNextRunWaits", { role: firstAsk?.step.role ?? firstAsk?.step.key ?? "" })} />
-          {:else if next === "deliver"}
-            <NextStep text={t("aigNextRunDeliver")} />
-          {:else if next === "working"}
-            <NextStep text={t("aigNextRunWorking")} />
-          {/if}
-
           {#if done}<Banner kind="ok" ondismiss={() => (done = "")}>{done}</Banner>{/if}
           {#if teamRun?.note && !active}
             <p class="notice"><CircleAlert size={14} aria-hidden="true" />{teamRun.note}</p>
@@ -538,8 +582,13 @@
             {#if triaging}
               <p class="notice" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ctoEntryTriage")}</p>
             {/if}
-            <WaitCards run={teamRun} />
-            <RunLive run={teamRun} />
+            <!-- One lane per agent, the ones that wait for you first, answered right there. -->
+            <section class="live" aria-labelledby={live ? "run-live" : undefined}>
+              {#if live}<h2 id="run-live" class="h-sec">{t("uiRunLive")} <span class="n">{live === 1 ? t("uiRunAgentOne") : t("uiRunAgents", { count: live })}</span></h2>{/if}
+              <WaitCards run={teamRun} lane />
+              <RunLive run={teamRun} />
+            </section>
+            <TeamRunDetail run={teamRun} {stage} />
             <RunTell run={teamRun} open={run.status !== "closed"} />
             {#if repos.length}
               {@const prs = repos.filter((r) => r.run.prUrl).length}
@@ -587,13 +636,24 @@
               </section>
               {#if other}<Delivery run={other} onclose={() => (deliveringRepo = null)} />{/if}
             {/if}
-            <TeamRunDetail run={teamRun} />
           {:else if open && !session}
             <p class="muted small">{t("runNoSession")}</p>
           {/if}
         </div>
 
         <aside class="side">
+          {#if next === "failed"}
+            <NextStep
+              text={t("aigNextRunFailed")}
+              action={{ label: t("aigAskLead"), run: () => askAI({ role: "lead", draft: t("aigNextRunFailedDraft") }) }}
+            />
+          {:else if next === "answer"}
+            <NextStep text={nextText} />
+          {:else if next === "deliver"}
+            <NextStep text={t("aigNextRunDeliver")} />
+          {:else if next === "working"}
+            <NextStep text={t("aigNextRunWorking")} />
+          {/if}
           <section class="panel">
             <dl class="kv">
               <dt>{t("runMetaTicket")}</dt>
@@ -632,6 +692,8 @@
             <div class="panel ci"><CiChecks {run} {session} /></div>
           {/if}
 
+          {#if run.status === "running" || run.status === "delivered"}<RunChanges {run} version={`${run.updated}:${teamRun?.steps.filter((s) => s.finished !== null).length ?? 0}`} />{/if}
+
           {#if teamRun && spent}
             <section class="panel" aria-labelledby="run-budget">
               <h3 id="run-budget">{budgetLabel(t("chatBudget"))}</h3>
@@ -647,24 +709,31 @@
                 <div class="bar" class:full={spent.spent >= 1}><span style="width: {spent.spent * 100}%"></span></div>
               {/if}
               <p class="muted small">{t("teamRunsProgress", { over: spent.over, total: spent.total })}</p>
+              {#if pace !== null}
+                <p class="muted small pace" class:over={teamRun.budget !== null && pace > teamRun.budget}>
+                  {teamRun.budget !== null && pace > teamRun.budget
+                    ? t("uiRunPaceOver", { budget: budgetUsd(teamRun.budget) })
+                    : t("uiRunPace", { amount: budgetUsd(Math.ceil(pace * 10) / 10) })}
+                </p>
+              {/if}
             </section>
           {/if}
 
-          <section class="panel" aria-labelledby="run-journal">
-            <h3 id="run-journal">{t("runJournal")}</h3>
-            {#if events === null}<Skeleton rows={3} />{/if}
-            <ol class="journal">
-              {#each events ?? [] as event (event.id)}
-                {@const [compact, full] = when(event.at)}
-                <li class:failed={event.kind === "failed"}>
-                  <time datetime={new Date(event.at * 1000).toISOString()} title={full}>{compact}</time>
-                  <span>{describe(event)}</span>
-                </li>
-              {:else}
-                {#if events}<li class="muted">{t("runJournalEmpty")}</li>{/if}
-              {/each}
-            </ol>
-          </section>
+          <!-- An empty log says nothing: it shows once something happened. -->
+          {#if events?.length}
+            <section class="panel" aria-labelledby="run-journal">
+              <h3 id="run-journal">{t("runJournal")}</h3>
+              <ol class="journal">
+                {#each events as event (event.id)}
+                  {@const [compact, full] = when(event.at)}
+                  <li class:failed={event.kind === "failed"}>
+                    <time datetime={new Date(event.at * 1000).toISOString()} title={full}>{compact}</time>
+                    <span>{describe(event)}</span>
+                  </li>
+                {/each}
+              </ol>
+            </section>
+          {/if}
         </aside>
       </div>
     </div>
@@ -767,38 +836,40 @@
     min-width: 0;
   }
 
+  .tally {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    white-space: nowrap;
+  }
+
+  /* A band under the title, no frame: the stages read as where the run is, not as one more card. */
   .timeline {
     container: stages / inline-size;
     display: flex;
+    flex: none;
     align-items: center;
+    min-height: 44px;
     margin: 0;
-    padding: 12px 14px;
+    padding: 0 22px;
     overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
+    border-bottom: 1px solid var(--border);
     list-style: none;
   }
 
   .timeline li {
     display: flex;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     align-items: center;
     color: var(--muted);
     font-size: var(--text-sm);
     font-weight: 500;
   }
 
-  .timeline li:last-child {
-    flex: 0 0 auto;
-  }
-
   .timeline li:not(:last-child)::after {
     content: "";
-    flex: 1;
-    min-width: 14px;
+    width: 24px;
     height: 1px;
-    margin: 0 8px;
+    margin: 0 4px;
     background: var(--border-strong);
   }
 
@@ -808,7 +879,22 @@
     align-items: center;
     gap: 6px;
     height: 26px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: none;
+    color: inherit;
+    font: inherit;
     white-space: nowrap;
+  }
+
+  button.st:hover {
+    background: var(--hover);
+  }
+
+  .st.picked {
+    background: var(--selected, var(--hover));
+    color: var(--text);
   }
 
   /* Too narrow for every name: the stages done or to come keep their icon, the current one its name. */
@@ -824,7 +910,7 @@
   }
 
   .done .st {
-    color: var(--text);
+    color: var(--soft);
   }
 
   .done .st :global(svg) {
@@ -837,18 +923,15 @@
 
   .waiting .st,
   .working .st {
-    padding: 0 10px 0 7px;
-    border-radius: var(--radius-pill);
-    font-weight: 650;
+    color: var(--text);
+    font-weight: 600;
   }
 
-  .waiting .st {
-    background: var(--waiting);
-    color: var(--waiting-text);
+  .waiting .st :global(svg) {
+    color: var(--warning);
   }
 
-  .working .st {
-    background: var(--working-soft);
+  .working .st :global(svg) {
     color: var(--working);
   }
 
@@ -1035,6 +1118,28 @@
     background: var(--danger);
   }
 
+  .pace {
+    margin-top: 4px;
+  }
+
+  .pace.over {
+    color: var(--warning);
+  }
+
+  .live {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .live:not(:has(> *)) {
+    display: none;
+  }
+
+  .live .h-sec {
+    margin: 0;
+  }
+
   .journal {
     display: flex;
     flex-direction: column;
@@ -1050,10 +1155,6 @@
     gap: 8px;
     line-height: 1.45;
     overflow-wrap: anywhere;
-  }
-
-  .journal li.muted {
-    display: block;
   }
 
   .journal time {
