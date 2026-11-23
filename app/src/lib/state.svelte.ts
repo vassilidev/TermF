@@ -19,7 +19,7 @@ import { place } from "$lib/tabs.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
-export type Project = { id: string; name: string; repos: Repo[]; remoteControl: RemotePolicy };
+export type Project = { id: string; name: string; repos: Repo[]; remoteControl: RemotePolicy; checks?: Record<string, string> };
 export type Workspace = {
   configDir: string;
   home: string;
@@ -324,7 +324,9 @@ export function repoName(path: string): string {
 /** `~/code/acme/api` for a path under the home folder. */
 export function shortPath(path: string): string {
   const home = app.workspace?.home ?? "";
-  return home && path.startsWith(home) ? "~" + path.slice(home.length) : path;
+  // `/home/al` is not under `/home/a`.
+  const under = home && path.startsWith(home) && (path.length === home.length || /[\\/]/.test(path[home.length]));
+  return under ? "~" + path.slice(home.length) : path;
 }
 
 export function toggleProject(project: Project) {

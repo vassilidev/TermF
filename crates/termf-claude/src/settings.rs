@@ -201,6 +201,8 @@ pub struct Preview {
     /// The whole file once saved: it gets this text exactly.
     #[serde(skip)]
     pub text: String,
+    /// A local settings file git already tracks: what is saved there gets committed.
+    pub tracked: bool,
 }
 
 /// FNV-1a: the same text gives the same value in any process and version.
@@ -250,6 +252,7 @@ pub fn preview(env: &Env, scope: Scope, edit: &Edit) -> Result<Preview> {
         diff: crate::native::mask_lines(&diff(&before, &text)),
         hash: fingerprint(&before),
         text,
+        tracked: scope == Scope::Local && tracked(&path),
     })
 }
 
@@ -264,7 +267,85 @@ pub fn save(env: &Env, scope: Scope, edit: &Edit, hash: Option<&str>) -> Result<
     }
     let preview = preview(env, scope, edit)?;
     write_atomic(Path::new(&preview.path), &preview.text)?;
+    if scope == Scope::Local
+        && !preview.tracked
+        && let Err(e) = exclude_local(Path::new(&preview.path))
+    {
+        // The file is written: only keeping it out of git failed, which a commit would show.
+        eprintln!("termf: {} not kept out of git: {e:#}", preview.path);
+    }
     Ok(preview)
+}
+
+/// `git` in `dir`; `None` when it cannot run, taken as outside git.
+fn git_in(dir: &Path, args: &[&str]) -> Option<std::process::Output> {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .ok()
+}
+
+/// Whether git tracks `file`: then it is committed whatever `info/exclude` says.
+fn tracked(file: &Path) -> bool {
+    let (Some(dir), Some(name)) = (file.parent(), file.file_name()) else {
+        return false;
+    };
+    dir.is_dir()
+        && git_in(
+            dir,
+            &["ls-files", "--error-unmatch", "--", &name.to_string_lossy()],
+        )
+        .is_some_and(|o| o.status.success())
+}
+
+/// Your own settings for one repository stay out of git, as when Claude Code creates the file: unless git
+/// ignores it already, through `info/exclude`, which is never committed. Outside git, nothing to do.
+fn exclude_local(file: &Path) -> Result<()> {
+    let dir = file.parent().context("no parent folder")?;
+    if git_in(dir, &["check-ignore", "-q", "settings.local.json"])
+        .is_none_or(|o| o.status.success())
+    {
+        return Ok(());
+    }
+    let Some(out) = git_in(
+        dir,
+        &["rev-parse", "--show-prefix", "--git-path", "info/exclude"],
+    ) else {
+        return Ok(());
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut lines = text.lines();
+    let (true, Some(prefix), Some(exclude)) = (out.status.success(), lines.next(), lines.next())
+    else {
+        return Ok(());
+    };
+    // Taken literally: a folder's name may hold what gitignore reads as a pattern.
+    let prefix: String = prefix
+        .chars()
+        .flat_map(|c| ["\\*?[".contains(c).then_some('\\'), Some(c)])
+        .flatten()
+        .collect();
+    let exclude = dir.join(exclude);
+    let before = fs::read_to_string(&exclude).unwrap_or_default();
+    let newline = if before.is_empty() || before.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    fs::create_dir_all(exclude.parent().context("no parent folder")?)?;
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&exclude)
+        .and_then(|mut f| {
+            std::io::Write::write_all(
+                &mut f,
+                format!("{newline}/{prefix}settings.local.json\n").as_bytes(),
+            )
+        })
+        .with_context(|| format!("cannot write {}", exclude.display()))
 }
 
 /// The value of a dotted key in `scope`'s file, unmasked: only for a value you asked to see.

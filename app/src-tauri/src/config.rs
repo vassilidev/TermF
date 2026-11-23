@@ -6,16 +6,20 @@ use termf_core::{Layout, Project, QUICK_TERMINAL_GLOBAL};
 
 use crate::{AppState, CmdResult, err, quick_terminal};
 
-/// Creates (`id: None`) or updates a project, then returns every project.
+/// Creates (`id: None`) or updates a project, then returns every project. `checks`: the repositories' check
+/// commands by path, an empty one removed.
 #[tauri::command]
 pub fn project_save(
     state: State<AppState>,
     id: Option<String>,
     name: String,
     repos: Vec<String>,
+    checks: Option<BTreeMap<String, String>>,
 ) -> CmdResult<Vec<Project>> {
+    let checks = checks.unwrap_or_default();
     let saved =
-        termf_core::save_project(&state.config_dir, id.as_deref(), &name, &repos).map_err(err)?;
+        termf_core::save_project_with(&state.config_dir, id.as_deref(), &name, &repos, &checks)
+            .map_err(err)?;
     if id.is_none() {
         crate::onboarding::created(&state.config_dir, &saved);
     }

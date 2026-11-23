@@ -31,7 +31,7 @@ mod tests;
 pub use database::{DbView, Engine};
 pub use detect::detect;
 pub use ports::reserve as reserve_port;
-pub use recipe::{Draft, RecipeView, RepoView, discard, propose, save, view};
+pub use recipe::{Draft, NAME as SETUP_ROLE, RecipeView, RepoView, discard, propose, save, view};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const AGENT_TIMEOUT: Duration = Duration::from_secs(30 * 60);

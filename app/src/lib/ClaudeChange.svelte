@@ -31,6 +31,7 @@
     {#if error}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
     {#if preview}
       <p class="file">{t("claudeViewPreviewOf", { path: preview.path })}</p>
+      {#if preview.tracked}<p class="notice error"><CircleAlert size={14} aria-hidden="true" />{t("recetteClaudeLocalTracked")}</p>{/if}
       {#if preview.diff}
         <pre class="diff">{#each lines as line, i (i)}<span class="l{line[0] === '+' ? ' add' : line[0] === '-' ? ' del' : ''}"
               >{line}

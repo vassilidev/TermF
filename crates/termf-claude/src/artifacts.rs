@@ -374,6 +374,24 @@ pub fn decide(policy: &Policy, payload: &Value) -> Value {
     })
 }
 
+/// The `PermissionRequest` hook's answer: Claude Code asks before every `Artifact` delete whatever `PreToolUse`
+/// said, so a deletion you confirmed in TermF is answered here. Anything else gets no answer: its tile shows.
+pub fn decide_permission(policy: &Policy, payload: &Value) -> Option<Value> {
+    let Policy::Delete(ids) = policy else {
+        return None;
+    };
+    let confirmed = payload["tool_name"] == "Artifact"
+        && deleted_id(&payload["tool_input"]).is_some_and(|id| ids.contains(&id));
+    confirmed.then(|| {
+        json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": { "behavior": "allow" },
+            }
+        })
+    })
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Failure {

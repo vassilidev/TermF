@@ -44,6 +44,12 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                 print!("{}", saved.diff);
                 println!("saved {}", saved.path);
             }
+            if saved.tracked {
+                eprintln!(
+                    "git tracks {}: these local settings get committed with it",
+                    saved.path
+                );
+            }
             Ok(())
         }
         ["sessions"] => {

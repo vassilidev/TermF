@@ -780,6 +780,8 @@ pub(crate) fn roles(items: &[Item]) -> Vec<RoleInfo> {
         .iter()
         .filter(|i| i.kind == ItemKind::Role && (i.layer != Layer::Repo || i.active))
         .filter(|i| canonical_role(&i.name) == i.name)
+        // The worktree recipe's agent prepares worktrees: it never works on a ticket.
+        .filter(|i| i.name != termf_worktree::SETUP_ROLE)
         .map(|i| RoleInfo {
             name: i.name.clone(),
             plannable: termf_library::plannable(i),
