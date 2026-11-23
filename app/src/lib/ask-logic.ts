@@ -17,6 +17,7 @@ export const ROLE_BY_VIEW: Record<string, string> = {
   ops: "devops",
   ssh: "devops",
   vault: "secops",
+  vaultAll: "secops",
   design: "ux",
   review: "ux",
   git: "expert",
@@ -61,7 +62,60 @@ export function chipsOf(given: Chip[], added: Chip[], removed: string[]): Chip[]
   return [...byId.values()].filter((c) => !removed.includes(c.id));
 }
 
-/** A permission the user answers as a proposal: a file change can be undone when the file existed before. */
+/** The chips taken off, whoever gave them (the screen, a "Why?", a selection): what "@ Add" puts back. */
+export function removedOf(given: Chip[], added: Chip[], removed: string[]): Chip[] {
+  return chipsOf(given, added, []).filter((c) => removed.includes(c.id));
+}
+
+/** A CI/CD run as a chip, one per run: the run a "Why?" asked about stays beside the one shown. */
+export function ciRunChip(run: { id: number; workflow: string; number: number; branch: string | null; conclusion: string | null; status: string; url: string }): Chip {
+  return {
+    id: `ci-run:${run.id}`,
+    kind: "object",
+    label: `${run.workflow} #${run.number}`,
+    text: `GitHub Actions run ${run.id} of ${run.workflow} on ${run.branch ?? "?"}, ${run.conclusion ?? run.status}: ${run.url}`,
+  };
+}
+
+/**
+ * Where the panel keeps a role's conversation: per project, role and what the screen is about, its run on the Run
+ * page (where the role at work answers at its step), else its repository.
+ */
+export function threadKey(project: string, role: string, about: { run?: number; repo?: string }): string {
+  return [project, role, about.run !== undefined ? `run:${about.run}` : (about.repo ?? "")].join(":");
+}
+
+/**
+ * A follow-up typed in the conversation shown goes through the routing again, not straight into it, when written to
+ * another role, or when that conversation is a run step's session (the step may be over, or another at work).
+ */
+export function reroute(written: string, shown: string, step: boolean): boolean {
+  return written !== shown || step;
+}
+
+/**
+ * The latest token of each key: a cleanup takes back only what it gave, not what a newer giver put in its place (a
+ * Run page for another run, mounted before the old one goes).
+ */
+export class Owners {
+  #last = new Map<string, number>();
+  #next = 0;
+
+  take(key: string): number {
+    const token = ++this.#next;
+    this.#last.set(key, token);
+    return token;
+  }
+
+  /** True when `token` is still the latest for `key`, which is then free. */
+  release(key: string, token: number): boolean {
+    if (this.#last.get(key) !== token) return false;
+    this.#last.delete(key);
+    return true;
+  }
+}
+
+/** A permission that changes a file: allowed, it can be undone when the file existed before. */
 export type Change = { path: string; kind: "edit" | "write" };
 
 /** The file a tool call is about to change, if it is a file change. */

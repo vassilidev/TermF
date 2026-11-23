@@ -116,6 +116,7 @@
     const state = teamRun ? `, team run ${teamRun.run} ${teamRun.state}` : "";
     return provide("run", {
       role: "lead",
+      run: run.id,
       repo: run.repo,
       chips: [{ id: "run", kind: "object", label, text: `Ticket run ${run.id} (${run.ticket.url}), ${run.status}${state}` }],
     });

@@ -1,7 +1,7 @@
 import { tick } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { agents, ctoOf, expertOf, upsert, type AgentSession } from "$lib/agents.svelte";
-import { chipsOf, compose, roleFor, target, type Chip } from "$lib/ask-logic";
+import { chipsOf, compose, Owners, removedOf, reroute, roleFor, target, threadKey, type Chip } from "$lib/ask-logic";
 import { ensure } from "$lib/home.svelte";
 import { t } from "$lib/i18n";
 import type { Item as LibraryItem } from "$lib/library.svelte";
@@ -10,8 +10,11 @@ import { views } from "$lib/views";
 
 export type { Chip } from "$lib/ask-logic";
 
-/** What a screen gives the panel: the role that answers there, the object open and the selection, its repository. */
-export type Given = { role?: string; chips: Chip[]; repo?: string };
+/** What a screen gives the panel: the role that answers there, the object open and the selection, its repository, its run. */
+export type Given = { role?: string; chips: Chip[]; repo?: string; run?: number };
+
+/** A conversation the panel started; `step`: the session of a run's step, whose follow-ups are routed again. */
+type Thread = { id: number; step: boolean };
 
 const THREADS = "termf.ask.threads";
 const ORIGINS = "termf.ask.origins";
@@ -53,8 +56,8 @@ export const ask = $state({
   /** The project's roles that can answer, read once per project. */
   roles: [] as string[],
   rolesOf: null as string | null,
-  /** A role's conversation, per project (`project:role` → session), kept across launches. */
-  threads: stored<Record<string, number>>(THREADS, {}),
+  /** A role's conversation, by `threadKey` (project, role, run or repository), kept across launches. */
+  threads: stored<Record<string, Thread>>(THREADS, {}),
   /** The screen each conversation started from (session → view), for Conversations. */
   origins: stored<Record<number, string>>(ORIGINS, {}),
 });
@@ -92,18 +95,28 @@ export function askedProject(): string | null {
 export const screenRole = () => roleFor(ui.view, ask.given[ui.view]?.role);
 export const currentRole = () => here().role ?? screenRole();
 
-/** The chips sent with a question: the screen, then what it gives, then what the user added. */
-export function chips(): Chip[] {
+/** The screen's chips: the view itself, then what the screen gives. */
+function screenChips(): Chip[] {
   const project = app.workspace?.projects.find((p) => p.id === askedProject());
   const view: Chip = { id: "view", kind: "view", label: [screenName(ui.view), project?.name].filter(Boolean).join(" · ") };
-  return chipsOf([view, ...(ask.given[ui.view]?.chips ?? [])], here().added, here().removed);
+  return [view, ...(ask.given[ui.view]?.chips ?? [])];
 }
+
+/** The chips sent with a question: the screen, then what it gives, then what the user added. */
+export const chips = (): Chip[] => chipsOf(screenChips(), here().added, here().removed);
+
+/** The chips taken off on the screen shown, to put back. */
+export const removedChips = (): Chip[] => removedOf(screenChips(), here().added, here().removed);
+
+// `ask.given` holds proxies: a cleanup knows its own giving by a token, not by comparing what it gave.
+const owners = new Owners();
 
 /** A screen gives its context while it shows; the cleanup takes it back. Call it from an `$effect`. */
 export function provide(view: ViewId, given: Given): () => void {
+  const token = owners.take(view);
   ask.given[view] = given;
   return () => {
-    if (ask.given[view] === given) delete ask.given[view];
+    if (owners.release(view, token)) delete ask.given[view];
   };
 }
 
@@ -151,18 +164,29 @@ export function loadRoles(project: string | null) {
   );
 }
 
-/** The conversation a role keeps in the project: the CTO's and the expert's, or the one the panel started. */
+/** Where the screen shown keeps a role's conversation. */
+const keyOf = (project: string, role: string) => threadKey(project, role, ask.given[ui.view] ?? {});
+
+function thread(project: string | null, role: string): Thread | undefined {
+  const kept = project === null ? undefined : ask.threads[keyOf(project, role)];
+  return typeof kept?.id === "number" ? kept : undefined;
+}
+
+/**
+ * The conversation a role keeps: the project's CTO's and expert's, or the one the panel started with this role about
+ * the screen's run or repository.
+ */
 export function threadOf(project: string | null, role: string): AgentSession | undefined {
   if (project === null) return undefined;
   if (role === "cto") return ctoOf(project);
   if (role === "expert") return expertOf(project);
-  const id = ask.threads[`${project}:${role}`];
+  const id = thread(project, role)?.id;
   return agents.sessions.find((a) => a.id === id);
 }
 
-function started(session: AgentSession) {
+function started(session: AgentSession, view: string) {
   if (ask.origins[session.id]) return;
-  ask.origins[session.id] = ui.view;
+  ask.origins[session.id] = view;
   keep(ORIGINS, ask.origins);
 }
 
@@ -174,8 +198,13 @@ function started(session: AgentSession) {
 export async function send(text: string): Promise<boolean> {
   const project = askedProject();
   if (project === null || !text.trim()) return false;
+  // What the screen was when the question went: the user may be elsewhere once it is answered.
+  const view = ui.view;
+  const mine = pick();
+  const screen = screenRole();
   const to = target(text, currentRole(), ask.roles);
-  const body = compose(to.text, chips(), screenName(ui.view));
+  const body = compose(to.text, chips(), screenName(view));
+  const key = keyOf(project, to.role);
   ask.busy = true;
   ask.error = "";
   try {
@@ -183,22 +212,21 @@ export async function send(text: string): Promise<boolean> {
       const session = await ensure(project, to.role);
       if (!session) return false;
       await invoke("agent_send", { id: session.id, text: body });
-      started(session);
+      started(session, view);
     } else {
-      const repo = ask.given[ui.view]?.repo ?? null;
-      const reached = await invoke<{ session: AgentSession }>("cto_address", {
+      const reached = await invoke<{ session: AgentSession; via: string }>("cto_address", {
         project,
         role: to.role,
         text: body,
-        repo,
-        direct: ui.view !== "run",
+        repo: ask.given[view]?.repo ?? null,
+        direct: view !== "run",
       });
       upsert(reached.session);
-      ask.threads[`${project}:${to.role}`] = reached.session.id;
+      ask.threads[key] = { id: reached.session.id, step: reached.via === "step" };
       keep(THREADS, ask.threads);
-      started(reached.session);
+      started(reached.session, view);
     }
-    pick().role = to.role === screenRole() ? null : to.role;
+    mine.role = to.role === screen ? null : to.role;
     return true;
   } catch (e) {
     ask.error = String(e);
@@ -209,12 +237,14 @@ export async function send(text: string): Promise<boolean> {
 }
 
 /**
- * What a conversation shown in the panel sends: the question with the screen's context, or null when `@role` sent it
- * to another role (the panel then shows that one).
+ * What a conversation shown in the panel sends: the question with the screen's context; or null when it went through
+ * `send` instead, written to another role with `@role`, or following up a run's step, which is routed again (the step
+ * may be over: the role's own conversation then takes it).
  */
 export async function outgoing(text: string): Promise<string | null> {
-  const to = target(text, currentRole(), ask.roles);
-  if (to.role === currentRole()) return compose(to.text, chips(), screenName(ui.view));
+  const role = currentRole();
+  const to = target(text, role, ask.roles);
+  if (!reroute(to.role, role, !!thread(askedProject(), role)?.step)) return compose(to.text, chips(), screenName(ui.view));
   if (!(await send(text))) throw new Error(ask.error);
   return null;
 }

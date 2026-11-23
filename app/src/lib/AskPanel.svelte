@@ -17,7 +17,7 @@
   import SidePanel from "$lib/ui/SidePanel.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { showConversation } from "$lib/agents.svelte";
-  import { ask, askedProject, chips, currentRole, here, loadRoles, outgoing, pick, screenName, screenRole, send, threadOf, type Chip } from "$lib/ask.svelte";
+  import { ask, askedProject, chips, currentRole, loadRoles, outgoing, pick, removedChips, screenName, screenRole, send, threadOf, type Chip } from "$lib/ask.svelte";
   import { ensure } from "$lib/home.svelte";
   import { t } from "$lib/i18n";
   import { app, ui } from "$lib/state.svelte";
@@ -70,11 +70,15 @@
     });
   });
 
-  function onkeydown(e: KeyboardEvent) {
+  /** Escape closes; the focus goes back where it was, else (the "Ask" bar, gone while the panel was open) to the view's bar. */
+  async function onkeydown(e: KeyboardEvent) {
     if (e.key !== "Escape" || e.defaultPrevented) return;
     e.preventDefault();
     ask.open = false;
-    back?.focus?.();
+    await tick();
+    const view = document.querySelector<HTMLElement>(`[data-panel="${ui.view}"]`);
+    const to = back?.isConnected ? back : (view?.querySelector<HTMLElement>(".askbar .ask") ?? view);
+    to?.focus();
   }
 
   async function first(e: SubmitEvent) {
@@ -104,13 +108,14 @@
         .map((r) => ({ id: `run:${r.id}`, kind: "object" as const, label: `${r.ticket.key} ${r.title}`, text: `Ticket run ${r.id}: ${r.ticket.url}` })),
       ...files.tabs.slice(0, 5).map((tab) => ({ id: `file:${tab.repo}/${tab.path}`, kind: "object" as const, label: tab.path, text: `File ${tab.path} in ${tab.repo}` })),
     ];
-    return all.filter((c) => !sent.some((s) => s.id === c.id));
+    return all.filter((c) => !sent.some((s) => s.id === c.id) && !removed.some((r) => r.id === c.id));
   });
-  const removedChips = $derived((ask.given[ui.view]?.chips ?? []).filter((c) => here().removed.includes(c.id)));
+  const removed = $derived(removedChips());
 
   function add(chip: Chip) {
-    pick().removed = pick().removed.filter((id) => id !== chip.id);
-    if (!ask.given[ui.view]?.chips.some((c) => c.id === chip.id)) pick().added.push(chip);
+    const p = pick();
+    if (p.removed.includes(chip.id)) p.removed = p.removed.filter((id) => id !== chip.id);
+    else p.added.push(chip);
     adding = false;
   }
 
@@ -131,13 +136,13 @@
         </li>
       {/each}
     </ul>
-    {#if addable.length || removedChips.length}
+    {#if addable.length || removed.length}
       <button type="button" class="btn sm quiet" bind:this={addButton} aria-expanded={adding} onclick={() => (adding = !adding)}>
         <AtSign size={12} aria-hidden="true" />{t("aigAdd")}
       </button>
       <Popover bind:open={adding} trigger={addButton} label={t("aigAdd")} width={280}>
         <ul class="menu">
-          {#each [...removedChips, ...addable] as c (c.id)}
+          {#each [...removed, ...addable] as c (c.id)}
             <li><button type="button" onclick={() => add(c)}>{c.label}</button></li>
           {/each}
         </ul>

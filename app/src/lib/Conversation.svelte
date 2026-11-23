@@ -21,7 +21,6 @@
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import UserRound from "@lucide/svelte/icons/user-round";
-  import FilePen from "@lucide/svelte/icons/file-pen";
   import Action from "$lib/Action.svelte";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
@@ -398,28 +397,23 @@
     return run("answer", () => invoke("agent_answer", { id: id(), request: ask.request, allow, message }).then(() => true));
   }
 
-  /** The proposal's "Modify": what to change goes back to the agent with the refusal. */
-  let modifying = $state<string | null>(null);
-
   /**
-   * "Apply": a file that existed is read first, so that the toast's Undo (⌘Z) puts it back as it was; a new file, a
-   * command or an action of TermF cannot be undone, and the toast says it is done.
+   * "Allow". In the ⌘I panel, a change of a project file that existed is read first, so that the toast's Undo (⌘Z)
+   * puts it back as it was; nothing else can be undone, and the thread says it was allowed.
    */
-  async function apply(ask: Permission) {
-    const change = changeOf(ask.tool, ask.input);
+  async function allow(ask: Permission) {
+    const change = bare ? changeOf(ask.tool, ask.input) : null;
     const at = change && within(change.path, repos.map((r) => r.path));
     let before: string | null = null;
     if (at) {
       const read = await invoke<{ kind: string; text?: string }>("files_read", { repo: at.repo, path: at.rel }).catch(() => null);
       if (read?.kind === "text" && typeof read.text === "string") before = read.text;
     }
-    if (!(await answer(ask, true))) return;
-    const what = change ? shortPath(change.path) : asks(ask.tool);
-    const after = before === null ? null : afterChange(ask.tool, ask.input, before);
-    if (at && before !== null && after !== null) {
-      const text = before;
-      toast(t("aigApplied", { what }), { undo: () => restore(at, text, after, what) });
-    } else toast(t("aigAppliedFinal", { what }));
+    if (!(await answer(ask, true)) || !change || !at || before === null) return;
+    const after = afterChange(ask.tool, ask.input, before);
+    const what = shortPath(change.path);
+    const text = before;
+    if (after !== null) toast(t("aigApplied", { what }), { undo: () => restore(at, text, after, what) });
   }
 
   /** Puts a file back as it was, only while it is still as the change left it: a later change is never lost. */
@@ -435,14 +429,6 @@
     }
   }
 
-  function modify(ask: Permission) {
-    if (modifying !== ask.request) {
-      modifying = ask.request;
-      return;
-    }
-    if (!reasons[ask.request]?.trim()) return;
-    answer(ask, false).then(() => (modifying = null));
-  }
 
   /** The tools of a turn in a row, as one group of steps: the panel folds them into a line. */
   type Group = { key: string; item: Item } | { key: string; tools: Tool[] };
@@ -629,50 +615,8 @@
   </details>
 {/snippet}
 
-{#snippet proposal(item: Permission)}
-  {@const diff = diffOf(item.tool, item.input)}
-  {@const change = changeOf(item.tool, item.input)}
-  <div class="ask proposal" role="group" aria-label={asks(item.tool)}>
-    <p class="ask-title">
-      {#if change}<FilePen size={16} aria-hidden="true" />{t("aigProposalFile", { path: shortPath(change.path) })}{:else}<ShieldQuestionMark
-          size={16}
-          aria-hidden="true"
-        />{asks(item.tool)}{/if}
-    </p>
-    {#if item.description}<p class="ask-text">{item.description}</p>{/if}
-    {#if diff.length}
-      <pre class="mono code diff">{#each diff as hunk, h (h)}{#each hunk.del as l, i (i)}<span class="del">- {l}</span
-          >{/each}{#each hunk.add as l, i (i)}<span class="add">+ {l}</span>{/each}{/each}</pre>
-    {:else if termfTools[item.tool]}
-      {@const said = phrase(item.input)}
-      {#if said}<p class="ask-what">{said}</p>{/if}
-    {:else}
-      <pre class="mono code">{pretty(item.input)}</pre>
-    {/if}
-    {#if modifying === item.request}
-      <input
-        class="field"
-        placeholder={t("aigModifyWhat")}
-        aria-label={t("aigModifyWhat")}
-        bind:value={() => reasons[item.request] ?? "", (v) => (reasons[item.request] = v)}
-        onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), modify(item))}
-      />
-    {/if}
-    <div class="answer">
-      <button class="btn sm primary" disabled={!!busy} onclick={() => apply(item)}>{t("aigApply")}</button>
-      <button class="btn sm" disabled={!!busy || (modifying === item.request && !reasons[item.request]?.trim())} onclick={() => modify(item)}>
-        {modifying === item.request ? t("aigModifySend") : t("aigModify")}
-      </button>
-      <span class="grow"></span>
-      <button class="btn sm quiet" disabled={!!busy} onclick={() => answer(item, false)}>{t("aigIgnore")}</button>
-    </div>
-  </div>
-{/snippet}
-
 {#snippet ask(item: Permission)}
-  {#if item.request === asking && bare}
-    {@render proposal(item)}
-  {:else if item.request !== asking}
+  {#if item.request !== asking}
     <p class="sys" class:failed={item.answer && !item.answer.allow}>
       {#if item.answer?.allow}<ShieldCheck size={14} aria-hidden="true" />{:else if item.answer}<ShieldX
           size={14}
@@ -707,7 +651,17 @@
           <pre class="mono code">{pretty(item.input)}</pre>
         </details>
       {:else}
-        <pre class="mono code">{pretty(item.input)}</pre>
+        <!-- What the agent wants, in plain words; a file change shows its lines; the call itself in the details. -->
+        {@const diff = diffOf(item.tool, item.input)}
+        <p class="ask-what"><Action act={{ kind: "tool", name: item.tool, input: item.input }} /></p>
+        {#if diff.length}
+          <pre class="mono code diff">{#each diff as hunk, h (h)}{#each hunk.del as l, i (i)}<span class="del">- {l}</span
+              >{/each}{#each hunk.add as l, i (i)}<span class="add">+ {l}</span>{/each}{/each}</pre>
+        {/if}
+        <details class="raw">
+          <summary><ChevronRight size={14} aria-hidden="true" class="chevron" />{t("ux3t5Details")}</summary>
+          <pre class="mono code">{pretty(item.input)}</pre>
+        </details>
       {/if}
       <div class="answer">
         <input
@@ -719,7 +673,7 @@
         <button class="btn sm" disabled={!!busy} onclick={() => answer(item, false)}>
           <ShieldX size={14} aria-hidden="true" />{t("chatDeny")}
         </button>
-        <button class="btn sm primary" disabled={!!busy} onclick={() => answer(item, true)}>
+        <button class="btn sm primary" disabled={!!busy} onclick={() => allow(item)}>
           <ShieldCheck size={14} aria-hidden="true" />{t("chatAllow")}
         </button>
       </div>
@@ -915,7 +869,7 @@
     onkeydown={enter}
   ></textarea>
   <div class="send">
-    {#if to && to.role !== "expert" && repos.length > 1}
+    {#if to && !bare && to.role !== "expert" && repos.length > 1}
       <select class="field" aria-label={t("ctoRepo")} title={t("ctoRepo")} bind:value={repo}>
         {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
       </select>
@@ -1047,10 +1001,6 @@
   .diff .add {
     background: var(--done-soft);
     color: var(--done);
-  }
-
-  .answer .grow {
-    flex: 1;
   }
 
   .icon-send {
