@@ -1,5 +1,6 @@
 // What a developer discovering TermF does, one scenario at a time, each in its own sandbox. `views`: the views of
 // `views.ts` (and the pages beside them) the scenario is about; every view of `views.ts` needs one.
+import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -120,6 +121,66 @@ export const scenarios = [
       // The test command found in package.json is what the team's checks run before delivering.
       check(toml.includes('checks = "npm test"'), `no checks in the project file:\n${toml}`);
       await t.settled("home");
+      await t.clean();
+    },
+  },
+  {
+    name: "project setup of an existing project: everything accepted is in place after Apply",
+    views: [],
+    // A Next.js front with Prisma and docker-compose, and a PHP back, both already a project.
+    prepare(box) {
+      const put = (file, text) => (mkdirSync(join(file, ".."), { recursive: true }), writeFileSync(file, text));
+      const web = box.acme;
+      const pkg = { name: "acme-web", scripts: { dev: "next dev", build: "next build", test: "node --test" }, dependencies: { next: "16.0.3", react: "19.2.0", "@prisma/client": "6.2.1" }, devDependencies: { prisma: "6.2.1" } };
+      put(join(web, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+      put(join(web, "app", "page.tsx"), "export default function Page() { return <h1>Acme</h1>; }\n");
+      put(join(web, "prisma", "schema.prisma"), 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n');
+      put(join(web, ".env"), "DATABASE_URL=postgresql://acme:secret@localhost:5432/acme\n");
+      put(join(web, "docker-compose.yml"), "services:\n  db:\n    image: postgres:17\n    ports: ['5432:5432']\n");
+      put(join(web, "CLAUDE.md"), "# Acme web\n\nRun npm test before a commit.\n");
+      const api = join(web, "..", "acme-api");
+      put(join(api, "composer.json"), JSON.stringify({ name: "acme/api", require: { php: "^8.2", "laravel/framework": "^11.0" } }, null, 2) + "\n");
+      put(join(api, "artisan"), "#!/usr/bin/env php\n<?php\n");
+      put(join(api, "routes", "api.php"), "<?php\n");
+      for (const [dir, files] of [[web, ["-A"]], [api, ["-A"]]]) {
+        const run = (...args) => execFileSync("git", args, { cwd: dir, env: box.env });
+        if (dir === api) run("init", "-q", "-b", "main");
+        run("add", ...files);
+        run("commit", "-q", "-m", "Set up");
+      }
+      writeFileSync(join(box.configDir, "projects", "acme.toml"), `name = "acme"\n\n[[repos]]\npath = ${JSON.stringify(web)}\n\n[[repos]]\npath = ${JSON.stringify(api)}\n`);
+    },
+    async run(t) {
+      const { s, box } = t;
+      const go = ".new-project .wizard footer .go:not([disabled])";
+      const at = (step) => `.new-project .wizard .steps li:nth-child(${step}) [aria-current="step"]`;
+      await t.ready();
+      await t.project();
+      await t.command("project-setup");
+      await s.waitFor(at(2));
+      await s.click(go);
+      await s.waitFor(at(3), { timeout: 30_000 });
+      for (let i = 0; i < 12 && !(await s.exec(() => !!document.querySelector('.new-project .wizard .steps li:nth-child(4) [aria-current="step"]'))); i++) {
+        await s.click(go);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      await s.waitFor(at(4), { timeout: 30_000 });
+      await s.waitFor(".new-project .rows", { timeout: 30_000 });
+      // What the setup proposes for these repositories, each line kept by default.
+      const shown = (await s.text(".new-project .rows")) ?? "";
+      for (const what of ["next-devtools", "acme", "next dev", "CLAUDE.md"]) check(shown.includes(what), `"${what}" is not proposed:\n${shown}`);
+      await s.click(go);
+      await s.waitFor(t.shown("home"), { timeout: 30_000 });
+      const toml = read(join(box.configDir, "projects", "acme.toml"));
+      check(toml.includes("[mcp.next-devtools]"), `the Next.js MCP server is not given to the sessions:\n${toml}`);
+      check(toml.includes('dev = "next dev"') || toml.includes('dev = "npm run dev"'), `no dev server for the visual review:\n${toml}`);
+      check(/\[visual\][^[]*routes = \["\/"\]/.test(toml), `no page for the visual review:\n${toml}`);
+      check(toml.includes('checks = "npm test"'), `no checks for the front:\n${toml}`);
+      check(toml.includes('checks = "php artisan test"'), `no checks for the back:\n${toml}`);
+      check(/\[\[connections\]\][^[]*name = "[^"]*acme[^"]*"[^[]*env = "dev"/s.test(toml), `the declared database is not an Ops connection in dev:\n${toml}`);
+      check(!existsSync(join(box.home, ".claude", "settings.json")), "something was written in ~/.claude");
+      // The background work is followed on the Home.
+      await s.waitFor('[data-panel="home"] .jobs', { timeout: 30_000 });
       await t.clean();
     },
   },

@@ -52,6 +52,8 @@ async function artifacts(t, name, error) {
 
 async function attempt(scenario) {
   const box = createSandbox(scenario.sandbox);
+  // What the scenario needs on disk before the app starts and scans it.
+  scenario.prepare?.(box);
   const abort = new AbortController();
   const t = helpers(box, port, abort.signal);
   // Past its time, the scenario fails at its next command or wait; its app and sandbox go only once it has stopped.

@@ -254,7 +254,8 @@
         ".claude/agents": t("cpClaudeAgents"),
         ".claude/settings.json": t("cpClaudeSettings"),
       };
-      return [...d.facts.instructions, ...d.facts.claude].map((f) => t("cpClaudeOf", { what: words[f] ?? f, repo: c.name }));
+      const what = [...d.facts.instructions, ...d.facts.claude].map((f) => words[f] ?? f);
+      return what.length ? [t("cpClaudeOf", { what: what.join(", "), repo: c.name })] : [];
     }),
   );
 
@@ -720,7 +721,7 @@
       )}
     {/if}
     {#if claudeConfig.length}
-      {@render row("claude", Bot, t("cpClaudeTitle"), t("cpClaudeSentence", { list: claudeConfig.join(", ") }))}
+      {@render row("claude", Bot, t("cpClaudeTitle"), t("cpClaudeSentence", { list: claudeConfig.join(" · ") }))}
     {/if}
     {@render row("expert", BookOpen, t("cpExpertTitle"), t("cpExpertSentence"))}
     {@render row("conventions", LibraryBig, t("setupConvTitle"), t("cpConvSentence"))}
