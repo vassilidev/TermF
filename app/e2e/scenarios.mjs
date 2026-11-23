@@ -129,7 +129,8 @@ export const scenarios = [
       await t.project();
       await t.command("project-setup");
       await t.s.waitFor(t.shown("newProject"));
-      await t.s.waitFor('.new-project .wizard .steps li:nth-child(1) [aria-current="step"]');
+      // It opens on what TermF understood, the repositories being the project's.
+      await t.s.waitFor('.new-project .wizard .steps li:nth-child(2) [aria-current="step"]');
       await t.clean();
     },
   },

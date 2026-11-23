@@ -313,6 +313,7 @@
       <b>{name || t("newProject")}</b>
       <span>
         {#if scratch}{shortPath(where)}/{name || "…"}
+        {:else if draft.chosen.length === 1}{folder ? t("cpRepoIn", { folder }) : t("cpRepo")}
         {:else if draft.chosen.length}{folder ? t("cpReposIn", { count: draft.chosen.length, folder }) : t("cpRepos", { count: draft.chosen.length })}
         {:else}{t("setupNoneChosen")}{/if}
       </span>
