@@ -282,7 +282,7 @@
         <ul>{#each cleanup.worktrees as w (w.path)}{@render worktreeRow(w)}{/each}</ul>
       {/if}
       {#if reasoned.length}
-        <h3>{t("gitBranches")}<span class="n num">{reasoned.length}</span></h3>
+        <h3>{t("gitclBranches")}<span class="n num">{reasoned.length}</span></h3>
         <ul>{#each reasoned as b (b.name)}{@render branchRow(b)}{/each}</ul>
       {/if}
       {#if others.length}
@@ -307,7 +307,7 @@
         {/if}
       </p>
       <Button variant="primary" icon={BrushCleaning} loading={working} disabled={!sel?.count} onclick={go} data-testid="git-cleanup-apply">
-        {t(sel && (sel.lost || sel.changes) ? "gitclApplyAsk" : "gitclApply", { items: items(sel?.count ?? 0) })}
+        {!sel?.count ? t("gitclClean") : t(sel.lost || sel.changes ? "gitclApplyAsk" : "gitclApply", { items: items(sel.count) })}
       </Button>
     </footer>
   {/if}
@@ -445,10 +445,6 @@
     background: var(--hover);
   }
 
-  .item.picked label {
-    background: var(--selected);
-  }
-
   .item.blocked label {
     cursor: default;
     opacity: 0.72;
@@ -540,6 +536,8 @@
     padding: 12px 0 4px;
     border-top: 1px solid var(--border);
     background: var(--panel);
+    /* Covers the pane's bottom padding, so the list never shows under it. */
+    box-shadow: 0 32px 0 0 var(--panel);
   }
 
   .progress {
