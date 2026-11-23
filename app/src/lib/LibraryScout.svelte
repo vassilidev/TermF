@@ -576,6 +576,11 @@
 
   .picker .item-name {
     flex-shrink: 0;
+    max-width: 40%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .desc {

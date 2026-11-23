@@ -801,6 +801,22 @@ mod tests {
     }
 
     #[test]
+    fn a_stream_that_dies_after_its_init_gives_its_error_not_the_init() {
+        let b = Sandbox::new("stream-crash");
+        let body = "echo '{\"type\":\"system\",\"subtype\":\"init\"}'\necho 'Killed: out of memory' >&2\nexit 137";
+        b.claude_running("brew/bin/claude", "2.1.330", body);
+        let claude = b.find("claude", &["brew/bin"]).usable("claude").unwrap();
+        let mut cmd = Command::new(&claude.path);
+        cmd.args(["-p", "--output-format", "stream-json"]);
+        let (status, out, err) = crate::process::run(cmd, b"hi", Duration::from_secs(10)).unwrap();
+        let error = super::super::structured_output(&claude, status, &out, &err)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Killed: out of memory"), "{error}");
+        assert!(!error.contains("Claude Code: init"), "{error}");
+    }
+
+    #[test]
     fn compares_versions_by_number() {
         assert!(numbers("2.1.330") > numbers("2.1.288"));
         assert!(numbers("2.1.288") > numbers("2.0.99"));

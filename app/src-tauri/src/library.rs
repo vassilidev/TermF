@@ -221,12 +221,12 @@ pub async fn conventions_delete(
 }
 
 /// What Claude Code reads while it proposes comes as `conventions-progress` events.
-fn progress(app: AppHandle, project: &str, slug: &str) -> impl FnMut(conventions::Step) {
+fn progress(app: AppHandle, project: &str, slug: &str) -> impl FnMut(conventions::Progress) {
     let (project, slug) = (project.to_owned(), slug.to_owned());
-    move |step| {
+    move |p| {
         let _ = app.emit(
             "conventions-progress",
-            serde_json::json!({"project": project, "slug": slug, "name": step.name, "input": step.input}),
+            serde_json::json!({"project": project, "slug": slug, "tool": p.tool, "target": p.target}),
         );
     }
 }

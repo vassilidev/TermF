@@ -2,6 +2,7 @@
 //! to the CLI and the other agents (`ask_expert`): a headless session of the `expert` role that TermF starts and
 //! waits for. What it stores and what it hands out is masked with the vault's values too while it is open.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -10,7 +11,7 @@ use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
-use termf_agents::{AgentSession, SessionSpec};
+use termf_agents::{AgentSession, SessionSpec, State};
 use termf_core::MemorySettings;
 use termf_core::ipc::MemoryCall;
 use termf_memory::{Hit, Memory, Page, Paths, Source, Status};
@@ -29,6 +30,8 @@ pub struct MemoryState {
     paths: Paths,
     /// One indexing at a time: two would read and write the same documents.
     indexing: Mutex<()>,
+    /// Expert conversations with a message kept for the end of their turn: brought up to date when it goes.
+    queued: Mutex<HashSet<i64>>,
 }
 
 pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf) -> MemoryState {
@@ -45,6 +48,7 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf) -> MemoryS
     MemoryState {
         paths: Paths::new(config_dir, data_dir),
         indexing: Mutex::new(()),
+        queued: Mutex::default(),
     }
 }
 
@@ -70,8 +74,13 @@ fn state(app: &AppHandle) -> &MemoryState {
 
 /// `project`, or every project when `None`; then their status.
 fn index(app: &AppHandle, project: Option<&str>) -> Result<Vec<Status>> {
+    let _one = state(app).indexing.lock().unwrap();
+    index_held(app, project)
+}
+
+/// [`index`], the indexing lock already held.
+fn index_held(app: &AppHandle, project: Option<&str>) -> Result<Vec<Status>> {
     let state = state(app);
-    let _one = state.indexing.lock().unwrap();
     let memory = Memory::open(&state.paths.data_dir)?;
     let mask = vault_values(app);
     let projects = match project {
@@ -170,14 +179,44 @@ pub fn ask(app: &AppHandle, project: &str, question: &str, budget: Option<f64>) 
 }
 
 /// Before a message reaches a project's expert conversation, as before `ask_expert`: the memory brought up to date.
-pub fn before_expert(app: &AppHandle, session: &AgentSession) {
-    let spec = &session.spec;
-    if !spec.mcp || spec.role.as_deref() != Some(termf_agents::EXPERT) {
-        return;
+/// Only for a message the session takes now: one kept for the end of a turn is handled by [`delivering`]. It
+/// never waits for an indexing already running (all projects, every 15 min): the message goes without it.
+pub fn before_expert(app: &AppHandle, session: &AgentSession, text: &str) {
+    let takes = matches!(session.state, State::Idle | State::Stopped | State::Error);
+    if expert(session) && takes && !text.trim().is_empty() {
+        refresh(app, session);
     }
-    if let Some(project) = spec.project.as_deref()
-        && let Err(e) = index(app, Some(project))
-    {
+}
+
+/// A message to the expert waits for the end of its turn: the memory is brought up to date when it goes.
+pub fn expert_queued(app: &AppHandle, session: &AgentSession) {
+    if expert(session) {
+        state(app).queued.lock().unwrap().insert(session.id);
+    }
+}
+
+/// A session's change, right before TermF hands it what waited for the end of its turn.
+pub fn delivering(app: &AppHandle, session: &AgentSession) {
+    let Some(memory) = app.try_state::<MemoryState>() else {
+        return;
+    };
+    if session.state == State::Idle && memory.queued.lock().unwrap().remove(&session.id) {
+        refresh(app, session);
+    }
+}
+
+fn expert(session: &AgentSession) -> bool {
+    session.spec.mcp && session.spec.role.as_deref() == Some(termf_agents::EXPERT)
+}
+
+fn refresh(app: &AppHandle, session: &AgentSession) {
+    let Some(project) = session.spec.project.as_deref() else {
+        return;
+    };
+    let Ok(_one) = state(app).indexing.try_lock() else {
+        return;
+    };
+    if let Err(e) = index_held(app, Some(project)) {
         eprintln!("termf: memory of {project} not brought up to date: {e:#}");
     }
 }
