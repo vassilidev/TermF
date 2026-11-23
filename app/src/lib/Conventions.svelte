@@ -2,6 +2,7 @@
   import { approxUsd } from "$lib/usage.svelte";
   import { onMount, type Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import Check from "@lucide/svelte/icons/check";
   import FileCog from "@lucide/svelte/icons/file-cog";
   import Gauge from "@lucide/svelte/icons/gauge";
@@ -19,6 +20,7 @@
   import Zap from "@lucide/svelte/icons/zap";
   import { lang, t } from "$lib/i18n";
   import { library, lineDiff, slugify } from "$lib/library.svelte";
+  import { readText, type Read } from "$lib/onboarding.svelte";
   import type { Project } from "$lib/state.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
@@ -88,6 +90,14 @@
   let answers = $state<Record<string, string>>({});
   let comments = $state<Record<string, string>>({});
   let impact = $state<Impact[] | null>(null);
+  /** What Claude Code reads while it proposes, the latest last. */
+  let steps = $state<Read[]>([]);
+  $effect(() => {
+    const off = listen<Read & { project: string; slug: string }>("conventions-progress", (e) => {
+      if (e.payload.project === project.id && e.payload.slug === slug) steps = [...steps, e.payload].slice(-6);
+    });
+    return () => void off.then((f) => f());
+  });
 
   const current = $derived(list.find((c) => c.slug === slug));
   const draft = $derived(current?.draft ?? null);
@@ -191,6 +201,7 @@
   async function propose(withAnswers = false) {
     if (dirty && !(await save())) return;
     impact = null;
+    steps = [];
     const given = withAnswers
       ? (draft?.questions ?? []).map((question) => ({ question, answer: answers[question] ?? "" }))
       : [];
@@ -376,6 +387,11 @@
           <p class="notice working" role="status">
             <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("convRunning", { model })}
           </p>
+          {#if steps.length}
+            <ol class="feed">
+              {#each steps as step, i (i)}<li class="mono">{readText(step)}</li>{/each}
+            </ol>
+          {/if}
         {/if}
       </section>
 
@@ -895,6 +911,23 @@
     align-items: center;
     background: var(--working-soft);
     color: var(--working);
+  }
+
+  .feed {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 8px 0 0;
+    padding: 0 0 0 10px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    list-style: none;
+  }
+
+  .feed li {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .question {

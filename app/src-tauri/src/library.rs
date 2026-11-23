@@ -220,15 +220,28 @@ pub async fn conventions_delete(
     conventions::delete(&state.config_dir, &project, &slug).map_err(err)
 }
 
+/// What Claude Code reads while it proposes comes as `conventions-progress` events.
+fn progress(app: AppHandle, project: &str, slug: &str) -> impl FnMut(conventions::Progress) {
+    let (project, slug) = (project.to_owned(), slug.to_owned());
+    move |p| {
+        let _ = app.emit(
+            "conventions-progress",
+            serde_json::json!({"project": project, "slug": slug, "tool": p.tool, "target": p.target}),
+        );
+    }
+}
+
 #[tauri::command]
 pub async fn conventions_propose(
+    app: AppHandle,
     state: State<'_, AppState>,
     project: String,
     slug: String,
     answers: Vec<Answer>,
 ) -> CmdResult<Convention> {
     blocking(&state, move |dir| {
-        conventions::propose(dir, &project, &slug, answers, &claude(dir))
+        let mut progress = progress(app, &project, &slug);
+        conventions::propose_with(dir, &project, &slug, answers, &claude(dir), &mut progress)
     })
     .await
 }

@@ -59,7 +59,8 @@ pub fn after_program(command: &str, args: &str) -> String {
     format!("{} {args}{}", &command[..end], &command[end..])
 }
 
-/// Reads a `claude -p --output-format json --json-schema …` run of `claude`: the structured answer and what it cost.
+/// Reads a `claude -p --output-format json|stream-json --json-schema …` run of `claude`: the structured answer and
+/// what it cost.
 pub fn structured_output(
     claude: &Install,
     status: ExitStatus,
@@ -67,11 +68,12 @@ pub fn structured_output(
     stderr: &[u8],
 ) -> Result<(Value, Option<f64>)> {
     let text = String::from_utf8_lossy(stdout);
-    // Its answer is the last JSON line, whatever a wrapper printed before.
+    // Its answer is the `result` line, whatever a wrapper or the stream printed before: a run that died after its
+    // `init` has none, and says why on stderr.
     let Some(result) = text.lines().rev().find_map(|l| {
         serde_json::from_str::<Value>(l.trim())
             .ok()
-            .filter(Value::is_object)
+            .filter(|v| v["type"] == "result")
     }) else {
         bail!("{}", failure(claude, status, stderr));
     };
