@@ -821,6 +821,25 @@ export const scenarios = [
     },
   },
   {
+    name: "scout: each library item to pick reads on one line, its name whole",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("library");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.exec((css, label) => [...document.querySelectorAll(`${css} button`)].find((b) => b.textContent.trim() === label).click(), pane, text("en", "scoutOpen"));
+      await s.click(`${pane} [role=radio]:not([aria-checked=true])`);
+      const rows = await s.wait(() =>
+        s.exec((css) => [...document.querySelectorAll(`${css} .picker label`)].slice(0, 20).map((l) => [l.querySelector(".item-name").textContent, l.getBoundingClientRect().height]), pane),
+      );
+      const tall = rows.filter(([, h]) => h > 40);
+      check(rows.length && !tall.length, `names broken over several lines: ${JSON.stringify(tall)}`);
+      await t.clean();
+    },
+  },
+  {
     name: "shortcuts: the palette moved to Mod+Shift+Y, saved in termf.toml, and it opens the palette",
     views: [],
     async run(t) {

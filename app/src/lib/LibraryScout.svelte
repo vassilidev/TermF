@@ -574,6 +574,10 @@
     margin: 0;
   }
 
+  .picker .item-name {
+    flex-shrink: 0;
+  }
+
   .desc {
     overflow: hidden;
     color: var(--muted);
