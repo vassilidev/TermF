@@ -1,6 +1,7 @@
 //! The Design system view: a known repository's tokens, components, inconsistencies and brand guidelines, read
 //! off the main thread; and the guidelines' PDF export.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,6 +19,28 @@ pub async fn design_scan(files: State<'_, Arc<Files>>, repo: String) -> CmdResul
     tauri::async_runtime::spawn_blocking(move || termf_design::scan(&root))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// The repository's font files a scan listed (`Face.file`), as data URIs, once per change rather than at each scan.
+#[tauri::command]
+pub async fn design_font_files(
+    files: State<'_, Arc<Files>>,
+    repo: String,
+    wanted: Vec<String>,
+) -> CmdResult<HashMap<String, String>> {
+    let (root, _) = files.resolve(&repo, ".").map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || termf_design::fonts::files(&root, &wanted))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The fonts of a web font service's stylesheet the repository links (`Font.url`), fetched on the user's word.
+#[tauri::command]
+pub async fn design_web_fonts(url: String) -> CmdResult<Vec<termf_design::fonts::Font>> {
+    tauri::async_runtime::spawn_blocking(move || termf_design::fonts::fetch(&url))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)
 }
 
 /// `path`: where the user chose to save it.

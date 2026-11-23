@@ -7,8 +7,7 @@ export const design = $state({
   loaded: false,
   /** The repository's path, one of the current project's. */
   repo: "",
-  tab: "system" as "system" | "brand",
-  section: "issues" as Section,
+  section: "color" as Section,
 });
 
 export function showDesign() {
