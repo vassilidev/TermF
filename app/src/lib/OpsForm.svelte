@@ -1,27 +1,61 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import ClipboardPaste from "@lucide/svelte/icons/clipboard-paste";
+  import Database from "@lucide/svelte/icons/database";
+  import KeyRound from "@lucide/svelte/icons/key-round";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import OpsChecks from "$lib/OpsChecks.svelte";
   import { t } from "$lib/i18n";
-  import { ACCESS, ENVS, FORM, KINDS, clean, missing, type Check, type Connection, type Field, type Kind } from "$lib/ops-logic";
+  import {
+    ACCESS,
+    ENVS,
+    FORM,
+    KINDS,
+    SSLMODES,
+    clean,
+    isDb,
+    isServer,
+    missing,
+    passwordName,
+    target,
+    type Candidate,
+    type Check,
+    type Connection,
+    type Field,
+    type Kind,
+  } from "$lib/ops-logic";
   import { loadOps, ops } from "$lib/ops.svelte";
 
-  /** A connection to add (`previous` null) or to change; `onclose` once saved or cancelled, with its name. */
+  /** A connection to add (`previous` null) or to change; `onclose` once saved or cancelled, with its name. A new one
+   * may start from a URL pasted or a database the project's repositories declare; a database's password goes to
+   * the vault, never into the project's file. */
   let {
     project,
     start,
     previous,
+    ask,
     onclose,
-  }: { project: string; start: Connection; previous: string | null; onclose: (saved: string | null) => void } = $props();
+  }: {
+    project: string;
+    start: Connection;
+    previous: string | null;
+    ask: (e: unknown, retry: () => Promise<void>) => boolean;
+    onclose: (saved: string | null) => void;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   let c = $state<Connection>(structuredClone(start));
   let busy = $state("");
   let error = $state("");
   let checks = $state<Check[] | null>(null);
+  /** The password typed or pasted in a URL, or the rank of the database found whose password goes to the vault. */
+  let password = $state("");
+  let found = $state<Candidate | null>(null);
+  let url = $state("");
+  let filled = $state<{ ignored: string[] } | null>(null);
 
   const kindLabel = (k: Kind) => t(`opsKind${k[0].toUpperCase()}${k.slice(1)}` as Parameters<typeof t>[0]);
-  const db = $derived(c.kind === "postgres" || c.kind === "mysql");
+  const db = $derived(isDb(c.kind));
   const labels: Record<Field, Parameters<typeof t>[0]> = {
     host: "opsFieldHost",
     port: "opsFieldPort",
@@ -29,6 +63,7 @@
     jump: "opsFieldJump",
     via: "opsFieldVia",
     database: "opsFieldDatabase",
+    sslmode: "opsdbSslmode",
     context: "opsFieldContext",
     namespace: "opsFieldNamespace",
     log_group: "opsFieldLogGroup",
@@ -38,9 +73,26 @@
     url: "opsFieldUrl",
     site: "opsFieldSite",
   };
-  const label = (f: Field) => t(db && f === "host" ? "opsFieldDbHost" : db && f === "user" ? "opsFieldDbUser" : labels[f]);
+  const label = (f: Field) =>
+    t(
+      c.kind === "sqlite" && f === "database"
+        ? "opsdbSqliteFile"
+        : db && f === "host"
+          ? "opsFieldDbHost"
+          : db && f === "user"
+            ? "opsFieldDbUser"
+            : labels[f],
+    );
   const help = (f: Field) =>
-    f === "host" ? t(db ? "opsFieldDbHostHelp" : "opsFieldHostHelp") : db && f === "user" ? t("opsFieldDbUserHelp") : "";
+    f === "host"
+      ? t(db ? "opsFieldDbHostHelp" : "opsFieldHostHelp")
+      : db && f === "user"
+        ? t("opsFieldDbUserHelp")
+        : c.kind === "sqlite" && f === "database"
+          ? t("opsdbSqliteFileHelp")
+          : f === "via"
+            ? t("opsdbViaHelp")
+            : "";
   const placeholders: Partial<Record<Field, string>> = {
     host: "acme-prod",
     user: "deploy",
@@ -61,6 +113,53 @@
   };
   const servers = $derived(ops.connections.filter((x) => x.kind === "ssh" && x.name !== previous));
   const lacks = $derived(missing(c));
+
+  // The databases the project declares, minus those it already has.
+  let candidates = $state<Candidate[] | null>(null);
+  $effect(() => {
+    if (previous !== null) return;
+    invoke<Candidate[]>("ops_detect", { project }).then(
+      (list) => (candidates = list),
+      () => (candidates = []),
+    );
+  });
+  const same = (a: Connection, b: Connection) =>
+    a.kind === b.kind && (a.host ?? "") === (b.host ?? "") && (a.port ?? null) === (b.port ?? null) && a.database === b.database;
+  const fresh = $derived((candidates ?? []).filter((x) => !x.connection || !ops.connections.some((o) => same(o, x.connection!))));
+
+  function use(x: Candidate) {
+    if (!x.connection) return;
+    c = { ...structuredClone($state.snapshot(x.connection)), ai_access: "none" };
+    found = x.hasPassword ? x : null;
+    password = "";
+    filled = null;
+    checks = null;
+    error = "";
+  }
+
+  async function fill() {
+    error = "";
+    try {
+      const parsed = await invoke<{ connection: Connection; password: string | null; ignored: string[] }>("ops_parse_url", {
+        url: url.trim(),
+      });
+      c = { ...parsed.connection, ai_access: c.ai_access ?? "none" };
+      password = parsed.password ?? "";
+      found = null;
+      filled = { ignored: parsed.ignored };
+      checks = null;
+      url = "";
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  // A password names its secret, after the connection unless the user named it.
+  $effect(() => {
+    if ((password || found) && FORM[c.kind].secrets.includes("password") && !c.secrets?.password?.trim() && c.name.trim()) {
+      c.secrets = { ...(c.secrets ?? {}), password: passwordName(c.name) };
+    }
+  });
 
   function setSecret(role: string, name: string) {
     c.secrets = { ...(c.secrets ?? {}), [role]: name };
@@ -83,7 +182,7 @@
     try {
       checks = await invoke<Check[]>("ops_test", { project, connection: clean(c), previous });
     } catch (e) {
-      error = String(e);
+      if (!ask(e, test)) error = String(e);
     } finally {
       busy = "";
     }
@@ -93,22 +192,37 @@
     busy = "save";
     error = "";
     const saved = clean(c);
+    const hasPassword = FORM[c.kind].secrets.includes("password");
     try {
-      ops.connections = await invoke<Connection[]>("ops_connection_save", { project, connection: saved, previous });
+      ops.connections = await invoke<Connection[]>("ops_connection_save", {
+        project,
+        connection: saved,
+        previous,
+        password: hasPassword && password ? password : null,
+        found: hasPassword && !password && found ? found.id : null,
+      });
+      password = "";
+      found = null;
       await loadOps(project);
       // A new database: whether its user can write is worth knowing at once.
-      if (previous === null && (saved.kind === "postgres" || saved.kind === "mysql")) {
+      if (previous === null && isDb(saved.kind)) {
         busy = "test";
         checks = await invoke<Check[]>("ops_test", { project, connection: saved, previous: saved.name }).catch(() => null);
         if (checks?.some((x) => x.warn || !x.ok)) return;
       }
       onclose(saved.name);
     } catch (e) {
-      error = String(e);
+      if (!ask(e, save)) error = String(e);
     } finally {
       busy = "";
     }
   }
+
+  // Where a new database is: pasted or picked, its fields checked, tested, then saved.
+  const step = $derived(
+    !c.host && !c.database && !c.via ? 0 : lacks.length ? 1 : checks?.length && checks.every((x) => x.ok || x.warn) ? 3 : 2,
+  );
+  const steps = ["opsdbStepPaste", "opsdbStepCheck", "opsdbStepTest", "opsdbStepSave"] as const;
 </script>
 
 <form
@@ -119,6 +233,76 @@
   }}
 >
   <h2>{previous === null ? t("opsAdd") : previous}</h2>
+
+  {#if previous === null}
+    <ol class="steps" aria-label={t("opsdbSteps")}>
+      {#each steps as s, i (s)}
+        <li class:done={i < step} class:now={i === step} aria-current={i === step ? "step" : undefined}>
+          <span class="n">{i + 1}</span>{t(s)}
+        </li>
+      {/each}
+    </ol>
+
+    <div class="start">
+      <label class="labelled">
+        <span>{t("opsdbUrl")}</span>
+        <div class="url">
+          <input
+            class="field mono"
+            bind:value={url}
+            placeholder="postgres://reader@db.acme.dev:5432/acme?sslmode=require"
+            autocomplete="off"
+            spellcheck="false"
+            onkeydown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (url.trim()) fill();
+              }
+            }}
+          />
+          <button type="button" class="btn" disabled={!url.trim()} onclick={fill}>
+            <ClipboardPaste size={14} aria-hidden="true" />{t("opsdbUrlFill")}
+          </button>
+        </div>
+        <small class="muted">{t("opsdbUrlHelp")}</small>
+      </label>
+      {#if filled}
+        <p class="filled" role="status">
+          {t("opsdbUrlFilled")}{#if filled.ignored.length}
+            {" "}{t("opsdbUrlIgnored", { list: filled.ignored.join(", ") })}{/if}
+        </p>
+      {/if}
+
+      <div class="found">
+        <p class="found-head"><Database size={13} aria-hidden="true" />{t("opsdbFound")}</p>
+        <small class="muted">{t("opsdbFoundHelp")}</small>
+        {#if candidates === null}
+          <p class="muted small"><LoaderCircle size={12} aria-hidden="true" class="spin" />{t("opsdbFoundLoading")}</p>
+        {:else if !fresh.length}
+          <p class="muted small">{t("opsdbFoundNone")}</p>
+        {:else}
+          <ul>
+            {#each fresh as x (x.id)}
+              <li class:refused={!x.connection} class:picked={found?.id === x.id}>
+                <div class="what">
+                  {#if x.connection}
+                    <span class="kind">{kindLabel(x.connection.kind)}</span>
+                    <span class="mono where">{target(x.connection, ops.connections)}</span>
+                  {:else}
+                    <span class="muted">{x.refused}</span>
+                  {/if}
+                  <span class="mono source">{x.source}</span>
+                </div>
+                {#if x.hasPassword}<span class="badge"><KeyRound size={11} aria-hidden="true" />{t("opsdbFoundPassword")}</span>{/if}
+                {#if x.connection}<button type="button" class="btn sm" onclick={() => use(x)}>{t("opsdbFoundUse")}</button>{/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <div class="grid">
     <label class="labelled">
       <span>{t("opsName")}</span>
@@ -149,6 +333,15 @@
             <option value="">{t("opsFieldViaNone")}</option>
             {#each servers as s (s.name)}<option value={s.name}>{s.name}</option>{/each}
           </select>
+          {#if isServer(c.kind)}<small class="muted">{help(f)}</small>{/if}
+        </label>
+      {:else if f === "sslmode"}
+        <label class="labelled">
+          <span>{label(f)}</span>
+          <select class="field" value={c.sslmode ?? ""} onchange={(e) => (c.sslmode = e.currentTarget.value || undefined)}>
+            <option value="">{t("opsdbSslDefault")}</option>
+            {#each SSLMODES as m (m)}<option value={m}>{m}</option>{/each}
+          </select>
         </label>
       {:else}
         <label class="labelled">
@@ -157,7 +350,13 @@
             class="field mono"
             inputmode={f === "port" ? "numeric" : undefined}
             value={value(f)}
-            placeholder={db && f === "host" ? "127.0.0.1" : db && f === "user" ? "readonly" : (placeholders[f] ?? "")}
+            placeholder={c.kind === "sqlite" && f === "database"
+              ? "/Users/alex/acme/database/database.sqlite"
+              : db && f === "host"
+                ? "127.0.0.1"
+                : db && f === "user"
+                  ? "readonly"
+                  : (placeholders[f] ?? "")}
             oninput={(e) => set(f, e.currentTarget.value)}
           />
           {#if help(f)}<small class="muted">{help(f)}</small>{/if}
@@ -165,6 +364,23 @@
       {/if}
     {/each}
     {#each FORM[c.kind].secrets as role (role)}
+      {#if role === "password"}
+        <label class="labelled">
+          <span>{t("opsdbPassword")}</span>
+          <input
+            class="field"
+            type="password"
+            bind:value={password}
+            autocomplete="new-password"
+            placeholder={found ? "••••••••" : ""}
+          />
+          <small class="muted">
+            {found
+              ? t("opsdbPasswordFound", { source: found.source, env: c.env, name: c.secrets?.password ?? passwordName(c.name) })
+              : t("opsdbPasswordHelp", { env: c.env, name: c.secrets?.password || passwordName(c.name || "db") })}
+          </small>
+        </label>
+      {/if}
       <label class="labelled">
         <span>{t(secretLabels[role])}</span>
         <input
@@ -233,6 +449,9 @@
   }
 
   .small {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin: 0;
     font-size: var(--text-sm);
   }
@@ -245,5 +464,165 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+  }
+
+  .steps {
+    display: flex;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-xs);
+    color: var(--muted);
+  }
+
+  .steps li {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px 6px 6px;
+    border-top: 2px solid var(--border);
+    transition:
+      border-color var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out);
+  }
+
+  .steps .n {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--hover);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .steps li.done {
+    border-color: var(--done);
+    color: var(--text);
+  }
+
+  .steps li.done .n {
+    background: var(--done-soft);
+    color: var(--done);
+  }
+
+  .steps li.now {
+    border-color: var(--accent);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .steps li.now .n {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .start {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--chrome);
+  }
+
+  .url {
+    display: flex;
+    gap: 8px;
+  }
+
+  .url input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .filled {
+    margin: 0;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    background: var(--done-soft);
+    color: var(--text);
+    font-size: var(--text-xs);
+  }
+
+  .found {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .found-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .found ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .found li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+
+  .found li.picked {
+    border-color: var(--accent);
+  }
+
+  .found li.refused {
+    opacity: 0.7;
+  }
+
+  .what {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    font-size: var(--text-sm);
+  }
+
+  .kind {
+    font-weight: 500;
+  }
+
+  .where,
+  .source {
+    overflow: hidden;
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .source {
+    color: var(--muted);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
   }
 </style>

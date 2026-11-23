@@ -17,6 +17,17 @@
     journal: "opsCheckJournal",
   } as const;
 
+  const hints = {
+    keyRefused: "opsdbHintKeyRefused",
+    hostKey: "opsdbHintHostKey",
+    unknownHost: "opsdbHintUnknownHost",
+    portClosed: "opsdbHintPortClosed",
+    timeout: "opsdbHintTimeout",
+    passwordRefused: "opsdbHintPasswordRefused",
+    noDatabase: "opsdbHintNoDatabase",
+    noFile: "opsdbHintNoFile",
+  } as const;
+
   function text(c: Check): { label: string; detail: string } {
     if (c.warn && c.code === "readonly") return { label: t("opsCheckReadonlyWarn", { subject: c.subject }), detail: "" };
     if (c.warn && c.code === "journal") return { label: t("opsCheckJournalWarn"), detail: "" };
@@ -35,6 +46,7 @@
         />{/if}
       <span class="t">
         <span>{line.label}</span>
+        {#if c.hint}<span class="hint">{t(hints[c.hint])}</span>{/if}
         {#if line.detail}<span class="detail mono">{line.detail}</span>{/if}
       </span>
     </li>
@@ -80,6 +92,11 @@
     gap: 2px;
     min-width: 0;
     color: var(--text);
+  }
+
+  .hint {
+    color: var(--text);
+    font-weight: 500;
   }
 
   .detail {

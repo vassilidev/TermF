@@ -8,9 +8,11 @@ import {
   streamed,
   type Connection,
   type Plan,
+  type Query,
   type Ran,
   type Recipe,
   type Request,
+  type SchemaTable,
   type Run,
   type Streamed,
 } from "$lib/ops-logic";
@@ -46,6 +48,17 @@ export const ops = $state({
   proposal: null as number | null,
   /** The SQL console: its database, the query typed, its last result. */
   sql: { connection: "", query: "", result: null as Ran | null },
+  /** The project's saved queries. */
+  queries: [] as Query[],
+  /** The database studio: each database's schema once read, the side panel shown, and the DBA's conversation per
+   * database (its headless session). */
+  studio: {
+    schemas: {} as Record<string, SchemaTable[] | "loading" | { error: string }>,
+    aside: "saved" as "dba" | "saved" | "recent",
+    dba: {} as Record<string, number>,
+    /** The saved query being written: a new one (`previous` null) or one being changed. */
+    editing: null as { query: Query; previous: string | null } | null,
+  },
   /** The live logs: what is followed, and the lines received (masked), the last ones kept. */
   live: {
     recipe: "",
@@ -98,9 +111,11 @@ export function showOps() {
 
 export async function loadOps(project: string) {
   try {
-    const overview = await invoke<{ connections: Connection[]; recipes: Recipe[]; errors: string[] }>("ops_overview", {
-      project,
-    });
+    const overview = await invoke<{ connections: Connection[]; recipes: Recipe[]; errors: string[]; queries: Query[] }>(
+      "ops_overview",
+      { project },
+    );
+    ops.queries = overview.queries ?? [];
     ops.project = project;
     ops.connections = overview.connections;
     ops.recipes = overview.recipes;
@@ -110,6 +125,19 @@ export async function loadOps(project: string) {
     ops.project = project;
     ops.connections = [];
     ops.error = String(e);
+  }
+}
+
+/** A database's schema, read once per session unless `again`; the vault's errors go to `ask`. */
+export async function loadSchema(project: string, connection: string, again = false) {
+  const key = `${project}/${connection}`;
+  const known = ops.studio.schemas[key];
+  if (!again && known && !(typeof known === "object" && "error" in known)) return;
+  ops.studio.schemas[key] = "loading";
+  try {
+    ops.studio.schemas[key] = await invoke<SchemaTable[]>("ops_schema", { project, connection });
+  } catch (e) {
+    ops.studio.schemas[key] = { error: String(e) };
   }
 }
 

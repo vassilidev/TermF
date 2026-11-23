@@ -250,6 +250,9 @@
     reveal: "opssqlEventReveal",
     copy: "opssqlEventCopy",
     write: "opssqlEventWrite",
+    schema: "opsdbEventSchema",
+    export: "opsdbEventExport",
+    dba: "opsdbEventDba",
   };
 </script>
 
@@ -335,9 +338,11 @@
             </ul>
             <section class="detail" aria-live="polite">
               {#if ops.editing !== null}
+                { passwordForm()}
                 {#key ops.editing}
                   <OpsForm
                     project={project.id}
+                    ask={askPassword}
                     start={ops.editing ? (ops.connections.find((c) => c.name === ops.editing) ?? blank()) : blank()}
                     previous={ops.editing || null}
                     onclose={(saved) => {

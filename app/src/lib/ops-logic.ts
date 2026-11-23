@@ -2,7 +2,18 @@
 
 export type Env = "dev" | "staging" | "prod";
 export type AiAccess = "none" | "redacted" | "full";
-export type Kind = "ssh" | "postgres" | "mysql" | "kubernetes" | "cloudwatch" | "gcp" | "loki" | "datadog";
+export type Kind =
+  | "ssh"
+  | "postgres"
+  | "mysql"
+  | "kubernetes"
+  | "cloudwatch"
+  | "gcp"
+  | "loki"
+  | "datadog"
+  | "sqlite"
+  | "mariadb"
+  | "clickhouse";
 export type Field =
   | "host"
   | "port"
@@ -10,6 +21,7 @@ export type Field =
   | "jump"
   | "via"
   | "database"
+  | "sslmode"
   | "context"
   | "namespace"
   | "log_group"
@@ -110,6 +122,8 @@ export type Check = {
   warn: boolean;
   subject: string;
   detail: string;
+  /** What went wrong, read from what the client said. */
+  hint?: "keyRefused" | "hostKey" | "unknownHost" | "portClosed" | "timeout" | "passwordRefused" | "noDatabase" | "noFile";
 };
 export type Request = {
   id: number;
@@ -121,15 +135,30 @@ export type Request = {
   until: number | null;
 };
 
-export const KINDS: Kind[] = ["ssh", "postgres", "mysql", "kubernetes", "cloudwatch", "gcp", "loki", "datadog"];
+export const KINDS: Kind[] = [
+  "ssh",
+  "postgres",
+  "mysql",
+  "mariadb",
+  "sqlite",
+  "clickhouse",
+  "kubernetes",
+  "cloudwatch",
+  "gcp",
+  "loki",
+  "datadog",
+];
 export const ENVS: Env[] = ["dev", "staging", "prod"];
 export const ACCESS: AiAccess[] = ["none", "redacted", "full"];
 
 /** What a kind's form shows, what it needs, and the secrets of the vault it may name. */
 export const FORM: Record<Kind, { fields: Field[]; required: Field[]; secrets: string[] }> = {
   ssh: { fields: ["host", "user", "port", "jump"], required: ["host"], secrets: [] },
-  postgres: { fields: ["database", "user", "host", "port", "via"], required: ["database", "user"], secrets: ["password"] },
-  mysql: { fields: ["database", "user", "host", "port", "via"], required: ["database", "user"], secrets: ["password"] },
+  postgres: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
+  mysql: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
+  mariadb: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
+  clickhouse: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
+  sqlite: { fields: ["database"], required: ["database"], secrets: [] },
   kubernetes: { fields: ["context", "namespace"], required: ["context"], secrets: [] },
   cloudwatch: { fields: ["log_group", "region", "profile"], required: ["log_group"], secrets: [] },
   gcp: { fields: ["gcp_project"], required: [], secrets: [] },
@@ -148,8 +177,12 @@ export function target(c: Connection, all: Connection[]): string {
   switch (c.kind) {
     case "ssh":
       return c.jump ? `${at(c.user, c.host ?? "")} (via ${c.jump})` : at(c.user, c.host ?? "");
+    case "sqlite":
+      return c.database ?? "";
     case "postgres":
-    case "mysql": {
+    case "mysql":
+    case "mariadb":
+    case "clickhouse": {
       const db = `${at(c.user, c.host ?? "127.0.0.1")}/${c.database ?? ""}`;
       const server = c.via ? all.find((x) => x.name === c.via) : undefined;
       return server ? `${db} (tunnel through ${target(server, all)})` : db;
@@ -187,7 +220,7 @@ export function clean(c: Connection): Connection {
 export function missing(c: Connection): Field[] {
   const form = FORM[c.kind];
   const lacks = form.required.filter((f) => !String(c[f as Exclude<Field, "port">] ?? "").trim());
-  if ((c.kind === "postgres" || c.kind === "mysql") && !c.via?.trim() && !c.host?.trim()) lacks.push("host");
+  if (isServer(c.kind) && !c.via?.trim() && !c.host?.trim()) lacks.push("host");
   return lacks;
 }
 
@@ -390,4 +423,129 @@ export function level(line: string): Level | null {
 export function shows(line: string, text: string, min: Level | "all"): boolean {
   if (text && !line.toLowerCase().includes(text.toLowerCase())) return false;
   return min === "all" || RANK[level(line) ?? "info"] >= RANK[min];
+}
+
+/** A database the SQL console reads. */
+export const isDb = (k: Kind) => k === "postgres" || k === "mysql" || k === "mariadb" || k === "sqlite" || k === "clickhouse";
+/** A database server, reached over the network (SQLite is a file). */
+export const isServer = (k: Kind) => isDb(k) && k !== "sqlite";
+export const SSLMODES = ["disable", "prefer", "require", "verify-ca", "verify-full"] as const;
+
+export type SchemaTable = {
+  schema: string;
+  name: string;
+  columns: { name: string; type: string; nullable: boolean; key: "pk" | "fk" | "unique" | "index" | "" }[];
+  indexes: { name: string; columns: string; unique: boolean }[];
+};
+
+/** A saved query of the SQL console, as `[[ops.queries]]` keeps it. */
+export type Query = {
+  name: string;
+  description?: string;
+  folder?: string;
+  tags?: string[];
+  connection?: string;
+  sql: string;
+};
+
+/** A database a repository of the project declares (`ops_detect`). */
+export type Candidate = {
+  id: number;
+  source: string;
+  connection: Connection | null;
+  refused: string | null;
+  hasPassword: boolean;
+};
+
+export type ExportFormat = "csv" | "tsv" | "json" | "ndjson" | "markdown" | "sql" | "xlsx";
+export const EXPORTS: ExportFormat[] = ["csv", "tsv", "json", "ndjson", "markdown", "sql", "xlsx"];
+export const COPIES: ExportFormat[] = ["tsv", "csv", "json", "markdown"];
+export const EXTENSIONS: Record<ExportFormat, string> = {
+  csv: "csv",
+  tsv: "tsv",
+  json: "json",
+  ndjson: "ndjson",
+  markdown: "md",
+  sql: "sql",
+  xlsx: "xlsx",
+};
+
+/** The table a query reads first, for an export's file and its `INSERT`s; `results` when it names none. */
+export function firstTable(sql: string): string {
+  const m = /\bfrom\s+([`"[]?)([\w.]+)[`"\]]?/i.exec(sql);
+  return m ? m[2].split(".").pop()! : "results";
+}
+
+/** The last query an answer gives in a ```sql block (or a bare ``` block), as it streams: `null` before one ends. */
+export function sqlBlock(text: string): string | null {
+  const blocks = [...text.matchAll(/```(?:sql|SQL|[a-z]*)?[ \t]*\n([\s\S]*?)\n?```/g)];
+  const last = blocks.at(-1)?.[1].trim();
+  return last ? last : null;
+}
+
+/** What the user asked, read back from the message TermF sent the DBA (the first one holds the schema too). */
+export function asked(text: string): { kind: "write" | "explain" | "optimize"; text: string } {
+  const marks = [
+    ["write", "Request: "],
+    ["explain", "Explain this query in plain words"],
+    ["optimize", "This query is slow."],
+  ] as const;
+  const [kind, mark] = marks.reduce((a, b) => (text.lastIndexOf(b[1]) > text.lastIndexOf(a[1]) ? b : a));
+  const at = text.lastIndexOf(mark);
+  if (at < 0) return { kind: "write", text };
+  return kind === "write" ? { kind, text: text.slice(at + mark.length) } : { kind, text: sqlBlock(text) ?? "" };
+}
+
+/** The answer without its query block, what is left to read: the explanation. */
+export function prose(text: string): string {
+  return text
+    .replace(/```[\s\S]*?(```|$)/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Saved queries matching a search (name, description, folder, tags, the query itself), grouped by folder, those
+ * without one last. */
+export function savedGroups(queries: Query[], search: string): { folder: string; queries: Query[] }[] {
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = (q: Query) =>
+    [q.name, q.description ?? "", q.folder ?? "", ...(q.tags ?? []), q.sql, q.connection ?? ""].join(" ").toLowerCase();
+  const found = queries.filter((q) => words.every((w) => hay(q).includes(w)));
+  const folders = new Map<string, Query[]>();
+  for (const q of found) folders.set(q.folder ?? "", [...(folders.get(q.folder ?? "") ?? []), q]);
+  return [...folders.entries()]
+    .sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)))
+    .map(([folder, list]) => ({ folder, queries: list.sort((a, b) => a.name.localeCompare(b.name)) }));
+}
+
+/** A name not taken yet: `Name (copy)`, `Name (copy 2)`… */
+export function copyName(name: string, taken: string[], copy: string): string {
+  let n = 1;
+  let next = `${name} (${copy})`;
+  while (taken.includes(next)) next = `${name} (${copy} ${++n})`;
+  return next;
+}
+
+/** What the editor completes: tables (qualified outside the default schema), then the columns of every table. */
+export function completions(schema: SchemaTable[]): { label: string; type: "class" | "property"; detail: string }[] {
+  const tables = schema.map((t) => ({
+    label: t.schema ? `${t.schema}.${t.name}` : t.name,
+    type: "class" as const,
+    detail: `${t.columns.length}`,
+  }));
+  const seen = new Set<string>();
+  const columns = schema.flatMap((t) =>
+    t.columns.flatMap((c) => {
+      const key = `${c.name}:${c.type}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{ label: c.name, type: "property" as const, detail: c.type }];
+    }),
+  );
+  return [...tables, ...columns];
+}
+
+/** The secret's name a database's password goes under in the vault: `ACME_PROD_PASSWORD`. */
+export function passwordName(connection: string): string {
+  return `${connection.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_PASSWORD`;
 }
