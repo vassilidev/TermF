@@ -259,7 +259,7 @@
         <div class="side-demo">
           <div class="side-main">
             {#if !sideOpen}
-              <Button icon={PanelRightOpen} onclick={() => (sideOpen = true)}>{t("uiF1SideOpen")}</Button>
+              <Button icon={PanelRightOpen} data-testid="ui-side" onclick={() => (sideOpen = true)}>{t("uiF1SideOpen")}</Button>
             {:else}
               <p class="muted">{t("uiF1SideMain")}</p>
             {/if}
@@ -282,11 +282,12 @@
         <p class="rule">{t("uiF1DialogsRule")}</p>
         <div class="row">
           <Button
+            data-testid="ui-toast"
             onclick={() => toast(t("uiF1ToastText"), { undo: () => toast(t("uiF1ToastUndone"), { kind: "info" }) })}
             >{t("uiF1ToastShow")}</Button
           >
           <Button onclick={() => toast(t("uiF1ToastError"), { kind: "error" })}>{t("uiF1ToastShowError")}</Button>
-          <Button variant="quiet-danger" onclick={() => (confirming = true)}>{t("uiF1DialogOpen")}</Button>
+          <Button variant="quiet-danger" data-testid="ui-dialog" onclick={() => (confirming = true)}>{t("uiF1DialogOpen")}</Button>
         </div>
         <div class="toast-card toast-still" aria-hidden="true">
           <span>{t("uiF1ToastText")}</span>
