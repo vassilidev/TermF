@@ -191,7 +191,7 @@
 
 {#snippet lossOf(lost: number, changes: number, blocked: boolean)}
   {#if blocked}
-    <span class="loss muted">—</span>
+    <span class="loss"></span>
   {:else if lost || changes}
     <span class="loss danger"><CircleAlert size={13} aria-hidden="true" />{loss(lost, changes)}</span>
   {:else}
