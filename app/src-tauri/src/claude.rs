@@ -319,8 +319,12 @@ pub fn artifacts_list(app: AppHandle) -> Artifacts {
 }
 
 #[tauri::command]
-pub fn artifacts_refresh(app: AppHandle) -> CmdResult<Artifacts> {
-    start(&app, true).map_err(err)?;
+pub async fn artifacts_refresh(app: AppHandle) -> CmdResult<Artifacts> {
+    let starting = app.clone();
+    tauri::async_runtime::spawn_blocking(move || start(&starting, true))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)?;
     Ok(artifacts_state(&app))
 }
 
@@ -399,9 +403,13 @@ pub async fn artifacts_delete(
             items.iter().map(|d| d.url.clone()).collect::<Vec<_>>(),
         )
     };
+    let dir = claude.agent_dir.clone();
+    let prepared =
+        tauri::async_runtime::spawn_blocking(move || agent_dir(&dir, &termf_claude::trust::file()))
+            .await;
     let spawned = (|| {
         let (agent, command) = claude_agent(&state.config_dir)?;
-        agent_dir(&claude.agent_dir)?;
+        prepared.map_err(|e| anyhow!("{e}"))??;
         let task = Task {
             agent,
             command: program(&command),
@@ -469,7 +477,7 @@ fn start(app: &AppHandle, manual: bool) -> Result<()> {
     let spawned = (|| {
         let state = app.state::<AppState>();
         let (agent, command) = claude_agent(&state.config_dir)?;
-        agent_dir(&claude.agent_dir)?;
+        agent_dir(&claude.agent_dir, &termf_claude::trust::file())?;
         let task = Task {
             agent,
             command: program(&command),
@@ -498,10 +506,10 @@ fn start(app: &AppHandle, manual: bool) -> Result<()> {
 
 /// TermF's own folder for its hidden sessions, trusted ahead: it holds nothing to protect, and Claude Code's trust
 /// question there would stop the first listing or deletion for a minute before its tile shows.
-fn agent_dir(dir: &Path) -> Result<()> {
+/// Blocking (a login shell, `claude_json`'s read and write): never on the async runtime.
+fn agent_dir(dir: &Path, claude_json: &Path) -> Result<()> {
     std::fs::create_dir_all(dir)?;
-    let trusted =
-        termf_claude::trust::set(&termf_claude::trust::file(), &[dir.to_path_buf()], true);
+    let trusted = termf_claude::trust::set(claude_json, &[termf_claude::trust::root(dir)], true);
     if let Err(e) = trusted {
         eprintln!("termf: {} not trusted ahead: {e:#}", dir.display());
     }
@@ -717,6 +725,27 @@ mod tests {
         let deny = settings["permissions"]["deny"].as_array().unwrap();
         assert!(deny.contains(&json!("Bash")) && !deny.contains(&json!("Artifact")));
         assert!(settings["permissions"]["allow"].is_null());
+    }
+
+    /// Claude Code looks the trust up by the resolved path (`/private/tmp` on macOS, a linked data folder).
+    #[cfg(unix)]
+    #[test]
+    fn the_hidden_sessions_folder_is_trusted_by_its_resolved_path() {
+        let root = std::env::temp_dir().join(format!("termf-agent-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+        let claude_json = root.join(".claude.json");
+        agent_dir(&root.join("link/claude-agent"), &claude_json).unwrap();
+        let json: Value =
+            serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+        let resolved = std::fs::canonicalize(root.join("real/claude-agent")).unwrap();
+        assert_eq!(
+            json["projects"][resolved.to_string_lossy().as_ref()]["hasTrustDialogAccepted"],
+            true,
+            "{json}"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

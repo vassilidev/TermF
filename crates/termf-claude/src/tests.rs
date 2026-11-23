@@ -236,7 +236,6 @@ fn edits_a_setting_atomically_in_strict_json() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-#[cfg(unix)]
 #[test]
 fn local_settings_stay_out_of_git() {
     let (root, env) = tree("local-git");
@@ -274,6 +273,44 @@ fn local_settings_stay_out_of_git() {
     fs::remove_dir_all(&root).unwrap();
 }
 
+#[test]
+fn local_settings_are_saved_even_when_git_cannot_exclude_them() {
+    let (root, env) = tree("local-git-broken");
+    let repo = root.join("repo");
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    let none = root.join("no-ignore");
+    write(&none, "");
+    git(&["config", "core.excludesFile", &none.to_string_lossy()]);
+    // `info` is a file: `info/exclude` cannot be written.
+    fs::remove_dir_all(repo.join(".git/info")).ok();
+    write(&repo.join(".git/info"), "");
+    let saved = settings::save(&env, Scope::Local, &set("model", json!("haiku")), None).unwrap();
+    assert!(!saved.tracked);
+    let local = repo.join(".claude/settings.local.json");
+    assert!(fs::read_to_string(&local).unwrap().contains("haiku"));
+
+    // Already tracked: the preview says so, and no exclude is written for nothing.
+    fs::remove_file(repo.join(".git/info")).unwrap();
+    git(&["add", "-f", ".claude/settings.local.json"]);
+    let preview = settings::preview(&env, Scope::Local, &set("model", json!("sonnet"))).unwrap();
+    assert!(preview.tracked);
+    settings::save(&env, Scope::Local, &set("model", json!("sonnet")), None).unwrap();
+    assert!(!repo.join(".git/info/exclude").exists());
+    let shared = settings::preview(&env, Scope::Project, &set("model", json!("sonnet"))).unwrap();
+    assert!(!shared.tracked, "only the local file is told");
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[cfg(unix)]
 #[test]
 fn writes_through_a_symlinked_settings_file() {
     let (root, env) = tree("symlink");

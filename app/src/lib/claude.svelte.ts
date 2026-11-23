@@ -66,7 +66,7 @@ export type Overview = {
   tools: { name: string; version: string | null; path: string | null }[];
 };
 /** `hash`: the file as read for this preview, sent back with the save. */
-export type Preview = { path: string; diff: string; hash: string };
+export type Preview = { path: string; diff: string; hash: string; tracked?: boolean };
 export type Plugins = {
   plugins: Record<string, unknown>[];
   /** What the marketplaces offer and is not installed: `{pluginId, name, marketplaceName, source, description?}`. */

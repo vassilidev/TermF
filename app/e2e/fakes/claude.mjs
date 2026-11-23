@@ -154,7 +154,6 @@ function hooks() {
 function interactive() {
   const sid = flag("--session-id") ?? flag("--resume") ?? randomUUID();
   const registered = hooks();
-  /** The hooks' answers, parsed. */
   const fire = (event, extra = {}) => {
     const payload = JSON.stringify({ session_id: sid, cwd: process.cwd(), hook_event_name: event, transcript_path: "", ...extra });
     const answers = [];
@@ -162,9 +161,10 @@ function interactive() {
       const options = { input: payload, timeout: (h.timeout ?? 60) * 1000, stdio: ["pipe", "pipe", "ignore"], encoding: "utf8" };
       const out = h.args ? spawnSync(h.command, h.args, options) : spawnSync(h.command, { ...options, shell: true });
       try {
-        answers.push(JSON.parse(out.stdout));
+        const answer = JSON.parse(out.stdout);
+        if (answer && typeof answer === "object") answers.push(answer);
       } catch {
-        // No answer.
+        // A hook that prints nothing, or no JSON, answers nothing.
       }
     }
     return answers;
@@ -202,7 +202,6 @@ function interactive() {
   lines.on("line", (line) => {
     const prompt = line.trim();
     if (doomed.length) {
-      // The question answered in the tile.
       const url = doomed.shift();
       if (/^y/i.test(prompt)) {
         fire("PostToolUse", { tool_name: "Artifact", tool_input: { action: "delete", url }, tool_response: {} });
