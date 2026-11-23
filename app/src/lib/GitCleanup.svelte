@@ -18,7 +18,7 @@
   import { shortPath } from "$lib/state.svelte";
   import { refusal } from "$lib/tickets-logic";
   import { tickets } from "$lib/tickets.svelte";
-  import { chosen, keyOf, matchPlan, pickable } from "$lib/git-logic";
+  import { chosen, keyOf, matchPlan, pickable, samePath } from "$lib/git-logic";
   import type { BranchCleanup, Cleanup, Plan, Reason, WorktreeCleanup } from "$lib/git.svelte";
 
   /**
@@ -71,9 +71,9 @@
 
   let planned = 0;
   $effect(() => {
-    const [c, p] = [cleanup, plan];
+    const [c, p, where] = [cleanup, plan, plan?.repo];
     untrack(() => {
-      if (!c || !p || p.id === planned || p.repo !== repo) return;
+      if (!c || !p || !where || p.id === planned || !samePath(where, repo)) return;
       planned = p.id;
       const match = matchPlan(c, p.keys);
       [picked, unknown, fromPlan, failed] = [new Set(match.keys), match.unknown, true, {}];

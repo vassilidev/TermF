@@ -290,8 +290,10 @@
     const p = git.plan;
     untrack(() => {
       if (!p) return;
+      // A repository the plan names out of the project: the one shown.
       const repo = repos.find((r) => samePath(r.path, p.repo));
       if (repo) [p.repo, git.repo] = [repo.path, repo.path];
+      else p.repo = git.repo;
       openCleanup();
     });
   });
