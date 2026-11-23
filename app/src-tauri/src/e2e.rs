@@ -68,6 +68,24 @@ pub fn plugin() -> Option<TauriPlugin<Wry>> {
     Some(plugin)
 }
 
+/// A test app runs on the user's desktop, never in front: what it would notify stays in the page, in
+/// `window.__e2eNotifications`. Kept whatever order the plugins' scripts run in: an assignment of the notification
+/// plugin's own `window.Notification` lands in a setter that drops it.
+pub fn quiet() -> TauriPlugin<Wry> {
+    let script = r#"(() => {
+  const sent = (window.__e2eNotifications = []);
+  const Recorder = function (title, options) {
+    sent.push({ ...options, title });
+  };
+  Recorder.permission = "granted";
+  Recorder.requestPermission = async () => "granted";
+  Object.defineProperty(window, "Notification", { configurable: true, get: () => Recorder, set() {} });
+})();"#;
+    tauri::plugin::Builder::new("e2e-quiet")
+        .js_init_script(script)
+        .build()
+}
+
 #[tauri::command]
 pub fn e2e_result(pending: State<Pending>, id: u64, result: String) {
     if let Some(tx) = pending.waiting.lock().unwrap().remove(&id) {
