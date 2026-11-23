@@ -9,18 +9,18 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="TermF">
 <meta property="og:title" content="Stop using Claude Code (alone) · TermF">
-<meta property="og:description" content="Give Claude Code a CTO and a team of agents. One window, on your machine. Free and open source.">
+<meta property="og:description" content="Tickets in. Reviewed pull requests out. A CTO and a team of Claude Code agents, working live on your machine. Free and open source.">
 <meta property="og:url" content="https://vassilidev.github.io/TermF/">
 <meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
+<meta property="og:image:alt" content="TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Stop using Claude Code (alone) · TermF">
-<meta name="twitter:description" content="Give Claude Code a CTO and a team of agents. One window, on your machine. Free and open source.">
+<meta name="twitter:description" content="Tickets in. Reviewed pull requests out. A CTO and a team of Claude Code agents, working live on your machine. Free and open source.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
-<meta name="twitter:image:alt" content="TermF: talk only to the CTO, and a team of Claude Code agents takes your ticket to a pull request">
+<meta name="twitter:image:alt" content="TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out.">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0b0b12" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
@@ -68,13 +68,14 @@
 <header class="nav" id="nav">
   <div class="nav-in">
     <a class="brand" href="./"><img src="icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
-    <nav class="nav-links" aria-label="Main">
+    <nav class="nav-links" id="menu" aria-label="Main" popover>
       <a href="docs/">Docs</a>
       <a href="#team">The team</a>
       <a class="gh" href="https://github.com/vassilidev/TermF"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg><span class="vh">GitHub</span></a>
     </nav>
     <button class="theme" type="button" aria-label="Switch to dark theme"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.79 9.8Z"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
     <a class="btn small" href="download.html">Download</a>
+    <button class="menu-btn" type="button" popovertarget="menu" aria-label="Menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </div>
 </header>
 
@@ -83,7 +84,7 @@
   <section class="hero" aria-labelledby="hero-h">
     <a class="news" href="https://github.com/vassilidev/TermF/releases/tag/v0.2.0"><img src="icon.svg" alt="" width="18" height="18">New in 0.2.0<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
     <h1 id="hero-h">Stop using Claude&nbsp;Code <span class="alone"><span>(alone).</span></span></h1>
-    <p class="sub"><strong>Tickets in. Reviewed pull requests out.</strong> A CTO and a team of Claude Code agents, working live on your machine. You approve.</p>
+    <p class="sub"><strong>Tickets in. <span>Reviewed pull requests out.</span></strong> A CTO and a team of Claude Code agents, working live on your machine. You approve.</p>
     <div class="ctas">
       <a class="btn" id="get" href="download.html">Download for macOS</a>
       <a class="btn ghost" href="docs/">Read the docs</a>
@@ -99,9 +100,8 @@
     </script>
     <p class="meta">Free · open source · macOS, Windows, Linux</p>
     <figure class="win" id="reel" data-video>
-      <div class="win-bar"><i></i><i></i><i></i><span aria-hidden="true">TermF</span><button class="pause" type="button" aria-label="Pause the video" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button></div>
+      <div class="win-bar"><i></i><i></i><i></i><button class="watch" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i>Watch with sound<small><span aria-hidden="true">·</span> 1:10</small></button><span aria-hidden="true">TermF</span><div class="tools"><button class="tool pause" type="button" aria-label="Pause the video" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button><button class="tool close" type="button" aria-label="Close the film" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><button class="tool full" type="button" aria-label="Watch in full screen, with sound" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button></div></div>
       <video muted loop playsinline preload="none" poster="media/launch-poster.webp" width="1600" height="900" aria-label="TermF at work: you ask the CTO, a team of agents works on it live, and the pull request waits for you. Silent, sample data."><source src="media/launch.webm" type="video/webm"><source src="media/launch.mp4" type="video/mp4"></video>
-      <button class="play" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i>Play the video</button>
     </figure>
   </section>
 
@@ -269,13 +269,20 @@ fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
   })
   .catch(() => {});
 
-// The silent loop, once site/media/ has it (the build then marks the window); with reduced motion, the poster and a
-// play button. A pause button either way: the loop never ends on its own
+// The menu of a phone closes once a link is chosen, even a link within this page
+const menu = document.getElementById('menu');
+menu.addEventListener('click', e => { try { if (e.target.closest('a') && menu.matches(':popover-open')) menu.hidePopover(); } catch {} });
+
+// The silent loop, once site/media/ has it (the build then marks the window); with reduced motion, the poster. A pause
+// button either way: the loop never ends on its own. Browsers only allow sound after a click, so the full film with
+// sound waits for one
 const reel = document.getElementById('reel'), video = reel.querySelector('video');
 if ('video' in reel.dataset) {
-  const pause = reel.querySelector('.pause'), play = reel.querySelector('.play');
+  const [pause, watch, full, close] = ['.pause', '.watch', '.full', '.close'].map(s => reel.querySelector(s));
+  const loopLabel = video.getAttribute('aria-label');
   // The loop exists in both themes, so the window never shows a dark film on a light page
   const film = () => {
+    if (reel.classList.contains('sound')) return;
     const name = dark() ? 'launch' : 'launch-light';
     if (video.dataset.film === name) return;
     const playing = video.dataset.film && !video.paused;
@@ -290,14 +297,54 @@ if ('video' in reel.dataset) {
   themeBtn.addEventListener('click', film);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', film);
   const sync = () => { pause.classList.toggle('paused', video.paused); pause.setAttribute('aria-label', video.paused ? 'Play the video' : 'Pause the video'); };
-  video.addEventListener('play', () => { play.hidden = true; sync(); });
+  video.addEventListener('play', sync);
   video.addEventListener('pause', sync);
   pause.addEventListener('click', () => video.paused ? video.play() : video.pause());
-  play.addEventListener('click', () => video.play());
-  pause.hidden = false;
+  pause.hidden = watch.hidden = false;
   sync();
-  if (reduce) play.hidden = false;
-  else { video.preload = 'auto'; video.play().catch(() => { play.hidden = false; }); }
+  if (!reduce) { video.preload = 'auto'; video.play().catch(() => {}); }
+
+  // The film plays in the window with its controls; on a phone, and from the full screen button, in full screen.
+  // Its end, the close button or leaving full screen bring the loop back. iPhones only know webkitEnterFullscreen
+  let fs = false;
+  const fullscreen = () => {
+    fs = true;
+    if (document.fullscreenEnabled) video.requestFullscreen().catch(() => { fs = false; });
+    else if (document.webkitFullscreenEnabled) video.webkitRequestFullscreen();
+    else try { video.webkitEnterFullscreen(); } catch { fs = false; }
+  };
+  const watchFilm = inFull => {
+    if (!reel.classList.contains('sound')) {
+      reel.classList.add('sound');
+      delete video.dataset.film;
+      Object.assign(video, {src: 'media/termf-launch.mp4', poster: 'media/termf-launch-poster.webp', muted: false, loop: false, controls: true});
+      video.setAttribute('aria-label', 'The TermF film, 70 seconds, with sound');
+      watch.hidden = pause.hidden = true; close.hidden = false;
+    }
+    video.play().catch(() => {});
+    if (inFull) fullscreen();
+  };
+  const backToLoop = () => {
+    if (!reel.classList.contains('sound')) return;
+    fs = false;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    reel.classList.remove('sound');
+    Object.assign(video, {muted: true, loop: true, controls: false});
+    video.removeAttribute('src');
+    video.setAttribute('aria-label', loopLabel);
+    watch.hidden = pause.hidden = false; close.hidden = true;
+    film();
+    if (!reduce) video.play().catch(() => {});
+  };
+  watch.addEventListener('click', () => watchFilm(matchMedia('(max-width: 640px)').matches));
+  full.addEventListener('click', () => watchFilm(true));
+  close.addEventListener('click', backToLoop);
+  video.addEventListener('ended', backToLoop);
+  const left = () => { if (fs && !(document.fullscreenElement || document.webkitFullscreenElement)) backToLoop(); };
+  document.addEventListener('fullscreenchange', left);
+  document.addEventListener('webkitfullscreenchange', left);
+  video.addEventListener('webkitendfullscreen', () => { if (fs) backToLoop(); });
+  full.hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled || video.webkitEnterFullscreen);
 }
 
 // The team at work: each step of the example run goes from queued to working to done, then the pull request waits
