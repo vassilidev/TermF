@@ -985,6 +985,22 @@
     margin-bottom: 8px;
   }
 
+  /* A permission says the whole command or path: it wraps rather than being cut. */
+  .ask-what :global(.action) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* In the narrow panel, the reason for a refusal takes its own line above the answers. */
+  .thread.bare .answer {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .thread.bare .answer .field {
+    flex-basis: 100%;
+  }
+
   .diff {
     display: flex;
     flex-direction: column;
