@@ -32,7 +32,7 @@ pub use azure::{Azure, DEFAULT_WIQL};
 use github::Etags;
 pub use github::GitHub;
 pub use gitlab::GitLab;
-pub use guard::{egress, guard};
+pub use guard::{egress, guard, reads};
 pub use jira::{DEFAULT_JQL, Jira};
 pub use linear::Linear;
 pub use mcp::{Mcp, McpServer};

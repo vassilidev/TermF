@@ -140,9 +140,21 @@ fn guard_hook(termf: &Path) -> Value {
 
 const GUARDED: &str = "Bash|WebFetch|WebSearch|mcp__.*";
 
-/// Settings with only the guard hook of a ticket run's tile, for a headless session's `--settings`.
-pub fn guard_settings(termf: &Path) -> Value {
-    json!({ "hooks": { "PreToolUse": [guard_hook(termf)] } })
+/// Settings with only the guard hook of a ticket run's tile, for a headless session's `--settings`. With
+/// `reads` (a team's step: its worktree, and the commands it may run there), the hook also lets the commands
+/// that only read there, and those, run without asking.
+pub fn guard_settings(termf: &Path, reads: Option<(&Path, &[String])>) -> Value {
+    let mut hook = guard_hook(termf);
+    if let Some((worktree, allowed)) = reads {
+        let args = hook["hooks"][0]["args"]
+            .as_array_mut()
+            .expect("the hook has args");
+        args.extend(["--worktree".into(), worktree.to_string_lossy().into()]);
+        for command in allowed {
+            args.extend(["--allow".into(), command.as_str().into()]);
+        }
+    }
+    json!({ "hooks": { "PreToolUse": [hook] } })
 }
 
 /// Denied to every Claude Code session TermF starts (ARCHITECTURE §12.2): secret files under its folder and
@@ -428,7 +440,7 @@ mod tests {
         assert_eq!(guard["hooks"][0]["command"], "/opt/Term F/termf");
         assert_eq!(guard["hooks"][0]["args"], json!(["guard"]));
         assert_eq!(
-            &guard_settings(termf)["hooks"]["PreToolUse"][0],
+            &guard_settings(termf, None)["hooks"]["PreToolUse"][0],
             guard,
             "a headless session gets the tile's hook"
         );

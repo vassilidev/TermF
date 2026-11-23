@@ -1661,6 +1661,67 @@ fn the_brief_puts_the_documents_first_and_caps_the_turns() {
     );
 }
 
+/// The recette (PR #131): no step ever invoked a skill, and each Bash command that only read asked the user.
+#[test]
+fn a_step_is_told_its_skills_and_reads_without_asking() {
+    let env = Env::new("skills");
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api/export.ts"], &[])])),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Done);
+    let brief = env.message("implement:T1", 1);
+    let skills = &brief[brief.find("## Your skills").expect("a skills section")..];
+    let skills = &skills[..skills[3..].find("\n## ").map_or(skills.len(), |at| at + 3)];
+    assert!(
+        skills.contains("Before you start, invoke with the Skill tool"),
+        "{skills}"
+    );
+    assert!(skills.contains("- `tests-from-criteria`: "), "{skills}");
+    assert!(skills.matches("\n- `").count() <= SKILLS_LISTED, "{skills}");
+    assert!(
+        !skills.contains("`svelte-sveltekit`") && !skills.contains("`lsof-kill`"),
+        "only what fits the role and the ticket: {skills}"
+    );
+    assert!(
+        brief.find("## Your skills") < brief.find("## How to work"),
+        "{brief}"
+    );
+
+    let session = |key: &str| {
+        let id = env.step(&run, key).session.unwrap();
+        env.agents.session(id).unwrap().spec
+    };
+    let spec = session("implement:T1");
+    let allowed = spec.read_freely.expect("reads without asking by default");
+    assert!(
+        allowed.contains(&"test -f src/api/a.txt".to_owned()),
+        "the repository's checks: {allowed:?}"
+    );
+    let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
+    assert!(
+        args.contains(r#""--worktree","#) && args.contains(r#""--allow","test -f src/api/a.txt""#),
+        "{args}"
+    );
+
+    let project = env.config.join("projects/acme.toml");
+    let text = fs::read_to_string(&project).unwrap();
+    fs::write(&project, format!("{text}[team]\nread_freely = false\n")).unwrap();
+    assert_eq!(
+        env.team
+            .inner
+            .read_freely(&run, 0, &env.target.worktree)
+            .unwrap(),
+        None,
+        "the project turns it off"
+    );
+}
+
 #[test]
 fn reads_the_target_of_a_ticket_run() {
     let env = Env::new("target");

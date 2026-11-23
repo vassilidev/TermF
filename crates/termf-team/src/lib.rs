@@ -4599,24 +4599,7 @@ impl Inner {
         let file = termf_core::project_file(&self.config_dir, &run.target.project)?;
         let table: toml::Table = toml::from_str(&fs::read_to_string(&file)?)
             .with_context(|| format!("invalid {}", file.display()))?;
-        let checks = |repo: &Path| {
-            let found = table
-                .get("repos")
-                .and_then(|r| r.as_array())
-                .into_iter()
-                .flatten()
-                .find(|r| {
-                    let path = r
-                        .get("path")
-                        .and_then(|p| p.as_str())
-                        .map(termf_core::expand_tilde);
-                    path.as_deref() == Some(repo)
-                });
-            found
-                .and_then(|r| r.get("checks")?.as_str())
-                .unwrap_or_default()
-                .to_owned()
-        };
+        let checks = |repo: &Path| checks_of(&table, repo);
         let homes = std::iter::once((&run.target.repo_path, &run.target.worktree, &run.base))
             .chain(run.repos.iter().map(|r| (&r.path, &r.worktree, &r.base)));
         let auto = self.auto_checks(run)?;
@@ -4931,7 +4914,6 @@ impl Inner {
             .unwrap_or(plan::Size::M);
         let max_turns = self.max_turns(run, size)?;
         let spec = SessionSpec {
-            cwd,
             title: format!("{} · {} · {role_name}", run.target.ticket, step.key),
             project: Some(run.target.project.clone()),
             role: Some(role_name.clone()),
@@ -4943,6 +4925,7 @@ impl Inner {
             disallowed_tools: self.disallowed(run, i),
             // The ticket is untrusted, as in a ticket run's tile: the same hook refuses what `DENIED` misses.
             guard: true,
+            read_freely: self.read_freely(run, i, &cwd)?,
             rules: levels,
             json_schema: Some(if step.kind == StepKind::Review {
                 review::schema()
@@ -4962,9 +4945,20 @@ impl Inner {
             budget,
             max_turns,
             add_dirs,
+            cwd,
             ..SessionSpec::default()
         };
-        let brief = self.brief(run, i, task.as_ref())?;
+        let skills = match step.key == TRIAGE || step.escalates.is_some() {
+            true => Vec::new(),
+            false => {
+                let scope = Scope {
+                    role: Some(role_name.clone()),
+                    ..scope.clone()
+                };
+                skills_for(&self.config_dir, &scope, run, i, task.as_ref())?
+            }
+        };
+        let brief = self.brief(run, i, task.as_ref(), &skills)?;
         let session = self.agents.start(spec, Some(&brief))?;
         let step = &mut run.steps[i];
         step.attempt += 1;
@@ -4988,6 +4982,45 @@ impl Inner {
             &format!("{role_name}, session {}{attempt}", session.id),
         );
         Ok(())
+    }
+
+    /// What a session of step `i` working in `cwd` runs without asking (`SessionSpec::read_freely`): the commands
+    /// that only read, the checks of its repository, its typecheck and lint, and the test and lint scripts the
+    /// setup finds there; `None` when `[team] read_freely` of the project's file, else of `termf.toml`, is off.
+    fn read_freely(&self, run: &TeamRun, i: usize, cwd: &Path) -> Result<Option<Vec<String>>> {
+        let file = termf_core::project_file(&self.config_dir, &run.target.project)?;
+        let on = match route::flag(&file, "read_freely")? {
+            Some(on) => on,
+            None => {
+                route::flag(&self.config_dir.join("termf.toml"), "read_freely")?.unwrap_or(true)
+            }
+        };
+        if !on {
+            return Ok(None);
+        }
+        let name = match run.task(i) {
+            Some(task) => task.repo.clone(),
+            None => run.steps[i].repo.clone().unwrap_or_default(),
+        };
+        let repo = run
+            .repos
+            .iter()
+            .find(|r| !name.is_empty() && r.name.eq_ignore_ascii_case(&name))
+            .map_or(&run.target.repo_path, |r| &r.path);
+        let table: toml::Table = toml::from_str(&fs::read_to_string(&file)?)
+            .with_context(|| format!("invalid {}", file.display()))?;
+        let mut allowed = vec![checks_of(&table, repo)];
+        allowed.extend(termf_library::stack::checks(cwd, &login_path()));
+        let recipe = termf_worktree::detect(cwd, &self.env);
+        allowed.extend(
+            termf_worktree::scripts(cwd, &recipe)
+                .into_iter()
+                .filter(|s| s.kind == "test" || s.kind == "lint")
+                .map(|s| s.run),
+        );
+        allowed.retain(|c| !c.trim().is_empty());
+        allowed.dedup();
+        Ok(Some(allowed))
     }
 
     /// The tools a session of step `i` may not use. A review changes nothing, whatever its role may do in a task.
@@ -5050,7 +5083,13 @@ impl Inner {
     /// What a new session learns. The documents come first (the ticket as data, the plan, what the earlier steps
     /// reported, the user's answers, the lists to choose from), then its task and what to answer: a request after
     /// the documents it is about is followed better.
-    fn brief(&self, run: &TeamRun, i: usize, task: Option<&Task>) -> Result<String> {
+    fn brief(
+        &self,
+        run: &TeamRun,
+        i: usize,
+        task: Option<&Task>,
+        skills: &[(String, String)],
+    ) -> Result<String> {
         let step = &run.steps[i];
         let role = step.role.as_deref().unwrap_or_default();
         let t = &run.target;
@@ -5316,6 +5355,25 @@ impl Inner {
         if let Some(feedback) = &step.feedback {
             text.push_str(&format!("\n## To address in this attempt\n\n{feedback}\n"));
         }
+        if !skills.is_empty() {
+            let list: Vec<String> = skills
+                .iter()
+                .map(|(name, when)| format!("- `{name}`: {when}"))
+                .collect();
+            text.push_str(&format!(
+                "
+## Your skills
+
+{SKILLS}
+
+{}
+",
+                list.join(
+                    "
+"
+                )
+            ));
+        }
         if step.plan || step.kind == StepKind::Task {
             let (ids, _) = self.done_criteria(run)?;
             if !ids.is_empty() {
@@ -5572,6 +5630,106 @@ fn fixable(run: &TeamRun) -> Vec<Task> {
 }
 
 /// Telling an obstacle to work through from a boundary to stop at.
+const SKILLS: &str = "The skills of your plugin that fit this ticket. Before you start, invoke with the Skill tool \
+                      each one that bears on your work, and follow it: it holds the tested way to do that work here, \
+                      which the cards of the Stack section only sum up. Say in your summary which ones you used.";
+/// When to use a skill: its description from its "Use …" sentence, without what it is not for, 300 characters at
+/// most.
+fn when(item: &termf_library::Item) -> String {
+    let text = item.description.as_deref().unwrap_or_default();
+    // Its "Use it when…" sentence, when it has one, says it best.
+    let text = text.find(" Use ").map_or(text, |at| &text[at + 1..]);
+    let text = text.split(" Not for").next().unwrap_or_default().trim();
+    match text.char_indices().nth(300) {
+        Some((at, _)) => format!("{}…", &text[..text[..at].rfind(' ').unwrap_or(at)]),
+        None => text.to_owned(),
+    }
+}
+
+/// The most skills a brief lists: past a handful, the list is skimmed.
+const SKILLS_LISTED: usize = 6;
+
+/// The skills of the session of step `i` (in `scope`, with its role) that fit its ticket, with when to use
+/// each, at most [`SKILLS_LISTED`]: those whose name the ticket, the task or the step's feedback says, first, then
+/// those meant for the role itself (not for most roles), unless their `paths` hold none of the files the task
+/// names.
+fn skills_for(
+    config_dir: &Path,
+    scope: &Scope,
+    run: &TeamRun,
+    i: usize,
+    task: Option<&Task>,
+) -> Result<Vec<(String, String)>> {
+    let stem = |w: &str| w.trim_end_matches('s').to_lowercase();
+    let step = &run.steps[i];
+    // The ticket's words, not its markup (`<ticket source=…>`).
+    let brief: String = run
+        .target
+        .brief
+        .split('<')
+        .map(|part| part.split_once('>').map_or(part, |(_, rest)| rest))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut text = format!("{} {brief}", run.target.title);
+    if let Some(task) = task {
+        text.push_str(&format!(" {} {}", task.goal, task.files_hint.join(" ")));
+    }
+    for more in [&step.prompt, &step.feedback].into_iter().flatten() {
+        text.push_str(&format!(" {more}"));
+    }
+    if step.kind == StepKind::Update {
+        text.push_str(" merge conflicts");
+    }
+    let words: Vec<String> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 2)
+        .map(stem)
+        .collect();
+    let role = canonical_role(scope.role.as_deref().unwrap_or_default());
+    let files: Vec<&String> = task
+        .map(|t| t.files_hint.iter().collect())
+        .unwrap_or_default();
+    let mut found: Vec<(bool, String, String)> = Vec::new();
+    for item in termf_library::session_skills(config_dir, scope)? {
+        let parts: Vec<String> = item
+            .name
+            .split('-')
+            .filter(|p| p.len() > 3)
+            .map(stem)
+            .collect();
+        let said = words.contains(&stem(&item.name)) || parts.iter().any(|p| words.contains(p));
+        let roles = termf_library::metadata_list(&item, "termf-roles");
+        // A skill meant for most roles, such as a tool's, comes only when the ticket names it.
+        let own = roles.len() < 8 && roles.iter().any(|r| canonical_role(r) == role);
+        let globs: Vec<&str> = item
+            .meta
+            .get("paths")
+            .and_then(|p| p.as_str())
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|g| !g.is_empty())
+            .collect();
+        // A folder says nothing of the files' kind: only named files rule a skill out.
+        let named_files =
+            !files.is_empty() && files.iter().all(|f| Path::new(f).extension().is_some());
+        let fits = globs.is_empty()
+            || !named_files
+            || files
+                .iter()
+                .any(|f| globs.iter().any(|g| rules::glob(g, f)));
+        if said || (own && fits) {
+            found.push((!said, item.name.clone(), when(&item)));
+        }
+    }
+    found.sort();
+    Ok(found
+        .into_iter()
+        .take(SKILLS_LISTED)
+        .map(|(_, name, when)| (name, when))
+        .collect())
+}
+
 const OBSTACLES: &str = "A failing command, a timeout or a missing package is a problem to diagnose and work \
      around; a refused tool, a file outside what you may change, or a decision the ticket does not make is a \
      boundary: stop there and report blocked with your questions.";
@@ -5591,6 +5749,26 @@ fn login_path() -> std::ffi::OsString {
         .map(|p| p.to_os_string())
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default()
+}
+
+/// The `checks` of repository `repo` in the project's file `table`; empty when it has none.
+fn checks_of(table: &toml::Table, repo: &Path) -> String {
+    let found = table
+        .get("repos")
+        .and_then(|r| r.as_array())
+        .into_iter()
+        .flatten()
+        .find(|r| {
+            let path = r
+                .get("path")
+                .and_then(|p| p.as_str())
+                .map(termf_core::expand_tilde);
+            path.as_deref() == Some(repo)
+        });
+    found
+        .and_then(|r| r.get("checks")?.as_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// Runs `command` through the shell in `cwd`: whether it passed, and the end of what it wrote.
