@@ -116,6 +116,22 @@ export function tally(findings: Finding[]): Record<Level, number> {
   return out;
 }
 
+const rank: Record<Level, number> = { error: 0, warn: 1, info: 2 };
+
+export type Group = { kind: Kind; level: Level; findings: Finding[] };
+
+/** The findings by kind, the most serious group first (its worst level, then its size), the worst first inside. */
+export function grouped(findings: Finding[]): Group[] {
+  const byKind = new Map<Kind, Finding[]>();
+  for (const f of findings) byKind.set(f.kind, [...(byKind.get(f.kind) ?? []), f]);
+  return [...byKind]
+    .map(([kind, list]) => {
+      const sorted = [...list].sort((a, b) => rank[a.level] - rank[b.level]);
+      return { kind, level: sorted[0].level, findings: sorted };
+    })
+    .sort((a, b) => rank[a.level] - rank[b.level] || b.findings.length - a.findings.length);
+}
+
 /** A value rather than a token: `13px`, `#e11d48`. */
 export function literal(subject: string): boolean {
   return /^[#\d.]/.test(subject);

@@ -3,6 +3,7 @@
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import { invoke } from "@tauri-apps/api/core";
   import { save } from "@tauri-apps/plugin-dialog";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import ComponentIcon from "@lucide/svelte/icons/component";
@@ -19,6 +20,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Ruler from "@lucide/svelte/icons/ruler";
   import Shapes from "@lucide/svelte/icons/shapes";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import Stamp from "@lucide/svelte/icons/stamp";
   import Sun from "@lucide/svelte/icons/sun";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -36,6 +38,7 @@
     families,
     fetchedFor,
     fontState,
+    grouped,
     kit,
     latest,
     loadFamilies,
@@ -56,6 +59,7 @@
     type Component,
     type Design,
     type Font,
+    type Group,
     type Kit,
     type Level,
     type Section,
@@ -66,12 +70,17 @@
   import { talkCto } from "$lib/home.svelte";
   import { lang, t } from "$lib/i18n";
   import { app, onScreen, setProject } from "$lib/state.svelte";
-  import { provide } from "$lib/ask.svelte";
+  import { askAI, provide } from "$lib/ask.svelte";
+  import { showConfig } from "$lib/project.svelte";
 
   type Key = Parameters<typeof t>[0];
 
-  // The ⌘I panel: ux answers about the repository's design system.
-  $effect(() => provide("design", { repo: design.repo || undefined, chips: [] }));
+  // The ⌘I panel: ux answers about the repository's design system, and the finding open goes with the question.
+  $effect(() => {
+    const f = findings.find((x) => x.id === open);
+    const chips = f ? [findingChip(f)] : [];
+    return provide("design", { repo: design.repo || undefined, chips });
+  });
 
   let data = $state<Design | null>(null);
   /** The repository `data` is about. */
@@ -304,6 +313,30 @@
   const toneColor = (k: Kit, look: Tone) =>
     look === "danger" ? k.danger : look === "success" ? k.success : look === "warning" ? k.warning : look === "info" ? k.info : k.accent;
 
+  // Findings fixed in the code go to front; the others are a design question.
+  const inCode = new Set(["hardcoded", "offScale", "undefined", "component"]);
+  const askRole = (f: { kind: string }) => (inCode.has(f.kind) ? "front" : "ux");
+
+  function findingChip(f: (typeof findings)[number]) {
+    const sentence = describe(f, tt, number);
+    const where = f.at.map((a) => `${a.file}:${a.line}${a.text ? ` ${a.text}` : ""}`).join("\n");
+    return { id: "design-finding", kind: "selection" as const, label: sentence.length > 48 ? `${sentence.slice(0, 48)}…` : sentence, text: `${sentence}\n${where}` };
+  }
+
+  const groups = $derived(grouped(shown));
+  // The most serious group shows open; a click opens or folds any of them.
+  const flipped = new SvelteSet<string>();
+  const unfolded = (kind: string, i: number) => flipped.has(kind) !== (i === 0);
+  const kindKey = (kind: string, part: "Group" | "Why") => `restDesign${part}${kind[0].toUpperCase()}${kind.slice(1)}`;
+
+  function chooseGroup(g: Group) {
+    const all = g.findings.every((f) => chosen.has(f.id));
+    for (const f of g.findings) {
+      if (all) chosen.delete(f.id);
+      else chosen.add(f.id);
+    }
+  }
+
   function toggle(id: string) {
     if (chosen.has(id)) chosen.delete(id);
     else chosen.add(id);
@@ -522,14 +555,19 @@
   {/if}
 
   {#if !repos.length}
-    <EmptyState icon={Palette} title={t("designNoRepo")} text={t("designNoRepoHelp")} />
+    <EmptyState
+      icon={Palette}
+      title={t("designNoRepo")}
+      text={t("designNoRepoHelp")}
+      action={app.project ? { label: t("restDesignAddRepo"), run: showConfig } : undefined}
+    />
   {:else if !data}
     {#if loading}
       <div class="body loading">
         <div class="nav-bones"><Skeleton shape="lines" rows={8} label={t("designScanning")} /></div>
         <div class="page">
           <div class="bone-head"><Skeleton shape="block" height="28px" /></div>
-          <Skeleton shape="cards" rows={8} />
+          <Skeleton shape={design.section === "issues" ? "list" : "cards"} rows={8} />
         </div>
       </div>
     {/if}
@@ -826,56 +864,93 @@
             </p>
           {/each}
           {#if !findings.length}
-            <EmptyState icon={Palette} title={t("designNoIssues")} />
+            <EmptyState
+              icon={Palette}
+              title={t("designNoIssues")}
+              onask={() => askAI({ role: "ux", draft: t("restDesignReviewDraft") })}
+              askLabel={t("restDesignReview")}
+            />
           {:else}
             <div class="bulk">
               <label class="check">
                 <input type="checkbox" checked={allShown} onchange={chooseAll} />
                 {t("designChooseAll")}
               </label>
-              <span class="muted">{t("designChosen", { n: chosen.size })}</span>
-              <span class="grow"></span>
-              {#if !owner}<span class="muted hint">{t("designFixNoProject")}</span>{/if}
-              <button class="btn sm primary" onclick={fix} disabled={!chosen.size || !owner} title={t("designFixHint")}>
-                <Users size={14} aria-hidden="true" />{t("designFix")}
-              </button>
+              {#if chosen.size}<span class="muted">{t("designChosen", { n: chosen.size })}</span>{/if}
+              <span class="fixer">
+                <span class="muted why" id="design-fix-why">{!owner ? t("designFixNoProject") : !chosen.size ? t("restDesignFixWhy") : ""}</span>
+                <button class="btn sm primary" onclick={fix} disabled={!chosen.size || !owner} title={t("designFixHint")} aria-describedby="design-fix-why">
+                  <Users size={14} aria-hidden="true" />{t("designFix")}
+                </button>
+              </span>
             </div>
-            <ul class="findings">
-              {#each shown as f (f.id)}
-                {@const LevelIcon = levelIcon[f.level]}
-                {@const sentence = describe(f, tt, number)}
-                <li class="finding {f.level}" class:open={open === f.id}>
-                  <input type="checkbox" checked={chosen.has(f.id)} onchange={() => toggle(f.id)} aria-label={sentence} />
-                  <span class="level" title={t(levelLabel[f.level])}>
-                    <LevelIcon size={15} aria-hidden="true" /><span class="sr-only">{t(levelLabel[f.level])}</span>
-                  </span>
-                  <div class="what">
-                    <button class="line" aria-expanded={open === f.id} onclick={() => (open = open === f.id ? null : f.id)}>
-                      {#each swatches(f, data.tokens) as c, i (i)}<span class="sw" style:background={c}></span>{/each}
-                      <span class="text">{sentence}</span>
-                      {#if f.count}
-                        <span class="where">
-                          {f.count === 1 ? `${f.at[0].file}:${f.at[0].line}` : t("designPlaces", { n: f.count })}
+            {#each groups as g, i (g.kind)}
+              {@const GroupIcon = levelIcon[g.level]}
+              {@const title = tt(kindKey(g.kind, "Group"))}
+              {@const picked = g.findings.filter((f) => chosen.has(f.id)).length}
+              {@const unfold = unfolded(g.kind, i)}
+              <section class="group {g.level}" data-kind={g.kind}>
+                <div class="group-head">
+                  <input
+                    type="checkbox"
+                    checked={picked === g.findings.length}
+                    indeterminate={picked > 0 && picked < g.findings.length}
+                    onchange={() => chooseGroup(g)}
+                    aria-label={t("restDesignChooseGroup", { group: title })}
+                  />
+                  <button class="group-line" aria-expanded={unfold} onclick={() => (flipped.has(g.kind) ? flipped.delete(g.kind) : flipped.add(g.kind))}>
+                    <ChevronRight size={14} class="chev" aria-hidden="true" />
+                    <span class="level" title={t(levelLabel[g.level])}><GroupIcon size={15} aria-hidden="true" /><span class="sr-only">{t(levelLabel[g.level])}</span></span>
+                    <span class="g-title">{title}</span>
+                    <span class="g-n num">{g.findings.length}</span>
+                    <span class="g-why">{tt(kindKey(g.kind, "Why"))}</span>
+                  </button>
+                </div>
+                {#if unfold}
+                  <ul class="findings">
+                    {#each g.findings as f (f.id)}
+                      {@const LevelIcon = levelIcon[f.level]}
+                      {@const sentence = describe(f, tt, number)}
+                      <li class="finding {f.level}" class:open={open === f.id}>
+                        <input type="checkbox" checked={chosen.has(f.id)} onchange={() => toggle(f.id)} aria-label={sentence} />
+                        <span class="level" title={t(levelLabel[f.level])}>
+                          <LevelIcon size={15} aria-hidden="true" /><span class="sr-only">{t(levelLabel[f.level])}</span>
                         </span>
-                      {/if}
-                    </button>
-                    {#if open === f.id}
-                      <ul class="places">
-                        {#each f.at as a, i (i)}
-                          <li>
-                            <button class="place" onclick={() => openAt(scanned, a.file, a.line)} title={t("designOpenAt", { file: a.file, line: a.line })}>
-                              <span class="mono loc">{a.file}:{a.line}</span>
-                              {#if a.text}<code>{a.text}</code>{/if}
-                            </button>
-                          </li>
-                        {/each}
-                        {#if f.count > f.at.length}<li class="muted more">{t("designMore", { n: f.count - f.at.length })}</li>{/if}
-                      </ul>
-                    {/if}
-                  </div>
-                </li>
-              {/each}
-            </ul>
+                        <div class="what">
+                          <button class="line" aria-expanded={open === f.id} onclick={() => (open = open === f.id ? null : f.id)}>
+                            {#each swatches(f, data.tokens) as c, i (i)}<span class="sw" style:background={c}></span>{/each}
+                            <span class="text">{sentence}</span>
+                            {#if f.count}
+                              <span class="where">
+                                {f.count === 1 ? `${f.at[0].file}:${f.at[0].line}` : t("designPlaces", { n: f.count })}
+                              </span>
+                            {/if}
+                          </button>
+                          {#if open === f.id}
+                            <ul class="places">
+                              {#each f.at as a, i (i)}
+                                <li>
+                                  <button class="place" onclick={() => openAt(scanned, a.file, a.line)} title={t("designOpenAt", { file: a.file, line: a.line })}>
+                                    <span class="mono loc">{a.file}:{a.line}</span>
+                                    {#if a.text}<code>{a.text}</code>{/if}
+                                  </button>
+                                </li>
+                              {/each}
+                              {#if f.count > f.at.length}<li class="muted more">{t("designMore", { n: f.count - f.at.length })}</li>{/if}
+                              <li class="ask">
+                                <button class="btn sm quiet" onclick={() => askAI({ role: askRole(f), draft: t("restDesignAskDraft") })}>
+                                  <Sparkles size={13} aria-hidden="true" />{t("aigAskRole", { role: askRole(f) })}
+                                </button>
+                              </li>
+                            </ul>
+                          {/if}
+                        </div>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </section>
+            {/each}
           {/if}
         {:else}
           {@const brand = data.brand}
@@ -1253,6 +1328,122 @@
   .more {
     padding: 3px 0;
     font-size: var(--text-sm);
+  }
+
+  .fixer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px 12px;
+    margin-left: auto;
+  }
+
+  .why {
+    font-size: var(--text-sm);
+  }
+
+  .group {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .group-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+  }
+
+  .group-head > input {
+    margin: 0;
+  }
+
+  .group-line {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 36px;
+    padding: 4px 8px;
+    margin-left: -4px;
+    border: 0;
+    border-radius: var(--radius);
+    background: none;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .group-line:hover {
+    background: var(--hover);
+  }
+
+  .group-line :global(.chev) {
+    flex-shrink: 0;
+    color: var(--muted);
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+
+  .group-line[aria-expanded="true"] :global(.chev) {
+    transform: rotate(90deg);
+  }
+
+  .group-line .level {
+    margin-top: 0;
+  }
+
+  .group.error .group-line .level {
+    color: var(--danger);
+  }
+
+  .group.warn .group-line .level {
+    color: var(--warning);
+  }
+
+  .g-title {
+    flex-shrink: 0;
+    font-weight: 600;
+  }
+
+  .g-n {
+    flex-shrink: 0;
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: var(--radius-pill);
+    background: var(--hover);
+    color: var(--soft);
+    font-size: var(--text-xs);
+    line-height: 18px;
+    text-align: center;
+  }
+
+  .g-why {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .group .findings {
+    margin-bottom: 8px;
+    padding-left: 26px;
+  }
+
+  .group .finding:last-child {
+    border-bottom: 0;
+  }
+
+  .ask {
+    padding-top: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .group-line :global(.chev) {
+      transition: none;
+    }
   }
 
   /* Colors */

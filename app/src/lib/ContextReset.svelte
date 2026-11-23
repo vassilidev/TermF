@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { app, setContextSettings, type ContextSettings } from "$lib/state.svelte";
 
@@ -56,6 +57,8 @@
       {/if}
     </fieldset>
   </section>
+{:else}
+  <Skeleton shape="form" rows={3} label={t("contextSettings")} />
 {/if}
 
 <style>

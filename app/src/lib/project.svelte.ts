@@ -6,7 +6,6 @@ import LibraryBig from "@lucide/svelte/icons/library-big";
 import ShieldCheck from "@lucide/svelte/icons/shield-check";
 import Smartphone from "@lucide/svelte/icons/smartphone";
 import Ticket from "@lucide/svelte/icons/ticket";
-import Trash2 from "@lucide/svelte/icons/trash-2";
 import Users from "@lucide/svelte/icons/users";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import { allRepos, currentProject, scopeRepos } from "$lib/files.svelte";
@@ -47,7 +46,7 @@ export function launchable(): string[] {
 }
 
 type Key = Parameters<typeof t>[0];
-export type ConfigSection = "project" | "setup" | "tickets" | "team" | "library" | "worktrees" | "memory" | "remote" | "trust" | "delete";
+export type ConfigSection = "project" | "setup" | "tickets" | "team" | "library" | "worktrees" | "memory" | "remote" | "trust";
 
 /** Each section of a project's Configuration, with the texts its search looks into. */
 export const configSections: { id: ConfigSection; label: Key; icon: Component; words: Key[] }[] = [
@@ -70,7 +69,6 @@ export const configSections: { id: ConfigSection; label: Key; icon: Component; w
   },
   { id: "remote", label: "remoteControl", icon: Smartphone, words: ["remoteSettingsIntro", "remoteRoles", "remoteModeAsk"] },
   { id: "trust", label: "obTrustTitle", icon: ShieldCheck, words: ["obTrustIntro"] },
-  { id: "delete", label: "t5DeleteProject", icon: Trash2, words: [] },
 ];
 
 export const config = $state({ section: "project" as ConfigSection });

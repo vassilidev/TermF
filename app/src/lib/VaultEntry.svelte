@@ -4,14 +4,18 @@
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Pencil from "@lucide/svelte/icons/pencil";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { invoke } from "@tauri-apps/api/core";
   import VaultConflict from "$lib/VaultConflict.svelte";
   import VaultField from "$lib/VaultField.svelte";
   import VaultTotp from "$lib/VaultTotp.svelte";
+  import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
+  import { askAI } from "$lib/ask.svelte";
   import { ago, t } from "$lib/i18n";
-  import { biometryName, copy, failed, quickReady, setStatus, vault, type VaultStatus } from "$lib/vault.svelte";
+  import { biometryName, copy, failed, needsConfirm, quickReady, refreshVault, say, setStatus, vault, type VaultStatus } from "$lib/vault.svelte";
   import { openable, type Entry } from "$lib/vault-logic";
 
   let {
@@ -30,6 +34,9 @@
   /** Proving it with the security key: the field takes its PIN. */
   let withKey = $state(false);
   let touching = $state(false);
+  let deleting = $state(false);
+  /** A prod secret's deletion waits for the master password, then goes again. */
+  let pending = $state(false);
 
   const reveal = (field: "password" | "seed" | "notes") => () =>
     invoke<string>("vault_item_reveal", { id: item?.id, field });
@@ -50,6 +57,10 @@
       setStatus(await invoke<VaultStatus>(command, args));
       reauth = withKey = false;
       vault.error = "";
+      if (pending) {
+        pending = false;
+        await removeSecret();
+      }
     } catch (e) {
       vault.error = failed(e);
     } finally {
@@ -77,6 +88,23 @@
     withKey = false;
   }
 
+  async function removeSecret() {
+    if (!secret) return;
+    const { name, scope, project } = secret;
+    try {
+      await invoke("vault_delete", { name, scope, project });
+      say(t("restVaultSecretDeleted", { name }));
+      await refreshVault();
+    } catch (e) {
+      if (needsConfirm(e)) pending = reauth = true;
+      else vault.error = failed(e);
+    }
+  }
+
+  function rotate() {
+    if (secret) void askAI({ role: "secops", draft: t("restVaultRotateDraft", { name: secret.name, scope: secret.scope }) });
+  }
+
   function open(url: string) {
     const href = openable(url);
     if (href) invoke("open_url", { url: href }).catch((e) => (vault.error = String(e)));
@@ -96,14 +124,16 @@
         {secret ? t("vaultSecret") : item?.kind === "login" ? t("vaultLogin") : t("vaultNote")}
       </p>
     </div>
-    {#if item}
-      <div class="head-actions">
+    <div class="head-actions">
+      {#if item}
         <button class="btn sm" onclick={onedit}><Pencil size={14} aria-hidden="true" />{t("vaultEdit")}</button>
-        <button class="icon-btn" aria-label={t("delete")} title={t("delete")} onclick={ondelete}>
-          <Trash2 size={15} aria-hidden="true" />
-        </button>
-      </div>
-    {/if}
+      {:else}
+        <button class="btn sm" onclick={onedit}><RefreshCw size={14} aria-hidden="true" />{t("restVaultReplace")}</button>
+      {/if}
+      <button class="icon-btn" aria-label={t("delete")} title={t("delete")} onclick={() => (item ? ondelete() : (deleting = true))}>
+        <Trash2 size={15} aria-hidden="true" />
+      </button>
+    </div>
   </header>
 
   {#if (item?.conflicts ?? secret?.conflicts ?? 0) > 0}
@@ -206,6 +236,10 @@
     {/if}
   {/if}
 
+  {#if secret}
+    <div><button class="btn sm quiet" onclick={rotate}><Sparkles size={14} aria-hidden="true" />{t("restVaultRotate")}</button></div>
+  {/if}
+
   <p class="meta muted">
     {#if secret}
       {t("vaultSecretHint")}
@@ -218,6 +252,19 @@
     {t("vaultUpdated", { when: ago(item?.updated ?? secret?.updated ?? 0) })}
   </p>
 </article>
+
+{#if secret}
+  <ConfirmDialog
+    bind:open={deleting}
+    title={t("restVaultDeleteSecretTitle", { name: secret.name, scope: secret.scope })}
+    confirm={secret.reference ? t("restVaultDeleteRef") : t("restVaultDeleteValue")}
+    danger
+    onconfirm={removeSecret}
+  >
+    <p>{t("restVaultDeleteSecretText")}</p>
+    {#if secret.reference}<p>{t("restVaultDeleteRefText")}</p>{/if}
+  </ConfirmDialog>
+{/if}
 
 <style>
   .entry {

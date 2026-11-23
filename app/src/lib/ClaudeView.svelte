@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, type Component, type Snippet } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import Brain from "@lucide/svelte/icons/brain";
   import Check from "@lucide/svelte/icons/check";
@@ -17,6 +18,9 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Eye from "@lucide/svelte/icons/eye";
+  import LogIn from "@lucide/svelte/icons/log-in";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Webhook from "@lucide/svelte/icons/webhook";
   import Wrench from "@lucide/svelte/icons/wrench";
   import ClaudeArtifacts from "$lib/ClaudeArtifacts.svelte";
@@ -33,14 +37,19 @@
   import ClaudeMcp from "$lib/ClaudeMcp.svelte";
   import ClaudeScopeSettings from "$lib/ClaudeScopeSettings.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import Card from "$lib/ui/Card.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import WaitCard from "$lib/ui/WaitCard.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
+  import { askAI, provide } from "$lib/ask.svelte";
+  import { focusSession } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { allRepos } from "$lib/files.svelte";
-  import { alerts, field, prefill, type Alert } from "$lib/claude-logic";
+  import { field, prefill, todo, type Alert } from "$lib/claude-logic";
   import {
     blockMarkdown,
     blockTitle,
@@ -81,7 +90,12 @@
   const channel = $derived(o && effective(o, "autoUpdatesChannel"));
   const model = $derived(o && effective(o, "model"));
   const mode = $derived(o && effective(o, "permissions.defaultMode"));
-  const warnings = $derived(o ? alerts(o) : []);
+  /** A hidden session (listing or deleting artifacts) whose tile shows: it asks you something. */
+  const waiting = $derived(
+    [claudeView.artifacts?.refresh, claudeView.artifacts?.deletion].filter((r) => r?.running && r.revealed).map((r) => r!.session),
+  );
+  const items = $derived(o ? todo(o, waiting) : []);
+  const warnings = $derived(items.filter((a): a is Alert => a.tone !== "wait"));
 
   const sections: { id: Section; label: Key; icon: Component }[] = [
     { id: "overview", label: "claudeRedesignOverview", icon: LayoutDashboard },
@@ -132,6 +146,48 @@
 
   function go(id: Section) {
     claudeView.section = id;
+  }
+
+  // ⌘I: the section open (and the setting being edited) go with the question.
+  $effect(() => {
+    const open = sections.find((s) => s.id === section);
+    const chips = open ? [{ id: "claude-section", kind: "object" as const, label: t(open.label) }] : [];
+    if (edit?.key) chips.push({ id: "claude-setting", kind: "object", label: edit.key });
+    return provide("claude", { chips, repo: claudeView.repo || undefined });
+  });
+
+  function why(a: Alert) {
+    const what = alertText(a);
+    askAI({ chips: [{ id: "claude-alert", kind: "object", label: what }], draft: t("restClaudeWhyDraft", { what }) });
+  }
+
+  function explain(key: string) {
+    const e = o && effective(o, key);
+    const label = e ? `${key} = ${show(e.value)}` : key;
+    askAI({ chips: [{ id: "claude-setting", kind: "object", label }], draft: t("restClaudeExplainDraft", { key }) });
+  }
+
+  let signing = $state("");
+
+  async function mcpLogin(name: string) {
+    signing = name;
+    try {
+      const r = await invoke<{ mcp: Overview["mcp"] }>("claude_mcp", { repo: claudeView.repo || null, action: { op: "login", name } });
+      if (claudeView.overview) claudeView.overview.mcp = r.mcp;
+      toast(t("claudeMgmtLoggedIn", { name }));
+    } catch (e) {
+      toast(String(e), { kind: "error" });
+    } finally {
+      signing = "";
+    }
+  }
+
+  /** The one thing that fixes an alert, done here or where it is done; null when "View" is all there is. */
+  function fixOf(a: Alert): { label: string; icon?: Component; run: () => void } | null {
+    if ("binary" in a && a.binary === "old") return { label: t("claudeDgUpdate"), run: () => go("account") };
+    if ("loggedOut" in a) return { label: t("claudeDgLogin"), icon: LogIn, run: () => go("account") };
+    if ("server" in a && a.health === "needsauth") return { label: t("claudeMgmtLogin"), icon: LogIn, run: () => mcpLogin(a.server) };
+    return null;
   }
 
   function count(id: Section): number | null {
@@ -357,7 +413,10 @@
           {t("claudeViewRemove")}
         </label>
       </div>
-      {#if spec?.description}<p class="muted describe">{spec.description}</p>{/if}
+      <p class="muted describe">
+        {spec?.description ?? ""}
+        {#if edit.key.trim()}<button type="button" class="btn link" onclick={() => edit && explain(edit.key.trim())}>{t("restClaudeExplain")}</button>{/if}
+      </p>
       {#if kind === "json"}
         <label class="labelled full">
           <span>{t("claudeMgmtJsonValue")}</span>
@@ -400,6 +459,48 @@
 {#snippet overviewPage(o: Overview)}
   {@render head(t("claudeRedesignOverview"), t("claudeViewIntro", { dir: o.claudeDir }))}
 
+  {#each items.filter((a) => a.tone === "wait") as w, i (i)}
+    <div class="todo">
+      <WaitCard
+        title={t("claudeViewNeedsYou")}
+        action={"session" in w && w.session !== null ? { label: t("claudeViewShowTile"), run: () => "session" in w && w.session !== null && focusSession(w.session) } : undefined}
+      />
+    </div>
+  {/each}
+  {#if warnings.length}
+    <div class="todo">
+      <Card title={t("claudeRedesignAttention")} count={warnings.length} flush>
+        <ul class="todo-list" aria-label={t("claudeRedesignAttention")}>
+          {#each warnings as a, i (i)}
+            {@const fix = fixOf(a)}
+            <li class="todo-row">
+              <span class="mark {a.tone}" aria-hidden="true">
+                {#if a.tone === "error"}<CircleAlert size={15} />{:else}<TriangleAlert size={15} />{/if}
+              </span>
+              <span class="todo-text">{alertText(a)}</span>
+              <span class="todo-actions">
+                {#if a.tone === "error"}
+                  <button class="btn sm quiet" onclick={() => why(a)}><Sparkles size={13} aria-hidden="true" />{t("aigAskWhy")}</button>
+                {/if}
+                {#if fix}
+                  <button class="btn sm" onclick={fix.run} disabled={"server" in a && signing === a.server}>
+                    {#if "server" in a && signing === a.server}<RefreshCw size={13} aria-hidden="true" class="spin" />{:else if fix.icon}<fix.icon size={13} aria-hidden="true" />{/if}{fix.label}
+                  </button>
+                {/if}
+                {#if !fix || a.section !== "account"}
+                  <button class="btn sm quiet see" onclick={() => go(a.section)}>{t("claudeRedesignSee")}<ChevronRight size={13} aria-hidden="true" /></button>
+                {/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      </Card>
+    </div>
+  {:else if !waiting.length}
+    <p class="notice ok all-good"><Check size={14} aria-hidden="true" />{t("claudeRedesignAllGood")}</p>
+  {/if}
+
+
   <dl class="facts">
     <div class="fact">
       <dt>{t("claudeViewVersion")}</dt>
@@ -434,24 +535,6 @@
       </dd>
     </div>
   </dl>
-
-  <section class="block" aria-labelledby="claude-attention">
-    {#if warnings.length}
-      <h3 id="claude-attention">{t("claudeRedesignAttention")} <span class="count">{warnings.length}</span></h3>
-      <div class="alerts">
-        {#each warnings as a, i (i)}
-          <Banner kind={a.tone}>
-            {alertText(a)}
-            {#snippet action()}
-              <button class="btn sm quiet see" onclick={() => go(a.section)}>{t("claudeRedesignSee")}<ChevronRight size={13} aria-hidden="true" /></button>
-            {/snippet}
-          </Banner>
-        {/each}
-      </div>
-    {:else}
-      <p id="claude-attention" class="notice ok"><Check size={14} aria-hidden="true" />{t("claudeRedesignAllGood")}</p>
-    {/if}
-  </section>
 
   <section class="block" aria-labelledby="claude-inventory">
     <h3 id="claude-inventory">{t("claudeRedesignInventory")}</h3>
@@ -518,6 +601,9 @@
                 </div>
               </td>
               <td class="act">
+                <button class="icon-btn sm" onclick={() => explain(e.key)} aria-label={t("restClaudeExplainKey", { key: e.key })} title={t("restClaudeExplainKey", { key: e.key })}>
+                  <Sparkles size={13} aria-hidden="true" />
+                </button>
                 <button class="icon-btn sm" onclick={() => startEdit(e.key)} aria-label={t("claudeViewEditKey", { key: e.key })} title={t("claudeViewEditKey", { key: e.key })}>
                   <Pencil size={13} aria-hidden="true" />
                 </button>
@@ -705,14 +791,9 @@
     />
 
     <div class="content" bind:this={content}>
-      {#if claudeView.error || claudeView.done}
+      {#if claudeView.error}
         <div class="banners">
-          {#if claudeView.error}
-            <Banner kind="error" ondismiss={() => (claudeView.error = "")}>{claudeView.error}</Banner>
-          {/if}
-          {#if claudeView.done}
-            <Banner kind="ok" ondismiss={() => (claudeView.done = "")}>{claudeView.done}</Banner>
-          {/if}
+          <Banner kind="error" ondismiss={() => (claudeView.error = "")}>{claudeView.error}</Banner>
         </div>
       {/if}
 
@@ -1272,7 +1353,7 @@
   }
 
   .settings th:last-child {
-    width: 40px;
+    width: 72px;
     border-top-right-radius: var(--radius-lg);
   }
 
@@ -1298,8 +1379,60 @@
     white-space: nowrap;
   }
 
+
+  .todo {
+    margin-bottom: 24px;
+  }
+
+  .todo-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .todo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: var(--row);
+    padding: 6px 12px 6px 16px;
+  }
+
+  .todo-row + .todo-row {
+    border-top: 1px solid var(--border);
+  }
+
+  .mark {
+    display: flex;
+    flex-shrink: 0;
+  }
+
+  .mark.error {
+    color: var(--danger);
+  }
+
+  .mark.warn {
+    color: var(--warning);
+  }
+
+  .todo-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .todo-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
+  }
+
+  .all-good {
+    margin: 0 0 24px;
+  }
+
   td.act {
     padding: 0 8px;
+    white-space: nowrap;
   }
 
   .decided {

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { toggleAsk } from "$lib/ask.svelte";
 import { closeSplit, openLauncher, reopenTab } from "$lib/commands";
 import { isMac } from "$lib/files.svelte";
 import { current } from "$lib/keymap.svelte";
@@ -21,10 +22,14 @@ export const menuActions: Record<string, () => void> = {
   zoom_in: () => zoomBy(1),
   zoom_out: () => zoomBy(-1),
   zoom_reset: () => zoomBy(0),
+  ai_panel: toggleAsk,
 };
 
 /** The shortcuts the menu shows, as the keymap has them now. */
-const shown = ["new_session", "close_split", "reopen_tab", "toggle_nav", "zoom_in", "zoom_out", "zoom_reset"];
+const shown = ["new_session", "close_split", "reopen_tab", "toggle_nav", "zoom_in", "zoom_out", "zoom_reset", "ai_panel"];
+
+/** A menu item whose shortcut is the keymap's action of another name. */
+const actionOf: Record<string, string> = { ai_panel: "ask_ai" };
 
 /** Settings… (⌘,) and the File and View menus of the native macOS menu, which follow the shortcuts' changes. */
 export function watchMenu(): () => void {
@@ -36,7 +41,7 @@ export function watchMenu(): () => void {
     $effect(() => {
       if (!isMac) return;
       const all = current();
-      invoke("menu_keys", { keys: Object.fromEntries(shown.map((id) => [id, all[id] ?? ""])) }).catch(() => {});
+      invoke("menu_keys", { keys: Object.fromEntries(shown.map((id) => [id, all[actionOf[id] ?? id] ?? ""])) }).catch(() => {});
     });
   });
   return () => {

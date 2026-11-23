@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alerts, field, filterArtifacts, latest, nextSort, prefill, selection, sortArtifacts, toggleAll, updatedAt, updatedDay } from "../src/lib/claude-logic.ts";
+import { alerts, field, filterArtifacts, latest, todo, nextSort, prefill, selection, sortArtifacts, toggleAll, updatedAt, updatedDay } from "../src/lib/claude-logic.ts";
 
 const art = (id, title, owner, updated, cwd = null, seen = 0) => ({ id, url: `https://claude.ai/code/artifact/${id}`, title, owner, updated, cwd, seen });
 const list = [
@@ -110,6 +110,20 @@ test("the overview lists what needs a look, worst first", () => {
     [["account", "error", "old"], ["mcp", "error", "exit 1"], ["account", "warn", "several"]],
     "a Claude Code too old comes first: nothing TermF starts would run",
   );
+});
+
+test("what the Claude view puts first: a session waiting for you, then the errors, then the rest", () => {
+  const o = {
+    settings: { files: [] },
+    mcp: { servers: [{ name: "linear", health: "needsauth" }, { name: "pg", health: "failed" }], error: null },
+    plugins: { error: null },
+    account: { auth: { loggedIn: false }, authError: null },
+  };
+  assert.deepEqual(
+    todo(o, [7]).map((a) => [a.tone, a.session ?? a.server ?? (a.loggedOut ? "out" : "")]),
+    [["wait", 7], ["error", "pg"], ["warn", "out"], ["warn", "linear"]],
+  );
+  assert.deepEqual(todo({ ...o, mcp: { servers: [], error: null }, account: { auth: { loggedIn: true }, authError: null } }, []), []);
 });
 
 test("a preview that comes back after a newer one asked is ignored", async () => {

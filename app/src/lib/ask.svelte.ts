@@ -6,6 +6,7 @@ import { ensure } from "$lib/home.svelte";
 import { t } from "$lib/i18n";
 import type { Item as LibraryItem } from "$lib/library.svelte";
 import { app, ui, type ViewId } from "$lib/state.svelte";
+import { selectionOf } from "$lib/Terminal.svelte";
 import { views } from "$lib/views";
 
 export type { Chip } from "$lib/ask-logic";
@@ -143,15 +144,24 @@ export function toggleAsk() {
   else void askAI({ chips: selection() });
 }
 
-/** The text selected on the screen shown, as a chip: what ⌘I asks about. */
+/**
+ * The text selected on the screen shown, as a chip: what ⌘I asks about. A terminal's selection is xterm's, out of the
+ * page's; the Files editor gives its selected lines itself (the page only holds the lines in sight).
+ */
 function selection(): Chip[] | undefined {
   const s = window.getSelection();
-  const text = s?.toString().trim();
+  const term = document.activeElement?.closest<HTMLElement>("[data-term]");
   const node = s?.anchorNode;
-  const el = node instanceof Element ? node : node?.parentElement;
-  if (!text || !el?.closest(`[data-panel="${ui.view}"]`)) return undefined;
+  const el = term ?? (node instanceof Element ? node : node?.parentElement);
+  const text = (term ? selectionOf(Number(term.dataset.term)) : s?.toString())?.trim();
+  if (!text || !el?.closest(`[data-panel="${ui.view}"]`) || (!term && el.closest(".cm-editor"))) return undefined;
+  return [selectionChip(text)];
+}
+
+/** Selected text as a chip, named by its first line. */
+export function selectionChip(text: string): Chip {
   const first = text.split("\n")[0];
-  return [{ id: "selection", kind: "selection", label: t("aigSelection", { text: first.length > 40 ? `${first.slice(0, 40)}…` : first }), text }];
+  return { id: "selection", kind: "selection", label: t("aigSelection", { text: first.length > 40 ? `${first.slice(0, 40)}…` : first }), text };
 }
 
 /** The project's roles, read once per project: `@role` writes to one of them. */

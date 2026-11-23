@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import Search from "@lucide/svelte/icons/search";
+  import { askedProject, loadRoles } from "$lib/ask.svelte";
   import { commands, rank, type Command } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { currentProject } from "$lib/files.svelte";
@@ -46,6 +47,7 @@
 
   onMount(() => {
     Object.assign(ui, { settings: false, switcher: false, launcher: false });
+    loadRoles(askedProject());
     dialog.showModal();
     return restore;
   });

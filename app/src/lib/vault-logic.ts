@@ -40,6 +40,22 @@ const fold = (s: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
+/** As termf-vault's `SecretId`: letters, digits, _ . and -, 128 at most, starting with a letter or _. */
+export const secretNameOk = (name: string) => /^[A-Za-z_][\w.-]{0,127}$/.test(name);
+
+/** One line of the vault's audit log, as `vault_audit` gives it (newest first); never a value. */
+export type AuditEntry = {
+  id: number;
+  at: number;
+  actor: { kind: "human" | "agent" | "termf"; run: number | null; session: string | null };
+  action: string;
+  target: string | null;
+  scope: Scope | null;
+  project: string | null;
+  detail: string | null;
+};
+export type AuditCheck = { ok: boolean; entries: number; broken: number | null; error: string | null };
+
 export const secretKey = (s: SecretInfo) => `secret:${s.scope}:${s.project ?? ""}:${s.name}`;
 
 export function entries(items: ItemInfo[], secrets: SecretInfo[]): Entry[] {

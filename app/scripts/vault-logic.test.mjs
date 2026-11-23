@@ -8,6 +8,7 @@ import {
   leftOut,
   openable,
   secondsLeft,
+  secretNameOk,
   sections,
   spaced,
   strength,
@@ -140,4 +141,9 @@ test("folderProject: a folder named as a project goes there", () => {
   assert.equal(folderProject("Acme", projects), "acme-platform", "the only one it starts");
   assert.equal(folderProject("Ac", projects), null, "too short to guess");
   assert.equal(folderProject("Acme", [...projects, { id: "acme-mobile", name: "Acme Mobile" }]), null, "two: no guess");
+});
+
+test("secretNameOk: the names termf-vault takes, and only those", () => {
+  for (const ok of ["STRIPE_SECRET_KEY", "_private", "db.url-2", "a", "A".repeat(128)]) assert.ok(secretNameOk(ok), ok);
+  for (const no of ["", "2FA", "-x", ".env", "MY KEY", "clé", "A".repeat(129), "a/b"]) assert.ok(!secretNameOk(no), no);
 });

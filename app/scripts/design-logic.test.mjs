@@ -6,6 +6,7 @@ import {
   families,
   fetchedFor,
   fontState,
+  grouped,
   kit,
   latest,
   literal,
@@ -116,6 +117,29 @@ test("tally, literal, passes, stillThere, size", () => {
   assert.deepEqual([...kept], ["a"]);
   assert.equal(size(512, "en"), "512 byte");
   assert.equal(size(2048, "en"), "2 kB");
+});
+
+test("grouped: one group per kind, the most serious first, then the largest, the worst inside first", () => {
+  const list = [
+    finding({ id: "h1", kind: "hardcoded", level: "info" }),
+    finding({ id: "u1", kind: "unused", level: "info" }),
+    finding({ id: "h2", kind: "hardcoded", level: "warn" }),
+    finding({ id: "c1", kind: "contrast", level: "error" }),
+    finding({ id: "u2", kind: "unused", level: "info" }),
+    finding({ id: "u3", kind: "unused", level: "info" }),
+    finding({ id: "n1", kind: "near", level: "info" }),
+  ];
+  const groups = grouped(list);
+  assert.deepEqual(
+    groups.map((g) => [g.kind, g.level, g.findings.map((f) => f.id)]),
+    [
+      ["contrast", "error", ["c1"]],
+      ["hardcoded", "warn", ["h2", "h1"]],
+      ["unused", "info", ["u1", "u2", "u3"]],
+      ["near", "info", ["n1"]],
+    ],
+  );
+  assert.deepEqual(grouped([]), []);
 });
 
 test("latest: a read of the repository left behind finishes without a say", () => {

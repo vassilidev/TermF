@@ -42,6 +42,7 @@
   import { exportConfig, importConfig, settings, type Section } from "$lib/settings.svelte";
   import { app, load } from "$lib/state.svelte";
   import { summary } from "$lib/sync.svelte";
+  import { provide } from "$lib/ask.svelte";
 
   type Key = Parameters<typeof t>[0];
 
@@ -117,6 +118,12 @@
   $effect(() => {
     void settings.section;
     error = "";
+  });
+
+  // ⌘I: the section open goes with the question.
+  $effect(() => {
+    const open = sections.find((s) => s.id === settings.section);
+    return provide("settings", { chips: open ? [{ id: "settings-section", kind: "object", label: t(open.label) }] : [] });
   });
 
   let binary = $state<Binary | null>(null);
@@ -242,7 +249,7 @@
             </button>
             <section class="group" aria-label={t("claudebinTitle")}>
               <h3>{t("claudebinTitle")}</h3>
-              {#if binary}<ClaudeBinary b={binary} summary />{:else if !error}<Skeleton rows={2} />{/if}
+              {#if binary}<ClaudeBinary b={binary} summary />{:else if !error}<Skeleton rows={1} />{/if}
               <p class="help">{t("claudebinHelp")}</p>
             </section>
             <h3>{t("claudeViewTabArtifacts")}</h3>

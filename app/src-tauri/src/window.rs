@@ -229,7 +229,7 @@ const WEBSITE: &str = "website";
 
 /// The File and View items the page runs (`menuActions` of menu.svelte.ts), with their words and their shortcuts
 /// until the page sends its own (`menu_keys`). The page sees a key first: the menu only gets one it left alone.
-const ITEMS: [(&str, &str, &str); 8] = [
+const ITEMS: [(&str, &str, &str); 9] = [
     ("new_session", "NewSession", "Cmd+T"),
     ("close_split", "Close", "Cmd+W"),
     ("reopen_tab", "ReopenTab", "Cmd+Shift+T"),
@@ -238,6 +238,7 @@ const ITEMS: [(&str, &str, &str); 8] = [
     ("zoom_in", "ZoomIn", "Cmd+="),
     ("zoom_out", "ZoomOut", "Cmd+-"),
     ("zoom_reset", "ZoomReset", "Cmd+0"),
+    ("ai_panel", "AiPanel", "Cmd+I"),
 ];
 
 /// The shortcuts the menu shows, as the page last sent them.
@@ -365,6 +366,8 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
                     &item("zoom_in")?,
                     &item("zoom_out")?,
                     &item("zoom_reset")?,
+                    &separator()?,
+                    &item("ai_panel")?,
                     &separator()?,
                     &Item::fullscreen(app, Some(w("Fullscreen")))?,
                 ],

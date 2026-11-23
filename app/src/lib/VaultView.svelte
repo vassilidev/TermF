@@ -16,9 +16,11 @@
   import { invoke } from "@tauri-apps/api/core";
   import { getContext } from "svelte";
   import VaultAgentKeys from "$lib/VaultAgentKeys.svelte";
+  import VaultAudit from "$lib/VaultAudit.svelte";
   import VaultEntry from "$lib/VaultEntry.svelte";
   import VaultForm from "$lib/VaultForm.svelte";
   import VaultRecoveryKey from "$lib/VaultRecoveryKey.svelte";
+  import VaultSecretForm from "$lib/VaultSecretForm.svelte";
   import VaultSecurity from "$lib/VaultSecurity.svelte";
   import VaultTransfer from "$lib/VaultTransfer.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -28,7 +30,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { app, type ViewId } from "$lib/state.svelte";
-  import { provide } from "$lib/ask.svelte";
+  import { provide, type Chip } from "$lib/ask.svelte";
   import {
     biometryName,
     copy,
@@ -42,7 +44,7 @@
     type VaultStatus,
     type VaultView,
   } from "$lib/vault.svelte";
-  import { entries, host, sections, visible, type Filter, type ItemInfo, type Kind } from "$lib/vault-logic";
+  import { entries, host, secretKey, sections, visible, type Filter, type ItemInfo, type Kind, type SecretInfo } from "$lib/vault-logic";
 
   /** Mounted twice: in the current project's views ("vault") and under "This machine" ("vaultAll"). */
   const view = getContext<() => ViewId>("panel")() as VaultView;
@@ -63,6 +65,10 @@
   let recoveryText = $state("");
   let transfer = $state(false);
   let joining = $state(false);
+  let audit = $state(false);
+  let auditChip = $state<Chip | null>(null);
+  /** A new secret (`secret: null`), or one being replaced. */
+  let secretForm = $state<{ secret: SecretInfo | null } | null>(null);
 
   const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
   const status = $derived(vault.status);
@@ -81,6 +87,7 @@
       : e.type === "item"
         ? t("aigVaultEntry", { name: e.item.title, kind: t(e.item.kind === "login" ? "vaultLogin" : "vaultNote") })
         : t("aigVaultEntry", { name: e.secret.name, kind: t("vaultSecret") });
+    if (audit && auditChip) return provide(view, { chips: [auditChip] });
     return provide(view, { chips: e ? [{ id: "vault-entry", kind: "object", label, secret: true }] : [] });
   });
   const context = $derived(
@@ -88,15 +95,25 @@
   );
   const minutes = $derived([1, 5, 10, 15, 30, 60, 240, status?.autoLockMinutes ?? 10].filter((m, i, l) => l.indexOf(m) === i).sort((a, b) => a - b));
 
+  /** Closes what covers the detail: a form, the security, the transfer, the audit log. */
+  function uncover() {
+    editing = secretForm = null;
+    security = transfer = audit = false;
+  }
+
   function select(key: string) {
     vault.selected[view] = key;
-    editing = null;
-    security = transfer = false;
+    uncover();
   }
 
   function create(kind: Kind) {
+    uncover();
     editing = { item: null, kind };
-    security = transfer = false;
+  }
+
+  function createSecret() {
+    uncover();
+    secretForm = { secret: null };
   }
 
   async function join() {
@@ -190,10 +207,7 @@
 
   // Locked by hand, idle or asleep: what the form holds must go too.
   $effect(() => {
-    if (!status?.unlocked) {
-      editing = null;
-      security = transfer = false;
-    }
+    if (!status?.unlocked) uncover();
   });
 </script>
 
@@ -202,10 +216,10 @@
     {#snippet actions()}
       {#if status?.unlocked}
         <button class="btn sm primary" data-testid="vault-new" onclick={() => create("login")}><Plus size={14} aria-hidden="true" />{t("vaultNew")}</button>
-        <button class="btn sm" aria-pressed={transfer} onclick={() => ((transfer = !transfer), (security = false), (editing = null))}>
+        <button class="btn sm" aria-pressed={transfer} onclick={() => ((transfer = !transfer), (security = audit = false), (editing = secretForm = null))}>
           <ArrowDownUp size={14} aria-hidden="true" />{t("vault3Transfer")}
         </button>
-        <button class="btn sm" aria-pressed={security} onclick={() => ((security = !security), (transfer = false), (editing = null))}>
+        <button class="btn sm" data-testid="vault-security" aria-pressed={security || audit} onclick={() => ((security = !(security || audit)), (transfer = audit = false), (editing = secretForm = null))}>
           <ShieldCheck size={14} aria-hidden="true" />{t("vault2Security")}
         </button>
         <button class="btn sm" data-testid="vault-lock" onclick={lock}><Lock size={14} aria-hidden="true" />{t("vaultLock")}</button>
@@ -349,7 +363,7 @@
         <div class="scroll">
           <!-- An empty vault says so once: the detail's empty state does, unless a panel covers it. -->
           {#if !seen.length}
-            {#if security || transfer || editing}<p class="muted empty">{t("vaultEmpty")}</p>{/if}
+            {#if security || transfer || editing || audit || secretForm}<p class="muted empty">{t("vaultEmpty")}</p>{/if}
           {:else if !list.length}
             <p class="muted empty">{t("vaultNoMatch")}</p>
           {/if}
@@ -357,7 +371,7 @@
             <h3 class="section">{section.project ? projectName(section.project) : t("vaultGlobal")}</h3>
             <ul class="list">
               {#each section.entries as entry (entry.key)}
-                <li class="row" class:current={entry.key === selected?.key && !editing}>
+                <li class="row" class:current={entry.key === selected?.key && !editing && !secretForm}>
                   <button class="pick" aria-current={entry.key === selected?.key} onclick={() => select(entry.key)}>
                     <span class="line">
                       <span class="kind" aria-hidden="true">
@@ -412,7 +426,9 @@
 
       <div class="detail">
         {#if security}
-          <VaultSecurity onclose={() => (security = false)} />
+          <VaultSecurity onclose={() => (security = false)} onaudit={() => ((security = false), (audit = true))} />
+        {:else if audit}
+          <VaultAudit {projectName} onclose={() => ((audit = false), (auditChip = null))} onread={(chip) => (auditChip = chip)} />
         {:else if transfer}
           <VaultTransfer project={scope} {projectName} onclose={() => (transfer = false)} />
         {:else if editing}
@@ -429,6 +445,22 @@
                 } else vault.selected[view] = saved.id;
               }}
               oncancel={() => (editing = null)}
+              onsecret={createSecret}
+            />
+          {/key}
+        {:else if secretForm}
+          {#key secretForm}
+            <VaultSecretForm
+              secret={secretForm.secret}
+              project={scope}
+              onsaved={(saved) => {
+                secretForm = null;
+                if (view === "vault" && scope !== null && saved.project !== null && saved.project !== scope) {
+                  openEntry(secretKey(saved), saved.project);
+                } else vault.selected[view] = secretKey(saved);
+              }}
+              oncancel={() => (secretForm = null)}
+              onkind={create}
             />
           {/key}
         {:else if selected}
@@ -436,7 +468,10 @@
             <VaultEntry
               entry={selected}
               {projectName}
-              onedit={() => selected?.type === "item" && (editing = { item: selected.item, kind: selected.item.kind })}
+              onedit={() => {
+                if (selected?.type === "item") editing = { item: selected.item, kind: selected.item.kind };
+                else if (selected?.type === "secret") secretForm = { secret: selected.secret };
+              }}
               ondelete={() => (deleting = true)}
             />
           {/key}
@@ -445,6 +480,7 @@
             <div class="starts">
               <button class="btn" onclick={() => create("login")}><KeyRound size={14} aria-hidden="true" />{t("vaultNewLogin")}</button>
               <button class="btn" onclick={() => create("note")}><StickyNote size={14} aria-hidden="true" />{t("vaultNewNote")}</button>
+              <button class="btn" onclick={createSecret}><Braces size={14} aria-hidden="true" />{t("restVaultNewSecret")}</button>
             </div>
           </EmptyState>
         {/if}

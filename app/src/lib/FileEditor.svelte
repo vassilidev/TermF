@@ -11,9 +11,11 @@
   import FileSearch from "@lucide/svelte/icons/file-search";
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import Pencil from "@lucide/svelte/icons/pencil";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import { askAI } from "$lib/ask.svelte";
   import { lang, t } from "$lib/i18n";
-  import { display } from "$lib/keymap.svelte";
+  import { aria, display } from "$lib/keymap.svelte";
   import { newProject } from "$lib/newproject.svelte";
   import { editProject } from "$lib/project.svelte";
   import {
@@ -65,6 +67,21 @@
   ]);
   const readOnly = [EditorState.readOnly.of(true), EditorView.editable.of(false)];
 
+  /** The lines a selection covers; one that ends at the start of a line stops on the line before. */
+  function pickedOf(state: EditorState) {
+    const { from, to } = state.selection.main;
+    if (from === to) return null;
+    const first = state.doc.lineAt(from).number;
+    const end = state.doc.lineAt(to);
+    const last = end.from === to && end.number > first ? end.number - 1 : end.number;
+    return { first, last, text: state.sliceDoc(from, to) };
+  }
+
+  /** The selected lines to the project's expert, with a question to read before sending. */
+  function askLines() {
+    void askAI({ role: "expert", draft: t("restFilesAskDraft") });
+  }
+
   // Per tab: the content its editor state was built from (a reload replaces it), the state (undo history,
   // selection) and the text last saved.
   type Doc = { content: Content; state: EditorState; saved: Text };
@@ -113,6 +130,7 @@
         EditorView.updateListener.of((u) => {
           doc.state = u.state;
           if (u.docChanged) tab.dirty = !u.state.doc.eq(doc.saved);
+          if (u.selectionSet || u.docChanged) files.picked = pickedOf(u.state);
         }),
       ],
     });
@@ -126,11 +144,13 @@
     merge?.destroy();
     merge = undefined;
     headIssue = null;
+    files.picked = null;
     if (!tab || content?.kind !== "text") return;
     const doc = await docFor(tab, content);
     if (n !== seq) return;
     if (view.state !== doc.state) view.setState(doc.state);
     if (diff) return showDiff(tab, n);
+    files.picked = pickedOf(view.state);
     if (line !== null) {
       const pos = view.state.doc.line(Math.min(line, view.state.doc.lines)).from;
       view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
@@ -203,6 +223,20 @@
   {#if tab}
     <header class="toolbar">
       <span class="path" title={tab.path}>{tab.path}</span>
+      {#if files.picked && !tab.diff}
+        {@const count = files.picked.last - files.picked.first + 1}
+        <button
+          class="btn sm ask"
+          onclick={askLines}
+          aria-label={t("expertToolAsk")}
+          aria-keyshortcuts={aria("ask_ai")}
+          title={t("restFilesLines", { count })}
+          data-ask-lines
+        >
+          <Sparkles size={14} aria-hidden="true" /><span class="wide">{t("expertToolAsk")}</span
+          >{#if display("ask_ai")}<kbd class="wide">{display("ask_ai")}</kbd>{/if}
+        </button>
+      {/if}
       {#if tab.content.kind === "text"}
         <button class="btn sm" aria-pressed={tab.diff} onclick={() => tab && (tab.diff = !tab.diff)}>
           {t("fileDiff")}
@@ -229,11 +263,13 @@
       </button>
     </EmptyState>
   {:else if !tab}
-    <EmptyState icon={FileSearch} text={t("filesEmpty", { key: display("find_file") })}>
-      <button class="btn" onclick={() => (files.finder = true)}>
-        <FileSearch size={14} aria-hidden="true" />{t("filesFind")}
-      </button>
-    </EmptyState>
+    <EmptyState
+      icon={FileSearch}
+      text={t("filesEmpty", { key: display("find_file") })}
+      action={{ label: t("filesFind"), icon: FileSearch, run: () => (files.finder = true) }}
+      onask={() => void askAI({ role: "expert" })}
+      askLabel={t("expertToolAsk")}
+    />
   {:else}
     {@const issue = tab.content.kind === "text" ? (tab.diff ? headIssue : null) : tab.content}
     {#if issue?.kind === "binary"}
@@ -260,6 +296,7 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
+    container-type: inline-size;
     background: var(--panel);
     --syn-keyword: #cf222e;
     --syn-string: #0a3069;
@@ -298,6 +335,17 @@
     white-space: nowrap;
     color: var(--muted);
     font-size: var(--text-sm);
+  }
+
+  .ask {
+    color: var(--accent-ink);
+  }
+
+  /* Beside the ⌘I panel the toolbar is narrow: the button keeps its icon. */
+  @container (max-width: 640px) {
+    .ask .wide {
+      display: none;
+    }
   }
 
   .toolbar button[aria-pressed="true"] {

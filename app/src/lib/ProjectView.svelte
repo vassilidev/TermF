@@ -5,6 +5,7 @@
   import LibraryBig from "@lucide/svelte/icons/library-big";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import MemorySettings from "$lib/MemorySettings.svelte";
@@ -21,9 +22,12 @@
   import { openSetup } from "$lib/onboarding.svelte";
   import { steps, type Step } from "$lib/onboarding-logic";
   import Banner from "$lib/ui/Banner.svelte";
+  import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
+  import { provide } from "$lib/ask.svelte";
   import { t } from "$lib/i18n";
   import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
   import { hasWords } from "$lib/nav-logic";
@@ -43,7 +47,6 @@
   let checks = $state<Record<string, string>>({ ...(seed?.checks ?? {}) });
   let adding = $state(false);
   let confirming = $state(false);
-  let asked = false;
   let busy = $state(false);
   let error = $state("");
   let query = $state("");
@@ -90,6 +93,12 @@
   function select(section: ConfigSection) {
     if (id) config.section = section;
   }
+
+  // ⌘I: the section open goes with the question.
+  $effect(() => {
+    const open = sections.find((s) => s.id === current);
+    return provide("project", { chips: open ? [{ id: "config-section", kind: "object", label: t(open.label) }] : [] });
+  });
 
   // A search that hides the section shown opens the first one it found.
   $effect(() => {
@@ -212,9 +221,11 @@
     busy = true;
     error = "";
     try {
+      const gone = project?.name ?? id;
       app.workspace!.projects = await invoke<Project[]>("project_delete", { id });
       released = true;
       closeProject();
+      toast(t("restConfigDeleted", { name: gone }));
     } catch (e) {
       error = String(e);
     } finally {
@@ -282,8 +293,6 @@
           label: t(s.label),
           icon: s.icon,
           count: s.id === "project" && chosen.length ? chosen.length : null,
-          apart: s.id === "delete",
-          danger: s.id === "delete",
         }))}
         {current}
         label={t("ux3t3Config")}
@@ -359,6 +368,32 @@
               <h3>{t("stackOffersTitle")}</h3>
               <StackOffers {stacks} project={id} />
             </div>
+          {/if}
+
+          {#if project}
+            <section class="danger-zone" aria-labelledby="config-danger">
+              <h3 id="config-danger">{t("restConfigDanger")}</h3>
+              <div class="danger-row">
+                <div class="danger-text">
+                  <strong>{t("t5DeleteProject")}</strong>
+                  <p>{t("restConfigDeleteLost", { name: project.name })}</p>
+                  <p class="kept">{t("restConfigDeleteKept")}</p>
+                </div>
+                <button type="button" class="btn sm quiet danger" disabled={busy} onclick={() => (confirming = true)}>
+                  <Trash2 size={14} aria-hidden="true" />{t("t5DeleteProject")}
+                </button>
+              </div>
+            </section>
+            <ConfirmDialog
+              bind:open={confirming}
+              title={t("t5DeleteProject")}
+              confirm={t("restConfigDeleteConfirm", { name: project.name })}
+              danger
+              onconfirm={remove}
+            >
+              <p>{t("restConfigDeleteLost", { name: project.name })}</p>
+              <p>{t("restConfigDeleteKept")}</p>
+            </ConfirmDialog>
           {/if}
         </section>
 
@@ -446,31 +481,6 @@
             <ClaudeTrust project={id} />
           </section>
 
-          <section class="sec" hidden={current !== "delete"} aria-labelledby="config-delete">
-            <h2 id="config-delete">{t("t5DeleteProject")}</h2>
-            {#if confirming}
-              <div class="danger-zone">
-                <p role="alert">{t("confirmDeleteProject", { name: project.name })}</p>
-                <button type="button" class="btn sm" onclick={() => (confirming = false)} {@attach (el) => el.focus()}>
-                  {t("cancel")}
-                </button>
-                <button type="button" class="btn sm danger" disabled={busy} onclick={remove}>{t("delete")}</button>
-              </div>
-            {:else}
-              <div>
-                <button
-                  type="button"
-                  class="btn sm delete"
-                  onclick={() => ((asked = true), (confirming = true))}
-                  {@attach (el) => {
-                    if (asked) el.focus();
-                  }}
-                >
-                  {t("delete")}
-                </button>
-              </div>
-            {/if}
-          </section>
         {/if}
       </div>
     </div>
@@ -717,22 +727,47 @@
     gap: 12px;
   }
 
+  /* Apart from the rest, at the bottom: what cannot be undone. */
   .danger-zone {
+    margin-top: 16px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .danger-zone h3 {
+    margin: 0 0 10px;
+    color: var(--danger);
+  }
+
+  .danger-row {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 8px 12px;
-    padding: 12px 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    gap: 16px;
+    max-width: 760px;
+    padding: 14px 16px;
+    border: 1px solid var(--danger-line);
+    border-radius: var(--radius-md);
     background: var(--panel);
   }
 
-  .danger-zone p {
+  .danger-text {
     flex: 1;
     min-width: 0;
-    margin: 0;
+  }
+
+  .danger-text p {
+    margin: 2px 0 0;
+    color: var(--soft);
+    font-size: var(--text-sm);
     overflow-wrap: anywhere;
+  }
+
+  .danger-text .kept {
+    color: var(--muted);
+  }
+
+  .danger-row .btn {
+    flex-shrink: 0;
   }
 
   .delete {

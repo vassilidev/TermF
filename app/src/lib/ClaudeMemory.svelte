@@ -7,6 +7,7 @@
   import ClaudeFileEditor from "$lib/ClaudeFileEditor.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import { t } from "$lib/i18n";
+  import { toast } from "$lib/ui/toast.svelte";
   import { claudeView, scopeLabel, size, stateLabel, type Overview } from "$lib/claude.svelte";
   import { attempt, fileName, refreshFiles, repoArg } from "$lib/claude-native.svelte";
 
@@ -25,7 +26,7 @@
     const { path, name } = deleting;
     const done = await attempt(() => invoke<{ trashed: string; index: string | null }>("claude_file_delete", { path, repo: repoArg() }));
     if (done) {
-      claudeView.done = done.index ? t("claudeDgMemoryForgotten", { name }) : t("claudeDgTrashed", { name, path: done.trashed });
+      toast(done.index ? t("claudeDgMemoryForgotten", { name }) : t("claudeDgTrashed", { name, path: done.trashed }));
       if (open?.path === path) open = null;
       await refreshFiles();
     }

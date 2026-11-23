@@ -28,6 +28,8 @@
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import Images from "@lucide/svelte/icons/images";
+  import { askAI, provide } from "$lib/ask.svelte";
   import { closeReview } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { decide, decisionLabel, outcomeText, screenMeta, screenTitle, upsertReview, visual } from "$lib/visual.svelte";
@@ -48,6 +50,14 @@
     version && (version.screens.find((s) => s.id === layouts[vkey]?.screen) ?? waiting[0] ?? version.screens.find((s) => s.changed) ?? version.screens[0]),
   );
   const decidable = $derived(version?.state === "ready" && !older);
+
+  // The review and the screen shown go with a question to ux.
+  $effect(() => {
+    const r = review;
+    if (!r) return;
+    const text = [`Visual review of ${r.repo}${r.ticket ? ` for ${r.ticket}` : ""}, version ${version?.n ?? "?"}`, screen ? `screen: ${screen.path} (${screen.viewport})` : ""].filter(Boolean).join(", ");
+    return provide("review", { repo: r.repoPath, chips: [{ id: "review", kind: "object", label: r.title, text }] });
+  });
   /** Every screen answered, and still ready: the team did not take the outcome (paused or stopped). */
   const unsent = $derived(decidable && !!version?.screens.length && !waiting.length);
   const progress = $derived(version?.state === "capturing" ? (visual.progress[id]?.version === version.n ? visual.progress[id] : version.progress) : null);
@@ -222,7 +232,7 @@
   </ViewHeader>
 
   {#if !review || !version}
-    <EmptyState title={t("review5bNone")} />
+    <EmptyState icon={Images} title={t("review5bNone")} text={t("restReviewNoneText")} action={{ label: t("ux3t2Back"), icon: ArrowLeft, run: closeReview }} />
   {:else}
     {#if error}<p class="notice error top" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
     {#if older}
@@ -278,7 +288,13 @@
         {/if}
       </section>
     {:else if !version.screens.length || !screen}
-      <EmptyState title={t("review5bNoScreens")} />
+      <EmptyState
+        icon={Images}
+        title={t("review5bNoScreens")}
+        text={t("restReviewNoScreensText")}
+        onask={() => void askAI({ role: "ux", draft: t("restReviewAskDraft") })}
+        askLabel={t("aigAskRole", { role: "ux" })}
+      />
     {:else if layout === "swipe" && !older}
       <ReviewSwipe {review} {version} ondetail={() => setLayout({ layout: "detail" })} />
     {:else}
